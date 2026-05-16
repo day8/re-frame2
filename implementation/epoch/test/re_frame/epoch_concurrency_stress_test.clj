@@ -146,7 +146,7 @@
   ;; :depth from a sibling test can't leak; configure! merges, so a
   ;; per-test opt-in to elision would otherwise persist. Per rf2-mrsck
   ;; the default :trace-events-keep is 5 (finite).
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5})
+  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))

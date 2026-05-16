@@ -219,6 +219,14 @@ const DEV_ONLY_SENTINELS = [
   // must elide in production.
   { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
     sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
+  // re-frame.epoch — :rf.warning/epoch-redact-fn-exception (rf2-wp70d).
+  // Emitted by maybe-redact when an installed :redact-fn throws.
+  // Every consumer of maybe-redact (settle!, perform-reset-frame-db!
+  // via reset-frame-db!'s if-not gate, on-frame-destroyed!) sits
+  // inside the universal `interop/debug-enabled?` gate, so this
+  // string literal must elide in :advanced + goog.DEBUG=false.
+  { source: 're-frame.epoch/maybe-redact (rf.warning/epoch-redact-fn-exception)',
+    sentinel: 'rf.warning/epoch-redact-fn-exception' },
   // re-frame.views — :view/render trace op (Spec 004 §Render-tree
   // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit

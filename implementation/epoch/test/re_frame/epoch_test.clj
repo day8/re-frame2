@@ -55,7 +55,7 @@
   ;; opt-in to elision would otherwise persist. Per rf2-mrsck the
   ;; default :trace-events-keep is 5 (finite); fixtures restore the
   ;; default map verbatim.
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5})
+  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -1550,11 +1550,11 @@
             ":rf.epoch/restore-unknown-epoch does not leak from a prior failed restore")))))
 
 (deftest skip-ops-catalogue-pins-every-rf-epoch-op
-  (testing "skip-ops covers every :rf.epoch/* op this namespace emits
-            with a :frame tag (catalogue test — adds a fail-loudly
-            signal if a new in-namespace :rf.epoch/* op is introduced
-            and forgotten in `skip-ops`)"
-    ;; The exhaustive set as of rf2-htf28. Update both this catalogue
+  (testing "skip-ops covers every :rf.epoch/* + :rf.warning/* op this
+            namespace emits with a :frame tag (catalogue test — adds
+            a fail-loudly signal if a new in-namespace op is
+            introduced and forgotten in `skip-ops`)"
+    ;; The exhaustive set as of rf2-wp70d. Update both this catalogue
     ;; AND `skip-ops` when adding/removing an op the namespace emits.
     ;; (`:rf.epoch.cb/silenced-on-frame-destroy` is op-type :rf.epoch.cb,
     ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
@@ -1569,11 +1569,16 @@
                      :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
                      :rf.epoch/db-replaced
                      :rf.epoch/reset-frame-db-during-drain
-                     :rf.epoch/reset-frame-db-schema-mismatch}
+                     :rf.epoch/reset-frame-db-schema-mismatch
+                     ;; rf2-wp70d: redact-fn exception warning emits
+                     ;; AFTER `harvest-buffer!` has emptied this
+                     ;; frame's cascade buffer, so it must be skipped
+                     ;; lest it accrete into the next cascade's record.
+                     :rf.warning/epoch-redact-fn-exception}
           actual   @#'epoch/skip-ops]
       (is (= expected actual)
           "skip-ops catalogue matches the documented set of
-           out-of-cascade :rf.epoch/* emits"))))
+           out-of-cascade :rf.epoch/* + :rf.warning/* emits"))))
 
 ;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
 ;;

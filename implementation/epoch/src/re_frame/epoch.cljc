@@ -66,11 +66,15 @@
   5)
 
 (defonce ^:private config
-  ;; Two keys today (:depth, :trace-events-keep). Map shape kept open
-  ;; so future (rf/configure :epoch-history {...}) extensions don't
-  ;; break the shape.
+  ;; Three keys today (:depth, :trace-events-keep, :redact-fn). Map
+  ;; shape kept open so future (rf/configure :epoch-history {...})
+  ;; extensions don't break the shape. Per rf2-wp70d / Tool-Pair
+  ;; §Time-travel §Redaction hook + Security.md §Epoch privacy
+  ;; posture: :redact-fn defaults to nil — apps that record
+  ;; sensitive material into app-db opt in by installing a fn.
   (atom {:depth             default-depth
-         :trace-events-keep default-trace-events-keep}))
+         :trace-events-keep default-trace-events-keep
+         :redact-fn         nil}))
 
 (defn- non-neg-int?
   "True for non-negative integer values; nil and non-numeric values
@@ -98,6 +102,22 @@
                         'implementations may choose to drop traces
                         from older epochs') and refactor-audit r2
                         (rf2-lwn4t) §F3.1.
+    :redact-fn          fn? or nil; per Tool-Pair §Time-travel
+                        §Redaction hook and Security.md §Epoch
+                        privacy posture (rf2-wp70d). When non-nil
+                        the runtime invokes the fn once per
+                        assembled record between `build-record` and
+                        ring-append / listener fan-out, so the ring
+                        and every listener see the SAME redacted
+                        shape. The `:rf.epoch/sensitive?` rollup is
+                        computed BEFORE the fn runs — the rollup
+                        remains accurate even when the fn erases
+                        the leaves it keyed on. A throwing fn emits
+                        `:rf.warning/epoch-redact-fn-exception` and
+                        falls back to the raw record for that drain
+                        only (the drain itself is not broken).
+                        Passing `nil` clears any previously-installed
+                        fn.
 
   Per rf2-mrsck and Security.md §Epoch privacy posture: the default
   `:trace-events-keep` is a FINITE value (5) — the most-recent five
@@ -109,20 +129,32 @@
   nil})` is a no-op against the explicit-value validation below;
   use a numeric value or do not pass the slot at all.
 
-  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: both keys are validated
-  at the boundary. A `:depth` or `:trace-events-keep` that isn't a
+  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: keys are validated at
+  the boundary. A `:depth` or `:trace-events-keep` that isn't a
   non-negative integer is silently dropped from `opts` rather than
   stored — a `nil` or non-numeric value would otherwise survive
   configuration and explode at the next `record!` call when `pos?` /
-  `nat-int?` runs on the stored value. Validation mirrors the
-  pattern `re-frame.trace/configure-trace-buffer!` applies at its
-  own config boundary."
+  `nat-int?` runs on the stored value. `:redact-fn` accepts `fn?`
+  or `nil` (explicit clear); other shapes are silently dropped.
+  Validation mirrors the pattern `re-frame.trace/configure-trace-
+  buffer!` applies at its own config boundary."
   [opts]
   (when (map? opts)
-    (let [picked (select-keys opts [:depth :trace-events-keep])
-          valid  (into {}
-                       (filter (fn [[_ v]] (non-neg-int? v)))
-                       picked)]
+    (let [numeric (select-keys opts [:depth :trace-events-keep])
+          numeric-valid (into {}
+                              (filter (fn [[_ v]] (non-neg-int? v)))
+                              numeric)
+          ;; :redact-fn validated separately — accept fn? OR nil
+          ;; (explicit-clear); anything else silently dropped.
+          ;; `contains?` distinguishes 'absent slot' from 'present
+          ;; nil' so the explicit-clear path lands while a callsite
+          ;; that didn't mention :redact-fn doesn't clobber a
+          ;; previously-installed fn.
+          redact (when (contains? opts :redact-fn)
+                   (let [v (:redact-fn opts)]
+                     (when (or (nil? v) (fn? v))
+                       {:redact-fn v})))
+          valid (merge numeric-valid redact)]
       (when (seq valid)
         (swap! config merge valid))))
   nil)
@@ -138,6 +170,57 @@
 
 (defn- trace-events-keep []
   (:trace-events-keep @config default-trace-events-keep))
+
+(defn- redact-fn []
+  ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook. Returns
+  ;; the currently-installed redact-fn (or nil). One config-deref per
+  ;; record build — the hot path for installed-fn cases is one
+  ;; keyword lookup, no allocation.
+  (:redact-fn @config))
+
+(defn- maybe-redact
+  "Run the installed `:redact-fn` against `record` and return its
+  result. nil `record` and nil `redact` are pass-throughs (no
+  invocation, no try/catch overhead). A throwing fn emits
+  `:rf.warning/epoch-redact-fn-exception` carrying `:frame` and
+  `:ex-msg`, then falls back to the raw record so the drain itself
+  is not broken.
+
+  Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
+  privacy posture (rf2-wp70d): the fn runs ONCE at build-time,
+  BETWEEN `build-record` and ring-append / listener fan-out — the
+  ring buffer, every `register-epoch-cb!` listener, and any off-box
+  projection through `projected-record` all see the SAME redacted
+  shape. The `:rf.epoch/sensitive?` rollup is computed inside
+  `build-record` (which runs first) so the rollup reflects the RAW
+  signal even when the fn erases the leaves it keyed on.
+
+  Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  — the whole epoch surface shares that gate; this helper carries no
+  separate production gate.
+
+  HOT PATH: fires once per drain-settle. Hot-path cost when no fn is
+  installed is a single keyword lookup on the config map and an
+  identity return."
+  [record]
+  (if-let [f (redact-fn)]
+    (if (some? record)
+      (try
+        (f record)
+        (catch #?(:clj Throwable :cljs :default) e
+          ;; Failure isolation: emit the warning, fall back to the
+          ;; raw record. The keyword literal sits inside an
+          ;; `(when interop/debug-enabled? ...)` gate at the call
+          ;; site (every consumer of `maybe-redact` is itself gated),
+          ;; so Closure DCE elides the warning emit + literals
+          ;; under :advanced + goog.DEBUG=false.
+          (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
+                       {:frame  (:frame record)
+                        :ex-msg #?(:clj (.getMessage ^Throwable e)
+                                   :cljs (.-message e))})
+          record))
+      record)
+    record))
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
@@ -407,9 +490,14 @@
                                         (= :run-start (-> ev :tags :phase))))
                                  buffered-events)]
       (when in-cascade?
-        (let [record (build-record frame-id nil nil buffered-events
-                                   :halted-destroy
-                                   {:operation :rf.frame/destroyed-mid-drain})]
+        ;; Per rf2-wp70d: even on the halted-destroy partial-record
+        ;; commit, `maybe-redact` runs once between `build-record`
+        ;; and listener fan-out so listener consumers see the SAME
+        ;; redacted shape they would see for an :ok cascade record.
+        (let [record (maybe-redact
+                       (build-record frame-id nil nil buffered-events
+                                     :halted-destroy
+                                     {:operation :rf.frame/destroyed-mid-drain}))]
           (trace/emit! :rf.epoch :rf.epoch/snapshotted
                        {:frame    frame-id
                         :epoch-id (:epoch-id record)
@@ -505,7 +593,14 @@
     ;; has been built and the cascade-buffer (if any) has been harvested.
     :rf.epoch/db-replaced
     :rf.epoch/reset-frame-db-during-drain
-    :rf.epoch/reset-frame-db-schema-mismatch})
+    :rf.epoch/reset-frame-db-schema-mismatch
+    ;; Redact-fn exception warning (rf2-wp70d / Tool-Pair §Time-travel
+    ;; §Redaction hook). Emitted by `maybe-redact` AFTER
+    ;; `harvest-buffer!` has emptied the cascade buffer for this
+    ;; frame; if left un-skipped, the `:frame`-tagged emit would
+    ;; otherwise accrete into the NEXT cascade's harvested record
+    ;; for this frame.
+    :rf.warning/epoch-redact-fn-exception})
 
 (defn- capture-event!
   "Internal trace-capture entry point published through `re-frame.late-bind`
@@ -875,8 +970,16 @@
        ;; this seam fires when a router-only halt path (e.g. depth-
        ;; exceeded with an in-flight cascade) holds the events.
        (when (seq events)
-         (let [record (build-record frame-id db-before db-after
-                                    events outcome halt-reason)]
+         ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
+         ;; `maybe-redact` runs ONCE per record between
+         ;; `build-record` and ring-append / listener fan-out so the
+         ;; ring and listeners see the SAME redacted shape. The
+         ;; `:rf.epoch/sensitive?` rollup inside `build-record` runs
+         ;; FIRST — the rollup reflects raw signals even when the
+         ;; redact-fn erases the leaves it keyed on.
+         (let [record (maybe-redact
+                        (build-record frame-id db-before db-after
+                                      events outcome halt-reason))]
            (record! record)
            (trace/emit! :rf.epoch :rf.epoch/snapshotted
                         {:frame    frame-id
@@ -1296,9 +1399,13 @@
     ;; Record a synthetic epoch so `restore-epoch` can rewind the
     ;; previous state. The record's :trigger-event is the
     ;; pair-tool injection sentinel (no application event ran).
-    (let [record (assoc (build-record frame-id db-before new-db [])
-                        :event-id      :rf.epoch/db-replaced
-                        :trigger-event [:rf.epoch/db-replaced])]
+    ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
+    ;; the record!/notify-listeners! split so ring + listeners see
+    ;; the SAME redacted shape on this synthetic record too.
+    (let [record (maybe-redact
+                   (assoc (build-record frame-id db-before new-db [])
+                          :event-id      :rf.epoch/db-replaced
+                          :trigger-event [:rf.epoch/db-replaced]))]
       (record! record)
       (trace/emit! :rf.epoch :rf.epoch/db-replaced
                    {:frame    frame-id
