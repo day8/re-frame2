@@ -55,6 +55,10 @@ body { margin: 0; }
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  box-sizing: border-box;              /* the 1px border-left lives inside
+                                          the documented width — without
+                                          it, the host renders 1px wider
+                                          than the var(...) value */
   border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
   resize: horizontal;                  /* user-draggable width (see below) */
   overflow: auto;
@@ -89,6 +93,7 @@ identical to the historical fixed-pixel default (420px):
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
   resize: horizontal;
   overflow: auto;

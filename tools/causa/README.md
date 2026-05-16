@@ -80,6 +80,7 @@ right-side host to the app layout (DOM order: `<main>` first, host
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
   resize: horizontal;
   overflow: auto;

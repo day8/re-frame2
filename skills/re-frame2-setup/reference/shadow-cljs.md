@@ -54,6 +54,8 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
     [data-rf-causa-host] {
       flex: 0 0 var(--rf-causa-inline-width, 420px);
       min-width: 320px;
+      box-sizing: border-box;            /* the border lives inside the
+                                            documented width */
       border-left: 1px solid #2a2a2a;   /* visual separator on the app side */
       resize: horizontal;                /* user-draggable width */
       overflow: auto;
