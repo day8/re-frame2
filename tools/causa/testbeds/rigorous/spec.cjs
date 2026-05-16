@@ -1446,5 +1446,85 @@ module.exports = {
       `event-detail cascade selection preserved after Hydration round-trip (=${firstRowDispatchId})`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10h. Machine Inspector (rf2-5aw5v.1 — L-1).
+    //
+    // The counter example registers no machines via `rf/reg-machine`
+    // (Spec 005). The panel mounts on the `:no-machines` empty-state
+    // branch. The walk asserts:
+    //
+    //   - sidebar pivot → machines lands on `rf-causa-machine-
+    //     inspector`
+    //   - `rf-causa-machine-inspector-empty` is the active body
+    //   - the populated-branch surfaces are all absent:
+    //     - `rf-causa-machine-inspector-picker` (machine selector)
+    //     - `rf-causa-machine-inspector-picker-select` (the <select>)
+    //     - `rf-causa-machine-inspector-placeholder-banner` (the
+    //       MachineChart placeholder banner)
+    //     - `rf-causa-machine-inspector-placeholder` (the prop-map
+    //       placeholder when a machine is selected)
+    //     - `rf-causa-machine-inspector-placeholder-empty` (the
+    //       no-selection variant of the placeholder)
+    //     - `rf-causa-machine-inspector-ribbon-list` (the transition-
+    //       history list)
+    //     - `rf-causa-machine-inspector-transition-*` (per-transition
+    //       rows)
+    //   - the transition-ribbon section IS NOT mounted in the empty
+    //     branch — the `(if = :no-machines empty-kind ...)` gate
+    //     swaps the entire body for the empty state
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised throughout this section)
+    //
+    // The full feature path (deep hierarchical/parallel machine with
+    // nested states, child actors, invoked work, timers, guard/action
+    // failure, transition history) needs the testbeds/deep_machine
+    // testbed wired through the rigorous compile graph. Matrix row
+    // 74 (Machines) flips from `deferred (rf2-gdqm1)` to `partial`
+    // — the empty-branch shape + populated-surface absence
+    // invariants are pinned; the deep-machine populated walks remain
+    // follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'machines', 'rf-causa-machine-inspector');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-empty"]'),
+      5000,
+    );
+    for (const populatedTestid of [
+      'rf-causa-machine-inspector-picker',
+      'rf-causa-machine-inspector-picker-select',
+      'rf-causa-machine-inspector-placeholder-banner',
+      'rf-causa-machine-inspector-placeholder',
+      'rf-causa-machine-inspector-placeholder-empty',
+      'rf-causa-machine-inspector-ribbon-list',
+      'rf-causa-machine-inspector-ribbon-empty',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent on no-machines counter (the empty branch swaps the whole body).`,
+        );
+      }
+    }
+    if ((await page.locator('[data-testid^="rf-causa-machine-inspector-transition-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no transition rows on no-machines counter (populated branch only).',
+      );
+    }
+    if ((await page.locator('[data-testid^="rf-causa-machine-inspector-prop-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no prop rows on no-machines counter (populated branch only).',
+      );
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const machinesPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => machinesPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade selection preserved after Machines round-trip (=${firstRowDispatchId})`,
+      5000,
+    );
   },
 };
