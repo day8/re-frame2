@@ -304,3 +304,65 @@
       (is (= [[:counter/inc]] (recorder/recorded-events)))
       (is (zero? (config/suppressed-count :story.recorder/plain))))
     (recorder/clear!)))
+
+;; ---------------------------------------------------------------------------
+;; Retroactive scrub on set-show-sensitive! false (rf2-lqmje)
+;; ---------------------------------------------------------------------------
+;;
+;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
+;; `:trace/show-sensitive?` from true → false MUST clear every
+;; per-variant trace buffer. The Story config layer exposes a generic
+;; callback registry that `ui.trace` (CLJS-only) hooks into; this
+;; pure-data shape is JVM-runnable so the algebra is covered here. The
+;; CLJS-only buffer-clear is covered in `re-frame.story-ui-cljs-test`.
+
+(deftest set-show-sensitive!-false-runs-toggle-off-callbacks-rf2-lqmje
+  (testing "true → false transition invokes registered callbacks"
+    (let [called?  (atom false)
+          token-id ::scrub-callback-test]
+      (config/register-toggle-off-callback! token-id #(reset! called? true))
+      (try
+        (config/set-show-sensitive! true)
+        (is (false? @called?)
+            "false → true must NOT invoke callbacks (no buffered sensitive risk)")
+        (config/set-show-sensitive! false)
+        (is (true? @called?)
+            "true → false must invoke every registered callback")
+        (finally
+          (config/unregister-toggle-off-callback! token-id))))))
+
+(deftest set-show-sensitive!-no-transition-no-callback-rf2-lqmje
+  (testing "true → true and false → false are no-ops for the callbacks"
+    (let [calls    (atom 0)
+          token-id ::scrub-callback-no-transition]
+      (config/register-toggle-off-callback! token-id #(swap! calls inc))
+      (try
+        (config/set-show-sensitive! false) ; default → false, no transition
+        (is (= 0 @calls))
+        (config/set-show-sensitive! true)
+        (config/set-show-sensitive! true)  ; true → true
+        (is (= 0 @calls))
+        (config/set-show-sensitive! false) ; true → false, the only transition
+        (is (= 1 @calls))
+        (config/set-show-sensitive! false) ; false → false
+        (is (= 1 @calls))
+        (finally
+          (config/unregister-toggle-off-callback! token-id))))))
+
+(deftest set-show-sensitive!-callback-failure-isolated-rf2-lqmje
+  (testing "one buggy callback does not prevent others from running"
+    (let [other-called? (atom false)
+          token-bad     ::scrub-callback-bad
+          token-good    ::scrub-callback-good]
+      (config/register-toggle-off-callback!
+        token-bad (fn [] (throw (ex-info "boom" {}))))
+      (config/register-toggle-off-callback!
+        token-good (fn [] (reset! other-called? true)))
+      (try
+        (config/set-show-sensitive! true)
+        (config/set-show-sensitive! false)
+        (is (true? @other-called?)
+            "the good callback must still run after the bad one throws")
+        (finally
+          (config/unregister-toggle-off-callback! token-bad)
+          (config/unregister-toggle-off-callback! token-good))))))
