@@ -12,58 +12,18 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
+            [re-frame.routing.match :as match]
+            [re-frame.routing.url :as url]
             [re-frame.source-coords :as source-coords]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]
             #?@(:cljs [[re-frame.views :as views]])))
 
 ;; ---- url encoding / decoding ---------------------------------------------
-;; Per Spec 012 §Bidirectional URL ↔ params. Splat values preserve
-;; literal '/' between captured segments, so the splat encoder runs
-;; per-segment.
-
-(defn- url-encode
-  "Encode a single component (named param or query value). Uses
-  encodeURIComponent semantics on CLJS; emulates it on JVM (URLEncoder
-  + + → %20 swap)."
-  [s]
-  #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
-               (.replace "+" "%20"))
-     :cljs (js/encodeURIComponent (str s))))
-
-(defn- url-encode-splat
-  "Encode a splat value — multi-segment, preserves literal '/'.
-  Each segment is encoded individually."
-  [s]
-  (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
-
-(defn- url-decode
-  "Decode a percent-encoded string back to its raw form. Round-trip
-  inverse of url-encode."
-  [s]
-  #?(:clj  (java.net.URLDecoder/decode (str s) "UTF-8")
-     :cljs (js/decodeURIComponent (str s))))
-
-(defn- safe-url-decode
-  "Wrap `url-decode` in try/catch; returns nil (sentinel for malformed
-  `%`) on decode failure.
-
-  Per Spec 012 §Routing failure semantics (rf2-wbvme + rf2-4ic0f): both
-  `URLDecoder/decode` (JVM) and `decodeURIComponent` (CLJS) throw on
-  malformed percent-encoded sequences (`%`, `%a`, `%XX`, …). Hostile
-  URLs, partner integrations with broken escaping, or back-button to a
-  malformed link must produce a **route-miss** (404 path), never a
-  request-handler crash. Callers propagate the nil sentinel uniformly:
-  `match-against` returns nil for the whole match (path captures);
-  `match-url`'s query-parse loop short-circuits to a malformed sentinel
-  the moment any key or value fails to decode (rf2-4ic0f — the prior
-  rf2-wbvme branch dropped just the offending pair, which silently let
-  hostile URLs into the routing slice when the host route had no
-  required keys); `split-fragment` reports its decode result the same
-  way so a malformed `#fragment` also fails closed."
-  [s]
-  (try (url-decode s)
-       (catch #?(:clj Throwable :cljs :default) _ nil)))
+;; Moved to `re-frame.routing.url` (rf2-icrxv Phase-2 — URL seam).
+;; The public predicate `malformed-url?` is re-exported below as the
+;; facade's stable entry point; internal callers within this ns use the
+;; `url/` alias.
 
 (defn malformed-url?
   "Public predicate: true when `url`'s percent-encoding is malformed in
@@ -76,360 +36,16 @@
   error UIs and SSR projections branch on the cause.
 
   Per Spec 012 §Routing failure semantics §Malformed percent-encoding
-  (rf2-4ic0f). The check decodes path captures against the registered
-  patterns (so a bare `%` in a non-captured static segment of a path
-  the route doesn't match is not flagged — it's just a normal miss);
-  for the query and fragment the full string is decoded, so any `%`
-  that won't decode anywhere in either flips the predicate.
-
-  O(URL-pieces) — runs once per URL-driven nav alongside the regular
-  `match-url` walk; the cost is bounded by the URL length, not the
-  route-table size."
+  (rf2-4ic0f). Thin facade over `re-frame.routing.url/malformed-url?`
+  (rf2-icrxv Phase-2 — URL seam)."
   [url]
-  (let [hash-idx       (.indexOf #?(:clj  ^String url
-                                    :cljs ^string url) "#")
-        url-no-frag    (if (neg? hash-idx) url (subs url 0 hash-idx))
-        fragment       (when (not (neg? hash-idx)) (subs url (inc hash-idx)))
-        [path query]   (clojure.string/split url-no-frag #"\?" 2)
-        path-bad?      (boolean
-                         (when path
-                           (some (fn [seg]
-                                   (and (seq seg)
-                                        (nil? (safe-url-decode seg))))
-                                 (clojure.string/split path #"/"))))
-        query-bad?     (boolean
-                         (when query
-                           (some (fn [pair]
-                                   (let [[k v] (clojure.string/split pair #"=" 2)]
-                                     (or (nil? (safe-url-decode k))
-                                         (and v (nil? (safe-url-decode v))))))
-                                 (clojure.string/split query #"&"))))
-        fragment-bad?  (boolean
-                         (when (and fragment (seq fragment))
-                           (nil? (safe-url-decode fragment))))]
-    (or path-bad? query-bad? fragment-bad?)))
+  (url/malformed-url? url))
 
 ;; ---- registration ---------------------------------------------------------
-
-(defn- segment-end
-  "Scan forward from index `j` in `pattern` (length `n`) until a
-  segment-boundary char is hit; return the index of that boundary (or
-  `n` if none). The boundary set is always {/, {, }}; the 4-arity
-  additionally treats `?` as a boundary when `?-boundary?` is truthy.
-  Pure helper used by the param / splat / static branches of
-  `parse-pattern`. The 3-arity (defaults `?-boundary?` to true) suits
-  param / splat scanners; the static-segment branch passes false so a
-  `?` inside a static segment doesn't truncate the static run."
-  ([^String pattern n j] (segment-end pattern n j true))
-  ([^String pattern n j ?-boundary?]
-   (loop [m j]
-     (cond
-       (>= m n) m
-       (let [c (.charAt pattern m)]
-         (or (= c \/) (= c \{) (= c \})
-             (and ?-boundary? (= c \?)))) m
-       :else (recur (inc m))))))
-
-(defn- regex-escape
-  "Quote a string for use as a regex literal. Portable across JVM
-  (java.util.regex.Pattern/quote) and CLJS (manual escape table)."
-  [s]
-  #?(:clj  (java.util.regex.Pattern/quote s)
-     :cljs (clojure.string/replace s
-                                   #"[\\^$.|?*+()\[\]{}]"
-                                   #(str "\\" %))))
-
-;; ---- route-pattern validation -------------------------------------------
-;; Spec 012's path-pattern grammar is deliberately small. Enforce it at
-;; registration time so invalid patterns fail at the authoring boundary
-;; rather than producing surprising matcher/URL-emitter behaviour later.
-
-(def ^:private route-name-re
-  #"^[A-Za-z][A-Za-z0-9_-]*$")
-
-(defn- route-pattern-error!
-  [route-id pattern reason index]
-  (throw (ex-info ":rf.error/invalid-route-pattern"
-                  (cond-> {:route-id route-id
-                           :pattern  pattern
-                           :reason   reason}
-                    (some? index) (assoc :index index)))))
-
-(defn- valid-route-name? [s]
-  (boolean (and (seq s) (re-matches route-name-re s))))
-
-(defn- validate-route-name!
-  [route-id pattern nm start kind]
-  (when-not (valid-route-name? nm)
-    (route-pattern-error!
-      route-id pattern
-      (str kind " name must be a bare identifier: [A-Za-z][A-Za-z0-9_-]*")
-      start)))
-
-(defn- reserved-literal-char? [ch]
-  (or (= ch \:) (= ch \*) (= ch \{) (= ch \})
-      (= ch \?)))
-
-(defn- validate-literal-segment!
-  [route-id pattern segment start]
-  (cond
-    (empty? segment)
-    (route-pattern-error! route-id pattern "empty path segments are not allowed" start)
-
-    (some reserved-literal-char? segment)
-    (route-pattern-error!
-      route-id pattern
-      "literal path segments must percent-encode reserved characters (: * { } ?)"
-      start)))
-
-(defn- validate-optional-group!
-  "Validate a `{...}?` optional group starting at `start`; return the
-  cursor position immediately after the trailing `?`."
-  [route-id pattern start]
-  (let [n     (count pattern)
-        close (.indexOf ^String pattern "}" start)]
-    (when (neg? close)
-      (route-pattern-error! route-id pattern "optional groups must close with `}?`" start))
-    (when (or (>= (inc close) n)
-              (not= \? (.charAt ^String pattern (inc close))))
-      (route-pattern-error! route-id pattern "optional groups must end with `}?`" close))
-    (when (>= (inc start) close)
-      (route-pattern-error!
-        route-id pattern
-        "optional groups must not be empty"
-        start))
-    (let [body (subs pattern (inc start) close)]
-      (when (or (clojure.string/includes? body "{")
-                (clojure.string/includes? body "}"))
-        (route-pattern-error! route-id pattern "nested optional groups are not part of the grammar" start))
-      (when (clojure.string/includes? body "?")
-        (route-pattern-error! route-id pattern "`?` is reserved for the optional-group suffix" start))
-      (when (or (= "/" body)
-                (clojure.string/includes? body "//")
-                (clojure.string/ends-with? body "/"))
-        (route-pattern-error! route-id pattern "optional groups may not contain empty segments" start))
-      (when-not (or (= \/ (.charAt ^String body 0))
-                    (and (= \: (.charAt ^String body 0))
-                         (pos? start)
-                         (= \/ (.charAt ^String pattern (dec start)))))
-        (route-pattern-error!
-          route-id pattern
-          "optional groups must start with `/` or a named param, e.g. `{/:id}?` or `{:base}?`"
-          start))
-      (doseq [segment (if (= \/ (.charAt ^String body 0))
-                        (rest (clojure.string/split body #"/"))
-                        (clojure.string/split body #"/"))]
-        (cond
-          (clojure.string/starts-with? segment ":")
-          (validate-route-name! route-id pattern (subs segment 1) start "param")
-
-          (clojure.string/starts-with? segment "*")
-          (route-pattern-error! route-id pattern "splats are not allowed inside optional groups" start)
-
-          :else
-          (validate-literal-segment! route-id pattern segment start))))
-    (+ close 2)))
-
-(defn- validate-route-pattern!
-  [route-id pattern]
-  (cond
-    (not (string? pattern))
-    (route-pattern-error! route-id pattern ":path is required and must be a string" nil)
-
-    (empty? pattern)
-    (route-pattern-error! route-id pattern ":path must not be empty" 0)
-
-    (not= \/ (.charAt ^String pattern 0))
-    (route-pattern-error! route-id pattern ":path must start with `/`" 0)
-
-    (= "/" pattern)
-    true
-
-    :else
-    (do
-      (let [n (count pattern)]
-        (loop [i 1
-               splat-seen? false]
-          (when (< i n)
-            (let [ch (.charAt ^String pattern i)]
-              (cond
-                (= ch \/)
-                (do
-                  (when (or (= i (dec n))
-                            (= \/ (.charAt ^String pattern (inc i))))
-                    (route-pattern-error! route-id pattern "empty path segments are not allowed" i))
-                  (recur (inc i) splat-seen?))
-
-                (= ch \{)
-                (recur (validate-optional-group! route-id pattern i) splat-seen?)
-
-                (= ch \})
-                (route-pattern-error! route-id pattern "`}` appears without a matching optional-group opener" i)
-
-                (= ch \?)
-                (route-pattern-error! route-id pattern "`?` is reserved for the optional-group suffix" i)
-
-                (= ch \:)
-                (do
-                  (when-not (or (= i 1)
-                                (= \/ (.charAt ^String pattern (dec i))))
-                    (route-pattern-error! route-id pattern "named params must occupy a whole path segment" i))
-                  (let [start (inc i)
-                        end   (segment-end pattern n start)
-                        nm    (subs pattern start end)]
-                    (validate-route-name! route-id pattern nm start "param")
-                    (recur end splat-seen?)))
-
-                (= ch \*)
-                (do
-                  (when-not (or (= i 1)
-                                (= \/ (.charAt ^String pattern (dec i))))
-                    (route-pattern-error! route-id pattern "splats must occupy a whole path segment" i))
-                  (when splat-seen?
-                    (route-pattern-error! route-id pattern "at most one splat is allowed" i))
-                (let [start (inc i)
-                      end   (segment-end pattern n start)
-                      nm    (subs pattern start end)]
-                  (when-not (and (= pattern "/*") (empty? nm))
-                    (validate-route-name! route-id pattern nm start "splat"))
-                  (when-not (= end n)
-                    (route-pattern-error! route-id pattern "splats must be the final path segment" i))
-                  (recur end true)))
-
-                :else
-                (let [end (loop [j i]
-                            (if (or (>= j n)
-                                    (= \/ (.charAt ^String pattern j))
-                                    (= \{ (.charAt ^String pattern j))
-                                    (reserved-literal-char? (.charAt ^String pattern j)))
-                              j
-                              (recur (inc j))))
-                      segment (subs pattern i end)]
-                  (validate-literal-segment! route-id pattern segment i)
-                  (recur end splat-seen?)))))))
-      true)))
-
-(defn- canonical-route-pattern [pattern]
-  (loop [p pattern]
-    (if (and (string? p)
-             (< 1 (count p))
-             (clojure.string/ends-with? p "/"))
-      (recur (subs p 0 (dec (count p))))
-      p)))
-
-;; ---- single-pass pattern parser ------------------------------------------
-;; Per Spec 012 §Route ranking algorithm + §Bidirectional URL ↔ params.
-;; `parse-pattern` derives the rank tuple, the match-time regex, the
-;; capture names, AND the per-optional-group lookup `route-url` uses
-;; from a single left-to-right walk of the pattern string. Loop state:
-;;   i      — cursor index into pattern
-;;   depth  — optional-group nesting depth
-;;   parts  — accumulating regex string fragments
-;;   names  — captured param names left-to-right (regex-group order)
-;;   gstack — stack of open optional-group cursor indices; on '{'
-;;       we push the group-open index, on '}' we pop and record the
-;;       close-end position so route-url can skip past an elided group
-;;   inner  — output {group-open-idx → {:inner-names [...] :close-end <pos>}}
-;;   counts — {:static :named :splat :optional :total} for the rank tuple.
-
-(defn- parse-pattern
-  "Single-pass parser for a Spec 012 path-pattern. Returns
-  {:rank :regex :names :groups :pattern}. The leading 5 elements of
-  `:rank` are the structural rank tuple (rules 1-5); `reg-route`
-  appends `(- reg-index)` to form the canonical 6-tuple."
-  [pattern]
-  (let [n  (count pattern)
-        i0 (if (and (pos? n) (= \/ (.charAt ^String pattern 0))) 1 0)]
-    (loop [i       i0
-           depth   0
-           parts   ["^/?"]
-           names   []
-           inner   {}
-           gstack  ()
-           counts  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
-      (if-not (< i n)
-        (let [{:keys [static total splat optional named]} counts
-              catch-all? (and (= 1 total) (= 1 splat)
-                              (zero? static) (zero? named) (zero? optional))]
-          {:regex   (re-pattern (apply str (conj parts "$")))
-           :names   names
-           ;; `:groups` maps each optional-group's opening '{' index to
-           ;; `{:inner-names [...] :close-end <pos-after-}?>}`. route-url
-           ;; reads `:inner-names` to decide whether to emit a group and
-           ;; `:close-end` to skip past it when eliding.
-           :groups  inner
-           :pattern pattern
-           :rank    [static
-                     total
-                     (- splat)
-                     (if catch-all? 0 1)
-                     (- optional)]})
-        (let [ch (.charAt ^String pattern i)]
-          (cond
-            (= ch \/)
-            (recur (inc i) depth (conj parts "/") names inner gstack counts)
-
-            (= ch \:)
-            (let [start (inc i)
-                  end   (segment-end pattern n start)
-                  nm    (subs pattern start end)
-                  inner' (if (seq gstack)
-                           (update-in inner [(peek gstack) :inner-names]
-                                      (fnil conj []) nm)
-                           inner)
-                  counts' (cond-> counts
-                            (zero? depth) (-> (update :named inc)
-                                              (update :total inc)))]
-              (recur end depth (conj parts "([^/]+)") (conj names nm)
-                     inner' gstack counts'))
-
-            (= ch \*)
-            (let [start (inc i)
-                  end   (segment-end pattern n start)
-                  nm    (subs pattern start end)
-                  inner' (if (seq gstack)
-                           (update-in inner [(peek gstack) :inner-names]
-                                      (fnil conj []) nm)
-                           inner)
-                  counts' (cond-> counts
-                            (zero? depth) (-> (update :splat inc)
-                                              (update :total inc)))]
-              (recur end depth (conj parts "(.+)") (conj names nm)
-                     inner' gstack counts'))
-
-            (= ch \{)
-            ;; Open optional group: push group-open index for later
-            ;; inner-name collection. Seed the entry so an empty group
-            ;; still gets `inner-names = []` (route-url's `every?` over
-            ;; an empty seq is true → group emitted with just literal
-            ;; segments, matching pre-rf2-uovh5 behaviour).
-            (recur (inc i) (inc depth) (conj parts "(?:") names
-                   (assoc-in inner [i :inner-names]
-                             (get-in inner [i :inner-names] []))
-                   (conj gstack i)
-                   (update counts :optional inc))
-
-            (= ch \})
-            (let [i'        (inc i)
-                  ?-suffix? (and (< i' n) (= \? (.charAt ^String pattern i')))
-                  close-end (if ?-suffix? (inc i') i')
-                  inner'    (assoc-in inner [(peek gstack) :close-end] close-end)]
-              (recur close-end
-                     (dec depth)
-                     (cond-> (conj parts ")") ?-suffix? (conj "?"))
-                     names
-                     inner'
-                     (pop gstack)
-                     counts))
-
-            :else
-            (let [end (segment-end pattern n (inc i) false)
-                  static-seg (subs pattern i end)
-                  counts' (cond-> counts
-                            (zero? depth) (-> (update :static inc)
-                                              (update :total inc)))]
-              (recur end depth (conj parts (regex-escape static-seg)) names
-                     inner gstack counts'))))))))
+;; Pattern validation, the single-pass pattern parser, and the
+;; `segment-end` / `canonical-route-pattern` helpers moved to
+;; `re-frame.routing.match` (rf2-icrxv Phase-2 — PATTERN seam).
+;; Internal callers within this ns use the `match/` alias.
 
 (defonce ^:private reg-counter (atom 0))
 
@@ -487,15 +103,15 @@
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
   [id metadata]
-  (let [pattern      (canonical-route-pattern (:path metadata))
+  (let [pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
-        _            (validate-route-pattern! id pattern)
+        _            (match/validate-route-pattern! id pattern)
         ;; Single-pass parse: rank + regex + capture names +
         ;; per-optional-group lookup all derive from one left-to-right
         ;; walk (rf2-uovh5). Pre-rf2-uovh5 these were three separate
         ;; walkers with hand-replicated segment-end logic.
-        parsed       (parse-pattern pattern)
+        parsed       (match/parse-pattern pattern)
         structural   (when parsed (:rank parsed))
         rank         (when structural (conj structural (- idx)))
         compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
@@ -525,29 +141,8 @@
     id))
 
 ;; ---- match + coerce -------------------------------------------------------
-
-(defn- match-against
-  "Try to match url against the route's compiled pattern. Returns the
-  params map (with %-decoded values) on success, nil on miss.
-
-  Per Spec 012 §Routing failure semantics (rf2-wbvme): if any captured
-  group is malformed percent-encoding (`safe-url-decode` returns nil
-  for a non-nil group), the URL fails closed as a route-miss rather
-  than throwing through the call site."
-  [compiled url]
-  (let [{:keys [regex names]} compiled
-        m (re-matches regex url)]
-    (when m
-      (let [groups  (if (sequential? m) (rest m) [])
-            ;; Realise into a vector once — `decoded` is consumed twice
-            ;; below (validity scan + zipmap), and a lazy-seq would be
-            ;; walked (and `safe-url-decode` re-invoked) on each pass.
-            decoded (mapv (fn [g] (when g (safe-url-decode g))) groups)]
-        ;; A nil entry for a non-nil group means malformed %-encoding —
-        ;; treat as no-match (route-miss, never throw).
-        (when (every? (fn [[g d]] (or (nil? g) (some? d)))
-                      (map vector groups decoded))
-          (zipmap (map keyword names) decoded))))))
+;; `match-against` moved to `re-frame.routing.match` (rf2-icrxv Phase-2
+;; — PATTERN seam); call sites below use the `match/` alias.
 
 (def ^:const default-max-decoded-keys
   "Default cap on the number of unique query-string keys a single URL
@@ -721,7 +316,7 @@
 
       :else
       (let [raw     (subs url (inc hash-idx))
-            decoded (safe-url-decode raw)]
+            decoded (url/safe-url-decode raw)]
         [(subs url 0 hash-idx) (or decoded ::malformed-fragment)]))))
 
 (defn- validate-route-shape
@@ -832,8 +427,8 @@
                             ;; required keys. The empty-value branch (`v`
                             ;; is nil → "") is distinct from a malformed
                             ;; value and must not be conflated.
-                            kstr  (safe-url-decode k)
-                            vstr  (if v (safe-url-decode v) "")]
+                            kstr  (url/safe-url-decode k)
+                            vstr  (if v (url/safe-url-decode v) "")]
                         (if (or (nil? kstr) (nil? vstr))
                           (reduced ::malformed-query)
                           (let [m' (assoc m kstr vstr)]
@@ -853,8 +448,8 @@
         (reduce
           (fn [_ [id meta]]
             (when-let [compiled (or (:rf.route/compiled meta)
-                                    (some-> (:path meta) parse-pattern))]
-              (when-let [params (match-against compiled path)]
+                                    (some-> (:path meta) match/parse-pattern))]
+              (when-let [params (match/match-against compiled path)]
                 (let [query-coerce  (:rf.route/query-coerce meta)
                       defaults      (:query-defaults meta)
                       retain        (:query-retain meta)
@@ -979,7 +574,7 @@
            ;; <pos-after-}?>}` — `route-url` consults it instead of
            ;; re-walking the pattern body.
            groups (or (:groups (:rf.route/compiled meta))
-                      (:groups (parse-pattern pattern)))
+                      (:groups (match/parse-pattern pattern)))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
            ;; [next-i parts'] when the group's '}' (and optional '?') is
@@ -997,15 +592,15 @@
 
                    (= c2 \:)
                    (let [start (inc i)
-                         end   (segment-end pattern n start)
+                         end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))]
-                     (recur end (conj parts (url-encode (get path-params k)))))
+                     (recur end (conj parts (url/url-encode (get path-params k)))))
 
                    (= c2 \*)
                    (let [start (inc i)
-                         end   (segment-end pattern n start)
+                         end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))]
-                     (recur end (conj parts (url-encode-splat (get path-params k)))))
+                     (recur end (conj parts (url/url-encode-splat (get path-params k)))))
 
                    :else
                    (recur (inc i) (conj parts (str c2)))))))
@@ -1026,7 +621,7 @@
 
                    (= ch \:)
                    (let [start (inc i)
-                         end   (segment-end pattern n start)
+                         end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))
                          ;; Per Spec 012 §Bidirectional URL ↔ params: an
                          ;; absent or `nil` value raises; a present-but-falsy
@@ -1038,17 +633,17 @@
                                  v
                                  (throw (ex-info ":rf.error/missing-route-param"
                                                  {:param k :route-id route-id})))]
-                     (recur end (conj parts (url-encode v))))
+                     (recur end (conj parts (url/url-encode v))))
 
                    (= ch \*)
                    (let [start (inc i)
-                         end   (segment-end pattern n start)
+                         end   (match/segment-end pattern n start)
                          k     (keyword (subs pattern start end))
                          v     (if-some [v (get path-params k)]
                                  v
                                  (throw (ex-info ":rf.error/missing-route-param"
                                                  {:param k :route-id route-id})))]
-                     (recur end (conj parts (url-encode-splat v))))
+                     (recur end (conj parts (url/url-encode-splat v))))
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
@@ -1057,8 +652,8 @@
                 (str "?"
                      (clojure.string/join "&"
                        (map (fn [[k v]]
-                              (str (url-encode (name k)) "="
-                                   (url-encode v)))
+                              (str (url/url-encode (name k)) "="
+                                   (url/url-encode v)))
                             query-params))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
