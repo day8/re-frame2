@@ -46,6 +46,7 @@
             ;; T-Mut tranche (rf2-8xzoe.23..25) — Class-1 named mutations.
             [day8.re-frame2-causa-mcp.tools.dispatch]
             [day8.re-frame2-causa-mcp.tools.restore-epoch]
+            [day8.re-frame2-causa-mcp.tools.reset-frame-db]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

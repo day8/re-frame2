@@ -500,3 +500,48 @@ on the bus). Source-coord pin:
 envelope is small).
 
 Implementation: [`tools/causa-mcp/src/.../tools/restore_epoch.cljs`](../src/day8/re_frame2_causa_mcp/tools/restore_epoch.cljs).
+
+### reset-frame-db (T-Mut-3, rf2-8xzoe.25)
+
+Re-inject a value into a frame's `app-db`, bypassing the dispatch
+cascade. Schema-validates against registered app-db schemas via
+`re-frame.core/reset-frame-db!`. Same projection rationale as
+`restore-epoch`: the framework wrapper returns a boolean, the per-row
+`:rf.epoch/*` keyword lives on the trace bus, this tool surfaces
+`:rf.epoch/reset-failed` and points at the bus. Every reset rides
+the restore-audit ring tagged `:origin :causa-mcp`. Source-coord
+pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #25.
+
+**Three-row failure table** (read off the trace bus):
+
+| Row | Trace `:op-type` keyword |
+|---|---|
+| unknown frame | `:rf.error/no-such-handler` (kind `:frame`) |
+| reset during drain | `:rf.epoch/reset-frame-db-during-drain` |
+| schema mismatch | `:rf.epoch/reset-frame-db-schema-mismatch` |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:value` | EDN-map str | **required** | the new `app-db` value |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (success):**
+
+```clojure
+{:ok? true :frame <kw> :origin :causa-mcp}
+```
+
+**Return shape (failure):**
+
+```clojure
+{:ok? false :frame <kw> :origin :causa-mcp
+ :reason :rf.epoch/reset-failed
+ :hint "Reset failed — read the trace bus for the structured :rf.epoch/* row."}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/reset_frame_db.cljs`](../src/day8/re_frame2_causa_mcp/tools/reset_frame_db.cljs).
