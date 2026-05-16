@@ -1250,5 +1250,110 @@ module.exports = {
       `event-detail cascade selection preserved after Schemas round-trip (=${nodeDispatchId})`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10f. Performance panel (rf2-5aw5v.4 — L-4).
+    //
+    // The Performance panel reads from Causa's trace buffer (the v1
+    // surface — the User Timing channel rides a follow-on). Counter
+    // cascades populate the buffer; the panel renders the populated
+    // branch. The walk asserts:
+    //
+    //   - sidebar pivot → performance lands on `rf-causa-performance`
+    //   - `rf-causa-perf-empty` empty-state is NOT mounted (the trace
+    //     buffer has cascades)
+    //   - `rf-causa-perf-feed` populated list IS mounted
+    //   - `rf-causa-perf-totals` header span renders with a cascade
+    //     count > 0
+    //   - all four tier chips render in the header
+    //     (`rf-causa-perf-tier-chip-fast/medium/slow/blocking`) — the
+    //     panel always renders the full taxonomy, with per-tier
+    //     counts that may be 0
+    //   - per-row testids carry the tier glyph + id + event + duration
+    //     + counts + step-bar slots (`rf-causa-perf-row-<id>` plus
+    //     `-tier`, `-id`, `-event`, `-duration`, `-counts`)
+    //   - the row's `data-tier` attribute is one of fast/medium/slow/
+    //     blocking — guards against the tier classifier returning an
+    //     unrecognised keyword
+    //   - clicking a row pivots to event-detail with the matching
+    //     cascade selected (the panel-level pivot affordance — same
+    //     `:rf.causa/select-dispatch-id` event the cascade list +
+    //     causality graph dispatch)
+    //
+    // The full feature path (deterministic fast / medium / slow /
+    // blocking cascades + histogram match + drill-in to slow rows +
+    // over-budget marker visible scope) needs a perf-driving testbed
+    // wired through deterministic delays. Matrix row 78 (Performance)
+    // flips from `deferred (rf2-gdqm1)` to `partial` — the panel's
+    // populated-branch shape, tier-chip taxonomy, row testids, and
+    // cross-panel pivot are now pinned; the slow-row + over-budget
+    // pivot affordance remains follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'performance', 'rf-causa-performance');
+    if ((await page.locator('[data-testid="rf-causa-perf-empty"]').count()) !== 0) {
+      throw new Error('Expected Performance empty-state to be absent (counter cascades populate the buffer).');
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-perf-feed"]'), 5000);
+    const totalsText = (await page.locator('[data-testid="rf-causa-perf-totals"]').textContent()) || '';
+    const totalsMatch = /(\d+)\s+cascade/.exec(totalsText.trim());
+    if (!totalsMatch || Number(totalsMatch[1]) <= 0) {
+      throw new Error(`Expected perf-totals to report >0 cascades; got ${JSON.stringify(totalsText)}.`);
+    }
+    // All four tier chips must render in the header (the panel always
+    // renders the full taxonomy regardless of which tiers were hit).
+    for (const tier of ['fast', 'medium', 'slow', 'blocking']) {
+      const chip = page.locator(`[data-testid="rf-causa-perf-tier-chip-${tier}"]`);
+      if ((await chip.count()) === 0) {
+        throw new Error(`Expected perf tier chip '${tier}' to render in the header.`);
+      }
+    }
+    const perfRows = page.locator('[data-testid^="rf-causa-perf-row-"]');
+    const perfRowCount = await perfRows.count();
+    if (perfRowCount === 0) {
+      throw new Error('Expected at least one Performance row.');
+    }
+    // The row testid prefix matches both the row LI and its per-cell
+    // child spans (rf-causa-perf-row-<id>-tier / -id / -event / ...).
+    // Narrow to the row LI itself by filtering on `data-tier` (only
+    // the row LI carries it).
+    const rowLis = await perfRows.evaluateAll((els) =>
+      els.filter((el) => el.hasAttribute('data-tier')).map((el) => ({
+        testid: el.getAttribute('data-testid'),
+        tier:   el.getAttribute('data-tier'),
+      })),
+    );
+    if (rowLis.length === 0) {
+      throw new Error('Expected at least one perf-row LI carrying data-tier.');
+    }
+    const allowed = new Set(['fast', 'medium', 'slow', 'blocking']);
+    for (const { testid, tier } of rowLis) {
+      if (!allowed.has(tier)) {
+        throw new Error(`Row ${testid} carries unrecognised data-tier=${tier}; expected one of ${[...allowed].join(', ')}.`);
+      }
+    }
+    // Per-cell child spans for the first row.
+    const firstRowTestid = rowLis[0].testid;
+    for (const cell of ['tier', 'id', 'event', 'duration', 'counts']) {
+      const sel = `[data-testid="${firstRowTestid}-${cell}"]`;
+      if ((await page.locator(sel).count()) === 0) {
+        throw new Error(`Expected first perf row to render the '-${cell}' cell.`);
+      }
+    }
+    // Click the first row → event-detail pivot. The row's on-click
+    // dispatches both `:rf.causa/select-dispatch-id` and
+    // `:rf.causa/select-panel :event-detail`; the canvas testid
+    // changes to event-detail and the cascade-detail mounts with the
+    // matching dispatch-id.
+    const firstRowDispatchId = firstRowTestid.replace('rf-causa-perf-row-', '');
+    await perfRows.first().click();
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const perfPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => perfPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade data-dispatch-id=${firstRowDispatchId} (parity with perf-row click)`,
+      5000,
+    );
   },
 };
