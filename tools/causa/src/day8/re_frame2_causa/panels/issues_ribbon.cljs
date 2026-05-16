@@ -338,7 +338,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view issues-ribbon-view
+(rf/reg-view Panel
   "The Issues ribbon panel's root view. Subscribes to
   `:rf.causa/issues-ribbon` and renders the empty-state or the feed."
   []

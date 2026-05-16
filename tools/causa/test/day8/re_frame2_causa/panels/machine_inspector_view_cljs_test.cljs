@@ -157,7 +157,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [])
-      (let [tree (machine-inspector/machine-inspector-view)]
+      (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-inspector"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-empty"))
@@ -172,7 +172,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login :checkout/flow])
-      (let [tree (machine-inspector/machine-inspector-view)]
+      (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-picker"))
             "picker container present")
         (is (some? (find-by-testid
@@ -211,7 +211,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
-      (let [tree (machine-inspector/machine-inspector-view)]
+      (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid
                      tree "rf-causa-machine-inspector-placeholder-banner"))
             "placeholder banner present — surfaces the deferred impl")))))
@@ -223,7 +223,7 @@
     (rf/with-frame :rf/causa
       (override-machines!  [:auth/login])
       (override-snapshots! {:auth/login {:state :authing :data {}}})
-      (let [tree (machine-inspector/machine-inspector-view)]
+      (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-placeholder")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-machine-id")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-frame-id")))))))
@@ -236,7 +236,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
-      (let [tree (machine-inspector/machine-inspector-view)]
+      (let [tree (machine-inspector/Panel)]
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-ribbon")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-ribbon-empty")))))))
 
@@ -257,7 +257,7 @@
         {:id 2 :operation :rf.machine/transition :time 200
          :tags {:machine-id :auth/login :from :authing :to :idle
                 :event [:auth/cancel] :dispatch-id "d-2"}})
-      (let [tree    (machine-inspector/machine-inspector-view)
+      (let [tree    (machine-inspector/Panel)
             entries (find-all-by-testid-prefix
                       tree "rf-causa-machine-inspector-transition-")]
         (is (= 2 (count entries))
@@ -282,7 +282,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev] (swap! dispatches conj ev) nil)
                                      ([ev _opts] (swap! dispatches conj ev) nil))]
-          (let [tree    (machine-inspector/machine-inspector-view)
+          (let [tree    (machine-inspector/Panel)
                 entry   (find-by-testid
                           tree "rf-causa-machine-inspector-transition-1")
                 handler (:on-click (second entry))]

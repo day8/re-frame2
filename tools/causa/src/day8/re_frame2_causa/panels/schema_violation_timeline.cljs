@@ -336,7 +336,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view schema-violation-timeline-view
+(rf/reg-view Panel
   "The Schema-violation Timeline panel's root view. Subscribes to
   `:rf.causa/schema-violation-timeline` and renders the empty-state
   or the per-schema track stack."

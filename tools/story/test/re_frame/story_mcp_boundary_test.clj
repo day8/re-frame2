@@ -217,10 +217,10 @@
       {:doc       "Causa-shipped real view"
        :title     "Epochs (Causa)"
        :placement :bottom
-       :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
+       :render    :day8.re-frame2-causa.panels.time-travel/Panel})
     (let [real-body (story/handler-meta :story-panel :rf.story/causa-epoch)]
       (is (= "Epochs (Causa)" (:title real-body)))
-      (is (= :day8.re-frame2-causa.panels.time-travel/time-travel-view
+      (is (= :day8.re-frame2-causa.panels.time-travel/Panel
              (:render real-body))
           "Causa's :render slot replaces the stub's"))))
 

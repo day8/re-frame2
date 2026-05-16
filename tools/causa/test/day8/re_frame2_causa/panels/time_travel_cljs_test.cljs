@@ -439,7 +439,7 @@
     (install-capture-fx!)
     (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
-      (let [tree (time-travel/time-travel-view)]
+      (let [tree (time-travel/Panel)]
         (is (some? (find-by-testid tree "rf-causa-time-travel-empty")))
         (is (nil?  (find-by-testid tree "rf-causa-time-travel-track")))))))
 
@@ -451,7 +451,7 @@
     (frame/reg-frame :rf/causa {})
     (seed-history! [(mk-record :e-1 {} 1) (mk-record :e-2 {} 2)])
     (rf/with-frame :rf/causa
-      (let [tree (time-travel/time-travel-view)]
+      (let [tree (time-travel/Panel)]
         (is (some? (find-by-testid tree "rf-causa-time-travel-track")))
         (is (some? (find-by-testid tree "rf-causa-time-travel-slider")))
         (is (some? (find-by-testid tree "rf-causa-time-travel-actions")))
@@ -471,7 +471,7 @@
       (rf/dispatch-sync [:rf.causa/pin-current :e-old "before-login"]))
     (seed-history! [(mk-record :e-new {} 200)])
     (rf/with-frame :rf/causa
-      (let [tree (time-travel/time-travel-view)
+      (let [tree (time-travel/Panel)
             chip (find-by-testid tree "rf-causa-pin-chip-:e-old")]
         (is (some? chip)
             "detached chip is still rendered (per spec §Pins on the scrubber)")))))

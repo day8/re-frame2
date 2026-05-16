@@ -469,7 +469,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view trace-view
+(rf/reg-view Panel
   "The Trace panel's root view. Subscribes to `:rf.causa/trace-feed`
   and renders either the chip-filterable ribbon or the empty-state."
   []

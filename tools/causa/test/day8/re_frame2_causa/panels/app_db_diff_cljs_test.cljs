@@ -481,7 +481,7 @@
     (frame/reg-frame :rf/causa {})
     (frame/reg-frame :rf/default {})
     (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/app-db-diff-view)]
+      (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-empty"))
             "empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))))))
@@ -495,7 +495,7 @@
                              {:cart {:items []} :user "ada"}
                              {:cart {:items [{:id 7}]} :user "ada"})])
     (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/app-db-diff-view)]
+      (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-slices"))
             "slice container present")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-empty"))
@@ -513,7 +513,7 @@
                              {:cart {:items []}}
                              {:cart {:items []} :rf/route {:id :app/cart}})])
     (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/app-db-diff-view)]
+      (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-reserved-group"))
             "runtime group container present")
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-reserved-:rf/route"))
@@ -533,7 +533,7 @@
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/focus-slice-path [:cart :items]])
-      (let [tree (app-db-diff/app-db-diff-view)]
+      (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-focus-result"))
             "focus-result panel present")
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-focus-hits"))
@@ -552,7 +552,7 @@
                  [])
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/pin-slice [:user :auth :status]])
-      (let [tree (app-db-diff/app-db-diff-view)]
+      (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-pinned-group"))
             "pinned group container present")
         (is (some? (find-by-testid tree
@@ -567,7 +567,7 @@
                              {:cart {:items []}}
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/causa
-      (let [tree     (app-db-diff/app-db-diff-view)
+      (let [tree     (app-db-diff/Panel)
             btn      (find-by-testid tree
                                      "rf-causa-app-db-diff-pin-[:cart :items]")
             on-click (:on-click (second btn))]
@@ -588,7 +588,7 @@
                              {:cart {:items []}}
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/app-db-diff-view)
+      (let [tree (app-db-diff/Panel)
             btn  (find-by-testid tree
                                  "rf-causa-app-db-diff-show-when-[:cart :items]")
             on-click (:on-click (second btn))]

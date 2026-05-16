@@ -208,7 +208,7 @@
                              :font-size "11px"}}
         (str "Pin cap reached (" h/default-pin-cap "). Remove a pin to capture more.")])]))
 
-(rf/reg-view time-travel-view
+(rf/reg-view Panel
   []
   (let [{:keys [target-frame history] :as data}
         @(rf/subscribe [:rf.causa/time-travel])]

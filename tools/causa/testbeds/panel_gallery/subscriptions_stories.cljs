@@ -2,7 +2,7 @@
   "Story coverage for the Causa subscriptions panel under gallery
   framing (rf2-5nvk2, Phase 1b).
 
-  Ten variants, each one render of `subscriptions-view` against a
+  Ten variants, each one render of `subscriptions/Panel` against a
   variant frame whose `:sub-cache-override` (and optionally
   `:sub-error-cache`, `:selected-sub`, `:sub-filters`,
   `:sub-chain-open?`) has been seeded by REAL Causa init events

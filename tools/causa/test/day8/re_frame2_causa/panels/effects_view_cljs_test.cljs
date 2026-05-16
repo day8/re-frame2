@@ -141,7 +141,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-fxs! {})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-fx-empty"))
@@ -157,7 +157,7 @@
       (override-fxs!
         {:my/notify  {:platforms #{:client}}
          :my/persist {:platforms #{:client :server}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-list"))
             "list container present")
         (is (some? (find-by-testid tree "rf-causa-fx-row-:my/notify"))
@@ -173,7 +173,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-id-:my/notify")))))))
 
 (deftest never-invoked-badge-renders-by-default
@@ -183,7 +183,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-badge-never-invoked")))))))
 
 ;; ---- (3) outcome surfaces from trace events -----------------------------
@@ -205,7 +205,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-badge-ok"))
             ":ok badge surfaces")
         (is (some? (find-by-testid tree
@@ -227,7 +227,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-badge-skipped")))))))
 
 (deftest error-badge-renders-when-fx-handler-throws
@@ -244,7 +244,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-badge-error")))))))
 
 ;; ---- (4) stub indicator -------------------------------------------------
@@ -264,7 +264,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (some? (find-by-testid tree "rf-causa-fx-badge-overridden"))
             ":overridden badge surfaces")
         (is (some? (find-by-testid tree
@@ -284,7 +284,7 @@
     (rf/with-frame :rf/causa
       (override-fxs!
         {:my/notify {:platforms #{:client}}})
-      (let [tree (effects/effects-view)]
+      (let [tree (effects/Panel)]
         (is (nil? (find-by-testid tree
                                   "rf-causa-fx-row-stub-:my/notify"))
             "STUB indicator absent when no override active")))))
@@ -317,7 +317,7 @@
         {:a {:platforms #{:client}}
          :b {:platforms #{:client}}})
       ;; Both fxs :never-invoked — exactly one chip should render.
-      (let [tree  (effects/effects-view)
+      (let [tree  (effects/Panel)
             chips (find-all-by-testid-prefix tree "rf-causa-fx-summary-")]
         (is (= 1 (count chips))
             "one chip for the :never-invoked outcome")))))

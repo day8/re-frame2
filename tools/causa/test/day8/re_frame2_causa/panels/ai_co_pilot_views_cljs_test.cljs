@@ -2,7 +2,8 @@
   "Per-leaf smoke test for `ai-co-pilot-views` (rf2-nb8if).
 
   Renders each plain Reagent fn (`ai-co-pilot-rail`,
-  `ai-co-pilot-cue`, `ai-co-pilot-view`) once and asserts the load-
+  `ai-co-pilot-cue`, `ai-co-pilot-view` — the leaf delegate behind
+  the facade `Panel`) once and asserts the load-
   bearing data-testid hook is present. The leaf is plain-fn-only
   per the canonical convention — the public `reg-view` lives in
   the facade `ai-co-pilot.cljs`."

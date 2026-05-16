@@ -367,7 +367,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view routes-view
+(rf/reg-view Panel
   "The Routes panel's root view. Subscribes to `:rf.causa/routes-data`
   and renders the active-route breadcrumb + registered-routes list +
   navigation-history feed (or the empty state when no routes are

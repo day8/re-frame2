@@ -2,7 +2,7 @@
   "Story coverage for the Causa app-db-diff panel under gallery
   framing (rf2-5nvk2, Phase 1b).
 
-  Ten variants, each one render of `app-db-diff-view` against a
+  Ten variants, each one render of `app-db-diff/Panel` against a
   variant frame whose `:epoch-history` (and optionally
   `:selected-epoch-id`, `:pinned-slices-store`, `:focused-slice-path`)
   has been seeded by REAL Causa init events fired into the variant

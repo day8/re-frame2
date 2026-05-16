@@ -3,7 +3,8 @@
 
   Follows the canonical panel facade pattern documented in
   `tools/causa/spec/Conventions.md` — the facade owns the panel's
-  three public `reg-view`s; bodies delegate to plain Reagent fns in
+  three public `reg-view`s (the canvas `Panel` plus the rail and cue
+  shells); bodies delegate to plain Reagent fns in
   `ai-co-pilot-views`. Subs/events leaves expose `install!`.
 
   The panel is split by responsibility:
@@ -40,7 +41,7 @@
   []
   (views/ai-co-pilot-cue))
 
-(rf/reg-view ai-co-pilot-view
+(rf/reg-view Panel
   "Canvas panel form of the AI Co-Pilot."
   []
   (views/ai-co-pilot-view))

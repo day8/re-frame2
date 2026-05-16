@@ -107,7 +107,7 @@
   ;; of the public collector) lands the event in the atom and the
   ;; next subscribe sees it. We bypass `collect-trace!` because
   ;; rf2-xs8vu's self-noise filter drops `:frame :rf/causa` events
-  ;; before the buffer push — the trace-view filter axes need to
+  ;; before the buffer push — the trace Panel filter axes need to
   ;; assert against synthetic events with arbitrary `:frame` slots
   ;; (including `:rf/causa`) to lock the filter algebra, separately
   ;; from the ingest guard.
@@ -184,7 +184,7 @@
   (testing "the panel renders its root container regardless of buffer state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-trace-counts"))
@@ -201,7 +201,7 @@
                               :dispatch-id 1}))
       (push-trace! (mk-trace {:id 3 :op-type :sub/run :operation :sub/run
                               :dispatch-id 1}))
-      (let [tree (trace/trace-view)
+      (let [tree (trace/Panel)
             rows (find-all-by-testid-prefix tree "rf-causa-trace-row-")]
         (is (some? (find-by-testid tree "rf-causa-trace-feed"))
             "feed <ul> present")
@@ -216,7 +216,7 @@
   (testing "with no events the panel renders the :no-events empty-state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-empty-no-events"))
             ":no-events empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-trace-feed"))
@@ -230,7 +230,7 @@
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
                               :source :ui}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :no-such-source])
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-empty-no-matches"))
             ":no-matches empty-state container present")
         (is (some? (find-by-testid tree "rf-causa-trace-empty-clear-filters"))
@@ -335,7 +335,7 @@
                               :source :ui}))
       (push-trace! (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-threw
                               :source :ui}))
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-axis-row-op-type"))
             ":op-type has two distinct values → chip row renders")
         (is (nil? (find-by-testid tree "rf-causa-trace-axis-row-source"))
@@ -348,10 +348,10 @@
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
                               :source :ui}))
-      (is (nil? (find-by-testid (trace/trace-view) "rf-causa-trace-clear-filters"))
+      (is (nil? (find-by-testid (trace/Panel) "rf-causa-trace-clear-filters"))
           "no Clear filters button when no axis is active")
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
-      (is (some? (find-by-testid (trace/trace-view) "rf-causa-trace-clear-filters"))
+      (is (some? (find-by-testid (trace/Panel) "rf-causa-trace-clear-filters"))
           "Clear filters button surfaces once an axis is active"))))
 
 ;; ---- (6) row interactions -----------------------------------------------
@@ -367,7 +367,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/trace-view)
+          (let [tree    (trace/Panel)
                 row     (find-by-testid tree "rf-causa-trace-row-7")
                 handler (:on-click (second row))]
             (is (some? row) "row node present")
@@ -393,7 +393,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/trace-view)
+          (let [tree    (trace/Panel)
                 node    (find-by-testid tree "rf-causa-trace-row-9-source-coord")
                 handler (:on-click (second node))]
             (is (some? node) "source-coord chip rendered")
@@ -474,7 +474,7 @@
                              :time 200 :dispatch-id 1}))
       (sync-push! (mk-trace {:id 3 :op-type :sub/run :operation :sub/run
                              :time 300 :dispatch-id 1}))
-      (let [tree-1   (trace/trace-view)
+      (let [tree-1   (trace/Panel)
             keys-1   {1 (:key (second (row-li-by-id tree-1 1)))
                       2 (:key (second (row-li-by-id tree-1 2)))
                       3 (:key (second (row-li-by-id tree-1 3)))}]
@@ -490,7 +490,7 @@
                                :time 500 :dispatch-id 2}))
         (sync-push! (mk-trace {:id 6 :op-type :error :operation :rf.error/handler-threw
                                :time 600 :dispatch-id 2}))
-        (let [tree-2 (trace/trace-view)
+        (let [tree-2 (trace/Panel)
               keys-2 {1 (:key (second (row-li-by-id tree-2 1)))
                       2 (:key (second (row-li-by-id tree-2 2)))
                       3 (:key (second (row-li-by-id tree-2 3)))
@@ -520,7 +520,7 @@
                              :time 100 :dispatch-id 1}))
       (sync-push! (mk-trace {:id 22 :op-type :fx    :operation :rf.fx/handled
                              :time 200 :dispatch-id 1}))
-      (let [tree (trace/trace-view)
+      (let [tree (trace/Panel)
             k11  (:key (second (row-li-by-id tree 11)))
             k22  (:key (second (row-li-by-id tree 22)))]
         (is (= "t:11" k11)
@@ -557,7 +557,7 @@
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
                              :source :ui :frame :rf/default}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-axis-row-source"))
             "the :source chip-row renders even though only one buffered
              distinct value exists (the active orphan brings the chip
@@ -578,7 +578,7 @@
                              :source :ui :origin :app :frame :rf/default}))
       ;; Narrow on a value the buffer doesn't carry — orphan.
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
-      (let [tree (trace/trace-view)]
+      (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-empty-no-matches"))
             ":no-matches empty state renders")
         (is (some? (find-by-testid tree "rf-causa-trace-empty-active-filters"))
@@ -600,7 +600,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/trace-view)
+          (let [tree    (trace/Panel)
                 pill    (find-by-testid tree "rf-causa-trace-empty-active-source")
                 handler (:on-click (second pill))]
             (is (some? pill) ":source pill rendered")
@@ -622,7 +622,7 @@
                              :source :ui :frame :rf/default}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
       (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/missing])
-      (let [tree         (trace/trace-view)
+      (let [tree         (trace/Panel)
             source-pill  (find-by-testid tree "rf-causa-trace-empty-active-source")
             frame-pill   (find-by-testid tree "rf-causa-trace-empty-active-frame")
             label-of     (fn [node]

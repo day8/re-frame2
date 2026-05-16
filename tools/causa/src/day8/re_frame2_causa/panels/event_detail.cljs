@@ -365,7 +365,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view event-detail-view
+(rf/reg-view Panel
   "The hero panel's root view. Subscribes to
   `:rf.causa/event-detail` and renders either the cascade-detail
   layout (when a dispatch-id is selected) or the cascade-list empty

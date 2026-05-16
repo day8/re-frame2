@@ -357,7 +357,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view hydration-debugger-view
+(rf/reg-view Panel
   "The Hydration Debugger panel's root view. Subscribes to
   `:rf.causa/hydration-debugger-data` and renders either:
 

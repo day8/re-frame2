@@ -17,7 +17,7 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack]]))
 
-(rf/reg-view app-db-diff-view
+(rf/reg-view Panel
   "The App-DB Diff panel's root view."
   []
   (let [{:keys [target-frame

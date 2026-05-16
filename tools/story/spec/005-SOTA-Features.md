@@ -134,7 +134,7 @@ Lock #1):
   {:doc       "Causa's epoch buffer for the active variant."
    :title     "Epochs (Causa)"
    :placement :bottom
-   :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
+   :render    :day8.re-frame2-causa.panels.time-travel/Panel})
 ```
 
 The view is consumed from `day8/re-frame2-causa` (per the

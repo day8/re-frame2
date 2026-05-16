@@ -268,29 +268,29 @@
   (let [selected (or @(rf/subscribe [:rf.causa/selected-panel])
                      registry/default-panel-id)]
     (case selected
-      :event-detail [event-detail/event-detail-view]
-      :time-travel  [time-travel/time-travel-view]
-      :app-db       [app-db-diff/app-db-diff-view]
-      :causality    [causality-graph/causality-graph-view]
+      :event-detail [event-detail/Panel]
+      :time-travel  [time-travel/Panel]
+      :app-db       [app-db-diff/Panel]
+      :causality    [causality-graph/Panel]
       ;; ── effects panel begin ──
-      :fx           [effects/effects-view]
+      :fx           [effects/Panel]
       ;; ── effects panel end ──
-      :flows        [flows/flows-view]
-      :routes       [routes/routes-view]
-      :schemas      [schema-violation-timeline/schema-violation-timeline-view]
-      :subs         [subscriptions/subscriptions-view]
-      :machines     [machine-inspector/machine-inspector-view]
-      :hydration    [hydration-debugger/hydration-debugger-view]
-      :issues       [issues-ribbon/issues-ribbon-view]
-      :trace        [trace/trace-view]
-      :performance  [performance/performance-view]
+      :flows        [flows/Panel]
+      :routes       [routes/Panel]
+      :schemas      [schema-violation-timeline/Panel]
+      :subs         [subscriptions/Panel]
+      :machines     [machine-inspector/Panel]
+      :hydration    [hydration-debugger/Panel]
+      :issues       [issues-ribbon/Panel]
+      :trace        [trace/Panel]
+      :performance  [performance/Panel]
       ;; ── mcp-server panel begin ──
-      :mcp-server   [mcp-server/mcp-server-view]
+      :mcp-server   [mcp-server/Panel]
       ;; ── mcp-server panel end ──
       ;; Sidebar Co-pilot row renders the panel-style view in the
       ;; canvas; the rail still lives in the shell's right margin per
       ;; spec/007-UX-IA.md §The five regions item 4.
-      :copilot      [ai-co-pilot/ai-co-pilot-view]
+      :copilot      [ai-co-pilot/Panel]
       [unknown-panel selected])))
 
 (rf/reg-view bottom-rail
@@ -362,26 +362,26 @@
   canvas — every sidebar selection resolves to the matching panel view."
   [selected]
   (case selected
-    :event-detail [event-detail/event-detail-view]
-    :time-travel  [time-travel/time-travel-view]
-    :app-db       [app-db-diff/app-db-diff-view]
-    :causality    [causality-graph/causality-graph-view]
+    :event-detail [event-detail/Panel]
+    :time-travel  [time-travel/Panel]
+    :app-db       [app-db-diff/Panel]
+    :causality    [causality-graph/Panel]
     ;; ── effects panel begin ──
-    :fx           [effects/effects-view]
+    :fx           [effects/Panel]
     ;; ── effects panel end ──
-    :flows        [flows/flows-view]
-    :routes       [routes/routes-view]
-    :schemas      [schema-violation-timeline/schema-violation-timeline-view]
-    :subs         [subscriptions/subscriptions-view]
-    :machines     [machine-inspector/machine-inspector-view]
-    :hydration    [hydration-debugger/hydration-debugger-view]
-    :issues       [issues-ribbon/issues-ribbon-view]
-    :trace        [trace/trace-view]
-    :performance  [performance/performance-view]
+    :flows        [flows/Panel]
+    :routes       [routes/Panel]
+    :schemas      [schema-violation-timeline/Panel]
+    :subs         [subscriptions/Panel]
+    :machines     [machine-inspector/Panel]
+    :hydration    [hydration-debugger/Panel]
+    :issues       [issues-ribbon/Panel]
+    :trace        [trace/Panel]
+    :performance  [performance/Panel]
     ;; ── mcp-server panel begin ──
-    :mcp-server   [mcp-server/mcp-server-view]
+    :mcp-server   [mcp-server/Panel]
     ;; ── mcp-server panel end ──
-    :copilot      [ai-co-pilot/ai-co-pilot-view]
+    :copilot      [ai-co-pilot/Panel]
     [unknown-panel selected]))
 
 (rf/reg-view shell-view

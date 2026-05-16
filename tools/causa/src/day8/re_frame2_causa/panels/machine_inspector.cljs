@@ -326,7 +326,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view machine-inspector-view
+(rf/reg-view Panel
   "The Machine Inspector panel's root view. Subscribes to
   `:rf.causa/machine-inspector-data` and renders either the empty
   state (no machines registered) or the picker + chart placeholder +

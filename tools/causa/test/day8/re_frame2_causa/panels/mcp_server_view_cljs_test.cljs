@@ -229,7 +229,7 @@
             empty state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (mcp-server/mcp-server-view)]
+      (let [tree (mcp-server/Panel)]
         (is (some? (find-by-testid tree "rf-causa-mcp-server"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-mcp-empty-no-activity"))
@@ -246,7 +246,7 @@
     (push-event! (mcp-event 2 :fx :fx/handled
                             {:tags {:tool :restore-epoch}}))
     (rf/with-frame :rf/causa
-      (let [tree (mcp-server/mcp-server-view)]
+      (let [tree (mcp-server/Panel)]
         (is (some? (find-by-testid tree "rf-causa-mcp-feed"))
             "feed container present")
         (is (some? (find-by-testid tree "rf-causa-mcp-row-1"))
@@ -269,7 +269,7 @@
     (push-event! (mcp-event 1 :event :event/dispatched))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/toggle-mcp-op-type :fx])
-      (let [tree (mcp-server/mcp-server-view)]
+      (let [tree (mcp-server/Panel)]
         (is (some? (find-by-testid tree "rf-causa-mcp-empty-no-matches"))
             ":no-matches empty state present")
         (is (nil? (find-by-testid tree "rf-causa-mcp-feed"))
@@ -280,7 +280,7 @@
             'no activity'"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree  (mcp-server/mcp-server-view)
+      (let [tree  (mcp-server/Panel)
             badge (find-by-testid tree "rf-causa-mcp-attached-badge")
             txt   (pr-str badge)]
         (is (re-find #"no activity" txt))
@@ -292,7 +292,7 @@
     (setup-causa-frame!)
     (push-event! (mcp-event 1 :event :event/dispatched))
     (rf/with-frame :rf/causa
-      (let [tree  (mcp-server/mcp-server-view)
+      (let [tree  (mcp-server/Panel)
             badge (find-by-testid tree "rf-causa-mcp-attached-badge")
             txt   (pr-str badge)]
         (is (re-find #"agent attached" txt))))))
@@ -312,7 +312,7 @@
                                    ([ev] (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/causa
-          (let [tree    (mcp-server/mcp-server-view)
+          (let [tree    (mcp-server/Panel)
                 row     (find-by-testid tree "rf-causa-mcp-row-1")
                 on-click (:on-click (second row))]
             (is (some? row) "row is present in the rendered tree")
@@ -335,7 +335,7 @@
                                    ([ev] (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/causa
-          (let [tree    (mcp-server/mcp-server-view)
+          (let [tree    (mcp-server/Panel)
                 row     (find-by-testid tree "rf-causa-mcp-row-1")
                 on-click (:on-click (second row))]
             (on-click))))

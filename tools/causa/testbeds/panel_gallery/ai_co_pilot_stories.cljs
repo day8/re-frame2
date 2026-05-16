@@ -2,7 +2,7 @@
   "Story coverage for the Causa AI Co-Pilot panel under gallery
   framing (rf2-8r20i, Phase 2).
 
-  Twelve variants, each one render of `ai-co-pilot-view` against a
+  Twelve variants, each one render of `ai-co-pilot/Panel` against a
   variant frame whose seven `:copilot-*` slots have been seeded by a
   REAL gallery-local init event fired into the variant frame.
 

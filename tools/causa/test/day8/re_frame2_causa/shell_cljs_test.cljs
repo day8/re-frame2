@@ -175,22 +175,22 @@
   "Authoritative panel-id → view-fn mapping. Mirrors the `case` in
   shell.cljs's `canvas` so a typo in either place blows up here. The
   16 keys cover every entry in `shell/sidebar-items`."
-  {:event-detail event-detail/event-detail-view
-   :time-travel  time-travel/time-travel-view
-   :app-db       app-db-diff/app-db-diff-view
-   :causality    causality-graph/causality-graph-view
-   :subs         subscriptions/subscriptions-view
-   :fx           effects/effects-view
-   :trace        trace/trace-view
-   :machines     machine-inspector/machine-inspector-view
-   :flows        flows/flows-view
-   :routes       routes/routes-view
-   :performance  performance/performance-view
-   :issues       issues-ribbon/issues-ribbon-view
-   :schemas      svt/schema-violation-timeline-view
-   :hydration    hydration-debugger/hydration-debugger-view
-   :mcp-server   mcp-server/mcp-server-view
-   :copilot      ai-co-pilot/ai-co-pilot-view})
+  {:event-detail event-detail/Panel
+   :time-travel  time-travel/Panel
+   :app-db       app-db-diff/Panel
+   :causality    causality-graph/Panel
+   :subs         subscriptions/Panel
+   :fx           effects/Panel
+   :trace        trace/Panel
+   :machines     machine-inspector/Panel
+   :flows        flows/Panel
+   :routes       routes/Panel
+   :performance  performance/Panel
+   :issues       issues-ribbon/Panel
+   :schemas      svt/Panel
+   :hydration    hydration-debugger/Panel
+   :mcp-server   mcp-server/Panel
+   :copilot      ai-co-pilot/Panel})
 
 (deftest expected-panel-map-covers-sixteen-entries
   (testing "the expected panel map has the 16 entries the spec lists
@@ -233,7 +233,7 @@
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [rendered (#'shell/canvas)]
-        (is (= event-detail/event-detail-view (first rendered))
+        (is (= event-detail/Panel (first rendered))
             "canvas mounts :event-detail when :selected-panel is unset")))))
 
 ;; -------------------------------------------------------------------------
@@ -443,7 +443,7 @@
   (testing "clicking a sidebar row fires :rf.causa/select-panel with
             the row's :id. rf/dispatch is async so we capture via
             with-redefs on rf/dispatch* (same approach the
-            machine-inspector-view test uses) rather than racing the
+            machine-inspector Panel test uses) rather than racing the
             flush queue."
     (causa-setup!)
     (let [dispatches (atom [])]
