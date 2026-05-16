@@ -39,12 +39,12 @@ per-namespace contract doc; the table below indexes them:
 | ns | Lines (src) | Surface | Per-namespace spec |
 |---|---|---|---|
 | `vocab` | 228 | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
-| `sensitive` | 117 | spec/009 §Privacy default-suppress filter (`sensitive-event?`, `strip-sensitive`, `scrub-snapshot`). | [`sensitive.md`](sensitive.md) |
+| `sensitive` | 212 | spec/009 §Privacy default-suppress filter (`sensitive-event?`, `strip-sensitive`, `scrub-snapshot`) + fail-closed suppressed-event counter. | [`sensitive.md`](sensitive.md) |
 | `elision` | 60 | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). | [`elision.md`](elision.md) |
-| `args` | 127 | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
-| `diff-encode` | 286 | Path-keyed structural diff for epoch `:db-after` slots (rf2-1wdzp). | [`diff-encode.md`](diff-encode.md) |
+| `args` | 253 | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
+| `diff-encode` | 318 | Path-keyed structural diff for epoch `:db-after` slots (rf2-1wdzp) + decoder gate. | [`diff-encode.md`](diff-encode.md) |
 | `overflow` | 60 | Overflow-marker payload SHAPE builder + per-tool hint table (rf2-rvyzy). | [`overflow.md`](overflow.md) |
-| `cap` | 192 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu). | [`cap.md`](cap.md) |
+| `cap` | 242 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu) + resource controls + token splitter. | [`cap.md`](cap.md) |
 
 All `.cljc`, so consumers compile them under their own platform —
 pair2-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
