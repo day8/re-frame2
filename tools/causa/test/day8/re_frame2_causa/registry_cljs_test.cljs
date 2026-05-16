@@ -454,6 +454,56 @@
         (is (= [{:id 200 :tags {}}] @(rf/subscribe [:rf.causa/trace-buffer]))
             "second sync wholly replaces the slot (no merge)")))))
 
+(deftest sub-trace-buffer-note-event-dedupes-on-id
+  (testing "rf2-z4fza follow-up: `:rf.causa/note-trace-event` skips the
+            push when the incoming event's `:id` already exists in the
+            slot. The mount seed-race window — where the `:frame/created`
+            trace for `:rf/causa` lands in both the atom snapshot the
+            seed reads AND a queued mirror dispatch — would otherwise
+            land the same event id twice, producing a duplicate React
+            `t:<id>` key in the Trace panel and one extra `<li>` past
+            the 200-row budget that survives reconciliation."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Simulate the seed-race directly: seed lands the event id 42 in
+      ;; the slot wholesale, then a `:rf.causa/note-trace-event` for the
+      ;; same id arrives from a queued mirror dispatch.
+      (rf/dispatch-sync [:rf.causa/sync-trace-buffer
+                         [{:id 42 :op-type :frame :operation :frame/created
+                           :tags {:frame :rf/causa}}]])
+      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer]))))
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 42 :op-type :frame :operation :frame/created
+                          :tags {:frame :rf/causa}}])
+      (is (= 1 (count @(rf/subscribe [:rf.causa/trace-buffer])))
+          "duplicate-id push is a no-op — slot length unchanged")
+      (is (= [42] (mapv :id @(rf/subscribe [:rf.causa/trace-buffer])))
+          "only the seeded entry remains; the duplicate mirror push was
+           skipped")
+      ;; Distinct ids still push normally — dedup is per-id, not blanket
+      ;; deduplication-by-anything.
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:id 43 :op-type :event :operation :rf.test/y
+                          :tags {}}])
+      (is (= [42 43] (mapv :id @(rf/subscribe [:rf.causa/trace-buffer])))
+          "fresh ids still append — dedup is :id-keyed, not push-blocking"))))
+
+(deftest sub-trace-buffer-note-event-allows-events-without-id
+  (testing "rf2-z4fza follow-up: the dedup gate predicates on `:id`
+            being present (the framework's `next-event-id` stamp). An
+            event without `:id` is still pushed — defensive against
+            synthetic/test events that omit the slot."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:op-type :event :operation :rf.test/no-id
+                          :tags {}}])
+      (rf/dispatch-sync [:rf.causa/note-trace-event
+                         {:op-type :event :operation :rf.test/also-no-id
+                          :tags {}}])
+      (is (= 2 (count @(rf/subscribe [:rf.causa/trace-buffer])))
+          "events without :id are not deduped — both push lands"))))
+
 (deftest sub-trace-buffer-evicts-on-overflow
   (testing "trace-bus enforces the eviction-on-overflow algebra against
             `current-depth`. We shrink the depth to 3 then push 5
