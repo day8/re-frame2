@@ -830,6 +830,8 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 
 The detection sits in `subscribe`: if `(reagent.core/current-component)` returns a component whose `contextType` does not match `frame-context`, the dynamic-var tier is checked; if neither names a non-default frame, no warning fires; if the closest enclosing provider names a non-default frame and `*current-frame*` is unset, the warning fires.
 
+**Arity-gated.** The check runs on the 1-arity `(subscribe query-v)` form only. The 2-arity `(subscribe frame-id query-v)` form **skips** the check by design (rf2-r0zf2) — supplying an explicit `frame-id` IS the opt-out: the caller has told the runtime exactly which frame to target, so a fall-through-to-`:rf/default` diagnostic doesn't apply. Plain-Reagent-fn call-sites that need to subscribe against a known frame without triggering the warning surface should use the 2-arity form.
+
 ### Plain-atom adapter (JVM, SSR, headless)
 
 The **plain-atom adapter** is the same nine-fn contract realised against `clojure.core/atom` instead of Reagent. It is what runs on the JVM (per [000 §C2. Cross-platform: JVM interop preserved](000-Vision.md#c2-cross-platform-jvm-interop-preserved)) and what SSR and headless tests use ([§SSR-specific behaviour](#ssr-specific-behaviour), [008-Testing](008-Testing.md)).
