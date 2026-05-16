@@ -569,7 +569,6 @@
 (def assoc-coeffect  interceptor/assoc-coeffect)
 (def get-effect      interceptor/get-effect)
 (def assoc-effect    interceptor/assoc-effect)
-(def inject-cofx     cofx/inject-cofx)
 (def path            std-interceptors/path)
 (def unwrap          std-interceptors/unwrap)
 
