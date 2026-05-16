@@ -236,23 +236,38 @@ yields a clickable URI rather than a no-op; source-coords without
 
 ## MCP API
 
-Per [`010-MCP-Server.md`](./010-MCP-Server.md). The MCP server lives
-at `tools/causa-mcp/` and exposes 12 tools:
+Per [`010-MCP-Server.md`](./010-MCP-Server.md) §Tool catalogue. The
+MCP server lives at `tools/causa-mcp/` and exposes **18 tools across
+five bands**. Counts and band layout are pinned at
+[`tools/causa-mcp/spec/README.md` §Canonical counts](../../causa-mcp/spec/README.md#canonical-counts)
+— cite that subsection rather than restating cardinalities here.
 
-| Tool | Kind |
-|---|---|
-| `get-trace-buffer` | read |
-| `get-epoch-history` | read |
-| `get-app-db` | read |
-| `get-app-db-diff` | read |
-| `get-machine-state` | read |
-| `get-machine-list` | read |
-| `get-issues` | read |
-| `get-handlers` | read |
-| `get-source-coord` | read |
-| `restore-epoch` | mutate (user-confirmed) |
-| `reset-frame-db` | mutate (user-confirmed) |
-| `dispatch` | mutate (user-confirmed) |
+| Tool | Band | Kind |
+|---|---|---|
+| `get-trace-buffer` | Inspection | read |
+| `get-epoch-history` | Inspection | read |
+| `get-app-db` | Inspection | read |
+| `get-app-db-diff` | Inspection | read |
+| `get-machine-state` | Inspection | read |
+| `get-machine-list` | Inspection | read |
+| `get-issues` | Inspection | read |
+| `get-handlers` | Inspection | read |
+| `get-source-coord` | Inspection | read |
+| `restore-epoch` | Mutation | mutate (user-confirmed) |
+| `reset-frame-db` | Mutation | mutate (user-confirmed) |
+| `dispatch` | Mutation | mutate (user-confirmed) |
+| `subscribe` | Streaming | stream (`notifications/progress`) |
+| `unsubscribe` | Streaming | mutate (idempotent close) |
+| `list-subscriptions` | Streaming | read (diagnostic) |
+| `eval-cljs` | Escape hatch | mutate (arbitrary CLJS form) |
+| `discover-app` | Meta | read (session-lifecycle) |
+| `tail-build` | Meta | read (waits for hot-reload) |
+
+Streaming tools keep the `tools/call` request open and emit each
+drain-batch as a `notifications/progress` notification correlated
+via `extra._meta.progressToken`; the final result is a summary.
+`eval-cljs` is the deliberate escape valve — its side-effects ride
+the trace bus tagged `:origin :causa-mcp` like every catalogue tool.
 
 JSONSchema for each tool's args is surfaced via `tools/list` per the
 MCP spec.

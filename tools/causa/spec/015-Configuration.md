@@ -28,6 +28,7 @@ distinct from the persisted Settings shape per [`API.md`](./API.md)
 
 (causa-config/configure!
   {:editor                :cursor
+   :project-root          "C:/Users/me/code/my-app"
    :layout/host-selector  "[data-rf-causa-host]"
    :launch/auto-open?     true
    :trace/show-sensitive? false})
@@ -89,6 +90,28 @@ Causa's `:editor` is **independent** of Story's `:rf.story/editor`
 running both tools MAY route each to a different editor — e.g.
 `:vscode` for the application code Causa points at, `:idea` for the
 Story test corpus.
+
+### `:project-root`
+
+The on-disk root prepended to the source-coord's classpath-relative
+`:file` slot before the editor URI ships (rf2-5m5n2). Source-coords
+stamped at registration time are classpath-relative (form-meta `:file`
+slot, e.g. `"app/cart/handlers.cljs"`); editor URI handlers
+(`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.) resolve
+`<path>` against the filesystem. A relative path fails with "Path does
+not exist", so Causa's Open chip and the `:rf.editor/open` reg-fx need
+to know the on-disk root to prepend before the URI ships.
+
+| Value | Meaning |
+|---|---|
+| String | The on-disk root (typically the directory above the classpath source-paths). Joined to source-coord `:file` via `/`. Threaded into the URI by `re-frame.source-coords.editor-uri/editor-uri` via its 3-arg form. |
+| `nil` | Default. Source-coord file ships verbatim — Open chip behaves as it did pre-rf2-5m5n2 (useful for hosts whose source-paths are already absolute, and for tests). |
+
+Default: `nil`.
+
+Blank strings MUST normalise to `nil`. Causa's `:project-root` is
+**independent** of Story's (an app-source root for Causa, a stories
+root for Story); two atoms, two `configure!` surfaces.
 
 ### `:trace/show-sensitive?`
 
