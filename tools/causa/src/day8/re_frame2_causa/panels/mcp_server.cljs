@@ -30,9 +30,19 @@
             [day8.re-frame2-causa.panels.mcp-server-views :as views]))
 
 (rf/reg-view mcp-server-view
-  "The MCP Server panel's root view."
+  "The MCP Server panel's root view.
+
+  The body invokes the leaf as a plain function call —
+  `(views/mcp-server-view)`, not the Reagent component vector
+  `[views/mcp-server-view]`. That keeps the leaf body inlined into
+  this reg-view wrapper's render, so the leaf's `subscribe` /
+  `dispatch` calls reach `:rf/causa` through the wrapper's React-
+  context tier. The vector form would mount the leaf as a plain
+  Reagent fn component that drops out of the surrounding frame
+  (Spec 004 §Plain Reagent fns / Spec 006 §706); see
+  `tools/causa/spec/Conventions.md` §View body delegation."
   []
-  [views/mcp-server-view])
+  (views/mcp-server-view))
 
 (defn install!
   "Idempotent install for the MCP Server panel's Causa-side

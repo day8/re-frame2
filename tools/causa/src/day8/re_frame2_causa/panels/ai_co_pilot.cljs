@@ -19,20 +19,31 @@
             [day8.re-frame2-causa.panels.ai-co-pilot-subs :as subs]
             [day8.re-frame2-causa.panels.ai-co-pilot-views :as views]))
 
+;; Bodies invoke leaf fns as plain calls — `(views/foo)`, not the
+;; Reagent component vector `[views/foo]`. The leaf body executes
+;; during this reg-view wrapper's render, so its `subscribe` / `dispatch`
+;; calls resolve through the wrapper's React-context tier and reach
+;; `:rf/causa`. The vector form would mount the leaf as a separate
+;; plain Reagent fn component that drops out of the surrounding frame
+;; (Spec 004 §Plain Reagent fns) — `:rf/causa` subs would silently
+;; route to `:rf/default` and the `:rf.warning/plain-fn-under-non-
+;; default-frame-once` warning fires. See
+;; `tools/causa/spec/Conventions.md` §View body delegation.
+
 (rf/reg-view ai-co-pilot-rail
   "Open 320px right-rail form of the AI Co-Pilot."
   []
-  [views/ai-co-pilot-rail])
+  (views/ai-co-pilot-rail))
 
 (rf/reg-view ai-co-pilot-cue
   "Collapsed cue glyph form of the AI Co-Pilot."
   []
-  [views/ai-co-pilot-cue])
+  (views/ai-co-pilot-cue))
 
 (rf/reg-view ai-co-pilot-view
   "Canvas panel form of the AI Co-Pilot."
   []
-  [views/ai-co-pilot-view])
+  (views/ai-co-pilot-view))
 
 (defn install!
   "Idempotent install for the AI Co-Pilot panel's Causa-side

@@ -28,7 +28,13 @@
      [chrome/title-bar]
      [:div {:style {:flex 1 :overflow-y "auto"}}
       [conversation/conversation-view conversation]]
-     [input/input-row]]))
+     ;; Plain function call (not `[input/input-row]`) so the leaf's
+     ;; `:rf.causa/copilot-input-text` subscribe resolves to `:rf/causa`
+     ;; via this view's wrapper. A component-vector here would mount
+     ;; input-row as a separate plain Reagent fn — its subscribe would
+     ;; silently route to `:rf/default` (Spec 004 §Plain Reagent fns)
+     ;; and the slash popover would never appear. The rf2-043uz fix.
+     (input/input-row)]))
 
 (defn ai-co-pilot-cue
   "Collapsed `◇` cue glyph. The pulse stops after first use."
@@ -51,4 +57,10 @@
      [chrome/title-bar]
      [:div {:style {:flex 1 :overflow-y "auto"}}
       [conversation/conversation-view conversation]]
-     [input/input-row]]))
+     ;; Plain function call (not `[input/input-row]`) so the leaf's
+     ;; `:rf.causa/copilot-input-text` subscribe resolves to `:rf/causa`
+     ;; via this view's wrapper. A component-vector here would mount
+     ;; input-row as a separate plain Reagent fn — its subscribe would
+     ;; silently route to `:rf/default` (Spec 004 §Plain Reagent fns)
+     ;; and the slash popover would never appear. The rf2-043uz fix.
+     (input/input-row)]))
