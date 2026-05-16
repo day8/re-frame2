@@ -1,6 +1,6 @@
 # 014-Chrome-Features
 
-Normative coverage for three shipped user-facing Story surfaces that
+Normative coverage for four shipped user-facing Story surfaces that
 were previously discoverable mainly from code / tests rather than the
 spec set:
 
@@ -10,6 +10,8 @@ spec set:
    on sidebar rows.
 3. The **first-visit help overlay** — the modal-style on-boarding
    shown on first mount.
+4. The **command palette** — the Cmd/Ctrl-K global navigator over the
+   Story registry.
 
 Each is captured as its own section below. Where v1 deliberately
 leaves details to implementation, the section calls that out so a
@@ -261,6 +263,142 @@ for.
 - [`003-Render-Shell.md`](./003-Render-Shell.md) — the shell chrome
   the `?` help-button lives in.
 
+## Command palette (rf2-9hc8)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/command_palette.cljc` (pure
+> projection + scoring) and `.../command_palette/view.cljs` (Reagent
+> overlay + global shortcut). Differentiator vs Storybook 8: Story's
+> palette searches the *complete* re-frame2 registry (variants,
+> workspaces, stories, modes, decorators) under one keybinding —
+> Storybook ships per-surface searches stitched together.
+
+A floating overlay opened by **Cmd-K / Ctrl-K** that searches every
+registered Story entity and routes the selected entry to canvas,
+workspace, or toolbar. Closes on `Escape`, scrim click, or selection.
+
+### Searched kinds (the five canonical entry shapes)
+
+Per `command_palette.cljc/searchable-kinds`:
+
+| Kind | Source slot | Selection effect |
+|---|---|---|
+| `:variant` | registry `:variants` | Select the variant on the canvas; clear workspace. |
+| `:workspace` | registry `:workspaces` | Activate the workspace; clear variant selection. |
+| `:story` | registry `:stories` | Jump to the story's first registered child variant when one exists; otherwise a no-op (palette still closes). |
+| `:mode` | registry `:modes` | Reuse the toolbar mode-toggle so persistence stays in one place. |
+| `:decorator` | registry `:decorators` | Registry data only in MVP — selection closes the palette without further effect. |
+
+Unknown registry slots are ignored. Entries derive from a single
+`state/registry-snapshot` read at open-time; the palette does not
+subscribe to live registry mutations within a single open session.
+
+### Registration projection (pure, normative)
+
+Each registry entry projects to a row of the shape:
+
+```clojure
+{:kind        :variant|:workspace|:story|:mode|:decorator
+ :kind-label  "Variant"|"Workspace"|...           ;; from kind-labels
+ :id          <kw|...>                            ;; the registry key
+ :id-label    <string>                            ;; (str id) for keywords, (pr-str) otherwise
+ :doc         <string>                            ;; (:doc body) stringified; "" when absent
+ :body        <registry-body>}                    ;; the raw registry value
+;; :story rows additionally carry :variant-ids — sorted child-variant ids.
+```
+
+The projection lives in `entries`; downstream sort/score uses
+`:id-label` and `:doc` as the searchable substrate.
+
+### Token-AND scoring
+
+`match-score` splits the (lower-cased, trimmed) query on whitespace
+and scores each token via `token-score`. A match requires *every*
+token to score; the row's total is the sum plus a small kind-bias
+(`:variant 8 :workspace 7 :story 6 :mode 5 :decorator 4`).
+Per-token weights (highest wins):
+
+| Match kind | Score |
+|---|---|
+| Token equals id-label | 240 |
+| Token equals kind name | 180 |
+| Id starts with token | 140 |
+| Id contains token | 110 |
+| Doc contains token | 80 |
+| Combined text (kind + id + doc) contains token | 60 |
+| Token is a subsequence of id | 32 |
+| Token is a subsequence of combined text | 18 |
+
+An empty query returns every entry with score 1 — the palette opens
+with the full registry visible.
+
+`search` returns the top N (default 30 from the overlay; 20 from the
+2-arity helper) entries sorted by descending score, then by
+`searchable-kinds` declaration order, then by `:id-label` for
+stability.
+
+### Keyboard contract
+
+- **Cmd-K / Ctrl-K** anywhere in the window — toggle open/closed.
+  The shortcut predicate (`shortcut-event?`) ignores `Alt` and
+  `Shift` modifiers; `Meta` (Mac) and `Ctrl` (Win/Linux) both fire.
+- **ArrowDown / ArrowUp** — move the active row; wraps via
+  `move-active-index` / `clamp-active-index`.
+- **Enter** — apply the active entry through `select-entry!` and
+  close.
+- **Escape** — close without applying.
+- **Scrim click** — close without applying.
+
+The listener is registered in capture phase on `window` so the
+shortcut survives focused inputs. Production builds with
+`re-frame.story.config/enabled?` false skip the listener install.
+
+### Test affordances
+
+- `[data-test="story-command-palette"]` — the scrim container.
+- `[data-test="story-command-palette-input"]` — the search input.
+- `[data-test="story-command-palette-result"]` — each result row;
+  also carries `:data-kind` (the kind name) and `:data-id` (the
+  id-label) so test-corpus selectors can target a specific entry
+  without scraping styles.
+- `[data-test="story-command-palette-empty"]` — the "no matches"
+  row.
+
+The `[data-test=story-command-palette-result]` selector is the
+contract row 105 of [`015-Test-Coverage.md`](./015-Test-Coverage.md)
+binds against.
+
+### Pure / impure split (CLJC discipline)
+
+`command_palette.cljc` is pure — `entries`, `normalize-query`,
+`match-score`, `search`, `clamp-active-index`, `move-active-index`,
+and the supporting helpers all run under the JVM test target.
+Reagent rendering, the keydown listener, and the `select-entry!`
+state writes live in `command_palette/view.cljs` under `:cljs`.
+JVM coverage gates projection + scoring regressions before the
+Reagent layer.
+
+### What v1 deliberately leaves to implementation
+
+- **Recently-selected / pinned entries.** No history weighting in
+  the scorer; every open starts from a cold registry snapshot.
+- **Custom action verbs.** The palette navigates / activates; it
+  does not host arbitrary commands (e.g. "Run all tests"). Toolbar
+  / chrome buttons keep that surface.
+- **Multi-kind faceting.** No UI to scope the search to one kind
+  (`/variant foo`, etc.) — token-AND on the `kind` name covers the
+  common case (`variant counter` matches variant rows that include
+  "counter").
+- **Result-row icons.** Kind labels carry the affordance; iconify
+  is deferred until the chrome palette consolidates.
+
+### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) row 105 — the
+  test-corpus contract this section makes substantive.
+- [`010-Toolbar.md`](./010-Toolbar.md) — the mode-toggle entry-point
+  the `:mode` kind reuses.
+
 ## What this doc deliberately doesn't normalise
 
 - **Schema-validation panel widget styling.** Colours, icons, row
@@ -275,3 +413,8 @@ for.
   are normative; the specific hexes live in `sidebar_styles.cljs`
   and follow the shell's palette (the tokens move when the palette
   does).
+- **Command-palette overlay styling.** Panel width, blur, scrim
+  alpha, and result-row layout follow the chrome's existing dark
+  palette (`#1f1f23` ground, `#cccccc` body text); the spec
+  normalises the kind set, scoring, keyboard contract, and test
+  affordances.
