@@ -2,7 +2,7 @@
   "Story coverage for the Causa issues-ribbon panel under gallery
   framing (rf2-8r20i, Phase 2).
 
-  Nine variants, each one render of `issues-ribbon-view` against a
+  Nine variants, each one render of `issues-ribbon/Panel` against a
   variant frame whose `:trace-buffer` (and optionally
   `:issues-active-severities` / `:issues-active-prefixes`) has been
   seeded by REAL Causa init events fired into the variant frame.

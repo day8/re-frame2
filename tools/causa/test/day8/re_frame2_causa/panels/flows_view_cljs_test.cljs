@@ -139,7 +139,7 @@
   (testing "with no registered flows the panel renders the empty state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flows"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-flows-empty"))
@@ -155,7 +155,7 @@
       (override-flows!
         {:rect/area  {:inputs [[:w] [:h]] :path [:area]}
          :cart/total {:inputs [[:items]]  :path [:total]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flows-list"))
             "list container present")
         (is (some? (find-by-testid tree "rf-causa-flow-row-:rect/area"))
@@ -171,7 +171,7 @@
     (rf/with-frame :rf/causa
       (override-flows!
         {:rect/area {:inputs [[:w] [:h]] :path [:area]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flow-id-:rect/area")))
         (is (some? (find-by-testid tree "rf-causa-flow-inputs-:rect/area")))
         (is (some? (find-by-testid tree "rf-causa-flow-path-:rect/area")))))))
@@ -182,7 +182,7 @@
     (rf/with-frame :rf/causa
       (override-flows!
         {:rect/area {:inputs [[:w] [:h]] :path [:area]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flow-badge-idle")))))))
 
 ;; ---- (3) live recomputation indicator -----------------------------------
@@ -207,7 +207,7 @@
     (rf/with-frame :rf/causa
       (override-flows!
         {:rect/area {:inputs [[:w] [:h]] :path [:area]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flow-badge-computing"))
             "computing badge surfaces")
         (is (some? (find-by-testid tree
@@ -228,7 +228,7 @@
     (rf/with-frame :rf/causa
       (override-flows!
         {:rect/area {:inputs [[:w] [:h]] :path [:area]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flow-badge-skipping")))
         (is (nil? (find-by-testid tree
                                   "rf-causa-flow-row-recomputing-:rect/area"))
@@ -247,7 +247,7 @@
     (rf/with-frame :rf/causa
       (override-flows!
         {:rect/area {:inputs [[:w] [:h]] :path [:area]}})
-      (let [tree (flows/flows-view)]
+      (let [tree (flows/Panel)]
         (is (some? (find-by-testid tree "rf-causa-flow-badge-failed")))))))
 
 ;; ---- (4) selection ------------------------------------------------------
@@ -278,7 +278,7 @@
         {:a {:inputs [] :path [:a]}
          :b {:inputs [] :path [:b]}})
       ;; Both flows :idle — exactly one chip should render.
-      (let [tree  (flows/flows-view)
+      (let [tree  (flows/Panel)
             chips (find-all-by-testid-prefix tree "rf-causa-flows-summary-")]
         (is (= 1 (count chips))
             "one chip for the :idle status")))))

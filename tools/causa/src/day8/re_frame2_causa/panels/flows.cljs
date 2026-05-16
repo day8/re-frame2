@@ -244,7 +244,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view flows-view
+(rf/reg-view Panel
   "The Flows panel's root view. Subscribes to
   `:rf.causa/flows-data` and renders the summary header + flow
   list (or the empty state when no flows are registered)."

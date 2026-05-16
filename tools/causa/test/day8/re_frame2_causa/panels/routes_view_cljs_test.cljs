@@ -163,7 +163,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-routes! {})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routes"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-routes-empty"))
@@ -180,7 +180,7 @@
       (override-routes!
         {:route/home {:path "/"     :doc "Landing"}
          :route/cart {:path "/cart" :doc "Cart"}})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routes-list"))
             "list container present")
         (is (some? (find-by-testid tree "rf-causa-route-row-:route/home"))
@@ -196,7 +196,7 @@
     (rf/with-frame :rf/causa
       (override-routes!
         {:route/cart {:path "/cart" :doc "Cart"}})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-route-id-:route/cart")))
         (is (some? (find-by-testid tree "rf-causa-route-path-:route/cart")))))))
 
@@ -217,7 +217,7 @@
                         :fragment   nil
                         :transition :idle
                         :nav-token  "nav-1"})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routes-active"))
             "active-route strip rendered")
         (is (some? (find-by-testid tree "rf-causa-routes-active-route-id"))
@@ -237,7 +237,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-routes! {:route/home {:path "/"}})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routes-history"))
             "history section rendered when there are routes")
         (is (some? (find-by-testid tree "rf-causa-routes-history-empty"))
@@ -269,7 +269,7 @@
                               :dispatch-id 43}})
     (rf/with-frame :rf/causa
       (override-routes! {:route/cart {:path "/cart"}})
-      (let [tree (routes/routes-view)]
+      (let [tree (routes/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routes-history-row-1001"))
             "row for trace-event id=1001 present")
         (is (some? (find-by-testid tree "rf-causa-routes-history-row-1002"))

@@ -150,7 +150,7 @@
     (seed-buffer! (concat (cascade-evs 100 [:user/login {:id 42}] 0)
                           (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container present")
         (is (some? (find-by-testid tree "rf-causa-cascade-list"))
@@ -167,7 +167,7 @@
             renders the empty-state container"
     (seed-buffer! [])
     (rf/with-frame :rf/causa
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container present even with an empty buffer")
         (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
@@ -181,7 +181,7 @@
     (seed-buffer! (cascade-evs 100 [:user/login {:id 42}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
             "cascade-detail container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
@@ -198,7 +198,7 @@
       ;; :selected-cascade=nil; the view should surface the
       ;; orphaned-state branch rather than the cascade rows.
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 999])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
             "orphaned-selection container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
@@ -236,7 +236,7 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (rf/dispatch-sync [:rf.causa/clear-selected-dispatch-id])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container present after clear")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
@@ -292,7 +292,7 @@
     (seed-buffer! [])
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 42])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
             "orphaned-selection container present when buffer is empty")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
@@ -307,7 +307,7 @@
             state container with the 'no cascades yet' placeholder copy"
     (seed-buffer! [])
     (rf/with-frame :rf/causa
-      (let [tree    (event-detail/event-detail-view)
+      (let [tree    (event-detail/Panel)
             empty   (find-by-testid tree "rf-causa-event-detail-empty")
             ;; Flatten every text node under the empty-state container
             ;; so the assertion is agnostic to the placeholder paragraph's
@@ -362,7 +362,7 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/default])
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 777])
-      (let [tree   (event-detail/event-detail-view)
+      (let [tree   (event-detail/Panel)
             count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
         (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
             "orphaned-selection container present — the redacted cascade
@@ -401,7 +401,7 @@
                        (map #(assoc % :sensitive? true))))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 888])
-      (let [tree   (event-detail/event-detail-view)
+      (let [tree   (event-detail/Panel)
             count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
         (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
             "cascade-detail renders the six-domino layout under the
@@ -439,7 +439,7 @@
     (seed-buffer! (cascade-evs-with-duration 300 [:counter/inc] 300 5))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 300])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
             "fast-tier dot present alongside the :duration-ms text")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
@@ -451,7 +451,7 @@
     (seed-buffer! (cascade-evs-with-duration 301 [:counter/inc] 310 30))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 301])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium"))
             "medium-tier dot present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))))))
@@ -461,7 +461,7 @@
     (seed-buffer! (cascade-evs-with-duration 302 [:counter/inc] 320 75))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 302])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow"))
             "slow-tier dot present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
@@ -472,7 +472,7 @@
     (seed-buffer! (cascade-evs-with-duration 303 [:counter/inc] 330 250))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 303])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking"))
             "blocking-tier dot present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))))))
@@ -485,7 +485,7 @@
     (seed-buffer! (cascade-evs 304 [:counter/inc] 340))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 304])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
             "no tier-dot when :duration-ms is absent")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
@@ -500,7 +500,7 @@
     (seed-buffer! (cascade-evs-with-duration 305 [:counter/inc] 350 "not-a-number"))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 305])
-      (let [tree (event-detail/event-detail-view)]
+      (let [tree (event-detail/Panel)]
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))

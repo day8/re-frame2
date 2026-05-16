@@ -175,7 +175,7 @@
   (testing "the panel renders its root container regardless of buffer state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-ribbon"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-issues-counts"))
@@ -192,7 +192,7 @@
             (the 'All clear' positive-result branch)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues"))
             ":no-issues empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
@@ -207,7 +207,7 @@
                               :operation :rf.error/handler-threw}))
       ;; Toggle in a severity the issue doesn't carry — filter excludes it.
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-empty-no-matches"))
             ":no-matches empty-state container present")
         (is (some? (find-by-testid tree "rf-causa-issues-empty-clear-filters"))
@@ -228,7 +228,7 @@
       (push-trace! (mk-issue {:id 2 :op-type :warning
                               :operation :rf.warning/missing
                               :dispatch-id 1}))
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-feed"))
             "feed <ul> present")
         (is (some? (find-by-testid tree "rf-causa-issues-row-1"))
@@ -244,7 +244,7 @@
     (rf/with-frame :rf/causa
       (push-trace! (mk-issue {:id 3 :op-type :error
                               :operation :rf.error/handler-threw}))
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-time"))
             "row timestamp span present")
         (is (some? (find-by-testid tree "rf-causa-issues-row-3-severity"))
@@ -260,7 +260,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push at least one issue so any-filter? is false initially.
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-error")))
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-warning")))
         (is (some? (find-by-testid tree "rf-causa-issues-severity-chip-advisory")))))))
@@ -272,7 +272,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; No issues — prefix chip-row suppressed.
-      (is (nil? (find-by-testid (issues-ribbon/issues-ribbon-view)
+      (is (nil? (find-by-testid (issues-ribbon/Panel)
                                 "rf-causa-issues-prefix-chips"))
           "no prefix chip-row when buffer carries no issues"))))
 
@@ -286,7 +286,7 @@
     (push-trace! (mk-issue {:id 1 :op-type :error
                             :operation :rf.error/handler-threw}))
     (rf/with-frame :rf/causa
-      (let [tree (issues-ribbon/issues-ribbon-view)]
+      (let [tree (issues-ribbon/Panel)]
         (is (some? (find-by-testid tree "rf-causa-issues-prefix-chips"))
             "prefix chip-row renders once at least one prefix exists")
         (is (some? (find-by-testid tree "rf-causa-issues-prefix-chip-rf.error"))
@@ -389,11 +389,11 @@
     (rf/with-frame :rf/causa
       (push-trace! (mk-issue {:id 1 :op-type :error
                               :operation :rf.error/handler-threw}))
-      (is (nil? (find-by-testid (issues-ribbon/issues-ribbon-view)
+      (is (nil? (find-by-testid (issues-ribbon/Panel)
                                 "rf-causa-issues-clear-filters"))
           "no Clear filters button when no axis is active")
       (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
-      (is (some? (find-by-testid (issues-ribbon/issues-ribbon-view)
+      (is (some? (find-by-testid (issues-ribbon/Panel)
                                  "rf-causa-issues-clear-filters"))
           "Clear filters button surfaces once a severity is active"))))
 
@@ -412,7 +412,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (issues-ribbon/issues-ribbon-view)
+          (let [tree    (issues-ribbon/Panel)
                 row     (find-by-testid tree "rf-causa-issues-row-4")
                 handler (:on-click (second row))]
             (is (some? row) "row node present in rendered tree")
@@ -439,7 +439,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (issues-ribbon/issues-ribbon-view)
+          (let [tree    (issues-ribbon/Panel)
                 node    (find-by-testid tree "rf-causa-issues-row-8-source")
                 handler (:on-click (second node))]
             (is (some? node) "source-coord chip rendered")

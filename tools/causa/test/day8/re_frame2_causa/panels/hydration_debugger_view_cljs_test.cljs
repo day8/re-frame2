@@ -199,7 +199,7 @@
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
-      (let [tree (hydration/hydration-debugger-view)]
+      (let [tree (hydration/Panel)]
         (is (some? (find-by-testid tree
                                    "rf-causa-hydration-debugger-empty-no-ssr"))
             "empty-state container present")
@@ -213,7 +213,7 @@
                                 [:p "3 items"]
                                 [:p "0 items"])])
     (rf/with-frame :rf/causa
-      (let [tree (hydration/hydration-debugger-view)]
+      (let [tree (hydration/Panel)]
         (is (some? (find-by-testid tree "rf-causa-hydration-mismatch-list"))
             "mismatch list present")
         (is (some? (find-by-testid tree "rf-causa-hydration-mismatch-detail"))
@@ -237,7 +237,7 @@
     (seed-buffer! [(mismatch-ev 1 [:div] [:a] [:b])
                    (mismatch-ev 2 [:span] [:c] [:d])])
     (rf/with-frame :rf/causa
-      (let [tree (hydration/hydration-debugger-view)
+      (let [tree (hydration/Panel)
             row  (find-by-testid tree "rf-causa-hydration-mismatch-row-1")]
         (is (some? row) "row 1 present in mismatch list")
         (is (fn? (:on-click (second row)))
@@ -257,7 +257,7 @@
                                 [:div [:p "match"] [:p "server"]]
                                 [:div [:p "match"] [:p "client"]])])
     (rf/with-frame :rf/causa
-      (let [tree  (hydration/hydration-debugger-view)
+      (let [tree  (hydration/Panel)
             chips (find-all-by-testid-prefix
                     tree "rf-causa-hydration-hash-chip-")]
         (is (pos? (count chips)) "at least one hash chip rendered")
@@ -303,7 +303,7 @@
   (testing "the hypothesis row carries one of the five hypothesis lines"
     (seed-buffer! [(mismatch-ev 1 [] [:p "3"] [:p "0"])])
     (rf/with-frame :rf/causa
-      (let [tree   (hydration/hydration-debugger-view)
+      (let [tree   (hydration/Panel)
             hyp    (find-by-testid tree "rf-causa-hydration-hypothesis")
             txt    (when hyp
                      (->> (hiccup-seq hyp)
@@ -320,7 +320,7 @@
                                 {:source-coord {:file "src/cart/views.cljs"
                                                 :line 42}})])
     (rf/with-frame :rf/causa
-      (let [tree  (hydration/hydration-debugger-view)
+      (let [tree  (hydration/Panel)
             row   (find-by-testid tree "rf-causa-hydration-source-coord")
             txt   (when row
                     (->> (hiccup-seq row)
@@ -337,7 +337,7 @@
                                 {:handler-source-coord
                                  {:file "src/cart/events.cljs" :line 13}})])
     (rf/with-frame :rf/causa
-      (let [tree (hydration/hydration-debugger-view)
+      (let [tree (hydration/Panel)
             row  (find-by-testid tree "rf-causa-hydration-source-coord")
             txt  (when row
                    (->> (hiccup-seq row)

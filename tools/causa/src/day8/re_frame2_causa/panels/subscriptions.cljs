@@ -13,7 +13,7 @@
             [day8.re-frame2-causa.panels.subscriptions-views
              :as views]))
 
-(rf/reg-view subscriptions-view
+(rf/reg-view Panel
   "The Subscriptions panel's root view.
 
   The body invokes the leaf as a plain function call —

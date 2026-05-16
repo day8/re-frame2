@@ -2161,7 +2161,7 @@ module.exports = {
     // visible-surface contract.
     //
     // The panel-style view is a DIFFERENT reg-view than the rail
-    // (`ai-co-pilot-view` vs `ai-co-pilot-rail` in `ai-co-pilot.cljs`)
+    // (`Panel` vs `ai-co-pilot-rail` in `ai-co-pilot.cljs`)
     // and re-mounts the conversation + input row from the same leaf
     // components. Asserting the slash popover here proves the leaf
     // works through both mounting paths — guards against a single

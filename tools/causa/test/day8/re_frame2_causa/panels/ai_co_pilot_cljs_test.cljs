@@ -190,7 +190,7 @@
       ;; Render both the rail view and the panel-style view. Neither
       ;; should fire an LLM call.
       (copilot/ai-co-pilot-rail)
-      (copilot/ai-co-pilot-view)
+      (copilot/Panel)
       (copilot/ai-co-pilot-cue))
     (is (= 0 (count (captured)))
         "no outbound LLM call fired by render")))
@@ -401,7 +401,7 @@
     (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
       (let [rail-tree  (copilot/ai-co-pilot-rail)
-            panel-tree (copilot/ai-co-pilot-view)
+            panel-tree (copilot/Panel)
             text-of-tree
             (fn [tree]
               (->> (hiccup-seq tree)

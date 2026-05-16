@@ -253,7 +253,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view causality-graph-view
+(rf/reg-view Panel
   "The Causality Graph panel's root view. Subscribes to
   `:rf.causa/causality-graph-data` and renders either the empty
   state (no cascades) or the SVG canvas (one or more cascades)."

@@ -16,11 +16,11 @@
   ## Facade-mount discipline (rf2-043uz)
 
   Each gallery wrapper mounts the panel through its facade view —
-  `event-detail-view`, `app-db-diff-view`, `subscriptions-view`. All
+  `event-detail/Panel`, `app-db-diff/Panel`, `subscriptions/Panel`. All
   three are registered via `reg-view`, so their `render-fn` is
   wrapped with `:contextType frame-context` by
   `re-frame.views/reg-view*`. The Reagent component-vector form
-  `[event-detail/event-detail-view]` is therefore safe here — React
+  `[event-detail/Panel]` is therefore safe here — React
   resolves the wrapped class's `:contextType`, the facade body reads
   `current-frame` correctly, and inside the facade body the per-
   panel discipline (function-call for plain-fn leaves, vector for
@@ -66,7 +66,7 @@
   [_args]
   [:div {:style card-style
          :data-testid "panel-gallery-event-detail-card"}
-   [event-detail/event-detail-view]])
+   [event-detail/Panel]])
 
 (defn- app-db-diff-panel
   "Embedded mount of the Causa app-db-diff panel for one Story
@@ -76,13 +76,13 @@
   `:selected-epoch-id`, `:pinned-slices-store`, and
   `:focused-slice-path`.
 
-  `app-db-diff/app-db-diff-view` is a `reg-view` registration whose
+  `app-db-diff/Panel` is a `reg-view` registration whose
   body composes `app-db-diff-sections/*` plain fns via Reagent
   vectors — the facade is itself the frame-aware render boundary."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-app-db-diff-card"}
-   [app-db-diff/app-db-diff-view]])
+   [app-db-diff/Panel]])
 
 (defn- subscriptions-panel
   "Embedded mount of the Causa subscriptions panel for one Story
@@ -91,7 +91,7 @@
   where the seed events have written `:sub-cache-override`,
   `:sub-error-cache`, `:selected-sub`, and `:sub-filters`.
 
-  `subscriptions/subscriptions-view` is a `reg-view` whose body
+  `subscriptions/Panel` is a `reg-view` whose body
   invokes `(subscriptions-views/subscriptions-panel)` via plain
   function call (rf2-043uz) — that internal call form keeps the
   leaf's subscribes inside the facade reg-view wrapper's render so
@@ -101,7 +101,7 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-subscriptions-card"}
-   [subscriptions/subscriptions-view]])
+   [subscriptions/Panel]])
 
 (defn- time-travel-panel
   "Embedded mount of the Causa time-travel panel for one Story
@@ -110,7 +110,7 @@
   the seed events have written `:epoch-history`, `:selected-epoch-id`,
   `:pin-store`, and `:label-input`.
 
-  `time-travel/time-travel-view` is a `reg-view` registration whose
+  `time-travel/Panel` is a `reg-view` registration whose
   body composes inline hiccup + sub-views via plain function calls —
   the facade is itself the frame-aware render boundary. The gallery
   wrapper mounts it as a Reagent vector — safe because reg-view
@@ -118,7 +118,7 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-time-travel-card"}
-   [time-travel/time-travel-view]])
+   [time-travel/Panel]])
 
 (defn- trace-panel
   "Embedded mount of the Causa trace panel for one Story variant.
@@ -127,13 +127,13 @@
   the seed events have written `:trace-buffer` and (optionally)
   `:trace-filters`.
 
-  `trace/trace-view` is a `reg-view` registration; the gallery
+  `trace/Panel` is a `reg-view` registration; the gallery
   wrapper mounts it as a Reagent vector — safe because reg-view
   threads `:contextType` through React."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-trace-card"}
-   [trace/trace-view]])
+   [trace/Panel]])
 
 (defn- issues-ribbon-panel
   "Embedded mount of the Causa issues-ribbon panel for one Story
@@ -143,13 +143,13 @@
   `:issues-active-severities` / `:issues-active-prefixes` /
   `:issues-since-ms`.
 
-  `issues-ribbon/issues-ribbon-view` is a `reg-view` registration;
+  `issues-ribbon/Panel` is a `reg-view` registration;
   the gallery wrapper mounts it as a Reagent vector — safe because
   reg-view threads `:contextType` through React."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-issues-ribbon-card"}
-   [issues-ribbon/issues-ribbon-view]])
+   [issues-ribbon/Panel]])
 
 (defn- causality-graph-panel
   "Embedded mount of the Causa causality-graph panel for one Story
@@ -158,7 +158,7 @@
   app-db, where the seed events have written `:trace-buffer` and
   (optionally) `:selected-dispatch-id`.
 
-  `causality-graph/causality-graph-view` is a `reg-view` registration;
+  `causality-graph/Panel` is a `reg-view` registration;
   the gallery wrapper mounts it as a Reagent vector — safe because
   reg-view threads `:contextType` through React.
 
@@ -172,7 +172,7 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-causality-graph-card"}
-   [causality-graph/causality-graph-view]])
+   [causality-graph/Panel]])
 
 (defn- ai-co-pilot-panel
   "Embedded mount of the Causa AI Co-Pilot canvas-form panel for one
@@ -181,7 +181,7 @@
   app-db, where the seed event has written `:copilot-conversation`,
   `:copilot-input-text`, `:copilot-provider`, etc.
 
-  `ai-co-pilot/ai-co-pilot-view` is a `reg-view` registration whose
+  `ai-co-pilot/Panel` is a `reg-view` registration whose
   body calls `(views/ai-co-pilot-view)` as a plain function per the
   rf2-043uz facade discipline — that internal call keeps the leaf's
   subscribes / dispatches inside the facade reg-view wrapper's
@@ -191,7 +191,7 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-ai-co-pilot-card"}
-   [ai-co-pilot/ai-co-pilot-view]])
+   [ai-co-pilot/Panel]])
 
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.

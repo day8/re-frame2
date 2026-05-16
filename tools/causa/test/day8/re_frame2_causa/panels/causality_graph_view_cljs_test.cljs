@@ -143,7 +143,7 @@
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
-      (let [tree (causality-graph/causality-graph-view)]
+      (let [tree (causality-graph/Panel)]
         (is (some? (find-by-testid tree "rf-causa-causality-graph-empty"))
             "empty-state container present")
         (is (nil?  (find-by-testid tree "rf-causa-causality-graph-svg"))
@@ -155,7 +155,7 @@
     (seed-buffer! (concat (cascade-evs 100 [:user/login] 0)
                           (cascade-evs 200 [:user/redirect] 100 100)))
     (rf/with-frame :rf/causa
-      (let [tree (causality-graph/causality-graph-view)]
+      (let [tree (causality-graph/Panel)]
         (is (some? (find-by-testid tree "rf-causa-causality-graph-svg"))
             "SVG container present")
         (is (nil?  (find-by-testid tree "rf-causa-causality-graph-empty"))
@@ -179,7 +179,7 @@
             writes to the right frame)."
     (seed-buffer! (cascade-evs 100 [:user/login] 0))
     (rf/with-frame :rf/causa
-      (let [tree     (causality-graph/causality-graph-view)
+      (let [tree     (causality-graph/Panel)
             node     (find-by-testid tree "rf-causa-graph-node-100")
             on-click (:on-click (second node))]
         (is (fn? on-click)
@@ -330,7 +330,7 @@
     (seed-buffer! (concat (cascade-evs 100 [:user/login] 0)
                           (cascade-evs 200 [:user/redirect] 100 100)))
     (rf/with-frame :rf/causa
-      (let [tree (causality-graph/causality-graph-view)
+      (let [tree (causality-graph/Panel)
             svg  (find-by-testid tree "rf-causa-causality-graph-svg")
             attrs (second svg)]
         (is (some? svg) "SVG canvas present")
@@ -356,7 +356,7 @@
             deliberate change."
     (seed-buffer! (cascade-evs 100 [:user/login] 0))
     (rf/with-frame :rf/causa
-      (let [tree  (causality-graph/causality-graph-view)
+      (let [tree  (causality-graph/Panel)
             svg   (find-by-testid tree "rf-causa-causality-graph-svg")
             attrs (second svg)]
         (is (nil? (:on-wheel attrs))
@@ -377,7 +377,7 @@
             mount lazily on first hover') rides a follow-on bead."
     (seed-buffer! (cascade-evs 100 [:user/login] 0))
     (rf/with-frame :rf/causa
-      (let [tree  (causality-graph/causality-graph-view)
+      (let [tree  (causality-graph/Panel)
             node  (find-by-testid tree "rf-causa-graph-node-100")
             attrs (second node)]
         (is (= "pointer" (get-in attrs [:style :cursor]))
@@ -411,7 +411,7 @@
     (seed-buffer! (concat (cascade-evs 100 [:user/login] 0)
                           (cascade-evs 200 [:user/redirect] 100 100)))
     (rf/with-frame :rf/causa
-      (let [tree   (causality-graph/causality-graph-view)
+      (let [tree   (causality-graph/Panel)
             parent (find-by-testid tree "rf-causa-graph-node-100")
             child  (find-by-testid tree "rf-causa-graph-node-200")]
         (is (fn? (:on-click (second parent))) "parent carries on-click")
@@ -435,7 +435,7 @@
             ignored (rf/dispatch returns nil)."
     (seed-buffer! (cascade-evs 100 [:user/login] 0))
     (rf/with-frame :rf/causa
-      (let [tree     (causality-graph/causality-graph-view)
+      (let [tree     (causality-graph/Panel)
             node     (find-by-testid tree "rf-causa-graph-node-100")
             on-click (:on-click (second node))]
         (is (fn? on-click))
@@ -480,7 +480,7 @@
       (rf/with-frame :rf/causa
         (let [data        @(rf/subscribe [:rf.causa/causality-graph-data])
               sub-ids     (set (map :dispatch-id (get-in data [:graph :nodes])))
-              tree        (causality-graph/causality-graph-view)
+              tree        (causality-graph/Panel)
               node-prefix "rf-causa-graph-node-"
               rendered    (find-all-by-testid-prefix tree node-prefix)
               rendered-ids (->> rendered
@@ -507,7 +507,7 @@
                           (cascade-evs 200 [:user/redirect] 100 100)))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 200])
-      (let [tree      (causality-graph/causality-graph-view)
+      (let [tree      (causality-graph/Panel)
             ;; The selected glyph (◉) is text inside the node `<g>`; the
             ;; outer `<g>` carries the data-testid. Walk the node's
             ;; subtree to find the <rect> child.

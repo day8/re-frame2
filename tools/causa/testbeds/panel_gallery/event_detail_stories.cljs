@@ -2,7 +2,7 @@
   "Story coverage for the Causa event-detail panel under gallery framing
   (rf2-1o7mp).
 
-  Twelve variants, each one render of `event-detail-view` against a
+  Twelve variants, each one render of `event-detail/Panel` against a
   variant frame whose `:trace-buffer` (and where relevant
   `:selected-dispatch-id` / `:selected-dispatch`) has been seeded by
   REAL Causa init events fired into the variant frame.
@@ -34,7 +34,7 @@
 ;;
 ;; Story requires `:component` to be a registered view-id (per the
 ;; canvas's `(re-frame.core/view <id>)` lookup). The gallery's
-;; component is a thin wrapper around `event-detail-view` so the panel
+;; component is a thin wrapper around `event-detail/Panel` so the panel
 ;; renders inside the variant's frame-provider unchanged. Wrapper
 ;; absorbs the Story-provided args map (the panel takes no args).
 

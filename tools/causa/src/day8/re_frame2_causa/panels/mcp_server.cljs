@@ -19,7 +19,7 @@
 
   Per the convention §Re-exports are minimal and intentional, the
   facade re-exports `install!` (the panel's installation entry) and
-  `mcp-server-view` (the view name `shell.cljs` references). Leaf
+  `Panel` (the view name `shell.cljs` references). Leaf
   subs/events/feed/chrome/style surfaces are NOT re-exported — they
   are internal organisation reached via the `install!` chain or
   direct sibling :require, and re-exporting them would invert the
@@ -29,7 +29,7 @@
             [day8.re-frame2-causa.panels.mcp-server-subs :as subs]
             [day8.re-frame2-causa.panels.mcp-server-views :as views]))
 
-(rf/reg-view mcp-server-view
+(rf/reg-view Panel
   "The MCP Server panel's root view.
 
   The body invokes the leaf as a plain function call —

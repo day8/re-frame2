@@ -2,7 +2,7 @@
   "Story coverage for the Causa causality-graph panel under gallery
   framing (rf2-8r20i, Phase 2).
 
-  Ten variants, each one render of `causality-graph-view` against a
+  Ten variants, each one render of `causality-graph/Panel` against a
   variant frame whose `:trace-buffer` (and optionally
   `:selected-dispatch-id`) has been seeded by REAL Causa init events
   fired into the variant frame.

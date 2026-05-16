@@ -3,7 +3,7 @@
 
   Plain Reagent fns per the canonical facade convention — the panel's
   three public `reg-view` names (`ai-co-pilot-rail`,
-  `ai-co-pilot-cue`, `ai-co-pilot-view`) live in the facade
+  `ai-co-pilot-cue`, `Panel`) live in the facade
   `ai-co-pilot.cljs`; this leaf supplies the implementation bodies."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.ai-co-pilot-chrome :as chrome]

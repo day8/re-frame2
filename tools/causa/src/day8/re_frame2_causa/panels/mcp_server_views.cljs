@@ -2,7 +2,7 @@
   "Top-level view shell for the MCP Server panel.
 
   Plain Reagent fn per the canonical facade convention — the panel's
-  public `reg-view` (`mcp-server-view`) lives in the facade
+  public `reg-view` (`Panel`) lives in the facade
   `mcp-server.cljs`; this leaf supplies the implementation body."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.mcp-server-chrome :as chrome]

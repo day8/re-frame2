@@ -295,11 +295,11 @@
       {:doc       "Causa's epoch buffer."
        :title     "Epochs (Causa)"
        :placement :bottom
-       :render    :day8.re-frame2-causa.panels.time-travel/time-travel-view})
+       :render    :day8.re-frame2-causa.panels.time-travel/Panel})
     (let [body (story/handler-meta :story-panel :rf.story/causa-epoch)]
       (is (= "Epochs (Causa)" (:title body)))
       (is (= :bottom (:placement body)))
-      (is (= :day8.re-frame2-causa.panels.time-travel/time-travel-view (:render body))))))
+      (is (= :day8.re-frame2-causa.panels.time-travel/Panel (:render body))))))
 
 ;; ---- decorator (per-kind) ---------------------------------------------
 

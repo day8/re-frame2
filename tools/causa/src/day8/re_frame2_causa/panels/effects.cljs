@@ -264,7 +264,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view effects-view
+(rf/reg-view Panel
   "The Effects panel's root view. Subscribes to
   `:rf.causa/effects-data` and renders the summary header + fx list
   (or the empty state when no fxs are registered)."

@@ -55,7 +55,7 @@ delegation" below).
 4. **Re-exports are minimal and intentional.** The facade re-exports:
    - `install!` (always, as the panel's installation entry point).
    - View vars that callers (typically `shell.cljs`) reference by name
-     (e.g. `app-db-diff/app-db-diff-view`,
+     (e.g. `app-db-diff/Panel`,
      `ai-co-pilot/ai-co-pilot-rail`).
 
    The facade does **NOT** re-export every leaf's surface. Leaves are
@@ -85,7 +85,7 @@ The facade's `reg-view` body is either:
   (parens), not a Reagent component vector (brackets):
 
   ```clojure
-  (rf/reg-view subscriptions-view
+  (rf/reg-view Panel
     "The Subscriptions panel's root view."
     []
     (views/subscriptions-panel))    ; parens — leaf body inlined

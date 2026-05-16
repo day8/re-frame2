@@ -251,7 +251,7 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view performance-view
+(rf/reg-view Panel
   "The Performance panel's root view. Subscribes to
   `:rf.causa/performance-data` and renders the empty-state or the
   feed."

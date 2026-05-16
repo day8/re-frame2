@@ -176,7 +176,7 @@
   (testing "the panel renders its root container regardless of buffer state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (some? (find-by-testid tree "rf-causa-performance"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-perf-totals"))
@@ -190,7 +190,7 @@
   (testing "with no cascades the panel renders the empty container"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (some? (find-by-testid tree "rf-causa-perf-empty"))
             "empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-perf-feed"))
@@ -206,7 +206,7 @@
       (push-cascade! {:dispatch-id 1 :span-ms 5})
       (push-cascade! {:dispatch-id 2 :span-ms 25})
       (push-cascade! {:dispatch-id 3 :span-ms 200})
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (some? (find-by-testid tree "rf-causa-perf-feed"))
             "feed <ul> present")
         (is (some? (find-by-testid tree "rf-causa-perf-row-1"))
@@ -221,7 +221,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-cascade! {:dispatch-id 5 :span-ms 30 :event-vec [:cart/add 1]})
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (some? (find-by-testid tree "rf-causa-perf-row-5-tier"))
             "tier span present")
         (is (some? (find-by-testid tree "rf-causa-perf-row-5-id"))
@@ -241,7 +241,7 @@
     (rf/with-frame :rf/causa
       ;; Cascade spans 30ms; default budget is 16ms → over-budget.
       (push-cascade! {:dispatch-id 7 :span-ms 30})
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (some? (find-by-testid tree "rf-causa-perf-row-7-over-budget"))
             "over-budget marker present for over-budget row")
         (is (some? (find-by-testid tree "rf-causa-perf-over-budget-count"))
@@ -253,7 +253,7 @@
     (rf/with-frame :rf/causa
       ;; Cascade spans 5ms; default budget 16ms → within budget.
       (push-cascade! {:dispatch-id 11 :span-ms 5})
-      (let [tree (performance/performance-view)]
+      (let [tree (performance/Panel)]
         (is (nil? (find-by-testid tree "rf-causa-perf-row-11-over-budget"))
             "no over-budget marker for fast row")
         (is (nil? (find-by-testid tree "rf-causa-perf-over-budget-count"))
@@ -291,7 +291,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-cascade! {:dispatch-id 1 :span-ms 5})
-      (let [tree (performance/performance-view)
+      (let [tree (performance/Panel)
             chips (find-all-by-testid-prefix tree "rf-causa-perf-tier-chip-")]
         (is (= 4 (count chips))
             "4 chips — one per tier in tier-order")
@@ -312,7 +312,7 @@
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (performance/performance-view)
+          (let [tree    (performance/Panel)
                 row     (find-by-testid tree "rf-causa-perf-row-42")
                 handler (:on-click (second row))]
             (is (some? row) "row node present in rendered tree")
@@ -333,7 +333,7 @@
       ;; 5ms → :fast, within-budget. 200ms → :blocking, over-budget.
       (push-cascade! {:dispatch-id 1 :span-ms 5})
       (push-cascade! {:dispatch-id 2 :span-ms 200})
-      (let [tree (performance/performance-view)
+      (let [tree (performance/Panel)
             r1   (find-by-testid tree "rf-causa-perf-row-1")
             r2   (find-by-testid tree "rf-causa-perf-row-2")]
         (is (= "fast"     (:data-tier (second r1))))

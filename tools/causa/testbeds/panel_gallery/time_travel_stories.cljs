@@ -2,7 +2,7 @@
   "Story coverage for the Causa time-travel panel under gallery
   framing (rf2-8r20i, Phase 2).
 
-  Eight variants, each one render of `time-travel-view` against a
+  Eight variants, each one render of `time-travel/Panel` against a
   variant frame whose `:epoch-history` (and optionally
   `:selected-epoch-id`) has been seeded by REAL Causa init events
   fired into the variant frame.

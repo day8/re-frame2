@@ -226,7 +226,7 @@
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (rf/with-frame :rf/causa
-      (let [tree (panel/schema-violation-timeline-view)]
+      (let [tree (panel/Panel)]
         (is (some? (find-by-testid tree "rf-causa-schema-violation-timeline")))
         (is (some? (find-by-testid tree "rf-causa-schema-timeline-empty-no-schemas")))))))
 
@@ -245,7 +245,7 @@
     (let [now-ms (.getTime (js/Date.))]
       (push-failures! [(failure-ev 1 :s/auth :skip-handler {:time now-ms})])
       (rf/with-frame :rf/causa
-        (let [tree (panel/schema-violation-timeline-view)]
+        (let [tree (panel/Panel)]
           (is (some? (find-by-testid tree "rf-causa-schema-violation-timeline")))
           (is (some? (find-by-testid tree "rf-causa-schema-timeline-rows"))
               "violations render the rows container")
@@ -262,7 +262,7 @@
     (let [now-ms (.getTime (js/Date.))]
       (push-failures! [(failure-ev 9 :s/critical :re-raised {:time now-ms})])
       (rf/with-frame :rf/causa
-        (let [tree (panel/schema-violation-timeline-view)
+        (let [tree (panel/Panel)
               dots (find-all-by-testid-prefix tree "rf-causa-schema-timeline-row-")]
           (is (some
                 (fn [node]
@@ -286,7 +286,7 @@
       (push-failures! [(failure-ev 11 :s/soft :replaced-with-default
                                    {:time now-ms})])
       (rf/with-frame :rf/causa
-        (let [tree (panel/schema-violation-timeline-view)]
+        (let [tree (panel/Panel)]
           (is (some
                 (fn [node]
                   (let [attrs (when (vector? node) (second node))]
@@ -309,18 +309,18 @@
                                     :value "not-an-email"})])
       (rf/with-frame :rf/causa
         ;; Before selection — no detail panel.
-        (let [tree (panel/schema-violation-timeline-view)]
+        (let [tree (panel/Panel)]
           (is (nil? (find-by-testid tree
                                     "rf-causa-schema-violation-detail-77"))))
         ;; Select.
         (rf/dispatch-sync [:rf.causa/select-violation 77])
-        (let [tree (panel/schema-violation-timeline-view)]
+        (let [tree (panel/Panel)]
           (is (some? (find-by-testid tree
                                      "rf-causa-schema-violation-detail-77"))
               "the detail side panel renders for the selected violation"))
         ;; Clear.
         (rf/dispatch-sync [:rf.causa/clear-violation-selection])
-        (let [tree (panel/schema-violation-timeline-view)]
+        (let [tree (panel/Panel)]
           (is (nil? (find-by-testid tree
                                     "rf-causa-schema-violation-detail-77"))
               "clearing selection unmounts the detail side panel"))))))

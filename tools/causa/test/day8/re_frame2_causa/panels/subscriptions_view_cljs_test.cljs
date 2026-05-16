@@ -134,7 +134,7 @@
             empty state"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-subscriptions"))
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-subscriptions-empty"))
@@ -150,7 +150,7 @@
       (override-cache!
         {[:cart/total] {:ref-count 1 :layer 3}
          [:user/auth]  {:ref-count 2 :layer 1}})
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-subscriptions-list"))
             "list container present")
         (is (some? (find-by-testid tree "rf-causa-sub-row-:cart/total"))
@@ -165,7 +165,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-cache! {[:a] {:ref-count 1}}) ; need >0 total to render filters
-      (let [tree  (subscriptions/subscriptions-view)
+      (let [tree  (subscriptions/Panel)
             chips (find-all-by-testid-prefix tree "rf-causa-sub-filter-")]
         (is (= 5 (count chips))
             "5 chips — one per status in the taxonomy")))))
@@ -193,7 +193,7 @@
         {[:fresh-sub]    {:ref-count 1}
          [:cached-sub]   {:ref-count 0}})
       (rf/dispatch-sync [:rf.causa/toggle-sub-filter :fresh])
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-sub-row-:fresh-sub"))
             "fresh sub passes the filter")
         (is (nil? (find-by-testid tree "rf-causa-sub-row-:cached-sub"))
@@ -234,7 +234,7 @@
                         :input-subs [[:cart/items]]}
          [:cart/items] {:ref-count 1 :layer 2}})
       (rf/dispatch-sync [:rf.causa/show-invalidation-chain [:cart/total]])
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-subscriptions-chain"))
             "chain container present when chain-open? is true")
         (is (some? (find-by-testid tree "rf-causa-subscriptions-chain-focused"))
@@ -245,7 +245,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-cache! {[:cart/total] {:ref-count 1 :layer 3}})
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (nil? (find-by-testid tree "rf-causa-subscriptions-chain"))
             "no chain container when chain-open? is false")))))
 
@@ -256,7 +256,7 @@
     (rf/with-frame :rf/causa
       ;; No override — cache is nil; chain on any sub is :missing?
       (rf/dispatch-sync [:rf.causa/show-invalidation-chain [:nonexistent]])
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-subscriptions-chain-missing"))
             "missing branch surfaces")))))
 
@@ -271,7 +271,7 @@
          [:invalid-sub]  {:invalidated? true :ref-count 0}
          [:running-sub]  {:rerunning? true :ref-count 1}
          [:cached-sub]   {:ref-count 0}})
-      (let [tree (subscriptions/subscriptions-view)]
+      (let [tree (subscriptions/Panel)]
         (is (some? (find-by-testid tree "rf-causa-sub-badge-fresh")))
         (is (some? (find-by-testid tree "rf-causa-sub-badge-invalidated")))
         (is (some? (find-by-testid tree "rf-causa-sub-badge-re-running")))

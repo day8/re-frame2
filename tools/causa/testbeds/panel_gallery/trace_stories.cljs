@@ -2,7 +2,7 @@
   "Story coverage for the Causa trace panel under gallery framing
   (rf2-8r20i, Phase 2).
 
-  Nine variants, each one render of `trace-view` against a variant
+  Nine variants, each one render of `trace/Panel` against a variant
   frame whose `:trace-buffer` (and optionally `:trace-filters`) has
   been seeded by REAL Causa init events fired into the variant frame.
 
