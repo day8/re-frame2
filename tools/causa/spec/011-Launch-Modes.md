@@ -184,6 +184,13 @@ Remove the `:preloads` entry, or:
 | Pop out to second window | `window.day8.re_frame2_causa.popout_BANG_()` |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
 
+Per `rf2-sbfb7` the body-padding dock surface (`dock!` / `undock!`) and
+the imperative inline-panel surface (`mount-inline-panel!` /
+`unmount-inline-panel!`) were removed. The true-inline default and the
+`popout!` window cover the dock use case; declarative panel embedding
+is the surface enumerated in
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md).
+
 ### Closed state
 
 When Causa is hidden, the inline mount node remains in the layout host
@@ -194,8 +201,8 @@ remount is required.
 
 Hosts MAY add their own launcher affordance if they want a visible
 button, but that affordance is host chrome, not Causa's default launch
-contract. Causa's built-in overlay/docked APIs remain optional debug
-modes and must not be described as the primary path.
+contract. Causa's built-in `open-overlay!` debug surface remains an
+optional debug mode and must not be described as the primary path.
 
 ### Pop-out to a second window
 
@@ -332,7 +339,7 @@ swallow-errors guard — substrate adapters MAY throw on a
 double-unmount and `teardown!` is the test fixture's last-chance
 cleanup, not a contract-checking call site.
 
-Per `rf2-yudol` the teardown contract covers **all three** mount
+Per `rf2-yudol` the teardown contract covers **both** mount
 singletons, not just the in-app shell:
 
 - `mount-state` — the in-app shell (above).
@@ -342,11 +349,12 @@ singletons, not just the in-app shell:
   the singleton to `nil`. A leaked `popout-state` would short-
   circuit the next `popout!` and return a stale state map whose
   `:window` is already closed.
-- `inline-mounts` — every embedded panel registered via
-  `mount-inline-panel!`. `teardown!` MUST iterate the registry,
-  invoke each unmount inside an independent swallow-errors guard
-  (so one failing unmount cannot strand the rest), and reset the
-  registry to `{}`.
+
+(The third pre-existing singleton — `inline-mounts` for the
+imperative `mount-inline-panel!` debug API — went away under
+`rf2-sbfb7` together with the debug API itself; declarative panel
+embedding under [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
+replaces it and does not touch the mount singleton surface.)
 
 **Popout external-close cleanup.** Per `rf2-yudol` `popout!` MUST
 register `pagehide` / `unload` listeners on the popout window so

@@ -58,7 +58,7 @@
   ;;   {:node      <DOM element>      ; the freshly-created <div>
   ;;    :unmount   (fn [] ...)         ; substrate adapter unmount fn
   ;;    :visible?  <boolean>
-  ;;    :mode      <:inline|:overlay|:docked>}
+  ;;    :mode      <:inline|:overlay>}
   ;; Nil before first mount; never re-allocated across reloads thanks
   ;; to defonce.
   (atom nil))
@@ -67,11 +67,6 @@
   ;; Optional second-window mount. Shape mirrors mount-state plus
   ;; `:window`. The opener runtime remains the source of truth.
   (atom nil))
-
-(defonce ^:private inline-mounts
-  ;; DOM-node → {:node :unmount :panel-id}. Inline panel mounts are
-  ;; independent from the overlay shell and from each other.
-  (atom {}))
 
 (defonce ^:private diagnostic-state
   (atom {:ok? true :reason nil}))
@@ -179,11 +174,6 @@
       (when-let [shell (shell-node node)]
         (.setAttribute shell "data-mode" mode-name)))))
 
-(defn- set-body-docked! [docked?]
-  (when (and (exists? js/document) (.-body js/document))
-    (set! (-> js/document .-body .-style .-paddingRight)
-          (if docked? "40%" ""))))
-
 (defn- mount-shell-into! [node mode]
   (ensure-causa-frame!)
   (let [unmount (substrate-adapter/render [shell/shell-view {:mode mode}] node nil)]
@@ -276,7 +266,6 @@
   (if-let [state @mount-state]
     (do (set-visible! (:node state) true)
         (set-mode-attrs! (:node state) :overlay)
-        (set-body-docked! false)
         (swap! mount-state assoc :visible? true :mode :overlay)
         @mount-state)
     (when (substrate-adapter/current-adapter)
@@ -292,28 +281,6 @@
     (set-visible! (:node state) false)
     (swap! mount-state assoc :visible? false))
   nil)
-
-(defn dock!
-  "Dock Causa against the host page. The shell remains the same
-  runtime-backed panel, but the root and shell DOM carry
-  `data-rf-causa-mode=\"docked\"` / `data-mode=\"docked\"`, and the
-  host body gets right padding so the inspected app is not obscured.
-  Returns the mount-state map."
-  []
-  (when-let [state (or @mount-state (open-overlay!))]
-    (set-mode-attrs! (:node state) :docked)
-    (set-body-docked! true)
-    (swap! mount-state assoc :mode :docked :visible? true)
-    @mount-state))
-
-(defn undock!
-  "Return the overlay shell to its non-layout-affecting debug mode."
-  []
-  (when-let [state @mount-state]
-    (set-mode-attrs! (:node state) :overlay)
-    (set-body-docked! false)
-    (swap! mount-state assoc :mode :overlay))
-  @mount-state)
 
 (defn toggle!
   "Toggle the Causa shell's visibility. First call mounts + shows
@@ -339,33 +306,15 @@
     (reset! popout-state nil))
   nil)
 
-(defn- teardown-inline-mounts!
-  "Internal: iterate every registered inline-panel mount, invoke its
-  unmount fn, and clear the registry. Each unmount is wrapped in a
-  swallow-errors guard so a single failed unmount cannot strand the
-  remaining entries (per the teardown contract in tools/causa/spec/
-  011-Launch-Modes.md §Mount lifecycle)."
-  []
-  (doseq [[node {:keys [unmount]}] @inline-mounts]
-    (when unmount
-      (try (unmount) (catch :default _ nil)))
-    (when (and node (.-removeAttribute node))
-      (try (.removeAttribute node "data-rf-causa-mode")
-           (catch :default _ nil))))
-  (reset! inline-mounts {})
-  nil)
-
 (defn teardown!
   "Tear the shell down completely — unmount every Causa mount surface,
   remove DOM nodes, clear every mount singleton. Intended for tests;
   production sessions keep the shell across the page's lifetime.
 
-  Three singletons are cleared per rf2-yudol (audit rf2-a6tvr Q1-1+Q1-2):
+  Two singletons are cleared:
 
   - `mount-state` — the default in-app shell.
   - `popout-state` — the optional second-window shell (also closed).
-  - `inline-mounts` — every embedded panel registered via
-    `mount-inline-panel!`.
 
   All unmount calls run inside swallow-errors guards so a single
   failed unmount cannot strand the remaining singletons."
@@ -375,10 +324,8 @@
       (try (unmount) (catch :default _ nil)))
     (when (and node (.-parentNode node))
       (.removeChild (.-parentNode node) node))
-    (set-body-docked! false)
     (reset! mount-state nil))
   (teardown-popout-state!)
-  (teardown-inline-mounts!)
   (clear-diagnostic!)
   (reset! auto-open-state {:started? false :attempts 0})
   nil)
@@ -476,32 +423,3 @@
                 (register-popout-unload-cleanup! win)
                 state))))))))
 
-(defn mount-inline-panel!
-  "Render one Causa panel into `node` without the shell chrome. `panel-id`
-  is any sidebar panel id; nil defaults to the hero panel. Returns a
-  mount map and stores the unmount fn by DOM node."
-  ([node panel-id]
-   (mount-inline-panel! node panel-id nil))
-  ([node panel-id _opts]
-   (if-not (and node (substrate-adapter/current-adapter))
-     {:ok? false :reason (if node :no-substrate-adapter :missing-node)}
-     (do
-       (ensure-causa-frame!)
-       (.setAttribute node "data-rf-causa-mode" "inline")
-       (let [unmount (substrate-adapter/render
-                       [shell/inline-panel-view {:panel-id (or panel-id :event-detail)}]
-                       node nil)
-             state   {:ok? true :node node :panel-id (or panel-id :event-detail)
-                      :unmount unmount :mode :inline}]
-         (swap! inline-mounts assoc node state)
-         state)))))
-
-(defn unmount-inline-panel!
-  "Unmount a previously mounted inline panel from `node`."
-  [node]
-  (when-let [{:keys [unmount]} (get @inline-mounts node)]
-    (when unmount
-      (try (unmount) (catch :default _ nil)))
-    (.removeAttribute node "data-rf-causa-mode")
-    (swap! inline-mounts dissoc node))
-  nil)

@@ -32,10 +32,11 @@ re-check. It now exercises the follow-up surfaces directly:
 - Open in Editor / Source Coordinates: trace and issues source chips are
   clicked in the browser. Failures include the panel, source coordinate,
   expected editor URI, observed bridge traces, network outcome, and screenshot.
-- Pop-out, Docking, and Inline Embedding: the current shell exposes the overlay
-  surface only. The gate asserts that the right-side overlay leaves the left
-  host app clickable, and records explicit current-build observations for
-  pop-out, docking, and inline public-mount availability.
+- Pop-out: the gate asserts that the inline shell leaves the left
+  host app clickable and that `popout!` renders a same-origin second-window
+  Causa shell sharing the opener's runtime. (Per `rf2-sbfb7`, the dock /
+  docked-overlay and `mount-inline-panel!` debug surfaces were removed;
+  declarative embedding lands under 008-Embedding-Contract.)
 - Schema recovery: the schema testbed loads the Malli adapter so browser runs
   assert rollback, skipped handlers, skipped fx, and the Causa schema panel's
   current row/empty-state projection.

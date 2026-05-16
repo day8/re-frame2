@@ -167,12 +167,8 @@
   (gobj/set obj "open_overlay_BANG_" mount/open-overlay!)
   (gobj/set obj "close_BANG_" mount/close!)
   (gobj/set obj "toggle_BANG_" mount/toggle!)
-  (gobj/set obj "dock_BANG_" mount/dock!)
-  (gobj/set obj "undock_BANG_" mount/undock!)
   (gobj/set obj "popout_BANG_" mount/popout!)
   (gobj/set obj "status" mount/status)
-  (gobj/set obj "mount_inline_panel_BANG_" mount/mount-inline-panel!)
-  (gobj/set obj "unmount_inline_panel_BANG_" mount/unmount-inline-panel!)
   nil)
 
 (defn install-browser-api-exports!

@@ -410,90 +410,6 @@ async function assertDefaultInlineLaunchModes(page, state) {
     }
   });
 
-  const inlineStart = await page.evaluate(() => {
-    const causa = window.day8 && window.day8.re_frame2_causa;
-    const core = causa && (causa.core || causa);
-    const keys = core ? Object.keys(core).sort() : [];
-    const fn = core && core.mount_inline_panel_BANG_;
-    if (typeof fn !== 'function') {
-      return { available: false, implemented: false, reason: 'mount_inline_panel_BANG_ not exported', keys };
-    }
-    const host = document.createElement('div');
-    host.id = 'rf-causa-inline-feature-matrix-host';
-    host.style.minHeight = '260px';
-    document.body.appendChild(host);
-    try {
-      fn(host, window.cljs.core.keyword('event-detail'));
-      return { available: true, scheduled: true, keys };
-    } catch (err) {
-      return { available: true, implemented: false, threw: String(err && (err.stack || err.message || err)), keys };
-    }
-  });
-  if (!inlineStart.available || inlineStart.threw) {
-    failWithDetails('Causa launch mode is not implemented', { mode: 'inline', observed: inlineStart });
-  }
-  await page.waitForSelector('#rf-causa-inline-feature-matrix-host [data-testid="rf-causa-inline-panel"]', { timeout: 2000 });
-  const embeddedInline = await page.evaluate(() => {
-    const causa = window.day8 && window.day8.re_frame2_causa;
-    const core = causa && (causa.core || causa);
-    const keys = core ? Object.keys(core).sort() : [];
-    const host = document.getElementById('rf-causa-inline-feature-matrix-host');
-    const panel = host && host.querySelector('[data-testid="rf-causa-inline-panel"]');
-    return {
-      available: true,
-      implemented: Boolean(panel),
-      hostId: host ? host.id : null,
-      hostMode: host ? host.getAttribute('data-rf-causa-mode') : null,
-      panelPresent: Boolean(panel),
-      panel: panel ? panel.getAttribute('data-panel') : null,
-      eventDetailPresent: Boolean(host && host.querySelector('[data-testid="rf-causa-event-detail"]')),
-      keys,
-    };
-  });
-
-  const docking = await page.evaluate(() => {
-    const causa = window.day8 && window.day8.re_frame2_causa;
-    const core = causa && (causa.core || causa);
-    const keys = core ? Object.keys(core).sort() : [];
-    const dock = core && core.dock_BANG_;
-    const undock = core && core.undock_BANG_;
-    if (typeof dock !== 'function' || typeof undock !== 'function') {
-      return { available: false, implemented: false, reason: 'dock_BANG_ / undock_BANG_ not exported', keys };
-    }
-    const root = document.getElementById('rf-causa-root');
-    try {
-      dock();
-      const dockedRoot = document.getElementById('rf-causa-root');
-      const dockedShell = dockedRoot && dockedRoot.querySelector('[data-testid="rf-causa-shell"]');
-      const docked = {
-        rootMode: dockedRoot ? dockedRoot.getAttribute('data-rf-causa-mode') : null,
-        shellMode: dockedShell ? dockedShell.getAttribute('data-mode') : null,
-        bodyPaddingRight: document.body.style.paddingRight,
-      };
-      undock();
-      const undockedRoot = document.getElementById('rf-causa-root');
-      const undockedShell = undockedRoot && undockedRoot.querySelector('[data-testid="rf-causa-shell"]');
-      const undocked = {
-        rootMode: undockedRoot ? undockedRoot.getAttribute('data-rf-causa-mode') : null,
-        shellMode: undockedShell ? undockedShell.getAttribute('data-mode') : null,
-        bodyPaddingRight: document.body.style.paddingRight,
-      };
-      return {
-        available: true,
-        implemented: docked.rootMode === 'docked' &&
-          docked.shellMode === 'docked' &&
-          docked.bodyPaddingRight === '40%' &&
-          undocked.rootMode === 'overlay',
-        rootBefore: Boolean(root),
-        docked,
-        undocked,
-        keys,
-      };
-    } catch (err) {
-      return { available: true, implemented: false, threw: String(err && (err.stack || err.message || err)), keys };
-    }
-  });
-
   state.launchModes = {
     inlineDefault: {
       rootMode: defaultInline.rootMode,
@@ -504,10 +420,8 @@ async function assertDefaultInlineLaunchModes(page, state) {
       normalFlowHost: true,
     },
     popout,
-    docking,
-    inline: embeddedInline,
   };
-  for (const [mode, record] of Object.entries({ popout, docking, inline: embeddedInline })) {
+  for (const [mode, record] of Object.entries({ popout })) {
     if (!record.implemented) {
       failWithDetails('Causa launch mode is not implemented', { mode, observed: record });
     }
@@ -852,8 +766,6 @@ async function readLaunchModeProjection(page) {
     const popoutWin = window.open('', 'rf-causa-popout');
     const popoutDoc = popoutWin && popoutWin.document;
     const popoutRoot = popoutDoc && popoutDoc.getElementById('rf-causa-popout-root');
-    const inlineHost = document.getElementById('rf-causa-inline-load-feature-matrix-host');
-    const inlinePanel = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-inline-panel"]');
     return {
       url: location.href,
       traceReadError: trace.ok ? null : trace.reason,
@@ -865,22 +777,6 @@ async function readLaunchModeProjection(page) {
       popout: {
         openerStatus: popoutWin ? (popoutWin.closed ? 'closed' : 'open') : 'missing',
         ...shellProjection(popoutRoot),
-      },
-      inline: {
-        present: Boolean(inlineHost),
-        hostMode: inlineHost ? inlineHost.getAttribute('data-rf-causa-mode') : null,
-        panelPresent: Boolean(inlinePanel),
-        panel: inlinePanel ? inlinePanel.getAttribute('data-panel') : null,
-        cascadeRows: count(inlineHost, '[data-testid^="rf-causa-cascade-row-"]'),
-        selectedDispatchId: (() => {
-          const cascade = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
-          return cascade ? cascade.getAttribute('data-dispatch-id') : null;
-        })(),
-        selectedFrame: (() => {
-          const cascade = inlineHost && inlineHost.querySelector('[data-testid="rf-causa-event-detail-cascade"]');
-          return cascade ? cascade.getAttribute('data-frame') : null;
-        })(),
-        cascadeText: text(inlineHost, '[data-testid="rf-causa-event-detail-cascade"]'),
       },
       listenerLifecycle: {
         expectedHostDispatches: 20,
@@ -1518,9 +1414,6 @@ async function runLaunchModesTwentyEventLoad(page, state) {
     const core = causa && (causa.core || causa);
     const keys = core ? Object.keys(core).sort() : [];
     const popout = core && core.popout_BANG_;
-    const inline = core && core.mount_inline_panel_BANG_;
-    const dock = core && core.dock_BANG_;
-    const undock = core && core.undock_BANG_;
     const result = { keys };
     if (typeof popout !== 'function') {
       result.popout = { ok: false, reason: 'popout_BANG_ not exported' };
@@ -1541,65 +1434,12 @@ async function runLaunchModesTwentyEventLoad(page, state) {
         result.popout = { ok: false, threw: String(err && (err.stack || err.message || err)) };
       }
     }
-    if (typeof inline !== 'function') {
-      result.inline = { ok: false, reason: 'mount_inline_panel_BANG_ not exported' };
-    } else {
-      const host = document.createElement('div');
-      host.id = 'rf-causa-inline-load-feature-matrix-host';
-      host.style.minHeight = '260px';
-      document.body.appendChild(host);
-      try {
-        inline(host, window.cljs.core.keyword('event-detail'));
-        result.inline = {
-          ok: true,
-          hostId: host.id,
-          hostMode: host.getAttribute('data-rf-causa-mode'),
-        };
-      } catch (err) {
-        result.inline = { ok: false, threw: String(err && (err.stack || err.message || err)) };
-      }
-    }
-    if (typeof dock !== 'function' || typeof undock !== 'function') {
-      result.docking = { ok: false, reason: 'dock_BANG_ / undock_BANG_ not exported' };
-    } else {
-      try {
-        dock();
-        const dockedRoot = document.getElementById('rf-causa-root');
-        const dockedShell = dockedRoot && dockedRoot.querySelector('[data-testid="rf-causa-shell"]');
-        const docked = {
-          rootMode: dockedRoot ? dockedRoot.getAttribute('data-rf-causa-mode') : null,
-          shellMode: dockedShell ? dockedShell.getAttribute('data-mode') : null,
-          bodyPaddingRight: document.body.style.paddingRight,
-        };
-        undock();
-        const undockedRoot = document.getElementById('rf-causa-root');
-        const undockedShell = undockedRoot && undockedRoot.querySelector('[data-testid="rf-causa-shell"]');
-        const undocked = {
-          rootMode: undockedRoot ? undockedRoot.getAttribute('data-rf-causa-mode') : null,
-          shellMode: undockedShell ? undockedShell.getAttribute('data-mode') : null,
-          bodyPaddingRight: document.body.style.paddingRight,
-        };
-        result.docking = {
-          ok: docked.rootMode === 'docked' &&
-            docked.shellMode === 'docked' &&
-            docked.bodyPaddingRight === '40%' &&
-            undocked.rootMode === 'overlay',
-          docked,
-          undocked,
-        };
-      } catch (err) {
-        result.docking = { ok: false, threw: String(err && (err.stack || err.message || err)) };
-      }
-    }
     return result;
   });
   state.launchLoad = { launch };
-  if (!launch.popout.ok || !launch.inline.ok || !launch.docking.ok) {
+  if (!launch.popout.ok) {
     failWithDetails('Causa launch modes were not all available before load', launch);
   }
-  await page.waitForSelector('#rf-causa-inline-load-feature-matrix-host [data-testid="rf-causa-inline-panel"]', {
-    timeout: 5000,
-  });
   await expectVisible(page.locator('#rf-causa-root [data-testid="rf-causa-event-detail"]'), 5000);
   await clearTrace(page);
 
@@ -1613,12 +1453,11 @@ async function runLaunchModesTwentyEventLoad(page, state) {
     (projection) =>
       projection.hostDispatchCount === 20 &&
       projection.overlay.cascadeRows > 0 &&
-      projection.inline.cascadeRows > 0 &&
       projection.popout.cascadeRows > 0,
     { timeoutMs: 10000, description: 'launch-mode shared event-detail state after 20 host dispatches' },
   );
   const elapsedMs = Date.now() - start;
-  const cascadeRowCounts = [after.overlay.cascadeRows, after.inline.cascadeRows, after.popout.cascadeRows];
+  const cascadeRowCounts = [after.overlay.cascadeRows, after.popout.cascadeRows];
   const uniqueCascadeRowCounts = [...new Set(cascadeRowCounts)];
   state.loadStats = {
     eventCountBefore: before.traceCount,
@@ -1646,11 +1485,10 @@ async function runLaunchModesTwentyEventLoad(page, state) {
     });
   }
   if (uniqueCascadeRowCounts.length !== 1) {
-    failWithDetails('Overlay, pop-out, and inline Event Detail disagree on rendered cascade rows', {
+    failWithDetails('Overlay and pop-out Event Detail disagree on rendered cascade rows', {
       cascadeRowCounts,
       selectedDispatchIds: [
         after.overlay.selectedDispatchId,
-        after.inline.selectedDispatchId,
         after.popout.selectedDispatchId,
       ],
       before,

@@ -330,3 +330,15 @@ major bumps with it.
 - **No global state mutators** beyond `init!` / `open!` / `close!`
   / `toggle!` / `set-target-frame!` / `set-active-panel!`. The
   panel's internal state is encapsulated.
+- **No `dock!` / `undock!` body-padding surface.** Removed per
+  `rf2-sbfb7` (Mike's pre-alpha decision "A — delete both"); the
+  true-inline default and `popout!` cover the dock use case.
+- **No imperative `mount-inline-panel!` / `unmount-inline-panel!`.**
+  Removed per `rf2-sbfb7`; declarative panel embedding lives at
+  [`008-Embedding-Contract.md`](./008-Embedding-Contract.md).
+
+## Resolved decisions
+
+| Decision | Bead | Outcome |
+|---|---|---|
+| Keep or delete `dock!` / `undock!` / `mount-inline-panel!` / `unmount-inline-panel!` debug surfaces | `rf2-sbfb7` | "A — delete both" (Mike, 2026-05-17). Pre-alpha posture: no back-compat shims; the true-inline default + `popout!` cover the dock use case, declarative `Panel` (008-Embedding-Contract) covers the embedded-panel use case. |

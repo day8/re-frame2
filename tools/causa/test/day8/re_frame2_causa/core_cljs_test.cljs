@@ -60,11 +60,7 @@
     (is (identical? mount/open!   core/open!))
     (is (identical? mount/close!  core/close!))
     (is (identical? mount/toggle! core/toggle!))
-    (is (identical? mount/dock! core/dock!))
-    (is (identical? mount/undock! core/undock!))
-    (is (identical? mount/popout! core/popout!))
-    (is (identical? mount/mount-inline-panel! core/mount-inline-panel!))
-    (is (identical? mount/unmount-inline-panel! core/unmount-inline-panel!))))
+    (is (identical? mount/popout! core/popout!))))
 
 (deftest config-fns-are-aliases
   (testing "config knob setters are def-aliases"
