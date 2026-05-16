@@ -290,15 +290,19 @@
 
 #?(:clj
    (do
-     (def ^{:doc "JVM-only macro-helper re-exposed for tests that reach
+     (def ^{:no-doc true
+            :doc "JVM-only macro-helper re-exposed for tests that reach
   `re-frame.core/expand-reg-view` directly (pre-split test access, per
   rf2-4rnui). Not part of the public surface — see
-  `re-frame.core-reg-view-macro/expand-reg-view`."}
+  `re-frame.core-reg-view-macro/expand-reg-view`. Internal per rf2-kp835
+  Phase-2 (2026-05-17)."}
        expand-reg-view             rvm/expand-reg-view)
-     (def ^{:doc "JVM-only macro-helper re-exposed for tests that reach
+     (def ^{:no-doc true
+            :doc "JVM-only macro-helper re-exposed for tests that reach
   `re-frame.core/parse-reg-view-args` directly (pre-split test access,
   per rf2-4rnui). Not part of the public surface — see
-  `re-frame.core-reg-view-macro/parse-reg-view-args`."}
+  `re-frame.core-reg-view-macro/parse-reg-view-args`. Internal per
+  rf2-kp835 Phase-2 (2026-05-17)."}
        parse-reg-view-args         rvm/parse-reg-view-args)))
 
 ;; ---- view registration ---------------------------------------------------
