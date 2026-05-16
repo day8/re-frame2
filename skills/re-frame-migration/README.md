@@ -58,6 +58,7 @@ skills/re-frame-migration/
 ├── reference/
 │   ├── kickoff-prompt.md          # Paste-ready prompt for a fresh session
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
+│   ├── causa-replaces-10x.md      # Devtools swap: re-frame-10x → Causa (preload, host, keybindings, parity)
 │   ├── breaking-changes.md        # Rule index keyed to v1 trigger surfaces
 │   ├── sequencing.md              # Recommended rule order
 │   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
