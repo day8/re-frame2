@@ -35,11 +35,67 @@
 (def default-layout-host-selector
   "[data-rf-causa-host]")
 
+;; ---- Inline-host resize contract (rf2-um813) ----------------------------
+;;
+;; The host page owns sizing for `[data-rf-causa-host]` (per
+;; spec/011-Launch-Modes.md §Layout host contract). To let developers
+;; tweak the width WITHOUT forking the layout rule or falling back to
+;; overlay/body-padding dock modes, the recommended host rule reads
+;; one CSS custom property — Causa documents the property name and
+;; default; the host's CSS uses it via `var(--rf-causa-inline-width,
+;; 420px)`. Overriding the property anywhere up the cascade (`:root`,
+;; an ancestor, the host itself, or a user stylesheet) resizes the
+;; panel. App content to the right (`#app { flex: 1; min-width: 0 }`)
+;; remains in normal flow — no hit-test occlusion, no overlay.
+;;
+;; The contract is intentionally JS-free: the host CSS is the single
+;; source of truth for sizing. Causa itself does NOT read the variable
+;; (the panel fills its host) — the variable is the host's knob.
+
+(def default-layout-host-css-var
+  "Name of the CSS custom property the recommended host snippet reads
+  for its `flex-basis`. Hosts that follow the recommended snippet can
+  resize the inline Causa panel by overriding this property in their
+  own stylesheet:
+
+      :root { --rf-causa-inline-width: 560px; }
+
+  Causa never reads this property — sizing is owned by the host's
+  layout rule (per spec/011-Launch-Modes.md §Layout host contract).
+  The constant is published so tooling (story-mode chrome, docs
+  generators, the AI co-pilot's snippet helper) can refer to the
+  exact spelling without forking the string."
+  "--rf-causa-inline-width")
+
+(def default-layout-host-width
+  "Default value Causa recommends for `--rf-causa-inline-width` when the
+  host does not override it. Matches the historical fixed-pixel default
+  from the pre-rf2-um813 testbed snippets so existing pages render
+  identically after adopting the variable."
+  "420px")
+
 (def default-layout-host-snippet
+  ;; CSS uses `var(--rf-causa-inline-width, 420px)` so a host that
+  ;; pastes the snippet verbatim gets:
+  ;;   - identical default geometry (420px flex-basis, 320px floor)
+  ;;   - a single one-line override path:
+  ;;       :root { --rf-causa-inline-width: 560px; }
+  ;;   - app content to the right stays in normal flex flow
+  ;;     (no overlay, no body padding, no JS resize handle).
   "<div class=\"app-shell\">
   <aside data-rf-causa-host></aside>
   <main id=\"app\"></main>
-</div>")
+</div>
+
+<style>
+  body { margin: 0; }
+  .app-shell { display: flex; min-height: 100vh; }
+  [data-rf-causa-host] {
+    flex: 0 0 var(--rf-causa-inline-width, 420px);
+    min-width: 320px;
+  }
+  #app { flex: 1; min-width: 0; }
+</style>")
 
 (defonce
   ^{:doc "Atom holding the CSS selector for the app-provided normal-flow
