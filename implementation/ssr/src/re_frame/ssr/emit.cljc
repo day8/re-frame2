@@ -41,6 +41,14 @@
 
 ;; Per HTML5 spec, these elements are void — they self-close and have no
 ;; closing tag.
+;;
+;; Lockstep with `reagent2.impl.template/void-tags` (in the
+;; `day8/reagent-slim-and-fast` artefact). Bundle isolation forbids
+;; `:require` across artefacts (reagent-slim must not pull in
+;; `re-frame.ssr` — that's the whole point of the slim artefact), so
+;; the set is duplicated by intent. If HTML5 ever extends the void
+;; element list (extraordinarily unlikely), update both copies. Per
+;; rf2-6phn + reagent-slim IMPL-SPEC §14.3.
 (def void-elements
   #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
     :track :wbr})
