@@ -371,8 +371,8 @@ async function assertDefaultInlineLaunchModes(page, state) {
   if (!defaultInline.hostPlus) {
     failWithDetails('Host app + button missing while Causa is open', { mode: 'inline', observed: defaultInline });
   }
-  if (defaultInline.hostPlus.left < defaultInline.shell.right) {
-    failWithDetails('Host app controls are not laid out to the right of Causa', { mode: 'inline', observed: defaultInline });
+  if (defaultInline.hostPlus.right > defaultInline.shell.left) {
+    failWithDetails('Host app controls are not laid out to the left of Causa', { mode: 'inline', observed: defaultInline });
   }
   if (defaultInline.topAtHostPlus && defaultInline.topAtHostPlus.inCausa) {
     failWithDetails('Causa chrome is topmost over the host-app + button', { mode: 'inline', observed: defaultInline });

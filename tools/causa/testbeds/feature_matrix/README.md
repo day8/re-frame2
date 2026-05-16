@@ -32,8 +32,8 @@ re-check. It now exercises the follow-up surfaces directly:
 - Open in Editor / Source Coordinates: trace and issues source chips are
   clicked in the browser. Failures include the panel, source coordinate,
   expected editor URI, observed bridge traces, network outcome, and screenshot.
-- Pop-out: the gate asserts that the inline shell leaves the left
-  host app clickable and that `popout!` renders a same-origin second-window
+- Pop-out: the gate asserts that the inline shell leaves the host app
+  (laid out to the left of Causa) clickable and that `popout!` renders a same-origin second-window
   Causa shell sharing the opener's runtime. (Per `rf2-sbfb7`, the dock /
   docked-overlay and `mount-inline-panel!` debug surfaces were removed;
   declarative embedding lands under 008-Embedding-Contract.)

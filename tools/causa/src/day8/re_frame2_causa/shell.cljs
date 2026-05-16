@@ -372,7 +372,7 @@
   "The full Causa shell. Wraps every panel region in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
   the isolated frame. Default `:inline` mode renders in normal document
-  flow inside the app-provided left layout host. `:overlay` and
+  flow inside the app-provided right layout host. `:overlay` and
   `:popout` remain available debug/manual modes.
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
