@@ -400,3 +400,54 @@ declared-sensitive paths are scrubbed before path-comparison.
 `get-app-db`). Default fallback `:narrow-filter`.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_app_db_diff.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs).
+
+## Mutation band
+
+Mutation-band tools change framework state. Per `004-Wire-Pipeline.md`
+§Authority classes, **Class-1 named mutations** (`dispatch`,
+`restore-epoch`, `reset-frame-db`) carry **no per-call consent
+gate** — consent is the server-launch enable signal. Every mutation
+routes through the framework's normal dispatch / restore / reset
+cascade; the runtime stamps `:tags :origin :causa-mcp` on emitted
+traces via the `*current-origin*` dynamic binding (B-3 of the
+wire-pipeline tranche). Trace egress from a mutation's cascade is
+read via `subscribe :trace` (T-Stream-1) or the next
+`get-trace-buffer` call.
+
+### dispatch (T-Mut-1, rf2-8xzoe.23)
+
+Fire a re-frame event through the frame's normal dispatch cascade.
+Source-coord pin: `ai/findings/causa-epics-breakdown-2026-05-17.md`
+§Part 1 bead #23.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:event` | EDN-vec str | **required** | event vector, e.g. `"[:cart/add 42]"` |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:sync?` | bool | false | `:sync` (true) vs `:queued` (false) |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :event-id <kw>
+ :frame    <kw>
+ :origin   :causa-mcp
+ :mode     <:queued|:sync>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :missing-event :hint ...}`
+- `{:ok? false :reason :event-malformed :given <s> :hint ...}`
+- `{:ok? false :reason :not-an-event-vector :hint ...}` — parsed
+  value isn't a vector.
+- `{:ok? false :reason :no-frame-resolved :hint ...}` — multi-frame
+  app without an explicit `:frame` arg.
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — the
+mutation envelope is small; overflow would only happen with
+pathological runtime auxiliary metadata).
+
+Implementation: [`tools/causa-mcp/src/.../tools/dispatch.cljs`](../src/day8/re_frame2_causa_mcp/tools/dispatch.cljs).
