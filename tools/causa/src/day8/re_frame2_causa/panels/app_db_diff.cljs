@@ -3,7 +3,12 @@
 
   The panel is slice-centric: it renders changed slices for the
   selected epoch, pinned live slices, reserved runtime keys, or the
-  'Show me when this changed' result for a focused path."
+  'Show me when this changed' result for a focused path.
+
+  Canonical exemplar of the panel facade pattern documented in
+  `tools/causa/spec/Conventions.md` — facade owns the public
+  `reg-view`, leaves expose plain fns + `install!`, the facade's
+  `install!` chains leaf installs and returns `nil`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
             [day8.re-frame2-causa.panels.app-db-diff-sections
@@ -64,7 +69,8 @@
 
 (defn install!
   "Idempotent install for the App-DB Diff panel's Causa-side
-  registrations."
+  registrations. Returns nil per the facade convention."
   []
   (subs/install!)
-  (events/install!))
+  (events/install!)
+  nil)
