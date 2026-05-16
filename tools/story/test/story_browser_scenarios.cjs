@@ -1145,6 +1145,166 @@ module.exports = {
       );
     });
 
+    await scenario(page, 'controls-nested-edit-by-path-rf2-57ikh', async () => {
+      /*
+       * Case-1 follow-on (rf2-57ikh) — Controls nested edit-by-path
+       * feature-gate beyond the matrix bookkeeping baseline.
+       *
+       * The :story.counter-matrix/nested-controls variant carries a
+       * nested :settings map ({:title "Nested title" :enabled? true})
+       * against the parent story's schema. The controls panel infers
+       * the argtype tree and emits the :map argtype as a `group-widget`
+       * — a header row labelled "{ }" plus one nested row per child
+       * key. Each top-level row carries data-controls-arg=":<key>",
+       * each nested row carries data-controls-key=":<sub-key>".
+       *
+       * Beyond-mount surface assertions:
+       *   - the nested :settings group renders with TWO child rows
+       *     (data-controls-key=":title" + data-controls-key=
+       *     ":enabled?") inside the parent's data-controls-arg=
+       *     ":settings" container
+       *   - editing the nested :title input writes through to
+       *     [:cell-overrides variant-id :settings :title] (read via
+       *     re_frame.story.ui.state) — proves the on-change-at-path
+       *     handler builds the right deep path; the sibling
+       *     :enabled? value at [:cell-overrides ... :settings
+       *     :enabled?] stays untouched (preserves unrelated siblings
+       *     invariant per Spec 007 §Nested controls)
+       *   - editing the nested :enabled? checkbox writes through to
+       *     [:cell-overrides variant-id :settings :enabled?] and the
+       *     prior :title override survives — both nested edits coexist
+       *   - the top-level :label override (a sibling of :settings)
+       *     does not bleed into :settings — proves the deep-path
+       *     write only touches the specified sub-tree
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // Earlier scenarios may have selected a workspace; explicitly
+      // clear :selected-workspace so the next variant click drives
+      // the canvas pane (the shell.cljs render-cond prefers
+      // workspace-mounted over variant-selected).
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        state.swap_state_BANG_.call(null, state.select_workspace, null);
+      });
+
+      // Navigate to the nested-controls variant.
+      await clickVariant(page, '/nested-controls');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter-matrix/nested-controls');
+
+      const aside = page.getByRole('complementary');
+      const settingsGroup = aside.locator('[data-controls-arg=":settings"]').first();
+      await settingsGroup.waitFor({ state: 'visible', timeout: 5000 });
+
+      // The :settings group MUST surface its two child keys via the
+      // nested-row data-controls-key attribute.
+      const titleRow = settingsGroup.locator('[data-controls-key=":title"]').first();
+      const enabledRow = settingsGroup.locator('[data-controls-key=":enabled?"]').first();
+      await titleRow.waitFor({ state: 'visible', timeout: 5000 });
+      await enabledRow.waitFor({ state: 'visible', timeout: 5000 });
+
+      // Helper: read [:cell-overrides variant-id] off the shell-
+      // state ratom. Returns a plain JS-friendly summary of the
+      // nested map so we can verify structural updates without
+      // having to walk arbitrary cljs collections.
+      const readCellOverrides = () =>
+        page.evaluate(() => {
+          const state = window.re_frame.story.ui.state;
+          const cur = state.get_state.call(null);
+          const cljs = window.cljs.core;
+          const kw = cljs.keyword;
+          const getIn = cljs.get_in;
+          const co = getIn.call(null, cur, cljs.PersistentVector.fromArray(
+            [kw('cell-overrides'), kw('story.counter-matrix', 'nested-controls')],
+            true,
+          ));
+          if (co == null) return { hasOverrides: false };
+          const title = getIn.call(null, co, cljs.PersistentVector.fromArray(
+            [kw('settings'), kw('title')],
+            true,
+          ));
+          const enabled = getIn.call(null, co, cljs.PersistentVector.fromArray(
+            [kw('settings'), kw('enabled?')],
+            true,
+          ));
+          const label = getIn.call(null, co, cljs.PersistentVector.fromArray(
+            [kw('label')],
+            true,
+          ));
+          // CLJS booleans/strings pass through; nil/undefined return as null
+          return { hasOverrides: true, title, enabled, label };
+        });
+
+      // Edit the nested :title input — find the <input> inside the
+      // title row and fill it.
+      const titleInput = titleRow.locator('input[type="text"]').first();
+      await titleInput.waitFor({ state: 'visible', timeout: 5000 });
+      await titleInput.fill('Edited nested title');
+      await waitForValue(
+        async () => {
+          const overrides = await readCellOverrides();
+          return overrides && overrides.title;
+        },
+        (value) => value === 'Edited nested title',
+        {
+          timeoutMs: 5000,
+          description: 'nested :title edit writes through to [:cell-overrides _ :settings :title]',
+        },
+      );
+      // The sibling :enabled? slot stays untouched — the deep-path
+      // write only mutated the :title key, not the whole :settings
+      // map (preserves unrelated siblings).
+      let overrides = await readCellOverrides();
+      if (overrides.enabled !== null && overrides.enabled !== undefined) {
+        throw new Error(
+          `expected :enabled? sibling to remain unwritten after :title edit; ` +
+            `observed override value ${JSON.stringify(overrides.enabled)}`,
+        );
+      }
+
+      // Now edit the nested :enabled? checkbox — toggling it should
+      // add a second sub-key override under [:settings] without
+      // clobbering the :title we just wrote.
+      const enabledCheckbox = enabledRow.locator('input[type="checkbox"]').first();
+      await enabledCheckbox.waitFor({ state: 'visible', timeout: 5000 });
+      // The seed value is true; click to toggle off. Use .click()
+      // rather than .uncheck() — Reagent's controlled checkbox
+      // re-renders through its :on-change handler, so the input's
+      // observed `checked` state lags one render tick behind the
+      // ratom write. Playwright's uncheck() asserts the post-click
+      // state equals false synchronously; click() doesn't.
+      await enabledCheckbox.click();
+      await waitForValue(
+        async () => {
+          const o = await readCellOverrides();
+          return o && o.enabled;
+        },
+        (value) => value === false,
+        {
+          timeoutMs: 5000,
+          description: 'nested :enabled? edit writes through to [:cell-overrides _ :settings :enabled?]',
+        },
+      );
+      overrides = await readCellOverrides();
+      if (overrides.title !== 'Edited nested title') {
+        throw new Error(
+          `:title override regressed after :enabled? edit; expected "Edited nested title", got ${JSON.stringify(overrides.title)}`,
+        );
+      }
+
+      // Top-level :label sibling stays unwritten — the deep-path
+      // writes only ever touched [:settings :*] paths, not the
+      // sibling [:label] slot.
+      if (overrides.label !== null && overrides.label !== undefined) {
+        throw new Error(
+          `expected top-level :label to remain unwritten after nested-only edits; ` +
+            `observed override value ${JSON.stringify(overrides.label)}`,
+        );
+      }
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
