@@ -39,6 +39,7 @@
             [day8.re-frame2-causa-mcp.tools.get-handlers]
             [day8.re-frame2-causa-mcp.tools.get-source-coord]
             [day8.re-frame2-causa-mcp.tools.get-machine-state]
+            [day8.re-frame2-causa-mcp.tools.get-issues]
             [day8.re-frame2-causa-mcp.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------

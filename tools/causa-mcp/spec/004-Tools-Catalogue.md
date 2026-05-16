@@ -214,3 +214,39 @@ like `get-in`. Source-coord pin:
 otherwise. Default fallback `:narrow-filter`.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_machine_state.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs).
+
+### get-issues (T-Insp-7, rf2-8xzoe.20)
+
+Recent issue-tier events from the re-frame2 trace bus — errors,
+warnings, schema violations, hydration mismatches. Severity filter
+(`:error` matches `:error` + `:rf.schema/violation` +
+`:rf.hydration/mismatch`; `:warning` matches `:warning` only; `:all`
+default). Pagination via `:limit` / `:offset`. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #20.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:severity` | keyword | `:all` | `:error`, `:warning`, or `:all` |
+| `:frame` | keyword | nil | scope to one frame |
+| `:since-ms` | int | nil | wall-clock cutoff (ms) |
+| `:limit` | int | 50 | max issues returned |
+| `:offset` | int | 0 | skip the first N post-filter |
+| `:include-sensitive?` | bool | false | opt back in to `:sensitive? true` items |
+| `:include-large?` | bool | false | passes to the runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true
+ :issues <vec>
+ :count <int> :total <int>
+ :limit <int> :offset <int>
+ :severity <:error|:warning|:all>
+ :dropped-sensitive <int?>
+ :elided-large <int?>}
+```
+
+**Cap-reached hint:** `:paginate` (default fallback `:narrow-filter`).
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_issues.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_issues.cljs).
