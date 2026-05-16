@@ -82,3 +82,39 @@
   Returns `true` on success, `false` on any failure."
   {:hook :epoch/reset-frame-db! :artefact epoch-artefact :on-absent :throw}
   ([frame-id new-db] :delegate))
+
+(defwrapper projected-record
+  "Project an `:rf/epoch-record` for off-box egress. Per Security.md
+  §Epoch privacy posture and rf2-mrsck: the single normative
+  projection emission site for off-box epoch egress, parallel to
+  `elide-wire-value` for direct reads. Routes the four payload-bearing
+  slots (`:db-before`, `:db-after`, `:trigger-event`, `:trace-events`)
+  through the wire-elision walker against the record's frame, with
+  off-box defaults (`:include-sensitive? false`, `:include-large?
+  false`); bookkeeping slots (`:epoch-id`, `:frame`, `:committed-at`,
+  `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
+  `:rf.epoch/sensitive?`) and the cheap structured projections
+  (`:sub-runs` / `:renders` / `:effects`) pass through unchanged.
+
+  Tools that egress epoch records over a process boundary (Causa-MCP
+  `watch-epochs`, story / pair recorders, hosted forwarders) MUST
+  route through this fn. The on-box ring buffer and
+  `register-epoch-cb!` listener fan-out continue to deliver the RAW
+  record so on-box devtools (Causa diff, REPL, `restore-epoch`) can
+  reason about exact state. Returns `nil` for non-map input. No-op
+  (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on
+  the classpath. Late-bound via `:epoch/projected-record`."
+  {:hook :epoch/projected-record :artefact epoch-artefact :on-absent :nil}
+  ([record] :delegate))
+
+(defwrapper projected-history
+  "Convenience: return the projected vector of records for a frame.
+  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  Tools that egress the whole ring (an MCP `watch-epochs` initial
+  snapshot, a recorder dumping the full session) call this once
+  rather than walking the raw ring and re-wrapping each record. Empty
+  vector when the frame has no recorded epochs, when recording is
+  disabled, or when the `day8/re-frame2-epoch` artefact is not on the
+  classpath. Late-bound via `:epoch/projected-history`."
+  {:hook :epoch/projected-history :artefact epoch-artefact :on-absent :empty-vec}
+  ([frame-id] :delegate))

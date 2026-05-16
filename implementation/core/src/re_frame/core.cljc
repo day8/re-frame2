@@ -605,6 +605,10 @@
 (def register-epoch-cb! rf-epoch/register-epoch-cb!)
 (def remove-epoch-cb!   rf-epoch/remove-epoch-cb!)
 (def reset-frame-db!    rf-epoch/reset-frame-db!)
+;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
+;; normative projection helpers for off-box epoch egress.
+(def projected-record   rf-epoch/projected-record)
+(def projected-history  rf-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 

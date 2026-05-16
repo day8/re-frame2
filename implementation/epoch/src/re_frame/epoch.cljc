@@ -33,8 +33,10 @@
   epoch's `:db-after`. Six documented failure modes (Tool-Pair table)
   each emit a structured trace under `:rf.epoch/*` and leave the
   frame's app-db unchanged."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.elision :as elision]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -47,10 +49,28 @@
   ;; trades bounded heap for stable time-travel coverage.
   50)
 
+(def ^:private default-trace-events-keep
+  ;; Per rf2-mrsck and Security.md §Epoch privacy posture: a finite
+  ;; default that bounds dev-session heap growth from accumulated raw
+  ;; cascade traces. The most-recent N records keep `:trace-events`;
+  ;; older records keep only the cheap structured projections
+  ;; (`:sub-runs` / `:renders` / `:effects`). Five matches the pair-
+  ;; tool / Causa "what just happened?" working set — devs typically
+  ;; care about the latest handful of cascades' raw streams; a deeper
+  ;; ring depth is for time-travel reproducibility (`:db-after` is
+  ;; cheap), not raw-trace inspection. Apps that genuinely need the
+  ;; whole ring's traces can opt back in via
+  ;; `(rf/configure :epoch-history {:trace-events-keep nil})` (or any
+  ;; value >= the depth cap). Setting the slot to `0` drops every
+  ;; record's `:trace-events`.
+  5)
+
 (defonce ^:private config
-  ;; Currently a single key (:depth) but kept as a map so future
-  ;; (rf/configure :epoch-history {...}) extensions don't break the shape.
-  (atom {:depth default-depth}))
+  ;; Two keys today (:depth, :trace-events-keep). Map shape kept open
+  ;; so future (rf/configure :epoch-history {...}) extensions don't
+  ;; break the shape.
+  (atom {:depth             default-depth
+         :trace-events-keep default-trace-events-keep}))
 
 (defn- non-neg-int?
   "True for non-negative integer values; nil and non-numeric values
@@ -79,9 +99,15 @@
                         from older epochs') and refactor-audit r2
                         (rf2-lwn4t) §F3.1.
 
-  Absent / nil `:trace-events-keep` keeps every record's
-  `:trace-events` slot (the default, pre-rf2-iegsz behaviour);
-  the cap kicks in only when explicitly configured.
+  Per rf2-mrsck and Security.md §Epoch privacy posture: the default
+  `:trace-events-keep` is a FINITE value (5) — the most-recent five
+  records per frame retain raw `:trace-events`; older records keep
+  only the cheap `:sub-runs` / `:renders` / `:effects` projections.
+  Apps that need the whole ring's raw streams pass an explicit
+  larger value (or a value >= the depth cap). Passing `nil`
+  explicitly via `(rf/configure :epoch-history {:trace-events-keep
+  nil})` is a no-op against the explicit-value validation below;
+  use a numeric value or do not pass the slot at all.
 
   Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: both keys are validated
   at the boundary. A `:depth` or `:trace-events-keep` that isn't a
@@ -111,7 +137,7 @@
   (:depth @config default-depth))
 
 (defn- trace-events-keep []
-  (:trace-events-keep @config))
+  (:trace-events-keep @config default-trace-events-keep))
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
@@ -676,6 +702,77 @@
     (try (digest frame-id)
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
+;; ---- sensitive rollup -----------------------------------------------------
+;;
+;; Per Security.md §Epoch privacy posture and rf2-mrsck: every assembled
+;; record carries a top-level boolean `:rf.epoch/sensitive?` rollup so
+;; listener fan-out, off-box egress, and recorder consumers can branch
+;; on one slot per record (parallel to the trace-event-level
+;; `:sensitive?` stamp per rf2-isdwf). Two cheap signals:
+;;
+;;   1. The captured trace stream already stamps `:sensitive?` per
+;;      handler-meta scope — if any event in `:trace-events` carries the
+;;      stamp, the record's cascade involved sensitive material.
+;;   2. The frame's schema-declared `[:rf/elision :sensitive-declarations]`
+;;      registry names paths that hold sensitive data; if any such path
+;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
+;;      record's app-db state carries sensitive material.
+;;
+;; Either signal is sufficient. The check runs once at record-assembly
+;; time so listeners and the projected-record helper read the rollup
+;; without re-walking the record. Production builds elide the entire
+;; record-assembly path — the rollup is dev-only by construction.
+
+(defn- any-sensitive-event?
+  "True when any captured trace event carries a top-level `:sensitive?
+  true` stamp. Per privacy/sensitive? — the trace surface hoists the
+  boolean from handler-scope-meta to the event top level (rf2-isdwf)."
+  [events]
+  (boolean (some privacy/sensitive? events)))
+
+(defn- sensitive-paths-for
+  "Return the schema-declared sensitive paths for `frame-id`. Empty when
+  no schema layer is registered or when no slot carries
+  `{:sensitive? true}`."
+  [frame-id]
+  (try (keys (elision/sensitive-declarations frame-id))
+       (catch #?(:clj Throwable :cljs :default) _ nil)))
+
+(defn- any-sensitive-leaf?
+  "True when any sensitive-declared path resolves to a non-nil leaf in
+  `db`. nil-leaf paths do NOT count — the path is declared sensitive
+  but the slot is empty, so the record carries no actual sensitive
+  material from this signal. `db` is `:db-before` or `:db-after`; both
+  may be nil on halted paths (rf2-v0jwt :halted-destroy)."
+  [db sensitive-paths]
+  (and (some? db)
+       (boolean
+         (some (fn [path]
+                 (some? (get-in db path)))
+               sensitive-paths))))
+
+(defn- sensitive-rollup
+  "Compute the record-level `:rf.epoch/sensitive?` rollup for the
+  assembled record. Returns `true` when the record's content overlaps
+  a sensitive area — either via a stamped trace event or via a
+  schema-declared sensitive path that holds a non-nil leaf in the
+  recorded db. Returns `false` otherwise (always a strict boolean —
+  consumers branch on `(true? ...)` / `(false? ...)`).
+
+  HOT PATH: fires once per drain-settle. `sensitive-paths-for` derefs
+  the elision registry once; the leaf check short-circuits at the
+  first non-nil hit; the trace-event check short-circuits at the first
+  stamped event. For the common case (no schema-declared sensitive
+  paths, no sensitive handlers in scope) the cost is one keys-of-empty
+  call plus two sequence-with-no-work walks."
+  [frame-id db-before db-after events]
+  (boolean
+    (or (any-sensitive-event? events)
+        (let [sensitive-paths (sensitive-paths-for frame-id)]
+          (and (seq sensitive-paths)
+               (or (any-sensitive-leaf? db-before sensitive-paths)
+                   (any-sensitive-leaf? db-after  sensitive-paths)))))))
+
 (defn- build-record
   ([frame-id db-before db-after events]
    (build-record frame-id db-before db-after events :ok nil))
@@ -703,23 +800,29 @@
          ;; projections, replacing three independent transducer
          ;; passes over the same buffer. Mirrors `find-trigger-event`'s
          ;; rf2-txrq9 single-walk pattern.
-         {:keys [sub-runs renders effects]} (project-all events)]
-     (cond-> {:epoch-id      (next-epoch-id)
-              :frame         frame-id
-              :committed-at  (interop/now-ms)
-              :db-before     db-before
-              :db-after      db-after
-              :outcome       outcome
+         {:keys [sub-runs renders effects]} (project-all events)
+         ;; Per rf2-mrsck and Security.md §Epoch privacy posture:
+         ;; the record-level boolean rollup mirrors the trace-event
+         ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
+         ;; the projected-record helper branch on one slot per record.
+         sensitive? (sensitive-rollup frame-id db-before db-after events)]
+     (cond-> {:epoch-id           (next-epoch-id)
+              :frame              frame-id
+              :committed-at       (interop/now-ms)
+              :db-before          db-before
+              :db-after           db-after
+              :outcome            outcome
               ;; Per Spec 010 §Schema digest — pinned at record time so a later
               ;; restore can compare 'recorded vs current' digests in the
               ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
               ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
               ;; produces nil; consumers tolerate the absent slot).
-              :schema-digest (current-schema-digest frame-id)
-              :trace-events  events
-              :sub-runs      sub-runs
-              :renders       renders
-              :effects       effects}
+              :schema-digest      (current-schema-digest frame-id)
+              :rf.epoch/sensitive? sensitive?
+              :trace-events       events
+              :sub-runs           sub-runs
+              :renders            renders
+              :effects            effects}
        event-id    (assoc :event-id event-id)
        event       (assoc :trigger-event event)
        halt-reason (assoc :halt-reason halt-reason)))))
@@ -1229,6 +1332,97 @@
         :fail (do (emit-precondition-failure! op tags)
                   false)))))
 
+;; ---- projected egress -----------------------------------------------------
+;;
+;; Per Security.md §Epoch privacy posture and rf2-mrsck: the framework's
+;; single normative projection emission site for off-box epoch egress.
+;; The in-process ring buffer (`epoch-history`) and `register-epoch-cb!`
+;; listener fan-out deliver RAW records — restore-epoch and on-box
+;; devtools (Causa diff, REPL inspection) need them. Tools that
+;; egress an epoch record across a process boundary (Causa-MCP
+;; `watch-epochs`, story / pair recorders, hosted forwarders) MUST
+;; route through `projected-record` first, parallel to how direct-read
+;; tools route through `elide-wire-value` (per rf2-czv3p).
+;;
+;; The projection wraps `re-frame.elision/elide-wire-value` against the
+;; record's frame-id and the four payload-bearing slots that may carry
+;; sensitive or large material: `:db-before`, `:db-after`,
+;; `:trigger-event`, and `:trace-events`. The cheap structured slots
+;; (`:sub-runs`, `:renders`, `:effects`) carry no app-db material —
+;; they project sub-ids, render-keys, fx-ids, and outcome tags — so
+;; the projection leaves them as-is. The record-level bookkeeping
+;; (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:outcome`,
+;; `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`) is
+;; structurally non-sensitive and passes through.
+;;
+;; Per-tool reimplementation of the projection is prohibited (the
+;; same posture as the wire-elision walker). New egress tools call
+;; `projected-record` and trust the contract.
+
+(defn- elide-payload-slot
+  "Walk one payload slot through `elide-wire-value` rooted at the named
+  frame, with off-box defaults (`:include-sensitive? false`,
+  `:include-large? false`). Returns the elided value; `nil` slots are
+  preserved as nil (a halted-destroy record's `:db-before` /
+  `:db-after` are nil per rf2-v0jwt; the schema admits the absent /
+  nil slot — the projection MUST NOT fabricate a value)."
+  [v frame-id]
+  (when (some? v)
+    (elision/elide-wire-value v {:frame frame-id})))
+
+(defn projected-record
+  "Project an `:rf/epoch-record` for off-box egress. Routes the four
+  payload-bearing slots (`:db-before`, `:db-after`, `:trigger-event`,
+  `:trace-events`) through `re-frame.elision/elide-wire-value` against
+  the record's frame, with the off-box defaults
+  `:include-sensitive? false` / `:include-large? false`. Sensitive
+  paths land as `:rf/redacted`; large paths land as
+  `:rf.size/large-elided` markers per the §Composition rule. The
+  record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
+  `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
+  `:rf.epoch/sensitive?`) and the cheap structured projections
+  (`:sub-runs`, `:renders`, `:effects`) pass through unchanged —
+  they carry no app-db material.
+
+  Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
+  single normative projection emission site for off-box egress. Tools
+  that forward epoch records across a process boundary (Causa-MCP
+  `watch-epochs`, story / pair recorders, hosted post-mortem
+  forwarders) MUST route through this fn at the wire boundary; the
+  on-box ring buffer and `register-epoch-cb!` listener fan-out
+  continue to deliver the RAW record so on-box devtools (Causa diff,
+  REPL, `restore-epoch`) can reason about exact state.
+
+  `record` may be `nil` (e.g. a missing epoch lookup) — the projection
+  returns `nil` in that case, no elision called. Production builds
+  elide the entire epoch surface; consumers gate any
+  `register-epoch-cb!` registration under `interop/debug-enabled?`
+  per Spec 009 §User-side listener registration."
+  [record]
+  (when (map? record)
+    (let [frame-id (:frame record)]
+      (cond-> record
+        (contains? record :db-before)
+        (update :db-before     elide-payload-slot frame-id)
+
+        (contains? record :db-after)
+        (update :db-after      elide-payload-slot frame-id)
+
+        (contains? record :trigger-event)
+        (update :trigger-event elide-payload-slot frame-id)
+
+        (contains? record :trace-events)
+        (update :trace-events  elide-payload-slot frame-id)))))
+
+(defn projected-history
+  "Convenience: return the projected vector of records for a frame.
+  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  Tools that egress the whole ring (an MCP `watch-epochs` initial
+  snapshot, a recorder dumping the full session) can call this once
+  rather than walking the raw ring and re-wrapping each record."
+  [frame-id]
+  (mapv projected-record (epoch-history frame-id)))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; The router calls into settle! at drain-empty; the trace surface calls
@@ -1259,3 +1453,9 @@
 (late-bind/set-fn! :epoch/clear-history!      clear-history!)
 (late-bind/set-fn! :epoch/clear-epoch-cbs!    clear-epoch-cbs!)
 (late-bind/set-fn! :epoch/on-frame-destroyed  on-frame-destroyed!)
+;; Per rf2-mrsck and Security.md §Epoch privacy posture: off-box
+;; egress projection helpers, parallel to elide-wire-value for direct
+;; reads. Tools that forward records over a process boundary use
+;; these (Causa-MCP `watch-epochs`, story / pair recorders).
+(late-bind/set-fn! :epoch/projected-record    projected-record)
+(late-bind/set-fn! :epoch/projected-history   projected-history)

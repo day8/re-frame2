@@ -36,7 +36,7 @@
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
-  (reset! @#'epoch/config {:depth 50})
+  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
