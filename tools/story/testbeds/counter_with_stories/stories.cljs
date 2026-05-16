@@ -509,6 +509,32 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  ;; rf2-0uo4e — fx-stub-miss testbed variant. Source-side follow-on
+  ;; from rf2-6hauy. :play declares :rf.assert/effect-emitted against
+  ;; :never-stubbed WITHOUT a corresponding force-fx-stub decorator
+  ;; covering the id — the play-runner never observes the fx, so the
+  ;; assertion fails with the canonical reason:
+  ;;
+  ;;   "fx :never-stubbed was not emitted during play"
+  ;;
+  ;; Lets the test pane's failing-row reason-text surface be asserted
+  ;; directly without authoring a one-off probe. The variant is
+  ;; intentionally :test-tagged so the chrome test-widget picks it up
+  ;; and reports the failure.
+  (story/reg-variant :story.counter-matrix/fx-stub-miss
+    {:doc       "Deterministic fx-stub-miss failing assertion. :play
+                asserts :rf.assert/effect-emitted :never-stubbed with
+                NO force-fx-stub decorator covering it — the assertion
+                fails with the canonical 'fx <id> was not emitted
+                during play' reason. Pattern: :story.counter-
+                diagnostics/failing-play."
+     :args      {:label "fx-stub-miss"
+                 :settings {:title "fx-stub-miss" :enabled? true}}
+     :events    [[:counter/initialise 0]]
+     :play      [[:rf.assert/effect-emitted :never-stubbed]]
+     :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two workspaces, one per layout the v1 ships
   ;;
