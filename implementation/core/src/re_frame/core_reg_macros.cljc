@@ -8,12 +8,15 @@
   the `with-coords-form` helper plus the `defreg-macro` macro-defining
   macro.
 
-  Carved out of `re-frame.core` so the public namespace stays under
-  the 250-LoC leaf ceiling. The user-facing `defmacro reg-event-db` /
-  `reg-sub` / `reg-flow` / … shells live in `re-frame.core` itself
-  (they MUST, so `rf/reg-event-db` resolves alias-qualified per
-  Clojure's `ns-alias/Var` lookup); each shell is a one-line
-  `(defreg-macro …)` form. The bulk LoC sits here.
+  Carved out of `re-frame.core` so the public namespace stays a thin
+  facade focused on user-visible Var resolution rather than macro
+  expansion bulk; this ns owns the cohesive responsibility of every
+  registration-site `reg-*` macro's compile-time coord stamping. The
+  user-facing `defmacro reg-event-db` / `reg-sub` / `reg-flow` / …
+  shells live in `re-frame.core` itself (they MUST, so
+  `rf/reg-event-db` resolves alias-qualified per Clojure's
+  `ns-alias/Var` lookup); each shell is a one-line `(defreg-macro …)`
+  form that delegates here.
 
   rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
   than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
