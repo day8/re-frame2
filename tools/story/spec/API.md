@@ -141,6 +141,23 @@ into `:assertions` rather than throwing — see
 - [`005-SOTA-Features.md`](005-SOTA-Features.md) — panels + v1/v1.1/v2
   ship lists + production elision.
 - [`006-MCP-Surface.md`](006-MCP-Surface.md) — MCP boundary.
+- [`007-Mode-Tabs.md`](007-Mode-Tabs.md) — the per-variant `:dev` /
+  `:docs` / `:test` mode-tab contract and persistence.
+- [`008-Docs-Mode.md`](008-Docs-Mode.md) — Docs pane projection and
+  metadata sections.
+- [`009-Test-Mode.md`](009-Test-Mode.md) — Test pane auto-run +
+  summary surface.
+- [`010-Toolbar.md`](010-Toolbar.md) — toolbar chrome + mode toggle.
+- [`011-Actions-Panel.md`](011-Actions-Panel.md) — user-action / fx
+  emission log.
+- [`012-Trace-Scrubber-Cross-Ref.md`](012-Trace-Scrubber-Cross-Ref.md)
+  — trace ↔ scrubber filter/highlight contract.
+- [`013-Static-Build.md`](013-Static-Build.md) — static-export
+  surface + suppression rules.
+- [`014-Chrome-Features.md`](014-Chrome-Features.md) — schema-validation
+  panel, sidebar tag-as-badge, first-visit help overlay, command palette.
+- [`015-Test-Coverage.md`](015-Test-Coverage.md) — browser-feature
+  coverage matrix.
 - [`Principles.md`](Principles.md) — design principles.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — why each call was
   made.
