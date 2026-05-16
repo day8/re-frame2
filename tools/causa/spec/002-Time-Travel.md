@@ -27,6 +27,36 @@ Causa consumes Tool-Pair's epoch-history surface (per
 No new instrumentation; the scrubber renders what the framework
 already records.
 
+### App-installed `:redact-fn`
+
+When the consuming app installs a `:redact-fn` on the epoch-history
+configure key (`(rf/configure :epoch-history {:redact-fn (fn [record] …)})`,
+per [Tool-Pair §Time-travel §Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
+and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)),
+the runtime invokes the fn once per assembled record at build-time
+— before the ring buffer is appended and before listener fan-out
+runs. The vector returned by `(rf/epoch-history frame-id)` carries
+whatever shape the fn produced; Causa renders **the redacted shape**
+in every history-driven panel (App-DB Diff, Event detail, the
+scrubber preview). Any leaf the fn rewrote ships as the reserved
+`:rf/redacted` sentinel or whatever app-chosen shape the fn
+substituted, per [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record).
+
+This has one user-visible caveat for the scrubber: `(rf/restore-epoch
+frame-id epoch-id)` rewinds `app-db` *to the recorded `:db-after`*,
+and the runtime keeps no separate copy of the pre-redaction value.
+A confirmed rewind against a record whose `:db-after` the fn
+overwrote with `:rf/redacted` (or any non-restorable shape) will
+land `app-db` in the redacted state — the rewind is structurally a
+success (`restore-epoch` returns `true` and emits `:rf.epoch/restored`)
+but the resulting state is not what the user observed at record
+time. Apps that need restore fidelity should leave `:db-before` /
+`:db-after` alone in their `:redact-fn` and target only
+`:trace-events` / `:trigger-event` / the structured projections.
+Causa does not currently surface a separate "this record's
+`:db-after` was redacted" affordance — the asymmetry rides the
+user's knowledge of which fn they installed.
+
 ## UI shape
 
 The bottom rail (40px on cosy density):

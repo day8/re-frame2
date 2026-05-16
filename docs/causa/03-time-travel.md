@@ -41,6 +41,10 @@ The default buffer depth is 50 epochs per frame. To deepen:
 
 Two-million epoch slots and you've got a memory leak; fifty is a comfortable default for the "I just want to scrub backwards through the last few minutes" workflow.
 
+## Redacted records
+
+If you've installed an `:epoch-history` `:redact-fn` to keep secrets out of recorded `:db-before` / `:db-after` (`(rf/configure :epoch-history {:redact-fn (fn [record] …)})`), Causa renders the **redacted** shape. The runtime invokes your fn once per epoch *before* the ring buffer is appended, so every panel — App-DB Diff, Event detail, the scrubber preview — sees the same redacted record. Slots your fn rewrote appear as the `:rf/redacted` sentinel (or whatever shape you substituted); there is no separate raw copy to recover from. One consequence for time-travel: a confirmed rewind to a record whose `:db-after` was redacted will land `app-db` in the redacted state — the rewind structurally succeeds but the resulting state is not what the user observed at record time. Apps that need restore fidelity should leave `:db-before` / `:db-after` alone in the fn and redact only `:trace-events` / `:trigger-event`.
+
 ## The six failure modes of `restore-epoch`
 
 Active rewind can fail. Six modes, each with a structured error trace event:
