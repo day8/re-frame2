@@ -58,6 +58,41 @@ flows) lives in
 until implementation lands and this folder grows
 `003-Tool-Catalogue.md`.
 
+## Publishing
+
+Causa-MCP publishes to npm as `@day8/re-frame2-causa-mcp` on a tag
+push of the form **`causa-mcp-v<VERSION>`**
+(e.g. `causa-mcp-v0.0.1.alpha`). The workflow lives at
+[`.github/workflows/release-causa-mcp.yml`](../../.github/workflows/release-causa-mcp.yml)
+and is triggered automatically — no manual `npm publish` step.
+
+The tag's version segment must equal the repo-root
+[`VERSION`](../../VERSION) file (lockstep convention per
+[`spec/Conventions.md`](../../spec/Conventions.md) §Packaging
+conventions); a mismatched tag is refused before any publish step
+runs. The in-tree `package.json` `version` is a placeholder for
+local `npm install` ergonomics; the workflow rewrites it to the
+lockstep VERSION on the throwaway runner checkout immediately
+before `npm publish`.
+
+To cut a release (Mike-only):
+
+```bash
+# 1. Ensure VERSION reads the target (e.g. 0.0.1.alpha)
+# 2. Tag and push:
+git tag causa-mcp-v$(cat VERSION)
+git push origin causa-mcp-v$(cat VERSION)
+```
+
+Causa-MCP runs out-of-process and does not have a Clojure runtime
+dependency on the framework jars — so unlike `tools/causa/`, the
+Causa Clojars release does not need to precede the Causa-MCP npm
+release. Either order is fine.
+
+Required GitHub secrets (configured at the repository level):
+`NPM_TOKEN` — an npm Granular Access Token scoped to the
+`@day8/re-frame2-causa-mcp` package with `publish` rights.
+
 ## See also
 
 - [`spec/`](./spec/) — this jar's contract.

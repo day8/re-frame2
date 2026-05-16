@@ -1,0 +1,226 @@
+# Release workflow for tools/causa-mcp/ (rf2-8xzoe.36).
+#
+# Publishes `@day8/re-frame2-causa-mcp` to npm on a tag push of the
+# form `causa-mcp-v[0-9]+.[0-9]+.[0-9]+*`
+# (e.g. `causa-mcp-v0.0.1.alpha`).
+#
+# # Why a separate workflow per artefact
+#
+# tools/causa-mcp/ ships as a Node binary on npm — distinct registry,
+# distinct credentials, distinct cadence from the JVM artefacts.
+# It runs on its own tag prefix so a Causa-MCP-only fix doesn't
+# trigger the framework release.yml or the Causa Clojars workflow,
+# and vice versa.
+#
+# # Lockstep versioning
+#
+# Per spec/Conventions.md §Packaging conventions every published
+# artefact ships at the repo-root VERSION. The tag's version segment
+# (everything after `causa-mcp-v`) MUST match VERSION; the workflow
+# refuses to publish on mismatch. tools/causa-mcp/package.json
+# carries a placeholder `version` for local `npm install` ergonomics;
+# the Publish step below rewrites it to the lockstep VERSION on the
+# throwaway runner checkout immediately before `npm publish` so the
+# tarball ships at the right version. The rewrite is never committed
+# (same throwaway-checkout pattern as the Clojars deploy-leaf jobs).
+#
+# # Build + smoke
+#
+# shadow-cljs compiles `tools/causa-mcp/src/...` to a single
+# self-contained `out/server.js` (the `:server` build, configured in
+# tools/causa-mcp/shadow-cljs.edn). The smoke step invokes the
+# compiled binary in `--help` mode to assert that the build produced
+# a Node-runnable artefact before the publish step runs — failing
+# loudly is better than shipping a broken tarball that npm cannot
+# yank.
+#
+# # Secrets
+#
+# NPM_TOKEN is configured at the repository level as an npm Granular
+# Access Token scoped to the `@day8/re-frame2-causa-mcp` package
+# with `publish` rights. Neither value is committed — Mike configures
+# the secret out-of-band; this workflow only references it.
+#
+# # Failure recovery
+#
+# npm permits `npm unpublish` only within 72h of publish; after that
+# the version is permanent. If publish fails mid-stream and the
+# tarball is half-uploaded, DO NOT re-run with the same tag — bump
+# VERSION (0.0.1.alpha → 0.0.1.alpha-1), retag with the bumped value
+# (`causa-mcp-v0.0.1.alpha-1`), and rerun.
+#
+# # First publish protocol
+#
+# Mike triggers the first publish manually by pushing the tag once
+# the secret is wired. Subsequent releases run automatically on tag
+# push.
+
+name: release-causa-mcp
+
+on:
+  push:
+    tags:
+      - "causa-mcp-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Lockstep version contract gate. Fails fast on a mismatched tag
+  #    or a hand-edited deps.edn (causa-mcp/ does not participate in
+  #    the verify-version-lockstep.sh tools/ loop today because it
+  #    ships on npm rather than Clojars and has no :clein/build alias —
+  #    but the tag-vs-VERSION assertion below covers the same intent).
+  # ─────────────────────────────────────────────────────────────────
+  verify-version:
+    name: Verify Causa-MCP tag matches lockstep VERSION
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Verify tag matches VERSION
+        id: version
+        # Tag form: `causa-mcp-v<VERSION>`. The version segment must
+        # equal the repo-root VERSION file content. Catches accidental
+        # tags before any deploy step runs.
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="causa-mcp-v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match repo-root VERSION '$expected' (refusing publish — bump VERSION or fix the tag)"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Build + smoke + publish. The MCP server compiles to a single
+  #    self-contained Node script via shadow-cljs; the package.json
+  #    `files` array already restricts the tarball to {out/server.js,
+  #    README.md, LICENSE} so no extra prune step is needed.
+  # ─────────────────────────────────────────────────────────────────
+  publish-causa-mcp:
+    name: Publish @day8/re-frame2-causa-mcp
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        # shadow-cljs runs on the JVM; the `:server` build emits Node
+        # JS but the compiler is JVM-side.
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        # `registry-url` configures npm auth to read from NPM_TOKEN
+        # automatically — no manual .npmrc shuffle.
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: tools/causa-mcp/package.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-causa-mcp-${{ hashFiles('tools/causa-mcp/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-causa-mcp-
+            ${{ runner.os }}-clj-
+
+      - name: npm install
+        working-directory: tools/causa-mcp
+        run: npm install
+
+      # ─────────────────────────────────────────────────────────────
+      # Rewrite package.json `version` to the lockstep VERSION before
+      # the build/publish steps run. The in-tree placeholder
+      # (`"version": "0.1.0"` at the time of this workflow's
+      # authoring) is solely for local `npm install` ergonomics —
+      # the canonical version comes from the repo-root VERSION file.
+      # The rewrite happens on the throwaway runner checkout and is
+      # never committed.
+      # ─────────────────────────────────────────────────────────────
+      - name: Rewrite package.json version → lockstep VERSION
+        working-directory: tools/causa-mcp
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const target = process.env.VERSION;
+            console.log("Rewriting package.json version", pkg.version, "→", target);
+            pkg.version = target;
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          '
+          node -e '
+            const pkg = require("./package.json");
+            if (pkg.version !== process.env.VERSION) {
+              console.error("::error::version rewrite failed — package.json reads", pkg.version);
+              process.exit(1);
+            }
+            console.log("package.json version is now", pkg.version);
+          '
+
+      - name: Build server (shadow-cljs :server)
+        working-directory: tools/causa-mcp
+        run: npm run build
+
+      # ─────────────────────────────────────────────────────────────
+      # Build artefact smoke: invoke the compiled Node script with a
+      # 1s stdin timeout; the F-1 placeholder main currently prints a
+      # startup banner and exits, and later F-tranche surface will
+      # speak stdio JSON-RPC. Either way, asserting `node out/server.js`
+      # starts at all proves the build produced a runnable artefact
+      # before we ship it to npm. A 0 or 124 (timeout) exit is OK;
+      # any other exit is a broken build.
+      # ─────────────────────────────────────────────────────────────
+      - name: Smoke compiled server binary
+        working-directory: tools/causa-mcp
+        run: |
+          set -uo pipefail
+          if [ ! -f out/server.js ]; then
+            echo "::error::shadow-cljs did not produce out/server.js"
+            exit 1
+          fi
+          timeout 5s node out/server.js < /dev/null
+          rc=$?
+          # 0 = clean exit (placeholder main returns); 124 = timeout
+          # killed a long-running server (real F-tranche path). Anything
+          # else means the binary crashed on startup.
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            echo "::error::server binary smoke exited with rc=$rc (expected 0 or 124)"
+            exit 1
+          fi
+          echo "server binary smoke OK (rc=$rc)"
+
+      - name: npm publish
+        working-directory: tools/causa-mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # `--access public` is required for scoped packages on npm
+        # (`@day8/…`) on first publish; harmless on subsequent
+        # publishes. `--tag` defaults to `latest`; we let npm tag any
+        # pre-release suffix (e.g. `alpha`) explicitly via the version
+        # segment — consumers `npm install @day8/re-frame2-causa-mcp`
+        # to pin the latest stable, or `…@0.0.1.alpha` to pin a
+        # specific pre-release.
+        run: npm publish --access public
