@@ -115,6 +115,99 @@
         (assoc ctx :rf/redacted-event
                (redact-event (interceptor/get-coeffect ctx :event) paths))))))
 
+;; ---- with-redacted — user-installed positional interceptor ----------------
+;;
+;; The third composition site for `:sensitive?` (per Security.md §Behavioural
+;; MUSTs across the privacy surface): the positional `with-redacted`
+;; interceptor scrubs named payload keys *before* the handler body runs.
+;; The handler sees the unredacted value via the regular `:event` coeffect;
+;; the trace surface sees the redacted version via `:rf/redacted-event`.
+;;
+;; The interceptor carries its `:paths` on the interceptor map itself so
+;; the router can collect them at chain-assembly time and fold them into
+;; the pre-chain `:run-start` / `emit-cascade-trailers` event projection
+;; (which fires BEFORE any chain `:before` runs). The `:before` here remains
+;; load-bearing for the in-chain composition with `:rf/schema-redaction`:
+;; when both interceptors are present, this `:before` extends the already-
+;; stashed `:rf/redacted-event` rather than overwriting it, so the union
+;; of paths is scrubbed.
+
+(def with-redacted-interceptor-id :rf/with-redacted)
+
+(defn with-redacted
+  "Build a positional interceptor that overwrites the named keys in the
+  event vector's payload map with the `:rf/redacted` sentinel before the
+  handler body runs.
+
+  The handler itself receives the UNREDACTED payload via the regular
+  `:event` coeffect slot; the redaction is for the trace surface only
+  (`:event/*` trace events, `:event/db-changed`, `:rf.error/handler-
+  exception`, and the always-on error-emit substrate's record).
+
+  `paths` is a sequence of `get-in`-style key paths into the payload map
+  (the second element of the event vector, per the canonical M-19 map-
+  payload form). A path that targets a missing leaf is a no-op; an empty
+  path scrubs the whole payload to `:rf/redacted`. Non-map payload shapes
+  pass through unchanged.
+
+  Composition:
+    - With registration-meta `:sensitive? true` — orthogonal. The meta
+      stamps `:sensitive? true` on every trace event in the handler's
+      scope; `with-redacted` scrubs the payload slot. Both apply.
+    - With schema `:sensitive?` on a path-scoped handler — additive. The
+      router installs an internal redaction interceptor for schema-
+      declared paths; this user-installed interceptor extends (does not
+      replace) the stashed `:rf/redacted-event` with its own paths.
+    - With epoch `:redact-fn` — independent. The redact-fn runs at the
+      assembled epoch-record boundary; this interceptor runs per
+      handler invocation on the trace surface inside the cascade. The
+      record carries the already-scrubbed trace events into the fn.
+
+  Usage:
+
+      (rf/reg-event-fx :auth/login
+        [(rf/with-redacted [[:password] [:token]])]
+        (fn [{:keys [db]} [_ {:keys [username password token]}]]
+          ;; password + token visible HERE (unredacted via :event coeffect)
+          ;; trace surface sees them as :rf/redacted
+          ...))
+
+  Per [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces)
+  and [Security.md §Behavioural MUSTs across the privacy surface](Security.md#behavioural-musts-across-the-privacy-surface)."
+  [paths]
+  (let [paths (vec paths)]
+    (interceptor/->interceptor
+      :id     with-redacted-interceptor-id
+      ;; Paths are exposed on the interceptor map for chain-walking
+      ;; consumers (router `prepare-handler-ctx` collects them so the
+      ;; pre-chain `:run-start` trace event already carries the
+      ;; redacted projection).
+      :paths  paths
+      :before
+      (fn [ctx]
+        (let [base    (or (:rf/redacted-event ctx)
+                          (interceptor/get-coeffect ctx :event))
+              scrubbed (redact-event base paths)]
+          (assoc ctx :rf/redacted-event scrubbed))))))
+
+(defn- with-redacted-interceptor?
+  [interceptor]
+  (and (map? interceptor)
+       (= with-redacted-interceptor-id (:id interceptor))))
+
+(defn user-redaction-paths
+  "Walk an interceptor chain and return the concatenated `:paths` vectors
+  of every `with-redacted` interceptor it contains.
+
+  Read by the router at chain-assembly time so the pre-chain trace events
+  (`:run-start`, `emit-cascade-trailers`'s `:run-end`) and the schema-
+  derived emit-event projection both honour user-declared payload paths."
+  [interceptors]
+  (into []
+        (comp (filter with-redacted-interceptor?)
+              (mapcat :paths))
+        interceptors))
+
 (defn clear-suppression-cache!
   "Compatibility hook name used by frame teardown. Path-D privacy has no
   registration-warning cache, so this is intentionally a no-op."

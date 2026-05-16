@@ -899,6 +899,18 @@
   Conventions §Canonical event-vector shape (M-19)."}
   unwrap          std-interceptors/unwrap)
 
+(def ^{:doc "Build a positional interceptor that overwrites the named
+  payload keys with the `:rf/redacted` sentinel on the trace surface
+  while the handler body still sees the unredacted payload via the
+  `:event` coeffect. `paths` is a sequence of `get-in`-style key paths
+  into the M-19 payload map. The third composition site for
+  `:sensitive?` (alongside registration meta and schema-declared
+  paths) — see Security.md §Behavioural MUSTs across the privacy
+  surface. Usage:
+  `(reg-event-fx :auth/login [(with-redacted [[:password]])] ...)`.
+  Per spec/API.md §Privacy and Spec 009 §Privacy."}
+  with-redacted   privacy/with-redacted)
+
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
 (def ^{:doc "Predicate: returns `true` iff `trace-event` is a map carrying
