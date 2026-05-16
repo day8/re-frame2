@@ -1462,6 +1462,227 @@ module.exports = {
       );
     });
 
+    await scenario(page, 'args-precedence-5-layer-chain-rf2-6fry8', async () => {
+      /*
+       * Case-1 follow-on (rf2-6fry8) — args-precedence 5-layer
+       * chain feature-gate beyond the matrix bookkeeping baseline.
+       *
+       * Per Spec 007 §Args (and args.cljc resolve-args) the
+       * precedence chain is:
+       *
+       *   global-args  <  mode-args  <  story-args  <  variant-args  <  controls-overrides
+       *
+       * Each layer DEEP-MERGES into the next; lower-precedence
+       * keys survive when the higher-precedence layer doesn't
+       * override them.
+       *
+       * The counter testbed makes every layer addressable:
+       *   - global:    re-frame.story.config/set-global-args!
+       *   - mode:      :Mode.app/dark sets {:theme :dark
+       *                                     :background "#1e1e1e"
+       *                                     :foreground "#e0e0e0"}
+       *   - story:     :story.counter sets {:label "Count"}
+       *   - variant:   :story.counter/loaded sets {:label "Total"}
+       *   - controls:  controls panel writes [:cell-overrides
+       *                ::variant-id :<arg-key>] via the args editor
+       *
+       * Beyond-mount surface assertions:
+       *
+       *   (a) Variant beats global+story: with global :label set to
+       *       "GlobalLabel" and no controls override, /loaded canvas
+       *       still shows "Total" (variant precedence wins).
+       *
+       *   (b) Global survives when no higher layer overrides:
+       *       set global key :rf-test/global-only "G" — a key NO
+       *       other layer touches; resolve-args returns the value
+       *       intact on the variant's effective-args map (reads
+       *       via re_frame.story.args/resolve-args).
+       *
+       *   (c) Mode beats global on a key the mode defines: set
+       *       global :theme :red, activate :Mode.app/dark; the
+       *       mode's :theme :dark wins (mode > global).
+       *
+       *   (d) Controls beats every other layer: with the variant
+       *       declaring :label "Total" and global :label set, edit
+       *       the controls input to "ControlsWins" — canvas re-
+       *       renders to show "ControlsWins" and resolve-args
+       *       reports the same.
+       *
+       *   (e) Reset controls override (the controls panel's "reset
+       *       overrides" button) — canvas falls back to the
+       *       variant's :label "Total", proving the controls layer
+       *       didn't mutate any other layer.
+       *
+       * Source-side follow-on: the canvas-visible :label is the
+       * load-bearing observable per layer; a deeper read of all 5
+       * layers via the docs pane's args table would need an
+       * argtypes-aware label-row but the current panel only shows
+       * one row per top-level key (covered).
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // Clear any prior workspace selection so the variant click
+      // actually drives the canvas pane (see notes in the controls-
+      // nested scenario above).
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        state.swap_state_BANG_.call(null, state.select_workspace, null);
+      });
+
+      // Helper: read resolved effective-args off the variant via
+      // re_frame.story.args/resolve-args. The variant-id arg MUST
+      // be a cljs keyword, not a JS string — resolve-args calls
+      // (parent-story-id variant-id) which uses the keyword namespace
+      // grammar. Mirror the canvas opts shape so the mode + cell-
+      // overrides layers participate just like the rendered canvas.
+      const readEffectiveArgs = ([variantNs, variantName]) =>
+        page.evaluate((spec) => {
+          const [ns, name] = spec;
+          const args = window.re_frame.story.args;
+          const state = window.re_frame.story.ui.state;
+          const cljs = window.cljs.core;
+          const kw = cljs.keyword;
+          const vid = kw(ns, name);
+          // Read the shell's active-modes + cell-overrides for this
+          // variant — matches what canvas-inner passes to
+          // resolve-args (rf2-wb4y3 hot-path threading).
+          const shell = state.get_state.call(null);
+          const get = cljs.get;
+          const getIn = cljs.get_in;
+          const activeModes = get.call(null, shell, kw('active-modes')) || cljs.PersistentVector.EMPTY;
+          const cellOverrides = getIn.call(null, shell, cljs.PersistentVector.fromArray(
+            [kw('cell-overrides'), vid],
+            true,
+          ));
+          let opts = cljs.PersistentArrayMap.EMPTY;
+          opts = cljs.assoc.call(null, opts, kw('active-modes'), activeModes);
+          if (cellOverrides != null) {
+            opts = cljs.assoc.call(null, opts, kw('cell-overrides'), cellOverrides);
+          }
+          const result = args.resolve_args.call(null, vid, opts);
+          if (result == null) return null;
+          return {
+            label: get.call(null, result, kw('label')),
+            theme: get.call(null, result, kw('theme')),
+            background: get.call(null, result, kw('background')),
+            globalOnly: get.call(null, result, kw('rf-test', 'global-only')),
+          };
+        }, [variantNs, variantName]);
+
+      const setGlobal = (entries) =>
+        page.evaluate((kvs) => {
+          const cfg = window.re_frame.story.config;
+          const cljs = window.cljs.core;
+          const kw = cljs.keyword;
+          let m = cljs.PersistentArrayMap.EMPTY;
+          for (const [nsName, name, value] of kvs) {
+            const key = nsName ? kw(nsName, name) : kw(name);
+            // For value keywords, coerce.
+            const v = (value && value.__kw)
+              ? (value.ns ? kw(value.ns, value.name) : kw(value.name))
+              : value;
+            m = cljs.assoc.call(null, m, key, v);
+          }
+          cfg.set_global_args_BANG_.call(null, m);
+        }, entries);
+
+      const setActiveModes = (modeIds) =>
+        page.evaluate((mids) => {
+          const state = window.re_frame.story.ui.state;
+          const cljs = window.cljs.core;
+          const kw = cljs.keyword;
+          const modes = cljs.PersistentVector.fromArray(
+            mids.map(([nsName, name]) => kw(nsName, name)),
+            true,
+          );
+          state.swap_state_BANG_.call(null, state.set_active_modes, modes);
+        }, modeIds);
+
+      // (a) Variant beats global+story.
+      // First clear any prior global args + active modes from
+      // earlier scenarios, then set global :label "GlobalLabel".
+      await setGlobal([]);                       // clear globals
+      await setActiveModes([]);                  // clear modes
+      await setGlobal([[null, 'label', 'GlobalLabel']]);
+      await clickVariant(page, '/loaded');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/loaded');
+      await expectTextContains(canvas(page, ':story.counter/loaded'), 'Total', 5000);
+      let eff = await readEffectiveArgs(['story.counter', 'loaded']);
+      if (eff.label !== 'Total') {
+        throw new Error(
+          `(a) variant > global: expected :label "Total", got ${JSON.stringify(eff.label)}`,
+        );
+      }
+
+      // (b) Global survives when no higher layer overrides it. Set
+      // a namespaced key only in globals; resolve-args returns it
+      // verbatim on every variant.
+      await setGlobal([
+        [null, 'label', 'GlobalLabel'],
+        ['rf-test', 'global-only', 'fromGlobal'],
+      ]);
+      await waitForValue(
+        async () => (await readEffectiveArgs(['story.counter', 'loaded'])).globalOnly,
+        (v) => v === 'fromGlobal',
+        {
+          timeoutMs: 5000,
+          description: '(b) global :rf-test/global-only survives into effective-args',
+        },
+      );
+
+      // (c) Mode beats global on a key the mode defines. Set
+      // global :background "FROM_GLOBAL", activate :Mode.app/dark
+      // (which carries :background "#1e1e1e"). Mode wins.
+      await setGlobal([
+        [null, 'label', 'GlobalLabel'],
+        ['rf-test', 'global-only', 'fromGlobal'],
+        [null, 'background', 'FROM_GLOBAL'],
+      ]);
+      await setActiveModes([['Mode.app', 'dark']]);
+      await waitForValue(
+        async () => (await readEffectiveArgs(['story.counter', 'loaded'])).background,
+        (v) => v === '#1e1e1e',
+        {
+          timeoutMs: 5000,
+          description: '(c) mode :Mode.app/dark :background beats global :background',
+        },
+      );
+
+      // (d) Controls beats every other layer. Edit the controls
+      // input for :label and assert canvas re-renders.
+      const aside = page.getByRole('complementary');
+      const labelInput = aside.locator('[data-controls-arg=":label"] input[type="text"]').first();
+      await labelInput.waitFor({ state: 'visible', timeout: 5000 });
+      await labelInput.fill('ControlsWins');
+      await expectTextContains(canvas(page, ':story.counter/loaded'), 'ControlsWins', 5000);
+      await waitForValue(
+        async () => (await readEffectiveArgs(['story.counter', 'loaded'])).label,
+        (v) => v === 'ControlsWins',
+        {
+          timeoutMs: 5000,
+          description: '(d) controls override :label "ControlsWins" wins over variant/story/mode/global',
+        },
+      );
+
+      // (e) Reset controls override — canvas falls back to variant
+      // :label "Total".
+      const resetBtn = aside.getByRole('button', { name: /reset overrides/i }).first();
+      await resetBtn.click();
+      await expectTextContains(canvas(page, ':story.counter/loaded'), 'Total', 5000);
+      eff = await readEffectiveArgs(['story.counter', 'loaded']);
+      if (eff.label !== 'Total') {
+        throw new Error(
+          `(e) controls reset: expected :label "Total", got ${JSON.stringify(eff.label)}`,
+        );
+      }
+      // Cleanup: clear globals + modes so downstream scenarios
+      // (the terminal :kgn0c walk) see a fresh shell.
+      await setGlobal([]);
+      await setActiveModes([]);
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
