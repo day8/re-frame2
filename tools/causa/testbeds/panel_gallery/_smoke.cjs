@@ -58,81 +58,101 @@ function waitForReady(url, timeoutMs) {
     await waitForReady(`${BASE_URL}/index.html`, 5000);
     const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
     const browser = await chromium.launch();
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    const consoleErrors = [];
-    page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`));
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(`console.error: ${msg.text()}`);
-    });
 
-    // 1. landing
-    await page.goto(`${BASE_URL}/index.html`, { waitUntil: 'load' });
-    await page.waitForSelector('h1', { timeout: 5000 });
-    const heading = await page.locator('h1').first().textContent();
-    if (!heading.includes('Causa panel gallery')) throw new Error(`landing heading wrong: ${heading}`);
-
-    // 2. shell
-    await page.goto(`${BASE_URL}/index.html#/stories`, { waitUntil: 'load' });
-    // Story shell mounts a sidebar; the sidebar always renders; variants
-    // mount after the user picks a story or a workspace.
-    await page.waitForTimeout(1500);
-
-    // Probe the page DOM to discover what Story has rendered.
-    const sidebarText = await page.locator('body').textContent({ timeout: 5000 });
-    const hasStoryShell = sidebarText.includes('story.causa.event-detail') ||
-                          sidebarText.includes('Workspace.causa.event-detail') ||
-                          sidebarText.includes('event-detail');
-    if (!hasStoryShell) throw new Error(`Story shell text not found; first 500: ${sidebarText.slice(0, 500)}`);
-
-    // Dismiss the welcome overlay if present.
-    const gotIt = page.locator('button:has-text("Got it")').first();
-    if ((await gotIt.count()) > 0) await gotIt.click({ timeout: 2000 }).catch(() => {});
-    await page.waitForTimeout(500);
-
-    // The sidebar lists every variant + workspace by name. Click the
-    // workspace-grid entry first; fall back to the first variant.
-    let variantRoots = 0;
-    const workspaceLine = page.locator('text=/Workspace.causa.event-detail\\/all/').first();
-    if ((await workspaceLine.count()) > 0) {
-      await workspaceLine.click({ timeout: 3000 }).catch(() => {});
-      await page.waitForTimeout(2000);
-      variantRoots = await page.locator('[data-rf-story-variant-root]').count();
+    // 1. landing (single page)
+    {
+      const page = await (await browser.newContext()).newPage();
+      await page.goto(`${BASE_URL}/index.html`, { waitUntil: 'load' });
+      await page.waitForSelector('h1', { timeout: 5000 });
+      const heading = await page.locator('h1').first().textContent();
+      if (!heading.includes('Causa panel gallery')) {
+        throw new Error(`landing heading wrong: ${heading}`);
+      }
+      console.log('landing OK');
+      await page.close();
     }
-    if (variantRoots < 1) {
-      const variantLine = page.locator('text=/empty-buffer/').first();
-      if ((await variantLine.count()) > 0) {
-        await variantLine.click({ timeout: 3000 }).catch(() => {});
-        await page.waitForTimeout(1500);
-        variantRoots = await page.locator('[data-rf-story-variant-root]').count();
+
+    // 2. per-panel workspace walkthrough on FRESH pages.
+    //
+    // Each panel registered by Phase 1a (event-detail) and Phase 1b
+    // (app-db-diff, subscriptions) gets its own browser context + page.
+    // Workspace teardown across substrates in a single session has been
+    // observed to surface stale reaction derefs (variants registered for
+    // an unmounted-but-still-cached cell), so a clean page per workspace
+    // is the conservative assertion of "every variant renders" without
+    // entangling with shell-state teardown semantics.
+    const panels = [
+      {
+        id:          'event-detail',
+        workspaceRe: /Workspace\.causa\.event-detail\/all/,
+        cardTestid:  'panel-gallery-event-detail-card',
+        expectedAtLeast: 12,
+      },
+      {
+        id:          'app-db-diff',
+        workspaceRe: /Workspace\.causa\.app-db-diff\/all/,
+        cardTestid:  'panel-gallery-app-db-diff-card',
+        expectedAtLeast: 11,
+      },
+      {
+        id:          'subscriptions',
+        workspaceRe: /Workspace\.causa\.subscriptions\/all/,
+        cardTestid:  'panel-gallery-subscriptions-card',
+        expectedAtLeast: 10,
+      },
+    ];
+
+    const results = [];
+    for (const panel of panels) {
+      const page = await (await browser.newContext()).newPage();
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(`pageerror: ${e.message}`));
+      page.on('console', (m) => {
+        if (m.type() === 'error') errs.push(`console.error: ${m.text()}`);
+      });
+      await page.goto(`${BASE_URL}/index.html#/stories`, { waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      const gotIt = page.locator('button:has-text("Got it")').first();
+      if ((await gotIt.count()) > 0) await gotIt.click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(500);
+
+      const workspaceLine = page.getByText(panel.workspaceRe).first();
+      if ((await workspaceLine.count()) === 0) {
+        results.push({ ...panel, variantRoots: 0, cards: 0, missingWorkspace: true, errs });
+        await page.close();
+        continue;
+      }
+      await workspaceLine.click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+      const variantRoots = await page.locator('[data-rf-story-variant-root]').count();
+      const cards        = await page.locator(`[data-testid="${panel.cardTestid}"]`).count();
+      results.push({ ...panel, variantRoots, cards, missingWorkspace: false, errs });
+      await page.close();
+    }
+
+    let totalRoots = 0;
+    let totalCards = 0;
+    let totalExpected = 0;
+    let failed = false;
+    for (const r of results) {
+      console.log(`panel=${r.id} workspace=${r.missingWorkspace ? 'MISSING' : 'OK'} ` +
+                  `variant-roots=${r.variantRoots}/${r.expectedAtLeast} ` +
+                  `cards=${r.cards}/${r.expectedAtLeast} ` +
+                  `page-errors=${r.errs.length}`);
+      if (r.errs.length > 0) {
+        for (const e of r.errs.slice(0, 3)) console.log(`  ${e}`);
+      }
+      totalRoots    += r.variantRoots;
+      totalCards    += r.cards;
+      totalExpected += r.expectedAtLeast;
+      if (r.missingWorkspace || r.variantRoots < r.expectedAtLeast || r.cards < r.expectedAtLeast) {
+        failed = true;
       }
     }
-    const cards = await page.locator('[data-testid="panel-gallery-event-detail-card"]').count();
+    console.log(`TOTAL variant-roots=${totalRoots}/${totalExpected} cards=${totalCards}/${totalExpected}`);
 
-    console.log(`landing OK • shell text contains story keys • variant-roots=${variantRoots} cards=${cards}`);
-    if (consoleErrors.length) {
-      console.log('--- console errors ---');
-      for (const err of consoleErrors) console.log(err);
-      console.log('----------------------');
-    }
-    if (variantRoots < 1) {
-      // Debug — dump the visible body content so we can see what Story rendered.
-      const bodyText = await page.locator('body').textContent({ timeout: 2000 });
-      console.log('--- body text snippet ---');
-      console.log(bodyText.slice(0, 2000));
-      console.log('-------------------------');
-      // Dump links / clickable elements
-      const links = await page.evaluate(() => {
-        const out = [];
-        document.querySelectorAll('a,button,[role="button"],[data-testid]').forEach((el) => {
-          out.push(`${el.tagName} testid=${el.getAttribute('data-testid')} text=${(el.textContent || '').slice(0, 60)}`);
-        });
-        return out.slice(0, 40);
-      });
-      console.log('--- clickable elements ---');
-      console.log(links.join('\n'));
-      console.log('--------------------------');
-      throw new Error(`expected ≥1 variant root after navigation, got ${variantRoots}`);
+    if (failed) {
+      throw new Error('one or more panels failed the variant-root / card count assertion');
     }
     console.log('smoke OK');
     await browser.close();
