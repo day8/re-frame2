@@ -626,3 +626,35 @@ the terminal `tools/call` result is a summary with cumulative
 `:filter`.
 
 Implementation: [`tools/causa-mcp/src/.../tools/subscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/subscribe.cljs).
+
+### unsubscribe (T-Stream-2, rf2-8xzoe.27)
+
+Close a streaming subscription by `:sub-id`. Idempotent: re-calling
+for an already-closed sub-id returns `:existed? false`. An open
+`subscribe` `tools/call` observes the missing sub-id on its next
+polling tick and resolves with `:reason :unsubscribed`. Source-coord
+pin: `ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1
+bead #27.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:sub-id` | string | **required** | sub-id from a prior `subscribe` |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true :sub-id <uuid> :existed? <bool>}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :missing-sub-id :hint ...}` — `:sub-id`
+  arg absent / blank (returned as `isError`).
+- `{:ok? false :reason :runtime-not-preloaded :hint <setup>}` —
+  Causa-the-panel preload isn't loaded.
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/unsubscribe.cljs`](../src/day8/re_frame2_causa_mcp/tools/unsubscribe.cljs).
