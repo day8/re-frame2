@@ -18,7 +18,7 @@
   (is (some? (badges/status-colour :error))))
 
 (deftest status-badge-renders
-  (is (vector? (badges/status-badge :fresh false))))
+  (is (vector? (badges/status-badge :fresh))))
 
 (deftest layer-pill-renders-with-the-layer-number
   (is (vector? (badges/layer-pill 1))))
