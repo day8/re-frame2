@@ -451,3 +451,52 @@ mutation envelope is small; overflow would only happen with
 pathological runtime auxiliary metadata).
 
 Implementation: [`tools/causa-mcp/src/.../tools/dispatch.cljs`](../src/day8/re_frame2_causa_mcp/tools/dispatch.cljs).
+
+### restore-epoch (T-Mut-2, rf2-8xzoe.24)
+
+Rewind a frame's `app-db` to the named epoch's `:db-after` via
+`re-frame.core/restore-epoch`. Bound by the Tool-Pair §Time-travel
+restore contract: returns `:ok? true` on success, `:ok? false`
+with `:reason :rf.epoch/restore-failed` on any of the six
+documented failure rows. The per-row `:rf.epoch/*` keyword surfaces
+on the trace bus (read via `get-trace-buffer` or `subscribe :trace`)
+— the tool envelope intentionally does not double-project it (the
+framework wrapper returns a plain boolean; the row already lives
+on the bus). Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #24.
+
+**Six-row failure table** (read off the trace bus by `:op-type`):
+
+| Row | Trace `:op-type` keyword |
+|---|---|
+| unknown frame | `:rf.error/no-such-handler` (kind `:frame`) |
+| unknown epoch | `:rf.epoch/restore-unknown-epoch` |
+| schema mismatch | `:rf.epoch/restore-schema-mismatch` |
+| missing handler | `:rf.epoch/restore-missing-handler` |
+| version mismatch | `:rf.epoch/restore-version-mismatch` |
+| restore during drain | `:rf.epoch/restore-during-drain` |
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:epoch-id` | string | **required** | epoch-id from `get-epoch-history` |
+| `:frame` | keyword | nil | scope to one frame; nil → sole frame |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape (success):**
+
+```clojure
+{:ok? true :frame <kw> :epoch-id <id> :origin :causa-mcp}
+```
+
+**Return shape (failure):**
+
+```clojure
+{:ok? false :frame <kw> :epoch-id <id> :origin :causa-mcp
+ :reason :rf.epoch/restore-failed
+ :hint "Restore failed — read the trace bus for the structured :rf.epoch/* row."}
+```
+
+**Cap-reached hint:** `:narrow-filter` (default fallback — ack
+envelope is small).
+
+Implementation: [`tools/causa-mcp/src/.../tools/restore_epoch.cljs`](../src/day8/re_frame2_causa_mcp/tools/restore_epoch.cljs).
