@@ -48,6 +48,7 @@
             [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
+            [re-frame.ssr.ring.trust :as trust]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.trace :as trace])
   (:import [java.io PipedInputStream PipedOutputStream OutputStream]
@@ -224,6 +225,13 @@
   ;; `:rf.error/ssr-missing-payload-policy` on absence of both
   ;; `:payload-keys` and `:payload-policy`.
   (payload-policy/validate-policy-opts! raw-opts)
+  ;; Per rf2-o6ndb — validate the four trusted-shell-hook opts are
+  ;; strings (or nil) at construction time. The streaming prefix/suffix
+  ;; injects these RAW into the rendered HTML envelope, same trust
+  ;; contract as the non-streaming `default-html-shell`. Throws
+  ;; `:rf.error/ssr-trusted-shell-opt-invalid` on a structural-shape
+  ;; mistake (map / vector / symbol / number).
+  (trust/validate-trusted-shell-opts! raw-opts)
   ;; Mirror ssr-handler's defaults + validation so streaming and non-
   ;; streaming handlers feel symmetric to callers.
   (let [opts        (merge {:emit-hash?   true

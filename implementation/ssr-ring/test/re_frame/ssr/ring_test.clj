@@ -795,6 +795,136 @@
          :rf.error/ssr-unknown-payload-policy")))
 
 ;; ===========================================================================
+;; ssr-handler / stream-handler — trusted shell-hook contract (rf2-o6ndb)
+;;
+;; The four shell-envelope opts that get injected RAW into the rendered
+;; HTML response — `:head`, `:body-end`, `:script-src`, `:app-element-id`
+;; — are TRUSTED STRINGS per Spec 011 §Trusted shell hook contract. The
+;; framework names the trust boundary (so apps reading any of them from
+;; untrusted input know they are opting into an arbitrary-script-
+;; injection XSS vector) AND structurally validates the shape at
+;; handler-construction time so a structural mistake (passing a map, a
+;; vector, a symbol, a number) surfaces as a clean structured error at
+;; boot, not as a ClassCastException deep in the rendering path on the
+;; first request.
+;;
+;; Strings pass through unchanged — the framework names the boundary
+;; but does not gate the content (per the trusted-string contract).
+;; Nil is fine (means "no override, use the default").
+;; ===========================================================================
+
+(deftest handler-construction-rejects-non-string-trusted-shell-opts
+  (testing "rf2-o6ndb: ssr-handler structural-shape-checks the four
+            trusted-shell-hook opts at construction time"
+    (rf/reg-event-fx :init/trusted-opt-test
+                     {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/trusted-opt-test (fn [] [:div]))
+
+    (let [base-opts {:on-create    [:init/trusted-opt-test]
+                     :root-view    [:pages/trusted-opt-test]
+                     :payload-keys [:public/x]}]
+
+      (testing "each of the four trusted-string opts is rejected when
+                supplied a non-string non-nil value (per the bead's
+                'validate STRINGS, not maps/symbols/etc' requirement)"
+        (doseq [[opt-k bad-vals]
+                {:head            [{:title "x"}             ; map
+                                   [:head [:title "x"]]     ; vector (hiccup)
+                                   'some-sym                ; symbol
+                                   42]                      ; number
+                 :body-end        [{:script "x"}
+                                   ['x]
+                                   'sym
+                                   3.14]
+                 :script-src      [:main.js                 ; keyword
+                                   ["/main.js"]             ; vector
+                                   {:src "/main.js"}        ; map
+                                   123]
+                 :app-element-id  [:app                     ; keyword (very common mistake)
+                                   {:id "app"}
+                                   ['app]
+                                   0]}
+                bad-val bad-vals]
+          (is (thrown-with-msg?
+                clojure.lang.ExceptionInfo
+                #":rf\.error/ssr-trusted-shell-opt-invalid"
+                (ssr-ring/ssr-handler (assoc base-opts opt-k bad-val)))
+              (str "ssr-handler MUST reject " (pr-str opt-k) " = "
+                   (pr-str bad-val)
+                   " with :rf.error/ssr-trusted-shell-opt-invalid"))))
+
+      (testing "ex-data carries the structured diagnostic shape — :opt-key
+                names the offending opt; :got carries the rejected value;
+                :got-type names the type"
+        (let [ex (try (ssr-ring/ssr-handler
+                        (assoc base-opts :body-end {:script "evil"}))
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex) "an exception was thrown")
+          (is (= ":rf.error/ssr-trusted-shell-opt-invalid"
+                 (ex-message ex)))
+          (is (= :body-end (:opt-key (ex-data ex))))
+          (is (= {:script "evil"} (:got (ex-data ex))))
+          (is (= :supply-string-or-nil (:recovery (ex-data ex))))))
+
+      (testing "strings pass through unchanged — the framework names
+                the boundary but does not gate the content; the
+                trust call itself remains the caller's"
+        (is (fn? (ssr-ring/ssr-handler
+                   (assoc base-opts
+                          :head           "<title>OK</title>"
+                          :body-end       "<script src=\"/analytics.js\"></script>"
+                          :script-src     "/custom-bootstrap.js"
+                          :app-element-id "root")))
+            "all four opts passed as strings — handler construction succeeds"))
+
+      (testing "nil values pass — explicit nil signals 'no override,
+                use the default'; the construction-time check accepts it"
+        (is (fn? (ssr-ring/ssr-handler
+                   (assoc base-opts
+                          :head           nil
+                          :body-end       nil
+                          :script-src     nil
+                          :app-element-id nil)))))
+
+      (testing "absent keys pass (regression guard — the check is
+                contains?-aware so absent opts don't trip on the
+                non-nil branch)"
+        (is (fn? (ssr-ring/ssr-handler base-opts)))))))
+
+(deftest stream-handler-construction-rejects-non-string-trusted-shell-opts
+  (testing "rf2-o6ndb: stream-handler shares the trusted-shell-hook
+            structural contract — mirror of the ssr-handler test for the
+            chunked host adapter. The streaming prefix/suffix injects
+            the same four opts RAW into the rendered HTML envelope."
+    (rf/reg-event-fx :init/trusted-opt-stream
+                     {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/trusted-opt-stream (fn [] [:div]))
+
+    (let [base-opts {:on-create    [:init/trusted-opt-stream]
+                     :root-view    [:pages/trusted-opt-stream]
+                     :payload-keys [:public/x]}]
+      (testing "stream-handler rejects non-string non-nil values on
+                each of the four trusted-string opts"
+        (doseq [[opt-k bad-val] [[:head            {:title "x"}]
+                                 [:body-end        ['x]]
+                                 [:script-src      :main.js]
+                                 [:app-element-id  {:id "app"}]]]
+          (is (thrown-with-msg?
+                clojure.lang.ExceptionInfo
+                #":rf\.error/ssr-trusted-shell-opt-invalid"
+                (ssr-ring/stream-handler (assoc base-opts opt-k bad-val)))
+              (str "stream-handler MUST reject " (pr-str opt-k) " = "
+                   (pr-str bad-val)))))
+
+      (testing "stream-handler accepts strings on all four"
+        (is (fn? (ssr-ring/stream-handler
+                   (assoc base-opts
+                          :head           "<meta name=\"x\">"
+                          :body-end       "<script src=\"/x.js\"></script>"
+                          :script-src     "/boot.js"
+                          :app-element-id "root"))))))))
+
+;; ===========================================================================
 ;; default-html-shell — title is sourced from the head fragment, never the
 ;; shell. Two <title> tags per document is malformed HTML (rf2-3z841).
 ;; ===========================================================================

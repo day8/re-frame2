@@ -105,6 +105,7 @@
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.shell :as shell]
+            [re-frame.ssr.ring.trust :as trust]
             ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR adapter. Loaded
             ;; eagerly so `stream-handler` resolves at the façade. The
             ;; streaming surface is the chunked-HTTP counterpart of
@@ -165,6 +166,16 @@
    :content-type "text/html; charset=utf-8"
    :on-error     default-on-error})
 
+;; ---- trusted-shell-hook contract (rf2-o6ndb) ------------------------------
+;;
+;; The four trusted-shell-hook opts (`:head`, `:body-end`, `:script-src`,
+;; `:app-element-id`) are TRUSTED STRINGS — injected RAW into the
+;; rendered HTML envelope, no escaping, no validation, no sandbox.
+;; Naming, structural validation, and the structured-alternative
+;; recommendation for untrusted-customization use cases live in
+;; `re-frame.ssr.ring.trust` (sibling to `re-frame.ssr.payload-policy`).
+;; See Spec 011 §Trusted shell hook contract for the full surface.
+
 (defn- validate-handler-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
   caller omits a required `ssr-handler` opt. Extracted from the
@@ -178,7 +189,15 @@
   Delegates to `re-frame.ssr.payload-policy/validate-policy-opts!`,
   which throws `:rf.error/ssr-missing-payload-policy` (or
   `:rf.error/ssr-unknown-payload-policy` on a typo'd
-  `:payload-policy`)."
+  `:payload-policy`).
+
+  Per rf2-o6ndb the four trusted-shell-hook opts (`:head`, `:body-end`,
+  `:script-src`, `:app-element-id`) are structural-shape-checked — they
+  are TRUSTED STRINGS injected RAW into the rendered HTML envelope, so
+  a structural error (map / vector / symbol) surfaces here as
+  `:rf.error/ssr-trusted-shell-opt-invalid`. The framework names the
+  trust boundary; the content trust itself remains the caller's per
+  Spec 011 §Trusted shell hook contract."
   [{:keys [on-create root-view] :as opts}]
   (when-not on-create
     (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
@@ -186,7 +205,8 @@
   (when-not root-view
     (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
                     {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
-  (payload-policy/validate-policy-opts! opts))
+  (payload-policy/validate-policy-opts! opts)
+  (trust/validate-trusted-shell-opts! opts))
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -250,6 +270,31 @@
                       errors during drain; this hook covers the
                       exceptions the projector can't see (Ring-layer
                       throws, render-time CLJ exceptions).
+
+  Trusted shell-hook opts (per Spec 011 §Trusted shell hook contract,
+  rf2-o6ndb) — four optional strings the default shell injects RAW
+  into the rendered HTML envelope. The framework names them as
+  TRUSTED-STRING surfaces; the trust call itself is the caller's.
+  Structural-shape-checked at handler-construction time (non-string
+  non-nil values throw `:rf.error/ssr-trusted-shell-opt-invalid`); the
+  content is NOT escaped. Wiring any of these from untrusted input
+  (CMS field, tenant-admin form, query-string parameter) accepts an
+  arbitrary-script-injection XSS vector. Use the structured
+  alternatives (`reg-head` for head fragments, `reg-view*` +
+  `:rf.server/*` fx for body content) when the content originates
+  upstream of the trust boundary.
+
+    :head           — (string) verbatim HTML inside `<head>...</head>`.
+                      Default: route-resolved head fragment.
+    :body-end       — (string) verbatim HTML before `</body>` — the
+                      escape hatch for analytics / third-party scripts.
+                      Default: nil (omitted).
+    :script-src     — (string) the client-side bootstrap script URL
+                      written into `<script src=\"...\">`. Default:
+                      \"/main.js\".
+    :app-element-id — (string) the id of the `<div>` wrapping the
+                      rendered body. Default: \"app\". The client-side
+                      hydrator reads this element by id.
 
   Returns:
 
