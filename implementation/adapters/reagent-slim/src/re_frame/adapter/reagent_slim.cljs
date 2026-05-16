@@ -39,8 +39,14 @@
 ;; ---- derived (reactions) --------------------------------------------------
 
 (defn- make-derived-value [source-containers compute-fn]
-  (ratom/make-reaction
-    (fn [] (apply compute-fn (map deref source-containers)))))
+  ;; Arity-specialised recompute closure via `spine/build-recompute-fn`
+  ;; (rf2-eoy63 / rf2-v1nu0 / rf2-fzrav). Pre-rf2-eoy63 this body was a
+  ;; naive `(apply compute-fn (map deref ...))` — paid `apply` + a lazy
+  ;; cons cell per source per recompute on the hot path. Lifted into
+  ;; the spine so reagent-slim shares the same arity-spec as the
+  ;; Reagent, UIx and Helix adapters — single source of truth, same
+  ;; pattern as `spine/dispose-frame-sub-caches!` (rf2-jcjul).
+  (ratom/make-reaction (spine/build-recompute-fn source-containers compute-fn)))
 
 ;; ---- render ---------------------------------------------------------------
 

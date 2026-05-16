@@ -33,25 +33,15 @@
 ;; ---- derived (reactions) --------------------------------------------------
 
 (defn- make-derived-value [source-containers compute-fn]
-  ;; Per recompute we want zero lazy-seq allocation and zero `apply`
-  ;; cost on the dominant arities. Subs typically chain off 1 input
-  ;; (layer-1 always; layer-n usually 1–2); specialise those, fall
-  ;; back to `mapv` (eager, vector-backed) + `apply` for ≥3.
-  ;; rf2-v1nu0; sourced from the rf2-fzrav perf sweep findings.
-  ;;
-  ;; `count` is captured once at construction (source-containers is a
-  ;; vector — see `inputs` in `re-frame.subs`) so the recompute closure
-  ;; pays no per-tick count.
-  (let [n (count source-containers)
-        recompute (case n
-                    0 (fn [] (compute-fn))
-                    1 (let [s0 (nth source-containers 0)]
-                        (fn [] (compute-fn @s0)))
-                    2 (let [s0 (nth source-containers 0)
-                            s1 (nth source-containers 1)]
-                        (fn [] (compute-fn @s0 @s1)))
-                    (fn [] (apply compute-fn (mapv deref source-containers))))]
-    (ratom/make-reaction recompute)))
+  ;; Arity-specialised recompute closure (rf2-v1nu0 / rf2-fzrav): the
+  ;; spine helper `build-recompute-fn` builds a 0-arg thunk that skips
+  ;; `apply` + lazy-`map` cost on the dominant 0/1/2-arity paths and
+  ;; falls back to `mapv` + `apply` for ≥3. Pre-rf2-eoy63 this fn
+  ;; carried the case-spec body inline; lifted into the spine so all
+  ;; four adapters (Reagent, reagent-slim, UIx, Helix) share one
+  ;; implementation — same single-source-of-truth pattern as
+  ;; `make-dispose-adapter!` (rf2-jcjul).
+  (ratom/make-reaction (spine/build-recompute-fn source-containers compute-fn)))
 
 ;; ---- render ---------------------------------------------------------------
 ;;
