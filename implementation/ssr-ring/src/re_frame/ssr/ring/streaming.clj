@@ -45,6 +45,7 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.html-helpers :as html]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.streaming :as streaming]
@@ -132,7 +133,7 @@
   [^OutputStream out frame-id resp opts]
   (try
     (let [{:keys [root-view emit-hash? version schema-digest payload-keys
-                  content-type]} opts
+                  payload-policy content-type]} opts
           hiccup     (rf/with-frame frame-id
                        (lifecycle/resolve-root-view root-view))
           {:keys [head-html html-attrs body-attrs]}
@@ -162,9 +163,10 @@
             final-payload (rf/with-frame frame-id
                             (streaming/build-final-payload
                               frame-id final-hash
-                              {:version version
-                               :schema-digest schema-digest
-                               :payload-keys payload-keys}))]
+                              {:version        version
+                               :schema-digest  schema-digest
+                               :payload-keys   payload-keys
+                               :payload-policy payload-policy}))]
         (write-chunk! out
                       (str "<script id=\"" constants/payload-script-id
                            "\" type=\"application/edn\">"
@@ -215,6 +217,13 @@
 
     (fn handler [ring-request] ring-response)"
   [raw-opts]
+  ;; Per rf2-gtgf9 — validate the hydration-payload policy at handler-
+  ;; construction time so misconfigured deployments fail at boot rather
+  ;; than at first request. Mirrors `ssr-handler`'s validate-handler-
+  ;; opts! call site in `re-frame.ssr.ring`. Throws
+  ;; `:rf.error/ssr-missing-payload-policy` on absence of both
+  ;; `:payload-keys` and `:payload-policy`.
+  (payload-policy/validate-policy-opts! raw-opts)
   ;; Mirror ssr-handler's defaults + validation so streaming and non-
   ;; streaming handlers feel symmetric to callers.
   (let [opts        (merge {:emit-hash?   true

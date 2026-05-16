@@ -205,7 +205,8 @@
     (let [handler (ssr-ring/ssr-handler
                     {:on-create    [:rf/server-init]
                      :root-view    [:pages/articles]
-                     :fx-overrides {:http/get :http/get.canned}})
+                     :fx-overrides {:http/get :http/get.canned}
+                     :payload-policy :rf.ssr.payload/whole-app-db})
           request {:uri            "/articles"
                    :request-method :get
                    :headers        {"user-agent" "test"}}
@@ -243,7 +244,8 @@
           handler (ssr-ring/ssr-handler
                     {:on-create    [:rf/server-init]
                      :root-view    [:pages/articles]
-                     :fx-overrides {:http/get :http/get.canned}})
+                     :fx-overrides {:http/get :http/get.canned}
+                     :payload-policy :rf.ssr.payload/whole-app-db})
           frames-before (set (rf/frame-ids))
           response (handler {:uri "/" :request-method :get})
           frames-after (set (rf/frame-ids))]
@@ -274,7 +276,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/redirect]
-                     :root-view [:pages/should-not-render]})
+                     :root-view [:pages/should-not-render]
+                     :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/secret" :request-method :get})]
       (is (= 302 (:status response)))
       (let [headers (:headers response)
@@ -308,7 +311,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/with-cookies]
-                      :root-view [:pages/cookied]})
+                      :root-view [:pages/cookied]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           headers  (:headers response)
           set-cookie (or (get headers "Set-Cookie") (get headers "set-cookie"))]
@@ -341,7 +345,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
-                     :root-view [:pages/broken]})
+                     :root-view [:pages/broken]
+                     :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 500 (:status response))
           "the default :on-error returns 500")
@@ -371,7 +376,8 @@
                      :on-error  (fn [_req t]
                                   {:status  418
                                    :headers {"Content-Type" "text/plain"}
-                                   :body    (str "caught: " (.getMessage t))})})
+                                   :body    (str "caught: " (.getMessage t))})
+                     :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 418 (:status response)))
       (is (str/includes? (:body response) "caught: boom-2")))))
@@ -407,7 +413,8 @@
                        {:on-create [:init/ok-once]
                         :root-view (fn []
                                      (swap! call-count inc)
-                                     [:pages/once])})
+                                     [:pages/once])
+                        :payload-policy :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/once" :request-method :get})]
         (is (= 200 (:status response)))
         (is (= 1 @call-count)
@@ -434,7 +441,8 @@
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/ok-noni]
                         :root-view (fn []
-                                     [:pages/noni (swap! counter inc)])})
+                                     [:pages/noni (swap! counter inc)])
+                        :payload-policy :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/noni" :request-method :get})
             body     (:body response)
             wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""
@@ -486,7 +494,8 @@
 
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/capture-request-cofx]
-                        :root-view [:pages/blank]})
+                        :root-view [:pages/blank]
+                        :payload-policy :rf.ssr.payload/whole-app-db})
             request  {:uri            "/articles/42"
                       :request-method :get
                       :headers        {"user-agent" "ring-adapter-test"
@@ -508,7 +517,8 @@
 
       (let [handler (ssr-ring/ssr-handler
                       {:on-create [:init/capture-frame-id]
-                       :root-view [:pages/blank2]})]
+                       :root-view [:pages/blank2]
+                       :payload-policy :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/x" :request-method :get})
         (is (some? @captured-fid)
             "the on-create handler captured the per-request frame-id")
@@ -529,7 +539,8 @@
 
       (let [handler (ssr-ring/ssr-handler
                       {:on-create [:init/observe-request]
-                       :root-view [:pages/blank3]})]
+                       :root-view [:pages/blank3]
+                       :payload-policy :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/a" :request-method :get})
         (handler {:uri "/b" :request-method :get})
         (is (= ["/a" "/b"] @observed)
@@ -562,7 +573,8 @@
                       {:on-create [:init/capture-ssr-meta]
                        :root-view [:pages/blank-for-ssr-opt]
                        :ssr       {:dev-error-detail? true
-                                   :public-error-id   :myapp/projector}})]
+                                   :public-error-id   :myapp/projector}
+                       :payload-policy :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/" :request-method :get})
         (is (= {:dev-error-detail? true
                 :public-error-id   :myapp/projector}
@@ -606,6 +618,183 @@
       (is (not (str/includes? body "admin-flag"))))))
 
 ;; ===========================================================================
+;; ssr-handler — explicit fail-closed payload policy (rf2-gtgf9)
+;;
+;; The wire-level proof that the policy contract is fail-closed:
+;;
+;;   1. A handler constructed with NEITHER `:payload-keys` NOR
+;;      `:payload-policy` throws at construction time
+;;      (`:rf.error/ssr-missing-payload-policy`). Misconfigured
+;;      deployments fail at boot rather than at first request.
+;;
+;;   2. **The fail-closed proof** — when a handler is constructed
+;;      with an allowlist that does NOT include a server-only key,
+;;      that key MUST NOT appear in the hydration payload on the
+;;      wire. This is the regression-bite: pre-rf2-gtgf9 the absence
+;;      of `:payload-keys` defaulted to whole-app-db, so a server-
+;;      only key on app-db rode the wire silently. The new contract
+;;      requires the allowlist; an un-permitted slot is provably
+;;      excluded by inspection of the wire payload.
+;;
+;;   3. The opt-in branch — `:payload-policy
+;;      :rf.ssr.payload/whole-app-db` ships the whole app-db verbatim
+;;      (apps that genuinely want it can opt in explicitly).
+;;
+;;   4. A typo'd `:payload-policy` keyword surfaces as
+;;      `:rf.error/ssr-unknown-payload-policy` — distinct from the
+;;      missing-policy bucket so the developer can tell the two
+;;      failure modes apart.
+;; ===========================================================================
+
+(deftest handler-construction-fails-closed-when-no-policy-supplied
+  (testing "rf2-gtgf9: ssr-handler with neither :payload-keys nor
+            :payload-policy throws :rf.error/ssr-missing-payload-policy
+            at construction time — the canonical fail-closed pattern.
+            Misconfigured deployments fail at boot, not at first request."
+    (rf/reg-event-fx :init/no-policy {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/no-policy (fn [] [:div "no policy"]))
+
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-missing-payload-policy"
+          (ssr-ring/ssr-handler
+            {:on-create [:init/no-policy]
+             :root-view [:pages/no-policy]}))
+        "ssr-handler MUST throw at construction time when the policy
+         is unset — Spec 011 §Payload scope (canonical boundary) +
+         rf2-gtgf9 fail-closed contract")))
+
+(deftest stream-handler-construction-fails-closed-when-no-policy-supplied
+  (testing "rf2-gtgf9: stream-handler shares the policy contract —
+            mirror of ssr-handler-construction test for the chunked
+            host adapter"
+    (rf/reg-event-fx :init/no-policy-stream {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/no-policy-stream (fn [] [:div "no policy stream"]))
+
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-missing-payload-policy"
+          (ssr-ring/stream-handler
+            {:on-create [:init/no-policy-stream]
+             :root-view [:pages/no-policy-stream]}))
+        "stream-handler MUST throw at construction time when the
+         policy is unset — same fail-closed contract as ssr-handler")))
+
+(deftest fail-closed-proof-unpermitted-slot-not-on-wire
+  (testing "rf2-gtgf9 FAIL-CLOSED PROOF: a server-only app-db key NOT in
+            the :payload-keys allowlist MUST NOT appear in the
+            hydration-payload script tag's EDN body. This is the
+            regression-bite — pre-rf2-gtgf9, absence of :payload-keys
+            shipped the whole app-db, so an unaudited new app-db key
+            silently rode the wire on every request."
+    (rf/reg-event-fx :init/with-secret
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {:public/articles          [{:id "a" :title "A"}]
+              ;; The leak-probe value: this key is NOT in the
+              ;; allowlist below, so it MUST NOT appear in the
+              ;; hydration payload. The string is unique enough that
+              ;; the str/includes? check below is unambiguous.
+              :server-only/auth-token   "RF2_GTGF9_FAIL_CLOSED_PROBE_xyz789"
+              :server-only/feature-flag :flag/internal-only
+              :server-only/admin-uid    "admin-42"}}))
+
+    (rf/reg-view* :pages/policy-probe
+      (fn [] [:div.page "policy probe"]))
+
+    (let [handler   (ssr-ring/ssr-handler
+                      ;; The allowlist names ONLY the public slice.
+                      ;; Every other server-only key on app-db is
+                      ;; un-permitted and MUST be dropped.
+                      {:on-create    [:init/with-secret]
+                       :root-view    [:pages/policy-probe]
+                       :payload-keys [:public/articles]})
+          response  (handler {:uri "/" :request-method :get})
+          body      (:body response)
+          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                             body)
+          payload-edn (when payload-m (second payload-m))]
+
+      ;; (sanity) the request succeeded and the payload script tag
+      ;; exists — we're observing the actual wire shape.
+      (is (= 200 (:status response)))
+      (is (some? payload-edn)
+          "hydration payload script tag is present — observation surface
+           is the wire payload, not a pre-serialisation map")
+
+      ;; (sanity) the public slice IS on the wire — proves the policy
+      ;; isn't a no-op that happens to drop everything.
+      (is (or (str/includes? payload-edn ":public/articles")
+              (str/includes? payload-edn "#:public{:articles"))
+          "the public slice is present (sanity — the policy isn't
+           dropping everything by accident)")
+
+      ;; THE FAIL-CLOSED PROOF: the un-permitted slot's value MUST
+      ;; NOT appear in the wire payload. If pre-rf2-gtgf9 behaviour
+      ;; were still in force, the leak-probe string would be present
+      ;; (whole-app-db default). Under rf2-gtgf9 the allowlist is
+      ;; load-bearing — this assertion is what the security audit
+      ;; asked for.
+      (is (not (str/includes? payload-edn "RF2_GTGF9_FAIL_CLOSED_PROBE_xyz789"))
+          "rf2-gtgf9 fail-closed proof: an un-permitted server-only
+           key's value does NOT appear in the wire hydration payload.
+           Pre-rf2-gtgf9 the absence of :payload-keys defaulted to
+           whole-app-db — this string would have leaked.")
+      (is (not (str/includes? payload-edn "feature-flag"))
+          "rf2-gtgf9: the un-permitted key NAME also does not leak —
+           neither key nor value reaches the wire")
+      (is (not (str/includes? payload-edn "admin-uid"))
+          "rf2-gtgf9: belt-and-braces over multiple un-permitted slots"))))
+
+(deftest payload-policy-whole-app-db-opt-in-ships-everything
+  (testing "rf2-gtgf9: explicit :payload-policy
+            :rf.ssr.payload/whole-app-db is the documented opt-in for
+            apps whose entire app-db is intended for the wire"
+    (rf/reg-event-fx :init/wholeapp
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {:public/articles [:a :b :c]
+              :public/user-id  "u-99"
+              :public/theme    :dark}}))
+
+    (rf/reg-view* :pages/wholeapp
+      (fn [] [:div.page "whole app"]))
+
+    (let [handler   (ssr-ring/ssr-handler
+                      {:on-create      [:init/wholeapp]
+                       :root-view      [:pages/wholeapp]
+                       :payload-policy :rf.ssr.payload/whole-app-db})
+          response  (handler {:uri "/" :request-method :get})
+          body      (:body response)
+          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                             body)
+          payload-edn (when payload-m (second payload-m))]
+      (is (= 200 (:status response)))
+      (is (some? payload-edn))
+      ;; All three keys present — opt-in shipped the whole app-db.
+      (is (str/includes? payload-edn "u-99")
+          ":public/user-id reached the wire under the whole-app-db opt-in")
+      (is (str/includes? payload-edn ":dark")
+          ":public/theme reached the wire under the whole-app-db opt-in"))))
+
+(deftest handler-construction-rejects-unknown-policy-keyword
+  (testing "rf2-gtgf9: a typo'd :payload-policy surfaces as a distinct
+            error so the developer can tell the failure modes apart"
+    (rf/reg-event-fx :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/typo-policy (fn [] [:div]))
+
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-unknown-payload-policy"
+          (ssr-ring/ssr-handler
+            {:on-create      [:init/typo-policy]
+             :root-view      [:pages/typo-policy]
+             :payload-policy :rf.ssr.payload/whole-db})) ; typo
+        "typo'd policy keyword does NOT silently fall into the
+         missing-policy bucket — the developer sees a distinct
+         :rf.error/ssr-unknown-payload-policy")))
+
+;; ===========================================================================
 ;; default-html-shell — title is sourced from the head fragment, never the
 ;; shell. Two <title> tags per document is malformed HTML (rf2-3z841).
 ;; ===========================================================================
@@ -627,7 +816,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-route]
-                      :root-view [:pages/blank-for-title]})
+                      :root-view [:pages/blank-for-title]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)
           opens    (count (re-seq #"<title" body))
@@ -648,7 +838,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/noop]
-                      :root-view [:pages/blank-no-head]})
+                      :root-view [:pages/blank-no-head]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)
           opens    (count (re-seq #"<title" body))]
@@ -677,7 +868,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-no-title]
-                      :root-view [:pages/blank-no-title]})
+                      :root-view [:pages/blank-no-title]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -716,7 +908,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
-                      :root-view [:pages/blank-attrs]})
+                      :root-view [:pages/blank-attrs]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -735,7 +928,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
-                      :root-view [:pages/blank-attrs]})
+                      :root-view [:pages/blank-attrs]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -752,7 +946,8 @@
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
                       :root-view [:pages/blank-attrs]
-                      :lang      "ja"})
+                      :lang      "ja"
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -777,7 +972,8 @@
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/seed-attrs-route]
-                      :root-view [:pages/blank-attrs]})
+                      :root-view [:pages/blank-attrs]
+                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
           body     (:body response)]
       (is (= 200 (:status response)))
@@ -810,7 +1006,8 @@
                            {:on-create    [:rf/server-init]
                             :root-view    [:pages/articles]
                             :fx-overrides {:http/get :http/get.canned}
-                            :match?       (fn [req] (= "/ssr" (:uri req)))})
+                            :match?       (fn [req] (= "/ssr" (:uri req)))
+                            :payload-policy :rf.ssr.payload/whole-app-db})
           app            (mw wrapped)]
 
       (let [fall-through-response (app {:uri "/api" :request-method :get})]
@@ -881,7 +1078,8 @@
 
     (let [handler   (ssr-ring/ssr-handler
                       {:on-create [:auth/login]
-                       :root-view [:pages/dashboard]})
+                       :root-view [:pages/dashboard]
+                       :payload-policy :rf.ssr.payload/whole-app-db})
           response  (handler {:uri            "/dashboard"
                               :request-method :get
                               :headers        {"user-agent" "rf2-jbcmt-leak-probe"}})
@@ -1000,7 +1198,8 @@
 
       (let [handler  (ssr-ring/ssr-handler
                        {:on-create [:init/hostile]
-                        :root-view [:pages/hostile-page]})
+                        :root-view [:pages/hostile-page]
+                        :payload-policy :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
             body     (:body response)]
         (is (= 200 (:status response)))

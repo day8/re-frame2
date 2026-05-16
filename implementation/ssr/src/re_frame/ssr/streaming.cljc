@@ -47,6 +47,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.html-helpers :as html]
+            [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -414,12 +415,19 @@
 
   Mirrors `re-frame.ssr.ring.payload/build-payload`'s shape so the
   client-side bootstrap can read either streaming or non-streaming
-  payloads with the same code path."
-  [frame-id render-hash {:keys [version schema-digest payload-keys]}]
+  payloads with the same code path.
+
+  The `:rf/app-db` slice is projected per the explicit, fail-closed
+  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9):
+  callers MUST declare `:payload-keys` (allowlist, recommended) or
+  `:payload-policy :rf.ssr.payload/whole-app-db` (explicit opt-in to
+  shipping the whole `app-db`). Absence of both throws
+  `:rf.error/ssr-missing-payload-policy`. The Ring host adapter
+  validates at handler-construction time so misconfigured deployments
+  fail at boot rather than at first request."
+  [frame-id render-hash {:keys [version schema-digest] :as policy-opts}]
   (let [app-db   (frame/frame-app-db-value frame-id)
-        db-slice (if (seq payload-keys)
-                   (select-keys app-db payload-keys)
-                   app-db)]
+        db-slice (payload-policy/apply-policy app-db policy-opts)]
     (cond-> {:rf/version     (or version 1)
              :rf/frame-id    frame-id
              :rf/app-db      db-slice

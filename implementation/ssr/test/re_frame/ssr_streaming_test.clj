@@ -144,9 +144,13 @@
 (deftest build-final-payload-shape
   (testing "Final payload carries the canonical :rf/hydration-payload shape"
     (let [fid (make-frame {:db {:articles [{:id "a"}]}})
+          ;; rf2-gtgf9: explicit fail-closed payload policy. This test
+          ;; pins the shape of the canonical payload — opt in to whole-
+          ;; app-db so the existing :rf/app-db assertion still holds.
           payload (streaming/build-final-payload fid "deadbeef"
-                                                 {:version 7
-                                                  :schema-digest "abc123"})]
+                                                 {:version       7
+                                                  :schema-digest "abc123"
+                                                  :payload-policy :rf.ssr.payload/whole-app-db})]
       (is (= 7 (:rf/version payload)))
       (is (= fid (:rf/frame-id payload)))
       (is (= "deadbeef" (:rf/render-hash payload)))

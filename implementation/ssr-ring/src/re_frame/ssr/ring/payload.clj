@@ -3,8 +3,15 @@
 
   Per Spec 011 §The hydration payload — emit the four canonical keys
   (`:rf/version`, `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`)
-  plus the optional `:rf/schema-digest`."
-  (:require [re-frame.late-bind :as late-bind]))
+  plus the optional `:rf/schema-digest`.
+
+  The `:rf/app-db` slice is projected per the explicit, fail-closed
+  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9) —
+  see that namespace for the contract. The Ring host adapter validates
+  the policy at handler-construction time via `validate-policy-opts!`
+  so misconfigured deployments fail at boot, not at first request."
+  (:require [re-frame.late-bind :as late-bind]
+            [re-frame.ssr.payload-policy :as payload-policy]))
 
 (set! *warn-on-reflection* true)
 
@@ -55,11 +62,18 @@
   by the caller when their app participates in the schema-digest
   check; nil otherwise. Version source-of-truth: `resolve-version`
   above — caller opt wins, falling back to the `:rf2/runtime-version`
-  late-bind hook so server and client read from the same source."
-  [frame-id app-db render-hash {:keys [version schema-digest payload-keys]}]
-  (let [db-slice (if (seq payload-keys)
-                   (select-keys app-db payload-keys)
-                   app-db)]
+  late-bind hook so server and client read from the same source.
+
+  The `:rf/app-db` slice is projected per the explicit, fail-closed
+  policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9):
+  callers MUST declare `:payload-keys` (allowlist, recommended) or
+  `:payload-policy :rf.ssr.payload/whole-app-db` (explicit opt-in to
+  shipping the whole `app-db`). Absence of both throws
+  `:rf.error/ssr-missing-payload-policy`. The host adapter validates
+  at handler-construction time so misconfigured deployments fail at
+  boot, not at first request."
+  [frame-id app-db render-hash {:keys [version schema-digest] :as policy-opts}]
+  (let [db-slice (payload-policy/apply-policy app-db policy-opts)]
     (cond-> {:rf/version     (resolve-version version)
              :rf/frame-id    frame-id
              :rf/app-db      db-slice

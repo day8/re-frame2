@@ -113,7 +113,7 @@
   hydration."
   [frame-id resp
    {:keys [root-view emit-hash? version schema-digest payload-keys
-           html-shell content-type]
+           payload-policy html-shell content-type]
     :as   opts}]
   (let [hiccup      (rf/with-frame frame-id (lifecycle/resolve-root-view root-view))
         ;; rf2-i15nh / rf2-atmvj: compute the structural hash ONCE per
@@ -133,9 +133,10 @@
                                              :render-hash (when emit-hash? hash-str)}))
         app-db      (rf/get-frame-db frame-id)
         payload     (payload/build-payload frame-id app-db hash-str
-                                           {:version       version
-                                            :schema-digest schema-digest
-                                            :payload-keys  payload-keys})
+                                           {:version        version
+                                            :schema-digest  schema-digest
+                                            :payload-keys   payload-keys
+                                            :payload-policy payload-policy})
         payload-edn (pr-str payload)
         ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's :head
         ;; (or default-head fallback). The head fragment goes through

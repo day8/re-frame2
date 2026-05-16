@@ -202,7 +202,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok-bad-tag]
-                     :root-view [:pages/bad-tag]})]
+                     :root-view [:pages/bad-tag]
+                     :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 500 status)
@@ -260,7 +261,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/bad-cookie]
-                     :root-view [:pages/bad-cookie-page]})]
+                     :root-view [:pages/bad-cookie-page]
+                     :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
@@ -305,7 +307,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/bad-header]
-                     :root-view [:pages/bad-header-page]})]
+                     :root-view [:pages/bad-header-page]
+                     :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
@@ -356,7 +359,8 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
-                     :root-view [:pages/greeting]})]
+                     :root-view [:pages/greeting]
+                     :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 200 status))

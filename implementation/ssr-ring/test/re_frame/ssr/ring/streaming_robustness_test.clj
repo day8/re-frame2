@@ -302,7 +302,8 @@
     (register-baseline-handlers!)
     (let [handler (ssr-ring/stream-handler
                     {:on-create [:rf.test.server/init]
-                     :root-view [:test/root]})]
+                     :root-view [:test/root]
+                     :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client   (new-http-client)
               req      (http-get-request port "/")
@@ -369,7 +370,8 @@
                                            {:reason "writer-thread robustness probe"})))
           handler        (ssr-ring/stream-handler
                            {:on-create [:rf.test.server/init-min]
-                            :root-view throwing-root})]
+                            :root-view throwing-root
+                            :payload-policy :rf.ssr.payload/whole-app-db})]
       (with-jetty [port handler]
         (let [client   (new-http-client)
               req      (http-get-request port "/")
@@ -440,7 +442,8 @@
           [:test/parking-section]]])
       (let [handler  (ssr-ring/stream-handler
                        {:on-create [:rf.test.server/init]
-                        :root-view [:test/parking-root]})
+                        :root-view [:test/parking-root]
+                        :payload-policy :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
             drain    (future (with-open [^InputStream is (:body response)] (slurp is)))]
         (try
