@@ -282,3 +282,20 @@ Three component shapes inherit from Reagent. Form-2's outer-fn-side-effects patt
 ## Headline finding
 
 The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). The recurring weak points are P7 (machine-readable errors), P8 (low hidden context), and P5 (schemas applied to the spec's own shapes). The cross-cutting gaps section above enumerates the specific findings.
+
+## SA-3 schema-coverage report (rf2-baj2g)
+
+[SPEC-AUTHORING.md §SA-3](SPEC-AUTHORING.md) commits the corpus to: "Every shape that flows on the wire or appears in a spec example MUST have a schema in [Spec-Schemas.md](Spec-Schemas.md)." This report is the audit's running cross-reference table: every shape-shaped artefact named in the numbered specs MUST map to one of (a) a `:rf/<id>` schema entry in Spec-Schemas.md, (b) an explicit host-type exemption (a host's primitive that doesn't need cross-host schema coverage), or (c) a generated EDN catalogue derived from the corpus.
+
+**Current state.** The shape catalogue carries 37 schema sections; the per-section Owner / Status / Conformance metadata that makes the projection auditable was pinned at rf2-baj2g and demonstrated on 5 load-bearing schemas (`:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload`). The full sweep across the remaining ~32 schema sections is tracked at **rf2-vpu5c**.
+
+**Audit cadence.** This report is regenerated per AI-Audit run. Per-section completeness gates on SA-3:
+
+| Section count | SA-3 status |
+|---|---|
+| 5 / 37 | Demonstration (rf2-baj2g — Owner + Status + Conformance present) |
+| 32 / 37 | Pending sweep (rf2-vpu5c — Owner / Status / Conformance still to add) |
+
+**SA-3 violation rule.** A spec example or wire payload that does NOT map to either a schema entry or an explicit host-type exemption is an SA-3 violation. The fix is to add the missing entry to Spec-Schemas.md (not to add an exemption). Per-cycle the audit names any newly-surfaced violations under this section.
+
+**Scope clarification.** This report covers shapes that flow *between* implementation surfaces (wire payloads, returned shapes, registration metadata). It does NOT cover host-primitive shapes (a CLJS map, a TypeScript object type) — those are local to the host's type system and need no cross-host schema. Per [§Scope](#scope), per-Spec scoring is selective; the SA-3 report is corpus-wide and is the SA-3 enforcement surface.

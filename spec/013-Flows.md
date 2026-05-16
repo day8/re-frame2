@@ -309,13 +309,15 @@ The migration agent rewrites mechanically; flow definitions that used `:live?` l
 
 ## Open questions
 
+> **SA-4 classification (rf2-p6xyh).** Both items below classify as **`:post-v1 tracked`** per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md). They are deferred design work the corpus tolerates shipping without resolving (the v1 design is settled — vector `:inputs`, lag-on-register); the items mark candidate enhancements rather than blocking gaps. Items here track a real bead once one is filed.
+
 ### Map-keyed `:inputs` instead of vector
 
-The vector form (`:inputs [[:width] [:height]] :output (fn [w h] ...)`) matches `on-changes` and is short. A map-keyed alternative (`:inputs {:w [:width] :h [:height]} :output (fn [{:keys [w h]}] ...)`) matches [Principles §Name over place](Principles.md#name-over-place). The vector is the v1 default; the map is the principled default. v2 ships the vector form for migration ergonomics; revisit if the map form proves preferable in practice.
+The vector form (`:inputs [[:width] [:height]] :output (fn [w h] ...)`) matches `on-changes` and is short. A map-keyed alternative (`:inputs {:w [:width] :h [:height]} :output (fn [{:keys [w h]}] ...)`) matches [Principles §Name over place](Principles.md#name-over-place). The vector is the v1 default; the map is the principled default. v2 ships the vector form for migration ergonomics; revisit if the map form proves preferable in practice. **Status:** `:post-v1 tracked` — file a bead before considering implementation.
 
 ### Synchronous re-walk after `:rf.fx/reg-flow`
 
-A flow registered mid-event first fires on the next event drain (one-event lag for the initial value). An opt-in "register and run immediately" effect could close the lag at the cost of mid-event re-walking. Defer until a real use case forces it.
+A flow registered mid-event first fires on the next event drain (one-event lag for the initial value). An opt-in "register and run immediately" effect could close the lag at the cost of mid-event re-walking. Defer until a real use case forces it. **Status:** `:post-v1 tracked` — file a bead when a concrete use case surfaces.
 
 ## Resolved decisions
 

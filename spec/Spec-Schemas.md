@@ -48,6 +48,21 @@ All spec-internal schemas:
 - Are registered at runtime via `reg-app-schema` for inspectability via `(app-schema-at [:rf/...])`.
 - Use the lightest schema that captures the shape — preferring `[:map ...]` over more specific Malli grammars.
 
+### Traceability metadata (rf2-baj2g)
+
+This catalogue is a **projection** of shapes that originate in the owning per-Spec docs — per [Ownership.md](Ownership.md), Spec-Schemas.md is non-canonical for the *semantics*; it carries the shape and points at the owner for the contract. To make that projection auditable and to satisfy [SPEC-AUTHORING §SA-3](SPEC-AUTHORING.md) (every wire / example shape MUST have an entry here), each schema section MUST carry the following header lines after `### `<schema-id>``:
+
+| Header | Purpose | Required |
+|---|---|---|
+| `> **Layer:**` | Already present — names one of Runtime / Public / Conformance (per [§Schema layers](#schema-layers)). | Yes |
+| `> **Owner:**` | The canonical owning spec doc — write as a markdown link, e.g. `[002-Frames](002-Frames.md)` or `[Ownership.md](Ownership.md)`. The owner carries the load-bearing semantics; this catalogue carries the shape. | Yes |
+| `> **Status:**` | One of `v1-required` / `v1 (optional capability)` / `post-v1` / `dev-tier`. Mirrors the [API.md](API.md) status vocabulary so a reader can map a schema row to its API surface. | Yes |
+| `> **Conformance:**` | Pointer to the conformance fixture(s) (`spec/conformance/fixtures/<name>.edn`) or per-artefact test (`implementation/<artefact>/test/...`) that asserts the schema holds. Optional when no harness asserts the schema directly (rare — most v1-required shapes have fixture coverage). | When fixture/test exists |
+
+**SA-3 audit pointer.** [AI-Audit.md §SA-3 schema-coverage report](AI-Audit.md) carries the corpus-wide cross-reference table: every shape referenced in the numbered specs (as an example block, a wire payload, a returned-shape) MUST map to either a `:rf/<id>` schema entry in this catalogue OR an explicit host-type exemption (the per-host primitives that don't need cross-host schemas). The report is generated rather than hand-maintained per SA-3's enforcement obligation.
+
+**Migration scope.** rf2-baj2g pins this rule and demonstrates the metadata on five load-bearing schemas (`:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload`). The full sweep across the remaining ~32 schema sections is tracked at **rf2-vpu5c**.
+
 ## Schema layers
 
 Each schema in this catalogue belongs to exactly one of three layers. The layer tells consumers what role the schema plays in the contract:
@@ -69,6 +84,9 @@ The hydration payload is the canonical example: v1 ships with a small required s
 ### `:rf/dispatch-envelope`
 
 > **Layer:** Runtime
+> **Owner:** [002-Frames §Routing](002-Frames.md#routing-the-dispatch-envelope)
+> **Status:** v1-required
+> **Conformance:** `spec/conformance/fixtures/dispatch-*.edn` + `implementation/core/test/re_frame/router_test.cljc`
 
 Carried internally by every dispatch. User-facing event vector remains a vector; the envelope wraps it.
 
@@ -402,6 +420,9 @@ The string format is committed as a public contract (rf2-q7r0): pair-shaped tool
 ### `:rf/effect-map`
 
 > **Layer:** Runtime
+> **Owner:** [002-Frames §Effect resolution](002-Frames.md)
+> **Status:** v1-required (closed shape — only `:db` and `:fx`)
+> **Conformance:** `spec/conformance/fixtures/effect-map-*.edn` + `implementation/core/test/re_frame/effects_test.cljc`
 
 The return value of `reg-event-fx` handlers. **Only two keys: `:db` and `:fx`.**
 
@@ -432,6 +453,9 @@ Note the schema is **closed** — unlike most spec-internal shapes which are ope
 ### `:rf/trace-event`
 
 > **Layer:** Runtime
+> **Owner:** [009-Instrumentation §Trace event shape](009-Instrumentation.md)
+> **Status:** v1-required (dev-tier emit gated on `re-frame.interop/debug-enabled?`)
+> **Conformance:** `spec/conformance/fixtures/trace-*.edn` + `spec/conformance/fixtures/error-event-*.edn` + `implementation/core/test/re_frame/trace/*_test.cljc`
 
 Universal trace event shape, including error events.
 
@@ -1855,6 +1879,9 @@ Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives t
 ### `:rf/hydration-payload`
 
 > **Layer:** Runtime
+> **Owner:** [011-SSR §Payload scope](011-SSR.md#payload-scope-canonical-boundary)
+> **Status:** v1 (optional capability — SSR; post-v1 keys are documented additive extensions)
+> **Conformance:** `spec/conformance/fixtures/hydration-*.edn` + `implementation/ssr/test/re_frame/ssr_hydration_test.clj`
 
 Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canonical** shape of the data crossing the wire from server to client. **v1 and post-v1 are kept separate**: the v1 schema below carries only v1 keys; the post-v1 extension is a separate schema that *refines* the v1 shape. v1 implementations emit and consume exactly the v1 shape; post-v1 keys in payloads from a future server are tolerated (open map) but ignored on a v1 client.
 
@@ -2206,6 +2233,9 @@ The serialisable artefact contract for a story variant (post-v1 library; see [00
 ### `:rf/epoch-record`
 
 > **Layer:** Runtime
+> **Owner:** [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
+> **Status:** dev-tier (gated on `re-frame.interop/debug-enabled?`; production builds elide entirely)
+> **Conformance:** `spec/conformance/fixtures/epoch-*.edn` + `implementation/epoch/test/re_frame/epoch_*.clj` (build / restore / privacy / redact-fn / jvm-prod-gate)
 
 Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used by Tool-Pair for time-travel and post-mortem analysis. Production builds elide entirely (no schema validation needed in prod).
 
