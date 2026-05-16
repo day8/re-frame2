@@ -239,7 +239,7 @@
 
   The trace event piggybacks on the existing warning op-type per
   spec/009 §Trace bus."
-  [frame-id violation]
+  [frame-id ^js violation]
   (trace/emit!
     :warning
     :rf.story.a11y/violation
@@ -300,7 +300,7 @@
 
   Best-effort: if the selectors don't match (e.g. the DOM mutated
   since the run) the overlay simply doesn't appear."
-  [scope-el violation]
+  [scope-el ^js violation]
   (let [nodes (.-nodes violation)
         root  (or scope-el js/document)]
     (doseq [node (array-seq nodes)]
@@ -360,11 +360,11 @@
        (swap! run-state assoc frame-id :loading)
        (-> (ensure-axe-loaded!)
            (.then
-             (fn [axe]
+             (fn [^js axe]
                (swap! run-state assoc frame-id :running)
                (.run axe context)))
            (.then
-             (fn [results]
+             (fn [^js results]
                (let [vs        (.-violations results)
                      scope-el  (when (and (some? context)
                                           (some? (.-nodeType context)))

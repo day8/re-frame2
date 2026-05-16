@@ -120,17 +120,21 @@
     ;; wrapped fn. Hot-reload semantics ride on the registrar swap, so
     ;; the macro form must respect the contract too.
     ;;
-    ;; Re-evaluating the same defn-shape form (same sym → same auto-id)
+    ;; Re-evaluating with the SAME `:rf/id` (via the metadata override)
     ;; is the canonical macro-side hot-reload path: the file changes,
-    ;; the ns reloads, the same form re-runs, and the registry slot is
-    ;; replaced.
+    ;; the ns reloads, the form re-runs, and the registry slot keyed by
+    ;; that id is replaced. Two different local syms (`banner-v1` /
+    ;; `banner-v2`) bound by the macro's auto-`def` keep us out of
+    ;; CLJS's `:redef-in-file` lane — what matters for the contract is
+    ;; the registry slot keyed on `:rf/id`, not the Clojure Var that
+    ;; happens to back the form.
     (let [observed (atom nil)]
-      (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner [t]
+      (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner-v1 [t]
         (reset! observed [:m1 t])
         [:h1.m1 t])
       ((rf/view :rf.hot-reload-test/banner) "hello")
       (is (= [:m1 "hello"] @observed))
-      (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner [t]
+      (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner-v2 [t]
         (reset! observed [:m2 t])
         [:h2.m2 t])
       ((rf/view :rf.hot-reload-test/banner) "world")
