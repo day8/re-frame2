@@ -294,11 +294,15 @@
 ;; ---------------------------------------------------------------------------
 ;; Modal state — driven by `re-frame.story.review-dialog`. The shared
 ;; dialog state map carries `:open?` / `:draft-id` / `:source-id` /
-;; `:context`; the recorder's flow stashes the recorded source
-;; variant id in `:source-id` and reads the captured `:events` off
-;; `@ui-state` at render time (the recorder atom is the source of
-;; truth for events; the dialog is just the review-then-commit
-;; surface).
+;; `:context`; the recorder's flow stashes the recorded source variant
+;; id in `:source-id` and the captured `:events` snapshot in
+;; `:context` (with a top-level `:events` mirror for ergonomics).
+;;
+;; **Snapshot at open time** (rf2-8x9nb): the captured events ride on
+;; the dialog state itself — NOT read live off the recorder atom — so
+;; clicking REC again to start a fresh recording (which resets the
+;; recorder atom) cannot mutate the in-flight dialog's snippet. The
+;; user's 10-event capture stays intact until they close / discard.
 ;;
 ;; The dialog opens automatically when the user STOPS recording and
 ;; there are captured events; it can also be reopened from the toolbar
@@ -306,18 +310,20 @@
 ;; only — re-open is a v1.1 polish).
 ;; ---------------------------------------------------------------------------
 
-(def ^:const default-id-prefix
-  "Per-flow prefix for the auto-derived default new-variant id."
-  "recorded")
-
 (defonce ui-dialog
-  (review-dialog/make-dialog-atom))
+  (r/atom recorder/initial-dialog-state))
 
-(defn- open-dialog! [source-variant-id]
-  (review-dialog/swap-open-now! ui-dialog source-variant-id nil default-id-prefix))
+(defn- open-dialog!
+  "Open the save-as-variant dialog against `source-variant-id` with
+  the captured `events` snapshot. `now-ms` defaults to the current
+  wall-clock; tests pass an explicit stamp."
+  ([source-variant-id events]
+   (open-dialog! source-variant-id events (.now js/Date)))
+  ([source-variant-id events now-ms]
+   (swap! ui-dialog recorder/open-dialog source-variant-id events now-ms)))
 
 (defn- close-dialog! []
-  (review-dialog/swap-close! ui-dialog))
+  (swap! ui-dialog recorder/close-dialog))
 
 (defn- set-draft-id! [s]
   (review-dialog/swap-parse-and-set-draft-id! ui-dialog s))
@@ -357,7 +363,7 @@
                        rec?
                        (let [{:keys [variant-id events]} (recorder/stop-recording!)]
                          (when (seq events)
-                           (open-dialog! variant-id)))))]
+                           (open-dialog! variant-id events)))))]
     [:button
      {:style        (cond
                       (not enabled?) (:chip-disabled styles)
@@ -585,7 +591,7 @@
          :on-click (fn [_]
                      (let [{:keys [variant-id events]} (recorder/stop-recording!)]
                        (when (seq events)
-                         (open-dialog! variant-id))))}
+                         (open-dialog! variant-id events))))}
         "stop"]])))
 
 ;; ---------------------------------------------------------------------------
@@ -598,22 +604,26 @@
   and a 'copy to clipboard' affordance.
 
   The user edits the variant id inline; the snippet re-generates on
-  every keystroke. Discard / close drop the captured events."
+  every keystroke. Discard / close drop the captured events.
+
+  Reads `:events` + `:source-id` from the dialog state itself — the
+  snapshot was taken at `open-dialog!` time so a subsequent
+  `start-recording!` cannot mutate the visible snippet (rf2-8x9nb)."
   []
-  (let [dialog                    @ui-dialog
-        {:keys [variant-id events]} @ui-state]
+  (let [dialog                          @ui-dialog
+        {:keys [events source-id]}      dialog]
     (when (:open? dialog)
       (let [draft-id (:draft-id dialog)
             snippet  (recorder/gen-play-snippet
                        events
                        {:variant-id (or draft-id :story.recorded/example)
-                        :extends    variant-id})]
+                        :extends    source-id})]
         (review-dialog/review-dialog dialog
           {:title             "Test Codegen — save recording as variant"
            :hint              (str "EDN snippet generated from "
                                    (count events) " captured event"
                                    (when (not= 1 (count events)) "s")
-                                   " against " (pr-str variant-id)
+                                   " against " (pr-str source-id)
                                    ". Edit the variant id then "
                                    "copy + paste into your stories namespace.")
            :snippet           snippet

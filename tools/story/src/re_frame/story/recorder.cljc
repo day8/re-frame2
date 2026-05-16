@@ -110,6 +110,7 @@
   (:require [clojure.string :as str]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
+            [re-frame.story.review-dialog :as review-dialog]
             [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
@@ -429,6 +430,58 @@
   cleared."
   [_state]
   initial-state)
+
+;; ---------------------------------------------------------------------------
+;; Pure: save-as-variant dialog open/close transitions (rf2-8x9nb)
+;;
+;; The dialog snapshots `{:variant-id :events}` from the recorder atom
+;; AT OPEN TIME so a subsequent `start-recording!` (which resets the
+;; recorder atom) can't clobber the in-flight dialog's snippet.
+;;
+;; Layered on `re-frame.story.review-dialog`:
+;;   - `:source-id` carries the recorded variant-id (rides into the
+;;     snippet's `:extends`).
+;;   - `:context {:events <captured-events>}` carries the captured event
+;;     vectors (the per-flow opaque slot per review-dialog contract).
+;;
+;; A top-level `:events` key is also stashed for ergonomics, mirroring
+;; the `:args` slot that `save-variant/open` stashes for the same
+;; reason — call sites that want the snapshot off the dialog state map
+;; can read it directly without unpacking `:context`.
+;; ---------------------------------------------------------------------------
+
+(def ^:const default-id-prefix
+  "Per-flow prefix for the auto-derived default new-variant id."
+  "recorded")
+
+(def initial-dialog-state
+  "Alias for `review-dialog/initial-state` — kept for call-site
+  ergonomics so the dialog ratom seeding form reads as
+  `recorder/initial-dialog-state`."
+  review-dialog/initial-state)
+
+(defn open-dialog
+  "Pure: return the dialog state for opening the save-as-variant modal
+  against the recorded `variant-id` with the captured `events`
+  snapshot. `now-ms` seeds the default-id derivation.
+
+  The snapshot is stored on the dialog state itself — NOT read live
+  off the recorder atom — so a fresh `start-recording!` after the
+  dialog opens does not mutate the dialog's snippet (rf2-8x9nb)."
+  [_state variant-id events now-ms]
+  (let [base (review-dialog/open review-dialog/initial-state
+                                 variant-id
+                                 {:events (vec events)}
+                                 now-ms
+                                 default-id-prefix)]
+    (assoc base :events (vec events))))
+
+(defn close-dialog
+  "Pure: return the dialog's idle state. Aliased to
+  `review-dialog/close` — the dialog has no recorder-specific close
+  behaviour."
+  [_state]
+  review-dialog/initial-state)
 
 ;; ---------------------------------------------------------------------------
 ;; Impure: write the state atom. Gated under config/enabled? so the
