@@ -23,6 +23,57 @@ At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
 Hot-reload preserves the side-table; a re-registration of the same
 variant calls `reset-frame!` and re-runs the lifecycle.
 
+## Coexistence with hosting application state
+
+Story installs runtime slots into every variant frame's `app-db` under
+the reserved `:rf.story/*` namespace (per
+[spec/Conventions.md](../../../spec/Conventions.md) reserved-namespace
+rules). The slots Stage 3 installs today:
+
+- `:rf.story/lifecycle` — discrete state of the variant's four-phase
+  lifecycle machine (mirrored by `loaders.cljc` after each transition).
+- `:rf.story/loaders-complete?` — boolean signal read by the
+  `:loaders-complete-when` predicate path.
+- `:rf.story/assertions` — vector of assertion records appended by the
+  `:rf.assert/*` handlers during phase 4.
+
+These slots are not optional. The lifecycle machine, the loader-
+completion predicate, and the play-phase assertion bus all read them
+back during the four-phase run; clearing any of them mid-lifecycle
+corrupts the variant.
+
+**Rule.** A host application's `reg-event-db` handlers — and any
+other code path that writes `app-db` — MUST preserve the `:rf.story/*`
+namespace when seeding or resetting `db`. The hazard is the
+"replace-the-whole-db" idiom:
+
+```clojure
+;; WRONG — wipes :rf.story/lifecycle, :rf.story/loaders-complete?,
+;; :rf.story/assertions, and any future :rf.story/* slot. Safe in a
+;; standalone app; corrupts every Story variant that runs this event.
+(rf/reg-event-db :app/initialise
+  (fn [_db _event]
+    {:app/items [] :app/discount nil}))
+
+;; RIGHT — preserves all reserved slots Story (or any other framework
+;; tool) installs into the frame's app-db.
+(rf/reg-event-db :app/initialise
+  (fn [db _event]
+    (assoc db :app/items [] :app/discount nil)))
+```
+
+Equivalently, `(merge db {:app/items [] :app/discount nil})` is fine;
+the rule is "thread `db` through, do not throw it away". Domain-key
+clearing is the host's business; the reserved `:rf.story/*` namespace
+is Story's.
+
+The originating evidence is commit `c2accadf` (rf2-2uwp1, cart-total
+Story slice): `:cart/initialise` was a whole-`db` replacement and wiped
+the variant frame's lifecycle slots the moment the variant ran the
+event. The fix swapped `(fn [_db _event] {...})` for
+`(fn [db _event] (assoc db ...))`. Host apps integrating Story SHOULD
+audit their init/reset events for the same anti-pattern.
+
 ## Args resolution precedence
 
 When the rendering layer asks "what args is this variant rendered
