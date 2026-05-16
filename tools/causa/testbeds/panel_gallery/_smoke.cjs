@@ -112,6 +112,12 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-trace-card',
         expectedAtLeast: 9,
       },
+      {
+        id:          'issues-ribbon',
+        workspaceRe: /Workspace\.causa\.issues-ribbon\/all/,
+        cardTestid:  'panel-gallery-issues-ribbon-card',
+        expectedAtLeast: 9,
+      },
     ];
 
     const results = [];

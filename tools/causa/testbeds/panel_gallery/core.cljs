@@ -61,7 +61,8 @@
             [panel-gallery.app-db-diff-stories]
             [panel-gallery.subscriptions-stories]
             [panel-gallery.time-travel-stories]
-            [panel-gallery.trace-stories]))
+            [panel-gallery.trace-stories]
+            [panel-gallery.issues-ribbon-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
