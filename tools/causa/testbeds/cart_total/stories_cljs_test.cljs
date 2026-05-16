@@ -48,9 +48,15 @@
                    :story.causa.cart-total/seeded-wrong-total
                    :story.causa.cart-total/checkout-snapshot
                    :story.causa.cart-total/live-basket-drift
-                   :story.causa.cart-total/discounted-snapshot]]
+                   :story.causa.cart-total/discounted-snapshot
+                   ;; rf2-5kad2 boundary variants
+                   :story.causa.cart-total/empty-after-clear
+                   :story.causa.cart-total/stacked-same-item
+                   :story.causa.cart-total/all-three-items
+                   :story.causa.cart-total/friend-discount-applied
+                   :story.causa.cart-total/discount-then-cleared]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 5 (count vs))))))
+      (is (= 10 (count vs))))))
 
 (deftest variants-reuse-shared-cart-total-fixtures
   (testing "Story variants are pinned to the shared Causa testbed event fixtures"
@@ -97,3 +103,53 @@
       (fn [result]
         (is (= "STUDENT" (get-in result [:app-db :cart/discount :code])))
         (is (= 10 (get-in result [:app-db :cart/discount :percent])))))))
+
+;; rf2-5kad2 boundary variants — at least one runtime assertion per variant
+;; to prove the fixture reaches :ready and the assertions land.
+
+(deftest empty-after-clear-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/empty-after-clear
+      (fn [result]
+        (is (= [] (get-in result [:app-db :cart/items])))
+        (is (= [] (get-in result [:app-db :checkout/items])))))))
+
+(deftest stacked-same-item-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/stacked-same-item
+      (fn [result]
+        (is (= 1 (count (get-in result [:app-db :cart/items]))))
+        (is (= 5 (get-in result [:app-db :cart/items 0 :qty])))
+        (is (= :apple (get-in result [:app-db :cart/items 0 :id])))))))
+
+(deftest all-three-items-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/all-three-items
+      (fn [result]
+        (is (= 3 (count (get-in result [:app-db :cart/items]))))
+        (is (= [:apple :bread :coffee]
+               (mapv :id (get-in result [:app-db :cart/items]))))))))
+
+(deftest friend-discount-applied-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/friend-discount-applied
+      (fn [result]
+        (is (= "FRIEND" (get-in result [:app-db :cart/discount :code])))
+        (is (= 20 (get-in result [:app-db :cart/discount :percent])))))))
+
+(deftest discount-then-cleared-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/discount-then-cleared
+      (fn [result]
+        (is (nil? (get-in result [:app-db :cart/discount])))
+        (is (= 2 (get-in result [:app-db :cart/items 0 :qty])))))))

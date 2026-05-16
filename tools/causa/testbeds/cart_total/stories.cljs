@@ -84,6 +84,75 @@
      :tags       #{:dev :test}
      :substrates #{:reagent}})
 
+  ;; -------------------------------------------------------------------------
+  ;; Boundary variants (rf2-5kad2) — extra states a developer should be
+  ;; able to inspect in Causa beyond the tutorial arc. Each one pins a
+  ;; specific edge of the cart slice shape or sub graph.
+  ;; -------------------------------------------------------------------------
+
+  (story/reg-variant :story.causa.cart-total/empty-after-clear
+    {:doc        "Empty cart distinct from the initial-empty state:
+                 user added the seeded basket then removed every line.
+                 The event log carries the add/remove traffic while the
+                 slice is empty — useful for inspecting Causa's
+                 event-history pane alongside an empty App-DB Diff."
+     :events     fixtures/empty-after-clear-events
+     :play       [[:rf.assert/path-equals [:cart/items] []]
+                  [:rf.assert/path-equals [:checkout/items] []]
+                  [:rf.assert/sub-equals [:cart/total] 0]]
+     :tags       #{:dev :test}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.causa.cart-total/stacked-same-item
+    {:doc        "Five Apples stacked into a single line item.
+                 Boundary for the qty-stacking branch of
+                 :cart/add-item — Causa's diff should show qty
+                 incrementing on one line, not five line additions."
+     :events     fixtures/stacked-same-item-events
+     :play       [[:rf.assert/path-equals [:cart/items 0 :id] :apple]
+                  [:rf.assert/path-equals [:cart/items 0 :qty] 5]
+                  [:rf.assert/sub-equals [:cart/total] 0]]
+     :tags       #{:dev :test}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.causa.cart-total/all-three-items
+    {:doc        "All three catalogue items present, one each.
+                 Exercises the three-line render path and the
+                 catalogue/cart symmetry — useful for inspecting the
+                 sub graph with a fully-populated :cart/line-totals."
+     :events     fixtures/all-three-items-events
+     :play       [[:rf.assert/path-equals [:cart/items 0 :id] :apple]
+                  [:rf.assert/path-equals [:cart/items 1 :id] :bread]
+                  [:rf.assert/path-equals [:cart/items 2 :id] :coffee]
+                  [:rf.assert/sub-equals [:cart/total] 0]]
+     :tags       #{:dev :test}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.causa.cart-total/friend-discount-applied
+    {:doc        "FRIEND (20%) discount applied to the seeded basket.
+                 Sister to :discounted-snapshot which used STUDENT (10%)
+                 — pins the second discount-table branch and the
+                 deeper discount-percent arithmetic."
+     :events     fixtures/friend-discount-events
+     :play       [[:rf.assert/path-equals [:cart/discount :code] "FRIEND"]
+                  [:rf.assert/path-equals [:cart/discount :percent] 20]
+                  [:rf.assert/path-equals [:cart/items 0 :qty] 2]
+                  [:rf.assert/sub-equals [:cart/total] 0]]
+     :tags       #{:dev :test}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.causa.cart-total/discount-then-cleared
+    {:doc        "Discount applied to the seeded basket, then cleared.
+                 The cart still carries lines but :cart/discount is
+                 back to nil — exercises the discount-row 'cleared'
+                 branch and the cleared-discount sub recompute."
+     :events     fixtures/discount-then-cleared-events
+     :play       [[:rf.assert/path-equals [:cart/discount] nil]
+                  [:rf.assert/path-equals [:cart/items 0 :qty] 2]
+                  [:rf.assert/sub-equals [:cart/total] 0]]
+     :tags       #{:dev :test}
+     :substrates #{:reagent}})
+
   (story/reg-workspace :Workspace.causa.cart-total/debugging-states
     {:doc      "All cart-total Causa debugging states side-by-side."
      :layout   :grid
@@ -91,7 +160,12 @@
                 :story.causa.cart-total/seeded-wrong-total
                 :story.causa.cart-total/checkout-snapshot
                 :story.causa.cart-total/live-basket-drift
-                :story.causa.cart-total/discounted-snapshot]
+                :story.causa.cart-total/discounted-snapshot
+                :story.causa.cart-total/empty-after-clear
+                :story.causa.cart-total/stacked-same-item
+                :story.causa.cart-total/all-three-items
+                :story.causa.cart-total/friend-discount-applied
+                :story.causa.cart-total/discount-then-cleared]
      :columns  2
      :tags     #{:docs}}))
 
