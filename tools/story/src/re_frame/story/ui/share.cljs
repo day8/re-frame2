@@ -65,6 +65,18 @@
                :padding "6px"
                :border-radius "3px"
                :margin-bottom "8px"}
+   :qr-fallback {:display "flex"
+                 :align-items "center"
+                 :justify-content "center"
+                 :background "#3a2a1a"
+                 :color "#e0a060"
+                 :padding "10px"
+                 :border "1px dashed #a06030"
+                 :border-radius "3px"
+                 :margin-bottom "8px"
+                 :font-size "10px"
+                 :text-align "center"
+                 :line-height "1.4"}
    :copy-btn  {:padding "4px 10px"
                :background "#0e639c"
                :color "white"
@@ -172,12 +184,23 @@
             ;; safe here because the SVG markup comes from the
             ;; trusted vendored library — caller text only contributes
             ;; the encoded URL, never markup.
-            [:div {:style                   (:qr styles)
-                   :role                    "img"
-                   :aria-label              "QR code for variant URL"
-                   :data-test               "story-share-qr"
-                   :data-share-url          url
-                   :dangerouslySetInnerHTML {:__html (qr/qr-svg-string url 4)}}]
+            ;;
+            ;; rf2-3y7l4: when the URL exceeds QR capacity (long
+            ;; :cell-overrides etc.) `qr-svg-string` returns nil rather
+            ;; than throwing; we render a degraded panel and keep the
+            ;; copy-link affordance live below.
+            (if-let [svg (qr/qr-svg-string url 4)]
+              [:div {:style                   (:qr styles)
+                     :role                    "img"
+                     :aria-label              "QR code for variant URL"
+                     :data-test               "story-share-qr"
+                     :data-share-url          url
+                     :dangerouslySetInnerHTML {:__html svg}}]
+              [:div {:style          (:qr-fallback styles)
+                     :role           "note"
+                     :data-test      "story-share-qr-fallback"
+                     :data-share-url url}
+               "URL too long for QR — copy link instead"])
             [:button {:style    (:copy-btn styles)
                       :on-click (fn [_]
                                   (copy-to-clipboard! url)

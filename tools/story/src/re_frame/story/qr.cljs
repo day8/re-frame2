@@ -67,10 +67,20 @@
   - `cell-px`  — pixel size of each QR cell. The total square edge is
                  roughly `(module-count + 2*margin) * cell-px`.
 
-  Pure data → data; no network access, no DOM touched."
+  Pure data → data; no network access, no DOM touched.
+
+  Returns `nil` when the input exceeds QR capacity at the chosen
+  error-correction level (rf2-3y7l4 — `qrcode-generator` throws on
+  overlong inputs; the share popover must not crash on long
+  `:cell-overrides`). Callers must handle the `nil` return as a
+  degraded-state signal (e.g. render a 'URL too long for QR — copy
+  link instead' panel) rather than splicing `nil` into the DOM."
   ([text]         (qr-svg-string text 4))
   ([text cell-px]
-   (let [qr (qrcode default-type-number default-error-correction-level)]
-     (.addData qr text)
-     (.make qr)
-     (.createSvgTag qr cell-px default-margin))))
+   (try
+     (let [qr (qrcode default-type-number default-error-correction-level)]
+       (.addData qr text)
+       (.make qr)
+       (.createSvgTag qr cell-px default-margin))
+     (catch :default _
+       nil))))
