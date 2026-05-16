@@ -37,6 +37,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
+            [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
 
 (def ^:private card-style
@@ -116,6 +117,21 @@
          :data-testid "panel-gallery-time-travel-card"}
    [time-travel/time-travel-view]])
 
+(defn- trace-panel
+  "Embedded mount of the Causa trace panel for one Story variant.
+  The variant-frame provider above this tree routes
+  `:rf.causa/trace-feed` reads to the variant frame's app-db, where
+  the seed events have written `:trace-buffer` and (optionally)
+  `:trace-filters`.
+
+  `trace/trace-view` is a `reg-view` registration; the gallery
+  wrapper mounts it as a Reagent vector — safe because reg-view
+  threads `:contextType` through React."
+  [_args]
+  [:div {:style       card-style
+         :data-testid "panel-gallery-trace-card"}
+   [trace/trace-view]])
+
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.
   Uses `reg-view*` (the runtime-registration surface, per Spec 004)
@@ -130,4 +146,5 @@
   (rf/reg-view* :panel-gallery.app-db-diff/Panel   app-db-diff-panel)
   (rf/reg-view* :panel-gallery.subscriptions/Panel subscriptions-panel)
   (rf/reg-view* :panel-gallery.time-travel/Panel   time-travel-panel)
+  (rf/reg-view* :panel-gallery.trace/Panel         trace-panel)
   nil)

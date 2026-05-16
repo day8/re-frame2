@@ -106,6 +106,12 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-time-travel-card',
         expectedAtLeast: 8,
       },
+      {
+        id:          'trace',
+        workspaceRe: /Workspace\.causa\.trace\/all/,
+        cardTestid:  'panel-gallery-trace-card',
+        expectedAtLeast: 9,
+      },
     ];
 
     const results = [];
