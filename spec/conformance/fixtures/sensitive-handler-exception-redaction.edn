@@ -1,0 +1,81 @@
+;; Conformance fixture: error/sensitive-handler-exception-redaction
+;; Per rf2-wxe9t (bead) and rf2-vnjfg (security audit) — a handler
+;; registered with `:sensitive? true` metadata throws on dispatch with a
+;; sensitive-looking payload. The always-on error-emit substrate MUST
+;; surface the failure to corpus-wide listeners with the event slot
+;; replaced by `:rf/redacted` (and the structured policy-fn event's
+;; `:tags :event` likewise scrubbed), regardless of host — the
+;; production-survivable error path is precisely the boundary that
+;; would otherwise ship credentials / PII off-box (Sentry, Honeybadger,
+;; Rollbar style forwarders).
+;;
+;; The fixture pins the substrate behaviour through the new
+;; `:error-emit-records` observable; the trace surface is also pinned
+;; for the public discriminators (`:operation`, `:op-type`, `:event-id`,
+;; `:exception-message`) that flow through unchanged so operators
+;; retain the triage signal. The companion unit tests
+;; `re-frame.on-error-test/sensitive-handler-meta-redacts-*` and
+;; `re-frame.on-error-elision-prod-test/sensitive-handler-error-record-redacted-under-prod`
+;; cover the same contract in dev and `:advanced` + `goog.DEBUG=false`
+;; respectively; this fixture is the host-neutral conformance gate.
+
+{:fixture/id           :error/sensitive-handler-exception-redaction
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error :core/trace}
+ :fixture/doc          "A handler registered with :sensitive? true metadata throws on dispatch with a payload that includes credential-shaped data. The always-on error-emit substrate MUST surface :rf.error/handler-exception to corpus-wide listeners with the event slot replaced by :rf/redacted. Event-id, frame, and exception flow through unchanged for triage. Pins rf2-vnjfg's redaction guarantee end-to-end on every conformant host."
+
+ :fixture/registry
+ {:event {:counter/initialise
+          {:doc "Seed."}
+          :auth/sign-in
+          ;; The :sensitive? flag is the cross-cutting privacy escape
+          ;; hatch (Spec 009 §Privacy / sensitive data in traces; Spec
+          ;; Security §Privacy boundary). :no-redaction-needed? true
+          ;; opts out of the registration-time advisory
+          ;; (:rf.warning/sensitive-without-redaction); we are pinning
+          ;; the substrate-level redaction, not the schema- /
+          ;; with-redacted-interceptor path.
+          {:doc                   "Sign-in attempt with credential payload — always throws to drive the error path."
+           :sensitive?            true
+           :no-redaction-needed?  true}}
+  :sub   {:fired-events {:doc "Captures which events ran."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:fired] []]]
+          :auth/sign-in       [[:throw "auth failed"]]}
+  :sub   {:fired-events [[:get [:fired]]]}}
+
+ :fixture/frame-config {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ ;; Dispatch the sensitive handler with credential-shaped payload. The
+ ;; raw payload is what the substrate MUST NOT ship to listeners.
+ [[:auth/sign-in {:username "ada" :password "shhh" :token "abc123"}]]
+
+ :fixture/expect
+ ;; Per rf2-vnjfg the error-emit substrate replaces the listener
+ ;; record's :event slot with the :rf/redacted sentinel when the
+ ;; failing handler is registered :sensitive? true. The fixture
+ ;; harness captures the always-on listener's records and partial-
+ ;; matches them here.
+ {:error-emit-records
+  [{:error    :rf.error/handler-exception
+    :event    :rf/redacted                                     ;; the raw {:username ... :password ... :token ...} MUST NOT appear
+    :event-id :auth/sign-in
+    :frame    :rf/default}]
+
+  ;; Trace surface — the per-frame trace cb sees the error with
+  ;; the public discriminators flowing through. The trace path's
+  ;; :tags :event slot is governed by schema-derived redaction (NOT
+  ;; the substrate-level handler-meta redaction); we therefore pin
+  ;; only the discriminators here. The substrate-level redaction
+  ;; assertion above (`:error-emit-records`) is the load-bearing
+  ;; check for handler-meta `:sensitive?`.
+  :trace-emissions
+  [{:operation :rf.error/handler-exception
+    :op-type   :error
+    :tags      {:event-id          :auth/sign-in
+                :failing-id        :auth/sign-in
+                :exception-message "auth failed"
+                :reason            "Event handler threw."}
+    :recovery  :no-recovery}]}}
