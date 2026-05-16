@@ -101,6 +101,7 @@
             [clojure.string :as str]
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.flows :as flows]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
@@ -124,6 +125,11 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
+  ;; Per rf2-bacs4: the error-emit listener registry is a `defonce` atom
+  ;; that survives test re-runs. Clear before each test so a listener
+  ;; registered by one fixture (per rf2-gmrks `:error-emit-records`
+  ;; matcher) doesn't leak into the next.
+  (error-emit/clear-error-emit-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
@@ -177,11 +183,14 @@
   "The flow surface plus the `:core/*` capabilities every flow fixture
   cross-cuts. `:core/sub` is in the set because several fixtures
   (recompute-on-input-change, multi-input-topo) assert `:sub-values`
-  against materialised flow outputs."
+  against materialised flow outputs. `:core/error` covers the
+  flow-eval-exception fixture (rf2-gmrks) which asserts both the
+  cascade-level error trace and the always-on error-emit substrate."
   #{:core/event-handler
     :core/sub
     :core/fx
     :core/trace
+    :core/error
     :flow/basic
     :flow/topo
     :flow/dirty-check
@@ -312,6 +321,28 @@
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
+;; ---- error-emit capture (rf2-gmrks) -------------------------------------
+;;
+;; Per Spec 013 §Failure semantics rule 4 + §Resolved decisions
+;; §`:rf.error/flow-eval-exception` rides the always-on error substrate
+;; (rf2-0q0du): flow-eval failures fire on the always-on production
+;; error-emit substrate, which survives CLJS `:advanced` +
+;; `goog.DEBUG=false` elision. The `flow-eval-exception.edn` fixture's
+;; `:error-emit-records` matcher asserts the listener captured a record
+;; of the expected shape — the host-agnostic data-shape equivalent of
+;; the JVM-side `re-frame.flows-trace-test` /
+;; `re-frame.on-error-elision-prod-test` assertions.
+
+(defn- collect-error-emit-records
+  "Register a corpus-wide error-emit listener for the fixture's run;
+  returns the captured-records atom."
+  [fixture-id]
+  (let [records (atom [])]
+    (error-emit/register-error-emit-listener!
+      [::flows-conformance fixture-id]
+      (fn [r] (swap! records conj r)))
+    records))
+
 ;; ---- matchers ------------------------------------------------------------
 
 (defn- submap?
@@ -415,6 +446,22 @@
   ([frame-id]
    (into #{} (keys (get @flows/flows frame-id {})))))
 
+(defn- last-inputs-frame-set
+  "Per-flow set of frame-ids currently present in `last-inputs[flow-id]`.
+  Per Spec 013 §Frame-destroy teardown: after `destroy-frame!`, the
+  destroyed frame's row in every `last-inputs[flow-id]` MUST be dropped;
+  the whole flow-id key drops when no other frame still holds an entry."
+  [flow-id]
+  (into #{} (keys (get @flows/last-inputs flow-id {}))))
+
+(defn- registrar-has-flow?
+  "True iff the cross-kind `:flow` registrar slot for `flow-id` is
+  present. Per Spec 013 §Frame-destroy teardown: the slot drops when
+  the destroyed frame was the last owner of the id; it survives when
+  a sibling frame still registers the id."
+  [flow-id]
+  (some? (registrar/lookup :flow flow-id)))
+
 ;; ---- single-fixture execution -------------------------------------------
 
 (defn- run-fixture
@@ -424,6 +471,12 @@
   (try
     (let [fid          (:fixture/id fixture)
           traces       (collect-traces fid)
+          ;; Always register an error-emit listener so the
+          ;; `:error-emit-records` matcher (rf2-gmrks) has a captured
+          ;; stream to assert against. Listeners with no expectations
+          ;; cost nothing — the registry is cleared in `reset-runtime`
+          ;; between fixtures.
+          err-records  (collect-error-emit-records fid)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
           ;; `reset-runtime` already created :rf/default WITHOUT an
@@ -453,13 +506,27 @@
                          (rf/reg-frame :rf/default frame-config))
           _            (realise-flows! fixture)
           dispatches   (or (:fixture/dispatches fixture) [])]
-      ;; Dispatches may be a bare event vector (single-frame default) or
-      ;; an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
-      ;; mirrors core's runner per spec/conformance/fixtures/frame-multi-instance.edn).
+      ;; Dispatches may be:
+      ;;   - a bare event vector (single-frame default)
+      ;;   - an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
+      ;;     mirrors core's runner per
+      ;;     spec/conformance/fixtures/frame-multi-instance.edn)
+      ;;   - a teardown step `{:destroy-frame <frame-id>}` (rf2-gmrks /
+      ;;     Spec 013 §Frame-destroy teardown). The runner calls
+      ;;     `frame/destroy-frame!` on the named frame; subsequent
+      ;;     dispatch / matcher checks see the post-teardown state.
       (doseq [ev dispatches]
-        (if (map? ev)
-          (let [{event :event :as opts} ev]
-            (rf/dispatch-sync event (dissoc opts :event)))
+        (cond
+          (map? ev)
+          (cond
+            (contains? ev :destroy-frame)
+            (frame/destroy-frame! (:destroy-frame ev))
+
+            :else
+            (let [{event :event :as opts} ev]
+              (rf/dispatch-sync event (dissoc opts :event))))
+
+          :else
           (rf/dispatch-sync ev)))
       ;; ---- assertion gathering -----------------------------------------
       (let [expect           (or (:fixture/expect fixture) {})
@@ -510,8 +577,40 @@
                                (into {}
                                      (for [[fid _] expected-after]
                                        [fid (flow-registry-ids fid)]))
-                               :else (flow-registry-ids))]
+                               :else (flow-registry-ids))
+            ;; `:flow-last-inputs-after` (rf2-gmrks) — `{flow-id
+            ;; #{frame-ids}}` strict match. Per Spec 013 §Frame-destroy
+            ;; teardown: after `destroy-frame!`, the destroyed frame's
+            ;; row in every `last-inputs[flow-id]` MUST be dropped; the
+            ;; whole flow-id key drops when no other frame still holds
+            ;; an entry.
+            expected-li      (:flow-last-inputs-after expect)
+            actual-li        (when expected-li
+                               (into {}
+                                     (for [[flow-id _] expected-li]
+                                       [flow-id (last-inputs-frame-set flow-id)])))
+            ;; `:registrar-flow-slots-after` (rf2-gmrks) — strict set
+            ;; match of `:flow` registrar ids that survive the fixture's
+            ;; teardown. Per Spec 013 §Frame-destroy teardown: the slot
+            ;; drops iff no surviving frame still owns the id.
+            expected-slots   (:registrar-flow-slots-after expect)
+            actual-slots     (when expected-slots
+                               (into #{}
+                                     (filter registrar-has-flow?
+                                             expected-slots)))
+            ;; `:error-emit-records` (rf2-gmrks) — order-preserving
+            ;; subset match against the captured always-on error-emit
+            ;; substrate stream. Per Spec 013 §Failure semantics rule 4
+            ;; + Resolved decisions §`:rf.error/flow-eval-exception`
+            ;; rides the always-on error substrate (rf2-0q0du): the
+            ;; substrate fires under CLJS `:advanced` + `goog.DEBUG=false`
+            ;; — this matcher is the host-agnostic data-shape equivalent
+            ;; of the JVM-side prod-elision proof.
+            expected-err     (:error-emit-records expect)
+            err-failures     (when expected-err
+                               (check-trace-stream @err-records expected-err))]
         (trace/clear-trace-cbs!)
+        (error-emit/clear-error-emit-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))
                                  (or (nil? expected-dbs) (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
@@ -521,7 +620,10 @@
                                  (or (nil? emit-failures)   (empty? emit-failures))
                                  (or (nil? expected-counts) (= expected-counts actual-counts))
                                  (or (nil? expected-topo)   (= expected-topo actual-topo))
-                                 (or (nil? expected-after)  (= expected-after actual-after)))
+                                 (or (nil? expected-after)  (= expected-after actual-after))
+                                 (or (nil? expected-li)     (= expected-li actual-li))
+                                 (or (nil? expected-slots)  (= expected-slots actual-slots))
+                                 (or (nil? err-failures)    (empty? err-failures)))
          :final-db          final-db
          :expected-db       expected-db
          :final-dbs         final-dbs
@@ -534,7 +636,12 @@
          :expected-topo     expected-topo
          :actual-topo       actual-topo
          :expected-after    expected-after
-         :actual-after      actual-after}))
+         :actual-after      actual-after
+         :expected-li       expected-li
+         :actual-li         actual-li
+         :expected-slots    expected-slots
+         :actual-slots      actual-slots
+         :err-failures      err-failures}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
        :passed?    false
@@ -630,7 +737,17 @@
           (when (some? (:expected-after f))
             (when (not= (:expected-after f) (:actual-after f))
               (println "    registry-after expected:" (:expected-after f))
-              (println "    registry-after actual:  " (:actual-after f))))))
+              (println "    registry-after actual:  " (:actual-after f))))
+          (when (some? (:expected-li f))
+            (when (not= (:expected-li f) (:actual-li f))
+              (println "    last-inputs-after expected:" (:expected-li f))
+              (println "    last-inputs-after actual:  " (:actual-li f))))
+          (when (some? (:expected-slots f))
+            (when (not= (:expected-slots f) (:actual-slots f))
+              (println "    registrar-slots expected:" (:expected-slots f))
+              (println "    registrar-slots actual:  " (:actual-slots f))))
+          (doseq [ef (:err-failures f)]
+            (println "    error-emit:" ef))))
       (is (zero? (count failed))
           (str "All claim-runnable flow-*.edn conformance fixtures must pass; "
                (count failed) " failed.")))))

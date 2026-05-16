@@ -108,6 +108,20 @@ This asymmetry is **intentional for v1**: the runtime correctness (each frame's 
 
 Frame defaulting matches the rest of the API: a bare `(reg-flow flow)` resolves the frame via `(current-frame)`, picking up `with-frame` bindings or falling through to `:rf/default`. Tests and per-tenant runtimes that need an explicit frame pass `{:frame ...}` as the second arg.
 
+## Frame-destroy teardown
+
+Flows are frame-scoped, so `destroy-frame!` is the boundary at which every per-frame piece of flow state MUST clear. This is a **normative requirement** — the frame-isolation contract from [002 §Destroy](002-Frames.md#destroy) is only honoured if flow registrations, the dirty-check `last-inputs` cache, and any `:flow` registrar slot whose last owning frame was the destroyed one all release in lockstep with the frame. Without lockstep teardown a long-running JVM SSR host (per-request frame churn), a pair-tool time-travel cycle, or any `make-frame` ephemeral usage leaks flow definitions and cached input vectors indefinitely.
+
+Three teardown invariants apply on `(destroy-frame! frame-id)`:
+
+1. **Per-frame flow registry.** `(get @flows frame-id)` clears in full — every flow registered against `frame-id` is dropped. Sibling frames' slots are unaffected (per [§Frame-scoping](#frame-scoping)).
+2. **Dirty-check cache.** Every `last-inputs[flow-id][frame-id]` row for the destroyed frame is dissoc'd. The whole `last-inputs[flow-id]` key is dropped when no other frame still holds an entry. Sibling frames' rows for the same flow id are preserved (a flow id registered against frames `:left` and `:right`, with frame `:left` destroyed, keeps `last-inputs[flow-id][:right]` intact).
+3. **`:flow` registrar slot.** The cross-kind registrar entry for each flow id the destroyed frame owned is `unregister!`'d **iff no surviving frame still registers that id**. When a sibling frame still holds the same flow id, the registrar slot survives (other frames need it for hot-reload tracking).
+
+Teardown is idempotent against a frame the registry never recorded — a `destroy-frame!` on a freshly-`reg-frame`'d frame with no flows ever registered against it leaves the flow registry, `last-inputs`, and registrar entries unchanged.
+
+The teardown contract is symmetric with the machines artefact's `:machines/teardown-on-frame-destroy!` hook and the schemas artefact's `:schemas/on-frame-destroyed!` hook — every per-feature artefact that holds frame-scoped state hangs its cleanup off the single normative `destroy-frame!` teardown boundary documented at [002 §Destroy](002-Frames.md#destroy). A new feature artefact MUST add its hook to the destroy cascade; a feature that holds frame-scoped state without one leaks on every `destroy-frame!`.
+
 ## Drain integration
 
 Flow evaluation happens **after `:db` commits and before `:fx` walks** on every event drain. Per [002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode), the per-event drain inserts one step:
@@ -188,7 +202,7 @@ When a flow's `:output` fn throws during `run-flows!`, the runtime applies these
 1. **Prior-flow writes are preserved.** Flows scheduled earlier in the same drain that successfully computed and produced dirty writes have their outputs flushed to `app-db` (one `replace-container!` against the loop accumulator) BEFORE the exception propagates. Earlier flows' work is never silently lost.
 2. **The failing flow's own output is not written.** The exception happened during `:output`; there is no usable new-output to assoc-in. Its `last-inputs` slot is NOT advanced, so the flow re-attempts on the next drain.
 3. **The cascade halts at the failing flow.** Downstream flows scheduled later in topo order do NOT run on this drain. They re-attempt naturally on the next drain (with whatever inputs the prior flush left in `app-db`).
-4. **The exception surfaces at the router's outer catch** as `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). The per-flow `:rf.flow/failed` trace fires first with the flow-attributed detail; the cascade-level error trace fires when the router catches the propagated throw.
+4. **The exception surfaces at the router's outer catch** as `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). The cascade-level error is emitted onto the **always-on production error-emit substrate** ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) — the per-frame `:on-error` policy fn fires, every `register-error-emit-listener!` callback fires, and both fan-out paths are mutually isolated. The substrate is NOT gated by `re-frame.interop/debug-enabled?`, so `:rf.error/flow-eval-exception` survives CLJS `:advanced` + `goog.DEBUG=false` elision: a flow-eval failure in a production build reaches every registered off-box error monitor (Sentry / Honeybadger / Rollbar / hosted observability) at full fidelity. The per-flow `:rf.flow/failed` trace event ALSO fires first with the flow-attributed detail, but that trace rides the dev-only trace surface and DCEs in production — production attribution is preserved on the always-on path via `:flow-id` / `:flow` slots stamped onto the cascade-level error's `:tags`.
 
 Worked example. Three flows in topo order — `:A`, `:B`, `:C`. Inputs change for all three. `:B` throws. After the drain:
 
@@ -321,12 +335,22 @@ Per [§Open questions §Map-keyed `:inputs`](#map-keyed-inputs-instead-of-vector
 
 No opt-out. Stale derived values are confusing; vacating the slot is the natural toggle-off semantics. Apps that want to preserve the value should copy it elsewhere before clearing.
 
+### Frame-destroy teardown is mandatory (RESOLVED rf2-0q0du)
+
+`destroy-frame!` MUST release every per-frame piece of flow state — the per-frame flow-registry slot, all `last-inputs` rows for the destroyed frame, and every `:flow` registrar entry the destroyed frame was the last owner of. Sibling frames' rows and shared-id registrar slots are preserved. Per [§Frame-destroy teardown](#frame-destroy-teardown). Without this, long-running SSR JVM hosts (per-request frame churn), pair-tool time-travel, and `make-frame` ephemeral usage leak flow definitions and cached input vectors indefinitely. Symmetric with the machines / schemas / SSR teardown hooks the per-feature artefacts publish off the single normative `destroy-frame!` boundary at [002 §Destroy](002-Frames.md#destroy).
+
+### `:rf.error/flow-eval-exception` rides the always-on error substrate (RESOLVED rf2-0q0du)
+
+Flow evaluation failures MUST surface on the always-on production error-emit substrate (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)), NOT on the dev-only trace surface alone. Both fan-out paths — the per-frame `:on-error` policy fn and the corpus-wide `register-error-emit-listener!` registry — fire under CLJS `:advanced` + `goog.DEBUG=false`. The per-flow `:rf.flow/failed` trace still fires first with full flow-attributed detail, but it rides the dev-only trace surface and DCEs in production; flow attribution survives on the always-on path via `:flow-id` / `:flow` slots stamped onto the cascade-level error's `:tags`. Without this routing, a production-build flow-eval failure was silently dropped — no `:on-error` fire, no off-box monitor record. Per [§Failure semantics](#failure-semantics) rule 4.
+
 ## Cross-references
 
 - [001-Registration](001-Registration.md) — registration grammar (`reg-flow` is a kind under `:flow`).
 - [002-Frames §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode) — where the flow after-interceptor sits.
+- [002-Frames §Destroy](002-Frames.md#destroy) — the normative teardown boundary `:rf.flow/*` state hangs off; cross-referenced from [§Frame-destroy teardown](#frame-destroy-teardown).
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — sub-cache invalidation; flows trigger sub-cache invalidation when they write.
-- [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/flow-cycle` namespace.
+- [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/flow-cycle` and `:rf.error/flow-eval-exception` namespaces.
+- [009-Instrumentation §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) — the always-on error-emit substrate `:rf.error/flow-eval-exception` rides; cross-referenced from [§Failure semantics](#failure-semantics) rule 4.
 - [009-Instrumentation §Flow trace events](009-Instrumentation.md#flow-trace-events) — full taxonomy and payloads for the `:rf.flow/*` event vocabulary; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [009-Instrumentation §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key) — `:rf.flow/*` trace events inherit `:sensitive?` from the in-scope handler at drain time; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [Conventions](Conventions.md) — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` reserved fx-ids.
