@@ -27,7 +27,8 @@
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [cljs.test :refer-macros [deftest is testing async]]
-            [day8.re-frame2-causa-mcp.server :as server]))
+            [day8.re-frame2-causa-mcp.server :as server]
+            [day8.re-frame2-causa-mcp.tools :as tools]))
 
 ;; ---------------------------------------------------------------------------
 ;; Public surface — vars exist and are callable.
@@ -63,12 +64,19 @@
 ;; Tool catalogue — empty at F-2.
 ;; ---------------------------------------------------------------------------
 
-(deftest tool-descriptors-empty-at-f2
-  (testing "the Causa-shaped catalogue is empty at F-2 — the
-            eighteen-tool catalogue lands in later F-tranche beads"
+(deftest tool-descriptors-is-js-array
+  (testing "the catalogue surface is a JS array of descriptors (its
+            length grows as T-Insp / T-Mut / T-Stream tranches land
+            their per-tool `register-tool!` calls)"
     (let [^js descriptors (server/tool-descriptors-js)]
       (is (array? descriptors))
-      (is (zero? (.-length descriptors))))))
+      ;; Every descriptor must carry the SDK-shaped name + description
+      ;; + inputSchema slots so the MCP wire serialiser doesn't choke.
+      (doseq [i (range (.-length descriptors))]
+        (let [d (aget descriptors i)]
+          (is (string? (j/get d :name)))
+          (is (string? (j/get d :description)))
+          (is (some? (j/get d :inputSchema))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; build-server — constructs an MCP Server with the SDK handlers wired.
@@ -135,43 +143,34 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Success-path tools/call stub — returns :not-implemented until the
-;; dispatcher lands in a later F-tranche.
+;; Success-path tools/call dispatcher — routes through `tools/invoke`.
+;; The per-tool dispatch contract is exercised in
+;; `test/day8/re_frame2_causa_mcp/tools_test.cljs` and the per-tool
+;; tests under `tools/` — server_test only pins that the boot path
+;; resolves the dispatcher entry point.
 ;; ---------------------------------------------------------------------------
 
-(deftest boot-build-server-routes-tools-call-to-not-implemented-stub
-  (testing "boot! wires tools/call to the F-2 success-path stub —
-            every call returns a structured :not-implemented envelope
-            with the tool name echoed back; replaced by the real
-            dispatcher in a later F-tranche"
-    ;; We call build-server directly with the same success-path
-    ;; handler boot! uses, then drive the registered handler through
-    ;; the SDK's own dispatch path is overkill here — exercise the
-    ;; stub directly via a parallel construction.
+(deftest boot-build-server-resolves-dispatcher
+  (testing "boot! wires tools/call through the per-tool dispatcher; an
+            unknown tool name resolves to a structured :unknown-tool
+            envelope rather than a transport-level failure"
     (async done
-      (let [conn    {:port 12345}
-            ;; Re-construct the same closure boot! installs so we can
-            ;; drive it without holding the SDK Server instance.
-            handler (fn [req extra]
-                      ;; Mirror the boot! body — keep this in sync if
-                      ;; the boot! body changes.
+      (let [conn    (atom {:port 12345})
+            handler (fn [req _extra]
+                      ;; Mirror the real boot! body — the dispatcher
+                      ;; handles unknown names without an nREPL hit.
                       (let [params (j/get req :params)
-                            name   (j/get params :name)]
-                        (js/Promise.resolve
-                          #js {:isError true
-                               :content #js [#js {:type "text"
-                                                  :text (pr-str {:ok?    false
-                                                                 :reason :not-implemented
-                                                                 :tool   name
-                                                                 :hint   "stub"})}]})))
-            req     #js {:params #js {:name "discover-app" :arguments #js {}}}]
+                            name   (j/get params :name)
+                            args   (j/get params :arguments)]
+                        (tools/invoke conn name args nil)))
+            req     #js {:params #js {:name "definitely-not-a-tool" :arguments #js {}}}]
         (-> (handler req nil)
             (.then (fn [^js result]
                      (is (true? (j/get result :isError)))
                      (let [text    (j/get (aget (j/get result :content) 0) :text)
                            payload (edn/read-string text)]
-                       (is (= :not-implemented (:reason payload)))
-                       (is (= "discover-app" (:tool payload))))
+                       (is (= :unknown-tool (:reason payload)))
+                       (is (= "definitely-not-a-tool" (:tool payload))))
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------

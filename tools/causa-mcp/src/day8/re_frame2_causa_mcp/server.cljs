@@ -39,6 +39,7 @@
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
             [day8.re-frame2-causa-mcp.nrepl :as nrepl]
+            [day8.re-frame2-causa-mcp.tools :as tools]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]))
@@ -84,40 +85,27 @@
 
 (defn tool-descriptors-js
   "The Causa-shaped tool catalogue, as a JS array of descriptor maps.
-
-  Empty at F-2 — the eighteen-tool catalogue (`spec/000-Vision.md`
-  + `tools/causa/spec/010-MCP-Server.md`) lands in subsequent
-  F-tranche beads. Public so tests can pin the (currently empty)
-  shape and so the catalogue ns has a stable extension point when
-  it lands."
+  Delegates to `tools/tool-descriptors-js` — the per-tool
+  `register-tool!` side-effect populates the registry on load, and the
+  façade builds the JS-shape array from that registry. Public so tests
+  pin the catalogue shape."
   []
-  #js [])
+  (tools/tool-descriptors-js))
 
 (defn- handle-list [_req]
   (js/Promise.resolve #js {:tools (tool-descriptors-js)}))
 
-(defn- not-implemented-result [name]
-  ;; F-2 success-path `tools/call` stub: until the tool dispatcher
-  ;; lands, surface a structured envelope so MCP clients see a
-  ;; typed reason rather than a transport-level failure.
-  #js {:isError true
-       :content #js [#js {:type "text"
-                          :text (pr-str {:ok?    false
-                                         :reason :not-implemented
-                                         :tool   name
-                                         :hint   (str "The Causa-MCP tool catalogue lands in "
-                                                      "subsequent rf2-8xzoe F-tranche beads.")})}]})
-
 (defn- handle-call-success
-  "Success-path `tools/call` handler. F-2 stub: returns a structured
-  `:reason :not-implemented` envelope for every tool name (no
-  dispatcher yet). Replaced by a real dispatcher in a later
-  F-tranche, at which point this fn becomes a thin
-  `(tools/invoke conn name args extra)` adapter."
-  [_conn req _extra]
+  "Success-path `tools/call` handler. Routes the JSON-RPC request
+  through `tools/invoke`, which dispatches to the per-tool registry
+  and then wraps the result through the W-1 token-cap boundary step.
+  Each per-tool body internally applies the B-1 privacy + W-6 elision
+  gates before returning."
+  [conn req extra]
   (let [params (j/get req :params)
-        name   (j/get params :name)]
-    (js/Promise.resolve (not-implemented-result name))))
+        name   (j/get params :name)
+        args   (j/get params :arguments)]
+    (tools/invoke conn name args extra)))
 
 ;; ---------------------------------------------------------------------------
 ;; Server boot.
