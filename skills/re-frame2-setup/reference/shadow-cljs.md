@@ -51,8 +51,13 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
   <style>
     body { margin: 0; }
     .app-shell { display: flex; min-height: 100vh; }
-    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    [data-rf-causa-host] {
+      flex: 0 0 var(--rf-causa-inline-width, 420px);
+      min-width: 320px;
+    }
     #app { flex: 1; min-width: 0; }
+    /* Resize from anywhere up the cascade: */
+    /*   :root { --rf-causa-inline-width: 560px; } */
   </style>
 </head>
 <body>
@@ -69,7 +74,7 @@ Four contractual bits:
 
 - **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
 - **`<aside data-rf-causa-host></aside>`** — Causa's default true-inline devtools host. Keep it as a left-side layout column beside `#app` when you enable `day8.re-frame2-causa.preload`; otherwise Causa logs an actionable missing-host diagnostic and exposes the same status through `window.day8.re_frame2_causa.status()`.
-- **`.app-shell` flex CSS** — the host app owns sizing and layout. The minimal contract is a left column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0; }`).
+- **`.app-shell` flex CSS** — the host app owns sizing and layout. The minimal contract is a left column (`flex: 0 0 var(--rf-causa-inline-width, 420px); min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0; }`). Override `--rf-causa-inline-width` anywhere up the cascade (e.g. `:root { --rf-causa-inline-width: 560px; }`) to resize the Causa panel — JS-free, host-owned (per `rf2-um813`).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows.
 - **`/js/main.js` is an absolute path from site root.** That's correct for shadow-cljs's dev server.
 

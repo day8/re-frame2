@@ -58,6 +58,49 @@ suppression knob, and legacy overlay / popout postures, see
 [`011-Launch-Modes.md`](./011-Launch-Modes.md) and the repo-root
 `README.md`'s install section.
 
+### Published layout-host constants
+
+`day8.re-frame2-causa.config` publishes the layout-host wiring as
+named CLJS vars so tooling (story-mode chrome, docs generators, the
+AI co-pilot's snippet helper) can refer to the exact spelling
+without forking the string:
+
+```clojure
+day8.re-frame2-causa.config/default-layout-host-selector
+;; "[data-rf-causa-host]"
+;; — the CSS selector the preload's auto-open path queries on adapter
+;;   readiness. Override via (causa-config/configure!
+;;   {:layout/host-selector "#devtools-causa"}).
+
+day8.re-frame2-causa.config/default-layout-host-css-var
+;; "--rf-causa-inline-width"
+;; — the CSS custom property the recommended host snippet reads for
+;;   its flex-basis (rf2-um813). Causa never reads this property —
+;;   sizing is owned by the host's layout rule. Published so callers
+;;   can re-emit the canonical name in their own diagnostics / docs
+;;   generators / snippet helpers.
+
+day8.re-frame2-causa.config/default-layout-host-width
+;; "420px"
+;; — the default value Causa recommends for --rf-causa-inline-width
+;;   when the host does not override. Matches the historical fixed-
+;;   pixel default from the pre-rf2-um813 testbed snippets so existing
+;;   pages render identically after adopting the variable.
+
+day8.re-frame2-causa.config/default-layout-host-snippet
+;; A copy-pasteable HTML + CSS block carrying the recommended host
+;; markup, flex-basis read through var(--rf-causa-inline-width, 420px),
+;; and the min-width: 320px floor. Reported back to the user in the
+;; missing-host diagnostic so the actionable console.error already
+;; carries the fix.
+```
+
+These are constants, not setters — overriding the selector goes
+through `(causa-config/configure! {:layout/host-selector ...})`;
+overriding the CSS custom property happens in the host's stylesheet
+(per [`011-Launch-Modes.md`](./011-Launch-Modes.md) §Resizing the
+inline host).
+
 ### Force-disable
 
 ```clojure
