@@ -51,6 +51,14 @@ const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
+// rf2-h9ut9 — narrow EXAMPLES_FILTER. When set, only spec files whose
+// path includes the substring are loaded. Composes with the
+// orchestrator's compile/stage filter so a narrow run only exercises
+// the matched surface end-to-end. The substring is matched against
+// the spec file's absolute path, so values like `realworld` match
+// `examples/reagent/realworld/realworld.spec.cjs` cleanly. Unset (or
+// empty) = the full sweep.
+const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
 // __dirname is <repo>/examples/scripts; the example tree sits at
 // <repo>/examples (one level up). rf2-p8f2s broadened discovery to
 // include tool-owned testbeds under <repo>/tools/<tool>/testbeds/ and
@@ -118,9 +126,20 @@ function withTimeout(promise, ms, label) {
 }
 
 (async () => {
-  const specFiles = listSpecFiles(SPEC_ROOTS);
+  const allSpecFiles = listSpecFiles(SPEC_ROOTS);
+  // rf2-h9ut9 — apply EXAMPLES_FILTER substring match against the
+  // absolute spec path so narrow runs only execute matching specs.
+  const specFiles = FILTER
+    ? allSpecFiles.filter((f) => f.includes(FILTER))
+    : allSpecFiles;
   if (specFiles.length === 0) {
-    console.error(`No specs found under ${SPEC_ROOTS.join(', ')}`);
+    if (FILTER) {
+      console.error(
+        `EXAMPLES_FILTER='${FILTER}' matched zero specs (scanned ${allSpecFiles.length} candidates under ${SPEC_ROOTS.join(', ')}).`,
+      );
+    } else {
+      console.error(`No specs found under ${SPEC_ROOTS.join(', ')}`);
+    }
     process.exit(1);
   }
 
