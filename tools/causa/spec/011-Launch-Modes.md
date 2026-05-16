@@ -251,7 +251,11 @@ optional debug mode and must not be described as the primary path.
 
 ### Pop-out to a second window
 
-`Ctrl+Shift+P` or button right-click → `Pop out`.
+Programmatic entry: `(causa/popout!)` from CLJS, or
+`window.day8.re_frame2_causa.popout_BANG_()` from a devtools console.
+A right-click → `Pop out` affordance on the launcher pill is the
+canonical chrome-side path. No keybinding is wired pre-alpha; the
+programmatic call is the contract.
 
 Mechanism: `window.open` whose JS realm is connected to the opener's
 via `window.opener`. The pop-out renders into the new window but
@@ -713,7 +717,7 @@ in parallel. The panel surfaces the agent's actions (the `:origin
 | User scenario | Mode |
 |---|---|
 | Working locally; want to inspect the runtime | In-app panel (`Ctrl+Shift+C`) |
-| Want a second monitor for Causa | In-app panel + pop-out (`Ctrl+Shift+P`) |
+| Want a second monitor for Causa | In-app panel + `(causa/popout!)` |
 | Want my AI to inspect / time-travel programmatically | Causa-MCP (configure in agent host) |
 | Want to debug a colleague's browser | Out of scope at v1.0 |
 | Want to debug a mobile browser | Out of scope at v1.0 |

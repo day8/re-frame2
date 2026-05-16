@@ -128,8 +128,8 @@ every surface that lists or graphs subs:
   with their post-cascade status.
 - **Command palette sub matches** ([`007-UX-IA.md`](./007-UX-IA.md)
   §Command palette). Each sub row in the palette carries its current
-  status, so the user can `Ctrl+K` → type a sub-id → see the cache
-  state in one motion.
+  status, so the user can open the palette → type a sub-id → see the
+  cache state in one motion.
 
 The taxonomy is **single-source-of-truth**: the same five badges
 mean the same five things everywhere Causa renders a sub.
@@ -210,7 +210,8 @@ instrumentation.
    right-clicked → "Show invalidation chain"; or the sub the
    event-detail panel highlighted as the trigger of a recently-fired
    render (per `:rf/epoch-record :renders :triggered-by`); or
-   `Ctrl+K` → type sub-id → "Show invalidation chain".
+   open the command palette → type sub-id → "Show invalidation
+   chain".
 
 2. **Walk the sub-cache's per-entry input list down to layer-1.**
    Each cache entry carries its input subs ([Spec 006 §Subscription

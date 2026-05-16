@@ -25,7 +25,7 @@ the left because normal layout owns the relationship.
 │                                                                                  │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │ ╭─ CAUSA ───────────────────────────────────────────────────── :app/main ▾ ──╮  │
-│ │ ◆──○──○──○──○──○──○──○──○──○──●        ⚠ 0   ⏵◀ epoch 11/11   ⌘K   ?   ✕ │  │  ← top strip (56px)
+│ │ ◆──○──○──○──○──○──○──○──○──○──●        ⚠ 0   ⏵◀ epoch 11/11    ?   ✕ │  │  ← top strip (56px)
 │ ├──────────────────────────────┬────────────────────────────────────────────┤  │
 │ │ ◉ Events                     │ ╭─ event 11 ─────────────────────────────╮ │  │
 │ │ ○ App-db                     │ │ :checkout/submit                       │ │  │
@@ -473,13 +473,16 @@ rail → co-pilot (when open). `Esc` always returns focus to the canvas.
 | Key | Action |
 |---|---|
 | `Ctrl+Shift+C` | Toggle Causa |
-| `Ctrl+Shift+P` | Pop out to separate window |
-| `Ctrl+K` | Command palette |
 | `?` | Keyboard cheat-sheet |
 | `,` | Settings |
 | `Esc` | Close modal / collapse popover / focus canvas |
 | `Ctrl+Shift+/` | Toggle co-pilot rail |
 | `Ctrl+F` | Find within active panel |
+
+Pre-alpha: only `Ctrl+Shift+C` and `Ctrl+Shift+/` are wired in
+`keybinding.cljs`. Pop-out lives at `(causa/popout!)`; the command
+palette is reachable through the top-strip control once that surface
+lands.
 
 ### Navigation
 
@@ -667,9 +670,12 @@ panel may inline its own URI assembly.
 | `Ctrl+P` | Previous question |
 | `Ctrl+N` | Next question |
 
-## Command palette (`Ctrl+K`)
+## Command palette
 
 The spine of expert workflows. Centred 560px modal, 50% height.
+Pre-alpha: no keybinding is wired — opening goes through the
+top-strip control (the `⌘K`-shaped slot in the chrome diagram is the
+intended affordance once the palette panel itself lands).
 
 ### Indexed sources
 
@@ -708,7 +714,8 @@ to navigate; Enter invokes; `Ctrl+Enter` invokes in a pop-out.
 
 Three modal surfaces float over the chrome:
 
-1. **Command palette** (`Ctrl+K`) — 560px centred.
+1. **Command palette** — 560px centred (no keybinding wired
+   pre-alpha; opens from the top-strip control).
 2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
    shortcut.
 3. **Settings** (`,`) — 640×480px modal: Theme · Density ·

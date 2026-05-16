@@ -141,7 +141,11 @@ missing-host diagnostic when no host exists.
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
-| Command palette | `Ctrl+K` |
+
+Two keybindings ship today (`Ctrl+Shift+C`, `Ctrl+Shift+/`). The
+pop-out and command-palette keys some early drafts named are not
+wired pre-alpha — use `(causa/popout!)` for pop-out, and reach the
+palette through the top-strip control once it lands.
 
 ### Disable
 

@@ -90,16 +90,21 @@ The shell is a three-region layout (inside the Causa panel itself):
 
 ## Keybindings
 
-The shell wires four global keybindings:
+The shell wires two global keybindings pre-alpha:
 
 | Action | Keys |
 |---|---|
 | Open / close | `Ctrl+Shift+C` |
-| Pop to second window | `Ctrl+Shift+P` |
 | Toggle AI co-pilot rail | `Ctrl+Shift+/` |
-| Command palette | `Ctrl+K` |
 
-The popout uses `window.opener` to reach the host's runtime — same listeners, same registrar — so the popped window shows everything the main window does. Useful when the panel is competing with the app for screen space.
+Pop-out and command-palette keys some early drafts named are not
+wired today. Pop out programmatically with `(causa/popout!)` (or
+`window.day8.re_frame2_causa.popout_BANG_()` from a devtools
+console); reach the palette via the top-strip control once that
+surface lands. The popout uses `window.opener` to reach the host's
+runtime — same listeners, same registrar — so the popped window
+shows everything the main window does. Useful when the panel is
+competing with the app for screen space.
 
 ## Suppressing auto-open
 
