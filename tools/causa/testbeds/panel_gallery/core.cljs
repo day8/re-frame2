@@ -62,7 +62,8 @@
             [panel-gallery.subscriptions-stories]
             [panel-gallery.time-travel-stories]
             [panel-gallery.trace-stories]
-            [panel-gallery.issues-ribbon-stories]))
+            [panel-gallery.issues-ribbon-stories]
+            [panel-gallery.causality-graph-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)

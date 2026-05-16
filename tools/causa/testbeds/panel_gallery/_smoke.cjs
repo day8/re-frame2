@@ -118,6 +118,12 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-issues-ribbon-card',
         expectedAtLeast: 9,
       },
+      {
+        id:          'causality-graph',
+        workspaceRe: /Workspace\.causa\.causality-graph\/all/,
+        cardTestid:  'panel-gallery-causality-graph-card',
+        expectedAtLeast: 10,
+      },
     ];
 
     const results = [];
