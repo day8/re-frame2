@@ -21,12 +21,11 @@
   a different fn (or `nil` for a hard no-op).
 
   Public façade over `re-frame.schemas.{validator,storage,walker,
-  elision-feeder,digest,validate}` — re-exports the symbols external
-  consumers reach through (tests, `re-frame.core-schemas`, the late-
-  bind hook table) and owns the late-bind hook publication."
+  digest,validate}` — re-exports the symbols external consumers reach
+  through (tests, `re-frame.core-schemas`, the late-bind hook table)
+  and owns the late-bind hook publication."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.schemas.digest :as digest]
-            [re-frame.schemas.elision-feeder :as elision-feeder]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validate :as validate]
             [re-frame.schemas.validator :as validator]
@@ -69,12 +68,6 @@
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)
 (def schema-sensitive-at?             walker/schema-sensitive-at?)
-
-;; Per-flag registry feeders (rf2-v9tw2 / rf2-c1l4d).
-(def frame-elision-declarations    elision-feeder/frame-elision-declarations)
-(def populate-elision-declarations elision-feeder/populate-elision-declarations)
-(def frame-sensitive-declarations    elision-feeder/frame-sensitive-declarations)
-(def populate-sensitive-declarations elision-feeder/populate-sensitive-declarations)
 
 ;; Schema digest (Spec 010 §Digest algorithm).
 (def app-schemas-digest digest/app-schemas-digest)
@@ -136,13 +129,8 @@
 ;; schemas artefact. Per rf2-ynnq0 Option A — schemas owns the deep
 ;; walker; the elision artefact owns the app-db write. The Path D impl
 ;; (rf2-w3n5u) wires `re-frame.elision/populate-elision-from-schemas!`
-;; to consume these two hooks. The five sibling feeders that previously
-;; sat alongside (`:schemas/frame-elision-declarations`,
-;; `:schemas/populate-elision-declarations`, `:schemas/schema-has-
-;; sensitive?`, `:schemas/frame-sensitive-declarations`,
-;; `:schemas/populate-sensitive-declarations`) were deleted per
-;; rf2-5q7r0 — they had zero consumers in tree, and Option A makes the
-;; per-slot extract-* hooks the single surface elision needs.
+;; to consume these two hooks; the per-slot extract-* hooks are the
+;; single surface elision needs.
 (late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
 

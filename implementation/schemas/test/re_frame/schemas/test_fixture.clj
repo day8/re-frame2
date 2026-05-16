@@ -3,9 +3,8 @@
   (rf2-of0hs, dup-of rf2-amco8).
 
   Pre-extraction the same 7-12-line `reset-runtime` body was duplicated
-  across five JVM test files (`schemas_test.clj`,
-  `schemas_elision_test.clj`, `schemas_sensitive_test.clj`,
-  `schemas_sensitive_paths_test.clj`, `schemas_conformance_test.clj`).
+  across the JVM test files (`schemas_test.clj`,
+  `schemas_sensitive_test.clj`, `schemas_conformance_test.clj`, …).
   Each copy reset the same registrar / frame / flows / schemas /
   boundary-warn slate and called `(rf/init! plain-atom/adapter)`.
   Drifting copies invited the cross-test-bleed that the per-frame

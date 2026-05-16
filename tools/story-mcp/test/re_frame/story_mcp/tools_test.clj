@@ -1166,7 +1166,7 @@
 ;; when opted in.
 ;;
 ;; Pattern mirrors `implementation/schemas/test/re_frame/
-;; schemas_sensitive_paths_test.clj`: schema metadata is the canonical
+;; schemas_sensitive_test.clj`: schema metadata is the canonical
 ;; per-slot declaration surface; story-mcp verifies its wire egress
 ;; helper refreshes and consumes those declarations.
 ;; ---------------------------------------------------------------------------
