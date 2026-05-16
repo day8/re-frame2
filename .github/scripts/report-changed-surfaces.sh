@@ -100,7 +100,7 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/epoch/*|implementation/deps.edn)
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)
         implementation_jvm=true
         cljs_browser=true
         cljs_prod=true
