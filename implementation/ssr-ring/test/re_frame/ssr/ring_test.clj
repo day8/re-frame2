@@ -1348,10 +1348,7 @@
 
         ;; The EDN reader on the client side must still recover the
         ;; original string from the escaped payload. Extract just the
-        ;; specific value's quoted literal and read it — the full
-        ;; payload contains a generated `:rf.frame/<numeric-gensym>`
-        ;; keyword that the strict EDN reader (correctly) rejects, and
-        ;; isn't what this test is about anyway. `<` must be
+        ;; specific value's quoted literal and read it. `<` must be
         ;; transparent to clojure.edn/read-string.
         (let [payload-edn (second
                            (re-find
@@ -1617,3 +1614,63 @@
           (rf/remove-trace-cb! ::rh-ok)))
       (is (zero? (count @traces))
           "success path must NOT emit the head-resolution-failed trace"))))
+
+;; ===========================================================================
+;; rf2-joibj — per-request frame-id keyword is EDN-spec-compliant
+;;
+;; `setup-request-frame!` builds the frame-id via
+;;     (keyword "rf.frame" (str (gensym "f")))
+;; The `"f"` prefix is load-bearing: per the EDN spec
+;; (https://github.com/edn-format/edn) identifier names cannot begin
+;; with a digit, and spec-strict readers (`clojure.edn/read-string`,
+;; `cljs.tools.reader.edn/read-string`) reject `:rf.frame/<digits>`.
+;; The frame-id ships into the wire payload (Spec 011 §Hydration boot)
+;; where the browser's strict EDN reader pulls it back during
+;; hydration — without the prefix, the very first call to
+;; `cljs.reader/read-string` on the embedded payload would crash.
+;; `clojure.core/keyword` does not validate, so a regression here is
+;; only observable through a round-trip — which is exactly what this
+;; test asserts.
+;; ===========================================================================
+
+(deftest hydration-payload-frame-id-keyword-is-edn-readable
+  (testing "rf2-joibj: the per-request `:rf.frame/<gensym>` keyword
+            embedded in the wire payload survives a round-trip through
+            the strict EDN reader. Pre-fix the gensym produced a
+            digit-only local-part (`:rf.frame/5401`) which the spec-
+            strict reader correctly rejects."
+    (register-articles-app! [{:id "a" :title "Article A"}])
+
+    (let [handler     (ssr-ring/ssr-handler
+                        {:on-create      [:rf/server-init]
+                         :root-view      [:pages/articles]
+                         :fx-overrides   {:http/get :http/get.canned}
+                         :payload-policy :rf.ssr.payload/whole-app-db})
+          response    (handler {:uri "/articles" :request-method :get})
+          body        (:body response)
+          payload-m   (re-find
+                        #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                        body)
+          payload-edn (when payload-m (second payload-m))]
+      (is (= 200 (:status response)))
+      (is (some? payload-edn)
+          "hydration payload script tag is present — observation
+           surface is the wire payload, not a pre-serialisation map")
+      ;; THE PIN: the full payload reads cleanly. Without the `"f"`
+      ;; prefix on the gensym, the EDN reader would throw
+      ;; `Invalid token: :rf.frame/<digits>` here.
+      (let [recovered (clojure.edn/read-string payload-edn)]
+        (is (map? recovered)
+            "rf2-joibj: payload-EDN round-trips through
+             clojure.edn/read-string — the per-request frame-id
+             keyword complies with the EDN identifier grammar")
+        ;; And the recovered frame-id is the right shape — namespaced,
+        ;; local-part starts with a letter.
+        (let [fid (:rf/frame-id recovered)]
+          (is (keyword? fid)
+              "the recovered :rf/frame-id is a keyword")
+          (is (= "rf.frame" (namespace fid))
+              "the per-request frame-id keeps its `rf.frame` namespace")
+          (is (re-matches #"[^\d].*" (name fid))
+              (str "the frame-id local-part starts with a non-numeric "
+                   "character (saw " (pr-str fid) ")")))))))

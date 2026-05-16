@@ -81,7 +81,20 @@
   frames` happens before `dispatch-sync`), so the best-effort destroy
   is required even though `reg-frame` threw."
   [{:keys [on-create fx-overrides ssr on-error]} request]
-  (let [fid (keyword "rf.frame" (str (gensym "")))]
+  ;; rf2-joibj: the gensym prefix MUST start with a non-numeric
+  ;; character. Per the EDN spec (https://github.com/edn-format/edn)
+  ;; symbol / keyword identifier names cannot begin with a digit, and
+  ;; spec-strict readers (`clojure.edn/read-string`,
+  ;; `cljs.tools.reader.edn/read-string`) reject `:rf.frame/<digits>`.
+  ;; The per-request frame-id rides into the wire payload (Spec 011
+  ;; §Hydration boot) where the browser's strict EDN reader pulls it
+  ;; back during hydration — a digit-only local-part would crash the
+  ;; first call to `cljs.reader/read-string` on the embedded payload.
+  ;; `(gensym "f")` keeps the id unique per request, still namespaced,
+  ;; AND spec-compliant. `clojure.core/keyword` does not validate, so
+  ;; the read-side enforcement is the only signal — this naming is
+  ;; load-bearing.
+  (let [fid (keyword "rf.frame" (str (gensym "f")))]
     (ssr/set-request! fid request)
     (try
       (rf/reg-frame fid

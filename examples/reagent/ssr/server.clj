@@ -22,28 +22,6 @@
    until the orchestrator tears the process down (per
    examples/scripts/serve-and-run-examples-tests.cjs).
 
-   ## Frame-id workaround (rf2-j3dlc finding)
-
-   `re-frame.ssr.ring.pipeline/setup-request-frame!` builds the
-   per-request frame-id via
-       (keyword \"rf.frame\" (str (gensym \"\")))
-   which produces names like `:rf.frame/1234` — a digit-only LOCAL
-   part. Clojure's keyword constructor accepts that, but the EDN
-   spec (https://github.com/edn-format/edn) requires symbol names
-   (and keywords are identifier-shaped) to begin with a non-numeric
-   character. CLJS's `cljs.tools.reader.edn` enforces the spec and
-   throws `Invalid keyword: :rf.frame/1234.` when the client tries to
-   read the embedded `__rf_payload`.
-
-   This is a latent ssr-ring bug — until rf2-j3dlc the only browser-
-   driven SSR coverage was over PRE-BAKED HTML that didn't ship the
-   frame-id from `pipeline/setup-request-frame!`. The live-SSR smoke
-   surfaces it. Per the dispatch rules, `implementation/ssr-ring/` is
-   a sibling agent's hot zone (rf2-o6ndb) so the fix lives in a
-   follow-on bead; this server papers over it with a custom
-   `:html-shell` that rewrites the gensym-shaped frame-id to a
-   leading-letter form before the EDN reaches the wire.
-
    Boundaries:
    - JVM-side Ring/SSR e2e details (header round-trip, cookie wire,
      redirect, CRLF rejection) live in
@@ -53,7 +31,6 @@
    - The example's `:rf.http/managed` flow goes through canned-success
      via `:fx-overrides`; we do NOT make outbound HTTP calls."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
@@ -120,47 +97,6 @@
   (when (= uri "/favicon.ico")
     {:status 204 :headers {} :body ""}))
 
-;; ---- custom html-shell ------------------------------------------------------
-;;
-;; Wrap `ssr-ring/default-html-shell` with a tiny payload-EDN rewrite
-;; that fixes the digit-only `:rf.frame/<gensym>` keyword surfaced by
-;; the live-SSR smoke (see ns docstring §Frame-id workaround).
-;;
-;; The shell receives `payload-edn` as a string (already pr-str'd by
-;; the pipeline). We read it back to data, replace `:rf/frame-id` with
-;; a leading-letter form (`:rf.frame/f<digits>`) — still unique per
-;; request, still namespaced, EDN-spec-compliant — then re-serialise
-;; and hand off to the default shell.
-
-(def ^:private digit-only-frame-id-pattern
-  "Match `:rf.frame/<digits>` keyword literals inline in the payload's
-   EDN string. The gensym-induced shape always carries pure digits
-   in the local-part — that's what makes it cljs-EDN-invalid and what
-   makes the regex unambiguous (no risk of matching a legitimate
-   keyword)."
-  #":rf\.frame/(\d+)")
-
-(defn- rewriting-html-shell
-  "Custom `:html-shell` — patches the payload's frame-id keyword in
-   the raw EDN string and delegates to `default-html-shell`.
-
-   Why regex-on-string rather than read/rewrite/pr-str: both
-   `clojure.edn/read-string` AND `cljs.tools.reader.edn/read-string`
-   refuse `:rf.frame/<digits>` (EDN spec — identifier names start
-   non-numeric). So reading the payload to data on the JVM side
-   would throw before we could rewrite it. A targeted text
-   substitution sidesteps the reader entirely.
-
-   The substitution rewrites `:rf.frame/<digits>` →
-   `:rf.frame/f<digits>` (still unique per request, still namespaced,
-   EDN-spec-compliant on both JVM and CLJS). Conservative — leaves
-   any other keyword shape alone."
-  [body-html payload-edn opts]
-  (let [patched-edn (str/replace payload-edn
-                                 digit-only-frame-id-pattern
-                                 ":rf.frame/f$1")]
-    (ssr-ring/default-html-shell body-html patched-edn opts)))
-
 ;; ---- on-error logger -------------------------------------------------------
 ;;
 ;; Default `:on-error` from `ssr-ring` emits a fixed 500 body and
@@ -198,7 +134,6 @@
               :root-view      [:app/root]
               :fx-overrides   {:rf.http/managed :ssr.http/canned-articles}
               :payload-policy :rf.ssr.payload/whole-app-db
-              :html-shell     rewriting-html-shell
               :on-error       logging-on-error})
         main-js (static-handler static-root "/main.js"
                                 "application/javascript; charset=utf-8")]
