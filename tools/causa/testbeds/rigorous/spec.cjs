@@ -869,5 +869,135 @@ module.exports = {
       `event-detail cascade selection preserved after Effects round-trip (=${nodeDispatchId})`,
       5000,
     );
+
+    // ----------------------------------------------------------------
+    // 10c. Open-in-Editor / Source Coordinates (rf2-5aw5v.7 — L-7).
+    //
+    // The editor-URI machinery has two layers Causa exposes:
+    //
+    //   1. Config knob plumbing — `(causa-config/set-editor! :kw)`
+    //      replaces the editor preference; `(causa-config/get-editor)`
+    //      reads it back. The configure-once-at-boot hook every host
+    //      uses, plus the `:custom <template>` shape with `{file}` /
+    //      `{path}` / `{line}` / `{column}` placeholders.
+    //
+    //   2. Chip rendering — `open-in-editor/open-chip` returns nil for
+    //      coords missing `:file` (the hidden-chip case); otherwise
+    //      returns an `<a data-testid="causa-open-in-editor">`. The
+    //      chip's `data-editor` attribute mirrors the active editor
+    //      keyword so panel tests can assert URI shape without
+    //      parsing href.
+    //
+    // No Causa panel mounts `open-chip` directly on the counter
+    // testbed — the chip-rendering panels (mainly hydration_debugger
+    // and follow-on Causa surfaces) need data the counter doesn't
+    // produce. The walk here therefore covers what IS deterministically
+    // observable on counter:
+    //
+    //   - `cfg.get_editor()` initial value is `:vscode` (preload default)
+    //   - `cfg.set_editor_BANG_(:cursor)` round-trips through `get_editor`
+    //   - `cfg.set_editor_BANG_(:custom)` with a `{path}`/`{line}`/
+    //     `{column}` template round-trips through `get_editor` as a map
+    //   - `cfg.set_editor_BANG_(null)` resets to the `:vscode` default
+    //   - `cfg.set_project_root_BANG_("/abs/path")` round-trips through
+    //     `get_project_root` (the "prepended on-disk root" used by the
+    //     editor-URI builder to convert classpath-relative source-coords
+    //     into absolute file URIs the OS scheme handler can open)
+    //   - no chip is rendered in the counter app — the chip's
+    //     `data-testid="causa-open-in-editor"` count is 0 across every
+    //     mounted panel (asserts the deferred chip-mounting work is
+    //     scoped and the chip doesn't leak into panels that don't
+    //     intend to render it)
+    //
+    // The full feature path (per-panel chip rendering across event /
+    // trace / app-db / sub / route / machine / flow / hydration +
+    // missing-file hidden chip + unknown editor fallback + URI shape
+    // assertion) needs panel-side `open-chip` integrations the v1
+    // Causa surface doesn't yet ship — rf2-gdqm1 is the umbrella for
+    // those panel integrations. This walk pins the configurable
+    // surface; the deferred work pins the chip mounting.
+    // ----------------------------------------------------------------
+    // The whole probe + verify happens inside ONE `page.evaluate` so
+    // CLJS values (keywords, maps) stay on the browser side — Playwright
+    // serialises return values across the bridge and `:cursor` ->
+    // `IPrintWithWriter` complains about the bare JS object on the way
+    // back. Returns a plain-JS `{ok, issues}` summary.
+    const editorVerify = await page.evaluate(() => {
+      const cfg = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      const cljs = window.cljs && window.cljs.core;
+      if (!cljs) return { ok: false, reason: 'no cljs.core on window' };
+      const kw = (n) => cljs.keyword(n);
+      const eq = cljs._EQ_;
+      const issues = [];
+
+      // 1. initial editor is :vscode (preload default).
+      const initialEditor = cfg.get_editor();
+      if (!eq(initialEditor, kw('vscode'))) {
+        issues.push(`step 'initial' expected :vscode; got ${cljs.pr_str(initialEditor)}`);
+      }
+
+      // 2. set :cursor, read back.
+      cfg.set_editor_BANG_(kw('cursor'));
+      const afterCursor = cfg.get_editor();
+      if (!eq(afterCursor, kw('cursor'))) {
+        issues.push(`step 'after-cursor' expected :cursor; got ${cljs.pr_str(afterCursor)}`);
+      }
+
+      // 3. set a `{:custom "<template>"}` map. Build the clj map from
+      // a JS object via `js->clj :keywordize-keys true`.
+      const customJs = { custom: 'myeditor://open?file={path}&line={line}&column={column}' };
+      const customClj = cljs.js__GT_clj(customJs, kw('keywordize-keys'), true);
+      cfg.set_editor_BANG_(customClj);
+      const afterCustom = cfg.get_editor();
+      if (!cljs.map_QMARK_(afterCustom)) {
+        issues.push(`step 'after-custom' expected a cljs map; got ${cljs.pr_str(afterCustom)}`);
+      } else {
+        const template = cljs.get(afterCustom, kw('custom'));
+        if (typeof template !== 'string' || !template.includes('{path}')) {
+          issues.push(`step 'after-custom' :custom template missing {path}; got ${cljs.pr_str(template)}`);
+        }
+      }
+
+      // 4. reset (null) -> :vscode.
+      cfg.set_editor_BANG_(null);
+      const afterReset = cfg.get_editor();
+      if (!eq(afterReset, kw('vscode'))) {
+        issues.push(`step 'after-reset' expected :vscode; got ${cljs.pr_str(afterReset)}`);
+      }
+
+      // 5. project-root round-trip.
+      cfg.set_project_root_BANG_('/tmp/probe-root');
+      const projectRootSet = cfg.get_project_root();
+      if (projectRootSet !== '/tmp/probe-root') {
+        issues.push(`step 'project-root-set' expected /tmp/probe-root; got ${projectRootSet}`);
+      }
+      cfg.set_project_root_BANG_(null);
+      const projectRootCleared = cfg.get_project_root();
+      if (projectRootCleared !== null && projectRootCleared !== undefined) {
+        issues.push(`step 'project-root-cleared' expected null; got ${projectRootCleared}`);
+      }
+
+      return { ok: true, issues };
+    });
+    if (!editorVerify.ok) {
+      throw new Error(`Could not run editor-config probe: ${editorVerify.reason}`);
+    }
+    if (editorVerify.issues.length > 0) {
+      throw new Error(`Open-in-Editor config round-trip failures:\n  - ${editorVerify.issues.join('\n  - ')}`);
+    }
+    // No causa-open-in-editor chip is mounted by any panel in the
+    // counter testbed. Assert the chip's DOM count is 0 so panel
+    // integrations that later mount the chip are caught by an
+    // explicit expectation flip, and so accidental chip leakage
+    // (e.g. from a stories panel that should not be on the prod
+    // panel surface) trips this assertion.
+    const chipCount = await page.locator('[data-testid="causa-open-in-editor"]').count();
+    if (chipCount !== 0) {
+      throw new Error(
+        `Expected 0 causa-open-in-editor chips on the counter testbed; got ${chipCount}. ` +
+        `If a panel now mounts open-chip, update L-7 to assert href shape per editor preference.`,
+      );
+    }
   },
 };
