@@ -852,6 +852,158 @@ module.exports = {
       }
     });
 
+    await scenario(page, 'reg-story-panel-for-filter-and-toggle-rf2-pv9xu', async () => {
+      /*
+       * Case-1 follow-on (rf2-pv9xu) — reg-story-panel feature-gate
+       * beyond the matrix bookkeeping baseline.
+       *
+       * Panels are registered with optional `:for` (set of story ids
+       * the panel applies to) and an implicit visibility flag in the
+       * shell's `:panel-visibility` map. The counter testbed
+       * registers `:Panel.counter-with-stories/notes` with
+       * `:for #{:story.counter}` — so the panel mounts for variants
+       * under :story.counter (e.g. /loaded) but NOT for variants
+       * under :story.counter-matrix (e.g. /isolation-a) or
+       * :story.counter-diagnostics.
+       *
+       * Beyond-mount surface assertions:
+       *   - :for-filter inclusion: /loaded mounts the
+       *     :Panel.counter-with-stories/notes panel (right placement)
+       *     — its rendered view is the project parity-badge view, so
+       *     [data-test="parity"] appears at least twice in the page
+       *     (canvas card + panel host).
+       *   - :for-filter exclusion: switching to /isolation-a (parent
+       *     :story.counter-matrix) — the panel filter removes the
+       *     notes panel, parity-badge count drops back to 1
+       *     (canvas only). Per Spec 008 §Panel applies-to filter.
+       *   - bottom-placement always-on panel: every variant mounts
+       *     the :rf.story.panel/epoch stub at the bottom slot
+       *     (no :for filter, default visible). Anchor on the panel-
+       *     head text "Epochs (10x)" — global panels render across
+       *     every variant.
+       *   - panel-visibility toggle: programmatically toggle the
+       *     notes panel off via the public swap-state! +
+       *     toggle-panel transition (the contract this section
+       *     enumerates) — the parity-badge count drops to 1, then
+       *     toggle back on and the count returns to >= 2. Proves
+       *     the toggle without mutating app state (panel visibility
+       *     lives on shell state, not the variant frame's app-db).
+       *
+       * Source-side follow-ons (filed separately): a dedicated
+       * panel registration whose :render points at an unregistered
+       * view id would let us assert the panel-host's "panel ... has
+       * no registered :render view" fallback branch (the broken-
+       * render path enumerated by the bead title). Adding that
+       * fixture would touch testbed source; per cluster discipline
+       * the broken-render rendering check stays as a P3 testbed
+       * bead.
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // (a) :for-filter inclusion — /loaded is under :story.counter
+      // so :Panel.counter-with-stories/notes (right placement) mounts
+      // and renders the parity-badge view, surfacing a SECOND
+      // [data-test="parity"] beside the one inside the canvas card.
+      await clickVariant(page, '/loaded');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/loaded');
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count >= 2,
+        {
+          timeoutMs: 10000,
+          description:
+            ':Panel.counter-with-stories/notes mounts on /loaded (>= 2 parity-badges visible)',
+        },
+      );
+
+      // The panel-head also surfaces the panel id text so the user
+      // can see what's registered at each slot. Anchor on the
+      // panel-id string.
+      const asideRoot = page.getByRole('complementary');
+      await expectVisible(
+        asideRoot.getByText(':Panel.counter-with-stories/notes', { exact: false }).first(),
+        5000,
+      );
+
+      // (b) Bottom slot: the :rf.story.panel/epoch stub renders for
+      // every variant (no :for filter, default visible). Its panel-
+      // head reads "Epochs (10x)".
+      await expectVisible(
+        page.getByRole('main').getByText('Epochs (10x)', { exact: false }).first(),
+        5000,
+      );
+
+      // (c) :for-filter exclusion — switch to a /matrix variant
+      // (parent :story.counter-matrix). The notes panel's
+      // `:for #{:story.counter}` filter excludes it; only the canvas
+      // parity-badge remains.
+      await clickVariant(page, '/isolation-a');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter-matrix/isolation-a');
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count === 1,
+        {
+          timeoutMs: 5000,
+          description:
+            ':for-filter excludes notes panel for :story.counter-matrix/* (1 parity-badge only)',
+        },
+      );
+
+      // (d) Toggle the notes panel's visibility via the public
+      // shell-state transition. The cljs-mangled symbol is
+      // `re_frame.story.ui.state.swap_state_BANG_` and
+      // `re_frame.story.ui.state.toggle_panel`. Go back to /loaded
+      // first so the panel's :for filter passes — then toggle and
+      // assert parity-badge count flips 2 -> 1 -> 2.
+      await clickVariant(page, '/loaded');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/loaded');
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count >= 2,
+        { timeoutMs: 5000, description: ':loaded re-mount re-establishes the notes panel' },
+      );
+
+      // Toggle starts from default state where the panel-visibility
+      // map has no entry for the notes panel (panel-host treats
+      // nil as visible). One toggle flips nil → true (still visible);
+      // a second toggle flips true → false (hidden). Then a third
+      // restores false → true.
+      const togglePanel = async () => {
+        await page.evaluate(() => {
+          const state = window.re_frame.story.ui.state;
+          const kw = window.cljs.core.keyword;
+          state.swap_state_BANG_.call(
+            null,
+            state.toggle_panel,
+            kw('Panel.counter-with-stories', 'notes'),
+          );
+        });
+      };
+      await togglePanel(); // nil → true
+      await togglePanel(); // true → false
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count === 1,
+        {
+          timeoutMs: 5000,
+          description: 'panel-visibility toggle hides the notes panel (parity-badge count -> 1)',
+        },
+      );
+      await togglePanel(); // false → true
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count >= 2,
+        {
+          timeoutMs: 5000,
+          description: 'panel-visibility toggle restores the notes panel (parity-badge count >= 2)',
+        },
+      );
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
