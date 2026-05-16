@@ -170,16 +170,22 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; Wire ssr's render-to-string into this adapter's :render-to-string
-;; slot. Per rf2-uo7v ssr ships in day8/re-frame2-ssr; this adapter
-;; cannot statically `:require [re-frame.ssr]` without dragging the SSR
-;; namespace into every Reagent bundle. Publish set-hiccup-emitter!
-;; through the late-bind hook table — when the ssr artefact is loaded,
-;; its ns-load resolves the hook and wires the emitter through it. When
-;; ssr is absent the hook is never consumed and render-to-string raises
-;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
+;; Chained SSR emitter install (rf2-4z7bp / parity rf2-cl1qv):
+;; `re-frame.ssr.emit` invokes `:reagent/set-hiccup-emitter!` at
+;; ns-load; every loaded React-shaped adapter (Reagent, reagent-slim,
+;; UIx, Helix) contributes its own install step so a single
+;; `(require '[re-frame.ssr])` auto-wires every adapter's
+;; render-to-string slot. The directory entry for this hook is
+;; `:chained? true` and lists all four adapters as producers — using
+;; `chain-fn!` (not `set-fn!`) is load-order-independent: any adapter
+;; loading after the others composes onto the existing chain instead
+;; of clobbering it. Per rf2-uo7v ssr ships in day8/re-frame2-ssr;
+;; this adapter cannot statically `:require [re-frame.ssr]` without
+;; dragging the SSR namespace into every Reagent bundle. When ssr is
+;; absent the hook is never consumed and render-to-string raises the
+;; "no-hiccup-emitter-bound" error on first call. Per Spec 006
 ;; §Adapter shipping convention (rf2-0hxm).
-(late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
 ;; Each late-bind hook below is routed through `(substrate-adapter/
 ;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
