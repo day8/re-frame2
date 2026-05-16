@@ -31,6 +31,19 @@
 
 ---
 
+## Classification (rf2-kp835)
+
+Every public-surface row in this document is **Canonical** — a documented, supported, v1 (or post-v1 lib) API that downstream apps and tools may rely on, in the status the row's Status column gives. The rf2-kp835 audit (Phase-1, 2026-05-17) classified ~110 public defs of `re-frame.core` and confirmed 97% canonical; the rare-use helpers all justified canonical status (interceptor plumbing, adapter lifecycle, schema-printer swap seam, off-box-egress projections, v1-preserved teardown / clearing surfaces). No public surface is classified Deprecated; none is classified Advanced.
+
+The only **Internal** carve-outs are two JVM-only macro-helpers re-exposed in `re-frame.core` purely so pre-split tests can reach them (per rf2-4rnui):
+
+- `re-frame.core/expand-reg-view` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/expand-reg-view`.
+- `re-frame.core/parse-reg-view-args` — `^:no-doc`; the canonical home is `re-frame.core-reg-view-macro/parse-reg-view-args`.
+
+Neither is rowed in this projection. Applications and tools MUST NOT depend on these re-exports; reach the canonical homes directly.
+
+---
+
 ## Registration
 
 > **Return value.** Every `reg-*` row below returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg). Per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
