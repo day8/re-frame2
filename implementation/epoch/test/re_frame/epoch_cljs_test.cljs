@@ -43,6 +43,7 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -66,7 +67,7 @@
                 ;; reset.
                 (epoch/clear-history!)
                 (epoch/clear-epoch-cbs!)
-                (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil}))}))
+                (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil}))}))
 
 ;; ---- 1. Recording — happy-path record shape -------------------------------
 

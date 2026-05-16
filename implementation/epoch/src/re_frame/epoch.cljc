@@ -34,6 +34,7 @@
   each emit a structured trace under `:rf.epoch/*` and leave the
   frame's app-db unchanged."
   (:require [re-frame.elision :as elision]
+            [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -43,45 +44,10 @@
             [re-frame.trace :as trace]))
 
 ;; ---- configuration --------------------------------------------------------
-
-(def ^:private default-depth
-  ;; Deep enough to hold a typical debug session's cascade history;
-  ;; trades bounded heap for stable time-travel coverage.
-  50)
-
-(def ^:private default-trace-events-keep
-  ;; Per rf2-mrsck and Security.md §Epoch privacy posture: a finite
-  ;; default that bounds dev-session heap growth from accumulated raw
-  ;; cascade traces. The most-recent N records keep `:trace-events`;
-  ;; older records keep only the cheap structured projections
-  ;; (`:sub-runs` / `:renders` / `:effects`). Five matches the pair-
-  ;; tool / Causa "what just happened?" working set — devs typically
-  ;; care about the latest handful of cascades' raw streams; a deeper
-  ;; ring depth is for time-travel reproducibility (`:db-after` is
-  ;; cheap), not raw-trace inspection. Apps that genuinely need the
-  ;; whole ring's traces can opt back in via
-  ;; `(rf/configure :epoch-history {:trace-events-keep nil})` (or any
-  ;; value >= the depth cap). Setting the slot to `0` drops every
-  ;; record's `:trace-events`.
-  5)
-
-(defonce ^:private config
-  ;; Three keys today (:depth, :trace-events-keep, :redact-fn). Map
-  ;; shape kept open so future (rf/configure :epoch-history {...})
-  ;; extensions don't break the shape. Per rf2-wp70d / Tool-Pair
-  ;; §Time-travel §Redaction hook + Security.md §Epoch privacy
-  ;; posture: :redact-fn defaults to nil — apps that record
-  ;; sensitive material into app-db opt in by installing a fn.
-  (atom {:depth             default-depth
-         :trace-events-keep default-trace-events-keep
-         :redact-fn         nil}))
-
-(defn- non-neg-int?
-  "True for non-negative integer values; nil and non-numeric values
-  fail. Mirrors the validation `re-frame.trace/configure-trace-buffer!`
-  applies at its own config boundary."
-  [x]
-  (and (integer? x) (not (neg? x))))
+;;
+;; Atoms, defaults, and config-merge validation live in `re-frame.epoch.state`
+;; (Phase-2 seam A, rf2-0wi86). The facade keeps the public docstrings and
+;; the late-bind hook publication.
 
 (defn configure!
   "Update the epoch-history configuration. Supported keys:
@@ -139,44 +105,13 @@
   Validation mirrors the pattern `re-frame.trace/configure-trace-
   buffer!` applies at its own config boundary."
   [opts]
-  (when (map? opts)
-    (let [numeric (select-keys opts [:depth :trace-events-keep])
-          numeric-valid (into {}
-                              (filter (fn [[_ v]] (non-neg-int? v)))
-                              numeric)
-          ;; :redact-fn validated separately — accept fn? OR nil
-          ;; (explicit-clear); anything else silently dropped.
-          ;; `contains?` distinguishes 'absent slot' from 'present
-          ;; nil' so the explicit-clear path lands while a callsite
-          ;; that didn't mention :redact-fn doesn't clobber a
-          ;; previously-installed fn.
-          redact (when (contains? opts :redact-fn)
-                   (let [v (:redact-fn opts)]
-                     (when (or (nil? v) (fn? v))
-                       {:redact-fn v})))
-          valid (merge numeric-valid redact)]
-      (when (seq valid)
-        (swap! config merge valid))))
-  nil)
+  (state/merge-config! opts))
 
 (defn current-config
   "Return the current epoch-history configuration map. Public for tests
   and tools that want to display the current depth."
   []
-  @config)
-
-(defn- depth []
-  (:depth @config default-depth))
-
-(defn- trace-events-keep []
-  (:trace-events-keep @config default-trace-events-keep))
-
-(defn- redact-fn []
-  ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook. Returns
-  ;; the currently-installed redact-fn (or nil). One config-deref per
-  ;; record build — the hot path for installed-fn cases is one
-  ;; keyword lookup, no allocation.
-  (:redact-fn @config))
+  (state/current-config))
 
 (defn- maybe-redact
   "Run the installed `:redact-fn` against `record` and return its
@@ -203,7 +138,7 @@
   installed is a single keyword lookup on the config map and an
   identity return."
   [record]
-  (if-let [f (redact-fn)]
+  (if-let [f (state/redact-fn)]
     (if (some? record)
       (try
         (f record)
@@ -227,83 +162,15 @@
 ;; Per Tool-Pair §Time-travel "Bounded history": last N epochs per frame.
 ;; Stored as a map of frame-id → vector (oldest-first). New records append
 ;; to the back; the front evicts when the buffer exceeds the configured
-;; depth.
-
-;; Forward-declare `capture-buffers` (the in-flight per-frame trace
-;; capture, defonce'd in the per-cascade capture section below) so
-;; `clear-history!` can wipe it in lockstep with the ring buffer.
-;; Per rf2-v0jwt: fixtures that sequence runs need a fresh capture
-;; state per fixture; a stale buffer from a previous fixture would
-;; otherwise be harvested into the next fixture's first cascade.
-(declare capture-buffers)
-
-(defonce ^:private histories
-  (atom {}))
-
-(defn- elide-just-crossed-trace-events
-  "When the record at index `(- (count history) keep 1)` crosses the
-  keep-boundary, dissoc its `:trace-events`. O(1) per append: every
-  earlier record was already elided on its own crossing, so the only
-  record that needs work is the one that just slid out of the keep-
-  window. Records keep their structured projections (`:sub-runs` /
-  `:renders` / `:effects`) but lose the raw trace stream. nil `keep`
-  means 'keep every record's :trace-events'.
-
-  HOT PATH: invoked from `append-record` on every drain settle (every
-  user-facing event). Pre-rf2-1e38x this rewrote the whole history
-  vector via `map-indexed`; under steady state only one record per
-  append actually transitions, so the O(n) walk was wasted work. The
-  steady-state invariant holds because every prior append already
-  elided its own just-crossed record; runtime reductions of `keep`
-  via `(rf/configure :epoch-history ...)` will take full effect on
-  subsequent appends rather than retroactively rewriting the buffer
-  (pre-alpha posture)."
-  [history keep]
-  (let [n (count history)]
-    (if (and (some? keep) (nat-int? keep) (> n keep))
-      (let [idx (- n keep 1)
-            r   (nth history idx)]
-        (if (contains? r :trace-events)
-          (assoc history idx (dissoc r :trace-events))
-          history))
-      history)))
-
-(defn- append-record
-  "Conj `record` onto the frame's history vector, cap to `d` via
-  `subvec` (cheap structural reuse — no copy), then elide the just-
-  crossed record's `:trace-events` per `keep`.
-
-  HOT PATH: fires once per cascade settle, i.e. once per dispatched
-  user event under steady state. Cost is O(1) in both the depth cap
-  and the trace-events elision — the vector grows by one, optionally
-  drops its leftmost element via `subvec`, and at most one record's
-  `:trace-events` slot is dissoc'd."
-  [history record d keep]
-  (let [history+ (conj (or history []) record)
-        n        (count history+)
-        capped   (if (and (pos? d) (> n d))
-                   (subvec history+ (- n d))
-                   history+)]
-    (elide-just-crossed-trace-events capped keep)))
-
-(defn- record!
-  "Append a record into the frame's history. The depth cap and the
-  `:trace-events-keep` cap are read from the config atom on each
-  append so runtime `(rf/configure :epoch-history ...)` takes effect
-  immediately."
-  [record]
-  (let [d    (depth)
-        keep (trace-events-keep)]
-    (when (pos? d)
-      (let [frame-id (:frame record)]
-        (swap! histories update frame-id append-record record d keep)))))
+;; depth. The atom + ring-buffer mutators live in
+;; `re-frame.epoch.state` (Phase-2 seam A, rf2-0wi86).
 
 (defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
   depth is 0, which disables recording)."
   [frame-id]
-  (or (get @histories frame-id) []))
+  (state/history-for frame-id))
 
 (defn clear-history!
   "Drop every recorded epoch for every frame. Test fixtures use this.
@@ -316,10 +183,8 @@
   whose drain didn't fire `harvest-buffer!`) would otherwise be
   picked up by the next fixture's first cascade."
   []
-  (reset! histories {})
-  ;; Forward-declared at the top of the file; the defonce lands in
-  ;; the per-cascade capture section further down.
-  (reset! capture-buffers {})
+  (state/reset-histories!)
+  (state/reset-capture-buffers!)
   nil)
 
 (defn- clear-frame-history!
@@ -331,23 +196,13 @@
   marking `defn-` keeps the surface area of the epoch public API
   tight without losing the pinned-seam test."
   [frame-id]
-  (swap! histories dissoc frame-id)
-  nil)
+  (state/drop-frame-history! frame-id))
 
 ;; ---- listener registry ----------------------------------------------------
-
-(defonce ^:private listeners (atom {}))
-
-;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
-;; track which frames each cb has been delivered records for. When a
-;; frame is destroyed, every cb whose observed-frames set contains
-;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-;; trace. The frame is then dropped from the cb's entry so a
-;; re-registration of a same-keyed frame (e.g. `reset-frame! :app/main`)
-;; can re-arm the silencing trace for a future destroy.
-(defonce ^:private observed-frames-by-cb
-  ;; cb-id → #{frame-id ...}
-  (atom {}))
+;;
+;; The listener / observed-frames atoms and their low-level CRUD live in
+;; `re-frame.epoch.state` (Phase-2 seam A, rf2-0wi86); the facade keeps
+;; the public docstrings and the fan-out / failure-isolation policy.
 
 (defn register-epoch-cb!
   "Register a callback fired once per drain-settle with the assembled
@@ -365,60 +220,21 @@
 
   Returns the id."
   [id f]
-  (swap! listeners assoc id f)
-  ;; A re-registration under the same id resets the observed-frames set
-  ;; so the new callback's silencing trace fires fresh against frames
-  ;; the new callback observes.
-  (swap! observed-frames-by-cb dissoc id)
-  id)
+  (state/put-listener! id f))
 
 (defn remove-epoch-cb!
   "Remove the listener registered under id."
   [id]
-  (swap! listeners dissoc id)
-  (swap! observed-frames-by-cb dissoc id)
-  nil)
+  (state/drop-listener! id))
 
 (defn clear-epoch-cbs!
   []
-  (reset! listeners {})
-  (reset! observed-frames-by-cb {})
-  nil)
-
-(defn- record-observation! [cb-id frame-id]
-  ;; Guard the swap on the already-observed case. `notify-listeners!`
-  ;; calls this once per listener per drain-settle, and for the common
-  ;; case (a long-lived listener observing the same frame on every
-  ;; cascade) the cb's observed-frames set already contains frame-id —
-  ;; an unconditional `swap!` fires every atom watcher for ZERO
-  ;; semantic change. Read once, fast-path return when the membership
-  ;; already holds; otherwise CAS through the swap.
-  (when frame-id
-    (let [current @observed-frames-by-cb]
-      (when-not (contains? (get current cb-id) frame-id)
-        (swap! observed-frames-by-cb
-               (fn [m]
-                 (if (contains? (get m cb-id) frame-id)
-                   m
-                   (update m cb-id (fnil conj #{}) frame-id))))))))
-
-(defn- drop-frame-from-cb-observations
-  "Drop `frame-id` from every cb's observed-frames set in `m`. When a
-  cb's set goes empty as a result, drop the cb entry entirely so the
-  map doesn't accrete keys to empty sets."
-  [m frame-id]
-  (reduce-kv (fn [acc cb-id frames]
-               (let [frames' (disj frames frame-id)]
-                 (if (empty? frames')
-                   (dissoc acc cb-id)
-                   (assoc acc cb-id frames'))))
-             {}
-             m))
+  (state/reset-listeners!))
 
 (defn- notify-listeners! [record]
   (let [frame-id (:frame record)]
-    (doseq [[id f] @listeners]
-      (record-observation! id frame-id)
+    (doseq [[id f] (state/listeners-snapshot)]
+      (state/record-observation! id frame-id)
       (try
         (f record)
         (catch #?(:clj Throwable :cljs :default) ex
@@ -448,8 +264,7 @@
 ;; the `defn-` lands in the record-assembly section. Per rf2-v0jwt
 ;; the destroy hook must commit a `:halted-destroy` partial record
 ;; before clearing the in-flight capture buffer, so it needs visibility
-;; into the record builder. `capture-buffers` is already forward-
-;; declared above (for `clear-history!`'s lockstep wipe).
+;; into the record builder.
 (declare build-record)
 
 (defn on-frame-destroyed!
@@ -501,7 +316,7 @@
     ;; state given `:outcome :halted-destroy` signals the destroy
     ;; context. The record is delivered to listeners only — the ring
     ;; buffer gets wiped in step 3.
-    (let [buffered-events  (get @capture-buffers frame-id)
+    (let [buffered-events  (state/buffer-for frame-id)
           in-cascade?      (some (fn [ev]
                                    (and (= :event (:op-type ev))
                                         (= :event (:operation ev))
@@ -522,7 +337,7 @@
                         :event-id (:event-id record)
                         :outcome  :halted-destroy})
           (notify-listeners! record))))
-    (let [silenced-cbs (->> @observed-frames-by-cb
+    (let [silenced-cbs (->> (state/observations-snapshot)
                             (keep (fn [[cb-id frames]]
                                     (when (contains? frames frame-id) cb-id)))
                             vec)]
@@ -530,19 +345,19 @@
         (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
                      {:frame  frame-id
                       :cb-id  cb-id})))
-    (swap! observed-frames-by-cb drop-frame-from-cb-observations frame-id)
+    (state/drop-frame-observation! frame-id)
     ;; Drop the per-frame ring buffer; epoch-history returns [] from
     ;; here on. (`reset-frame! :app/main` calls destroy-frame! followed
     ;; by reg-frame, so the ring buffer for the new same-keyed frame
     ;; starts empty per Spec 002 §reset-frame!.)
-    (swap! histories dissoc frame-id)
+    (state/drop-frame-history! frame-id)
     ;; Per rf2-zzper: also drop any in-flight capture buffer. A
     ;; mid-drain destroy that surfaces a halted record above leaves
     ;; the buffer behind (the partial-record commit doesn't harvest);
     ;; explicitly clear here so the next cascade against a same-keyed
     ;; frame starts from an empty buffer. Symmetric to the ring-buffer
     ;; drop above.
-    (swap! capture-buffers dissoc frame-id)))
+    (state/drop-frame-buffer! frame-id)))
 
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;
@@ -555,26 +370,8 @@
 ;; The buffer is keyed by frame-id so concurrent drains across frames
 ;; don't co-mingle. Within a frame, drain-execution is single-threaded
 ;; (per Spec 002 §Run-to-completion) so no further locking is needed.
-
-(defonce ^:private capture-buffers
-  ;; frame-id → vector of trace events (in arrival order)
-  (atom {}))
-
-(defn- buffer-event!
-  "Append `event` onto the frame's in-flight cascade buffer.
-
-  HOT PATH: fires once per `trace/emit!` while a cascade is in flight,
-  which is the dominant per-event cost (sub-runs, renders, fx, error
-  emits all funnel here). O(1) swap! + (fnil conj []) — the buffer
-  vector grows by one and is harvested wholesale at cascade settle
-  via `harvest-buffer!`."
-  [frame-id event]
-  (swap! capture-buffers update frame-id (fnil conj []) event))
-
-(defn- harvest-buffer! [frame-id]
-  (let [b (get @capture-buffers frame-id [])]
-    (swap! capture-buffers dissoc frame-id)
-    b))
+;; The atom + buffer-CRUD live in `re-frame.epoch.state` (Phase-2
+;; seam A, rf2-0wi86).
 
 ;; Operations this namespace itself emits with a `:frame` tag, all of
 ;; which fire OUTSIDE a cascade (the drain has either not started, or
@@ -645,7 +442,7 @@
           frame-id (or (:frame tags)
                        (:frame event))]
       (when (and frame-id (not (contains? skip-ops op)))
-        (buffer-event! frame-id event)))))
+        (state/buffer-event! frame-id event)))))
 
 ;; ---- record projection ----------------------------------------------------
 
@@ -753,11 +550,9 @@
      :effects  (persistent! (get acc :e))}))
 
 ;; ---- record assembly ------------------------------------------------------
-
-(defonce ^:private epoch-counter (atom 0))
-
-(defn- next-epoch-id []
-  (swap! epoch-counter inc))
+;;
+;; The monotonic `:epoch-id` counter lives in `re-frame.epoch.state`
+;; (Phase-2 seam A, rf2-0wi86) alongside the other shared atoms.
 
 (defn- find-trigger-event
   "Walk the buffered events to find the first :event/run-start trace.
@@ -919,7 +714,7 @@
          ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
          ;; the projected-record helper branch on one slot per record.
          sensitive? (sensitive-rollup frame-id db-before db-after events)]
-     (cond-> {:epoch-id           (next-epoch-id)
+     (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
               :committed-at       (interop/now-ms)
               :db-before          db-before
@@ -978,7 +773,7 @@
    (settle! frame-id db-before db-after :ok nil))
   ([frame-id db-before db-after outcome halt-reason]
    (when interop/debug-enabled?
-     (let [events (harvest-buffer! frame-id)]
+     (let [events (state/harvest-buffer! frame-id)]
        ;; Empty-buffer policy (consistent across outcomes): an empty
        ;; capture buffer means no cascade context was recorded for
        ;; this frame — skip emission rather than commit a record with
@@ -998,7 +793,7 @@
          (let [record (maybe-redact
                         (build-record frame-id db-before db-after
                                       events outcome halt-reason))]
-           (record! record)
+           (state/record! record)
            (trace/emit! :rf.epoch :rf.epoch/snapshotted
                         {:frame    frame-id
                          :epoch-id (:epoch-id record)
@@ -1024,7 +819,7 @@
   destroy-hook belt-and-braces path."
   [frame-id]
   (when interop/debug-enabled?
-    (harvest-buffer! frame-id))
+    (state/harvest-buffer! frame-id))
   nil)
 
 ;; ---- restore failure-mode predicates --------------------------------------
@@ -1424,7 +1219,7 @@
                    (assoc (build-record frame-id db-before new-db [])
                           :event-id      :rf.epoch/db-replaced
                           :trigger-event [:rf.epoch/db-replaced]))]
-      (record! record)
+      (state/record! record)
       (trace/emit! :rf.epoch :rf.epoch/db-replaced
                    {:frame    frame-id
                     :epoch-id (:epoch-id record)})

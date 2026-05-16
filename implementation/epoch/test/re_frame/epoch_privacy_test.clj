@@ -28,6 +28,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.state :as state]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -50,7 +51,7 @@
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))

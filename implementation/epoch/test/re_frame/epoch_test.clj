@@ -26,6 +26,7 @@
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.state :as state]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
@@ -55,7 +56,7 @@
   ;; opt-in to elision would otherwise persist. Per rf2-mrsck the
   ;; default :trace-events-keep is 5 (finite); fixtures restore the
   ;; default map verbatim.
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -259,7 +260,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
 
-    (let [observed (deref #'epoch/observed-frames-by-cb)
+    (let [observed (deref #'state/observed-frames-by-cb)
           a        (atom 0)
           b        (atom 0)
           c        (atom 0)]
@@ -2012,7 +2013,7 @@
     ;; capture-event! buffers since the tag carries `:frame`. Reset
     ;; explicitly so the test starts from a known-empty buffer
     ;; rather than relying on the reg-frame side-effect.)
-    (let [buffers-atom @#'epoch/capture-buffers]
+    (let [buffers-atom @#'state/capture-buffers]
       (reset! buffers-atom {})
 
       (swap! buffers-atom assoc :test/main
@@ -2187,7 +2188,7 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
-    (let [observed-atom @#'epoch/observed-frames-by-cb
+    (let [observed-atom @#'state/observed-frames-by-cb
           swap-count    (atom 0)]
       (add-watch observed-atom ::swap-counter
                  (fn [_ _ _ _] (swap! swap-count inc)))

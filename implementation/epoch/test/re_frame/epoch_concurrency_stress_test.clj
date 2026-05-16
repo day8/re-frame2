@@ -115,6 +115,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.state :as state]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -146,7 +147,7 @@
   ;; :depth from a sibling test can't leak; configure! merges, so a
   ;; per-test opt-in to elision would otherwise persist. Per rf2-mrsck
   ;; the default :trace-events-keep is 5 (finite).
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -370,7 +371,7 @@
         (dotimes [i n-churners]
           (rf/remove-epoch-cb! (keyword "rd7a7.fanout"
                                         (str "churner-" i))))
-        (let [live (deref @#'epoch/listeners)
+        (let [live (deref @#'state/listeners)
               churner-keys (filter (fn [k]
                                      (and (keyword? k)
                                           (= "rd7a7.fanout"
