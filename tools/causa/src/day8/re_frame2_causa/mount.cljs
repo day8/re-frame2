@@ -59,13 +59,23 @@
   ;;    :unmount   (fn [] ...)         ; substrate adapter unmount fn
   ;;    :visible?  <boolean>
   ;;    :mode      <:inline|:overlay>}
+  ;; Per rf2-zkfiz Q1-8 the `:mode` enumeration is exactly the two
+  ;; values written by `open!` (`:inline`) and `open-overlay!`
+  ;; (`:overlay`). The popout shell lives in `popout-state` below
+  ;; with `:mode :popout` — the two singletons do NOT share a `:mode`
+  ;; vocabulary. Earlier shapes carried a `:docked` variant (the
+  ;; body-padding dock surface); that mode was removed under
+  ;; rf2-sbfb7 together with the `dock!` / `undock!` API.
   ;; Nil before first mount; never re-allocated across reloads thanks
   ;; to defonce.
   (atom nil))
 
 (defonce ^:private popout-state
   ;; Optional second-window mount. Shape mirrors mount-state plus
-  ;; `:window`. The opener runtime remains the source of truth.
+  ;; `:window` and `:ok?`. The opener runtime remains the source of
+  ;; truth. Per rf2-zkfiz Q1-8 the `:mode` slot is always `:popout` —
+  ;; the popout never participates in the `mount-state` `:inline`/
+  ;; `:overlay` enumeration above.
   (atom nil))
 
 (defonce ^:private diagnostic-state
@@ -101,7 +111,24 @@
 
 ;; ---- DOM helpers ---------------------------------------------------------
 
+(defn- remove-stale-root!
+  "Defensive cleanup before a fresh mount allocates `#rf-causa-root`.
+  The singleton `mount-state` precludes coexistence today (both
+  `open!` and `open-overlay!` short-circuit when the singleton is
+  populated), but the DOM id remains a single shared name across
+  `:inline` and `:overlay` modes. Per rf2-zkfiz Q1-4 the create fns
+  evict any orphaned node first so a stale `#rf-causa-root` left
+  behind by a partially-failed teardown cannot survive into a fresh
+  mount cycle. No-op when the document has no such node."
+  []
+  (when-let [stale (and (exists? js/document)
+                        (.-getElementById js/document)
+                        (.getElementById js/document "rf-causa-root"))]
+    (when-let [parent (.-parentNode stale)]
+      (.removeChild parent stale))))
+
 (defn- create-overlay-mount-node! []
+  (remove-stale-root!)
   (let [node (.createElement js/document "div")]
     (set! (.-id node) "rf-causa-root")
     (.setAttribute node "data-rf-causa-mode" "overlay")
@@ -145,15 +172,17 @@
 
 (defn- create-inline-mount-node! []
   (if-let [host (layout-host)]
-    (let [node (.createElement js/document "div")]
-      (set! (.-id node) "rf-causa-root")
-      (.setAttribute node "data-rf-causa-mode" "inline")
-      (set! (-> node .-style .-display) "block")
-      (set! (-> node .-style .-height) "100%")
-      (set! (-> node .-style .-minHeight) "100vh")
-      (.appendChild host node)
-      (clear-diagnostic!)
-      node)
+    (do
+      (remove-stale-root!)
+      (let [node (.createElement js/document "div")]
+        (set! (.-id node) "rf-causa-root")
+        (.setAttribute node "data-rf-causa-mode" "inline")
+        (set! (-> node .-style .-display) "block")
+        (set! (-> node .-style .-height) "100%")
+        (set! (-> node .-style .-minHeight) "100vh")
+        (.appendChild host node)
+        (clear-diagnostic!)
+        node))
     (do
       (report-diagnostic! (missing-host-diagnostic))
       nil)))
@@ -167,12 +196,20 @@
     (set! (-> node .-style .-display)
           (if visible? "block" "none"))))
 
-(defn- set-mode-attrs! [node mode]
+(defn- set-mode-attrs!
+  "Write the canonical `data-rf-causa-mode` attribute on both the
+  mount root and the shell node so external testbeds + DOM inspectors
+  read a single axis (per rf2-zkfiz Q1-9 — the previous double-write
+  of `data-mode` + `data-rf-causa-mode` left two axes drifting in
+  parallel). The spec-published attribute is `data-rf-causa-mode`
+  (per tools/causa/spec/011-Launch-Modes.md); `data-mode` was the
+  shell's internal echo and is gone."
+  [node mode]
   (when (some? node)
     (let [mode-name (name mode)]
       (.setAttribute node "data-rf-causa-mode" mode-name)
       (when-let [shell (shell-node node)]
-        (.setAttribute shell "data-mode" mode-name)))))
+        (.setAttribute shell "data-rf-causa-mode" mode-name)))))
 
 (defn- mount-shell-into! [node mode]
   (ensure-causa-frame!)
@@ -317,7 +354,24 @@
   - `popout-state` — the optional second-window shell (also closed).
 
   All unmount calls run inside swallow-errors guards so a single
-  failed unmount cannot strand the remaining singletons."
+  failed unmount cannot strand the remaining singletons.
+
+  ## Test-fixture obligation: the keybinding listener (rf2-zkfiz Q1-10)
+
+  `teardown!` does NOT detach the global `Ctrl+Shift+C` keydown
+  listener that `preload/init!` attaches via `keybinding/attach!`.
+  Doing so from here would force a circular `mount → keybinding`
+  require (keybinding already requires mount for `toggle!`), and the
+  attachment is a preload-time concern, not a mount-time one. Test
+  suites that drive `teardown!` then re-run mount tests must call
+  `(day8.re-frame2-causa.keybinding/detach!)` themselves to drop the
+  listener; without it, a stale handler that fires between runs would
+  re-invoke `toggle!` on the next keypress and resurrect the
+  singleton.
+
+  Production sessions never call `teardown!` so the listener-leak
+  exposure is test-only — the convention is pinned in
+  `tools/causa/spec/Conventions.md` §Mount conventions."
   []
   (when-let [{:keys [node unmount]} @mount-state]
     (when unmount

@@ -190,7 +190,7 @@ module.exports = {
       }
       return {
         rootMode: root && root.getAttribute('data-rf-causa-mode'),
-        shellMode: shell && shell.getAttribute('data-mode'),
+        shellMode: shell && shell.getAttribute('data-rf-causa-mode'),
         bodyPaddingLeft: document.body.style.paddingLeft,
         bodyPaddingRight: document.body.style.paddingRight,
         rootParentIsHost: Boolean(root && host && root.parentElement === host),

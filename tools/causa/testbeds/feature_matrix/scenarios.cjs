@@ -344,7 +344,7 @@ async function assertDefaultInlineLaunchModes(page, state) {
       : null;
     return {
       rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
-      shellMode: shell ? shell.getAttribute('data-mode') : null,
+      shellMode: shell ? shell.getAttribute('data-rf-causa-mode') : null,
       rootParentIsHost: Boolean(root && host && root.parentElement === host),
       bodyPaddingLeft: document.body.style.paddingLeft,
       bodyPaddingRight: document.body.style.paddingRight,
@@ -749,7 +749,7 @@ async function readLaunchModeProjection(page) {
         present: Boolean(root),
         rootMode: root ? root.getAttribute('data-rf-causa-mode') : null,
         shellPresent: Boolean(shell),
-        shellMode: shell ? shell.getAttribute('data-mode') : null,
+        shellMode: shell ? shell.getAttribute('data-rf-causa-mode') : null,
         activePanel: active ? active.getAttribute('data-testid') : null,
         selectedDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
         selectedFrame: cascade ? cascade.getAttribute('data-frame') : null,

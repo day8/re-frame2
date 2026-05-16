@@ -76,7 +76,7 @@ module.exports = {
       const shell = document.querySelector('[data-testid="rf-causa-shell"]');
       return {
         rootMode: root && root.getAttribute('data-rf-causa-mode'),
-        shellMode: shell && shell.getAttribute('data-mode'),
+        shellMode: shell && shell.getAttribute('data-rf-causa-mode'),
         rootParentIsHost: Boolean(root && host && root.parentElement === host),
       };
     });
