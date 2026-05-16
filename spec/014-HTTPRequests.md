@@ -1141,21 +1141,23 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 
 ## Open questions
 
-### Response-side middleware composition
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all four items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
 
-Per [§Middleware](#middleware) (rf2-6y3q) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred until the request-side surface settles in practice and the composition order with `:accept` is decided.
+### Response-side middleware composition (post-v1, rf2-ean6m)
 
-### App-extensible query-param denylist
+Per [§Middleware](#middleware) (rf2-6y3q) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred to rf2-ean6m until the request-side surface settles in practice and the composition order with `:accept` is decided.
 
-Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the always-on query-string denylist is a fixed framework-owned set. An extensible registration surface (`rf.http/declare-sensitive-query-param!` parallel to the header denylist) is a natural addition — deferred until a real app surfaces a query-param-auth pattern outside the default set.
+### App-extensible query-param denylist (post-v1, rf2-j3nfp)
 
-### Streaming responses (`:rf.http/streaming`)
+Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on-rf2-2p8wr) (rf2-2p8wr) the always-on query-string denylist is a fixed framework-owned set. An extensible registration surface (`rf.http/declare-sensitive-query-param!` parallel to the header denylist) is a natural addition — deferred to rf2-j3nfp until a real app surfaces a query-param-auth pattern outside the default set.
 
-Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape.
+### Streaming responses (`:rf.http/streaming`) (post-v1, rf2-jg6by)
 
-### Pluggable backoff strategy
+Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to rf2-jg6by.
 
-Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred until apps surface a real need that the default doesn't cover.
+### Pluggable backoff strategy (post-v1, rf2-iul15)
+
+Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred to rf2-iul15 until apps surface a real need that the default doesn't cover.
 
 ## Resolved decisions
 

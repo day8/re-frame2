@@ -388,17 +388,19 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ## Open questions
 
-### Snapshot / fixture serialization
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Snapshot / fixture serialization" classifies as **`:post-v1 tracked`** at rf2-wqsoy (foundation exists; packaged helper is user-space, post-v1); "Property-based testing integration" classifies as **`:post-v1 tracked`** at rf2-rs0ux (pattern doc, no framework change); "Model-based testing harness over `machine-transition`" classifies as **`:post-v1 tracked`** at rf2-vishf (library territory, not framework — the pure `machine-transition` contract is sufficient).
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (get-frame-db f)))`); a helper is user-space.
+### Snapshot / fixture serialization (post-v1, rf2-wqsoy)
 
-### Property-based testing integration
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (get-frame-db f)))`); a helper is user-space. Deferred to rf2-wqsoy.
 
-`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern.
+### Property-based testing integration (post-v1, rf2-rs0ux)
 
-### Model-based testing harness over `machine-transition`
+`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern post-v1. Deferred to rf2-rs0ux.
 
-`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes.
+### Model-based testing harness over `machine-transition` (post-v1, rf2-vishf)
+
+`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes. Deferred to rf2-vishf.
 
 Sketch of the surface:
 

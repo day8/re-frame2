@@ -495,17 +495,11 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 ## Open questions
 
-### Workspaces — generic or specialised?
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as **`:post-v1 tracked`** at rf2-9amwm (adapter shim, deferred).
 
-A `:layout` field with `:grid`, `:prose`, `:tabs` etc. covers common cases. Custom layouts are just custom views referencing variant ids.
+### Devcards / Workspaces interop (post-v1, rf2-9amwm)
 
-### Devcards / Workspaces interop
-
-Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims.
-
-### Story composition across libraries
-
-Multiple `:story.*` namespaces can come from different libraries. The story tool reads all registered `:story.*` ids.
+Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to rf2-9amwm.
 
 ## Resolved decisions
 
@@ -524,6 +518,14 @@ The story library ships a `story/run-variant`-flavoured runner. Test-framework a
 ### Screenshot / visual-regression integration
 
 The library hook is: variants have a stable snapshot identity (`:variant-id` + content hash) per [§Variant snapshot identity](#variant-snapshot-identity). Specific visual-regression service integrations consume the variant registry, `story/run-variant`'s rendered hiccup, and the snapshot identity.
+
+### Workspaces — generic or specialised?
+
+A `:layout` field with the closed set `:grid`, `:prose`, `:tabs` etc. covers common cases. Custom layouts are just custom views referencing variant ids — no specialised primitive is needed.
+
+### Story composition across libraries
+
+Multiple `:story.*` namespaces can come from different libraries. The story tool reads every registered `:story.*` id at runtime — composition is automatic via the shared registry; no per-library wiring is needed.
 
 ## See also
 
