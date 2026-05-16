@@ -35,6 +35,14 @@
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
             [re-frame.subs.tooling :as subs-tooling]
+            ;; rf2-qwm0a: register-trace-cb! / trace-buffer (and the rest of
+            ;; the listener + ring-buffer surface) live in
+            ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
+            ;; omits `rf/<name>` aliases for these so production counter
+            ;; bundles DCE the tooling sibling wholesale; this preload is
+            ;; dev-only, so requiring the tooling ns directly here is
+            ;; bundle-isolation-safe.
+            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.interop :as interop]
             [clojure.data :as data]
             [clojure.string :as str]))
@@ -555,7 +563,7 @@
    safe to install unconditionally — `last-trace-event-id` keeps
    working through it."
   []
-  (rf/register-trace-cb! :re-frame-pair2 on-trace-streaming))
+  (trace-tooling/register-trace-cb! :re-frame-pair2 on-trace-streaming))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
@@ -936,7 +944,7 @@
                                         default-max-buffered-bytes)}]
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
-      (rf/register-trace-cb! :re-frame-pair2 on-trace-streaming)
+      (trace-tooling/register-trace-cb! :re-frame-pair2 on-trace-streaming)
       (rf/register-epoch-cb! :re-frame-pair2-epoch on-epoch-streaming)
       (swap! subscriptions assoc sub-id sub)
       {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))
@@ -1023,7 +1031,7 @@
    per `(rf/configure :trace-buffer {:depth N})`). For long cascades use
    `(rf/configure :trace-buffer {:depth ...})` to widen the window."
   [root-dispatch-id]
-  (let [events     (rf/trace-buffer {:operation :event/dispatched})
+  (let [events     (trace-tooling/trace-buffer {:operation :event/dispatched})
         by-parent  (group-by #(get-in % [:tags :parent-dispatch-id]) events)
         node       (fn node [did]
                      (let [ev (some (fn [e] (when (= did (get-in e [:tags :dispatch-id])) e))
@@ -1536,7 +1544,7 @@
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))
     ;; The retain-N trace ring buffer is global; filter by frame.
-    :traces     (vec (rf/trace-buffer {:frame frame-id}))
+    :traces     (vec (trace-tooling/trace-buffer {:frame frame-id}))
     nil))
 
 (defn- snapshot-frame
