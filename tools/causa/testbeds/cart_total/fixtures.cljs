@@ -35,6 +35,49 @@
   projection bug through both subscription and discount paths."
   (conj checkout-snapshot-events [:cart/apply-discount "STUDENT"]))
 
+;; ============================================================================
+;; Boundary fixtures (rf2-5kad2) — additional Story variants pinning
+;; states a developer should be able to inspect in Causa beyond the five
+;; tutorial-arc states above. Pure-data extensions; no new handlers.
+;; ============================================================================
+
+(def empty-after-clear-events
+  "User added a basket, then removed every line. Distinct from the
+  initial empty state because the event-log carries the add/remove
+  traffic — Causa should show that history while the slice is empty."
+  (into tutorial-seed-events
+        [[:cart/remove-item :apple]
+         [:cart/remove-item :bread]]))
+
+(def stacked-same-item-events
+  "Five Apples stacked into a single line item. Boundary for the
+  qty-stacking branch of :cart/add-item — should land at qty 5 on a
+  single line, not five separate lines."
+  (into initialise-events
+        (repeat 5 [:cart/add-item :apple])))
+
+(def all-three-items-events
+  "All three catalogue items present, one each. Exercises the
+  three-line render path and the catalogue/cart symmetry."
+  (into initialise-events
+        [[:cart/add-item :apple]
+         [:cart/add-item :bread]
+         [:cart/add-item :coffee]]))
+
+(def friend-discount-events
+  "FRIEND (20%) discount applied to the seeded basket. Sister to the
+  STUDENT (10%) discount fixture above; pins the second discount-table
+  branch."
+  (into tutorial-seed-events
+        [[:cart/apply-discount "FRIEND"]]))
+
+(def discount-then-cleared-events
+  "Discount applied to the seeded basket, then cleared. The cart still
+  carries lines but :cart/discount is back to nil — exercises the
+  discount-row 'cleared' branch."
+  (into friend-discount-events
+        [[:cart/clear-discount]]))
+
 (defn dispatch-sync-events!
   "Replay an event fixture into the current frame."
   [events]

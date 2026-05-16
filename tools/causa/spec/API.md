@@ -335,7 +335,7 @@ wires per-instance panel state). Shape (validated by Malli):
  :sidebar-mode  :grouped / :show-all
  :launcher-pill {:hidden? false}
  :keybindings   {:toggle ["Ctrl+Shift+C"]   ;; vector for multiple binds
-                 :command-palette ["Ctrl+K"]
+                 :co-pilot ["Ctrl+Shift+/"]
                  ...}}
 ```
 

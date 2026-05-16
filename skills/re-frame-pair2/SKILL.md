@@ -183,4 +183,22 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ---
 
+## When to also open Causa
+
+A pair2 session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the 16-panel visual reading of what just happened). Reach for Causa alongside pair2 when:
+
+| Pair2 just did | Open Causa to … |
+|---|---|
+| Rewound to an earlier epoch via `restore-epoch` | Scrub the bottom-rail time-travel scrubber to inspect adjacent epochs visually; pin slices in the App-DB Diff panel. |
+| Dispatched into a cascade you don't fully understand | Read the Causality graph for the dispatch-id tree; the Event Detail panel lands on the latest cascade. |
+| Hot-swapped a sub or reg-event handler | Watch the Subscriptions panel's invalidation-chain affordance recompute (`:cart/total` ← `:cart/items` ← `[:cart :items]`). |
+| Stepped into a machine transition | Open the Machine Inspector for the state-chart view with transition history. |
+| Triggered a schema violation | The Schema Violation Timeline surfaces it with recovery mode + source coord. |
+
+The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/reference/tooling/causa.md`](../re-frame2/reference/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
+
+For a programmatic agent surface (read Causa state without opening the panel), `tools/causa-mcp/` is the peer artefact — same trace bus, same epoch history, 18 tools across five bands.
+
+---
+
 *Deep-dive content (full API reference, EP design rationale, spec corpus, migration guide) routes through [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md) at the repo root. Full skill-disambiguation matrix (when to use which skill) lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*

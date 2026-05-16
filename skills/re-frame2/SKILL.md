@@ -102,7 +102,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **State machines — `reference/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `invoke.md` (child machines), `cancellation.md`.
 
-**Tooling — `reference/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play`), `story-mcp-loop.md` (agent self-healing loop over MCP).
+**Tooling — `reference/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play`), `story-mcp-loop.md` (agent self-healing loop over MCP), `causa.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open).
 
 **Cross-cutting — `reference/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (schema `:sensitive?` / `:large?` / `elide-wire-value`), `production-observability.md` (`register-event-emit-listener!` / `register-error-emit-listener!`), `ssr-authoring.md` (`reg-head` / `render-head` / `active-head` / `head-model->html` and the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs).
 

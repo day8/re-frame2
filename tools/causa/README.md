@@ -141,7 +141,11 @@ missing-host diagnostic when no host exists.
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |
 | Open AI co-pilot rail | `Ctrl+Shift+/` |
-| Command palette | `Ctrl+K` |
+
+Two keybindings ship today (`Ctrl+Shift+C`, `Ctrl+Shift+/`). The
+pop-out and command-palette keys some early drafts named are not
+wired pre-alpha — use `(causa/popout!)` for pop-out, and reach the
+palette through the top-strip control once it lands.
 
 ### Disable
 
@@ -222,5 +226,24 @@ elide every surface Causa consumes (per Spec 009 §Production builds).
 
 ## Status
 
-In design. Spec corpus landed via rf2-1lls (2026-05-12). Implementation
-work begins after the spec ratifies.
+Pre-alpha. Running shell with the full 16-panel layout, two wired
+keybindings (`Ctrl+Shift+C` toggle, `Ctrl+Shift+/` co-pilot), default
+true-inline mount under `[data-rf-causa-host]`, programmatic pop-out
+via `(causa/popout!)`, and a frame-isolated `:rf/causa` registrar.
+Spec corpus landed via rf2-1lls (2026-05-12); the 17-row test
+coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
+reports `covered` across every row at the unit/helper/view tier.
+
+Browser testbeds live under `tools/causa/testbeds/` — `cart_total`,
+`counter-driven`, `feature_matrix`, `inline_resize`, `panel_gallery`,
+`perf_counter`, `rigorous` — covering the shell, panels,
+sensitive/large redaction, performance, popout, and the
+production-elision probe.
+
+The sibling `tools/causa-mcp/` artefact ships the agent surface (18
+tools across five bands; catalogue formally pinned at
+[`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md)).
+
+Next: alpha cut once the browser feature gate from
+[`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
+lands as default CI and the `0.0.1.alpha` Clojars publish is wired.
