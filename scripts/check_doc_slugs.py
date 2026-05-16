@@ -121,6 +121,27 @@ _LINK_RE = re.compile(r"\[(?:[^\]\\]|\\.)*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 # Fenced code block delimiter (``` or ~~~ optionally followed by language).
 _FENCE_RE = re.compile(r"^(```|~~~)")
 
+# Inline-code span (CommonMark §6.1).  A span opens with a run of N
+# backticks and closes with the next run of EXACTLY N backticks on the same
+# line.  This regex implements that with a back-reference for the closing
+# run length and a `(?!`)` look-ahead that forbids a longer closing run
+# (which would belong to a different span, not this one).
+#
+# Used by `_extract_links` to mask out spans like
+# `` `[NNN-DocName](NNN-DocName.md)` `` — backticked link-syntax PLACEHOLDERS
+# authors use to denote a literal link template, not a real link.  Without
+# this mask `_LINK_RE` would treat the placeholder as a real link and
+# (often) flag it as BROKEN TARGET.
+#
+# Scope:
+# * Single-line only.  Multi-line inline code is rare in this corpus and
+#   the validator already processes line-by-line after `_strip_fences`.
+# * Backslash escaping of backticks (`\``) is NOT honoured — CommonMark
+#   itself does not honour it; backticks are always literal markup.
+# * `_strip_fences` has already blanked fenced-block lines, so this regex
+#   never sees the language tag of a fence as a stray backtick run.
+_INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
+
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
     """Return True if path lies under a directory we should skip."""
@@ -233,16 +254,33 @@ def _slug_index(path: Path) -> set[str]:
     return slugs
 
 
+def _strip_inline_code(line: str) -> str:
+    """Mask inline-code spans with spaces so `_LINK_RE` skips them.
+
+    Spaces (not empty replacement) preserve column offsets, which keeps
+    column-sensitive diagnostics honest if added later.  Length-preserving
+    masking also means `_LINK_RE` cannot bridge across a stripped span.
+
+    Backticked link-syntax PLACEHOLDERS such as
+    `` `[NNN-DocName](NNN-DocName.md)` `` are a documentation idiom in this
+    corpus — they're literal markup the author wants to TALK about, not a
+    real link to resolve.  Without this masking the validator flags every
+    such placeholder as BROKEN TARGET (rf2-mqv8s).
+    """
+    return _INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
+
+
 def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
     """Yield (line-number, destination) for every inline markdown link.
 
-    Links inside fenced code blocks are skipped.
+    Links inside fenced code blocks AND inside inline-code spans are
+    skipped — both are "code", not real cross-references (rf2-mqv8s).
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     for line_no, content in _strip_fences(text.splitlines()):
         if not content:
             continue
-        for m in _LINK_RE.finditer(content):
+        for m in _LINK_RE.finditer(_strip_inline_code(content)):
             yield line_no, m.group(1)
 
 
@@ -448,13 +486,15 @@ def _run_self_tests(verbose: bool = False) -> int:
     """Run fixture-based self-tests.  Return 0 on success, 1 on any failure."""
     cases: list[tuple[str, int]] = [
         # (fixture-dir, expected-broken-link-count)
-        ("valid_link",              0),
-        ("broken_target",           1),
-        ("broken_anchor",           1),
-        ("same_file_anchor_ok",     0),
-        ("same_file_anchor_broken", 1),
-        ("absolute_path_ok",        0),
-        ("relative_dotdot_ok",      0),
+        ("valid_link",                       0),
+        ("broken_target",                    1),
+        ("broken_anchor",                    1),
+        ("same_file_anchor_ok",              0),
+        ("same_file_anchor_broken",          1),
+        ("absolute_path_ok",                 0),
+        ("relative_dotdot_ok",               0),
+        ("inline_code_placeholder_ignored",  0),  # rf2-mqv8s
+        ("inline_code_negative_control",     1),  # rf2-mqv8s
     ]
 
     failures = 0
