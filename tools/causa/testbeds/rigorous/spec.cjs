@@ -4297,5 +4297,163 @@ module.exports = {
         `Expected keybinding.attached?() === true after Tier-1 §8 + Tier-2 §15a exercised it; got ${keybindingAttached.attached}.`,
       );
     }
+
+    // ----------------------------------------------------------------
+    // 16. 20-event/load stress invariant (rf2-5aw5v.11 — L-11). Per
+    // 017-Test-Coverage-Matrix.md §The 20-event/load gate.
+    //
+    // **Explicit, non-default CI.** This section runs only when the
+    // env var `CAUSA_RIGOROUS_RUN_L11=1` is set (e.g. as part of an
+    // explicit pre-PR stress check or release gate). Default runs
+    // skip the block — the matrix gates section says the 20-event
+    // re-check is intentionally NOT default CI because it stresses
+    // dispatch storms / buffer caps / panel rendering budgets, and
+    // the lightweight existing rigorous run already covers the
+    // happy path through every panel.
+    //
+    // The browser-feature equivalent (heavier, multi-testbed) lives
+    // at tools/causa/testbeds/feature_matrix/scenarios.cjs §`runTwenty
+    // EventLoad` + §`runTraceBudgetSaturation` + §`runLaunchModes
+    // TwentyEventLoad`; that's the canonical pre-PR gate driven by
+    // `npm run test:causa-feature-gate`. The rigorous-spec L-11
+    // probe DEEPENS the trace + cascade + performance invariants
+    // observed on the bare counter testbed:
+    //
+    //   - drive 20 mixed +/- host clicks; assert host counter math
+    //     (boot 5 + 10 +/- 10 -/+ net 0 → end value matches start);
+    //   - assert trace buffer is capped at 1000 (the panel's
+    //     hard-coded cap per Spec 013 §Buffer);
+    //   - assert no duplicate dominoes per cascade — the cascade
+    //     list at `[data-testid^="rf-causa-cascade-row-"]` carries
+    //     each dispatch-id EXACTLY once (eviction may drop older
+    //     ids; what must not happen is the SAME id surfacing on
+    //     two rows);
+    //   - assert per-row `data-over-budget` attribute is one of
+    //     "true" / "false" on every perf row (the counter is fast;
+    //     no rows should be over budget, but the attribute must be
+    //     present);
+    //   - capture loadStats so a future failure has the same
+    //     diagnostic shape the feature-gate scenarios produce.
+    //
+    // The probe deliberately does NOT pin "exactly N visible rows
+    // after 20 dispatches" — the cap math depends on background
+    // sub/render cascades that fire between the explicit clicks,
+    // so a strict equality is flaky. The invariants above are
+    // robust: cap holds, no duplicates, attribute present.
+    // ----------------------------------------------------------------
+    if (process.env.CAUSA_RIGOROUS_RUN_L11 === '1') {
+      // Clear the trace buffer so we have headroom below the cap
+      // and a clean per-row inventory for the duplicate check.
+      const clearedForL11 = await clearTraceBuffer(page);
+      if (!clearedForL11.ok) {
+        throw new Error(`Could not clear trace buffer for L-11 stress run: ${clearedForL11.reason}`);
+      }
+      await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+      // Force list-mode so the cascade-row inventory below reads a
+      // populated list (cascade-detail mounts hide the list).
+      {
+        const lingeringBack = page.locator('[data-testid="rf-causa-event-detail-back"]');
+        if ((await lingeringBack.count()) > 0) {
+          await lingeringBack.first().click();
+          await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
+        }
+      }
+
+      // Capture the host counter's pre-stress baseline.
+      const counterValueLocator = page.locator('#app [data-testid="counter-value"]');
+      const preStressCounter = parseInt(
+        ((await counterValueLocator.textContent()) || '0').trim(),
+        10,
+      );
+
+      // Drive 20 alternating host clicks. Each click is a real
+      // host dispatch that fires the full six-domino cascade.
+      const stressStart = Date.now();
+      for (let i = 0; i < 20; i += 1) {
+        await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
+      }
+      const stressMs = Date.now() - stressStart;
+
+      // Host counter math: 10 +, 10 -, net 0.
+      await waitForCondition(
+        async () => parseInt(((await counterValueLocator.textContent()) || '0').trim(), 10),
+        (v) => v === preStressCounter,
+        `host counter to return to baseline ${preStressCounter} after 10 +/- 10 -/+ clicks`,
+        5000,
+      );
+
+      // Trace buffer cap — `:rf.causa/trace-buffer` count must not
+      // exceed 1000. Read via the trace-bus directly.
+      const bufferStats = await page.evaluate(() => {
+        const cljs = window.cljs.core;
+        const bus = window.day8.re_frame2_causa.trace_bus;
+        const buf = bus.buffer();
+        return { total: cljs.count(buf) };
+      });
+      if (bufferStats.total > 1000) {
+        throw new Error(
+          `L-11 stress: trace buffer exceeded the 1000-event cap; got ${bufferStats.total}.`,
+        );
+      }
+
+      // No duplicate dominoes per cascade — every visible cascade
+      // row's dispatch-id (the testid suffix) is unique in the DOM.
+      const cascadeRowTestids = await page
+        .locator('[data-testid^="rf-causa-cascade-row-"]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+      const uniqueIds = new Set(cascadeRowTestids);
+      if (uniqueIds.size !== cascadeRowTestids.length) {
+        // Find the duplicates for the error report.
+        const counts = {};
+        for (const t of cascadeRowTestids) counts[t] = (counts[t] || 0) + 1;
+        const dupes = Object.entries(counts).filter(([, n]) => n > 1);
+        throw new Error(
+          `L-11 stress: duplicate cascade-row testids after 20 dispatches: ${JSON.stringify(dupes)}.`,
+        );
+      }
+
+      // Performance panel — per-row data-over-budget attribute is
+      // shape-correct ("true" / "false" string, never empty). Same
+      // invariant Tier-1 §11e-4 pinned for the steady-state counter;
+      // re-pin under the 20-dispatch stress.
+      await clickSidebar(page, 'performance', 'rf-causa-performance');
+      const perfStressRows = await page
+        .locator('[data-testid^="rf-causa-perf-row-"]')
+        .evaluateAll((els) =>
+          els
+            .filter((el) => el.hasAttribute('data-tier'))
+            .map((el) => ({
+              testid:     el.getAttribute('data-testid'),
+              overBudget: el.getAttribute('data-over-budget'),
+            })),
+        );
+      if (perfStressRows.length === 0) {
+        throw new Error('L-11 stress: expected at least one perf row after 20 dispatches.');
+      }
+      for (const { testid, overBudget } of perfStressRows) {
+        if (overBudget !== 'true' && overBudget !== 'false') {
+          throw new Error(
+            `L-11 stress: perf row ${testid} carries unrecognised data-over-budget=${JSON.stringify(overBudget)} under stress.`,
+          );
+        }
+      }
+
+      // Capture loadStats — diagnostic only; the assertions above
+      // are the actual gate. Log for visibility under verbose mode.
+      const loadStats = {
+        hostDispatchCount: 20,
+        traceBufferDepth:  bufferStats.total,
+        visibleCascadeRows: cascadeRowTestids.length,
+        perfRowCount:       perfStressRows.length,
+        renderDurationMs:   stressMs,
+      };
+      if (process.env.VERBOSE_TESTS === '1' || process.env.VERBOSE_TESTS === 'true') {
+        // eslint-disable-next-line no-console
+        console.log(`L-11 stress loadStats=${JSON.stringify(loadStats)}`);
+      }
+
+      // Restore — return to event-detail for a clean exit.
+      await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    }
   },
 };
