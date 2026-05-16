@@ -195,9 +195,13 @@
 
 (defn- await-no-streaming-threads!
   "Poll until no `rf2-ssr-streaming-*` thread is alive, or `timeout-ms`
-  elapses. Returns the final seq of live threads (empty on success).
-  10ms poll cadence — fast enough that a clean shutdown reports in
-  ~one tick, conservative enough that we don't burn CPU spinning."
+  elapses. Returns the final seq of live threads (empty on success,
+  non-empty on timeout). 10ms poll cadence.
+
+  rf2-fun38: NOT a thin wrapper over `test-support/poll-until` — that
+  helper *throws* on timeout, but this site WANTS the leaked-thread vec
+  on timeout so the test assertion can name the offending threads in
+  its failure message. Different return contract; keep this loop."
   [timeout-ms]
   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
     (loop []

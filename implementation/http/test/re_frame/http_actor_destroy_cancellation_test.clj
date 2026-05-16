@@ -31,6 +31,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
@@ -86,16 +87,13 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- await-condition!
-  "Spin until `(pred)` returns truthy or `timeout-ms` elapses."
+  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves the
+  per-file arity (`pred`, optional `timeout-ms`)."
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (cond
-         (pred) true
-         (> (System/currentTimeMillis) deadline)
-         (throw (ex-info "timed out awaiting condition" {}))
-         :else (do (Thread/sleep 10) (recur)))))))
+   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+                                  :label "http-actor-destroy condition"})
+   true))
 
 (defn- abort-traces
   "Filter `traces` for :rf.http/aborted-on-actor-destroy events."
@@ -329,6 +327,9 @@
         ;; Calling abort-on-actor-destroy with any actor-id is a no-op
         ;; for this request — there's no actor binding.
         (http-managed/abort-on-actor-destroy :random/non-existent-actor-id)
+        ;; Timer-semantics sleep (rf2-fun38): proving the *absence* of any
+        ;; reply — no observable signal to poll. The 50ms window confirms
+        ;; no stray dispatch surfaces from the no-op abort path.
         (Thread/sleep 50)
         (is (empty? @replies)
             "abort-on-actor-destroy is structurally scoped — it does not touch direct-dispatch requests")
