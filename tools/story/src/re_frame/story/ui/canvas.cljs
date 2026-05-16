@@ -283,6 +283,12 @@
       ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
       (when variant-id
         [share/share-button variant-id])]
+     ;; rf2-9jthx: share-import hint surfaces a non-blocking note when
+     ;; a hydrated share URL dropped one or more overrides (variant
+     ;; args refactored/renamed/removed). Renders nil when nothing
+     ;; dropped, so this is unconditional-safe.
+     (when variant-id
+       [share/share-import-hint variant-id])
      (cond
        (nil? variant-id)
        [:div {:style (:empty styles)} "no variant selected"]

@@ -125,11 +125,20 @@
   Toolbar modes hydrate in `re-frame.story.ui.toolbar`; this function
   owns the rest of the share URL contract: focused variant, per-variant
   cell overrides, and substrate. Invalid/stale variant ids are ignored
-  so old QR links degrade to the shell empty state instead of crashing."
+  so old QR links degrade to the shell empty state instead of crashing.
+
+  Surfaces the count of dropped overrides (rf2-9jthx) under
+  `[:rf.story/share-import-hint variant-id]` so the shell can render
+  a non-blocking hint when a recorded URL has drifted (variant args
+  refactored, removed, renamed). Returns nothing — side-effect only.
+  Pure helper exposed via `share/parse-overrides-param*` so tests can
+  assert per-axis without touching the ratom."
   []
   (when-let [params (current-url-params)]
     (let [variant-id (share/parse-keyword-token (.get params "variant"))
-          overrides  (share/parse-overrides-param (.get params "overrides"))
+          parsed     (share/parse-overrides-param* (.get params "overrides"))
+          overrides  (:overrides parsed)
+          dropped    (:dropped parsed)
           substrate  (share/parse-substrate-param (.get params "substrate"))
           valid?     (and variant-id (registrar/registered? :variant variant-id))]
       (state/swap-state!
@@ -139,10 +148,62 @@
                                  (state/select-variant variant-id)
                                  (state/select-workspace nil))
                        (seq overrides)
-                       (assoc-in [:cell-overrides variant-id] overrides))
+                       (assoc-in [:cell-overrides variant-id] overrides)
+                       (and valid? (seq dropped))
+                       (assoc-in [:rf.story/share-import-hint variant-id]
+                                 {:dropped-count (count dropped)
+                                  :dropped       (vec dropped)}))
                      s)]
             (cond-> s'
               substrate (assoc :substrate substrate))))))))
+
+(defn dismiss-share-import-hint!
+  "Clear the share-import hint for `variant-id` (rf2-9jthx). Called
+  from the hint's close affordance."
+  [variant-id]
+  (state/swap-state!
+    (fn [s] (update s :rf.story/share-import-hint dissoc variant-id))))
+
+(defn share-import-hint
+  "Render the share-import hint banner for `variant-id` when a hydrated
+  share URL dropped one or more overrides (rf2-9jthx). Non-blocking —
+  shows N + the dropped tokens, with a dismiss affordance.
+
+  Returns nil when nothing dropped, so callers can splice
+  unconditionally."
+  [variant-id]
+  (let [hint (get-in @state/shell-state-atom
+                     [:rf.story/share-import-hint variant-id])
+        n    (:dropped-count hint 0)]
+    (when (pos? n)
+      [:div {:role      "status"
+             :data-test "story-share-import-hint"
+             :data-dropped-count n
+             :style     {:padding "6px 10px"
+                         :margin "4px 0"
+                         :background "#3a2a1a"
+                         :color "#e0a060"
+                         :border "1px solid #a06030"
+                         :border-radius "3px"
+                         :font-family "monospace"
+                         :font-size "11px"
+                         :display "flex"
+                         :align-items "center"
+                         :justify-content "space-between"}}
+       [:span
+        (str n " override" (when (not= 1 n) "s")
+             " from this URL no longer apply — variant args refactored?")]
+       [:button {:style     {:padding "2px 8px"
+                             :background "#37373d"
+                             :color "#cccccc"
+                             :border "1px solid #555"
+                             :border-radius "3px"
+                             :cursor "pointer"
+                             :font-size "10px"
+                             :margin-left "10px"}
+                 :data-test "story-share-import-hint-dismiss"
+                 :on-click  (fn [_] (dismiss-share-import-hint! variant-id))}
+        "dismiss"]])))
 
 (defn- copy-to-clipboard!
   "Best-effort clipboard write. Uses the async clipboard API where
