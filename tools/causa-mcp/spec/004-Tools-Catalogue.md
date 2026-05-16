@@ -145,3 +145,35 @@ reg-machine). Default mode returns a kind-keyed map; pass
 **Cap-reached hint:** `:narrow-filter` — re-call with `:kind` to slice.
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_handlers.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs).
+
+### get-source-coord (T-Insp-9, rf2-8xzoe.22)
+
+Return the source coord (`:ns :line :column :file`) for a registered
+handler. Aligns with editor-URI substitution so an agent host can
+render a jump-to-definition link off the response. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #22.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:kind` | keyword | **required** | registrar kind |
+| `:id` | keyword | **required** | the registered id |
+| `:max-tokens` | int | 5000 | per-call cap (`[500, 50000]`) |
+
+**Return shape:**
+
+```clojure
+{:ok? true :kind <kw> :id <any> :source-coord {:ns :line :column :file}}
+```
+
+**Failure envelopes:**
+
+- `{:ok? false :reason :missing-kind :hint ...}` — `:kind` arg absent.
+- `{:ok? false :reason :missing-id   :hint ...}` — `:id` arg absent.
+- `{:ok? false :reason :no-source-coord :kind <k> :id <i>}` — handler
+  registered without `:source-coord` metadata (e.g. macroexpansion
+  unable to capture file/line).
+
+**Cap-reached hint:** `:narrow-filter` (default — source-coord is
+small, overflow only happens with pathological metadata).
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_source_coord.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs).
