@@ -229,7 +229,11 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "Scrub epoch history. Rewind with "
+       "Scrub epoch history for "
+       [:code {:data-testid "rf-causa-time-travel-target-frame"
+               :style       {:color (:accent-violet tokens) :font-family mono-stack}}
+        (str target-frame)]
+       ". Rewind with "
        [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
         "Reset to current"]
        " or "
