@@ -108,6 +108,13 @@
    :tag-filter          #{}
    :active-modes        []
    :cell-overrides      {}
+   ;; rf2-c8kfy: stable monotonic ids for repeater rows so React keys
+   ;; survive mid-list deletes (no focus / cursor leakage onto the
+   ;; surviving rows). Counter allocates fresh ids; the row-ids map
+   ;; carries `{[variant-id path] → [id0 id1 ...]}` in lockstep with
+   ;; the entries vector at `:cell-overrides`.
+   :rf.story/repeater-id-counter 0
+   :rf.story/repeater-row-ids    {}
    :substrate           :reagent
    :hot-reload-tick     0
    :fingerprints        {}
@@ -131,6 +138,10 @@
 (def set-cell-override         state.transitions/set-cell-override)
 (def set-cell-override-scalar  state.transitions/set-cell-override-scalar)
 (def clear-cell-overrides      state.transitions/clear-cell-overrides)
+(def ensure-repeater-row-ids   state.transitions/ensure-repeater-row-ids)
+(def repeater-row-ids          state.transitions/repeater-row-ids)
+(def append-repeater-row-id    state.transitions/append-repeater-row-id)
+(def remove-repeater-row-id    state.transitions/remove-repeater-row-id)
 (def bump-hot-reload-tick      state.transitions/bump-hot-reload-tick)
 (def record-fingerprints       state.transitions/record-fingerprints)
 (def pin-snapshot              state.transitions/pin-snapshot)
