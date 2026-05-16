@@ -248,6 +248,20 @@
 
 (late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
 
+;; Per rf2-r1ciy: `re-frame.frame/fire-on-destroy-event!` installs a one-
+;; shot trace listener around the `:on-destroy` dispatch so it can
+;; observe the router's `:rf.error/handler-exception` trace and re-emit
+;; it under the dedicated `:rf.error/on-destroy-handler-exception`
+;; category. The listener-install must run only when the tooling sibling
+;; is loaded (otherwise the trace fan-out is dead anyway and there's
+;; nothing to observe), so we route through late-bind here — identical
+;; pattern to `:trace.tooling/deliver!` above. CLJS production builds
+;; that never load this ns short-circuit the install (the lookup
+;; returns nil and `fire-on-destroy-event!` skips the listener dance).
+
+(late-bind/set-fn! :trace.tooling/register-trace-cb! register-trace-cb!)
+(late-bind/set-fn! :trace.tooling/remove-trace-cb!   remove-trace-cb!)
+
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
 ;; Per rf2-qwm0a: `implementation/scripts/check-bundle-isolation.cjs`
