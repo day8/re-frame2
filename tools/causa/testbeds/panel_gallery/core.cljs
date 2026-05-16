@@ -59,7 +59,12 @@
             ;; their `register-all!` at load time.
             [panel-gallery.event-detail-stories]
             [panel-gallery.app-db-diff-stories]
-            [panel-gallery.subscriptions-stories]))
+            [panel-gallery.subscriptions-stories]
+            [panel-gallery.time-travel-stories]
+            [panel-gallery.trace-stories]
+            [panel-gallery.issues-ribbon-stories]
+            [panel-gallery.causality-graph-stories]
+            [panel-gallery.ai-co-pilot-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -114,22 +119,50 @@
 
 (defn- register-testbed-seed-events!
   "Register testbed-local seed events that don't exist on Causa's
-  public surface. Currently exposes ONE event,
-  `:panel-gallery/seed-sub-cache-and-errors`, used by the
-  subscriptions-stories `error` variant — Causa registers
-  `:rf.causa/set-sub-cache-override-for-test` for the cache half but
-  has no public init event for `:sub-error-cache` (the runtime fills
-  it from the trace bus). The testbed event seeds both slots in one
-  `assoc` so Story's lifecycle slots are preserved per
-  `tools/story/spec/002-Runtime.md` §Coexistence with hosting
-  application state. Lives here, not in any panel — ZERO source-side
-  changes to Causa panels per the rf2-5nvk2 contract."
+  public surface. Used by variants that need to seed multiple slots
+  atomically — Story's `:rf.story/*` runtime slots are preserved
+  per `tools/story/spec/002-Runtime.md` §Coexistence with hosting
+  application state. Lives here, not in any panel — ZERO source-
+  side changes to Causa panels per the rf2-5nvk2 contract.
+
+  - `:panel-gallery/seed-sub-cache-and-errors` — subscriptions
+    `error` variant — seeds `:sub-cache-override` +
+    `:sub-error-cache` in one assoc (Causa exposes the override
+    event for the cache half but no public init event for the
+    error half; the runtime fills it from the trace bus).
+  - `:panel-gallery/seed-copilot` — AI Co-Pilot variants — seeds
+    `:copilot-conversation` + `:copilot-input-text` +
+    `:copilot-provider` + `:copilot-streaming-token-count` +
+    `:copilot-first-used?` + `:copilot-open?` +
+    `:copilot-redaction-settings` from one map argument. Necessary
+    because the panel reads seven slots and Causa has no single
+    public seed event for the panel's resting state."
   []
   (rf/reg-event-db :panel-gallery/seed-sub-cache-and-errors
     (fn [db [_ sub-cache error-cache]]
       (-> db
           (assoc :sub-cache-override sub-cache)
-          (assoc :sub-error-cache    error-cache)))))
+          (assoc :sub-error-cache    error-cache))))
+
+  (rf/reg-event-db :panel-gallery/seed-copilot
+    (fn [db [_ {:keys [conversation input-text provider
+                       streaming-token-count first-used? open?
+                       redaction-settings]
+                :or {conversation         []
+                     input-text           ""
+                     provider             :claude
+                     streaming-token-count 0
+                     first-used?          true
+                     open?                true}}]]
+      (cond-> (-> db
+                  (assoc :copilot-conversation conversation)
+                  (assoc :copilot-input-text input-text)
+                  (assoc :copilot-provider provider)
+                  (assoc :copilot-streaming-token-count streaming-token-count)
+                  (assoc :copilot-first-used? first-used?)
+                  (assoc :copilot-open? open?))
+        (some? redaction-settings)
+        (assoc :copilot-redaction-settings redaction-settings)))))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)

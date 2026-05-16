@@ -100,6 +100,36 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-subscriptions-card',
         expectedAtLeast: 10,
       },
+      {
+        id:          'time-travel',
+        workspaceRe: /Workspace\.causa\.time-travel\/all/,
+        cardTestid:  'panel-gallery-time-travel-card',
+        expectedAtLeast: 8,
+      },
+      {
+        id:          'trace',
+        workspaceRe: /Workspace\.causa\.trace\/all/,
+        cardTestid:  'panel-gallery-trace-card',
+        expectedAtLeast: 9,
+      },
+      {
+        id:          'issues-ribbon',
+        workspaceRe: /Workspace\.causa\.issues-ribbon\/all/,
+        cardTestid:  'panel-gallery-issues-ribbon-card',
+        expectedAtLeast: 9,
+      },
+      {
+        id:          'causality-graph',
+        workspaceRe: /Workspace\.causa\.causality-graph\/all/,
+        cardTestid:  'panel-gallery-causality-graph-card',
+        expectedAtLeast: 10,
+      },
+      {
+        id:          'ai-co-pilot',
+        workspaceRe: /Workspace\.causa\.ai-co-pilot\/all/,
+        cardTestid:  'panel-gallery-ai-co-pilot-card',
+        expectedAtLeast: 12,
+      },
     ];
 
     const results = [];
