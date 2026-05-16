@@ -5,8 +5,8 @@
   - The preload auto-opens the shell into the app-provided
     `[data-rf-causa-host]` layout host once the substrate adapter is
     ready. This is true inline layout: Causa participates in normal
-    flex/grid flow on the left, and the app stays visible/clickable to
-    the right.
+    flex/grid flow on the right, and the app stays visible/clickable to
+    the left.
   - Subsequent presses toggle the container's `display` between
     `block` and `none` (a CSS-only show/hide; per the spec a re-mount
     would discard internal state and miss the <80ms toggle target).
@@ -153,7 +153,7 @@
      :reason   :missing-layout-host
      :selector selector
      :message  (str "Causa default launch requires an app-provided true-inline "
-                    "layout host matching " selector ". Add a left-side host "
+                    "layout host matching " selector ". Add a right-side host "
                     "to your normal app layout, or configure "
                     ":layout/host-selector before the preload opens.")
      :snippet  config/default-layout-host-snippet}))

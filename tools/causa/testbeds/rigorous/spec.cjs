@@ -204,8 +204,8 @@ module.exports = {
     if (inline.bodyPaddingLeft || inline.bodyPaddingRight) {
       throw new Error(`Expected inline Causa to avoid body-padding layout tricks; got ${JSON.stringify(inline)}`);
     }
-    if (!inline.shell || !inline.hostPlus || inline.hostPlus.left < inline.shell.right) {
-      throw new Error(`Expected host controls to be laid out to the right of Causa; got ${JSON.stringify(inline)}`);
+    if (!inline.shell || !inline.hostPlus || inline.hostPlus.right > inline.shell.left) {
+      throw new Error(`Expected host controls to be laid out to the left of Causa; got ${JSON.stringify(inline)}`);
     }
 
     // ----------------------------------------------------------------

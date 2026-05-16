@@ -75,16 +75,21 @@
   "420px")
 
 (def default-layout-host-snippet
-  ;; CSS uses `var(--rf-causa-inline-width, 420px)` so a host that
-  ;; pastes the snippet verbatim gets:
+  ;; DOM order is `<main>` first, host `<aside>` second — flex flow
+  ;; lays the aside on the right of the app column (per spec/011-
+  ;; Launch-Modes.md §Layout host contract, rf2-e07yk). CSS uses
+  ;; `var(--rf-causa-inline-width, 420px)` so a host that pastes the
+  ;; snippet verbatim gets:
   ;;   - identical default geometry (420px flex-basis, 320px floor)
   ;;   - a single one-line override path:
   ;;       :root { --rf-causa-inline-width: 560px; }
-  ;;   - app content to the right stays in normal flex flow
-  ;;     (no overlay, no body padding, no JS resize handle).
+  ;;   - a user-draggable resize handle via the browser-native
+  ;;     `resize: horizontal` + `overflow: auto` on the host
+  ;;   - app content to the left stays in normal flex flow
+  ;;     (no overlay, no body padding).
   "<div class=\"app-shell\">
-  <aside data-rf-causa-host></aside>
   <main id=\"app\"></main>
+  <aside data-rf-causa-host></aside>
 </div>
 
 <style>
@@ -93,6 +98,9 @@
   [data-rf-causa-host] {
     flex: 0 0 var(--rf-causa-inline-width, 420px);
     min-width: 320px;
+    border-left: 1px solid #2a2a2a;
+    resize: horizontal;
+    overflow: auto;
   }
   #app { flex: 1; min-width: 0; }
 </style>")

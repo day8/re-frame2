@@ -6,14 +6,13 @@
   <style>
     body { font-family: sans-serif; margin: 0; }
     .rf2-testbed-shell { display: flex; min-height: 100vh; }
-    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; }
+    [data-rf-causa-host] { flex: 0 0 420px; min-width: 320px; border-left: 1px solid #2a2a2a; resize: horizontal; overflow: auto; }
     #app { flex: 1; min-width: 0; padding: 2em; }
     h1 { margin-top: 0; }
   </style>
 </head>
 <body>
   <div class="rf2-testbed-shell">
-    <aside data-rf-causa-host></aside>
   <!--
     Server-rendered HTML — a placeholder shape. The pre-rendered
     `not-hydrated` marker is intentional: the post-hydrate render
@@ -31,6 +30,7 @@
       </div>
     </div>
   </div>
+    <aside data-rf-causa-host></aside>
   </div>
   <!--
     The payload bakes a deliberately-wrong :rf/render-hash. The

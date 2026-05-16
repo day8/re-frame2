@@ -9,7 +9,7 @@
  *   - Overriding the CSS custom property anywhere up the cascade
  *     resizes the inline panel, with no JS, no overlay, no body
  *     padding, and no fork of the host rule.
- *   - App content to the right of the host remains clickable
+ *   - App content to the left of the host remains clickable
  *     (the flex flow reshapes `#app` to fill the remainder; the
  *     panel never overlays).
  *
@@ -25,11 +25,13 @@
  *   2. **Cascade override takes effect.** Injecting
  *      `:root { --rf-causa-inline-width: 600px; }` resizes the host
  *      to 600px on the very next layout pass. We assert the
- *      bounding-rect width and that the right edge of the host moved
- *      rightward exactly as much as the width grew.
+ *      bounding-rect width and that the left edge of the host moved
+ *      leftward exactly as much as the width grew (the host is pinned
+ *      to the shell's right edge, so growing the host extends its left
+ *      edge into the app column).
  *
  *   3. **No hit-test occlusion across the resize.** A host-side
- *      `+` button sits to the right of Causa; we click it before
+ *      `+` button sits to the left of Causa; we click it before
  *      and after the resize, asserting the counter increments each
  *      time. The click would silently miss if the panel grew an
  *      overlay layer or trapped pointer events outside its rect.
@@ -125,9 +127,9 @@ module.exports = {
           'Did the recommended host CSS rule drop its fallback?',
       );
     }
-    if (before.app.left < before.host.right) {
+    if (before.app.right > before.host.left) {
       throw new Error(
-        `App content should sit to the right of the host; got ${JSON.stringify(before)}`,
+        `App content should sit to the left of the host; got ${JSON.stringify(before)}`,
       );
     }
 
@@ -174,35 +176,38 @@ module.exports = {
       );
     }
 
-    // The app must reflow to keep its left edge >= the host's new
-    // right edge. Equality is the flex-layout outcome (no gap rule);
-    // a strict `<` would indicate the panel started overlaying.
-    if (after.app.left < after.host.right) {
+    // The app must reflow to keep its right edge <= the host's new
+    // left edge. Equality is the flex-layout outcome (no gap rule);
+    // a strict `>` would indicate the panel started overlaying.
+    if (after.app.right > after.host.left) {
       throw new Error(
         `App content was overlapped by the resized host; got ${JSON.stringify(after)}`,
       );
     }
     const widthDelta = after.host.width - before.host.width;
-    const rightDelta = after.host.right - before.host.right;
-    if (Math.abs(widthDelta - rightDelta) > 1) {
-      // The host's left edge is pinned by `.rf2-testbed-shell`'s
-      // flex container, so `width` and `right` MUST move in lockstep.
-      // A mismatch means the override grew the box via padding/margin
-      // (which would NOT survive a real developer override) rather
-      // than `flex-basis`.
+    const leftDelta = before.host.left - after.host.left;
+    if (Math.abs(widthDelta - leftDelta) > 1) {
+      // The host's right edge is pinned by `.rf2-testbed-shell`'s
+      // flex container, so `width` and `left` MUST move in lockstep
+      // (growing the host extends its left edge leftward into the app
+      // column). A mismatch means the override grew the box via
+      // padding/margin (which would NOT survive a real developer
+      // override) rather than `flex-basis`.
       throw new Error(
-        `Host width grew by ${widthDelta}px but right edge moved by ` +
-          `${rightDelta}px — these should match. Got ${JSON.stringify({ before, after })}.`,
+        `Host width grew by ${widthDelta}px but left edge moved by ` +
+          `${leftDelta}px — these should match. Got ${JSON.stringify({ before, after })}.`,
       );
     }
 
     // ----------------------------------------------------------------
     // 4. Host `+` button is STILL clickable after the resize.
     //
-    //    The button moved to the right when the host grew (the app
-    //    reflowed); Playwright's locator re-resolves on click, so a
-    //    successful increment is the simplest end-to-end proof that
-    //    no overlay or hit-test trap was introduced by the resize.
+    //    The button's position stays anchored in the app column on the
+    //    left (the host grew leftward, the app column compressed but
+    //    the button still sits in its #app subtree); Playwright's
+    //    locator re-resolves on click, so a successful increment is
+    //    the simplest end-to-end proof that no overlay or hit-test
+    //    trap was introduced by the resize.
     // ----------------------------------------------------------------
     await plusButton.click();
     await expectTextEquals(counterValue, String(initialCounter + 2), 5000);
