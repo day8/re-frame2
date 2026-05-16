@@ -2256,6 +2256,8 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
 
+**Redacted slot values.** When the app installs an `:epoch-history` `:redact-fn` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)), any slot value the fn rewrites may be the `:rf/redacted` sentinel or an app-chosen redacted shape — the record schema is open to substitution at every leaf, and consumers MUST tolerate `:rf/redacted` (or arbitrary app-supplied shapes) in `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`, and the structured projections.
+
 #### Outcomes (rf2-v0jwt)
 
 The runtime commits an epoch record on every drain boundary — both clean settles and halted drains. `:outcome` discriminates so devtools (Causa, re-frame-pair2) can render failing cascades with the partial-information shape they actually carry.
