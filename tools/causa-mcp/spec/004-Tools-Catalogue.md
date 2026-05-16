@@ -109,3 +109,39 @@ hint registered; a future bead may add per-frame slicing when the
 catalogue surfaces a `:frame` arg here).
 
 Implementation: [`tools/causa-mcp/src/.../tools/get_machine_list.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs).
+
+### get-handlers (T-Insp-8, rf2-8xzoe.21)
+
+Registrar surface — enumerate registered handlers grouped by `:kind`
+(event / sub / fx / cofx / machine / flow / frame / view /
+reg-machine). Default mode returns a kind-keyed map; pass
+`:group-by-kind? false` for the flat vector. Source-coord pin:
+`ai/findings/causa-epics-breakdown-2026-05-17.md` §Part 1 bead #21.
+
+| Arg | Type | Default | Notes |
+|---|---|---|---|
+| `:kind` | keyword | nil | narrow to one registrar kind |
+| `:group-by-kind?` | bool | true | shape result as `{<kind> [...]}` vs flat vec |
+| `:include-sensitive?` | bool | false | passes to the runtime walker |
+| `:include-large?` | bool | false | passes to the runtime walker |
+| `:max-tokens` | int | 5000 | per-call cap; clamped to `[500, 50000]` |
+
+**Return shape (grouped, default):**
+
+```clojure
+{:ok? true
+ :handlers {<kind> [{:id <any> :meta <map>} ...] ...}
+ :count <int>
+ :kinds <vec of kw>
+ :elided-large <int?>}
+```
+
+**Return shape (flat, `:group-by-kind? false`):**
+
+```clojure
+{:ok? true :handlers [{:kind :id :meta} ...] :count <int>}
+```
+
+**Cap-reached hint:** `:narrow-filter` — re-call with `:kind` to slice.
+
+Implementation: [`tools/causa-mcp/src/.../tools/get_handlers.cljs`](../src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs).
