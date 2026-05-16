@@ -217,6 +217,26 @@
                  diff)
               ":e-2's diff selected, not :e-3's"))))))
 
+(deftest selected-epoch-diff-falls-back-to-latest-when-selection-stale
+  (testing "rf2-drf32 — a stale `:selected-epoch-id` (no record in
+            current history) falls back to (peek history) so the diff
+            panel never gets stranded on an aged-out selection. This
+            is the actual bug Mike's testbed UX hunt surfaced: clicking
+            a mutate button produced no visible diff because a prior
+            time-travel selection was no longer in history and the sub
+            returned nil instead of the latest record's diff."
+    (let [hist [(mk-record :e-99 [:counter/inc]
+                           {:counter 41} {:counter 42})]]
+      (seed-causa! {:counter 42} hist)
+      (rf/with-frame :rf/causa
+        ;; Set a selection that DOESN'T exist in history.
+        (rf/dispatch-sync [:rf.causa/select-epoch :stale-id-that-aged-out])
+        (let [diff @(rf/subscribe [:rf.causa/selected-epoch-diff])]
+          (is (= [{:op :modified :path [:counter] :before 41 :after 42}]
+                 diff)
+              "stale selection falls through to (peek history) — the
+               newest record's diff is shown rather than nil"))))))
+
 ;; ---- (3b) per-:epoch-id diff cache (rf2-qvaa0) --------------------------
 
 (deftest selected-epoch-diff-cache-hits-on-repeat-deref
