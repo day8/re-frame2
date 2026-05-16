@@ -26,6 +26,7 @@
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
@@ -1621,7 +1622,7 @@
                      ;; frame's cascade buffer, so it must be skipped
                      ;; lest it accrete into the next cascade's record.
                      :rf.warning/epoch-redact-fn-exception}
-          actual   @#'epoch/skip-ops]
+          actual   @#'capture/skip-ops]
       (is (= expected actual)
           "skip-ops catalogue matches the documented set of
            out-of-cascade :rf.epoch/* + :rf.warning/* emits"))))
@@ -2126,7 +2127,7 @@
                               :operation :event
                               :tags      {:frame    :test/main
                                           :event-id :foo}}]
-          trigger           (#'epoch/find-trigger-event tag-less-fallback)]
+          trigger           (#'capture/find-trigger-event tag-less-fallback)]
       (is (= :foo (:event-id trigger))
           ":event-id is recovered from the fallback arm")
       (is (nil? (:event trigger))
@@ -2161,7 +2162,7 @@
                     :tags      {:frame    :test/main
                                 :event-id :foo
                                 :event    [:foo "bar" 42]}}]
-          trigger (#'epoch/find-trigger-event events)]
+          trigger (#'capture/find-trigger-event events)]
       (is (= :foo (:event-id trigger)))
       (is (= [:foo "bar" 42] (:event trigger))
           "the full event vector survives — payload is preserved"))))
