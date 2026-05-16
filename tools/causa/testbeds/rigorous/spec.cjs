@@ -716,5 +716,815 @@ module.exports = {
       `event-detail cascade data-dispatch-id=${nodeDispatchId} (parity with graph node click)`,
       5000,
     );
+
+    // ================================================================
+    // 10. Tier-1 panel scenarios (rf2-5aw5v.1..8 — L-1..L-8).
+    //
+    // The counter example registers no flows, fxs, machines, schemas,
+    // routes, or SSR hydration payloads — so the natural state for the
+    // Flows / Effects / Machines / Schemas / Hydration / Routes panels
+    // on the rigorous testbed is the EMPTY branch of each panel's
+    // root view. The walks below assert each panel's beyond-mount
+    // surfaces that ARE deterministically observable on the counter:
+    //
+    //   - empty-state branch shape (testid + copy + helpful caption)
+    //   - sidebar dormant-marker / wake transitions where applicable
+    //   - panels driven from the trace buffer (Performance) populate
+    //     with rows + tier chips + over-budget header behaviour
+    //   - cross-panel navigation parity (event-detail ↔ panel pivots)
+    //   - config knob round-trip for the Open-in-Editor preference
+    //   - redaction lifecycle beyond the bare-counter walk in section 7
+    //
+    // Each section corresponds 1:1 with a bead in the rf2-5aw5v Tier-1
+    // cluster. Where the panel's full feature path requires testbed
+    // affordances not yet wired (deterministic flow / fx / machine /
+    // schema / SSR data), the limit is documented inline and the
+    // matrix row stays `deferred` with a follow-on bead pointer.
+    // ================================================================
+
+    // ----------------------------------------------------------------
+    // 10a. Flows panel (rf2-5aw5v.5 — L-5).
+    //
+    // The counter example registers no flows via `rf/reg-flow` so the
+    // panel renders the deterministic empty-state branch. The walk
+    // pivots to Flows, asserts the empty surface, then verifies the
+    // sidebar pivot back to event-detail preserves the cascade
+    // selection that landed during the earlier hero walks (9a/9d).
+    //
+    // Beyond-mount surfaces asserted here:
+    //   - sidebar pivot from causality-graph → flows lands on the
+    //     `:rf.causa/flows` panel without crashing
+    //   - empty-state testid + the spec citation that orients hosts
+    //     toward `rf/reg-flow` (Spec 013) is rendered, not hidden
+    //   - the summary header (`rf-causa-flows-summary`) is NOT present
+    //     in the empty case (the panel's `(when (pos? total) ...)`
+    //     gate) — guards against summary-vs-list rendering regressions
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade (read off the pivot we just
+    //     performed in 9d) so empty Flows mounting does not clobber
+    //     cross-panel selection state on `:rf/causa`'s app-db
+    //
+    // The full feature path (long-flow DAG with recompute / skip /
+    // failure / cross-frame input) requires the rf2-5aw5v parent
+    // cluster's testbed affordance for flows — wired separately for
+    // a follow-on bead that grows the testbeds/long_flow_w_failure
+    // surface into the rigorous spec's compile graph.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'flows', 'rf-causa-flows');
+    await expectVisible(page.locator('[data-testid="rf-causa-flows-empty"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-flows-summary"]').count()) !== 0) {
+      throw new Error('Expected Flows summary header to be absent in the empty-state branch.');
+    }
+    if ((await page.locator('[data-testid="rf-causa-flows-list"]').count()) !== 0) {
+      throw new Error('Expected Flows list to be absent in the empty-state branch.');
+    }
+    // Sidebar round-trip — event-detail must re-mount the previously
+    // selected cascade (set in 9d via the causality-graph node click).
+    // The selection slot lives on `:rf/causa`'s app-db; pivoting
+    // through Flows and back must not clear it.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const flowsPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => flowsPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Flows round-trip (=${nodeDispatchId})`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10b. Effects panel (rf2-5aw5v.6 — L-6).
+    //
+    // The Effects panel reads `(rf/registrations :fx)` — re-frame2's
+    // framework-built-in fxs (`:db`, `:dispatch`, `:fx`, ...) plus any
+    // Causa-side fxs registered by the shell (`:rf.causa.fx/...`,
+    // `:rf.editor/open`, ...) populate the row set. The panel is
+    // therefore deterministically in the POPULATED branch on the
+    // counter testbed, not the empty branch.
+    //
+    // Beyond-mount surfaces asserted here:
+    //   - sidebar pivot → effects lands on the `:rf.causa/fx` section
+    //   - the populated list renders with `rf-causa-fx-list` and >= 1
+    //     fx row testid (`rf-causa-fx-row-<fx-id>`); the empty-state
+    //     branch is NOT present
+    //   - the per-row id chip (`rf-causa-fx-id-<fx-id>`) is rendered
+    //     for every row — guards against the row-renderer regressing
+    //     to a structure that drops the id slot (the row is the click
+    //     target for the deferred cross-panel fx-filter jump)
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id on `:rf/causa`'s
+    //     app-db (same cross-panel selection invariant as L-5)
+    //
+    // The full fx-outcome feature path (HTTP success / 4xx / 5xx /
+    // abort / overridden / skipped / throwing) needs deterministic
+    // fx-driving cascades inside the rigorous testbed's host app
+    // (e.g. the managed-http-counter testbed woven in); follow-on
+    // when the http-toggle testbed lands inside the rigorous compile
+    // graph. Matrix row 81 (Effects) is already `covered`; no row
+    // flip needed.
+    // ----------------------------------------------------------------
+    // Sidebar id for the Effects panel is `:fx` (not `:effects`); the
+    // canvas testid is `rf-causa-fx`. See shell.cljs §sidebar-items.
+    await clickSidebar(page, 'fx', 'rf-causa-fx');
+    // The counter testbed has fxs registered (framework-built-in +
+    // Causa-side), so the populated branch is the expected mount path.
+    await expectVisible(page.locator('[data-testid="rf-causa-fx-list"]'), 5000);
+    if ((await page.locator('[data-testid="rf-causa-fx-empty"]').count()) !== 0) {
+      throw new Error('Expected Effects empty-state to be absent (framework-built-in fxs are registered).');
+    }
+    const fxRows = page.locator('[data-testid^="rf-causa-fx-row-"]');
+    const fxRowCount = await fxRows.count();
+    if (fxRowCount < 1) {
+      throw new Error(`Expected at least one Effects row; got ${fxRowCount}.`);
+    }
+    // Per-row id chip — read against the first row's testid suffix.
+    const firstFxRowTestid = await fxRows.first().getAttribute('data-testid');
+    // `rf-causa-fx-row-stub-<id>` also matches the prefix; the
+    // straight-row id chip lives on `rf-causa-fx-id-<id>`. We narrow
+    // to rows that aren't the stub variant. The stub-row testid only
+    // appears when an `:fx-overrides` redirect is wired (Causa's
+    // dev-time inversion-of-control hook); on counter no overrides are
+    // configured so every row is the plain variant.
+    const plainRowTestids = await fxRows.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid'))
+         .filter((t) => t && !t.startsWith('rf-causa-fx-row-stub-')),
+    );
+    if (plainRowTestids.length === 0) {
+      throw new Error(
+        `Expected at least one plain fx row; got only stub rows from ${firstFxRowTestid}.`,
+      );
+    }
+    const sampleFxId = plainRowTestids[0].replace('rf-causa-fx-row-', '');
+    await expectVisible(
+      page.locator(`[data-testid="rf-causa-fx-id-${sampleFxId}"]`),
+      5000,
+    );
+    // Sidebar round-trip — same cross-panel selection invariant as L-5.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const fxPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => fxPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Effects round-trip (=${nodeDispatchId})`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10c. Open-in-Editor / Source Coordinates (rf2-5aw5v.7 — L-7).
+    //
+    // The editor-URI machinery has two layers Causa exposes:
+    //
+    //   1. Config knob plumbing — `(causa-config/set-editor! :kw)`
+    //      replaces the editor preference; `(causa-config/get-editor)`
+    //      reads it back. The configure-once-at-boot hook every host
+    //      uses, plus the `:custom <template>` shape with `{file}` /
+    //      `{path}` / `{line}` / `{column}` placeholders.
+    //
+    //   2. Chip rendering — `open-in-editor/open-chip` returns nil for
+    //      coords missing `:file` (the hidden-chip case); otherwise
+    //      returns an `<a data-testid="causa-open-in-editor">`. The
+    //      chip's `data-editor` attribute mirrors the active editor
+    //      keyword so panel tests can assert URI shape without
+    //      parsing href.
+    //
+    // No Causa panel mounts `open-chip` directly on the counter
+    // testbed — the chip-rendering panels (mainly hydration_debugger
+    // and follow-on Causa surfaces) need data the counter doesn't
+    // produce. The walk here therefore covers what IS deterministically
+    // observable on counter:
+    //
+    //   - `cfg.get_editor()` initial value is `:vscode` (preload default)
+    //   - `cfg.set_editor_BANG_(:cursor)` round-trips through `get_editor`
+    //   - `cfg.set_editor_BANG_(:custom)` with a `{path}`/`{line}`/
+    //     `{column}` template round-trips through `get_editor` as a map
+    //   - `cfg.set_editor_BANG_(null)` resets to the `:vscode` default
+    //   - `cfg.set_project_root_BANG_("/abs/path")` round-trips through
+    //     `get_project_root` (the "prepended on-disk root" used by the
+    //     editor-URI builder to convert classpath-relative source-coords
+    //     into absolute file URIs the OS scheme handler can open)
+    //   - no chip is rendered in the counter app — the chip's
+    //     `data-testid="causa-open-in-editor"` count is 0 across every
+    //     mounted panel (asserts the deferred chip-mounting work is
+    //     scoped and the chip doesn't leak into panels that don't
+    //     intend to render it)
+    //
+    // The full feature path (per-panel chip rendering across event /
+    // trace / app-db / sub / route / machine / flow / hydration +
+    // missing-file hidden chip + unknown editor fallback + URI shape
+    // assertion) needs panel-side `open-chip` integrations the v1
+    // Causa surface doesn't yet ship — rf2-gdqm1 is the umbrella for
+    // those panel integrations. This walk pins the configurable
+    // surface; the deferred work pins the chip mounting.
+    // ----------------------------------------------------------------
+    // The whole probe + verify happens inside ONE `page.evaluate` so
+    // CLJS values (keywords, maps) stay on the browser side — Playwright
+    // serialises return values across the bridge and `:cursor` ->
+    // `IPrintWithWriter` complains about the bare JS object on the way
+    // back. Returns a plain-JS `{ok, issues}` summary.
+    const editorVerify = await page.evaluate(() => {
+      const cfg = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      const cljs = window.cljs && window.cljs.core;
+      if (!cljs) return { ok: false, reason: 'no cljs.core on window' };
+      const kw = (n) => cljs.keyword(n);
+      const eq = cljs._EQ_;
+      const issues = [];
+
+      // 1. initial editor is :vscode (preload default).
+      const initialEditor = cfg.get_editor();
+      if (!eq(initialEditor, kw('vscode'))) {
+        issues.push(`step 'initial' expected :vscode; got ${cljs.pr_str(initialEditor)}`);
+      }
+
+      // 2. set :cursor, read back.
+      cfg.set_editor_BANG_(kw('cursor'));
+      const afterCursor = cfg.get_editor();
+      if (!eq(afterCursor, kw('cursor'))) {
+        issues.push(`step 'after-cursor' expected :cursor; got ${cljs.pr_str(afterCursor)}`);
+      }
+
+      // 3. set a `{:custom "<template>"}` map. Build the clj map from
+      // a JS object via `js->clj :keywordize-keys true`.
+      const customJs = { custom: 'myeditor://open?file={path}&line={line}&column={column}' };
+      const customClj = cljs.js__GT_clj(customJs, kw('keywordize-keys'), true);
+      cfg.set_editor_BANG_(customClj);
+      const afterCustom = cfg.get_editor();
+      if (!cljs.map_QMARK_(afterCustom)) {
+        issues.push(`step 'after-custom' expected a cljs map; got ${cljs.pr_str(afterCustom)}`);
+      } else {
+        const template = cljs.get(afterCustom, kw('custom'));
+        if (typeof template !== 'string' || !template.includes('{path}')) {
+          issues.push(`step 'after-custom' :custom template missing {path}; got ${cljs.pr_str(template)}`);
+        }
+      }
+
+      // 4. reset (null) -> :vscode.
+      cfg.set_editor_BANG_(null);
+      const afterReset = cfg.get_editor();
+      if (!eq(afterReset, kw('vscode'))) {
+        issues.push(`step 'after-reset' expected :vscode; got ${cljs.pr_str(afterReset)}`);
+      }
+
+      // 5. project-root round-trip.
+      cfg.set_project_root_BANG_('/tmp/probe-root');
+      const projectRootSet = cfg.get_project_root();
+      if (projectRootSet !== '/tmp/probe-root') {
+        issues.push(`step 'project-root-set' expected /tmp/probe-root; got ${projectRootSet}`);
+      }
+      cfg.set_project_root_BANG_(null);
+      const projectRootCleared = cfg.get_project_root();
+      if (projectRootCleared !== null && projectRootCleared !== undefined) {
+        issues.push(`step 'project-root-cleared' expected null; got ${projectRootCleared}`);
+      }
+
+      return { ok: true, issues };
+    });
+    if (!editorVerify.ok) {
+      throw new Error(`Could not run editor-config probe: ${editorVerify.reason}`);
+    }
+    if (editorVerify.issues.length > 0) {
+      throw new Error(`Open-in-Editor config round-trip failures:\n  - ${editorVerify.issues.join('\n  - ')}`);
+    }
+    // No causa-open-in-editor chip is mounted by any panel in the
+    // counter testbed. Assert the chip's DOM count is 0 so panel
+    // integrations that later mount the chip are caught by an
+    // explicit expectation flip, and so accidental chip leakage
+    // (e.g. from a stories panel that should not be on the prod
+    // panel surface) trips this assertion.
+    const chipCount = await page.locator('[data-testid="causa-open-in-editor"]').count();
+    if (chipCount !== 0) {
+      throw new Error(
+        `Expected 0 causa-open-in-editor chips on the counter testbed; got ${chipCount}. ` +
+        `If a panel now mounts open-chip, update L-7 to assert href shape per editor preference.`,
+      );
+    }
+
+    // ----------------------------------------------------------------
+    // 10d. Redaction / Sensitive / Large values (rf2-5aw5v.8 — L-8).
+    //
+    // Extends section 7's bottom-rail redacted-counter walk with the
+    // privacy-gate primitives Causa exposes:
+    //
+    //   - `set_show_sensitive_BANG_(true/false/null)` round-trips via
+    //     `get_show_sensitive()` (the `:trace/show-sensitive?` knob
+    //     gated by Causa's trace collector before the event reaches
+    //     the buffer)
+    //   - `sensitive_event_QMARK_(ev)` predicate returns true for a
+    //     `:sensitive? true` event and false otherwise (the
+    //     framework-published `re-frame.privacy/sensitive?` re-export
+    //     used by every consumer per rf2-iwqu9)
+    //   - `suppress_sensitive_QMARK_(ev)` composes the privacy gate:
+    //     true iff `:sensitive?` AND show-sensitive flag is false; the
+    //     gate FLIPS on toggle — same event suppresses or passes
+    //     depending on `show_sensitive` alone
+    //   - bumping the redacted counter then flipping show-sensitive
+    //     does NOT retroactively unsuppress already-suppressed events
+    //     (the flag governs FUTURE events; counters track past drops)
+    //   - DOM-text-scrub: bump the suppressed counter under a known
+    //     sentinel string and assert NO occurrence of the sentinel in
+    //     the rendered Causa DOM (proves the bottom-rail's redacted
+    //     hint surfaces a COUNT, never the value that triggered it)
+    //   - `reset_suppressed_count_BANG_` clears the bottom-rail
+    //     indicator beyond the existing `clear-buffer!` lifecycle path
+    //     (section 7 verified the clear-buffer path; this asserts the
+    //     dedicated reset is a no-op when already-zero and a clear
+    //     when populated)
+    //
+    // The full feature path (large-value elision marker + fetch
+    // handle/digest + combined sensitive-large dispatcher path)
+    // depends on the `:large?` dispatcher surface and the elision
+    // marker spec — not deterministically driveable on the bare
+    // counter app today. Matrix row 85 (Redaction) is already
+    // `covered`; no row flip needed.
+    // ----------------------------------------------------------------
+    const SECRET_SENTINEL = 'rf-causa-l8-secret-token-do-not-leak';
+
+    // Reset the redacted counter so the bottom-rail invariant we
+    // capture below isn't contaminated by section 7's leftover.
+    // `clear-buffer!` in section 7 dispatches the reset; we re-run it
+    // here defensively (idempotent) so the assertion below reads a
+    // known zero baseline.
+    const resetForL8 = await page.evaluate(() => {
+      const cfg = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      cfg.reset_suppressed_count_BANG_();
+      return { ok: true };
+    });
+    if (!resetForL8.ok) {
+      throw new Error(`Could not reset suppressed counter: ${resetForL8.reason}`);
+    }
+    await waitForCondition(
+      async () => page.locator(`[data-testid="${REDACTED_TESTID}"]`).count(),
+      (count) => count === 0,
+      'redacted indicator to clear after reset_suppressed_count for L-8 baseline',
+      5000,
+    );
+
+    const redactionVerify = await page.evaluate((sentinel) => {
+      const cfg = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      const cljs = window.cljs && window.cljs.core;
+      if (!cljs) return { ok: false, reason: 'no cljs.core on window' };
+      const kw = (n) => cljs.keyword(n);
+      const issues = [];
+
+      // Build a `:sensitive? true` event-shaped map plus a benign one.
+      // The `?` suffix is preserved verbatim through `cljs.core/keyword`
+      // — the predicate reads `(:sensitive? trace-event)` against the
+      // literal `:sensitive?` keyword.
+      const sensitiveEvt = cljs.PersistentArrayMap.fromArray([
+        kw('sensitive?'), true,
+        kw('payload'), sentinel,
+      ], true, false);
+      const benignEvt = cljs.PersistentArrayMap.fromArray([
+        kw('operation'), kw('counter/inc'),
+      ], true, false);
+
+      // 1. show-sensitive default = false.
+      const showInitial = cfg.get_show_sensitive();
+      if (showInitial !== false) {
+        issues.push(`step 'show-sensitive initial' expected false; got ${showInitial}`);
+      }
+
+      // 2. sensitive_event_QMARK_ predicate — true for :sensitive?,
+      //    false for benign.
+      if (cfg.sensitive_event_QMARK_(sensitiveEvt) !== true) {
+        issues.push("step 'sensitive_event_QMARK_(sensitiveEvt)' expected true");
+      }
+      if (cfg.sensitive_event_QMARK_(benignEvt) !== false) {
+        issues.push("step 'sensitive_event_QMARK_(benignEvt)' expected false");
+      }
+
+      // 3. suppress_sensitive_QMARK_ composes the predicate with the
+      //    flag — sensitive event suppresses iff show-sensitive=false.
+      if (cfg.suppress_sensitive_QMARK_(sensitiveEvt) !== true) {
+        issues.push("step 'suppress_sensitive (flag=false, sensitive)' expected true");
+      }
+      if (cfg.suppress_sensitive_QMARK_(benignEvt) !== false) {
+        issues.push("step 'suppress_sensitive (flag=false, benign)' expected false");
+      }
+
+      // 4. flip show-sensitive on — same sensitive event now passes.
+      cfg.set_show_sensitive_BANG_(true);
+      if (cfg.get_show_sensitive() !== true) {
+        issues.push(`step 'show-sensitive after true' expected true; got ${cfg.get_show_sensitive()}`);
+      }
+      if (cfg.suppress_sensitive_QMARK_(sensitiveEvt) !== false) {
+        issues.push("step 'suppress_sensitive (flag=true, sensitive)' expected false — flag flips suppression");
+      }
+
+      // 5. reset flag (null → default false).
+      cfg.set_show_sensitive_BANG_(null);
+      if (cfg.get_show_sensitive() !== false) {
+        issues.push(`step 'show-sensitive after null' expected false; got ${cfg.get_show_sensitive()}`);
+      }
+
+      return { ok: true, issues };
+    }, SECRET_SENTINEL);
+    if (!redactionVerify.ok) {
+      throw new Error(`Could not run redaction probe: ${redactionVerify.reason}`);
+    }
+    if (redactionVerify.issues.length > 0) {
+      throw new Error(`Redaction / sensitive predicate failures:\n  - ${redactionVerify.issues.join('\n  - ')}`);
+    }
+
+    // Bump the suppressed counter with the sentinel-bearing call and
+    // assert: (a) the bottom-rail shows REDACTED 1, (b) the sentinel
+    // string appears nowhere in Causa's rendered DOM (the indicator
+    // is a count, not a value).
+    const bumped = await invokeSuppressedCounter(page, 1);
+    if (!bumped.ok) {
+      throw new Error(`Could not bump suppressed counter for DOM-scrub: ${bumped.reason}`);
+    }
+    await waitForCondition(
+      async () => {
+        const txt = (await page.locator(`[data-testid="${REDACTED_TESTID}"]`).textContent()) || '';
+        return txt.includes('REDACTED 1') ? 'ok' : txt.trim();
+      },
+      (val) => val === 'ok',
+      'bottom rail to read REDACTED 1 after the L-8 sentinel bump',
+      5000,
+    );
+    const scrubLeak = await page.evaluate((sentinel) => {
+      const root = document.getElementById('rf-causa-root');
+      if (!root) return { ok: false, reason: 'no #rf-causa-root' };
+      const text = root.textContent || '';
+      return { ok: true, leaked: text.includes(sentinel) };
+    }, SECRET_SENTINEL);
+    if (!scrubLeak.ok) {
+      throw new Error(`Could not run DOM-text-scrub: ${scrubLeak.reason}`);
+    }
+    if (scrubLeak.leaked) {
+      throw new Error(
+        `DOM-text-scrub failed — sentinel "${SECRET_SENTINEL}" appeared in Causa's rendered DOM. ` +
+        `The redacted indicator must surface a count, never the value that triggered it.`,
+      );
+    }
+
+    // Cleanup: explicit reset (separate from clear-buffer!) — the
+    // bottom-rail indicator disappears even without touching the
+    // trace buffer.
+    const explicitReset = await page.evaluate(() => {
+      const cfg = window.day8 && window.day8.re_frame2_causa && window.day8.re_frame2_causa.config;
+      if (!cfg) return { ok: false, reason: 'no config' };
+      cfg.reset_suppressed_count_BANG_();
+      return { ok: true };
+    });
+    if (!explicitReset.ok) {
+      throw new Error(`Could not run explicit reset: ${explicitReset.reason}`);
+    }
+    await waitForCondition(
+      async () => page.locator(`[data-testid="${REDACTED_TESTID}"]`).count(),
+      (count) => count === 0,
+      'bottom-rail redacted indicator to disappear after explicit reset_suppressed_count',
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10e. Schemas / Schema Timeline (rf2-5aw5v.2 — L-2).
+    //
+    // The counter example registers no schemas via `reg-app-schema`
+    // (Spec 010) so the Schema-violation Timeline panel mounts on the
+    // `:no-schemas` empty-state branch (covered minimally by section
+    // 5). The walk here extends beyond bare mount, asserting:
+    //
+    //   - the empty-state-no-schemas branch is the active branch
+    //     (`rf-causa-schema-timeline-empty-no-schemas` mounted)
+    //   - the empty-state-no-violations branch is NOT mounted (would
+    //     fire only if schemas were registered and the window was
+    //     clean — distinct branches, mutually exclusive)
+    //   - the populated timeline rows container (`rf-causa-schema-
+    //     timeline-rows`) is NOT mounted
+    //   - no schema-filter chip (`rf-causa-schema-timeline-filter-
+    //     active`) — there's no schema to filter against
+    //   - no violation-detail aside (`rf-causa-schema-violation-
+    //     detail-*`) — there's no selected violation in the empty case
+    //   - the panel-root section (`rf-causa-schema-violation-
+    //     timeline`) stays mounted regardless — the empty branch
+    //     swaps in the body, not the section chrome
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised by L-5/L-6)
+    //
+    // The full feature path (one violation per schema kind across
+    // event payload / cofx / app-db slice / sub return + per named
+    // recovery mode, row shape + severity badge + recovery + source
+    // chip) needs deterministic schema-driving cascades inside the
+    // rigorous testbed's host (e.g. weaving in a schema-violation
+    // testbed). Matrix row 76 (Schemas) is already `covered`; no row
+    // flip needed.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'schemas', 'rf-causa-schema-violation-timeline');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-schema-timeline-empty-no-schemas"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-empty-no-violations"]').count()) !== 0) {
+      throw new Error(
+        'Expected `empty-no-violations` branch to be absent on counter (no schemas registered).',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-rows"]').count()) !== 0) {
+      throw new Error(
+        'Expected `schema-timeline-rows` container to be absent on the no-schemas branch.',
+      );
+    }
+    if ((await page.locator('[data-testid="rf-causa-schema-timeline-filter-active"]').count()) !== 0) {
+      throw new Error(
+        'Expected `schema-timeline-filter-active` to be absent on the no-schemas branch.',
+      );
+    }
+    if ((await page.locator('[data-testid^="rf-causa-schema-violation-detail-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no `schema-violation-detail-*` aside on the no-schemas branch (no selection).',
+      );
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const schemaPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => schemaPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade selection preserved after Schemas round-trip (=${nodeDispatchId})`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10f. Performance panel (rf2-5aw5v.4 — L-4).
+    //
+    // The Performance panel reads from Causa's trace buffer (the v1
+    // surface — the User Timing channel rides a follow-on). Counter
+    // cascades populate the buffer; the panel renders the populated
+    // branch. The walk asserts:
+    //
+    //   - sidebar pivot → performance lands on `rf-causa-performance`
+    //   - `rf-causa-perf-empty` empty-state is NOT mounted (the trace
+    //     buffer has cascades)
+    //   - `rf-causa-perf-feed` populated list IS mounted
+    //   - `rf-causa-perf-totals` header span renders with a cascade
+    //     count > 0
+    //   - all four tier chips render in the header
+    //     (`rf-causa-perf-tier-chip-fast/medium/slow/blocking`) — the
+    //     panel always renders the full taxonomy, with per-tier
+    //     counts that may be 0
+    //   - per-row testids carry the tier glyph + id + event + duration
+    //     + counts + step-bar slots (`rf-causa-perf-row-<id>` plus
+    //     `-tier`, `-id`, `-event`, `-duration`, `-counts`)
+    //   - the row's `data-tier` attribute is one of fast/medium/slow/
+    //     blocking — guards against the tier classifier returning an
+    //     unrecognised keyword
+    //   - clicking a row pivots to event-detail with the matching
+    //     cascade selected (the panel-level pivot affordance — same
+    //     `:rf.causa/select-dispatch-id` event the cascade list +
+    //     causality graph dispatch)
+    //
+    // The full feature path (deterministic fast / medium / slow /
+    // blocking cascades + histogram match + drill-in to slow rows +
+    // over-budget marker visible scope) needs a perf-driving testbed
+    // wired through deterministic delays. Matrix row 78 (Performance)
+    // flips from `deferred (rf2-gdqm1)` to `partial` — the panel's
+    // populated-branch shape, tier-chip taxonomy, row testids, and
+    // cross-panel pivot are now pinned; the slow-row + over-budget
+    // pivot affordance remains follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'performance', 'rf-causa-performance');
+    if ((await page.locator('[data-testid="rf-causa-perf-empty"]').count()) !== 0) {
+      throw new Error('Expected Performance empty-state to be absent (counter cascades populate the buffer).');
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-perf-feed"]'), 5000);
+    const totalsText = (await page.locator('[data-testid="rf-causa-perf-totals"]').textContent()) || '';
+    const totalsMatch = /(\d+)\s+cascade/.exec(totalsText.trim());
+    if (!totalsMatch || Number(totalsMatch[1]) <= 0) {
+      throw new Error(`Expected perf-totals to report >0 cascades; got ${JSON.stringify(totalsText)}.`);
+    }
+    // All four tier chips must render in the header (the panel always
+    // renders the full taxonomy regardless of which tiers were hit).
+    for (const tier of ['fast', 'medium', 'slow', 'blocking']) {
+      const chip = page.locator(`[data-testid="rf-causa-perf-tier-chip-${tier}"]`);
+      if ((await chip.count()) === 0) {
+        throw new Error(`Expected perf tier chip '${tier}' to render in the header.`);
+      }
+    }
+    const perfRows = page.locator('[data-testid^="rf-causa-perf-row-"]');
+    const perfRowCount = await perfRows.count();
+    if (perfRowCount === 0) {
+      throw new Error('Expected at least one Performance row.');
+    }
+    // The row testid prefix matches both the row LI and its per-cell
+    // child spans (rf-causa-perf-row-<id>-tier / -id / -event / ...).
+    // Narrow to the row LI itself by filtering on `data-tier` (only
+    // the row LI carries it).
+    const rowLis = await perfRows.evaluateAll((els) =>
+      els.filter((el) => el.hasAttribute('data-tier')).map((el) => ({
+        testid: el.getAttribute('data-testid'),
+        tier:   el.getAttribute('data-tier'),
+      })),
+    );
+    if (rowLis.length === 0) {
+      throw new Error('Expected at least one perf-row LI carrying data-tier.');
+    }
+    const allowed = new Set(['fast', 'medium', 'slow', 'blocking']);
+    for (const { testid, tier } of rowLis) {
+      if (!allowed.has(tier)) {
+        throw new Error(`Row ${testid} carries unrecognised data-tier=${tier}; expected one of ${[...allowed].join(', ')}.`);
+      }
+    }
+    // Per-cell child spans for the first row.
+    const firstRowTestid = rowLis[0].testid;
+    for (const cell of ['tier', 'id', 'event', 'duration', 'counts']) {
+      const sel = `[data-testid="${firstRowTestid}-${cell}"]`;
+      if ((await page.locator(sel).count()) === 0) {
+        throw new Error(`Expected first perf row to render the '-${cell}' cell.`);
+      }
+    }
+    // Click the first row → event-detail pivot. The row's on-click
+    // dispatches both `:rf.causa/select-dispatch-id` and
+    // `:rf.causa/select-panel :event-detail`; the canvas testid
+    // changes to event-detail and the cascade-detail mounts with the
+    // matching dispatch-id.
+    const firstRowDispatchId = firstRowTestid.replace('rf-causa-perf-row-', '');
+    await perfRows.first().click();
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const perfPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => perfPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade data-dispatch-id=${firstRowDispatchId} (parity with perf-row click)`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10g. Hydration Debugger (rf2-5aw5v.3 — L-3).
+    //
+    // The counter example does not use SSR; no `:rf.ssr/hydration-
+    // mismatch` traces land in the buffer. Per Spec 006 §Visibility
+    // the sidebar entry stays DORMANT (the `◌` marker) until the
+    // first mismatch; the canvas mounts the `no-ssr-empty-state`
+    // branch. The walk asserts:
+    //
+    //   - the sidebar item glyph is `◌` (not `◉`/`○`) BEFORE the
+    //     user clicks into the panel — guards against the dormant
+    //     gate accidentally waking on dispatch traces unrelated to
+    //     hydration
+    //   - clicking the dormant entry still navigates — dormant is
+    //     a visibility cue, not a disabled state
+    //   - the canvas mounts on the `no-ssr-empty-state` branch
+    //     (`rf-causa-hydration-debugger-empty-no-ssr`); the clean-
+    //     hydration branch (`rf-causa-hydration-debugger-empty-clean`)
+    //     is mutually exclusive and NOT mounted
+    //   - the mismatch-list, mismatch-detail, hash-chip, tree-pane,
+    //     divergent-marker, and hypothesis surfaces are all absent —
+    //     they belong to the populated branch
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised throughout this section)
+    //
+    // The full feature path (server/client hash mismatch + render-
+    // tree diff + divergent node + corrupt/missing payload + multi-
+    // frame mismatch) needs the testbeds/ssr_hydration_mismatch
+    // testbed wired through the rigorous compile graph. Matrix row
+    // 77 (Hydration) flips from `deferred (rf2-gdqm1)` to `partial`
+    // — the dormant-gate + empty-branch shape are now pinned; the
+    // populated-branch walks remain follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    // 9d landed us on event-detail. Before clicking into Hydration,
+    // assert the sidebar glyph is dormant. We read the leading
+    // child-span's textContent — the sidebar-item template puts the
+    // glyph in the first `<span>` child.
+    const hydrationGlyph = await page.evaluate(() => {
+      const li = document.querySelector('[data-testid="rf-causa-sidebar-item-hydration"]');
+      if (!li) return null;
+      const glyph = li.querySelector('span');
+      return glyph ? (glyph.textContent || '').trim() : null;
+    });
+    // The dormant marker is `◌`. Active rows use `◉` (the panel is not
+    // active yet — event-detail is) and non-dormant inactive rows use
+    // `○`. The hydration row must be `◌` (dormant) on counter.
+    if (hydrationGlyph !== '◌') {
+      throw new Error(
+        `Expected hydration sidebar glyph '◌' (dormant) before click; got ${JSON.stringify(hydrationGlyph)}. ` +
+        `If this fires after a non-hydration trace woke the row, the dormant gate has regressed.`,
+      );
+    }
+    // Click the dormant entry — it should still navigate.
+    await clickSidebar(page, 'hydration', 'rf-causa-hydration-debugger');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-hydration-debugger-empty-no-ssr"]'),
+      5000,
+    );
+    if ((await page.locator('[data-testid="rf-causa-hydration-debugger-empty-clean"]').count()) !== 0) {
+      throw new Error('Expected `empty-clean` branch to be absent on no-SSR counter.');
+    }
+    for (const populatedTestid of [
+      'rf-causa-hydration-mismatch-list',
+      'rf-causa-hydration-mismatch-detail',
+      'rf-causa-hydration-divergent-marker',
+      'rf-causa-hydration-hypothesis',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected populated-branch surface '${populatedTestid}' to be absent on no-SSR counter.`,
+        );
+      }
+    }
+    if ((await page.locator('[data-testid^="rf-causa-hydration-hash-chip-"]').count()) !== 0) {
+      throw new Error('Expected no hash chips on no-SSR counter (populated branch only).');
+    }
+    if ((await page.locator('[data-testid^="rf-causa-hydration-tree-pane-"]').count()) !== 0) {
+      throw new Error('Expected no tree panes on no-SSR counter (populated branch only).');
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const hydrationPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => hydrationPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade selection preserved after Hydration round-trip (=${firstRowDispatchId})`,
+      5000,
+    );
+
+    // ----------------------------------------------------------------
+    // 10h. Machine Inspector (rf2-5aw5v.1 — L-1).
+    //
+    // The counter example registers no machines via `rf/reg-machine`
+    // (Spec 005). The panel mounts on the `:no-machines` empty-state
+    // branch. The walk asserts:
+    //
+    //   - sidebar pivot → machines lands on `rf-causa-machine-
+    //     inspector`
+    //   - `rf-causa-machine-inspector-empty` is the active body
+    //   - the populated-branch surfaces are all absent:
+    //     - `rf-causa-machine-inspector-picker` (machine selector)
+    //     - `rf-causa-machine-inspector-picker-select` (the <select>)
+    //     - `rf-causa-machine-inspector-placeholder-banner` (the
+    //       MachineChart placeholder banner)
+    //     - `rf-causa-machine-inspector-placeholder` (the prop-map
+    //       placeholder when a machine is selected)
+    //     - `rf-causa-machine-inspector-placeholder-empty` (the
+    //       no-selection variant of the placeholder)
+    //     - `rf-causa-machine-inspector-ribbon-list` (the transition-
+    //       history list)
+    //     - `rf-causa-machine-inspector-transition-*` (per-transition
+    //       rows)
+    //   - the transition-ribbon section IS NOT mounted in the empty
+    //     branch — the `(if = :no-machines empty-kind ...)` gate
+    //     swaps the entire body for the empty state
+    //   - sidebar round-trip back to event-detail preserves the
+    //     previously-selected cascade dispatch-id (same cross-panel
+    //     selection invariant exercised throughout this section)
+    //
+    // The full feature path (deep hierarchical/parallel machine with
+    // nested states, child actors, invoked work, timers, guard/action
+    // failure, transition history) needs the testbeds/deep_machine
+    // testbed wired through the rigorous compile graph. Matrix row
+    // 74 (Machines) flips from `deferred (rf2-gdqm1)` to `partial`
+    // — the empty-branch shape + populated-surface absence
+    // invariants are pinned; the deep-machine populated walks remain
+    // follow-on under rf2-gdqm1.
+    // ----------------------------------------------------------------
+    await clickSidebar(page, 'machines', 'rf-causa-machine-inspector');
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-machine-inspector-empty"]'),
+      5000,
+    );
+    for (const populatedTestid of [
+      'rf-causa-machine-inspector-picker',
+      'rf-causa-machine-inspector-picker-select',
+      'rf-causa-machine-inspector-placeholder-banner',
+      'rf-causa-machine-inspector-placeholder',
+      'rf-causa-machine-inspector-placeholder-empty',
+      'rf-causa-machine-inspector-ribbon-list',
+      'rf-causa-machine-inspector-ribbon-empty',
+    ]) {
+      if ((await page.locator(`[data-testid="${populatedTestid}"]`).count()) !== 0) {
+        throw new Error(
+          `Expected '${populatedTestid}' to be absent on no-machines counter (the empty branch swaps the whole body).`,
+        );
+      }
+    }
+    if ((await page.locator('[data-testid^="rf-causa-machine-inspector-transition-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no transition rows on no-machines counter (populated branch only).',
+      );
+    }
+    if ((await page.locator('[data-testid^="rf-causa-machine-inspector-prop-"]').count()) !== 0) {
+      throw new Error(
+        'Expected no prop rows on no-machines counter (populated branch only).',
+      );
+    }
+    // Sidebar round-trip — same cross-panel selection invariant.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const machinesPivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => machinesPivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === firstRowDispatchId,
+      `event-detail cascade selection preserved after Machines round-trip (=${firstRowDispatchId})`,
+      5000,
+    );
   },
 };
