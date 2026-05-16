@@ -55,7 +55,7 @@ This catalogue is a **projection** of shapes that originate in the owning per-Sp
 | Header | Purpose | Required |
 |---|---|---|
 | `> **Layer:**` | Already present — names one of Runtime / Public / Conformance (per [§Schema layers](#schema-layers)). | Yes |
-| `> **Owner:**` | The canonical owning spec doc — `[NNN-DocName](NNN-DocName.md)` or `[Doc.md](Doc.md)`. The owner carries the load-bearing semantics; this catalogue carries the shape. | Yes |
+| `> **Owner:**` | The canonical owning spec doc — write as a markdown link, e.g. `[002-Frames](002-Frames.md)` or `[Ownership.md](Ownership.md)`. The owner carries the load-bearing semantics; this catalogue carries the shape. | Yes |
 | `> **Status:**` | One of `v1-required` / `v1 (optional capability)` / `post-v1` / `dev-tier`. Mirrors the [API.md](API.md) status vocabulary so a reader can map a schema row to its API surface. | Yes |
 | `> **Conformance:**` | Pointer to the conformance fixture(s) (`spec/conformance/fixtures/<name>.edn`) or per-artefact test (`implementation/<artefact>/test/...`) that asserts the schema holds. Optional when no harness asserts the schema directly (rare — most v1-required shapes have fixture coverage). | When fixture/test exists |
 
