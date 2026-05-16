@@ -97,7 +97,16 @@
   `idx` is a 0-based index into the variant's `:epoch-ids` vector.
   Pass nil to release — the canvas reverts to the post-play app-db
   (we restore against the last epoch-id in the slice, which is the
-  play-sequence's terminal state)."
+  play-sequence's terminal state).
+
+  No-ops while the slot's `:running?` is true (rf2-tistm). A
+  scrubber-tick during an in-flight `reset-variant` would race
+  `store-result!`: the restore would land against the frame being
+  reset, the new `:epoch-ids` would overwrite the slice, and
+  `:selected-step` would silently index a different epoch (or no
+  epoch at all). Better to drop the click than to corrupt the
+  scrubber state — the slot's epoch-ids may change shape under
+  it on resolve."
   [variant-id idx]
   (let [s          (get @results-atom variant-id)
         epoch-ids  (or (:epoch-ids s) [])
@@ -112,17 +121,22 @@
                      (peek epoch-ids)
 
                      :else nil)]
-    (swap! results-atom assoc-in [variant-id :selected-step] idx)
-    (when target-id
-      (epoch/restore-epoch variant-id target-id))))
+    (when-not (:running? s)
+      (swap! results-atom assoc-in [variant-id :selected-step] idx)
+      (when target-id
+        (epoch/restore-epoch variant-id target-id)))))
 
 (defn toggle-expanded!
-  [variant-id idx]
+  "Toggle the expand state of an assertion row, keyed by stable
+  identity (`row-key`, derived from `assertion-row :label`) rather
+  than positional index (rf2-tistm). A re-run that reorders or
+  inserts assertions would otherwise open the wrong row."
+  [variant-id row-key]
   (swap! results-atom update-in [variant-id :expanded]
          (fn [s] (let [s (or s #{})]
-                   (if (contains? s idx)
-                     (disj s idx)
-                     (conj s idx))))))
+                   (if (contains? s row-key)
+                     (disj s row-key)
+                     (conj s row-key))))))
 
 (defn run-variant-pane!
   "Drive a fresh `reset-variant` against the variant's frame and

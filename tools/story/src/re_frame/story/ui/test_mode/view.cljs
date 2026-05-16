@@ -314,10 +314,17 @@
               [:th {:style (:th styles)} "assertion"]
               [:th {:style (:th styles)} "detail"]]]
             [:tbody
+             ;; rf2-tistm — :expanded is keyed by the row's stable
+             ;; identity (:row-key from assertion-row, the rendered
+             ;; label string) rather than positional index. A re-run
+             ;; that reorders or inserts assertions (e.g. a new :play
+             ;; step lands between two existing ones) would otherwise
+             ;; open the wrong row.
              (for [[i row] (map-indexed vector rows)]
-               (let [open? (contains? expanded i)
+               (let [rk    (:row-key row)
+                     open? (contains? expanded rk)
                      fail? (= :fail (:status row))]
-                 ^{:key i}
+                 ^{:key (str rk "#" i)}
                  [:tr {:data-test     "story-test-row"
                        :data-status   (name (:status row))
                        :data-assertion (str (:assertion row))
@@ -332,7 +339,7 @@
                      [:div
                       [:button
                        {:style    (:details-tog styles)
-                        :on-click (fn [_] (state/toggle-expanded! variant-id i))
+                        :on-click (fn [_] (state/toggle-expanded! variant-id rk))
                         :aria-expanded (if open? "true" "false")}
                        (if open? "hide detail" "show detail")]
                       (when open? (row-detail (:detail row)))]
