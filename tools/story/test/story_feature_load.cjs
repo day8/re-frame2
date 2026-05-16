@@ -14,57 +14,31 @@ const {
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
 
-const MATRIX_FEATURES = [
-  'Canonical vocabulary install',
-  'reg-story',
-  'reg-variant',
-  'Combined reg-story Form B',
-  'reg-workspace layouts',
-  'reg-decorator composition',
-  'reg-story-panel',
-  'reg-tag and sidebar filters',
-  'Sidebar tag-as-badge',
-  'reg-mode and toolbar',
-  'Args precedence',
-  'Controls scalar widgets',
-  'Controls nested widgets',
-  'Schema/args validation panel',
-  'Per-variant frame allocation',
-  'Lifecycle phases',
-  'Loader completion',
-  'Error projection',
-  'Snapshot identity',
-  'Destroy/reset/watch variant API',
-  'Assertion events',
-  'force-fx-stub',
-  'Async/fx failure',
-  'Render shell mount/unmount',
-  'Sidebar navigation',
-  'Command palette',
-  'Mode tabs',
-  'Docs mode',
-  'Test mode pane',
-  'Chrome test widget',
-  'Test watch mode',
-  'Actions panel',
-  'Trace panel',
-  'Scrubber',
-  'Trace/scrubber cross-reference',
-  'A11y panel',
-  'Layout-debug overlays',
-  'Share and QR',
-  'Recorder / test codegen',
-  'Save current canvas state',
-  'Open in editor',
-  'First-visit help overlay',
-  'MCP read/write boundary',
-  'Multi-substrate rendering',
-  'Static build',
-  'Production elision',
-  'Bundle size comparison',
-  'Third-party egress',
-  'Hot reload / fingerprint drift',
-];
+/*
+ * Truth-in-advertising contract for this gate (rf2-416i7).
+ *
+ * `COVERAGE_MATRIX` below is the single source of feature rows AND the
+ * declaration of how each row is exercised. Every row has a `kind`:
+ *
+ *   - 'probe'    : this gate runs `probe(page, phase)` for the row and the
+ *                  function actually exercises the feature the row names.
+ *                  A probe MUST NOT be reused for a differently named row
+ *                  unless it genuinely exercises both — aliasing
+ *                  (one probe pretending to cover unrelated rows) is the
+ *                  exact anti-pattern this matrix forbids
+ *                  (`spec/015-Test-Coverage.md` status vocabulary).
+ *   - 'owned-by' : this gate does NOT probe the row. Coverage belongs to
+ *                  another command listed in the matrix doc, named in
+ *                  `gate` here, with a one-line `why` explaining the
+ *                  out-of-scope reason. The driver records the row as
+ *                  declared-out-of-scope rather than running a probe that
+ *                  would not exercise the named feature.
+ *
+ * To add a new MATRIX_FEATURES row, append to `COVERAGE_MATRIX` with the
+ * right kind. Never wire a probe whose body does not exercise the row's
+ * feature — demote to 'owned-by' instead and name the owning gate.
+ */
+
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -980,7 +954,7 @@ async function assertTestWidgetAndWatch(page) {
   await watch.click();
 }
 
-async function assertActionsTraceScrubberExactBurst(page) {
+async function assertActionsScrubberExactBurst(page) {
   await ensureCounterLoaded(page);
   const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
   for (let i = 0; i < 10; i += 1) {
@@ -1000,196 +974,438 @@ async function assertActionsTraceScrubberExactBurst(page) {
   );
 }
 
-const FEATURE_CHECKS = {
-  'Canonical vocabulary install': assertSidebarTagsAndFilters,
-  'reg-story': async (page) => {
-    await assertHealthyLoaded(page);
-    await setMode(page, 'docs');
-    await assertMainContains(page, 'parent story: :story.counter');
+async function assertTracePanelCascadeRows(page) {
+  await ensureCounterLoaded(page);
+  const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
+  await canvas.locator('[data-test="inc"]').first().click();
+  await canvas.locator('[data-test="dec"]').first().click();
+  await waitForValue(
+    () => page.locator('[data-test="story-trace-cascade-row"]').count(),
+    (count) => count >= 2,
+    {
+      timeoutMs: 10000,
+      description: 'trace panel renders at least two cascade rows after dispatches',
+    },
+  );
+}
+
+async function assertSidebarNavigationSelectsEveryRow(page) {
+  await gotoStoryShell(page, '/counter-with-stories/#/stories');
+  for (const [slash, vid, count] of [
+    ['/empty', ':story.counter/empty', 0],
+    ['/loaded', ':story.counter/loaded', 7],
+    ['/clicked-three-times', ':story.counter/clicked-three-times', 3],
+    ['/save-stubbed', ':story.counter/save-stubbed', 5],
+  ]) {
+    await clickVariant(page, slash);
     await setMode(page, 'dev');
+    await waitForCanvasVariant(page, vid);
+    await expectTextEquals(
+      page.locator(`[data-test-variant="${vid}"] [data-test="count"]`).first(),
+      String(count),
+      10000,
+    );
+  }
+}
+
+async function assertArgsPrecedence(page) {
+  // Pins the matrix-doc claim "global < mode < story < variant < controls".
+  // Sequence: confirm the variant-level :count seed (7) wins over the
+  // story-level seed; flip a toolbar mode to prove it applies; finally
+  // override :label via controls and assert the controls-level value
+  // wins over story/variant defaults.
+  await ensureCounterLoaded(page);
+  const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
+  await expectTextEquals(canvas.locator('[data-test="count"]').first(), '7', 10000);
+
+  await resetToolbarModes(page);
+  await setToolbarMode(page, ':Mode.app/dark');
+  const aside = page.getByRole('complementary');
+  const labelInput = aside.locator('[data-controls-arg=":label"] input[type="text"]').first();
+  await labelInput.waitFor({ state: 'visible', timeout: 5000 });
+  await labelInput.fill('Controls Wins');
+  await expectVisible(canvas.getByText('Controls Wins', { exact: false }).first(), 5000);
+
+  // Reset controls — the variant-level default re-emerges, proving the
+  // controls layer is the only thing that was shadowing it.
+  await aside.getByRole('button', { name: /reset overrides/i }).first().click();
+  await waitForValue(
+    () => canvas.getByText('Controls Wins', { exact: false }).count(),
+    (n) => n === 0,
+    { timeoutMs: 5000, description: 'controls override cleared once reset' },
+  );
+  await expectVisible(canvas.getByText('Total', { exact: false }).first(), 5000);
+  await resetToolbarModes(page);
+}
+
+const COVERAGE_MATRIX = [
+  // ── reg-* / vocabulary surfaces ────────────────────────────────────
+  {
+    feature: 'Canonical vocabulary install',
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: 'vocabulary registration is a registry-level invariant, not a browser-visible feature; the only honest probe is a CLJS registry check.',
   },
-  'reg-variant': async (page) => {
-    for (const [slash, vid, count] of [
-      ['/empty', ':story.counter/empty', 0],
-      ['/loaded', ':story.counter/loaded', 7],
-      ['/clicked-three-times', ':story.counter/clicked-three-times', 3],
-      ['/save-stubbed', ':story.counter/save-stubbed', 5],
-    ]) {
-      await assertMatrixVariant(page, slash, vid, count);
+  {
+    feature: 'reg-story',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertHealthyLoaded(page);
+      await setMode(page, 'docs');
+      await assertMainContains(page, 'parent story: :story.counter');
+      await setMode(page, 'dev');
+    },
+  },
+  {
+    feature: 'reg-variant',
+    kind: 'probe',
+    probe: async (page) => {
+      for (const [slash, vid, count] of [
+        ['/empty', ':story.counter/empty', 0],
+        ['/loaded', ':story.counter/loaded', 7],
+        ['/clicked-three-times', ':story.counter/clicked-three-times', 3],
+        ['/save-stubbed', ':story.counter/save-stubbed', 5],
+      ]) {
+        await assertMatrixVariant(page, slash, vid, count);
+      }
+    },
+  },
+  {
+    feature: 'Combined reg-story Form B',
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: 'Form B desugaring is a macro/registration shape comparison; the browser shell cannot distinguish Form A from Form B at runtime.',
+  },
+  { feature: 'reg-workspace layouts', kind: 'probe', probe: assertWorkspaceLayouts },
+  {
+    feature: 'reg-decorator composition',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertMatrixVariant(page, '/clicked-three-times', ':story.counter/clicked-three-times', 3);
+      await assertMainContains(page, 'decorator: story-level');
+      await assertMainContains(page, 'decorator: variant-level');
+      await clickVariant(page, '/loaded');
+      await waitForCanvasVariant(page, ':story.counter/loaded');
+      await assertMainContains(page, 'decorator: story-level');
+      await assertMainNotContains(page, 'decorator: variant-level');
+      await assertDecoratorFailure(page);
+    },
+  },
+  {
+    feature: 'reg-story-panel',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await waitForValue(
+        () => page.locator('[data-test="parity"]').count(),
+        (count) => count >= 2,
+        { timeoutMs: 5000, description: 'custom notes panel parity badge' },
+      );
+    },
+  },
+  { feature: 'reg-tag and sidebar filters', kind: 'probe', probe: assertSidebarTagsAndFilters },
+  { feature: 'Sidebar tag-as-badge', kind: 'probe', probe: assertSidebarTagsAndFilters },
+  {
+    feature: 'reg-mode and toolbar',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      const toolbar = page.locator('[data-test="story-toolbar"]');
+      await toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').click();
+      await waitForValue(
+        () => toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').getAttribute('aria-pressed'),
+        (value) => value === 'true',
+        { timeoutMs: 5000, description: 'sepia toolbar mode active' },
+      );
+      await toolbar.locator('[data-test="story-toolbar-reset"]').click();
+    },
+  },
+  { feature: 'Args precedence', kind: 'probe', probe: assertArgsPrecedence },
+  {
+    feature: 'Controls scalar widgets',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      const input = page.getByRole('complementary').locator('[data-controls-arg=":label"] input').first();
+      await input.fill('Scalar Matrix');
+      await assertMainContains(page, 'Scalar Matrix');
+      await page.getByRole('complementary').getByRole('button', { name: /reset overrides/i }).first().click();
+    },
+  },
+  { feature: 'Controls nested widgets', kind: 'probe', probe: assertNestedControls },
+  { feature: 'Schema/args validation panel', kind: 'probe', probe: assertSchemaInvalid },
+  { feature: 'Per-variant frame allocation', kind: 'probe', probe: assertIsolationPair },
+  { feature: 'Lifecycle phases', kind: 'probe', probe: assertLoaderCompletionVariants },
+  { feature: 'Loader completion', kind: 'probe', probe: assertLoaderCompletionVariants },
+  {
+    feature: 'Error projection',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertDiagnostics(page, 'matrix');
+      await assertDecoratorFailure(page);
+      await assertRenderFailure(page);
+    },
+  },
+  {
+    feature: 'Snapshot identity',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertSnapshotIdentityStable(page);
+    },
+  },
+  {
+    feature: 'Destroy/reset/watch variant API',
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: 'reset-variant / watch-variant / destroy-variant! are CLJS APIs without a dedicated shell surface; the isolation-pair shell test covers a different contract (frame allocation).',
+  },
+  {
+    feature: 'Assertion events',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await setMode(page, 'test');
+      await assertTestPaneStatus(page, /3\s+passed/i, 'loaded assertions pass');
+      await assertNoPlayEmptyState(page);
+    },
+  },
+  {
+    feature: 'force-fx-stub',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertMatrixVariant(page, '/save-stubbed', ':story.counter/save-stubbed', 5);
+      await setMode(page, 'test');
+      await assertTestPaneStatus(page, /passed/i, 'force-fx-stub test passes');
+      await setMode(page, 'dev');
+    },
+  },
+  {
+    feature: 'Async/fx failure',
+    kind: 'probe',
+    probe: async (page) => {
+      await gotoStoryShell(page, '/login-form/#/stories');
+      await clickVariant(page, '/error');
+      await expectVisible(page.locator('[data-test="login-error"]'), 10000);
+    },
+  },
+  {
+    feature: 'Render shell mount/unmount',
+    kind: 'probe',
+    probe: async (page) => {
+      await gotoStoryShell(page, '/counter-with-stories/#/stories');
+      await expectVisible(page.getByRole('navigation'), 5000);
+      await page.evaluate(() => { window.location.hash = '#/'; });
+      await expectVisible(page.locator('[data-test="count"]').first(), 10000);
+      await gotoStoryShell(page, '/counter-with-stories/#/stories');
+    },
+  },
+  { feature: 'Sidebar navigation', kind: 'probe', probe: assertSidebarNavigationSelectsEveryRow },
+  { feature: 'Command palette', kind: 'probe', probe: assertCommandPalette },
+  {
+    feature: 'Mode tabs',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await setMode(page, 'docs');
+      await setMode(page, 'test');
+      await setMode(page, 'dev');
+    },
+  },
+  {
+    feature: 'Docs mode',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await setMode(page, 'docs');
+      await expectVisible(page.locator('[data-test="story-docs-view"]'), 5000);
+      await setMode(page, 'dev');
+    },
+  },
+  {
+    feature: 'Test mode pane',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await setMode(page, 'test');
+      await assertTestPaneStatus(page, /3\s+passed/i, 'test mode pane passes');
+      await assertNoPlayEmptyState(page);
+    },
+  },
+  { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetAndWatch },
+  { feature: 'Test watch mode', kind: 'probe', probe: assertTestWidgetAndWatch },
+  { feature: 'Actions panel', kind: 'probe', probe: assertActionsScrubberExactBurst },
+  { feature: 'Trace panel', kind: 'probe', probe: assertTracePanelCascadeRows },
+  { feature: 'Scrubber', kind: 'probe', probe: assertActionsScrubberExactBurst },
+  {
+    feature: 'Trace/scrubber cross-reference',
+    kind: 'probe',
+    probe: async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+  },
+  {
+    feature: 'A11y panel',
+    kind: 'probe',
+    probe: async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+  },
+  {
+    feature: 'Layout-debug overlays',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      const outline = page.getByRole('complementary')
+        .locator('label', { hasText: ':rf.story/layout-debug.outline' })
+        .first();
+      await outline.click();
+      await outline.click();
+    },
+  },
+  {
+    feature: 'Share and QR',
+    kind: 'probe',
+    probe: async (page, phase) => {
+      await assertShareUrlIntegrity(page, phase);
+    },
+  },
+  { feature: 'Recorder / test codegen', kind: 'probe', probe: assertToolbarRecorder },
+  {
+    feature: 'Save current canvas state',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await page.locator('[data-test="story-save-variant-button"]').click();
+      await expectTextContains(page.locator('[data-test="story-save-variant-snippet"]'), 'reg-variant', 5000);
+      await page.locator('[data-test="story-save-variant-close"]').click();
+    },
+  },
+  {
+    feature: 'Open in editor',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
+    },
+  },
+  {
+    feature: 'First-visit help overlay',
+    kind: 'probe',
+    probe: async (page) => {
+      await ensureCounterLoaded(page);
+      await page.getByRole('button', { name: /Show playground help/i }).click();
+      await expectVisible(page.getByRole('dialog', { name: /Story playground help/i }), 5000);
+      await page.getByRole('button', { name: /Got it/i }).click();
+    },
+  },
+  {
+    feature: 'MCP read/write boundary',
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: 'MCP read/write primitives are a CLJS API contract; the feature-load browser gate has no MCP bridge surface to call.',
+  },
+  { feature: 'Multi-substrate rendering', kind: 'probe', probe: assertMultiSubstrate },
+  {
+    feature: 'Static build',
+    kind: 'owned-by',
+    gate: 'npm run story:build / npm run test:story-static',
+    why: 'static export is produced by a build step and asserted by the static gate; the feature-load gate runs against the live shell, not the static output.',
+  },
+  {
+    feature: 'Production elision',
+    kind: 'owned-by',
+    gate: 'npm run test:bundle-isolation',
+    why: 'elision is asserted by grepping production bundle outputs; nothing about the feature-load shell exercises a production-elided bundle.',
+  },
+  {
+    feature: 'Bundle size comparison',
+    kind: 'owned-by',
+    gate: 'node ../tools/story/bench/bundle-size.cjs',
+    why: 'bundle-size deltas are measured by a dedicated bench against built outputs; the feature-load shell cannot observe its own bundle size.',
+  },
+  {
+    feature: 'Third-party egress',
+    kind: 'probe',
+    probe: async (page) => {
+      await assertHealthyLoaded(page);
+      await assertShareUrlIntegrity(page, 'egress');
+      await assertNoRecordedRequestMatching(
+        page,
+        /api\.qrserver|chart\.google|quickchart|qrcode/i,
+        'QR/share should stay local and must not request a QR service',
+      );
+      await assertNoRecordedRequestMatching(
+        page,
+        /axe-core|cdnjs|unpkg|jsdelivr/i,
+        'a11y CDN should not load without explicit opt-in',
+      );
+      await assertNoUnexpectedThirdPartyEgress(page);
+    },
+  },
+  {
+    feature: 'Hot reload / fingerprint drift',
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: 'fingerprint drift detection needs a registration mutation under a watch driver; the feature-load gate has no hook for live re-registration, so any browser-only probe would be a smoke test of an unrelated surface.',
+  },
+];
+
+const MATRIX_FEATURES = COVERAGE_MATRIX.map((row) => row.feature);
+
+function validateCoverageMatrix() {
+  const seen = new Set();
+  for (const row of COVERAGE_MATRIX) {
+    if (typeof row.feature !== 'string' || row.feature.length === 0) {
+      throw new Error(`COVERAGE_MATRIX row missing feature name: ${JSON.stringify(row)}`);
     }
-  },
-  'Combined reg-story Form B': assertHealthyLoaded,
-  'reg-workspace layouts': assertWorkspaceLayouts,
-  'reg-decorator composition': async (page) => {
-    await assertMatrixVariant(page, '/clicked-three-times', ':story.counter/clicked-three-times', 3);
-    await assertMainContains(page, 'decorator: story-level');
-    await assertMainContains(page, 'decorator: variant-level');
-    await clickVariant(page, '/loaded');
-    await waitForCanvasVariant(page, ':story.counter/loaded');
-    await assertMainContains(page, 'decorator: story-level');
-    await assertMainNotContains(page, 'decorator: variant-level');
-    await assertDecoratorFailure(page);
-  },
-  'reg-story-panel': async (page) => {
-    await ensureCounterLoaded(page);
-    await waitForValue(
-      () => page.locator('[data-test="parity"]').count(),
-      (count) => count >= 2,
-      { timeoutMs: 5000, description: 'custom notes panel parity badge' },
-    );
-  },
-  'reg-tag and sidebar filters': assertSidebarTagsAndFilters,
-  'Sidebar tag-as-badge': assertSidebarTagsAndFilters,
-  'reg-mode and toolbar': async (page) => {
-    await ensureCounterLoaded(page);
-    const toolbar = page.locator('[data-test="story-toolbar"]');
-    await toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').click();
-    await waitForValue(
-      () => toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]').getAttribute('aria-pressed'),
-      (value) => value === 'true',
-      { timeoutMs: 5000, description: 'sepia toolbar mode active' },
-    );
-    await toolbar.locator('[data-test="story-toolbar-reset"]').click();
-  },
-  'Args precedence': async (page) => {
-    await ensureCounterLoaded(page);
-    await expectVisible(
-      page.locator('[data-test-variant=":story.counter/loaded"]').getByText('Total', { exact: false }).first(),
-      5000,
-    );
-  },
-  'Controls scalar widgets': async (page) => {
-    await ensureCounterLoaded(page);
-    const input = page.getByRole('complementary').locator('[data-controls-arg=":label"] input').first();
-    await input.fill('Scalar Matrix');
-    await assertMainContains(page, 'Scalar Matrix');
-    await page.getByRole('complementary').getByRole('button', { name: /reset overrides/i }).first().click();
-  },
-  'Controls nested widgets': assertNestedControls,
-  'Schema/args validation panel': assertSchemaInvalid,
-  'Per-variant frame allocation': assertIsolationPair,
-  'Lifecycle phases': assertLoaderCompletionVariants,
-  'Loader completion': assertLoaderCompletionVariants,
-  'Error projection': async (page) => {
-    await assertDiagnostics(page, 'matrix');
-    await assertDecoratorFailure(page);
-    await assertRenderFailure(page);
-  },
-  'Snapshot identity': async (page) => {
-    await assertSnapshotIdentityStable(page);
-  },
-  'Destroy/reset/watch variant API': assertIsolationPair,
-  'Assertion events': async (page) => {
-    await ensureCounterLoaded(page);
-    await setMode(page, 'test');
-    await assertTestPaneStatus(page, /3\s+passed/i, 'loaded assertions pass');
-    await assertNoPlayEmptyState(page);
-  },
-  'force-fx-stub': async (page) => {
-    await assertMatrixVariant(page, '/save-stubbed', ':story.counter/save-stubbed', 5);
-    await setMode(page, 'test');
-    await assertTestPaneStatus(page, /passed/i, 'force-fx-stub test passes');
-    await setMode(page, 'dev');
-  },
-  'Async/fx failure': async (page) => {
-    await gotoStoryShell(page, '/login-form/#/stories');
-    await clickVariant(page, '/error');
-    await expectVisible(page.locator('[data-test="login-error"]'), 10000);
-  },
-  'Render shell mount/unmount': async (page) => {
-    await gotoStoryShell(page, '/counter-with-stories/#/stories');
-    await expectVisible(page.getByRole('navigation'), 5000);
-    await page.evaluate(() => { window.location.hash = '#/'; });
-    await expectVisible(page.locator('[data-test="count"]').first(), 10000);
-    await gotoStoryShell(page, '/counter-with-stories/#/stories');
-  },
-  'Sidebar navigation': assertHealthyLoaded,
-  'Command palette': assertCommandPalette,
-  'Mode tabs': async (page) => {
-    await ensureCounterLoaded(page);
-    await setMode(page, 'docs');
-    await setMode(page, 'test');
-    await setMode(page, 'dev');
-  },
-  'Docs mode': async (page) => {
-    await ensureCounterLoaded(page);
-    await setMode(page, 'docs');
-    await expectVisible(page.locator('[data-test="story-docs-view"]'), 5000);
-    await setMode(page, 'dev');
-  },
-  'Test mode pane': async (page) => {
-    await ensureCounterLoaded(page);
-    await setMode(page, 'test');
-    await assertTestPaneStatus(page, /3\s+passed/i, 'test mode pane passes');
-    await assertNoPlayEmptyState(page);
-  },
-  'Chrome test widget': assertTestWidgetAndWatch,
-  'Test watch mode': assertTestWidgetAndWatch,
-  'Actions panel': assertActionsTraceScrubberExactBurst,
-  'Trace panel': assertActionsTraceScrubberExactBurst,
-  'Scrubber': assertActionsTraceScrubberExactBurst,
-  'Trace/scrubber cross-reference': async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
-  'A11y panel': async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
-  'Layout-debug overlays': async (page) => {
-    await ensureCounterLoaded(page);
-    const outline = page.getByRole('complementary')
-      .locator('label', { hasText: ':rf.story/layout-debug.outline' })
-      .first();
-    await outline.click();
-    await outline.click();
-  },
-  'Share and QR': async (page, phase) => {
-    await assertShareUrlIntegrity(page, phase);
-  },
-  'Recorder / test codegen': assertToolbarRecorder,
-  'Save current canvas state': async (page) => {
-    await ensureCounterLoaded(page);
-    await page.locator('[data-test="story-save-variant-button"]').click();
-    await expectTextContains(page.locator('[data-test="story-save-variant-snippet"]'), 'reg-variant', 5000);
-    await page.locator('[data-test="story-save-variant-close"]').click();
-  },
-  'Open in editor': async (page) => {
-    await ensureCounterLoaded(page);
-    await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
-  },
-  'First-visit help overlay': async (page) => {
-    await ensureCounterLoaded(page);
-    await page.getByRole('button', { name: /Show playground help/i }).click();
-    await expectVisible(page.getByRole('dialog', { name: /Story playground help/i }), 5000);
-    await page.getByRole('button', { name: /Got it/i }).click();
-  },
-  'MCP read/write boundary': assertHealthyLoaded,
-  'Multi-substrate rendering': assertMultiSubstrate,
-  'Static build': assertHealthyLoaded,
-  'Production elision': assertHealthyLoaded,
-  'Bundle size comparison': assertHealthyLoaded,
-  'Third-party egress': async (page) => {
-    await assertHealthyLoaded(page);
-    await assertShareUrlIntegrity(page, 'egress');
-    await assertNoRecordedRequestMatching(
-      page,
-      /api\.qrserver|chart\.google|quickchart|qrcode/i,
-      'QR/share should stay local and must not request a QR service',
-    );
-    await assertNoRecordedRequestMatching(
-      page,
-      /axe-core|cdnjs|unpkg|jsdelivr/i,
-      'a11y CDN should not load without explicit opt-in',
-    );
-    await assertNoUnexpectedThirdPartyEgress(page);
-  },
-  'Hot reload / fingerprint drift': assertTestWidgetAndWatch,
-};
+    if (seen.has(row.feature)) {
+      throw new Error(`COVERAGE_MATRIX has duplicate feature row: ${row.feature}`);
+    }
+    seen.add(row.feature);
+    if (row.kind === 'probe') {
+      if (typeof row.probe !== 'function') {
+        throw new Error(
+          `COVERAGE_MATRIX row '${row.feature}' kind=probe requires a probe function`,
+        );
+      }
+    } else if (row.kind === 'owned-by') {
+      if (typeof row.gate !== 'string' || row.gate.length === 0) {
+        throw new Error(
+          `COVERAGE_MATRIX row '${row.feature}' kind=owned-by requires a gate string`,
+        );
+      }
+      if (typeof row.why !== 'string' || row.why.length === 0) {
+        throw new Error(
+          `COVERAGE_MATRIX row '${row.feature}' kind=owned-by requires a why string`,
+        );
+      }
+      if (row.probe != null) {
+        throw new Error(
+          `COVERAGE_MATRIX row '${row.feature}' kind=owned-by must not carry a probe (would re-introduce aliasing)`,
+        );
+      }
+    } else {
+      throw new Error(
+        `COVERAGE_MATRIX row '${row.feature}' has unknown kind '${row.kind}'`,
+      );
+    }
+  }
+}
 
 async function assertCoverageMatrix(page, phase) {
-  const missing = MATRIX_FEATURES.filter((feature) => !FEATURE_CHECKS[feature]);
-  if (missing.length > 0) {
-    throw new Error(`missing Story feature-load checks: ${missing.join(', ')}`);
+  validateCoverageMatrix();
+  const skipped = [];
+  for (const row of COVERAGE_MATRIX) {
+    if (row.kind === 'probe') {
+      await step(page, phase, row.feature, async () => {
+        await row.probe(page, phase);
+      });
+    } else {
+      skipped.push(`  - ${row.feature} (owned-by: ${row.gate})`);
+    }
   }
-  for (const feature of MATRIX_FEATURES) {
-    await step(page, phase, feature, async () => {
-      await FEATURE_CHECKS[feature](page, phase);
-    });
+  if (skipped.length > 0 && process.env.RF2_VERBOSE_TESTS === '1') {
+    console.log(
+      `[story_feature_load] phase=${phase} declared out-of-scope rows ` +
+        `(coverage lives elsewhere — do NOT add probes here):\n` +
+        skipped.join('\n'),
+    );
   }
 }
 
