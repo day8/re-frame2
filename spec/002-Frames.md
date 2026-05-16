@@ -1238,6 +1238,8 @@ See [MIGRATION.md](MIGRATION.md) for the migration rules. Single-frame apps need
 
 ## Open questions
 
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Event-id collisions on re-registration", "Sub-cache invalidation across frames", "Concurrent React rendering", "Sub-cache disposal on frame destroy" classify as **`:still-blocking`** for design polish (file a bead to drive each decision); "Transducer-shaped event processing" classifies as **`:post-v1 tracked`** (already tracked at rf2-cl8me). The Frame-presets `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule.
+
 ### Event-id collisions on re-registration
 
 Hot-reloading the same handler under the same id is normal and expected. But re-registering the same id with a *different* handler function — accidentally, e.g. two namespaces colliding — is silent last-write-wins. Should re-frame2 warn at registration time when an id is being re-registered with a function whose source coords don't match the previous registration? Probably yes, with a configurable threshold.
@@ -1262,16 +1264,13 @@ pure-frame implements event processing as a transducer parameterised by the fram
 
 Originally flagged as worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API — but the design pass is non-trivial and overlaps with the router work in [012-Routing.md](012-Routing.md), so the call for v1 is to keep the drain loop and revisit the transducer formulation post-v1.
 
-### Frame presets — initial list and expansion (RESOLVED)
-
-Resolved: the closed v1 set is **`:default`**, **`:test`**, **`:story`**, **`:ssr-server`** with the precise expansions documented in [§Frame presets](#frame-presets--capability-bundles-for-common-configurations). Adding a fifth preset is a Spec-change-only operation; the runtime emits `:rf.error/unknown-preset` for unrecognised preset values at registration time. `:preset` works identically on `make-frame`. The expansion algorithm is `(merge expansion user-supplied-metadata)` with user keys winning on conflict. Candidates considered and not adopted in v1: `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise).
-
 ## Resolved decisions
 
 A pointer-only index of decisions taken in this Spec. Each entry's load-bearing prose lives in the linked section above (or in the linked sibling Spec).
 
 | Decision | Pointer |
 |---|---|
+| Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
 | `reg-frame` re-registration is a surgical update by default; `reset-frame!` is the opt-in full replace; `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame! — full replace, opt-in](#reset-frame--full-replace-opt-in) |
 | `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |

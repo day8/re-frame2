@@ -3118,21 +3118,23 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ## Open questions
 
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Stately.ai compatibility — exact or approximate?" classifies as **`:host-choice`** (paste-and-render is the v1 CLJS reference recommendation; ports may aim higher); "Auto-cleanup of orphaned actors" classifies as **`:post-v1 tracked`** (file a bead to drive the `:owned-by` design when needed). The Globally-registered guards/actions `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule.
+
 ### Stately.ai compatibility — exact or approximate?
 
 Aim for *paste-and-render* compatibility (a re-frame machine definition pastes into stately.ai and renders correctly), accepting some superficial vocabulary differences (e.g. our action ids vs stately's `actions: {...}` map). Or aim for *full bidirectional* compatibility (exact JSON shape parity)?
 
 Recommendation: paste-and-render is the realistic target; full bidirectional is overinvestment unless someone wants to write a stately-driven authoring tool.
 
-### Globally-registered guards/actions vs machine-scoped (RESOLVED)
-
-Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec; transition-table keyword references resolve **machine-locally** at registration time. There is no `reg-machine-guard` / `reg-machine-action` API and no `:machine-guard` / `:machine-action` registry kind. Cross-machine reuse is via Clojure vars (define a var; reference it from each machine's `:guards` / `:actions` map) — no framework support needed beyond ordinary var resolution. See [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and [§Inspectability bias](#inspectability-bias).
-
 ### Auto-cleanup of orphaned actors
 
 When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
 
 ## Resolved decisions
+
+### Globally-registered guards/actions vs machine-scoped (RESOLVED)
+
+Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec; transition-table keyword references resolve **machine-locally** at registration time. There is no `reg-machine-guard` / `reg-machine-action` API and no `:machine-guard` / `:machine-action` registry kind. Cross-machine reuse is via Clojure vars (define a var; reference it from each machine's `:guards` / `:actions` map) — no framework support needed beyond ordinary var resolution. See [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and [§Inspectability bias](#inspectability-bias).
 
 ### Library packaging — in-tree or separate? (RESOLVED)
 
