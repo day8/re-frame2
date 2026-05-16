@@ -342,9 +342,8 @@
     [ai-co-pilot/ai-co-pilot-rail]))
 
 (defn panel-content
-  "Return the hiccup view for a panel id. Shared by the full shell
-  canvas and the inline-panel mount API so embedded panels render the
-  exact same product surface as the docked/overlay shell."
+  "Return the hiccup view for a panel id. Dispatch table for the shell
+  canvas — every sidebar selection resolves to the matching panel view."
   [selected]
   (case selected
     :event-detail [event-detail/event-detail-view]
@@ -373,8 +372,8 @@
   "The full Causa shell. Wraps every panel region in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
   the isolated frame. Default `:inline` mode renders in normal document
-  flow inside the app-provided left layout host. `:overlay`, `:docked`,
-  and `:popout` remain available debug/manual modes.
+  flow inside the app-provided left layout host. `:overlay` and
+  `:popout` remain available debug/manual modes.
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
   shell region. The shell-view itself sits OUTSIDE its own frame-
@@ -424,17 +423,3 @@
      [rail-gate]]
     [bottom-rail]]])
 
-(rf/reg-view inline-panel-view
-  "A single Causa panel mounted outside the shell chrome. Used by the
-  public inline mount API for host pages that want a deterministic
-  embedded diagnostics pane without the overlay/docked sidebar."
-  [{:keys [panel-id]}]
-  [rf/frame-provider {:frame :rf/causa}
-   [:div {:data-testid "rf-causa-inline-panel"
-          :data-panel  (name (or panel-id registry/default-panel-id))
-          :style       {:height      "100%"
-                        :min-height  "240px"
-                        :background  (:bg-2 tokens)
-                        :color       (:text-primary tokens)
-                        :font-family "Inter, system-ui, -apple-system, Segoe UI, sans-serif"}}
-    (panel-content (or panel-id registry/default-panel-id))]])

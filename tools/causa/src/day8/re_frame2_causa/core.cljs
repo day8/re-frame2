@@ -5,8 +5,7 @@
   this namespace is the *one* import users reach for. It re-exports the
   small handful of programmatic entry points enumerated by the spec —
   `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
-  `dock!` / `undock!` / `popout!` / `status` /
-  `mount-inline-panel!` /
+  `popout!` / `status` /
   `target-frame` + `set-target-frame!` / `active-panel` +
   `set-active-panel!` / `load-theme` — plus the boot-time config knob
   surface exposed by `config.cljc` (`configure!` / `set-editor!` /
@@ -86,14 +85,6 @@
   subsequent calls flip visibility."
   mount/toggle!)
 
-(def dock!
-  "Dock Causa against the host page. See `mount/dock!`."
-  mount/dock!)
-
-(def undock!
-  "Return Causa to overlay mode. See `mount/undock!`."
-  mount/undock!)
-
 (def popout!
   "Open Causa in a same-origin second window. See `mount/popout!`."
   mount/popout!)
@@ -102,15 +93,6 @@
   "Return inspectable Causa mount/API status, including the last
   non-blocking diagnostic when the default inline host is missing."
   mount/status)
-
-(def mount-inline-panel!
-  "Render a single Causa panel into a caller-supplied DOM node without
-  shell chrome. See `mount/mount-inline-panel!`."
-  mount/mount-inline-panel!)
-
-(def unmount-inline-panel!
-  "Unmount a panel previously mounted with `mount-inline-panel!`."
-  mount/unmount-inline-panel!)
 
 ;; ---- init! (manual install, alternative to :preloads) ------------------
 

@@ -70,8 +70,7 @@
 
 (defn- reset-mount-state! []
   (reset! @#'mount/mount-state nil)
-  (reset! @#'mount/popout-state nil)
-  (reset! @#'mount/inline-mounts {}))
+  (reset! @#'mount/popout-state nil))
 
 ;; ---- js/document stub ---------------------------------------------------
 ;;
@@ -504,48 +503,6 @@
                  the substrate render must not fire on the four
                  toggle-after-mount transitions")))))))
 
-(deftest dock!-and-undock!-mark-the-mount-surface
-  (testing "dock! makes the shell an explicit docked surface and adds
-            host-page padding; undock! restores overlay mode"
-    (with-stub-document
-      (fn [doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (let [state (mount/dock!)
-                  node  (:node state)]
-              (is (= 1 (count @calls))
-                  "dock! opens the shell on first use")
-              (is (= :docked (:mode state)))
-              (is (= "docked" (.getAttribute node "data-rf-causa-mode")))
-              (is (= "40%" (.. doc -body -style -paddingRight))
-                  "host body is padded so docked Causa does not obscure the app")
-              (mount/undock!)
-              (is (= "overlay" (.getAttribute node "data-rf-causa-mode")))
-              (is (= "" (.. doc -body -style -paddingRight))
-                  "undock! restores host body padding"))))))))
-
-(deftest mount-inline-panel!-renders-panel-without-shell-chrome
-  (testing "mount-inline-panel! renders a single panel into a caller-owned
-            node and records an unmount handle independent of the shell"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls unmount-calls]} (mk-render-stub)
-              host (mk-stub-node)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (let [state (mount/mount-inline-panel! host :event-detail)]
-              (is (true? (:ok? state)))
-              (is (= :inline (:mode state)))
-              (is (= :event-detail (:panel-id state)))
-              (is (= "inline" (.getAttribute host "data-rf-causa-mode")))
-              (is (= 1 (count @calls)))
-              (let [{:keys [tree node opts]} (first @calls)]
-                (is (= host node))
-                (is (nil? opts))
-                (is (vector? tree)))
-              (mount/unmount-inline-panel! host)
-              (is (= 1 @unmount-calls))
-              (is (nil? (.getAttribute host "data-rf-causa-mode"))))))))))
-
 ;; -------------------------------------------------------------------------
 ;; (6) Teardown — full destroy
 ;; -------------------------------------------------------------------------
@@ -857,17 +814,18 @@
                     "app-db container preserved across re-register")))))))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Teardown covers ALL three mount singletons (rf2-yudol)
+;; (9) Teardown covers both mount singletons (rf2-yudol, rf2-sbfb7)
 ;; -------------------------------------------------------------------------
 ;;
 ;; Per the rf2-yudol fix (sourced from audit rf2-a6tvr Q1-1+Q1-2),
-;; `teardown!` must clear all three mount singletons — `mount-state`,
-;; `popout-state`, `inline-mounts` — not just the in-app shell. Before
-;; the fix `teardown!` touched only the first; the other two leaked
-;; across test runs and caused subsequent `(popout!)` / `(mount-inline-
-;; panel!)` calls to short-circuit on stale state. These tests pin the
-;; broadened contract documented in tools/causa/spec/011-Launch-Modes.md
-;; §Mount lifecycle.
+;; `teardown!` must clear both mount singletons — `mount-state` and
+;; `popout-state` — not just the in-app shell. Before the fix
+;; `teardown!` touched only the first; popout leaked across test runs
+;; and caused subsequent `(popout!)` calls to short-circuit on stale
+;; state. (The third pre-existing singleton — `inline-mounts` — went
+;; away under rf2-sbfb7 with the `mount-inline-panel!` debug API.)
+;; These tests pin the broadened contract documented in
+;; tools/causa/spec/011-Launch-Modes.md §Mount lifecycle.
 
 (defn- mk-stub-popout-window
   "Build a fake popout window with enough surface for the popout!
@@ -977,66 +935,9 @@
           (is (true? @closed?)
               "popout window still closed despite the throw"))))))
 
-(deftest teardown!-clears-inline-mounts-and-invokes-each-unmount
-  (testing "rf2-yudol Q1-2: teardown! must iterate every entry in
-            inline-mounts, invoke each unmount fn inside an independent
-            swallow-errors guard, and reset the registry to {}."
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
-              host-a (mk-stub-node)
-              host-b (mk-stub-node)
-              host-c (mk-stub-node)]
-          (with-redefs [substrate-adapter/render render-fn]
-            (mount/mount-inline-panel! host-a :event-detail)
-            (mount/mount-inline-panel! host-b :trace)
-            (mount/mount-inline-panel! host-c :app-db-diff)
-            (is (= 3 (count @@#'mount/inline-mounts))
-                "sanity — three inline-panel mounts registered")
-            (mount/teardown!)
-            (is (= {} @@#'mount/inline-mounts)
-                "inline-mounts reset to empty map")
-            (is (= 3 @unmount-calls)
-                "every inline-panel unmount fn invoked")
-            (is (nil? (.getAttribute host-a "data-rf-causa-mode"))
-                "data-rf-causa-mode attribute removed from each host node")
-            (is (nil? (.getAttribute host-b "data-rf-causa-mode")))
-            (is (nil? (.getAttribute host-c "data-rf-causa-mode")))))))))
-
-(deftest teardown!-swallows-inline-unmount-errors-independently
-  (testing "if one inline-panel unmount throws, teardown! must still
-            invoke the remaining unmounts and clear the registry. The
-            failure isolation matters because the registry can hold
-            mounts from independent caller sites (story-mode embeds,
-            ad-hoc tool integrations) and one buggy site must not
-            poison the whole teardown."
-    (with-stub-document
-      (fn [_doc]
-        (let [calls (atom 0)
-              host-good-1 (mk-stub-node)
-              host-bad    (mk-stub-node)
-              host-good-2 (mk-stub-node)
-              render-stub (fn [_tree node _opts]
-                            (fn []
-                              (swap! calls inc)
-                              (when (identical? node host-bad)
-                                (throw (ex-info "inline unmount blew up"
-                                                {:reason :test})))))]
-          (with-redefs [substrate-adapter/render render-stub]
-            (mount/mount-inline-panel! host-good-1 :event-detail)
-            (mount/mount-inline-panel! host-bad    :trace)
-            (mount/mount-inline-panel! host-good-2 :app-db-diff)
-            (is (= 3 (count @@#'mount/inline-mounts)))
-            (is (nil? (mount/teardown!))
-                "teardown returns nil even when one inline unmount throws")
-            (is (= 3 @calls)
-                "all three unmount fns attempted despite the middle throw")
-            (is (= {} @@#'mount/inline-mounts)
-                "registry cleared despite the middle throw")))))))
-
-(deftest teardown!-clears-all-three-singletons-in-one-call
-  (testing "rf2-yudol: a single teardown! call clears mount-state +
-            popout-state + inline-mounts together. The fixture between
+(deftest teardown!-clears-both-singletons-in-one-call
+  (testing "rf2-yudol + rf2-sbfb7: a single teardown! call clears
+            mount-state + popout-state together. The fixture between
             tests pokes these atoms back to baseline; teardown! itself
             must achieve the same baseline so a test that omits the
             reset (or a tear-down + re-open sequence inside a single
@@ -1044,57 +945,47 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
-              {:keys [window closed?]}          (mk-stub-popout-window)
-              host (mk-stub-node)]
+              {:keys [window closed?]}          (mk-stub-popout-window)]
           (with-redefs [substrate-adapter/render render-fn]
             (mount/open!)
             (seed-popout-state! {:window     window
                                  :unmount-fn (fn []
                                                (swap! unmount-calls inc)
                                                nil)})
-            (mount/mount-inline-panel! host :event-detail)
             (is (some? @@#'mount/mount-state))
             (is (some? @@#'mount/popout-state))
-            (is (= 1 (count @@#'mount/inline-mounts)))
             (mount/teardown!)
             (is (nil? @@#'mount/mount-state)
                 "mount-state cleared")
             (is (nil? @@#'mount/popout-state)
                 "popout-state cleared")
-            (is (= {} @@#'mount/inline-mounts)
-                "inline-mounts cleared")
-            (is (= 3 @unmount-calls)
-                "three unmount fns invoked (in-app shell + popout + one inline)")
+            (is (= 2 @unmount-calls)
+                "two unmount fns invoked (in-app shell + popout)")
             (is (true? @closed?)
                 "popout window closed by teardown!")))))))
 
 (deftest teardown!-isolation-across-multi-run
-  (testing "rf2-yudol regression guard: two consecutive open!/seed-popout/
-            mount-inline-panel! → teardown! cycles must not leak state.
-            Before the fix the second cycle would observe stale popout-
-            state + inline-mounts entries left over from the first run."
+  (testing "rf2-yudol regression guard: two consecutive open!/seed-popout
+            → teardown! cycles must not leak state. Before the fix the
+            second cycle would observe stale popout-state left over from
+            the first run."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)
               cycle! (fn []
-                       (let [{:keys [window]} (mk-stub-popout-window)
-                             host             (mk-stub-node)]
+                       (let [{:keys [window]} (mk-stub-popout-window)]
                          (with-redefs [substrate-adapter/render render-fn]
                            (mount/open!)
                            (seed-popout-state! {:window window})
-                           (mount/mount-inline-panel! host :event-detail)
                            (mount/teardown!))))]
             (cycle!)
             (is (nil? @@#'mount/mount-state))
             (is (nil? @@#'mount/popout-state))
-            (is (= {} @@#'mount/inline-mounts))
             (cycle!)
             (is (nil? @@#'mount/mount-state)
                 "second cycle's teardown still clears mount-state")
             (is (nil? @@#'mount/popout-state)
-                "second cycle's teardown still clears popout-state")
-            (is (= {} @@#'mount/inline-mounts)
-                "second cycle's teardown still clears inline-mounts"))))))
+                "second cycle's teardown still clears popout-state"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (10) Popout external-close → opener-side cleanup (rf2-yudol)
