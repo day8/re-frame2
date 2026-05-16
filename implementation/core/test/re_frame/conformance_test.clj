@@ -17,6 +17,13 @@
             [clojure.edn :as edn]
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
+            ;; rf2-wxe9t — the always-on error-emit substrate (Spec 009
+            ;; §What IS available in production §Error-handler policy)
+            ;; is the fan-out path the conformance runner observes for
+            ;; the `:error-emit-records` expectation. Requiring the ns
+            ;; here makes its registry available without each fixture
+            ;; needing to know which artefact owns the substrate.
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
@@ -206,6 +213,13 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; rf2-wxe9t — drop every corpus-wide error-emit listener so a
+  ;; listener installed by `collect-error-emit-records!` for one
+  ;; fixture cannot fire against the next fixture's drains. The
+  ;; registry is a `defonce` atom inside `re-frame.error-emit`;
+  ;; without an explicit clear, hot-reload semantics keep the prior
+  ;; fixture's recorder alive.
+  (error-emit/clear-error-emit-listeners!)
   ;; rf2-v0jwt — drop the per-frame epoch ring buffer (and the in-flight
   ;; capture buffer) between fixtures so `:epoch-records` assertions
   ;; observe THIS fixture's recorded epochs only.
@@ -521,6 +535,59 @@
   (let [traces (atom [])]
     (trace/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
+
+(defn- collect-error-emit-records!
+  "Per rf2-wxe9t: register a corpus-wide error-emit listener for the
+  duration of `fixture-id`'s run; each tight error-record (the
+  `re-frame.error-emit/dispatch-on-error!` fan-out shape — see
+  `re-frame.error-emit` ns docstring §Record shape) is appended to
+  the returned atom in firing order. The conformance harness uses
+  the captured records to assert the always-on substrate's
+  `:sensitive?` redaction contract host-neutrally.
+
+  The matching `unregister-error-emit-listener!` call happens at the
+  end of `run-fixture` so the listener does NOT leak into the next
+  fixture's drains. `reset-runtime!` also calls
+  `clear-error-emit-listeners!` belt-and-braces for safety."
+  [fixture-id]
+  (let [records (atom [])]
+    (error-emit/register-error-emit-listener!
+      [fixture-id ::records]
+      (fn [record] (swap! records conj record)))
+    records))
+
+(defn- check-error-emit-records
+  "Per rf2-wxe9t: partial-submap matcher for `:error-emit-records`,
+  mirror of `check-trace-emissions`. Expected entries are matched in
+  declaration order; each entry's key/value pairs must appear on an
+  actual record at-or-after the previous match. Returns a vector of
+  failure strings (empty when all matched)."
+  [actual-records expected-records]
+  (loop [actual    actual-records
+         expected  expected-records
+         failures  []]
+    (cond
+      (empty? expected)
+      failures
+
+      (empty? actual)
+      (conj failures (str "expected error-emit record not seen: "
+                          (pr-str (first expected))))
+
+      :else
+      (let [exp (first expected)
+            match-idx (->> actual
+                           (map-indexed vector)
+                           (some (fn [[i a]]
+                                   (when (every? (fn [[k v]]
+                                                   (= v (get a k)))
+                                                 exp)
+                                     i))))]
+        (if match-idx
+          (recur (drop (inc match-idx) actual) (rest expected) failures)
+          (recur actual (rest expected)
+                 (conj failures (str "expected error-emit record not seen: "
+                                     (pr-str exp)))))))))
 
 (defn- submap?
   "True if every key in expected appears in actual with a matching value.
@@ -909,6 +976,16 @@
           ;; (e.g. :rf.warning/route-shadowed-by-equal-score from reg-route)
           ;; are captured. realise-handlers and register-routes! run after.
           traces       (collect-traces fid)
+          ;; rf2-wxe9t — capture the always-on error-emit substrate's
+          ;; tight error-records in parallel with the trace listener.
+          ;; The two paths emit from ONE normative site in the router's
+          ;; handler-exception path (`re-frame.router/emit-handler-
+          ;; exception!`) but carry DIFFERENT shapes: trace gets the
+          ;; `:operation`/`:tags` envelope; the substrate listener gets
+          ;; the tight `{:error :event :event-id :frame :time :exception
+          ;; :elapsed-ms}` record with handler-meta `:sensitive?`
+          ;; redaction already applied to `:event`.
+          err-records  (collect-error-emit-records! fid)
           _            (realise-handlers fixture)
           _            (register-routes! fixture)
           frame-config (or (:fixture/frame-config fixture) {})
@@ -1022,6 +1099,15 @@
                    :expected expected-val
                    :actual   (rf/subscribe-once frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
+            ;; rf2-wxe9t — substrate-side error-emit records (the
+            ;; corpus-wide listener fan-out). The matcher mirrors
+            ;; `check-trace-emissions` (positional partial-submap).
+            ;; A fixture without `:error-emit-records` yields nil
+            ;; failures and does not constrain the substrate.
+            error-emit-failures (when (contains? expect :error-emit-records)
+                                  (check-error-emit-records
+                                    @err-records
+                                    (:error-emit-records expect)))
             ;; rf2-v0jwt — :epoch-records — assert against the named frame's
             ;; recorded :rf/epoch-record ring. Each entry is a partial-shape
             ;; submap; useful for pinning the halted-cascade :outcome /
@@ -1060,6 +1146,11 @@
                    :actual   nil
                    :passed?  false})))]
         (trace/clear-trace-cbs!)
+        ;; rf2-wxe9t — drop just this fixture's error-emit recorder so
+        ;; it does not leak into the next fixture's drains. The
+        ;; reset-runtime! call at the top of the next fixture also
+        ;; clears the registry; this is belt-and-braces.
+        (error-emit/unregister-error-emit-listener! [fid ::records])
         {:fixture-id   fid
          :passed?      (and (or (nil? expected-db) (submap? expected-db final-db))
                             (or (nil? expected-dbs)
@@ -1069,6 +1160,7 @@
                             (empty? trace-failures)
                             (empty? effects-failures)
                             (empty? epoch-failures)
+                            (empty? error-emit-failures)
                             (or (nil? public-error-check)
                                 (:passed? public-error-check)))
          :final-db     final-db
@@ -1081,6 +1173,8 @@
          :actual-effects     actual-effects
          :expected-effects   expected-effects
          :epoch-failures     epoch-failures
+         :error-emit-failures error-emit-failures
+         :actual-error-emit-records @err-records
          :public-error-check public-error-check}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
@@ -1197,6 +1291,12 @@
           (when (seq (:epoch-failures f))
             (doseq [erf (:epoch-failures f)]
               (println "    epoch:" erf)))
+          (when (seq (:error-emit-failures f))
+            (doseq [eef (:error-emit-failures f)]
+              (println "    error-emit:" eef))
+            (println "    actual error-emit records:")
+            (doseq [r (:actual-error-emit-records f)]
+              (println "      " (pr-str r))))
           (when-let [pec (:public-error-check f)]
             (when-not (:passed? pec)
               (println "    public-error expected:" (:expected pec))
