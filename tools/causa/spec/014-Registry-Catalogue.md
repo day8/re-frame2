@@ -63,6 +63,8 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.causa/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.causa/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.causa/epoch-recorded` dispatch. |
 | `:rf.causa/target-frame-db` | `:rf.causa/target-frame`, `:rf.causa/epoch-history` | The host frame's current `app-db` value (via `rf/get-frame-db`). | Every settled epoch on the target frame. |
+| `:rf.causa/selected-panel` | `db` | Currently-active panel keyword (defaults to the hero panel per [`007-UX-IA.md`](./007-UX-IA.md) §10 Lock 7 — `:event-detail`). | On `:rf.causa/select-panel` dispatch. |
+| `:rf.causa/cascades` | `:rf.causa/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.causa/event-detail`, `:rf.causa/causality-graph-data`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.causa/trace-buffer` recompute. |
 
 ### Events
 
@@ -72,6 +74,21 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.causa/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Causa's app-db. Dispatched from `trace-bus/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.causa/suppressed-sensitive-count` sub reactively. |
 | `:rf.causa/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the trace ring buffer also drops the `[● REDACTED N]` indicator state. |
 | `:rf.causa/select-panel` | `[_ panel-id]` | `{:db ...}` | Drives the canvas switch logic in `shell.cljs`. Default per [`007-UX-IA.md`](./007-UX-IA.md) §10 Lock 7 is `:event-detail`. |
+| `:rf.causa/note-trace-event` | `[_ event]` | `{:db ...}` | Carries `{:rf.trace/no-emit? true}` per rf2-qsjda — the dispatch must not itself emit a trace event (the trace-cb appends straight onto the buffer slot in arrival order via `mirror-into-causa!`). Pumped from `trace-bus/collect-trace!` to keep Causa's app-db `:trace-buffer` in lockstep with the process-global ring. |
+| `:rf.causa/clear-trace-buffer` | `[_]` | `{:db ...}` | `:rf.trace/no-emit? true`. Drops the `:trace-buffer` slot. Dispatched from `trace-bus/clear-buffer!` (CLJS) when the user clears the ring. Same loop-avoidance rationale as `:rf.causa/note-trace-event`. |
+| `:rf.causa/sync-trace-buffer` | `[_ buffer]` | `{:db ...}` | `:rf.trace/no-emit? true`. Replaces the `:trace-buffer` slot with the supplied buffer vector. Dispatched from the depth-shrink path so the mirror reflects post-shrink contents. |
+
+### Callback identifiers
+
+Not subs/events/fxs — these are the keyword ids Causa registers
+with the framework's instrumentation surfaces in `preload.cljs`.
+They live under the `:rf.causa/*` namespace for the same isolation
+discipline as the rest of the registry.
+
+| Id | Surface | Behaviour |
+|---|---|---|
+| `:rf.causa/trace-collector` | `rf/register-trace-cb!` | Causa's trace-bus collector. Mirrors every emitted trace event into the process-global ring atom (`trace-bus/buffer`) and pumps `:rf.causa/note-trace-event` into the target frame's app-db. Idempotent per preload installation. |
+| `:rf.causa/epoch-collector` | `rf/register-epoch-cb!` | Causa's epoch-settle pump. Dispatches `:rf.causa/epoch-recorded` per settled epoch so the cached `:rf.causa/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Causa is not mounted. |
 
 ## Event-detail panel
 
@@ -82,6 +99,7 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view, §10 Lock 7.
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
 | `:rf.causa/selected-dispatch-id` | `db` | Dispatch-id keyword or `nil` (empty-state). | On selection-change events. |
+| `:rf.causa/selected-dispatch-frame` | `db` | Frame-id keyword the selected dispatch ran in, or `nil`. Resolved from the selected-dispatch ref (either `:selected-dispatch` map or `:selected-dispatch-id` keyword). | On selection-change events. |
 | `:rf.causa/event-detail` | `:rf.causa/trace-buffer`, `:rf.causa/selected-dispatch-id` | `{:cascades [...] :selected-dispatch-id ... :selected-cascade ...}` — composite. `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Buffer or selection change. |
 
 ### Events
@@ -105,6 +123,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | `:rf.causa/restore-epoch-tick` | Integer tick, default `0`. | Reactivity anchor for `:rf.causa/last-restore-failure`; bumped after each restore attempt because the fx writes the result to a module-scope atom outside app-db. |
 | `:rf.causa/pin-store` | `{frame-id [<pin> ...]}` map. | Lock 4 session-scoped per §Pinned snapshots — never persisted to disk. |
 | `:rf.causa/pinned-snapshots` | Vector of pins for current target-frame. | Decoupled from pin-store so unrelated frames' pins don't re-render the view. |
+| `:rf.causa/time-travel-label-input` | Current pin-label input string (defaults to `""`). | Drives the scrubber's pin-label entry without flooding the trace bus on each keystroke (the matching event is `:rf.trace/no-emit? true`). |
 | `:rf.causa/time-travel` | Composite — `{:target-frame :history :selected-epoch-id :selected-record :selected-index :pins :chip-states :cap-reached?}`. | Mirrors the per-panel composite pattern. `chip-states` runs chip-state projection over each pin against current history. |
 
 ### Events
@@ -120,6 +139,9 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 | `:rf.causa/bump-restore-epoch-tick` | `[_]` | Internal no-trace event dispatched by the restore fx after each restore attempt; increments `:restore-epoch-tick` so the failure sub recomputes. |
 | `:rf.causa/reset-to-epoch` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.causa.fx/restore-epoch {:frame-id ... :epoch-id ...}]]}`. The confirmed-rewind branch (per spec §rewind = explicit). |
 | `:rf.causa/reset-to-pinned` | `[_ epoch-id]` | `event-fx` — emits `{:fx [[:rf.causa.fx/reset-frame-db! {:frame-id ... :frame-db ...}]]}`. Per spec §Why reset-frame-db! not restore-epoch — pins hold the value directly. |
+| `:rf.causa/set-target-frame` | `[_ frame-id]` | Sets the active target frame for the scrubber and refreshes `:epoch-history` from `(rf/epoch-history target)`. `nil` resets to the default target. Mirrored by `core/set-target-frame!` from the public CLJS API. |
+| `:rf.causa/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read. |
+| `:rf.causa/time-travel-set-label-input` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:label-input` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
 
 ### Effects
 
@@ -215,6 +237,7 @@ Spec: [`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md).
 |---|---|
 | `:rf.causa/selected-mismatch-id` | Mismatch trace event's `:id`, or `nil` (composite picks the latest). |
 | `:rf.causa/hydration-reroot-path` | Re-root path for the side-by-side tree view per spec §Render-tree hash bisector, or `nil`. |
+| `:rf.causa/hydration-has-mismatch?` | Boolean — `true` iff the target-frame's trace stream carries at least one mismatch event. Cheap projection (composite of `:rf.causa/trace-buffer` + `:rf.causa/target-frame`) for chrome indicators (issues-ribbon, navigator badge) that need only the binary status without paying for the full `:rf.causa/hydration-debugger-data` composite. |
 | `:rf.causa/hydration-debugger-data` | Composite — `{:has-mismatch? :mismatch-summary :selected-mismatch-id :detail :source-coord :re-root-path :target-frame}`. |
 
 ### Events
@@ -453,6 +476,7 @@ process and reload-safely.
 | `:rf.causa/copilot-cue-active?` | Boolean — `true` until first use; drives the pulse cue per spec §The AI co-pilot collapsed cue. |
 | `:rf.causa/copilot-redaction-settings` | Per-category redaction toggles; defaults are privacy-by-default per spec §Redaction defaults. |
 | `:rf.causa/copilot-streaming-token-count` | Integer — tokens streamed into the in-flight answer. |
+| `:rf.causa/copilot-input-text` | Current Co-Pilot input-box text (defaults to `""`). Read by the controlled textarea; written by `:rf.causa/copilot-set-input-text` per keystroke. |
 
 ### Events
 
@@ -467,6 +491,7 @@ process and reload-safely.
 | `:rf.causa/copilot-stream-token` | `[_ token]` | Appends one streamed token to the in-flight answer. |
 | `:rf.causa/copilot-stream-end` | `[_]` | Marks the in-flight turn as no-longer streaming. |
 | `:rf.causa/copilot-clear-conversation` | `[_]` | Clears the buffer. Per spec §Ephemeral conversation, in-memory only. |
+| `:rf.causa/copilot-set-input-text` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:copilot-input-text` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
 | `:rf.causa/copilot-chip-clicked` | `[_ {:chip-key :value}]` | `event-fx` — resolves the target server-side from the fixed `chip-targets` allowlist in `ai-co-pilot-helpers` and dispatches it with the chip's value as arg. Unknown chip-keys no-op. Per rf2-cm93v the handler accepts only `:chip-key` + `:value`; any caller-supplied `:target` slot is ignored. |
 
 ### Effects

@@ -16,7 +16,7 @@
 - **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline host and standalone-via-MCP remote-attach.
 - **[012-Subscriptions.md](012-Subscriptions.md)** — Subscription panel: the canonical sub-status badge taxonomy (fresh / re-running / invalidated / cached-no-watcher / error) and the one-click invalidation-chain affordance ("why did this sub re-run?").
 - **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector contract: the ring-buffer data plane every panel reads from, the consumer-side filter algebra, and the `:sensitive?` privacy gate.
-- **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative enumeration of every `:rf.causa/*` subscription, event, and effect Causa registers (~140 ids), grouped by owning panel.
+- **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative enumeration of every `:rf.causa/*` subscription, event, effect, and instrumentation callback Causa registers (~155 ids), grouped by owning panel.
 - **[015-Configuration.md](015-Configuration.md)** — `configure!` entry-point contract: every accepted key, default, and the `:rf/causa` app-db slot it drives.
 - **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-panel contract for the seven panels beyond the hero set (event-detail, effects, flows, issues-ribbon, performance, routes, mcp-server): inputs (subs / events consumed), main interactions, observable outputs (rf2-3lduz).
 - **[017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md)** — Browser-feature coverage matrix for every Causa panel/feature: user-visible contract, required testbed affordance, direct and failure paths, 20-event/load re-check, diagnostics, owning gate, and current status.
