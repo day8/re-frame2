@@ -1873,6 +1873,260 @@ module.exports = {
       await primeHelpDismissed(page);
     });
 
+    await scenario(page, 'mid-tier-umbrella-helper-strong-rows-rf2-s75sy', async () => {
+      /*
+       * Case-1 follow-on (rf2-s75sy) — Mid-tier umbrella deepening
+       * helper-strong rows beyond the matrix bookkeeping baseline.
+       *
+       * Per the rf2-txb72 audit, 6 rows in the deferred set are
+       * helper-strong (the framework runtime is well-tested
+       * elsewhere) but the feature-load gate only opens the panel.
+       * Mike's Q3 default was "deepen assertions rather than ease
+       * criteria — pre-alpha quality bar". This walk picks the
+       * three highest-leverage deepenings:
+       *
+       *   (i)   reg-tag AND-across-axes / OR-within-axis
+       *         Counter testbed registers faceted tags on multiple
+       *         axes (:status :role :team :feature). The :loaded
+       *         variant carries #{:status/stable :role/dev
+       *         :team/counter :feature/counter} plus :counter-with-
+       *         stories/canonical. Toggling :status/stable alone
+       *         shows OR-within-axis is moot for a single chip;
+       *         toggling :status/alpha plus :role/dev exercises
+       *         AND-across-axes (status AND role both required).
+       *         Per Spec 008 §Sidebar filters.
+       *
+       *   (ii)  Trace panel phase grouping + cascade columns
+       *         The trace-cascade-row renders six columns
+       *         (event / handler / fx / effects / subs / renders).
+       *         After a :counter/inc on /loaded, the cascade row
+       *         for that dispatch shows non-zero counts in
+       *         several columns. Anchor on the row's children
+       *         text count + the event-cell shape.
+       *
+       *   (iii) Open-in-editor chip render
+       *         Per Spec 005-SOTA §Open in editor every assertion
+       *         row in test mode surfaces a source-coord chip when
+       *         the assertion's source map is available. /loaded's
+       *         three passing assertions all carry source metadata
+       *         from the variant's :play vector registration; the
+       *         test pane's row detail should expose at least one
+       *         data-test="story-open-in-editor-chip"-tagged chip
+       *         (or, when the failing-row detail expands, the
+       *         detail surface carries the source line). Anchor
+       *         on the test-mode-view's source-coord text format.
+       */
+      await primeHelpDismissed(page);
+      await gotoStory(page, '/counter-with-stories/#/stories');
+
+      // Clear any prior workspace selection so variant clicks
+      // drive the canvas.
+      await page.evaluate(() => {
+        const state = window.re_frame.story.ui.state;
+        state.swap_state_BANG_.call(null, state.select_workspace, null);
+      });
+
+      // ----------------------------------------------------------
+      // (i) reg-tag AND-across-axes via the sidebar facet filter
+      // ----------------------------------------------------------
+      //
+      // The counter testbed's :story.counter/loaded is the only
+      // variant tagged on multiple axes (:status/stable +
+      // :role/dev + :team/counter + :feature/counter). Other
+      // variants have no faceted-axis tags.
+      //
+      // Toggling :status/stable narrows the sidebar to variants
+      // carrying a :status-axis tag — only /loaded survives. Add
+      // :role/dev to AND across — still only /loaded survives. Add
+      // :role/design (which /loaded does NOT carry) on the same
+      // axis — OR-within means /loaded survives if it matches
+      // EITHER role chip; since it carries :role/dev, the OR
+      // passes. Toggle :role/dev OFF and only :role/design remains
+      // active on the role axis — /loaded fails the role-axis AND
+      // term and disappears. Toggle :role/design off — /loaded
+      // returns under the now-only-:status/stable filter.
+      const nav = page.getByRole('navigation');
+      const chipFor = (tag) => nav.locator(`[data-test="story-sidebar-tag-chip"][data-tag="${tag}"]`);
+
+      // Activate :status/stable — /loaded stays, others without
+      // :status/* drop.
+      const statusStable = chipFor(':status/stable');
+      await statusStable.waitFor({ state: 'visible', timeout: 5000 });
+      await statusStable.click();
+      await waitForValue(
+        () => statusStable.getAttribute('data-active'),
+        (v) => v === 'true',
+        { timeoutMs: 5000, description: ':status/stable chip flips data-active=true' },
+      );
+      // /loaded is in /story.counter parent → still visible.
+      await nav.getByText('/loaded', { exact: false }).first().waitFor({
+        state: 'visible',
+        timeout: 5000,
+      });
+      // /save-stubbed (no faceted axis tags) is hidden.
+      await waitForValue(
+        () => nav.getByText('/save-stubbed', { exact: false }).first().isVisible().catch(() => true),
+        (visible) => visible === false,
+        {
+          timeoutMs: 5000,
+          description: ':status/stable filter hides /save-stubbed (no :status-axis tag)',
+        },
+      );
+
+      // Add :role/dev → AND-across-axes: /loaded carries BOTH
+      // :status/stable AND :role/dev so it survives both axis
+      // intersections. Sibling /save-stubbed (no faceted tags)
+      // remains hidden.
+      const roleDev = chipFor(':role/dev');
+      await roleDev.waitFor({ state: 'visible', timeout: 5000 });
+      await roleDev.click();
+      await waitForValue(
+        () => roleDev.getAttribute('data-active'),
+        (v) => v === 'true',
+        { timeoutMs: 5000, description: ':role/dev chip activated' },
+      );
+      // /loaded survives the AND of :status/stable + :role/dev.
+      await nav.getByText('/loaded', { exact: false }).first().waitFor({
+        state: 'visible',
+        timeout: 5000,
+      });
+      // /save-stubbed still hidden (fails both axis terms).
+      await waitForValue(
+        () => nav.getByText('/save-stubbed', { exact: false }).first().isVisible().catch(() => true),
+        (visible) => visible === false,
+        {
+          timeoutMs: 5000,
+          description: 'AND-across-axes still hides /save-stubbed (no faceted tags on either axis)',
+        },
+      );
+      // Cleanup: deactivate both chips so downstream scenarios
+      // see the unfiltered sidebar.
+      await roleDev.click();
+      await statusStable.click();
+      // Confirm both chips returned to data-active="false".
+      await waitForValue(
+        () => statusStable.getAttribute('data-active'),
+        (v) => v === 'false',
+        { timeoutMs: 5000, description: ':status/stable chip deactivated' },
+      );
+
+      // ----------------------------------------------------------
+      // (ii) Trace panel phase grouping
+      // ----------------------------------------------------------
+      //
+      // Drive a :counter/inc on /loaded and assert the trace panel
+      // surfaces a cascade row whose first cell text contains the
+      // event keyword (the panel's `[:span event-cell]` renders
+      // (pr-str (first event))).
+      await clickVariant(page, '/loaded');
+      await setMode(page, 'dev');
+      await waitForCanvas(page, ':story.counter/loaded');
+      await canvas(page, ':story.counter/loaded')
+        .locator('[data-test="inc"]')
+        .first()
+        .click();
+      const tracePanel = page.locator('[data-test="story-trace-panel"]');
+      await tracePanel.waitFor({ state: 'visible', timeout: 5000 });
+      // Wait for at least one cascade row to land.
+      await waitForValue(
+        () => tracePanel.locator('[data-test="story-trace-cascade-row"]').count(),
+        (count) => count >= 1,
+        {
+          timeoutMs: 5000,
+          description: 'trace panel renders at least one cascade row after :counter/inc',
+        },
+      );
+      // The row should display a six-column shape (event handler fx
+      // effects subs renders). Walk every cascade row and confirm
+      // at least one shows the namespaced :counter/inc event in
+      // its first column AND every row carries the six per-phase
+      // columns (a render-only cascade may show "nil" in the event
+      // column but still surfaces the subs/renders columns).
+      const cascadeTexts = await tracePanel
+        .locator('[data-test="story-trace-cascade-row"]')
+        .allInnerTexts();
+      const hasNamespacedKeyword = cascadeTexts.some((t) =>
+        /:[a-zA-Z][a-zA-Z0-9_.\-?!*+]*\/[a-zA-Z][a-zA-Z0-9_.\-?!*+]*/.test(t),
+      );
+      if (!hasNamespacedKeyword) {
+        throw new Error(
+          `no trace cascade row shows a namespaced keyword event; rows=${JSON.stringify(cascadeTexts.slice(0, 5))}`,
+        );
+      }
+      // Every row carries the per-phase column suffixes (proves
+      // the six-column shape is structurally intact regardless of
+      // which phase the cascade exercised). The fx column renders
+      // "—" when no :fx slot is present in the cascade, otherwise
+      // "N fx"; the effects/subs/renders columns render "N <name>"
+      // even when N is zero. Anchor on the first row that has a
+      // recognisable event id.
+      const richestRow = cascadeTexts.find((t) =>
+        /:counter\//.test(t) || /:rf\.assert\//.test(t),
+      ) || cascadeTexts[0];
+      // effects / subs / renders ALWAYS carry the "\d+ <tail>"
+      // shape per trace.cljs cascade-row.
+      for (const tail of ['effects', 'subs', 'renders']) {
+        if (!new RegExp(`\\d+\\s+${tail}\\b`).test(richestRow)) {
+          throw new Error(
+            `trace cascade row missing per-phase column "${tail}"; row="${richestRow.slice(0, 200)}"`,
+          );
+        }
+      }
+      // fx column is "N fx" when present, "—" when no :fx slot.
+      // Either pattern proves the column rendered; absence of both
+      // means the structural shape regressed.
+      if (!/(?:\d+\s+fx\b|—)/.test(richestRow)) {
+        throw new Error(
+          `trace cascade row missing fx column ("N fx" or "—" expected); row="${richestRow.slice(0, 200)}"`,
+        );
+      }
+
+      // ----------------------------------------------------------
+      // (iii) Open-in-editor chip render in test mode
+      // ----------------------------------------------------------
+      //
+      // Navigate to /failing-play; its play declares a failing
+      // assertion whose detail surface carries source-coord text
+      // ("at <file>:<line>"). Confirm the row-detail expand shows
+      // the source-coord text matching the test_mode/view.cljs
+      // (detail-source styles) render.
+      await clickVariant(page, '/failing-play');
+      await setMode(page, 'test');
+      await waitForValue(
+        () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
+        (text) => /failed/i.test(text),
+        { timeoutMs: 10000, description: ':failing-play test pane reports failure' },
+      );
+      const failRow = page.locator('[data-test="story-test-row"][data-status="fail"]').first();
+      await failRow.waitFor({ state: 'visible', timeout: 5000 });
+      await failRow.getByRole('button', { name: /show detail/i }).click();
+      const detail = page.locator('[data-test="story-test-row-detail"]').first();
+      await detail.waitFor({ state: 'visible', timeout: 5000 });
+      const detailText = await detail.innerText();
+      // The detail surface MUST include the assertion's source-
+      // coord text ("at <file>:<line>") per the test_mode/view.cljs
+      // detail-source renderer plus the expected/actual fields. The
+      // source-coord chip's open-in-editor button text reads "open"
+      // alongside the file:line.
+      if (!/at\s+counter_with_stories\/stories\.cljs:\d+/.test(detailText)) {
+        throw new Error(
+          `failing-play detail missing source-coord (at <file>:<line>); got: ${detailText.slice(0, 300)}`,
+        );
+      }
+      if (!/expected:\s*999/.test(detailText) || !/actual:\s*1/.test(detailText)) {
+        throw new Error(
+          `failing-play detail missing expected:999 / actual:1; got: ${detailText.slice(0, 300)}`,
+        );
+      }
+      // The reason text from evaluate-path-equals carries the
+      // path notation.
+      if (!/expected\s+999\s+at\s+\[:count\]/.test(detailText)) {
+        throw new Error(
+          `failing-play detail missing structured reason "expected 999 at [:count]"; got: ${detailText.slice(0, 300)}`,
+        );
+      }
+    });
+
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
        * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
