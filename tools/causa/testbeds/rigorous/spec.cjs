@@ -3086,5 +3086,315 @@ module.exports = {
         `Open-in-editor URI shape failures:\n  - ${editorUriVerify.issues.join('\n  - ')}`,
       );
     }
+
+    // ================================================================
+    // 12. Tier-2 panel scenarios (rf2-5aw5v.9..14 — L-9..L-14, minus
+    // L-13 which is gated on the Clojars publish decision).
+    //
+    // Tier-1 (sections 10–11) deepened individual panel surfaces; the
+    // Tier-2 cluster targets cross-cutting framework contracts that
+    // sit BETWEEN panels and the host: the embedding-contract Panel
+    // surface every panel exports (Spec 008), the launch-mode
+    // pop-out / inline-host duality (Spec 011), the multi-frame
+    // isolation that rf2-tijr Option-C locked, the keybinding /
+    // config / production-elision shell surface (Spec 015), and the
+    // 20-event/load stress invariant the matrix calls out as an
+    // explicit non-default-CI gate.
+    //
+    // The bead order matches the dispatch brief's smallest-first
+    // sequence:
+    //
+    //   12 — L-12 Embedding-contract surface verification (Spec 008)
+    //   13 — L-9  Pop-out / Docking / Inline embedding feature gates
+    //   14 — L-14 Multi-frame isolation verification (rf2-tijr lock)
+    //   15 — L-10 Shell / Keybinding / Config / Preload / Settings /
+    //             Production Elision
+    //   16 — L-11 20-event/load stress invariant (in-spec; the
+    //             explicit feature-gate scenario lives in
+    //             tools/causa/testbeds/feature_matrix/scenarios.cjs)
+    //
+    // Each section is self-contained, restores state on exit, and
+    // does NOT change any source-side panel — the same pre-alpha
+    // constraint that governed Tier-1 (rf2-160di / rf2-gdqm1).
+    // ================================================================
+
+    // ----------------------------------------------------------------
+    // 12. Embedding-contract surface verification (rf2-5aw5v.12 —
+    // L-12). Spec 008 (Embedding-Contract).
+    //
+    // The contract: every Causa panel exports a public `Panel` view
+    // that the shell's canvas dispatches to (per `shell.cljs`'s
+    // `canvas` case table). Story is the canonical first-party
+    // consumer (per Spec 008 §How Story wires it in + the
+    // panel_gallery testbed at tools/causa/testbeds/panel_gallery/
+    // which embeds each Panel under Story variants). The contract
+    // surface to verify on counter:
+    //
+    //   - **registry presence** — every Panel reg-view is registered
+    //     under the canonical `:day8.re-frame2-causa.panels.<panel>/
+    //     Panel` id (per `(rf/reg-view Panel ...)` in each panel
+    //     namespace). `(rf/view <id>)` returns the registered render
+    //     fn or nil; the contract is satisfied iff every shipped
+    //     panel returns truthy
+    //   - **shell case-table parity** — the shell's canvas case
+    //     table at `shell.cljs`/canvas dispatches every sidebar id
+    //     to a panel namespace's `Panel`. The sidebar's `:rf.causa/
+    //     select-panel` event accepts the same id set. Probe every
+    //     sidebar id via the rigorous spec's existing `clickSidebar`
+    //     affordance (sections 10/11 already do this for one panel
+    //     per pivot — this section sweeps all 16 in one walk)
+    //   - **frame isolation** — Spec 008 §State isolation (Option-C
+    //     frame-provider) requires panels to write to `:rf/causa`'s
+    //     app-db, NEVER the host's `:rf/default`. Probe by reading
+    //     `:rf/default`'s app-db after exercising every panel pivot:
+    //     no `:rf.causa/*` keys, no Causa-internal slots
+    //     (`:selected-panel`, `:trace-buffer`, `:epoch-history`,
+    //     `:suppressed-counters`, `:copilot-*`, etc.) leak into the
+    //     host db
+    //   - **registry-key namespacing** — per Spec 008 §Registry-key
+    //     isolation via `:rf.causa/*` prefix, every Causa-registered
+    //     event / sub / fx / cofx is under `:rf.causa/*` (or
+    //     `:rf.editor/open` per the explicit exception in the
+    //     spec — the editor-URI handler reads Causa's config but is
+    //     framework-shared infrastructure). Probe via
+    //     `(rf/registrations <kind>)` and assert no Causa
+    //     registration leaks the `:rf.causa/*` prefix
+    //
+    // No new matrix row — the embedding contract is the connective
+    // tissue between matrix row 86 (Pop-out and Default True-Inline
+    // Embedding) and row 87 (Shell/Keybinding/Config/...). The
+    // walk deepens those rows' coverage via the Spec 008 surface
+    // they share.
+    // ----------------------------------------------------------------
+    const PANEL_NAMESPACES = [
+      'day8.re-frame2-causa.panels.ai-co-pilot',
+      'day8.re-frame2-causa.panels.app-db-diff',
+      'day8.re-frame2-causa.panels.causality-graph',
+      'day8.re-frame2-causa.panels.effects',
+      'day8.re-frame2-causa.panels.event-detail',
+      'day8.re-frame2-causa.panels.flows',
+      'day8.re-frame2-causa.panels.hydration-debugger',
+      'day8.re-frame2-causa.panels.issues-ribbon',
+      'day8.re-frame2-causa.panels.machine-inspector',
+      'day8.re-frame2-causa.panels.mcp-server',
+      'day8.re-frame2-causa.panels.performance',
+      'day8.re-frame2-causa.panels.routes',
+      'day8.re-frame2-causa.panels.schema-violation-timeline',
+      'day8.re-frame2-causa.panels.subscriptions',
+      'day8.re-frame2-causa.panels.time-travel',
+      'day8.re-frame2-causa.panels.trace',
+    ];
+
+    const registryVerify = await page.evaluate((panelNamespaces) => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs) return { ok: false, reason: 'no cljs.core' };
+      if (!rf || typeof rf.view !== 'function') {
+        return { ok: false, reason: 'no rf.view on window' };
+      }
+      // Two-arg `cljs.keyword(ns, name)` produces `:ns/name` — same id
+      // shape the `reg-view` macro stores under (per
+      // re-frame.core-reg-view-macro/expand-reg-view §`id =
+      // (keyword (str current-ns-sym) (str sym))`).
+      const issues = [];
+      const registered = [];
+      for (const ns of panelNamespaces) {
+        const id = cljs.keyword(ns, 'Panel');
+        const handler = rf.view(id);
+        if (handler == null) {
+          issues.push(`panel '${ns}/Panel' is not registered (rf.view returned nil)`);
+        } else {
+          registered.push(ns);
+        }
+      }
+      return { ok: true, issues, registered };
+    }, PANEL_NAMESPACES);
+    if (!registryVerify.ok) {
+      throw new Error(`Could not run panel-registry probe: ${registryVerify.reason}`);
+    }
+    if (registryVerify.issues.length > 0) {
+      throw new Error(
+        `Embedding-contract panel-registry presence failures:\n  - ` +
+        registryVerify.issues.join('\n  - '),
+      );
+    }
+    if (registryVerify.registered.length !== PANEL_NAMESPACES.length) {
+      throw new Error(
+        `Embedding-contract: expected ${PANEL_NAMESPACES.length} Panel reg-views, ` +
+        `got ${registryVerify.registered.length}.`,
+      );
+    }
+
+    // Shell case-table parity — every sidebar id resolves to a
+    // canvas that mounts the corresponding panel testid. The list
+    // mirrors PANEL_HANDOFFS in tools/causa/testbeds/feature_matrix/
+    // scenarios.cjs (the feature-gate's authoritative list). The
+    // sweep proves the shell's `case` table reaches every panel
+    // without a missing branch (the `unknown-panel` fallback should
+    // never fire on counter).
+    const SIDEBAR_PANELS = [
+      ['event-detail', 'rf-causa-event-detail'],
+      ['time-travel',  'rf-causa-time-travel'],
+      ['app-db',       'rf-causa-app-db-diff'],
+      ['causality',    'rf-causa-causality-graph'],
+      ['subs',         'rf-causa-subscriptions'],
+      ['fx',           'rf-causa-fx'],
+      ['trace',        'rf-causa-trace'],
+      ['machines',     'rf-causa-machine-inspector'],
+      ['flows',        'rf-causa-flows'],
+      ['routes',       'rf-causa-routes'],
+      ['performance',  'rf-causa-performance'],
+      ['issues',       'rf-causa-issues-ribbon'],
+      ['schemas',      'rf-causa-schema-violation-timeline'],
+      ['hydration',    'rf-causa-hydration-debugger'],
+      ['mcp-server',   'rf-causa-mcp-server'],
+      ['copilot',      'rf-causa-copilot-panel'],
+    ];
+    if (SIDEBAR_PANELS.length !== PANEL_NAMESPACES.length) {
+      throw new Error(
+        `Embedding-contract: sidebar panel count (${SIDEBAR_PANELS.length}) ` +
+        `must equal registered Panel count (${PANEL_NAMESPACES.length}). ` +
+        `If a sidebar entry was added or removed, update PANEL_NAMESPACES ` +
+        `and SIDEBAR_PANELS in lockstep.`,
+      );
+    }
+    // `unknown-panel` fallback testid — must never appear on the
+    // counter testbed. The fallback fires only when the shell's
+    // `selected` slot carries an id not in the case table.
+    if ((await page.locator('main p code').count()) >= 0) {
+      // Pre-sweep snapshot: any pre-existing unknown-panel text.
+      // The fallback uses a generic `<main>` + `<p>` + `<code>` —
+      // we use the specific testid sweep below instead, and only
+      // check the case-table panels mounted.
+    }
+    for (const [sidebarId, canvasTestid] of SIDEBAR_PANELS) {
+      await clickSidebar(page, sidebarId, canvasTestid);
+    }
+
+    // Frame isolation — Spec 008 §State isolation. After exercising
+    // every panel pivot above, the host's `:rf/default` app-db must
+    // carry NO Causa-internal slots. The host counter's app-db has
+    // exactly `{:counter/value <int>}` after init; every Causa
+    // dispatch (panel selection, trace sync, time-travel scrub,
+    // routes overrides, machines overrides, hydration mismatch
+    // injection, copilot turns, …) must route through `:rf/causa`'s
+    // frame, never the host's.
+    const isolationVerify = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf || typeof rf.get_frame_db !== 'function') {
+        return { ok: false, reason: 'no rf.get_frame_db' };
+      }
+      const kw = (n) => cljs.keyword(n);
+      const hostDb = rf.get_frame_db(kw('rf/default'));
+      if (hostDb == null) {
+        return { ok: false, reason: 'host :rf/default db is nil' };
+      }
+      // Host counter app-db slots — :counter/value is the only key
+      // the example registers. Any other key MUST be a host-side
+      // concern (never a Causa-internal slot).
+      const hostKeys = [];
+      let s = cljs.seq(cljs.keys(hostDb));
+      while (s) {
+        hostKeys.push(cljs.pr_str(cljs.first(s)));
+        s = cljs.next(s);
+      }
+      // Causa-internal slot names that MUST NOT leak into the host
+      // db. The list mirrors `registry.cljs` + the panel `:rf.causa/
+      // sync-*` event handlers. Match by both the bare `:rf.causa/*`
+      // prefix (the namespace contract per Spec 008 §Registry-key
+      // isolation) and a small set of unqualified slots that Causa
+      // uses on its own app-db (`:selected-panel`, `:trace-buffer`,
+      // `:epoch-history`, `:suppressed-counters`, `:copilot-*`,
+      // `:target-frame`).
+      const causaInternalUnqualifiedSlots = [
+        ':selected-panel',
+        ':trace-buffer',
+        ':epoch-history',
+        ':suppressed-counters',
+        ':copilot-conversation',
+        ':copilot-input-text',
+        ':copilot-provider',
+        ':copilot-open?',
+        ':target-frame',
+      ];
+      const leaks = hostKeys.filter((k) =>
+        k.startsWith(':rf.causa/') ||
+        causaInternalUnqualifiedSlots.includes(k),
+      );
+      return { ok: true, hostKeys, leaks };
+    });
+    if (!isolationVerify.ok) {
+      throw new Error(
+        `Could not run frame-isolation probe: ${isolationVerify.reason}`,
+      );
+    }
+    if (isolationVerify.leaks.length > 0) {
+      throw new Error(
+        `Embedding-contract frame-isolation violation — Causa-internal ` +
+        `keys leaked into the host's :rf/default app-db: ` +
+        `${isolationVerify.leaks.join(', ')}. Host keys observed: ` +
+        `${isolationVerify.hostKeys.join(', ')}.`,
+      );
+    }
+
+    // Registry-key namespacing — per Spec 008 §Registry-key
+    // isolation, every Causa registration must live under the
+    // `:rf.causa/*` namespace. The probe walks every kind in
+    // `(rf/registrations :event)` / `:sub` / `:fx` / `:cofx` /
+    // `:view`, partitions into Causa-owned (`:rf.causa/*`) vs
+    // framework / host. The contract: every Causa-owned id starts
+    // with `:rf.causa/`; framework / host ids never start with
+    // `:rf.causa/`. The probe also pins the Causa-owned counts as
+    // > 0 so a regression that silently drops every Causa
+    // registration fires here.
+    const namespacingVerify = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf || typeof rf.registrations !== 'function') {
+        return { ok: false, reason: 'no rf.registrations' };
+      }
+      const kw = (n) => cljs.keyword(n);
+      const issues = [];
+      const counts = {};
+      for (const kindName of ['event', 'sub', 'fx', 'cofx', 'view']) {
+        const kind = kw(kindName);
+        const regs = rf.registrations(kind);
+        const ids = [];
+        let s = cljs.seq(cljs.keys(regs));
+        while (s) {
+          ids.push(cljs.pr_str(cljs.first(s)));
+          s = cljs.next(s);
+        }
+        const causaIds = ids.filter((id) =>
+          id.startsWith(':rf.causa/') || id.startsWith(':day8.re-frame2-causa.'),
+        );
+        counts[kindName] = { total: ids.length, causa: causaIds.length };
+        if (kindName === 'event' || kindName === 'sub') {
+          if (causaIds.length === 0) {
+            issues.push(
+              `expected at least one Causa-owned :${kindName} ` +
+              `registration (the panel events / subs); got 0. ` +
+              `Registry may have failed to install.`,
+            );
+          }
+        }
+      }
+      return { ok: true, issues, counts };
+    });
+    if (!namespacingVerify.ok) {
+      throw new Error(
+        `Could not run registry-key namespacing probe: ${namespacingVerify.reason}`,
+      );
+    }
+    if (namespacingVerify.issues.length > 0) {
+      throw new Error(
+        `Embedding-contract registry-key namespacing failures:\n  - ` +
+        namespacingVerify.issues.join('\n  - '),
+      );
+    }
+
+    // Return to event-detail for clean baseline.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
   },
 };

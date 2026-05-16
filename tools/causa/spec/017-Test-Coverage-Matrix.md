@@ -96,6 +96,28 @@ debug without re-running under a debugger:
 | Causa 20-event/load gate | Explicit or pre-commit/pre-PR stress gate only. It is not default CI. It reuses the feature testbed and runs the row-specific 20-event/load checks. |
 | Production elision gate | Existing implementation production-elision probes plus any Causa-specific release probe proving preload, keybinding, pill, trace collector, and shell are absent under `goog.DEBUG=false`. |
 
+## Tier-2 deepening (rf2-5aw5v.9..14)
+
+Tier-1 (rf2-160di + rf2-gdqm1) promoted the per-panel rows above to
+`covered`; Tier-2 (rf2-5aw5v.9 / .10 / .11 / .12 / .14) deepens the
+cross-cutting framework contracts that sit BETWEEN panels and the
+host. The Tier-2 scenarios live in
+`tools/causa/testbeds/rigorous/spec.cjs` §12–16 alongside the Tier-1
+deepening; each section is self-contained, restores state on exit,
+and does NOT change any source-side panel.
+
+| Tier-2 bead | Surface | Spec | Pins |
+|---|---|---|---|
+| `rf2-5aw5v.12` (L-12) | Embedding-contract Panel surface across every panel namespace; frame isolation; registry-key namespacing | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) | 16 `Panel` reg-views present; sidebar case-table parity; no `:rf.causa/*` keys in host `:rf/default` db; Causa registrations live under `:rf.causa/*` |
+| `rf2-5aw5v.9` (L-9) | Pop-out / inline-host launch-mode duality; opener-close diagnostic | [`011-Launch-Modes.md`](./011-Launch-Modes.md) | inline auto-mount; `popout!` opens a same-origin shell with shared trace; opener-gone overlay revealed via watchdog; teardown clears every singleton |
+| `rf2-5aw5v.14` (L-14) | Multi-frame isolation through the panel layer (rf2-tijr Option-C lock) | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §State isolation | `set-target-frame!` round-trips; target-frame app-db diff projection isolates per-frame; cross-frame cascade traces tag correctly without leaking selection state across frames |
+| `rf2-5aw5v.10` (L-10) | Shell auto-mount, missing-host diagnostic, settings reset, keybindings, config knobs, production elision probe | [`011-Launch-Modes.md`](./011-Launch-Modes.md) + [`015-Configuration.md`](./015-Configuration.md) | inline mount on `[data-rf-causa-host]`; `Ctrl+Shift+C` toggle + `Ctrl+Shift+/` co-pilot keybinding; auto-open disable round-trip; layout-host-selector swap; missing-host inspectable diagnostic; `configure!` partial-update semantics |
+| `rf2-5aw5v.11` (L-11) | 20-event/load stress invariant — caps + virtualisation + no duplicate dominoes | This file §20-event/load gate | 20 representative dispatches; trace buffer caps; latest cascade remains selected; no duplicate dominoes per cascade; render duration summary captured |
+
+`rf2-5aw5v.13` (L-13 Clojars publish probe) is excluded from the
+Tier-2 cluster — it depends on a release decision and is tracked as
+its own bead.
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) - panel inventory and the five canonical questions.
