@@ -50,11 +50,24 @@
   The editor opens the file from disk, so the URI must carry a path the
   editor's resolver can find.
 
-  v1 ships the file string verbatim and lets the editor resolve it.
-  Hosts that need workspace-absolute paths can use `:custom` with a
-  prefix template like `\"vscode://file/{HOST_WORKSPACE_ROOT}/{path}:{line}\"`
-  — the substitution itself stays pure-data; the host's template
-  controls the prefix.
+  Editor URI schemes (`vscode://file/...`, `cursor://file/...`,
+  `idea://open?file=...`, etc.) treat the `<path>` token as a filesystem
+  location the OS-side handler stats on disk. On every editor tested
+  (VS Code, Cursor, Windsurf, Zed, IntelliJ) a classpath-relative path
+  is rejected — the handler has no notion of the user's project root.
+  Tools that hand a URI off therefore need to materialise the absolute
+  (or workspace-absolute) path before the handoff.
+
+  `editor-uri`'s 3-arg form accepts `{:project-root <string>}` —
+  prepended to the source-coord's `:file` slot to produce the full
+  on-disk path. Tools (Story, Causa) carry their own project-root knob
+  (set once at boot by the host) and pass it through on every call.
+  When `:project-root` is absent or blank, the file string ships
+  verbatim and falls back to v1 semantics — useful for tests and for
+  legacy hosts that haven't plumbed the knob yet. Absolute paths
+  (leading `/`, leading drive letter like `C:`, or a `file:` URI) are
+  passed through unchanged regardless of the project-root setting so a
+  caller that already has an absolute coord isn't double-prefixed.
 
   ## What this namespace deliberately doesn't do
 
@@ -243,6 +256,57 @@
     (when (and (string? f) (not (str/blank? f)))
       f)))
 
+;; ---- pure: project-root prefix --------------------------------------------
+;;
+;; Per rf2-zfy1e: source-coord `:file` is the macro's compile-time capture
+;; (form-meta's `:file`, typically classpath-relative — e.g.
+;; `\"panel_gallery/event_detail_stories.cljs\"`). Editor scheme handlers
+;; resolve `<path>` against the filesystem, so a relative path is rejected
+;; ("Path does not exist"). Tools that own the launch surface plumb a
+;; `:project-root` knob — set once at boot by the host — and prepend it
+;; here before the URI ships.
+
+(defn- absolute-path?
+  "Predicate — true iff `path` is already absolute (i.e. should NOT be
+  prefixed by `:project-root`). Detects:
+
+    - leading `/` (POSIX)
+    - leading backslash on Windows (`\\Users\\...`)
+    - drive-letter prefix (`C:` / `c:/...`)
+    - explicit `file:` URI"
+  [^String path]
+  (or (str/starts-with? path "/")
+      (str/starts-with? path "\\")
+      (str/starts-with? (str/lower-case path) "file:")
+      (and (>= (count path) 2)
+           (= \: (.charAt path 1))
+           (let [c (.charAt path 0)]
+             (or (and (>= (int c) (int \a)) (<= (int c) (int \z)))
+                 (and (>= (int c) (int \A)) (<= (int c) (int \Z))))))))
+
+(defn- compose-path
+  "Combine `project-root` and the source-coord's `:file` into a single
+  on-disk path string. Pure data → string.
+
+    - Nil / blank `project-root`: return `path` unchanged.
+    - Absolute `path` (per `absolute-path?`): return unchanged — a
+      caller whose source-coord already carries an absolute path must
+      not be double-prefixed.
+    - Otherwise: strip trailing path-separators from the root, strip
+      leading path-separators from the path, join with `/`.
+
+  Both `/` and `\\` are accepted as separators on input; the joined
+  result uses `/` (every editor scheme handler tested — VS Code,
+  Cursor, Windsurf, Zed, IntelliJ — accepts `/` even on Windows)."
+  [project-root path]
+  (cond
+    (or (nil? project-root) (str/blank? project-root)) path
+    (absolute-path? path)                              path
+    :else
+    (let [root (str/replace project-root #"[/\\]+$" "")
+          tail (str/replace path #"^[/\\]+" "")]
+      (str root "/" tail))))
+
 ;; ---- pure: scheme builders ----------------------------------------------
 
 (defn- vscode-uri
@@ -316,6 +380,18 @@
                                      still produces a clickable URI
                                      rather than nothing).
 
+  Three-arg form: `(editor-uri editor source-coord opts)`. `opts` is a
+  map:
+
+    `:project-root` — string prepended to the source-coord's `:file`
+        slot. Per rf2-zfy1e: source-coords are captured classpath-
+        relative; editors resolve the URI against the filesystem and
+        reject relative paths, so tools that own the launch surface
+        pass the on-disk root through here. Blank / nil leaves the
+        file string verbatim; absolute paths in the source-coord are
+        passed through unchanged regardless of the root. See
+        `compose-path` for the exact join semantics.
+
   Pure data → data; JVM + CLJS portable. No URL-encoding of the path —
   editor handlers expect raw paths; URL-encoding `/` to `%2F` confuses
   the file resolver in every editor tested. Spaces in paths are the one
@@ -327,34 +403,37 @@
   the three schemes that turn `window.location =` into in-tab script
   execution. The built-in scheme builders cannot produce any of these,
   so the gate only ever fires on the `:custom` surface."
-  [editor source-coord]
-  (when-let [path (coord-file source-coord)]
-    (let [line   (coord-line source-coord)
-          column (coord-column source-coord)
-          uri    (cond
-                   ;; Custom template: `{:custom "<uri-template>"}`. Validate the
-                   ;; template is a string; anything else falls through to the
-                   ;; default editor.
-                   (and (map? editor) (string? (:custom editor)))
-                   (substitute-template (:custom editor) path line column)
+  ([editor source-coord]
+   (editor-uri editor source-coord nil))
+  ([editor source-coord {:keys [project-root]}]
+   (when-let [raw-path (coord-file source-coord)]
+     (let [path   (compose-path project-root raw-path)
+           line   (coord-line source-coord)
+           column (coord-column source-coord)
+           uri    (cond
+                    ;; Custom template: `{:custom "<uri-template>"}`. Validate the
+                    ;; template is a string; anything else falls through to the
+                    ;; default editor.
+                    (and (map? editor) (string? (:custom editor)))
+                    (substitute-template (:custom editor) path line column)
 
-                   (= :cursor editor)
-                   (cursor-uri path line column)
+                    (= :cursor editor)
+                    (cursor-uri path line column)
 
-                   (= :windsurf editor)
-                   (windsurf-uri path line column)
+                    (= :windsurf editor)
+                    (windsurf-uri path line column)
 
-                   (= :zed editor)
-                   (zed-uri path line column)
+                    (= :zed editor)
+                    (zed-uri path line column)
 
-                   (= :idea editor)
-                   (idea-uri path line column)
+                    (= :idea editor)
+                    (idea-uri path line column)
 
-                   ;; :vscode is the default; any unknown keyword also lands here.
-                   :else
-                   (vscode-uri path line column))]
-      (when-not (forbidden-scheme? uri)
-        uri))))
+                    ;; :vscode is the default; any unknown keyword also lands here.
+                    :else
+                    (vscode-uri path line column))]
+       (when-not (forbidden-scheme? uri)
+         uri)))))
 
 (defn open-button-title
   "Build the `title` attribute string an 'Open' button should carry.

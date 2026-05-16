@@ -120,7 +120,14 @@
   ([source-coord variant-of-style]
    (when (editor-uri/has-source? source-coord)
      (let [editor (config/get-editor)
-           uri    (editor-uri/editor-uri editor source-coord)
+           ;; Per rf2-zfy1e: prepend the configured project-root to the
+           ;; source-coord's `:file` slot (typically classpath-relative)
+           ;; so the URI carries an absolute on-disk path the OS-side
+           ;; editor handler can resolve. The `:project-root` opt is
+           ;; nil-tolerant — when unset, behaviour matches v1 (file
+           ;; ships verbatim) so legacy hosts and tests aren't broken.
+           opts   {:project-root (config/get-project-root)}
+           uri    (editor-uri/editor-uri editor source-coord opts)
            style  (case variant-of-style
                     :test-detail (:chip-test chip-styles)
                     (:chip chip-styles))]

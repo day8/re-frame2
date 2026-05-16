@@ -429,6 +429,33 @@ at boot. Unknown keywords fall back to `:vscode` so a typo still
 yields a clickable URI rather than a no-op. Source-coords without
 `:file` hide the chip entirely.
 
+#### Project-root prefix (rf2-zfy1e)
+
+Source-coords stamped at registration time are classpath-relative
+(per [spec/001-Registration.md §Source-coordinate capture](../../../spec/001-Registration.md#source-coordinate-capture-cljs-reference) the macro captures the form-meta
+`:file` slot, e.g. `"src/app/views.cljs"`). Editor URI handlers
+resolve `<path>` against the filesystem, so a relative path fails
+with *"Path does not exist"*. The host plumbs the on-disk root via:
+
+```clojure
+(story/configure! {:project-root "C:/Users/me/code/my-app"})
+```
+
+The 'Open' chip prepends the root to the source-coord file before
+the URI ships:
+
+```
+vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7
+```
+
+Default is `nil` — when unset, the file string ships verbatim (v1
+behaviour). Source-coords whose `:file` is already absolute (leading
+`/`, drive-letter prefix, or `file:` URI) pass through unchanged
+regardless of the root setting so a caller that already has an
+absolute coord isn't double-prefixed. The prefix lives in the shared
+`re-frame.source-coords.editor-uri/editor-uri` 3-arg form; Causa
+consumes the same helper and will plumb its own knob in a follow-up.
+
 The shared URI builder lives at `re-frame.source-coords.editor-uri`
 under the core artefact and is CLJC-portable; Causa's mirror
 affordance (`day8.re-frame2-causa.open-in-editor`) consumes the same

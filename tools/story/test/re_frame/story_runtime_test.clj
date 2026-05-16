@@ -574,6 +574,31 @@
     (is (= :cursor (config/get-editor)))
     (config/set-editor! :vscode)))
 
+(deftest configure-sets-project-root
+  (testing "configure! writes the :project-root config slot (rf2-zfy1e)"
+    ;; Default is nil — no prefix applied to source-coord files.
+    (config/set-project-root! nil)
+    (is (nil? (config/get-project-root)))
+    (story/configure! {:project-root "C:/Users/me/code/my-app"})
+    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
+    (story/configure! {:project-root "/abs/code"})
+    (is (= "/abs/code" (config/get-project-root)))
+    ;; Explicit nil clears the slot.
+    (story/configure! {:project-root nil})
+    (is (nil? (config/get-project-root))))
+  (testing "configure! with no :project-root key leaves the slot untouched"
+    (config/set-project-root! "/abs/code")
+    (story/configure! {:global-args {:theme :dark}})
+    (is (= "/abs/code" (config/get-project-root)))
+    ;; Reset for downstream tests.
+    (config/set-project-root! nil))
+  (testing "set-project-root! normalises blank strings to nil"
+    (config/set-project-root! "")
+    (is (nil? (config/get-project-root)))
+    (config/set-project-root! "/abs/code")
+    (is (= "/abs/code" (config/get-project-root)))
+    (config/set-project-root! nil)))
+
 ;; ===========================================================================
 ;; ASYNC ABSTRACTION
 ;; ===========================================================================

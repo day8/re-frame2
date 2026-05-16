@@ -84,3 +84,28 @@
     ;; leading whitespace is tolerated
     (is (not (eu/allowed-uri? " javascript:alert(1)")))
     (is (eu/allowed-uri? " vscode://file/src/x.cljs:1:1"))))
+
+;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
+
+(deftest project-root-cljs-smoke
+  (testing "{:project-root ...} prefixes the relative source-coord file on CLJS"
+    (is (= "vscode://file/C:/code/my-app/src/app/views.cljs:42:7"
+           (eu/editor-uri :vscode coord
+                          {:project-root "C:/code/my-app"})))
+    (is (= "idea://open?file=C:/code/my-app/src/app/views.cljs&line=42&column=7"
+           (eu/editor-uri :idea coord
+                          {:project-root "C:/code/my-app"}))))
+  (testing "nil / blank :project-root falls back to verbatim path"
+    (is (= "vscode://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :vscode coord nil)))
+    (is (= "vscode://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :vscode coord {:project-root nil}))))
+  (testing "absolute :file is not double-prefixed on CLJS"
+    (is (= "vscode://file/C:/abs/x.cljs:1:1"
+           (eu/editor-uri :vscode
+                          {:file "C:/abs/x.cljs"}
+                          {:project-root "/should-not-apply"})))
+    (is (= "vscode://file//etc/x.cljs:1:1"
+           (eu/editor-uri :vscode
+                          {:file "/etc/x.cljs"}
+                          {:project-root "/should-not-apply"})))))

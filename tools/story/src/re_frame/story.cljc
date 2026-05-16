@@ -477,6 +477,16 @@
   `re-frame.source-coords.editor-uri/editor-uri` for the per-editor URI
   grammar.
 
+  `{:project-root <string>}` — on-disk root prepended to the source-
+  coord's classpath-relative `:file` slot when building the 'Open in
+  editor' URI per rf2-zfy1e. The host application sets this once at
+  boot — typically the directory above the build's source-paths, e.g.
+  `\"C:/Users/me/code/my-app\"` joined to a source-coord file like
+  `\"src/app/views.cljs\"` to produce
+  `\"C:/Users/me/code/my-app/src/app/views.cljs\"`. Defaults to nil
+  (no prefix; source-coord file ships verbatim — useful when the
+  classpath already resolves to absolute paths, and for tests).
+
   `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
   true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
   `false` — Story's trace, actions, recorder, and play-assertion
@@ -485,13 +495,15 @@
   cascade.
 
   Unrecognised keys are accepted (for forward compat) but ignored."
-  [{:keys [global-args editor]
+  [{:keys [global-args editor project-root]
     show-sensitive? :trace/show-sensitive?
     :as opts}]
   (when (some? global-args)
     (config/set-global-args! global-args))
   (when (some? editor)
     (config/set-editor! editor))
+  (when (contains? opts :project-root)
+    (config/set-project-root! project-root))
   (when (contains? opts :trace/show-sensitive?)
     (config/set-show-sensitive! show-sensitive?))
   nil)
