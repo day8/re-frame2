@@ -362,7 +362,7 @@
   `elide-wire-value` walker would emit."
   {:rf.size/large-elided
    {:path [:user :uploaded-pdf] :bytes 102400 :type :string
-    :reason :declared :handle [:rf.elision/at [:user :uploaded-pdf]]}})
+    :reason :schema :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
 (deftest snapshot-map-arm-uses-server-elided-when-supplied
   ;; rf2-e35a5: when `:server-elided` is on opts, the arm uses it

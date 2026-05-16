@@ -43,7 +43,7 @@
    {:path   [:user :uploaded-pdf]
     :bytes  102400
     :type   :string
-    :reason :declared
+    :reason :schema
     :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
 ;; ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@
                       {:path   [:a :b]
                        :bytes  100
                        :type   :string
-                       :reason :declared
+                       :reason :schema
                        :handle [:rf.elision/at [:a :b]]
                        :extra  {:rf.size/large-elided {:bytes 1}}}}]
     (is (= 1 (elision/count-elided-markers pathological)))))

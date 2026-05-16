@@ -13,7 +13,7 @@
                 {:path   [:user :pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :declared
+                 :reason :schema
                  :handle [:rf.elision/at [:user :pdf]]}}]
     ;; Empty / leaf cases — nothing to count.
     (is (= 0 (elision/count-elided-markers nil)))
@@ -44,7 +44,7 @@
                                {:path [:a :b]
                                 :bytes 100
                                 :type :string
-                                :reason :declared
+                                :reason :schema
                                 :handle [:rf.elision/at [:a :b]]
                                 ;; A pathological marker-shaped value
                                 ;; lodged inside the body would still
@@ -63,7 +63,7 @@
                 {:path   [:user :pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :declared
+                 :reason :schema
                  :handle [:rf.elision/at [:user :pdf]]}}
         contents [{:slice 1} marker {:slice 2 :nested marker}]
         as-lazy  (map identity contents)]
