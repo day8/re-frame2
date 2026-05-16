@@ -514,6 +514,14 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
     :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure :trace-buffer` so a no-tooling production build silently no-ops."}
+   {:key         :trace.tooling/register-trace-cb!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-r1ciy"
+    :description "Register a trace listener. Late-bound so `re-frame.frame/fire-on-destroy-event!` can install a one-shot listener around the `:on-destroy` dispatch (to re-emit `:rf.error/handler-exception` as `:rf.error/on-destroy-handler-exception`) without forcing the tooling sibling into production CLJS bundles."}
+   {:key         :trace.tooling/remove-trace-cb!
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-r1ciy"
+    :description "Drop a trace listener. Sibling of `:trace.tooling/register-trace-cb!` — same rf2-r1ciy seam."}
 
    ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
    {:key         :event-emit/dispatch-on-event

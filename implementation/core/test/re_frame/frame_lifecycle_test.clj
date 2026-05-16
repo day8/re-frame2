@@ -1088,3 +1088,161 @@
         "reset-frame! on a missing id returns nil without throwing")
     (is (nil? (frame/frame :no/such-frame))
         "the missing frame is still absent")))
+
+;; ---- rf2-r1ciy: :on-destroy handler throw semantics ----------------------
+;;
+;; Per Spec 002 §Destroy — `:on-destroy` handler throw semantics: a throw
+;; from the user-supplied `:on-destroy` event handler MUST NOT abort
+;; teardown. The runtime catches, emits :rf.error/on-destroy-handler-
+;; exception, and continues the destroy recipe end-to-end. Mike decision
+;; 2026-05-17 00:18 AUSEST (option b: catch + emit trace + continue).
+
+(deftest on-destroy-throw-does-not-abort-teardown
+  (testing "a throwing :on-destroy event still results in a fully destroyed
+            frame — machine cascade, sub-cache, :frame/destroyed,
+            registry dissoc all run regardless"
+    (rf/reg-frame :throwy/worker
+                  {:doc       "rf2-r1ciy throwy on-destroy frame"
+                   :on-destroy [:throwy/blow-up]})
+    ;; Handler that always throws.
+    (rf/reg-event-db :throwy/blow-up
+      (fn [_ _]
+        (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))))
+    ;; Pin a live subscription so we can verify sub-cache disposal still ran.
+    (rf/reg-event-db :throwy/seed (fn [_ _] {:n 42}))
+    (rf/reg-sub :throwy/n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:throwy/seed] {:frame :throwy/worker})
+    (let [pinned         (rf/subscribe :throwy/worker [:throwy/n])
+          dispose-fired  (atom 0)
+          traces         (atom [])]
+      (is (= 42 @pinned) "sub reads the seeded value before destroy")
+      (re-frame.interop/add-on-dispose! pinned
+                                        (fn [] (swap! dispose-fired inc)))
+      (rf/register-trace-cb! ::rf2-r1ciy (fn [ev] (swap! traces conj ev)))
+
+      ;; Destroy MUST NOT propagate the throw.
+      (is (nil? (try (rf/destroy-frame! :throwy/worker)
+                     (catch Throwable e e)))
+          "destroy-frame! returns nil even though :on-destroy threw")
+
+      (rf/remove-trace-cb! ::rf2-r1ciy)
+
+      ;; (a) The :rf.error/on-destroy-handler-exception trace fired.
+      (let [errs (filterv (fn [ev]
+                            (and (= :error (:op-type ev))
+                                 (= :rf.error/on-destroy-handler-exception
+                                    (:operation ev))))
+                          @traces)]
+        (is (= 1 (count errs))
+            "exactly one :rf.error/on-destroy-handler-exception trace")
+        (let [ev (first errs)
+              tags (:tags ev)]
+          (is (= :throwy/worker (:frame tags))
+              ":tags carries the destroyed frame id")
+          (is (= [:throwy/blow-up] (:event tags))
+              ":tags carries the :on-destroy event vector")
+          (is (some? (:exception tags))
+              ":tags carries the captured exception")
+          (is (= :fire-on-destroy-event! (:where tags))
+              ":tags carries the call-site :where marker")))
+
+      ;; (b) The frame is fully gone from the registry.
+      (is (nil? (frame/frame :throwy/worker))
+          "destroy-frame! removed the frame from the registry despite the throw")
+      (is (not (contains? @frame/frames :throwy/worker))
+          "the frame entry is dissoc'd from the frames atom")
+
+      ;; (c) The sub-cache was disposed (on-dispose fired).
+      (is (= 1 @dispose-fired)
+          "sub-cache disposal ran — on-dispose hook fired once")
+
+      ;; (d) :frame/destroyed trace was emitted (post-throw step still ran).
+      (is (some #(= :frame/destroyed (:operation %)) @traces)
+          ":frame/destroyed trace was emitted — teardown continued past the throw"))))
+
+(deftest on-destroy-throw-then-fresh-reg-frame-clean
+  (testing "after a throwy destroy, the same frame id can be re-registered
+            cleanly — the in-flight guard is cleared even on the exception path"
+    (rf/reg-frame :throwy/resurrected {:on-destroy [:throwy/blow-up-2]})
+    (rf/reg-event-db :throwy/blow-up-2
+      (fn [_ _] (throw (ex-info ":throwy/second-blow" {}))))
+    (rf/destroy-frame! :throwy/resurrected)
+    (is (nil? (frame/frame :throwy/resurrected))
+        "original frame destroyed (despite the throw)")
+    ;; A fresh registration after the throwy destroy must work.
+    (rf/reg-frame :throwy/resurrected {:doc "post-resurrection"})
+    (is (some? (frame/frame :throwy/resurrected))
+        "re-registration succeeds — the in-flight guard cleared in finally")
+    ;; And a fresh destroy (no throw this time) works normally.
+    (rf/destroy-frame! :throwy/resurrected)
+    (is (nil? (frame/frame :throwy/resurrected))
+        "second destroy completes normally")))
+
+;; ---- rf2-r1ciy: re-entrant destroy-frame! is a silent no-op --------------
+;;
+;; Per Spec 002 §Destroy — re-entrant `destroy-frame!` is a silent no-op:
+;; a call to `destroy-frame!` from inside the same id's `:on-destroy`
+;; handler (or any code reachable from it) MUST short-circuit silently —
+;; the outer destroy is already in flight; re-running the recipe would
+;; corrupt half-torn-down state.
+
+(deftest re-entrant-destroy-from-on-destroy-is-silent-noop
+  (testing "destroy-frame! called from within :on-destroy must NOT recurse —
+            :on-destroy fires exactly once, teardown completes once"
+    (let [on-destroy-count (atom 0)
+          traces           (atom [])]
+      (rf/reg-frame :reent/worker
+                    {:doc        "rf2-r1ciy re-entrancy frame"
+                     :on-destroy [:reent/cleanup]})
+      ;; The :on-destroy handler itself calls destroy-frame! on its own
+      ;; frame. Without the re-entrancy guard this would recurse
+      ;; indefinitely (or until a stack overflow).
+      (rf/reg-event-fx :reent/cleanup
+        (fn [_ _]
+          (swap! on-destroy-count inc)
+          (frame/destroy-frame! :reent/worker)
+          {}))
+      (rf/register-trace-cb! ::reent (fn [ev] (swap! traces conj ev)))
+      (rf/destroy-frame! :reent/worker)
+      (rf/remove-trace-cb! ::reent)
+
+      ;; (a) :on-destroy ran exactly once — the re-entrant inner call was a no-op.
+      (is (= 1 @on-destroy-count)
+          ":on-destroy fired once; the re-entrant destroy-frame! did not re-run it")
+
+      ;; (b) Exactly one :frame/destroyed trace emitted.
+      (let [destroyed-traces (filter #(= :frame/destroyed (:operation %)) @traces)]
+        (is (= 1 (count destroyed-traces))
+            "exactly one :frame/destroyed trace — teardown ran end-to-end once"))
+
+      ;; (c) No :rf.error/on-destroy-handler-exception (the inner call
+      ;;     was a silent no-op, not a throw).
+      (let [errs (filter #(= :rf.error/on-destroy-handler-exception (:operation %))
+                         @traces)]
+        (is (zero? (count errs))
+            "re-entrant no-op is silent — no error trace"))
+
+      ;; (d) The frame is gone.
+      (is (nil? (frame/frame :reent/worker))
+          "the frame is fully destroyed"))))
+
+(deftest re-entrant-destroy-from-different-id-still-runs
+  (testing "destroy-frame! for frame B from within frame A's :on-destroy
+            still runs B's teardown — the in-flight guard is per-id, not global"
+    (rf/reg-frame :reent.a/worker {:on-destroy [:reent.a/cleanup]})
+    (rf/reg-frame :reent.b/worker {})
+    (let [b-still-alive-during-a (atom nil)]
+      (rf/reg-event-fx :reent.a/cleanup
+        (fn [_ _]
+          ;; Sanity: B is alive at the start of A's :on-destroy.
+          (reset! b-still-alive-during-a (some? (frame/frame :reent.b/worker)))
+          (frame/destroy-frame! :reent.b/worker)
+          {}))
+      (rf/destroy-frame! :reent.a/worker)
+      (is (true? @b-still-alive-during-a)
+          "B was alive when A's :on-destroy started")
+      ;; Both A and B are gone — the guard is per-id, not a global lock.
+      (is (nil? (frame/frame :reent.a/worker))
+          "A is fully destroyed")
+      (is (nil? (frame/frame :reent.b/worker))
+          "B was successfully destroyed from inside A's :on-destroy"))))

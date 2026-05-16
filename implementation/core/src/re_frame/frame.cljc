@@ -38,6 +38,19 @@
   frames
   (atom {}))
 
+;; ---- destroy-in-flight guard (rf2-r1ciy) ---------------------------------
+;;
+;; Tracks frame-ids whose `destroy-frame!` call is currently mid-flight so
+;; a re-entrant `(destroy-frame! id)` from inside the same id's
+;; `:on-destroy` handler (or downstream teardown hook) is a silent no-op.
+;; Without this guard a re-entrant destroy would recursively re-enter
+;; teardown — re-firing `:on-destroy`, re-running the machine cascade,
+;; re-disposing the sub-cache — and likely throw on a half-torn-down
+;; frame. Per Spec 002 §Destroy — re-entrant destroy is idempotent.
+
+(defonce ^:private destroying-frames
+  (atom #{}))
+
 ;; ---- frame resolution at call sites --------------------------------------
 ;;
 ;; *current-frame* is the dynamic var that with-frame binds. Subscribe and
@@ -347,10 +360,75 @@
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- fire-on-destroy-event!
+  "Run the user-supplied `:on-destroy` event synchronously, then continue
+  teardown regardless of outcome. Per Spec 002 §Destroy — `:on-destroy`
+  handler throw semantics (rf2-r1ciy decision b): a throw from the user's
+  handler MUST NOT abort teardown. Emit `:rf.error/on-destroy-handler-exception`
+  via `trace/emit-error!` and continue — every downstream step
+  (machine cascade, sub-cache disposal, cleanup hooks, `:frame/destroyed`,
+  registry dissoc) MUST still run so the frame is fully torn down.
+
+  Mechanism: the router catches handler throws and converts them to
+  `:rf.error/handler-exception` traces — `dispatch-sync!` does not re-
+  throw. To surface the throw as the dedicated `:rf.error/on-destroy-
+  handler-exception` category (Mike's decision), we observe the trace
+  stream for the duration of the dispatch: any `:rf.error/handler-
+  exception` whose `:frame` matches us is captured and re-emitted under
+  the new category. We also wrap the dispatch itself in try/catch as a
+  defence-in-depth: if `dispatch-sync!` ever re-throws (e.g. a fault
+  inside the dispatch infrastructure itself, not the user handler),
+  we catch it here.
+
+  This mirrors the swallow-then-continue shape of `safe-call-hook!` below
+  but ALSO emits a structured error trace (where `safe-call-hook!` is
+  silent) — the user's `:on-destroy` is application code; its failure
+  is a first-class diagnostic event."
   [id f]
   (when-let [on-destroy (-> f :config :on-destroy)]
     (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-      (dispatch-sync on-destroy {:frame id}))))
+      (let [captured (atom nil)
+            ;; The trace-buffer / listener registry lives in the optional
+            ;; trace.tooling sibling per rf2-qwm0a. Reach it through
+            ;; late-bind so this fn carries no static dep on the tooling
+            ;; ns; in production CLJS builds where trace.tooling is not
+            ;; loaded, the listener install is a silent no-op (no trace
+            ;; surface to observe, no trace to re-emit).
+            register   (late-bind/get-fn :trace.tooling/register-trace-cb!)
+            remove-cb  (late-bind/get-fn :trace.tooling/remove-trace-cb!)
+            listener-k ::on-destroy-throw-watch
+            listener   (fn [ev]
+                         (when (and (= :rf.error/handler-exception (:operation ev))
+                                    (= id (-> ev :tags :frame))
+                                    (nil? @captured))
+                           (reset! captured ev)))]
+        (when (and register remove-cb)
+          (register listener-k listener))
+        (try
+          (try
+            (dispatch-sync on-destroy {:frame id})
+            (catch #?(:clj Throwable :cljs :default) ex
+              ;; Defence-in-depth: dispatch-sync! normally swallows
+              ;; handler throws, but if the dispatch infrastructure
+              ;; itself fails we still emit the dedicated category.
+              (trace/emit-error! :rf.error/on-destroy-handler-exception
+                                 {:frame     id
+                                  :event     on-destroy
+                                  :exception ex
+                                  :where     :fire-on-destroy-event!})))
+          (finally
+            (when (and register remove-cb)
+              (remove-cb listener-k))))
+        ;; If the router converted a handler throw to a trace, re-emit
+        ;; under the dedicated :on-destroy category so consumers can
+        ;; discriminate teardown failures from regular handler throws.
+        (when-let [ev @captured]
+          (let [tags (:tags ev)]
+            (trace/emit-error! :rf.error/on-destroy-handler-exception
+                               {:frame             id
+                                :event             on-destroy
+                                :exception         (:exception tags)
+                                :exception-message (:exception-message tags)
+                                :where             :fire-on-destroy-event!})))))))
 
 (defn- notify-machine-destruction!
   "Frame-destroy machine-cascade entry-point.
@@ -465,40 +543,63 @@
                                       :rf.epoch.cb/silenced-on-frame-destroy.
 
   Subsequent dispatch / subscribe against a destroyed frame raises
-  :rf.error/frame-destroyed."
+  :rf.error/frame-destroyed.
+
+  Re-entrancy (rf2-r1ciy): if `destroy-frame!` is called for `id` while
+  an outer `destroy-frame!` for the same `id` is still on the stack
+  (e.g. the user's `:on-destroy` handler itself calls `destroy-frame!`,
+  or a machine `:exit` cascade does so), the re-entrant call is a
+  silent no-op — the outer call's teardown is already in flight and
+  re-running the recipe would re-fire `:on-destroy`, re-run the
+  machine cascade, and corrupt the half-torn-down state. Idempotent
+  destroy is the existing pattern (a destroyed frame's `(frame id)`
+  lookup already returns nil, so a *later* `destroy-frame!` short-
+  circuits at the outer `when-let`); the in-flight guard closes the
+  RE-ENTRANT window before `mark-frame-destroyed!` flips the flag."
   [id]
-  (when-let [f (frame id)]
-    (fire-on-destroy-event! id f)
-    (notify-machine-destruction! id)
-    (mark-frame-destroyed! id)
-    (tear-down-sub-cache! f)
-    (safe-call-hook! :privacy/clear-suppression-cache!)
-    (safe-call-hook! :elision/clear-warning-cache!)
-    (safe-call-hook! :ssr/on-frame-destroyed id)
-    (safe-call-hook! :machines/on-frame-destroyed! id)
-    ;; Per rf2-wkxng / rf2-6m0se: drop every schema registered against
-    ;; the destroyed frame so a re-registered frame starts with a
-    ;; clean schema slate. Without this hook, orphan app-db schemas
-    ;; from a prior `reg-frame` cycle persist and re-fire under the
-    ;; rollback contract — manifesting as spurious rollbacks against
-    ;; paths the new frame's :on-create never wrote. No-op when
-    ;; re-frame.schemas is absent (the artefact is optional per
-    ;; rf2-p7va).
-    (safe-call-hook! :schemas/on-frame-destroyed! id)
-    ;; Per rf2-wbtjn: drop every flow registered against the destroyed
-    ;; frame plus its cached `last-inputs` rows, and prune the
-    ;; `:flow` registrar slot when the destroyed frame was the last
-    ;; owner. Symmetric with the machines teardown hook above
-    ;; (rf2-vsigt). Without this hook a long-running SSR JVM with
-    ;; per-request frame churn grows the flow registry unboundedly.
-    ;; No-op when re-frame.flows is absent (the artefact is optional
-    ;; per rf2-tfw3).
-    (safe-call-hook! :flows/teardown-on-frame-destroy! id)
-    (emit-frame-destroyed-trace! id)
-    (dissoc-frame! id)
-    (unregister-frame! id)
-    (notify-epoch-listeners! id)
-    nil))
+  ;; Re-entrancy guard: short-circuit if we're already destroying this id.
+  ;; Silent no-op (idempotent destroy is already a no-op pattern; no new
+  ;; trace event needed per rf2-r1ciy decision).
+  (when-not (contains? @destroying-frames id)
+    (when-let [f (frame id)]
+      (swap! destroying-frames conj id)
+      (try
+        (fire-on-destroy-event! id f)
+        (notify-machine-destruction! id)
+        (mark-frame-destroyed! id)
+        (tear-down-sub-cache! f)
+        (safe-call-hook! :privacy/clear-suppression-cache!)
+        (safe-call-hook! :elision/clear-warning-cache!)
+        (safe-call-hook! :ssr/on-frame-destroyed id)
+        (safe-call-hook! :machines/on-frame-destroyed! id)
+        ;; Per rf2-wkxng / rf2-6m0se: drop every schema registered against
+        ;; the destroyed frame so a re-registered frame starts with a
+        ;; clean schema slate. Without this hook, orphan app-db schemas
+        ;; from a prior `reg-frame` cycle persist and re-fire under the
+        ;; rollback contract — manifesting as spurious rollbacks against
+        ;; paths the new frame's :on-create never wrote. No-op when
+        ;; re-frame.schemas is absent (the artefact is optional per
+        ;; rf2-p7va).
+        (safe-call-hook! :schemas/on-frame-destroyed! id)
+        ;; Per rf2-wbtjn: drop every flow registered against the destroyed
+        ;; frame plus its cached `last-inputs` rows, and prune the
+        ;; `:flow` registrar slot when the destroyed frame was the last
+        ;; owner. Symmetric with the machines teardown hook above
+        ;; (rf2-vsigt). Without this hook a long-running SSR JVM with
+        ;; per-request frame churn grows the flow registry unboundedly.
+        ;; No-op when re-frame.flows is absent (the artefact is optional
+        ;; per rf2-tfw3).
+        (safe-call-hook! :flows/teardown-on-frame-destroy! id)
+        (emit-frame-destroyed-trace! id)
+        (dissoc-frame! id)
+        (unregister-frame! id)
+        (notify-epoch-listeners! id)
+        nil
+        (finally
+          ;; Always clear the in-flight marker — even if a downstream step
+          ;; throws unexpectedly, future `destroy-frame!` calls for `id`
+          ;; (after a fresh `reg-frame`) must not see a stale entry.
+          (swap! destroying-frames disj id))))))
 
 (defn reset-frame!
   "destroy-frame! followed by reg-frame with the same config. Per Spec 002
