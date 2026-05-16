@@ -128,7 +128,8 @@ The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` 
 (defmacro reg-event-db
   [id & args]
   (let [[metadata handler] (resolve-args args)
-        coords {:ns &env :line ... :column ... :file ...}]
+        {:keys [line column]} (meta &form)
+        coords {:ns (ns-name *ns*) :line line :column column :file *file*}]
     `(re-frame.core/-reg-event-db
        ~id
        ~(merge coords metadata)
