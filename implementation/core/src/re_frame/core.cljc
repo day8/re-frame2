@@ -87,18 +87,70 @@
 
 #?(:cljs
    (do
-     (def reg-event-db    events/reg-event-db)
-     (def reg-event-fx    events/reg-event-fx)
-     (def reg-event-ctx   events/reg-event-ctx)
-     (def reg-sub         subs/reg-sub)
-     (def reg-fx          fx/reg-fx)
-     (def reg-cofx        cofx/reg-cofx)
-     (def reg-frame       frame/reg-frame)
-     (def reg-flow        rf-flows/reg-flow)
-     (def reg-route       rf-routing/reg-route)
-     (def reg-app-schema  rf-schemas/reg-app-schema)
-     (def reg-app-schemas rf-schemas/reg-app-schemas)
-     (def reg-machine*    rf-machines/reg-machine*)))
+     (def ^{:doc "Fn-alias of the `reg-event-db` macro for HoF / programmatic
+  registration (no source-coord capture). Register a
+  `(fn [db event-vec] new-db)` event handler under `id`. See
+  `re-frame.events/reg-event-db` and spec/API.md §Registration."}
+       reg-event-db    events/reg-event-db)
+     (def ^{:doc "Fn-alias of the `reg-event-fx` macro for HoF / programmatic
+  registration (no source-coord capture). Register a
+  `(fn [cofx event-vec] effect-map)` event handler under `id`. See
+  `re-frame.events/reg-event-fx` and spec/API.md §Registration."}
+       reg-event-fx    events/reg-event-fx)
+     (def ^{:doc "Fn-alias of the `reg-event-ctx` macro for HoF / programmatic
+  registration (no source-coord capture). Register a
+  `(fn [context] context)` full-context event handler under `id`. Advanced
+  — most handlers want `reg-event-db` / `reg-event-fx`. See
+  `re-frame.events/reg-event-ctx` and spec/API.md §Registration."}
+       reg-event-ctx   events/reg-event-ctx)
+     (def ^{:doc "Fn-alias of the `reg-sub` macro for HoF / programmatic
+  registration (no source-coord capture). Register a subscription under
+  `id`. See `re-frame.subs/reg-sub` and spec/API.md §Registration."}
+       reg-sub         subs/reg-sub)
+     (def ^{:doc "Fn-alias of the `reg-fx` macro for HoF / programmatic
+  registration (no source-coord capture). Register an effect handler
+  under `id`. See `re-frame.fx/reg-fx` and spec/API.md §Registration."}
+       reg-fx          fx/reg-fx)
+     (def ^{:doc "Fn-alias of the `reg-cofx` macro for HoF / programmatic
+  registration (no source-coord capture). Register a coeffect handler —
+  a source of input data injected into an event handler's `:coeffects`
+  via `inject-cofx`. See `re-frame.cofx/reg-cofx` and spec/API.md
+  §Registration."}
+       reg-cofx        cofx/reg-cofx)
+     (def ^{:doc "Fn-alias of the `reg-frame` macro for HoF / programmatic
+  registration (no source-coord capture). Atomically create + register
+  a frame under `id` with the given metadata. See
+  `re-frame.frame/reg-frame` and spec/API.md §Registration."}
+       reg-frame       frame/reg-frame)
+     (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
+  registration (no source-coord capture). Register a flow. Implementation
+  ships in `day8/re-frame2-flows`; require `re-frame.flows` at boot. See
+  `re-frame.core-flows/reg-flow` and spec/API.md §Registration."}
+       reg-flow        rf-flows/reg-flow)
+     (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
+  registration (no source-coord capture). Register a route under `id`;
+  `metadata` carries `:path` at minimum. Implementation ships in
+  `day8/re-frame2-routing`; require `re-frame.routing` at boot. See
+  `re-frame.core-routing/reg-route` and spec/API.md §Registration."}
+       reg-route       rf-routing/reg-route)
+     (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
+  registration (no source-coord capture). Register a Malli schema at a
+  path inside app-db (frame-scoped per Spec 010). Implementation ships
+  in `day8/re-frame2-schemas`. See `re-frame.core-schemas/reg-app-schema`
+  and spec/API.md §Registration."}
+       reg-app-schema  rf-schemas/reg-app-schema)
+     (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
+  programmatic registration (no source-coord capture). Bulk-register a
+  `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
+  See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
+  §Registration."}
+       reg-app-schemas rf-schemas/reg-app-schemas)
+     (def ^{:doc "Plain-fn surface for machine registration. Use for code-gen
+  pipelines and REPL workflows that bypass the `reg-machine` macro's
+  per-element source-coord stamping. Implementation ships in
+  `day8/re-frame2-machines`. See `re-frame.core-machines/reg-machine*`
+  and spec/API.md §Registration."}
+       reg-machine*    rf-machines/reg-machine*)))
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
 ;;
@@ -234,8 +286,16 @@
 
 #?(:clj
    (do
-     (def expand-reg-view             rvm/expand-reg-view)
-     (def parse-reg-view-args         rvm/parse-reg-view-args)))
+     (def ^{:doc "JVM-only macro-helper re-exposed for tests that reach
+  `re-frame.core/expand-reg-view` directly (pre-split test access, per
+  rf2-4rnui). Not part of the public surface — see
+  `re-frame.core-reg-view-macro/expand-reg-view`."}
+       expand-reg-view             rvm/expand-reg-view)
+     (def ^{:doc "JVM-only macro-helper re-exposed for tests that reach
+  `re-frame.core/parse-reg-view-args` directly (pre-split test access,
+  per rf2-4rnui). Not part of the public surface — see
+  `re-frame.core-reg-view-macro/parse-reg-view-args`."}
+       parse-reg-view-args         rvm/parse-reg-view-args)))
 
 ;; ---- view registration ---------------------------------------------------
 
@@ -286,40 +346,147 @@
 
 #?(:cljs
    (do
-     (def reg-error-projector -reg-error-projector)
-     (def reg-head            -reg-head)))
+     (def ^{:doc "Fn-alias of the `reg-error-projector` macro for HoF /
+  programmatic registration (no source-coord capture). Register an
+  error projector — `(trace-event) -> public-error-map`. Frames opt in
+  via the `:ssr` config's `:public-error-id` key. Implementation ships
+  in `day8/re-frame2-ssr`. See `re-frame.core-ssr/-reg-error-projector`
+  and spec/API.md §Registration."}
+       reg-error-projector -reg-error-projector)
+     (def ^{:doc "Fn-alias of the `reg-head` macro for HoF / programmatic
+  registration (no source-coord capture). Register a head-fragment
+  producer `(fn [db route] head-model)` under a namespaced `id`.
+  Implementation ships in `day8/re-frame2-ssr`. See
+  `re-frame.core-ssr/-reg-head` and spec/API.md §Registration."}
+       reg-head            -reg-head)))
 
 ;; ---- SSR re-exports (Spec 011, rf2-uo7v) ---------------------------------
 
-(def render-to-string rf-ssr/render-to-string)
-(def render-tree-hash rf-ssr/render-tree-hash)
-(def project-error    rf-ssr/project-error)
-(def render-head      rf-ssr/render-head)
-(def active-head      rf-ssr/active-head)
-(def head-model->html rf-ssr/head-model->html)
+(def ^{:doc "Render a hiccup tree to an HTML string. Per Spec 011 §The
+  render-tree → HTML emitter. Delegates to the installed substrate
+  adapter's `:render-to-string` slot; `opts` may carry `:doctype?` and
+  `:emit-hash?`. Implementation ships in `day8/re-frame2-ssr`. Late-bound
+  via `:ssr/render-to-string`."}
+  render-to-string rf-ssr/render-to-string)
+
+(def ^{:doc "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
+  hex). Identical output on JVM and CLJS for the same canonical-EDN
+  representation. Per Spec 011 §Hydration-mismatch detection.
+  Implementation ships in `day8/re-frame2-ssr`. Late-bound via
+  `:ssr/render-tree-hash`."}
+  render-tree-hash rf-ssr/render-tree-hash)
+
+(def ^{:doc "Apply the active error projector for `frame-id` to the trace
+  event; returns an `:rf/public-error` map. Per Spec 011 §Server error
+  projection. Implementation ships in `day8/re-frame2-ssr`. Late-bound
+  via `:ssr/project-error`."}
+  project-error    rf-ssr/project-error)
+
+(def ^{:doc "Apply the head fn registered under `head-id` against a frame's
+  app-db and active route; returns the produced `:rf/head-model`. Per
+  Spec 011 §Head/meta contract. Implementation ships in
+  `day8/re-frame2-ssr`. Late-bound via `:ssr/render-head`."}
+  render-head      rf-ssr/render-head)
+
+(def ^{:doc "Look up the active route's `:head` metadata and render its
+  model; returns the default head when none is configured (per Spec 011
+  §Default head). Implementation ships in `day8/re-frame2-ssr`.
+  Late-bound via `:ssr/active-head`."}
+  active-head      rf-ssr/active-head)
+
+(def ^{:doc "Render an `:rf/head-model` map to its inner-head HTML fragment
+  in canonical order. Per Spec 011 §Default flow step 4. Implementation
+  ships in `day8/re-frame2-ssr`. Late-bound via `:ssr/head-model-html`."}
+  head-model->html rf-ssr/head-model->html)
 
 ;; ---- frame management ----------------------------------------------------
 
-(def make-frame    frame/make-frame)
-(def reset-frame!   frame/reset-frame!)
-(def destroy-frame! frame/destroy-frame!)
+(def ^{:doc "Anonymous-instance frame creation — generates a gensym'd id
+  under `:rf.frame/...` and returns it. Per Spec 002 §Per-instance frames.
+  Use `reg-frame` to create a frame with a caller-supplied id."}
+  make-frame    frame/make-frame)
+
+(def ^{:doc "Atomic `destroy-frame!` + `reg-frame` with the same config —
+  full replace (opt-in). Per Spec 002 §reset-frame!. Use sparingly:
+  destroy is the normative teardown boundary, so per-feature artefacts
+  hang their cleanup off this call."}
+  reset-frame!   frame/reset-frame!)
+
+(def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Runs
+  the user `:on-destroy`, releases per-feature resources (flows,
+  machines, schemas, SSR, epoch), clears the sub-cache, and removes the
+  frame from the registry. Idempotent. Per Spec 002 §Destroy."}
+  destroy-frame! frame/destroy-frame!)
 
 ;; ---- flows / schemas — plain-fn re-exports -------------------------------
 
-(def clear-flow             rf-flows/clear-flow)
-(def app-schema-at          rf-schemas/app-schema-at)
-(def app-schemas            rf-schemas/app-schemas)
-(def app-schemas-digest     rf-schemas/app-schemas-digest)
-(def set-schema-validator!  rf-schemas/set-schema-validator!)
-(def set-schema-explainer!  rf-schemas/set-schema-explainer!)
-(def set-schema-printer!    rf-schemas/set-schema-printer!)
+(def ^{:doc "Clear a flow from a frame's registry and vacate its output
+  path. Per Spec 013 §Lifecycle. Implementation ships in
+  `day8/re-frame2-flows`. Late-bound via `:flows/clear-flow`."}
+  clear-flow             rf-flows/clear-flow)
+
+(def ^{:doc "Return the registered schema at `path` for a frame, or `nil`.
+  Per Spec 010 §Schemas as a tooling and agent surface. Returns `nil`
+  when the schemas artefact is not on the classpath. Implementation
+  ships in `day8/re-frame2-schemas`."}
+  app-schema-at          rf-schemas/app-schema-at)
+
+(def ^{:doc "Return every registered `app-schema-at` declaration for a
+  frame as a `{path -> schema}` map. Per Spec 010 §Per-frame schemas.
+  Returns `{}` when the schemas artefact is not on the classpath.
+  Implementation ships in `day8/re-frame2-schemas`."}
+  app-schemas            rf-schemas/app-schemas)
+
+(def ^{:doc "Return a stable cross-runtime digest of the registered
+  schemas for a frame. Per Spec 010 §Digest algorithm. Returns `nil`
+  when the schemas artefact is not on the classpath. Implementation
+  ships in `day8/re-frame2-schemas`."}
+  app-schemas-digest     rf-schemas/app-schemas-digest)
+
+(def ^{:doc "Register the validator fn every dev-time schema-validation
+  site routes through — `(fn [schema value] truthy?)` (or nil to
+  disable). Map-arity atomically swaps `{:validate :explain}` together.
+  Per Spec 010 §Non-Malli validators (rf2-froe). Default ships Malli;
+  callers swap to drop the ~24 KB gzipped Malli surface. Implementation
+  ships in `day8/re-frame2-schemas`."}
+  set-schema-validator!  rf-schemas/set-schema-validator!)
+
+(def ^{:doc "Register the explainer fn — `(fn [schema value] explanation)`
+  — used to enrich schema-validation-failure traces' `:explain` key.
+  Per Spec 010 §Non-Malli validators (rf2-froe). Implementation ships
+  in `day8/re-frame2-schemas`."}
+  set-schema-explainer!  rf-schemas/set-schema-explainer!)
+
+(def ^{:doc "Register the schema-print companion — `(fn [schema-value]
+  canonical-string)` — that the digest pipeline hashes. MUST be pure
+  and cross-runtime deterministic. Per Spec 010 §Digest algorithm
+  (rf2-wla45). Implementation ships in `day8/re-frame2-schemas`."}
+  set-schema-printer!    rf-schemas/set-schema-printer!)
 
 ;; ---- clearing ------------------------------------------------------------
 
-(def clear-event events/clear-event)
-(def clear-sub   subs/clear-sub)
-(def clear-fx    fx/clear-fx)
-(def clear-sub-cache! subs/clear-sub-cache!)
+(def ^{:doc "Unregister an event handler. Zero-arity clears every
+  registered event handler in the registrar; one-arity clears the named
+  one. For hot-reload tools and test fixtures. Per spec/API.md §Clearing
+  registrations."}
+  clear-event events/clear-event)
+
+(def ^{:doc "Unregister a subscription. Zero-arity clears every
+  registered sub in the registrar; one-arity clears the named one. For
+  hot-reload tools and test fixtures. Per spec/API.md §Clearing
+  registrations."}
+  clear-sub   subs/clear-sub)
+
+(def ^{:doc "Unregister an fx handler. Zero-arity clears every registered
+  fx; one-arity clears the named one. For hot-reload tools and test
+  fixtures. Per spec/API.md §Clearing registrations."}
+  clear-fx    fx/clear-fx)
+
+(def ^{:doc "Dispose every cached entry in a frame's runtime sub-cache
+  and clear the cache. Cancels any pending grace-period timers before
+  disposing. For tests and hot-reload. Per spec/API.md §Clearing
+  registrations."}
+  clear-sub-cache! subs/clear-sub-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
@@ -327,11 +494,35 @@
 ;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
 ;; live here.
 
-(def dispatch*       router/dispatch!)
-(def dispatch-sync*  router/dispatch-sync!)
-(def subscribe-once subs/subscribe-once)
-(def unsubscribe     subs/unsubscribe)
-(def compute-sub     subs/compute-sub)
+(def ^{:doc "Fn-form of `dispatch` for HoF / programmatic dispatch — no
+  call-site source-coord capture. Append `event` to the target frame's
+  router queue; returns nil. Per spec/API.md §Dispatch and subscribe
+  (rf2-ts1a)."}
+  dispatch*       router/dispatch!)
+
+(def ^{:doc "Fn-form of `dispatch-sync` for HoF / programmatic sync
+  dispatch — no call-site source-coord capture. Process `event`
+  end-to-end synchronously, then drain to fixed point. For tests / REPL
+  / bootstrap only. Per spec/API.md §Dispatch and subscribe (rf2-ts1a)."}
+  dispatch-sync*  router/dispatch-sync!)
+
+(def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
+  then unsubscribes. Does NOT retain a cache reference. Use in handler
+  bodies, machine actions, REPL — anywhere you need a value without a
+  reactive subscription. Per spec/API.md §Dispatch and subscribe."}
+  subscribe-once subs/subscribe-once)
+
+(def ^{:doc "Decrement the ref-count on the cached subscription for
+  `query-v`; ref-count→0 schedules disposal after the configured
+  `:sub-cache` grace-period. Returns nil. Per spec/API.md §Dispatch and
+  subscribe."}
+  unsubscribe     subs/unsubscribe)
+
+(def ^{:doc "Compute a subscription's value against a supplied `db`,
+  bypassing the reactive cache. Useful in tests that want to inspect
+  what a sub would return for a hypothetical db without touching the
+  live cache."}
+  compute-sub     subs/compute-sub)
 
 (defn subscribe*
   "Runtime-callable fn form of `subscribe` (HoF / programmatic callers).
@@ -499,13 +690,34 @@
 ;; is); the impl lives in re-frame.views to keep React/Reagent off the
 ;; JVM load path.
 
-#?(:cljs (def frame-provider views/frame-provider))
+#?(:cljs (def ^{:doc "Reagent component that puts a frame on React context
+  for descendant views. Usage: `[rf/frame-provider {:frame :todo} &
+  children]`. Children resolve `(current-frame)` to the provided frame
+  unless a lexical `with-frame` or dynamic binding overrides. Per
+  Spec 002 §Reading the frame from React context."}
+         frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
 
-(def match-url   rf-routing/match-url)
-(def route-url   rf-routing/route-url)
-(def route-link  rf-routing/route-link)
+(def ^{:doc "Match a URL against registered routes; return
+  `{:route-id :params :query :fragment :validation-failed?}` for the
+  first match, or `nil`. The URL's `#fragment` portion is parsed off
+  and surfaced as `:fragment`. Per Spec 012 §Bidirectional URL <-> params.
+  Implementation ships in `day8/re-frame2-routing`."}
+  match-url   rf-routing/match-url)
+
+(def ^{:doc "Build a URL string from a route-id + path-params (+ optional
+  query-params + optional fragment). Inverse of `match-url`. The 4-arity
+  appends `#fragment` when non-empty. Per Spec 012 §Bidirectional URL
+  <-> params. Implementation ships in `day8/re-frame2-routing`."}
+  route-url   rf-routing/route-url)
+
+(def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
+  from a route-id and intercepts plain primary-button clicks to dispatch
+  `:rf/url-requested`. Modifier-key / middle-clicks defer to the browser.
+  Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
+  \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
+  route-link  rf-routing/route-link)
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
@@ -514,24 +726,85 @@
 ;; reg-machine* (rf2-8bp3).
 
 #?(:clj
-   (def reg-machine* rf-machines/reg-machine*))
+   (def ^{:doc "Plain-fn surface for machine registration (JVM). Use for
+  code-gen pipelines and conformance harnesses that synthesise specs
+  from data; the `reg-machine` macro is preferred for literal spec
+  forms (it carries per-element source-coord stamping). Implementation
+  ships in `day8/re-frame2-machines`. Per Spec 005 §reg-machine vs
+  reg-machine* (rf2-8bp3)."}
+     reg-machine* rf-machines/reg-machine*))
 
-(def create-machine-handler rf-machines/create-machine-handler)
-(def machine-transition     rf-machines/machine-transition)
-(def machines               rf-machines/machines)
-(def machine-meta           rf-machines/machine-meta)
-(def machine-by-system-id   rf-machines/machine-by-system-id)
-(def dispatch-to-system     rf-machines/dispatch-to-system)
-(def sub-machine            rf-machines/sub-machine)
-(def machine-has-tag?               rf-machines/machine-has-tag?)
+(def ^{:doc "Build an event-fx handler from a machine spec. Per Spec 005
+  §Registration. Implementation ships in `day8/re-frame2-machines`.
+  Late-bound via `:machines/create-machine-handler`."}
+  create-machine-handler rf-machines/create-machine-handler)
+
+(def ^{:doc "Pure `(machine, snapshot, event) -> [snapshot fx]`. Per
+  Spec 005 §Drain semantics §Level 3. Implementation ships in
+  `day8/re-frame2-machines`. Late-bound via
+  `:machines/machine-transition`."}
+  machine-transition     rf-machines/machine-transition)
+
+(def ^{:doc "Return a sequence of registered machine ids. Per Spec 005
+  §Querying machines. Returns `[]` when the machines artefact is not
+  on the classpath. Implementation ships in `day8/re-frame2-machines`."}
+  machines               rf-machines/machines)
+
+(def ^{:doc "Return the registered machine spec map for `machine-id`, or
+  `nil`. Per Spec 005 §Querying machines. Returns `nil` when the
+  machines artefact is not on the classpath. Implementation ships in
+  `day8/re-frame2-machines`."}
+  machine-meta           rf-machines/machine-meta)
+
+(def ^{:doc "Look up the spawned-machine id bound to `system-id` in the
+  active frame's `[:rf/system-ids]` reverse index, or `nil`. Optional
+  `frame-id` arg targets an explicit frame. Per Spec 005 §Named
+  addressing via `:system-id`. Implementation ships in
+  `day8/re-frame2-machines`."}
+  machine-by-system-id   rf-machines/machine-by-system-id)
+
+(def ^{:doc "Sugar: dispatch `event` to the spawned-machine bound to
+  `system-id` in the active frame; no-op fall-through when the
+  system-id is unbound. Per Spec 005 §Cross-machine messaging by name."}
+  dispatch-to-system     rf-machines/dispatch-to-system)
+
+(def ^{:doc "Subscribe to a machine's snapshot. Sugar over
+  `(subscribe [:rf/machine machine-id])`. Returns a reaction whose value
+  is `{:state <kw> :data <map>}`, or `nil` if uninitialised. Per
+  Spec 005 §Subscribing to machines via sub-machine."}
+  sub-machine            rf-machines/sub-machine)
+
+(def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
+  `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
+  — returns a reaction whose value is `true` iff the current snapshot's
+  `:tags` set contains `tag`. Per Spec 005 §State tags (rf2-ee0d)."}
+  machine-has-tag?               rf-machines/machine-has-tag?)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 
-(def registrations registrar/registrations)
-(def handler-meta registrar/handler-meta)
-(def handler-ids  registrar/ids)
-(def frame-ids    frame/frame-ids)
-(def frame-meta   frame/frame-meta)
+(def ^{:doc "Return all ids registered under `kind` with their metadata —
+  the introspection workhorse used by tools, agents, and storybook
+  resolution. Per Spec 002 §The public registrar query API."}
+  registrations registrar/registrations)
+
+(def ^{:doc "Return the registered metadata map for `[kind id]`, or `nil`.
+  Public alias for `re-frame.registrar/lookup`. Used by tooling. Per
+  Spec 002 §The public registrar query API."}
+  handler-meta registrar/handler-meta)
+
+(def ^{:doc "Return the set of registered ids under `kind` (no metadata).
+  Per Spec 002 §The public registrar query API."}
+  handler-ids  registrar/ids)
+
+(def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
+  Spec 002 §The public registrar query API."}
+  frame-ids    frame/frame-ids)
+
+(def ^{:doc "Return the effective metadata map for a frame as a flat
+  shape — `:id` plus the post-preset-expansion user-supplied config.
+  Per Spec 002 §The public registrar query API and Spec-Schemas
+  §`:rf/frame-meta`."}
+  frame-meta   frame/frame-meta)
 
 (defn get-frame-db
   "Return the current `app-db` value (plain map) for the named frame, or
@@ -571,24 +844,77 @@
        ([frame-id]
         (subs/sub-cache-snapshot frame-id)))
 
-     (def sub-topology subs/sub-topology)))
+     (def ^{:doc "Return the static dependency graph of every registered
+       subscription — what each sub depends on, computed from its
+       registration (NOT from the live runtime cache). JVM-only convenience
+       alias for `re-frame.subs.tooling/sub-topology` (rf2-bmzq0). CLJS
+       consumers (Causa, pair2-mcp, re-frame-10x, conformance tests) call
+       the tooling ns directly so production bundles DCE the body.
+       Per Spec 002 §The public registrar query API."}
+       sub-topology subs/sub-topology)))
 
 ;; ---- interceptors --------------------------------------------------------
 
-(def ->interceptor   interceptor/->interceptor)
-(def get-coeffect    interceptor/get-coeffect)
-(def assoc-coeffect  interceptor/assoc-coeffect)
-(def get-effect      interceptor/get-effect)
-(def assoc-effect    interceptor/assoc-effect)
-(def path            std-interceptors/path)
-(def unwrap          std-interceptors/unwrap)
+(def ^{:doc "Build an interceptor map from kwargs — the primitive entry
+  point for custom interceptors. Accepts `:id`, `:before`, `:after`,
+  `:comment`. Per spec/API.md §Interceptors."}
+  ->interceptor   interceptor/->interceptor)
+
+(def ^{:doc "Read from the context's `:coeffects` map. Used inside
+  interceptor `:before` / `:after` fns and handler bodies that receive
+  the full context. Per spec/API.md §Interceptors."}
+  get-coeffect    interceptor/get-coeffect)
+
+(def ^{:doc "Set the value at `k` in the context's `:coeffects` map;
+  returns the updated context. Use from a `:before` interceptor when
+  injecting an input the handler will read via `get-coeffect`. Per
+  spec/API.md §Interceptors."}
+  assoc-coeffect  interceptor/assoc-coeffect)
+
+(def ^{:doc "Read from the context's `:effects` map. Used inside
+  interceptor `:after` fns inspecting what the handler returned. Per
+  spec/API.md §Interceptors."}
+  get-effect      interceptor/get-effect)
+
+(def ^{:doc "Set the value at `k` in the context's `:effects` map;
+  returns the updated context. Use from a handler-wrapper interceptor
+  to inject an effect into the cascade. Per spec/API.md §Interceptors."}
+  assoc-effect    interceptor/assoc-effect)
+
+(def ^{:doc "Returns an interceptor that focuses the handler on the
+  app-db sub-slice at the given path — the handler receives the slice
+  value as `:db` (not the full app-db); its returned `:db` is spliced
+  back. Usage: `(reg-event-db :inc [(path :counter)] (fn [n _] (inc n)))`.
+  Per spec/API.md §Interceptors."}
+  path            std-interceptors/path)
+
+(def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
+  the dispatched event has shape `[<id> <payload-map>]` and replaces
+  the `:event` coeffect with the payload map itself. Usage:
+  `(reg-event-fx :foo [unwrap] (fn [_ {:keys [a b]}] ...))`. Per
+  Conventions §Canonical event-vector shape (M-19)."}
+  unwrap          std-interceptors/unwrap)
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
-(def sensitive?           privacy/sensitive?)
-(def validate-at-boundary spec/validate-at-boundary)
+(def ^{:doc "Predicate: returns `true` iff `trace-event` is a map carrying
+  `:sensitive? true`. Trace-event filter for privacy-aware listeners and
+  off-box egress. Per Spec 009 §Privacy."}
+  sensitive?           privacy/sensitive?)
 
-(def emit-trace-event!         trace/emit!)
+(def ^{:doc "Production-side schema validation interceptor. Add to a
+  `reg-event-*` handler's positional interceptor vector to force `:spec`
+  validation against the dispatched event vector even in production
+  builds where dev-time validation is elided. Per Spec 010 §Production
+  builds. The interceptor reuses the handler's existing `:spec`
+  metadata — no parallel schema."}
+  validate-at-boundary spec/validate-at-boundary)
+
+(def ^{:doc "Emit a trace event. Production builds elide the body
+  entirely (Closure DCE on the `interop/debug-enabled?` gate); in dev /
+  JVM the envelope is built and delivered to the ring buffer, epoch
+  recorder, and registered listeners. Per Spec 009 §Trace emit."}
+  emit-trace-event!         trace/emit!)
 
 ;; Per rf2-qwm0a the public-tooling listener + buffer surface
 ;; (`register-trace-cb!` / `remove-trace-cb!` / `clear-trace-cbs!` /
@@ -609,43 +935,177 @@
 
 #?(:clj
    (do
-     (def register-trace-cb!     trace/register-trace-cb!)
-     (def remove-trace-cb!       trace/remove-trace-cb!)
-     (def trace-buffer           trace/trace-buffer)
-     (def clear-trace-buffer!    trace/clear-trace-buffer!)))
+     (def ^{:doc "Register a listener under `id` that receives every trace
+       event. Same-id registration replaces. Returns `id`. JVM-only
+       alias (CLJS omits — production bundles DCE the tooling sibling
+       wholesale; CLJS callers use `re-frame.trace.tooling/register-trace-cb!`
+       directly). Per rf2-qwm0a."}
+       register-trace-cb!     trace/register-trace-cb!)
+     (def ^{:doc "Drop the listener registered under `id`. JVM-only alias —
+       CLJS callers use `re-frame.trace.tooling/remove-trace-cb!`
+       directly. Per rf2-qwm0a."}
+       remove-trace-cb!       trace/remove-trace-cb!)
+     (def ^{:doc "Return the trace ring buffer's current contents,
+       oldest-first. Opts filter the result; the buffer is the substrate
+       behind `re-frame-10x` and other dev tools. JVM-only alias —
+       CLJS callers use `re-frame.trace.tooling/trace-buffer` directly.
+       Per Spec 009 §Retain-N trace ring buffer."}
+       trace-buffer           trace/trace-buffer)
+     (def ^{:doc "Empty the trace ring buffer. Tooling uses this between
+       sessions. No-op in production. JVM-only alias — CLJS callers use
+       `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec 009
+       §Retain-N trace ring buffer."}
+       clear-trace-buffer!    trace/clear-trace-buffer!)))
 
-(def register-event-emit-listener!   event-emit/register-event-emit-listener!)
-(def unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
-(def register-error-emit-listener!   error-emit/register-error-emit-listener!)
-(def unregister-error-emit-listener! error-emit/unregister-error-emit-listener!)
+(def ^{:doc "Register an always-on event-emit listener `f` under `id`.
+  Survives `:advanced` + `goog.DEBUG=false` — fires in CLJS production
+  builds where the trace surface is elided. `f` receives a tight
+  event-record per processed event (NOT subs / fxs); see
+  `re-frame.event-emit` ns docstring for the record shape. Re-registering
+  the same id replaces. Returns `id`. Per Spec 009 §Event-emit listener
+  (rf2-rirbq)."}
+  register-event-emit-listener!   event-emit/register-event-emit-listener!)
 
-(def elide-wire-value                 elision/elide-wire-value)
-(def populate-elision-from-schemas!   elision/populate-elision-from-schemas!)
-(def populate-sensitive-from-schemas! elision/populate-sensitive-from-schemas!)
-(def elision-declarations             elision/declarations)
-(def elision-sensitive-declarations   elision/sensitive-declarations)
+(def ^{:doc "Drop the always-on event-emit listener registered under `id`.
+  Returns nil. Per Spec 009 §Event-emit listener (rf2-rirbq)."}
+  unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
 
-(def group-cascades  trace-projection/group-cascades)
-(def domino-bucket   trace-projection/domino-bucket)
+(def ^{:doc "Register an always-on error-emit listener `f` under `id`.
+  Survives `:advanced` + `goog.DEBUG=false`. `f` receives a tight
+  error-record per `:rf.error/*` event (see `re-frame.error-emit` ns
+  docstring for the record shape). For off-box observability shippers
+  (Sentry, Honeybadger, Rollbar). Re-registering the same id replaces.
+  Returns `id`. Per Spec 009 §Error-handler policy (rf2-bacs4)."}
+  register-error-emit-listener!   error-emit/register-error-emit-listener!)
+
+(def ^{:doc "Drop the always-on error-emit listener registered under `id`.
+  Returns nil. Per Spec 009 §Error-handler policy (rf2-bacs4)."}
+  unregister-error-emit-listener! error-emit/unregister-error-emit-listener!)
+
+(def ^{:doc "Walk `v` and substitute schema-declared sensitive or large
+  paths for wire egress. Sensitive wins over large when both
+  declarations match. Sensitive paths become `:rf/redacted`; large paths
+  become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
+  Security.md §Off-box egress."}
+  elide-wire-value                 elision/elide-wire-value)
+
+(def ^{:doc "Populate `[:rf/elision :declarations]` from `{:large? true}`
+  schema-slot metadata for the frame. Returns the populated paths.
+  Called from boot once app-schemas are registered. Per Spec 010 §Schema
+  metadata flags."}
+  populate-elision-from-schemas!   elision/populate-elision-from-schemas!)
+
+(def ^{:doc "Populate `[:rf/elision :sensitive-declarations]` from
+  `{:sensitive? true}` schema-slot metadata for the frame. Returns the
+  populated paths. Called from boot once app-schemas are registered.
+  Per Spec 010 §Schema metadata flags."}
+  populate-sensitive-from-schemas! elision/populate-sensitive-from-schemas!)
+
+(def ^{:doc "Return the schema-derived `:large?` declarations for a
+  frame as a `{path -> spec}` map. Per Spec 009 §Wire elision."}
+  elision-declarations             elision/declarations)
+
+(def ^{:doc "Return the schema-derived `:sensitive?` declarations for a
+  frame as a `{path -> spec}` map. Per Spec 009 §Wire elision."}
+  elision-sensitive-declarations   elision/sensitive-declarations)
+
+(def ^{:doc "Project a sequence of raw trace events into one cascade
+  record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
+  `re-frame-10x`, Causa, and other tools that present cascade-level
+  views over the raw event stream. Per Spec 009 §Trace projection."}
+  group-cascades  trace-projection/group-cascades)
+
+(def ^{:doc "Classify a trace event into one of the six domino buckets
+  (`:event` / `:event-handler` / `:fx` / `:db` / `:sub` / `:view`).
+  Pure fn used by trace projections and cascade views. Per Spec 009
+  §Trace projection."}
+  domino-bucket   trace-projection/domino-bucket)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
 
-(def epoch-history      rf-epoch/epoch-history)
-(def restore-epoch      rf-epoch/restore-epoch)
-(def register-epoch-cb! rf-epoch/register-epoch-cb!)
-(def remove-epoch-cb!   rf-epoch/remove-epoch-cb!)
-(def reset-frame-db!    rf-epoch/reset-frame-db!)
+(def ^{:doc "Return the vector of `:rf/epoch-record` values for the
+  frame, oldest-first. Empty when the frame has no recorded epochs,
+  when recording is disabled, or when the `day8/re-frame2-epoch`
+  artefact is not on the classpath. Per Tool-Pair §Time-travel.
+  Late-bound via `:epoch/epoch-history`."}
+  epoch-history      rf-epoch/epoch-history)
+
+(def ^{:doc "Rewind the named frame's `app-db` to the named epoch's
+  `:db-after`. Returns `true` on success, `false` on any of the six
+  documented failure modes (each emits a structured `:rf.epoch/*` error
+  trace) or when the epoch artefact is absent. Per Tool-Pair
+  §Time-travel. Late-bound via `:epoch/restore-epoch`."}
+  restore-epoch      rf-epoch/restore-epoch)
+
+(def ^{:doc "Register a callback fired once per drain-settle with the
+  assembled `:rf/epoch-record`. Same-id replaces; listener exceptions
+  are isolated. Returns the `id`, or `nil` when the epoch artefact is
+  absent. Per Spec 009 §`register-epoch-cb!`. Late-bound via
+  `:epoch/register-epoch-cb!`."}
+  register-epoch-cb! rf-epoch/register-epoch-cb!)
+
+(def ^{:doc "Remove the epoch listener registered under `id`. No-op when
+  the epoch artefact is absent. Late-bound via
+  `:epoch/remove-epoch-cb!`."}
+  remove-epoch-cb!   rf-epoch/remove-epoch-cb!)
+
+(def ^{:doc "Replace `frame-id`'s `app-db` with `new-db`, bypassing the
+  dispatch loop. The canonical Tool-Pair write surface for state
+  injection — pair tools, story fixtures, conformance harnesses, and
+  time-travel from JSON repros. Records a synthetic `:rf/epoch-record`
+  so `restore-epoch` can rewind. Dev-only (gated on
+  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
+  when the artefact is absent. Per Tool-Pair §Pair-tool writes
+  (rf2-zq55). Late-bound via `:epoch/reset-frame-db!`."}
+  reset-frame-db!    rf-epoch/reset-frame-db!)
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
 ;; normative projection helpers for off-box epoch egress.
-(def projected-record   rf-epoch/projected-record)
-(def projected-history  rf-epoch/projected-history)
+(def ^{:doc "Project an `:rf/epoch-record` for off-box egress — the
+  single normative projection emission site for off-box epoch egress
+  (parallel to `elide-wire-value` for direct reads). Routes payload
+  slots through wire-elision with off-box defaults; bookkeeping slots
+  pass through unchanged. Tools that egress epoch records across a
+  process boundary (Causa-MCP `watch-epochs`, recorders, forwarders)
+  MUST route through this fn. Per Security.md §Epoch privacy posture
+  (rf2-mrsck). Late-bound via `:epoch/projected-record`."}
+  projected-record   rf-epoch/projected-record)
+
+(def ^{:doc "Convenience: return the projected vector of records for a
+  frame. Equivalent to `(mapv projected-record (epoch-history
+  frame-id))`. Tools that egress the whole ring (initial snapshot, full
+  session dump) call this once rather than walking the raw ring and
+  re-wrapping. Empty vector when the frame has no recorded epochs or
+  the epoch artefact is absent. Per Security.md §Epoch privacy posture.
+  Late-bound via `:epoch/projected-history`."}
+  projected-history  rf-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 
-(def install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
-(def uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
-(def with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
-(def clear-http-interceptor           rf-http/clear-http-interceptor)
+(def ^{:doc "Install per-call fx-overrides for `:rf.http/managed` that
+  synthesise the configured replies. `stubs` is `{[method url]
+  {:reply <:ok|:failure>}}`. Implementation ships in
+  `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
+  `:http/install-managed-request-stubs!`."}
+  install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
+
+(def ^{:doc "Remove the per-call fx-override installed by
+  `install-managed-request-stubs!`. Implementation ships in
+  `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
+  `:http/uninstall-managed-request-stubs!`."}
+  uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
+
+(def ^{:doc "Fn-form: install stubs, run `thunk`, uninstall. The plumbing
+  the `with-managed-request-stubs` macro routes through. Implementation
+  ships in `day8/re-frame2-http`. Per Spec 014 §Testing. Late-bound via
+  `:http/with-managed-request-stubs*`."}
+  with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
+
+(def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
+  `:rf.http/managed` middleware chain. Single-arity clears on
+  `:rf/default`; two-arity targets the named frame. Implementation ships
+  in `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
+  `:http/clear-http-interceptor`."}
+  clear-http-interceptor           rf-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.
@@ -675,11 +1135,33 @@
     :sub-cache     (subs/configure! opts)
     nil))
 
-(def install-adapter!     adapter/install-adapter!)
-(def dispose-adapter!     adapter/dispose-adapter!)
-(def current-adapter      adapter/current-adapter)
-(def current-adapter-spec adapter/current-adapter-spec)
-(def adapter-disposed?    adapter/adapter-disposed?)
+(def ^{:doc "Install the substrate adapter for this process. Once. A
+  second call without an intervening `dispose-adapter!` raises
+  `:rf.error/adapter-already-installed`. Most apps call `init!` rather
+  than this directly. Per Spec 006 §Adapter selection at boot."}
+  install-adapter!     adapter/install-adapter!)
+
+(def ^{:doc "Tear down the installed adapter. Calls the adapter's
+  `:dispose-adapter!` fn (if present), clears the install slot so a
+  new adapter can install, and marks the adapter as disposed. Per
+  Spec 006 §Adapter lifecycle."}
+  dispose-adapter!     adapter/dispose-adapter!)
+
+(def ^{:doc "Return the discriminator keyword identifying the installed
+  adapter, or `nil` if none. One of `:reagent` / `:plain-atom` /
+  `:uix` / `:helix` per Spec 006 §Adapter introspection."}
+  current-adapter      adapter/current-adapter)
+
+(def ^{:doc "Return the installed adapter spec map, or `nil` if none.
+  Carries the adapter contract fns (`:make-state-container`,
+  `:replace-container!`, `:render`, `:dispose-adapter!`, etc.). Per
+  Spec 006 §Adapter introspection."}
+  current-adapter-spec adapter/current-adapter-spec)
+
+(def ^{:doc "Return `true` iff the most recent lifecycle event was a
+  successful `dispose-adapter!` and no `install-adapter!` has fired
+  since. False otherwise. Per Spec 006 §Adapter lifecycle."}
+  adapter-disposed?    adapter/adapter-disposed?)
 
 (defn- bad-init-arg!
   "Raise `:rf.error/no-adapter-specified` with a consistent reason
