@@ -107,6 +107,25 @@ else
         bundle_isolation=true
         examples_browser=true
         ;;
+      spec/conformance/fixtures/*)
+        # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
+        # are consumed by:
+        #   - implementation/core/test/re_frame/conformance_test.clj
+        #     (JVM core job, always-on)
+        #   - implementation/core/test/re_frame/conformance_corpus_cljs_test.cljs
+        #     (cljs job, always-on)
+        #   - per-artefact _conformance_test.clj under
+        #     implementation/{flows,ssr,machines,schemas,routing}/test/
+        #     (each gated behind implementation_jvm='true')
+        # A fixture-only PR (no impl/test change) would skip every
+        # per-artefact _conformance_test.clj. Fire implementation_jvm
+        # so the per-artefact corpus runners pick up new fixtures, and
+        # fire the CLJS surfaces so the cross-platform corpus runner
+        # in core does too.
+        implementation_jvm=true
+        cljs_browser=true
+        cljs_prod=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         cljs_browser=true
         cljs_prod=true
