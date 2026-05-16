@@ -29,6 +29,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.http-managed :as http-managed]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
@@ -76,16 +77,13 @@
   (-> ex .getRequestHeaders (.getFirst name)))
 
 (defn- await-reply!
+  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves
+  the per-file `(pred db)` arity that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (let [db (rf/get-frame-db :rf/default)]
-         (cond
-           (pred db) db
-           (> (System/currentTimeMillis) deadline)
-           (throw (ex-info "timed out awaiting reply" {:final-db db}))
-           :else (do (Thread/sleep 25) (recur))))))))
+   (test-support/poll-until
+     #(let [db (rf/get-frame-db :rf/default)] (when (pred db) db))
+     {:timeout-ms timeout-ms :label "http-interceptors reply"})))
 
 ;; ---- 1. single interceptor transforms the outgoing request ----------------
 
@@ -216,18 +214,10 @@
         ;; Wait for both server hits using the dedicated readiness latches.
         ;; Header values are NOT a valid readiness signal here — the
         ;; :other-frame request is expected to carry a nil header, which is
-        ;; indistinguishable from "request has not yet landed".
-        (let [deadline (+ (System/currentTimeMillis) 5000)]
-          (loop []
-            (cond
-              (and @hit-default @hit-other) :done
-
-              (> (System/currentTimeMillis) deadline)
-              (throw (ex-info "timed out awaiting both server hits"
-                              {:hit-default @hit-default
-                               :hit-other   @hit-other}))
-
-              :else (do (Thread/sleep 5) (recur)))))
+        ;; indistinguishable from "request has not yet landed" (rf2-fun38).
+        (test-support/poll-until
+          #(and @hit-default @hit-other)
+          {:timeout-ms 5000 :label "both server hits landed"})
         (is (= "default-only" @seen-on-default)
             "default-frame request carried the interceptor's header")
         (is (nil? @seen-on-other)
@@ -267,15 +257,18 @@
         ;; (b) :rf.error/http-interceptor-failed appears on the trace
         ;; stream so tools / 10x panels can attribute the failure.
         (rf/dispatch-sync [:load])
-        ;; Give the runtime a moment in case anything is async.
-        (Thread/sleep 100)
+        ;; Wait for the interceptor-failure trace to land (rf2-fun38) —
+        ;; the trace event IS the observable signal. server-hits is then
+        ;; asserted as zero (proven absence within the trace-fired window).
+        (test-support/poll-until
+          #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
+                 @traces)
+          {:label ":rf.error/http-interceptor-failed surfaced"})
         (is (zero? @server-hits)
             "request was NOT dispatched — server saw zero requests")
-        (let [interceptor-fail? (some #(= :rf.error/http-interceptor-failed
-                                          (:operation %))
-                                      @traces)]
-          (is interceptor-fail?
-              ":rf.error/http-interceptor-failed appears on the trace stream"))
+        (is (some #(= :rf.error/http-interceptor-failed (:operation %))
+                  @traces)
+            ":rf.error/http-interceptor-failed appears on the trace stream")
         (finally
           (trace/remove-trace-cb! listener-id)
           (stop-server! srv))))))
@@ -305,7 +298,11 @@
                     :on-success nil
                     :on-failure nil}]]}))
         (rf/dispatch-sync [:load])
-        (Thread/sleep 100)
+        ;; Wait for the redacted-trace event to land (rf2-fun38).
+        (test-support/poll-until
+          #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
+                 @traces)
+          {:label ":rf.error/http-interceptor-failed surfaced (redacted variant)"})
         (let [w (first (filter #(= :rf.error/http-interceptor-failed
                                     (:operation %))
                                 @traces))]
@@ -380,7 +377,10 @@
                     :decode  :json
                     :on-success nil}]]}))
         (rf/dispatch-sync [:load])
-        (Thread/sleep 200)
+        ;; Wait for both :before fns to fire (rf2-fun38).
+        (test-support/poll-until
+          #(= 2 (count @order))
+          {:label "both interceptors in chain fired"})
         (is (= [:a-v2 :b] @order)
             "replaced :a's :before fired in :a's original position; no duplicate")
         (finally (stop-server! srv))))))
@@ -436,7 +436,10 @@
                     :decode     :json
                     :on-success nil}]]}))
         (rf/dispatch-sync [:kg5nw/load])
-        (Thread/sleep 200)
+        ;; Wait for all three :before fns to fire (rf2-fun38).
+        (test-support/poll-until
+          #(= 3 (count @order))
+          {:label "all post-clear-then-reg interceptors fired"})
         (is (= [:b :c :a-fresh] @order)
             "interceptors fired in the post-clear-then-reg order: :b, :c, :a (re-registered)")
         (finally (stop-server! srv))))))

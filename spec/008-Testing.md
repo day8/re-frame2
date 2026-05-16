@@ -427,6 +427,7 @@ re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1
 | `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
 | `dispatch-sequence` | test-flavoured fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
 | `assert-state` | test-flavoured fn | `(assert-state expected-db)` for a full-db check, or `(assert-state path expected-val)` for a path check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). |
+| `poll-until` | test-flavoured fn (rf2-ka3n6 / rf2-fun38) | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
 | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture` | fixture machinery | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. |
 
 This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
@@ -461,6 +462,36 @@ Capturing intermediate states:
 ;; with a non-default frame:
 (ts/assert-state [:auth :state] :validating {:frame :test/auth-flow})
 ```
+
+#### `poll-until` example
+
+Use for async settles whose post-condition is observable in state. Replaces incidental `Thread/sleep N` / `js/setTimeout` whose intent is "give the cascade time to drain". NOT a substitute for timer-semantics sleeps that prove behaviour within / past a specific window (grace, throttle, debounce, "no event fires within N ms").
+
+JVM (synchronous — returns the truthy value, throws on timeout):
+
+```clojure
+(rf/dispatch [:cross-frame/fan-out])
+(ts/poll-until #(= 3 (:count (rf/get-frame-db :other-frame)))
+               {:timeout-ms 5000 :label "fan-out reached :other-frame"})
+(is (= 3 (:count (rf/get-frame-db :other-frame))))
+```
+
+CLJS (returns a `js/Promise` — compose with `(.then ...)` under `cljs.test/async`):
+
+```clojure
+(deftest cross-frame-drain
+  (async done
+    (-> (ts/poll-until #(= 3 (:count (rf/get-frame-db :other-frame)))
+                       {:timeout-ms 5000 :label "fan-out drained"})
+        (.then (fn [_]
+                 (is (= 3 (:count (rf/get-frame-db :other-frame))))
+                 (done)))
+        (.catch (fn [e]
+                  (is false (str "poll-until timed out: " (.-message e)))
+                  (done))))))
+```
+
+Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "prove no event fires within window N", host-clock advancement) keep their `Thread/sleep` / `js/setTimeout` but annotate the intent inline with a `;; Timer-semantics sleep (rf2-fun38): ...` comment so audits don't re-flag them.
 
 ### `re-frame-test` library compatibility
 

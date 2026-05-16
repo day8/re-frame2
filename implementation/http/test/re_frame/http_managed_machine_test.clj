@@ -36,6 +36,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
@@ -111,15 +112,13 @@
      :port   (.getPort (.getAddress server))}))
 
 (defn- await-condition!
+  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves the
+  per-file arity (`pred`, optional `timeout-ms`)."
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (cond
-         (pred) true
-         (> (System/currentTimeMillis) deadline)
-         (throw (ex-info "timed out awaiting condition" {}))
-         :else (do (Thread/sleep 10) (recur)))))))
+   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+                                  :label "http-managed-machine condition"})
+   true))
 
 (defn- snapshot [machine-id]
   (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
@@ -335,13 +334,10 @@
                                 :method :get}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:legacy/load {}])
-        (let [deadline (+ (System/currentTimeMillis) 5000)]
-          (loop []
-            (cond
-              (some? (:result (rf/get-frame-db :rf/default))) nil
-              (> (System/currentTimeMillis) deadline)
-              (throw (ex-info "timed out awaiting fx-form reply" {}))
-              :else (do (Thread/sleep 25) (recur)))))
+        ;; rf2-fun38: deterministic gate via canonical poll-until.
+        (test-support/poll-until
+          #(some? (:result (rf/get-frame-db :rf/default)))
+          {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
         (is (= {:ok true} (:result (rf/get-frame-db :rf/default)))
             "the fx-form `:rf.http/managed` continues to dispatch back the standard reply envelope")
         (finally (stop-server! srv))))))

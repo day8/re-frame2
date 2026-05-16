@@ -45,6 +45,7 @@
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [java.io InputStream PipedInputStream PipedOutputStream]))
 
@@ -133,13 +134,15 @@
           ;; Drain the body so the writer thread runs to completion +
           ;; the spawned-thread `finally` fires.
           _drain   (slurp ^InputStream (:body response))]
-      ;; Give the spawned thread a beat to finish its finally arm.
-      ;; The writer ran on a different thread; the destroy ran in
-      ;; its finally, but we just drained the InputStream and the
-      ;; writer's outer finally closed the pipe BEFORE the
-      ;; spawned-thread finally runs the destroy. Brief sleep is OK
-      ;; here; the post-condition is the load-bearing assertion.
-      (Thread/sleep 200)
+      ;; Poll until the spawned thread's `finally` has run the destroy
+      ;; (rf2-fun38). The frame-set returning to baseline IS the
+      ;; observable signal; no need for a fixed wait.
+      (test-support/poll-until
+        (fn []
+          (let [end-fids (disj (frame/frame-ids) :rf/default)]
+            (empty? (clojure.set/difference end-fids baseline-fids))))
+        {:timeout-ms 2000
+         :label "per-request frame destroyed after writer-throw"})
       (let [end-fids (disj (frame/frame-ids) :rf/default)
             leaked   (clojure.set/difference end-fids baseline-fids)]
         (is (empty? leaked)

@@ -16,7 +16,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -118,8 +119,12 @@
     (is (pending-dispose? [:n])
         "a deferred-dispose handle should be stashed on the entry")
 
-    ;; Wait for the grace-period (plus a margin for executor scheduling).
-    (Thread/sleep 200)
+    ;; Poll for the dispose — the cache-entry vanishing IS the observable
+    ;; signal (rf2-fun38). Faster than fixed Thread/sleep 200 + grace
+    ;; scheduler-margin; tests fail fast on a stuck timer.
+    (test-support/poll-until
+      #(not (contains? (cache-keys) [:n]))
+      {:timeout-ms 2000 :label "[:n] disposed after grace elapses"})
 
     (is (not (contains? (cache-keys) [:n]))
         "after the grace-period the entry MUST be disposed")))
@@ -143,8 +148,10 @@
         (is (not (pending-dispose? [:n]))
             "the pending-dispose handle is cleared on resubscribe"))
 
-      ;; Sleep past the original grace-period — the cancelled timer
-      ;; must NOT fire and the slot stays alive.
+      ;; Timer-semantics sleep (rf2-fun38): we are proving the *absence*
+      ;; of a dispose — the cancelled timer must NOT fire and the slot
+      ;; must stay alive past the original 100ms grace window. No
+      ;; observable signal to poll on; the 250ms slack confirms quiescence.
       (Thread/sleep 250)
       (is (contains? (cache-keys) [:n])
           "cancelled timer must not fire — slot survives"))))

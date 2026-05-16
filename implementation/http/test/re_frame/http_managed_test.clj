@@ -27,6 +27,7 @@
             ;; wired up.
             [re-frame.http-test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
@@ -89,18 +90,16 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- await-reply!
-  "Wait up to timeout-ms for `(pred (rf/get-frame-db :rf/default))` to be
-  true. Returns the final db on success, throws on timeout."
+  "Wait up to `timeout-ms` for `(pred db)` to be truthy against
+  `(rf/get-frame-db :rf/default)`. Returns the final db on success;
+  throws `:rf.test/poll-timeout` on timeout. Thin alias over
+  `test-support/poll-until` (rf2-fun38) — preserves the per-file
+  `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (let [db (rf/get-frame-db :rf/default)]
-         (cond
-           (pred db) db
-           (> (System/currentTimeMillis) deadline)
-           (throw (ex-info "timed out awaiting reply" {:final-db db}))
-           :else (do (Thread/sleep 25) (recur))))))))
+   (test-support/poll-until
+     #(let [db (rf/get-frame-db :rf/default)] (when (pred db) db))
+     {:timeout-ms timeout-ms :label "http-managed reply"})))
 
 ;; ---- 1. canned-success: round-trip default reply addressing ---------------
 
@@ -152,7 +151,10 @@
                   :on-success nil}]]}))
       (rf/dispatch-sync [:ping]
                         {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      ;; Wait long enough for any reply dispatch to settle.
+      ;; Timer-semantics sleep (rf2-fun38): asserting *absence* of a reply
+      ;; re-dispatch (:on-success nil swallows it). No observable signal
+      ;; to poll against — give the canned-success path a quiescence
+      ;; window then assert @seen stayed at 1.
       (Thread/sleep 100)
       ;; Only the initial dispatch fired :ping; no reply.
       (is (= 1 @seen)))))
@@ -453,7 +455,11 @@
         ;; Idempotent — abort the same unknown id a second time.
         (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
             "second abort of the same unknown id is also a silent no-op")
-        ;; No reply ever fired (no :on-failure synthesised, no trace error).
+        ;; Timer-semantics sleep (rf2-fun38): assertion is the *absence*
+        ;; of any reply — there is no observable signal to poll against
+        ;; (we are proving nothing fires). The 50ms window is the
+        ;; quiescence budget; if a stray reply was going to come, it
+        ;; would have surfaced within this slack.
         (Thread/sleep 50)
         (is (false? @reply-fired?)
             "no reply event was dispatched — the registry knew nothing about the id")
@@ -487,7 +493,12 @@
         (rf/reg-event-fx :slow/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
         (rf/dispatch-sync [:slow/load])
-        (Thread/sleep 50)
+        ;; Poll until the request is actually registered as in-flight —
+        ;; aborting before the executor has stamped the handle is a no-op
+        ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
+        (test-support/poll-until
+          #(contains? (http-managed/in-flight-snapshot) :slow)
+          {:label ":slow registered as in-flight before abort"})
         (rf/dispatch-sync [:slow/abort])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
           (is (= :failure (get-in db [:reply :kind])))
@@ -551,7 +562,11 @@
 
         ;; Issue the request. Server blocks on the latch.
         (rf/dispatch-sync [:on7sj/load])
-        (Thread/sleep 50)
+        ;; Poll until the request is registered in-flight before aborting
+        ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
+        (test-support/poll-until
+          #(contains? (http-managed/in-flight-snapshot) :on7sj/req)
+          {:label ":on7sj/req registered as in-flight before abort"})
         ;; Abort while server is still blocked. The synthesised
         ;; :rf.http/aborted reply should fire immediately.
         (rf/dispatch-sync [:on7sj/abort])
@@ -568,11 +583,11 @@
         ;; the cf.cancel + :finalised? CAS guard ensures the second
         ;; reply path no-ops.
         (.countDown latch)
-        ;; Wait long enough for any latent reply to fire. The server
-        ;; blocked above, but once the latch releases it writes the
-        ;; response immediately. The whenComplete callback would fire
-        ;; on the JDK HttpClient's executor; allow >500ms for the
-        ;; second reply to surface if the guard fails.
+        ;; Timer-semantics sleep (rf2-fun38): we are proving the *absence*
+        ;; of a second reply — no observable signal to poll against.
+        ;; 800ms is the quiescence budget; the JDK HttpClient executor
+        ;; would surface any latent whenComplete callback well within
+        ;; this window if the cf.cancel + CAS guard regressed.
         (Thread/sleep 800)
 
         (is (= 1 @reply-count)
@@ -706,14 +721,13 @@
 ;; stamps `:request-id` and `:actor-id` (when applicable).
 
 (defn- await-condition!
+  "Wait up to `timeout-ms` for `(pred)` to be truthy. Returns `:done`
+  on success; throws `:rf.test/poll-timeout` on timeout. Thin alias
+  over `test-support/poll-until` (rf2-fun38)."
   [pred timeout-ms]
-  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (cond
-        (pred) :done
-        (> (System/currentTimeMillis) deadline)
-        (throw (ex-info "timeout awaiting condition" {}))
-        :else (do (Thread/sleep 25) (recur))))))
+  (test-support/poll-until pred {:timeout-ms timeout-ms
+                                 :label "http-managed condition"})
+  :done)
 
 (deftest actor-in-flight-snapshot-shape
   (testing "actor-in-flight-snapshot is a map keyed by actor-id, value is a
@@ -898,10 +912,10 @@
         (.countDown latch)
         ;; Wait for the second request's success reply.
         (await-condition! #(true? @b-success?) 5000)
-        ;; The PRIOR request's :on-failure (:search/a-failed) MUST NOT
-        ;; have fired. Allow extra settle time to rule out a delayed
-        ;; dispatch from either the abort path or the natural-completion
-        ;; path (which is :success, silenced by :on-success nil).
+        ;; Timer-semantics sleep (rf2-fun38): the PRIOR request's
+        ;; :on-failure MUST NOT have fired — we are proving absence.
+        ;; Extra 100ms quiescence rules out any delayed dispatch from
+        ;; the abort or natural-completion path within window.
         (Thread/sleep 100)
         (is (false? @a-failed?)
             "the superseded request's :on-failure must NOT fire (rf2-lxd3 fix)")
