@@ -706,21 +706,23 @@
 (deftest match-url-repeated-query-key-last-wins
   (testing "repeated query keys — last value wins (the parser's array-map
             reduce assoc's left-to-right, so a later key replaces an
-            earlier one)"
+            earlier one). rf2-5ifai: the route declares no :query
+            vocabulary, so the key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?x=1&x=2")]
       (is (some? m) "the route matches")
-      (is (= "2" (get-in m [:query :x]))
+      (is (= "2" (get-in m [:query "x"]))
           "repeated key — last value wins (left-to-right reduce)"))))
 
 (deftest match-url-unterminated-query
-  (testing "a query pair without an '=' value parses as an empty string
-            (per routing.cljc:347)"
+  (testing "a query pair without an '=' value parses as an empty string.
+            rf/2-5ifai: the route declares no :query vocabulary, so the
+            key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?foo=")]
       (is (some? m) "the route still matches")
-      (is (= "" (get-in m [:query :foo]))
-          "an unterminated `?foo=` parses to :foo \"\""))))
+      (is (= "" (get-in m [:query "foo"]))
+          "an unterminated `?foo=` parses to (get :query \"foo\") \"\""))))
 
 (deftest match-url-trailing-slash-normalizes
   (testing "trailing-slash equivalence is implicit — /foo and /foo/
@@ -753,18 +755,27 @@
              (:params parsed))
           "the slug round-trips through route-url → match-url"))))
 
-;; ---- rf2-wbvme: malformed percent-encoding fails closed ------------------
+;; ---- rf2-wbvme + rf2-4ic0f: malformed percent-encoding fails closed -------
 ;;
 ;; Per Spec 012 §Routing failure semantics. `URLDecoder/decode` (JVM) and
 ;; `decodeURIComponent` (CLJS) throw on malformed `%` sequences. Hostile
 ;; URLs, partner integrations with broken escaping, and back-button to a
 ;; malformed link must produce a route-miss (404 path), never a request-
-;; handler crash. `match-against` returns nil for malformed path captures;
-;; `match-url` drops the offending query pair (lenient — preserves the
-;; rest of a routable URL when one bad pair appears).
+;; handler crash.
+;;
+;; rf2-4ic0f tightened the contract uniformly across path / query /
+;; fragment: ALL three fail closed at the URL level — `match-url`
+;; returns nil regardless of which portion is malformed. Pre-rf2-4ic0f
+;; the query branch was lenient (silently dropped the bad pair); that
+;; let hostile URLs into the routing slice when the host route had no
+;; required keys. The new contract refuses any URL whose %-encoding
+;; cannot be uniformly decoded.
 ;;
 ;; The reproducer from the security audit: `(routing/match-url "/search?x=%")`
-;; previously threw `IllegalArgumentException` on JVM.
+;; previously threw `IllegalArgumentException` on JVM; pre-rf2-4ic0f
+;; resolved to `{:route-id :route/search :query {}}`; post-rf2-4ic0f
+;; resolves to nil (route-miss → `:rf.route/not-found` with
+;; `:reason :malformed-url` at `:rf/url-changed`).
 
 (deftest match-url-malformed-percent-in-path-is-route-miss
   (testing "a bare `%` in the path returns nil (route-miss), does not throw"
@@ -780,29 +791,66 @@
     (is (nil? (routing/match-url "/%"))
         "/% with no matching route is a route-miss, not an exception")))
 
-(deftest match-url-malformed-percent-in-query-drops-pair
-  (testing "malformed %-encoding in a query VALUE drops just that pair —
-            the route still matches, other pairs survive"
+(deftest match-url-malformed-percent-in-query-fails-closed
+  (testing "rf2-4ic0f: malformed %-encoding in a query VALUE fails closed —
+            the WHOLE URL is a route-miss, not just the bad pair"
     (rf/reg-route :route/search {:path "/search"})
-    (let [m (routing/match-url "/search?x=%")]
-      (is (some? m) "the route still matches — the malformed pair is dropped")
-      (is (= :route/search (:route-id m)))
-      (is (= {} (:query m))
-          "the malformed `x=%` pair is dropped from :query"))
-    (let [m (routing/match-url "/search?good=1&bad=%&also=2")]
-      (is (some? m) "the route still matches")
-      (is (= {:good "1" :also "2"} (:query m))
-          "the bad pair is dropped; good neighbours survive")))
-  (testing "malformed %-encoding in a query KEY drops just that pair"
+    (is (nil? (routing/match-url "/search?x=%"))
+        "single-pair malformed query → route-miss, no partial slice")
+    (is (nil? (routing/match-url "/search?good=1&bad=%&also=2"))
+        "good neighbours do NOT keep the URL routable when one pair is malformed"))
+  (testing "rf2-4ic0f: malformed %-encoding in a query KEY fails closed"
     (rf/reg-route :route/search2 {:path "/search2"})
-    (let [m (routing/match-url "/search2?%=v")]
-      (is (some? m) "the route still matches")
-      (is (= {} (:query m))
-          "the malformed `%=v` pair (bad key) is dropped"))
-    (let [m (routing/match-url "/search2?ok=1&%=bad&also=2")]
-      (is (some? m) "the route still matches")
-      (is (= {:ok "1" :also "2"} (:query m))
-          "the bad-key pair is dropped; good neighbours survive"))))
+    (is (nil? (routing/match-url "/search2?%=v"))
+        "malformed key → route-miss, not a dropped pair")
+    (is (nil? (routing/match-url "/search2?ok=1&%=bad&also=2"))
+        "bad-key with good neighbours still fails the whole URL")))
+
+(deftest match-url-malformed-percent-in-fragment-fails-closed
+  (testing "rf2-4ic0f: malformed %-encoding in the `#fragment` portion
+            fails closed — `match-url` returns nil"
+    (rf/reg-route :route/page {:path "/page"})
+    (is (nil? (routing/match-url "/page#%"))
+        "bare `%` in fragment → route-miss")
+    (is (nil? (routing/match-url "/page#good%a"))
+        "incomplete %-pair in fragment → route-miss"))
+  (testing "well-formed and empty fragments are unaffected"
+    (rf/reg-route :route/page2 {:path "/page2"})
+    (let [m (routing/match-url "/page2#section-1")]
+      (is (some? m) "well-formed fragment matches")
+      (is (= "section-1" (:fragment m))
+          "well-formed fragment surfaces decoded into the slice"))
+    (let [m (routing/match-url "/page2#hello%20world")]
+      (is (some? m) "well-formed %-encoded fragment matches")
+      (is (= "hello world" (:fragment m))
+          "well-formed %-encoded fragment is decoded into the slice"))
+    (let [m (routing/match-url "/page2#")]
+      (is (some? m) "bare-trailing-`#` URL matches")
+      (is (= "" (:fragment m)) "bare `#` decodes to empty string"))))
+
+(deftest malformed-url?-predicate-discriminates-decode-failures
+  (testing "rf2-4ic0f: `malformed-url?` returns true for any URL whose
+            %-encoding cannot be uniformly decoded; false otherwise.
+            `:rf/url-changed` uses this to write `:reason :malformed-url`
+            on the `:rf.route/not-found` slice."
+    (is (false? (routing/malformed-url? "/")))
+    (is (false? (routing/malformed-url? "/articles/intro")))
+    (is (false? (routing/malformed-url? "/search?q=clojure&page=2")))
+    (is (false? (routing/malformed-url? "/page#section-1")))
+    (is (false? (routing/malformed-url? "/page#hello%20world"))
+        "well-formed %-encoded fragment is not malformed")
+    (is (false? (routing/malformed-url? "/page2#"))
+        "bare-trailing-`#` (empty fragment) is not malformed")
+    ;; Path
+    (is (true? (routing/malformed-url? "/articles/%")))
+    (is (true? (routing/malformed-url? "/articles/x%a")))
+    ;; Query
+    (is (true? (routing/malformed-url? "/search?x=%")))
+    (is (true? (routing/malformed-url? "/search?good=1&bad=%")))
+    (is (true? (routing/malformed-url? "/search?%=v")))
+    ;; Fragment
+    (is (true? (routing/malformed-url? "/page#%")))
+    (is (true? (routing/malformed-url? "/page#good%a")))))
 
 ;; ---- rf2-070jt: match-url :fragment + route-url 4-arity round-trip --------
 ;;
@@ -833,11 +881,12 @@
           "absent #fragment → :fragment nil"))))
 
 (deftest match-url-fragment-with-query
-  (testing ":fragment is independent of the query string"
+  (testing ":fragment is independent of the query string. rf2-5ifai: no
+            :query vocabulary declared, so the key stays a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [m (routing/match-url "/search?q=clojure#results")]
       (is (some? m))
-      (is (= {:q "clojure"} (:query m))
+      (is (= {"q" "clojure"} (:query m))
           "query parsed without the fragment polluting it")
       (is (= "results" (:fragment m))
           "fragment captured after the query string"))))
@@ -892,7 +941,9 @@
 
 (deftest match-url-route-url-round-trip-with-fragment
   (testing "URL → match-url → route-url 4-arity → URL recovers the original
-            (the full bidirectional contract including #fragment)"
+            (the full bidirectional contract including #fragment). rf2-5ifai:
+            unknown query keys stay as strings; route-url accepts both
+            keyword + string keys via `(name k)` so the round-trip holds."
     (rf/reg-route :route/docs {:path "/docs/:page"})
     (let [original "/docs/routing?lang=en#scroll-restoration"
           parsed   (routing/match-url original)
@@ -902,7 +953,7 @@
                                       (:fragment parsed))]
       (is (= :route/docs (:route-id parsed)))
       (is (= {:page "routing"} (:params parsed)))
-      (is (= {:lang "en"}      (:query parsed)))
+      (is (= {"lang" "en"}     (:query parsed)))
       (is (= "scroll-restoration" (:fragment parsed)))
       (is (= original rebuilt)
           "the rebuilt URL equals the original — fragment round-trips"))))
@@ -1423,6 +1474,91 @@
                 @traces)
           ":rf.warning/no-not-found-route trace fires when no 404 route is registered"))))
 
+;; ---- rf2-4ic0f: malformed URL fail-closed at :rf/url-changed -------------
+;;
+;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding. A
+;; URL whose %-encoding is malformed anywhere (path captures, query
+;; key/value, or fragment) routes to :rf.route/not-found with `:reason
+;; :malformed-url` on the slice's :params, and emits the structured
+;; :rf.warning/malformed-url trace alongside the standard
+;; :rf.error/no-such-handler. The discriminator distinguishes malformed
+;; URLs from bare misses ({:url url}) and validation failures
+;; ({:url url :reason :validation}).
+
+(deftest url-changed-malformed-url-routes-to-not-found-with-reason
+  (testing ":rf/url-changed for a malformed-%-encoded URL writes the
+            :rf.route/not-found slice with `:reason :malformed-url`"
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/search  {:path "/search"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Path: a bare `%` in a captured segment.
+    (rf/dispatch-sync [:rf/url-changed "/articles/%"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :rf.route/not-found (:id slice))
+          "malformed path → :rf.route/not-found")
+      (is (= {:url "/articles/%" :reason :malformed-url} (:params slice))
+          "params carries the URL AND `:reason :malformed-url`"))
+    ;; Query value.
+    (rf/dispatch-sync [:rf/url-changed "/search?x=%"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :rf.route/not-found (:id slice)) "malformed query value → not-found")
+      (is (= :malformed-url (get-in slice [:params :reason]))
+          "the malformed-URL reason is on the slice"))
+    ;; Query key.
+    (rf/dispatch-sync [:rf/url-changed "/search?%=v"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :rf.route/not-found (:id slice)) "malformed query key → not-found")
+      (is (= :malformed-url (get-in slice [:params :reason]))))
+    ;; Fragment.
+    (rf/dispatch-sync [:rf/url-changed "/search#%"])
+    (let [slice (:rf/route (rf/get-frame-db :rf/default))]
+      (is (= :rf.route/not-found (:id slice)) "malformed fragment → not-found")
+      (is (= :malformed-url (get-in slice [:params :reason]))))))
+
+(deftest url-changed-malformed-url-emits-structured-trace
+  (testing ":rf/url-changed emits :rf.warning/malformed-url alongside the
+            standard :rf.error/no-such-handler when the URL is malformed"
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::malformed-trace
+                             (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-changed "/articles/%"])
+      (rf/remove-trace-cb! ::malformed-trace)
+      (is (some (fn [ev]
+                  (and (= :rf.warning/malformed-url (:operation ev))
+                       (= "/articles/%" (-> ev :tags :url))))
+                @traces)
+          ":rf.warning/malformed-url trace carries the offending URL")
+      (is (some (fn [ev]
+                  (and (= :rf.error/no-such-handler (:operation ev))
+                       (= :route (-> ev :tags :kind))
+                       (= :malformed-url (-> ev :tags :reason))))
+                @traces)
+          ":rf.error/no-such-handler carries `:reason :malformed-url`"))))
+
+(deftest url-changed-well-formed-url-does-not-emit-malformed-trace
+  (testing "the regular happy path emits NO :rf.warning/malformed-url"
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/search  {:path "/search"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::no-malformed-trace
+                             (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-changed "/search?q=clojure"])
+      (rf/remove-trace-cb! ::no-malformed-trace)
+      (is (not-any? (fn [ev] (= :rf.warning/malformed-url (:operation ev)))
+                    @traces)
+          "well-formed URL → no malformed-URL trace"))))
+
 ;; ---- rf2-oaj2s: :transition computed from :on-match on URL-driven nav ----
 ;;
 ;; Per Spec 012 §URL changes are events the :transition slice key must be
@@ -1681,13 +1817,15 @@
         (is (>= (:count data) routing/default-max-decoded-keys))))))
 
 (deftest rf2-3k3o7-repeated-query-key-counts-once
-  (testing "the cap follows unique-key semantics, not raw pair count"
+  (testing "the cap follows unique-key semantics, not raw pair count.
+            rf2-5ifai: no :query vocabulary declared, so the key stays
+            a string."
     (rf/reg-route :route/search {:path "/search"})
     (let [n   (inc routing/default-max-decoded-keys)
           q   (clojure.string/join "&" (repeat n "q=v"))
           m   (routing/match-url (str "/search?" q))]
       (is (= :route/search (:route-id m)))
-      (is (= {:q "v"} (:query m))
+      (is (= {"q" "v"} (:query m))
           "many repeated pairs for one key stay under the unique-key cap"))))
 
 (deftest rf2-3k3o7-under-cap-succeeds
@@ -1721,6 +1859,41 @@
           "no `:unknown1` keyword in the result map")
       (is (not (contains? (:query m) :unknown2))
           "no `:unknown2` keyword in the result map"))))
+
+;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
+;;
+;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
+;; review. Pre-rf2-5ifai a route declaring NO query vocabulary at all
+;; (no `:query` / `:query-defaults` / `:query-retain`) received the
+;; legacy "keyword-all" shortcut — every URL key was promoted to a
+;; permanent JVM keyword. That symmetrical-to-rf2-3k3o7 leak was the
+;; same DoS surface seen on the value side: hostile URLs composed of
+;; N-unique keys burn N permanent JVM keyword slots, and a bare
+;; `(reg-route :route/x {:path "/x"})` is precisely the high-cardinality
+;; public-surface case where this hits hardest. Post-rf2-5ifai routes
+;; that declare no vocabulary keep every URL key as a string. Authors
+;; who want keyword keys declare them via `:query` / `:query-defaults`
+;; / `:query-retain` — author-named intent is the trust boundary.
+
+(deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings
+  (testing "rf2-5ifai: a route declaring NO :query vocabulary keeps
+            every URL query key as a string. The legacy keyword-all
+            fallback is gone (pre-alpha — no back-compat shim)."
+    (rf/reg-route :route/bare {:path "/bare"})
+    (let [m (routing/match-url "/bare?foo=1&bar=2&baz=3")]
+      (is (some? m))
+      (is (= {"foo" "1" "bar" "2" "baz" "3"} (:query m))
+          "all URL keys remain strings — no keyword promotion at all")
+      (doseq [k [:foo :bar :baz]]
+        (is (not (contains? (:query m) k))
+            (str "no `" k "` keyword in the result map")))))
+  (testing "rf2-5ifai: even single-key URLs do not get a keyword promotion"
+    (rf/reg-route :route/single {:path "/single"})
+    (let [m (routing/match-url "/single?x=1")]
+      (is (some? m))
+      (is (= {"x" "1"} (:query m)))
+      (is (not (contains? (:query m) :x))
+          "single :x key stays a string — no special case for cardinality 1"))))
 
 (deftest rf2-3k3o7-defaults-extend-declared-universe
   (testing "keys declared via `:query-defaults` (without a `:query`

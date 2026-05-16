@@ -1,0 +1,124 @@
+;; Conformance fixture: routing/query-keyword-discipline
+;;
+;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
+;; review. URL-derived query keys + values must NOT extend the
+;; process-global keyword table on behalf of attacker-influenced input
+;; unless the route metadata authorises the extension.
+;;
+;; The two enforcement edges:
+;;
+;;   1. **Declared vocabulary** (rf2-3k3o7 + rf2-5ifai). Only query keys
+;;      named by the route's `:query` schema, `:query-defaults`, or
+;;      `:query-retain` are promoted to keyword keys. Unknown keys keep
+;;      their string form. The rf2-5ifai cut also removed the legacy
+;;      no-schema "keyword-all" fallback -- a route that declares NO
+;;      vocabulary now keeps every URL key as a string. Authors who want
+;;      keyword keys declare them. (Pre-alpha -- no back-compat shim.)
+;;
+;;   2. **Enum-only keyword values** (rf2-3k3o7). A bare `:keyword`
+;;      type-form stays as string; only `[:enum :a :b ...]` allowlists
+;;      gate the string->keyword intern.
+;;
+;; Together these close the "burn permanent JVM keyword slots from
+;; user-controlled URLs" surface -- the symmetric guarantee `:rf.http`
+;; gives via `:rf.http/max-decoded-keys` (rf2-wu1n5).
+
+{:fixture/id           :routing/query-keyword-discipline
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url}
+ :fixture/doc          "Routes that declare no `:query` vocabulary keep every URL query key as a string (the rf2-5ifai cut of the legacy keyword-all fallback). Routes that declare a `:query` schema keyword only the declared keys; unknown keys stay as strings. Bare `:keyword` types stay as strings; only `[:enum ...]` allowlists gate the keyword intern (rf2-3k3o7)."
+
+ :fixture/registry
+ {:route
+  {;; No declared vocabulary at all -- every URL key stays a string.
+   :route/bare      {:path "/bare"}
+
+   ;; Declared `:query` schema -- only declared keys get keyword'd.
+   :route/declared  {:path  "/declared"
+                     :query [:map [:q :string] [:page {:optional true} :int]]}
+
+   ;; Bare `:keyword` slot -- stays string (rf2-3k3o7).
+   :route/bare-kw   {:path  "/bare-kw"
+                     :query [:map [:tag :keyword]]}
+
+   ;; Bounded `[:enum ...]` slot -- keyword'd ONLY for declared values.
+   :route/enum-kw   {:path  "/enum-kw"
+                     :query [:map [:sort [:enum :asc :desc]]]}
+
+   ;; `:query-defaults` extends the declared keyword vocabulary.
+   :route/defaults  {:path           "/defaults"
+                     :query-defaults {:page 1 :sort "asc"}}
+
+   ;; `:query-retain` extends the declared keyword vocabulary.
+   :route/retain    {:path         "/retain"
+                     :query-retain #{:theme}}}}
+
+ :fixture/calls
+ ;; --- Bare route, no declared vocabulary --------------------------------
+ ;; rf2-5ifai: pre-cut, every URL key was promoted to a keyword. Post-cut
+ ;; every key stays a string -- the route declared no keyword vocabulary.
+ [{:call :match-url :url "/bare?foo=1&bar=2"
+   :expect {:route-id :route/bare
+            :params   {}
+            :query    {"foo" "1" "bar" "2"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; --- Declared schema -> declared keys keyword'd, unknown stay string -
+  {:call :match-url :url "/declared?q=clojure&page=3&unknown=x"
+   :expect {:route-id :route/declared
+            :params   {}
+            :query    {:q "clojure" :page 3 "unknown" "x"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; --- Bare `:keyword` type-form: value stays a string ----------------
+  ;; rf2-3k3o7 -- `:keyword` without an enum allowlist is the unbounded
+  ;; intern site; the framework refuses to widen the keyword table on
+  ;; behalf of arbitrary URL values. Layered Malli validation then
+  ;; catches the type mismatch (`"arbitrary-value"` is a string, not a
+  ;; keyword) and surfaces `:validation-failed? true` (rf2-ug2m1).
+  ;; The keyword-discipline contract pinned here is the SHAPE -- the
+  ;; framework keeps the value as a string regardless of what the
+  ;; declared type says; layered validation handles the type mismatch.
+  {:call :match-url :url "/bare-kw?tag=arbitrary-value"
+   :expect {:route-id :route/bare-kw
+            :params   {}
+            :query    {:tag "arbitrary-value"}
+            :fragment nil
+            :validation-failed? true}}
+
+  ;; --- `[:enum ...]` allowlist gates the intern ----------------------
+  ;; Declared choice -> keyword'd.
+  {:call :match-url :url "/enum-kw?sort=asc"
+   :expect {:route-id :route/enum-kw
+            :params   {}
+            :query    {:sort :asc}
+            :fragment nil
+            :validation-failed? false}}
+  ;; Out-of-allowlist -> stays a string (validation-failed? handled by
+  ;; rf2-ug2m1 layered validation; this fixture pins the keyword-discipline
+  ;; bit, validation-failed? appears in the routing-query-string-coercion
+  ;; fixture).
+  {:call :match-url :url "/enum-kw?sort=hostile"
+   :expect {:route-id :route/enum-kw
+            :params   {}
+            :query    {:sort "hostile"}
+            :fragment nil
+            :validation-failed? true}}
+
+  ;; --- `:query-defaults` keys count as declared vocabulary -----------
+  {:call :match-url :url "/defaults?page=3&surprise=x"
+   :expect {:route-id :route/defaults
+            :params   {}
+            :query    {:page "3" :sort "asc" "surprise" "x"}
+            :fragment nil
+            :validation-failed? false}}
+
+  ;; --- `:query-retain` keys count as declared vocabulary -------------
+  {:call :match-url :url "/retain?theme=dark&surprise=x"
+   :expect {:route-id :route/retain
+            :params   {}
+            :query    {:theme "dark" "surprise" "x"}
+            :fragment nil
+            :validation-failed? false}}]}

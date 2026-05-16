@@ -386,12 +386,14 @@
            (rf/route-url :files/get {:rest "a/b c/d"})))
     (let [m (rf/match-url "/files/a/b%20c/d")]
       (is (= "a/b c/d" (:rest (:params m))))))
-  (testing "query keys and values are encoded / decoded"
+  (testing "query keys and values are encoded / decoded. rf2-5ifai:
+            the bare route declares no :query vocabulary, so the key
+            stays a string."
     (rf/reg-route :search {:path "/search"})
     (is (= "/search?q=hello%20world"
            (rf/route-url :search {} {:q "hello world"})))
     (let [m (rf/match-url "/search?q=hello%20world")]
-      (is (= "hello world" (:q (:query m)))))))
+      (is (= "hello world" (get-in m [:query "q"]))))))
 
 (deftest match-and-route-url
   (testing "match-url and route-url round-trip"

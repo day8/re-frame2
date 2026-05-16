@@ -1,0 +1,53 @@
+;; Conformance fixture: routing/malformed-url-fail-closed
+;;
+;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding.
+;; Hostile or partner-malformed URLs (`%`, `%a`, `%XX`, ...) MUST never
+;; throw through the matcher. Per the rf2-tfgdv security review and
+;; rf2-4ic0f follow-up the fail-closed contract is uniform across the
+;; URL surface — path captures, query keys, query values, AND the
+;; `#fragment` portion all surface as a route-miss with the structured
+;; `:reason :malformed-url` discriminator on the `:rf.route/not-found`
+;; slice. The pre-rf2-4ic0f "lenient drop the bad query pair" branch is
+;; gone (pre-alpha — no back-compat shim).
+;;
+;; `match-url` itself returns nil for the malformed case (the same
+;; sentinel the no-route-matched branch uses); `:rf/url-changed` /
+;; `:rf.route/handle-url-change` route the failure to
+;; `:rf.route/not-found` with `{:url url :reason :malformed-url}` in
+;; `:params`. The reason discriminates from the bare-miss case
+;; (`{:url url}` without `:reason`) and the validation-fail case
+;; (`{:url url :reason :validation}`).
+
+{:fixture/id           :routing/malformed-url-fail-closed
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url}
+ :fixture/doc          "Malformed percent-encoding in path, query, or fragment fails closed as a route-miss (`match-url` returns nil). The lenient `drop the bad query pair` branch is gone — pre-alpha, no back-compat shim. `:rf/url-changed` translates the miss to `:rf.route/not-found` with `{:url url :reason :malformed-url}`."
+
+ :fixture/registry
+ {:route
+  {:route/articles {:path "/articles/:slug" :params [:map [:slug :string]]}
+   :route/search   {:path "/search"}
+   :route/page     {:path "/page"}}}
+
+ :fixture/calls
+ ;; --- Malformed in path -------------------------------------------------
+ ;; A bare `%` in a captured path segment fails closed; `match-url` -> nil.
+ [{:call :match-url :url "/articles/%"            :expect nil}
+  {:call :match-url :url "/articles/x%a"          :expect nil}    ;; incomplete %-pair
+  {:call :match-url :url "/articles/x%XX"         :expect nil}    ;; non-hex %-pair
+
+  ;; --- Malformed in query ----------------------------------------------
+  ;; Pre-rf2-4ic0f the bad pair was silently dropped; post-rf2-4ic0f the
+  ;; whole URL fails closed. `match-url` returns nil -- the
+  ;; `:rf.route/not-found` slice writeback happens at `:rf/url-changed`.
+  {:call :match-url :url "/search?x=%"            :expect nil}    ;; bad value
+  {:call :match-url :url "/search?good=1&bad=%"   :expect nil}    ;; bad value, good neighbour
+  {:call :match-url :url "/search?%=v"            :expect nil}    ;; bad key
+  {:call :match-url :url "/search?ok=1&%=v"       :expect nil}    ;; bad key, good neighbour
+
+  ;; --- Malformed in fragment -------------------------------------------
+  ;; The `#fragment` portion is %-decoded the same way path + query are;
+  ;; malformed fails closed. (Empty fragment `#` decodes to "" -- that's
+  ;; not malformed, see routing-match-url.edn.)
+  {:call :match-url :url "/page#%"                :expect nil}
+  {:call :match-url :url "/page#good%a"           :expect nil}]}
