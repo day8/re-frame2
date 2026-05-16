@@ -387,3 +387,82 @@
       (is (contains? axes :event-id))
       (is (contains? axes :handler-id))
       (is (contains? axes :dispatch-id)))))
+
+;; ---- (13) row-key — rf2-z4fza (sibling of rf2-kgn0c) -------------------
+;;
+;; Per rf2-z4fza: the trace ribbon's React `:key` must be a stable
+;; per-trace-event identity (the framework's monotonic `:id`). The
+;; earlier shape mixed in the row's positional index inside the
+;; visible viewport, so every new trace push shifted every key and
+;; React remounted the entire viewport — the dominant frame cost
+;; under burst event rate. Same discipline class as rf2-kgn0c's
+;; `v:<variant-id>` keys in the story workspace.
+
+(deftest project-feed-rows-carry-no-row-index-slot
+  (testing "rf2-z4fza acceptance: rows MUST NOT carry a :row-index
+            slot — its mere presence on the row was a footgun
+            inviting positional React keys"
+    (let [feed (h/project-feed (events-fixture) {})]
+      (doseq [row (:rows feed)]
+        (is (not (contains? row :row-index))
+            (str "row " (:id row) " must not carry :row-index"))))))
+
+(deftest row-key-uses-stable-trace-id
+  (testing "row-key reads only :id — the framework's monotonic trace
+            id is stable per emit, so the key is stable across pushes"
+    (is (= "t:7" (h/row-key {:id 7})))
+    (is (= "t:42" (h/row-key {:id 42}))))
+  (testing "row-key is unique per distinct trace id"
+    (let [ids   (range 1 200)
+          keys  (mapv #(h/row-key {:id %}) ids)]
+      (is (= (count ids) (count (distinct keys)))
+          "every trace id maps to a unique React key"))))
+
+(deftest row-key-ignores-row-index-and-position
+  (testing "rf2-z4fza acceptance: row-key MUST NOT consume :row-index
+            (the slot is gone from rows; any future regression that
+            re-adds it would silently destabilise keys)"
+    (let [row-a (h/project-row {:id 5 :op-type :event :operation :event/dispatched
+                                :time 100})
+          row-b (assoc row-a :row-index 0)
+          row-c (assoc row-a :row-index 99)]
+      (is (= (h/row-key row-a) (h/row-key row-b))
+          "row-key with :row-index 0 equals row-key without :row-index")
+      (is (= (h/row-key row-a) (h/row-key row-c))
+          "row-key with :row-index 99 equals row-key without :row-index"))))
+
+(deftest row-keys-are-stable-across-trace-pushes
+  (testing "rf2-z4fza headline guarantee: appending a new trace event
+            does NOT change the React key of any previously-existing
+            row — same input row → same key. This is the property
+            React's reconciler needs to reuse DOM nodes across pushes
+            instead of unmounting+remounting the viewport on every push."
+    (let [events-1 (events-fixture)
+          ;; Simulate a burst — append three new events to the buffer.
+          new-evs  [(ev {:id 6 :op-type :event :operation :event/dispatched
+                         :time 600 :source :ui :origin :app
+                         :frame :rf/default})
+                    (ev {:id 7 :op-type :fx :operation :rf.fx/handled
+                         :time 700 :source :ui :origin :app
+                         :frame :rf/default})
+                    (ev {:id 8 :op-type :error :operation :rf.error/handler-threw
+                         :time 800 :source :ui :origin :app
+                         :frame :rf/default})]
+          events-2 (vec (concat events-1 new-evs))
+          feed-1   (h/project-feed events-1 {})
+          feed-2   (h/project-feed events-2 {})
+          keys-1   (into {} (map (juxt :id h/row-key) (:rows feed-1)))
+          keys-2   (into {} (map (juxt :id h/row-key) (:rows feed-2)))]
+      (doseq [[id k1] keys-1]
+        (is (= k1 (get keys-2 id))
+            (str "row id " id ": key must be stable across pushes "
+                 "(pre-push=" (pr-str k1) ", post-push=" (pr-str (get keys-2 id))
+                 "). rf2-z4fza: positional :row-index in the key would shift "
+                 "this on every append and re-mount the entire viewport.")))
+      (testing "all post-push keys are unique"
+        (let [all-keys (vals keys-2)]
+          (is (= (count all-keys) (count (distinct all-keys))))))
+      (testing "new events get fresh keys, not collisions"
+        (doseq [id [6 7 8]]
+          (is (some? (get keys-2 id)))
+          (is (not (contains? keys-1 id))))))))

@@ -165,12 +165,52 @@
     ;; emit `:event/dispatched` etc. back through the trace-cb fan-out,
     ;; the collector would see its own self-emit, and the cascade would
     ;; loop until `drain-depth-default` terminated it.
+    ;;
+    ;; ## Seed-race dedup (rf2-z4fza follow-up)
+    ;;
+    ;; The mount-time seed path (`ensure-causa-frame!` in mount.cljs)
+    ;; runs in this order:
+    ;;
+    ;;   1. `(rf/reg-frame :rf/causa {})` — registers the frame AND
+    ;;      synchronously emits a `:frame/created` trace event for
+    ;;      `:rf/causa`. `collect-trace!` runs for that event:
+    ;;        a. atom push (synchronous);
+    ;;        b. `mirror-into-causa!` checks `(frame/frame :rf/causa)`
+    ;;           — the frame was just registered above, so it exists.
+    ;;           A `:rf.causa/note-trace-event` dispatch is QUEUED.
+    ;;   2. `(rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])`
+    ;;      — runs synchronously; seeds the slot with the atom snapshot
+    ;;      (which already contains the `:frame/created` event).
+    ;;
+    ;; When the queued note-trace-event from step 1b eventually drains,
+    ;; the seeded slot already carries that event — re-pushing produces
+    ;; a duplicate-`:id` pair inside the slot vector. The Trace panel
+    ;; keys its `<li>`s on `t:<id>` (rf2-z4fza) so duplicate ids become
+    ;; duplicate React keys: React warns AND leaves one extra stale
+    ;; `<li>` in the DOM that survives subsequent renders even after
+    ;; cap-eviction removes both copies from the data — pushing the
+    ;; rendered viewport over the 200-row budget by one indefinitely.
+    ;;
+    ;; The dedup: the framework's `next-event-id` is a process-wide
+    ;; monotonic counter, so `:id` is a true identity for the event.
+    ;; If the incoming event's `:id` is already present anywhere in the
+    ;; slot, the seed has already mirrored it — drop the push. The
+    ;; scan is `O(slot)` but the slot is bounded by the cap (1000 by
+    ;; default) and the seed window only fires once per session, so
+    ;; the steady-state cost is one walk per emit. A tail-only check
+    ;; would be cheaper but is incorrect: events arrive at the slot in
+    ;; arrival order via `mirror-into-causa!`, so the dup from the
+    ;; seed race lands SOMEWHERE in the seeded prefix, not always at
+    ;; the tail.
     (rf/reg-event-db :rf.causa/note-trace-event
       {:rf.trace/no-emit? true}
       (fn [db [_ event]]
         (let [buf   (get db :trace-buffer [])
-              depth (trace-bus/current-depth)]
-          (assoc db :trace-buffer (trace-bus/push buf depth event)))))
+              depth (trace-bus/current-depth)
+              ev-id (:id event)]
+          (if (and ev-id (some #(= ev-id (:id %)) buf))
+            db
+            (assoc db :trace-buffer (trace-bus/push buf depth event))))))
 
     ;; Clear the mirrored slot in lockstep with the trace-bus atom
     ;; (dispatched from `trace-bus/clear-buffer!` in CLJS). Per

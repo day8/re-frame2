@@ -326,10 +326,17 @@
                   (update :rendered inc))
               state'')))
         result         (reduce accumulate init-state events)
-        sorted-display (mapv (fn [idx row]
-                                (assoc row :row-index idx))
-                              (range)
-                              (:rev-filtered result))
+        ;; Per rf2-z4fza: rows are returned as a plain newest-first
+        ;; vector. The earlier shape stamped a positional `:row-index`
+        ;; on every row so the view could mix it into the React key;
+        ;; that meant every trace push shifted every visible row's
+        ;; index and React unmounted+remounted the entire viewport on
+        ;; every push (audit `ai/findings/causa-story-ui-stress-audit-
+        ;; 2026-05-17.md` F1). The view now keys on the row's stable
+        ;; trace `:id` (via `row-key` below) so `:row-index` carries
+        ;; no information for any consumer and is gone — its mere
+        ;; presence on the row was a footgun inviting positional keys.
+        sorted-display (vec (:rev-filtered result))
         empty-kind  (cond
                       (zero? (:total result))    :no-events
                       (zero? (:rendered result)) :no-matches
@@ -342,6 +349,31 @@
      :filters      normalised
      :any-filter?  (boolean (seq normalised))
      :empty-kind   empty-kind}))
+
+;; ---- React keys ---------------------------------------------------------
+
+(defn row-key
+  "Stable React key for one projected trace row.
+
+  Per rf2-z4fza (sibling of rf2-kgn0c — same React-key discipline):
+  the trace ribbon's earlier shape keyed each `<li>` on a tuple that
+  included the row's positional index inside the visible viewport. A
+  new trace push shifts every visible row's index down by one, which
+  changes every key, which makes React's reconciler unmount the
+  entire viewport and remount it on EVERY push — the dominant frame
+  cost under burst event rate.
+
+  The framework's `re-frame.trace` allocates a monotonically-
+  increasing `:id` per emit (`next-id!`), and the same trace event
+  is never re-projected — so `:id` is a stable, unique identity for
+  the row across the panel's lifetime. We namespace it with `t:` to
+  mirror the rf2-kgn0c discipline (`v:<variant-id>` in the story
+  workspace) so future positional fallbacks can't silently collide
+  with these keys.
+
+  Pure data → string; JVM-testable."
+  [{:keys [id] :as _row}]
+  (str "t:" (pr-str id)))
 
 ;; ---- selection ----------------------------------------------------------
 
