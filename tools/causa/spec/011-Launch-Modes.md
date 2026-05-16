@@ -4,9 +4,9 @@ Causa launches in two complementary ways:
 
 1. **In-app true-inline panel** — the default. Causa preloads into
    the dev build, waits for the substrate adapter, then mounts into an
-   app-provided left-side layout host (`[data-rf-causa-host]` by
+   app-provided right-side layout host (`[data-rf-causa-host]` by
    default). The panel participates in normal layout, so app controls
-   remain visible and clickable to the right.
+   remain visible and clickable to the left.
 
 2. **Standalone via MCP** — the remote-attach story. An AI agent
    running on the user's machine (or elsewhere) drives Causa-MCP
@@ -34,12 +34,14 @@ layout. Default selector:
 [data-rf-causa-host]
 ```
 
-Minimal host markup:
+Minimal host markup (note the DOM order: `<main>` first, host
+`<aside>` second — flex flow lays the aside to the right of the app
+column):
 
 ```html
 <div class="app-shell">
-  <aside data-rf-causa-host></aside>
   <main id="app"></main>
+  <aside data-rf-causa-host></aside>
 </div>
 ```
 
@@ -53,6 +55,9 @@ body { margin: 0; }
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
+  resize: horizontal;                  /* user-draggable width (see below) */
+  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
@@ -84,6 +89,9 @@ identical to the historical fixed-pixel default (420px):
 [data-rf-causa-host] {
   flex: 0 0 var(--rf-causa-inline-width, 420px);
   min-width: 320px;
+  border-left: 1px solid #2a2a2a;
+  resize: horizontal;
+  overflow: auto;
 }
 ```
 
@@ -107,7 +115,7 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`,
 from collapsing past readability when the developer specifies a small
 value; remove the floor if you want truly unbounded shrink.
 
-App content to the right (`#app { flex: 1; min-width: 0 }`) stays in
+App content to the left (`#app { flex: 1; min-width: 0 }`) stays in
 normal flow regardless of the inline width — Causa never overlays the
 app, never claims a hit-test region outside its host, and never
 mutates `body` padding in the default true-inline mode. This holds
@@ -123,14 +131,43 @@ string. Causa MUST NOT introduce a runtime API that sets the property
 from CLJS — the host's stylesheet is the single source of truth for
 sizing; introducing a CLJS setter would split that source.
 
-A JS-driven draggable separator was considered and rejected at this
-phase (rf2-um813): the CSS-variable contract covers the "developers
-need to tweak the width" requirement at zero runtime surface, zero
-new failure modes, and a one-line override path. A draggable handle
-adds pointer-capture, hit-test priority, ARIA semantics, and reduced-
-motion handling for marginal benefit; if the user need surfaces, a
-later bead may add it ON TOP of the CSS contract (the handle would
-write the same property).
+### User-draggable resize
+
+The recommended host snippet ships two complementary resize
+mechanisms — both browser-native, both JS-free, both writing the
+same `flex-basis` slot:
+
+1. **CSS variable** (host-owned, fixed-point sizing) — the
+   `--rf-causa-inline-width` property described above. The host's
+   stylesheet sets the *initial* width and any cascade-level
+   overrides (per-route, per-user, per-build). One declaration, no
+   pointer events, no runtime cost. This is the path for "the team
+   agreed Causa should default to 560px on the debug route."
+2. **Browser-native drag** (user-controlled, ad-hoc sizing) — the
+   `resize: horizontal` + `overflow: auto` pair on
+   `[data-rf-causa-host]`. The browser paints a drag-handle in the
+   bottom corner of the host (per
+   [CSS UI L3 §`resize`](https://drafts.csswg.org/css-ui-3/#resize)),
+   the user drags it, the host's *used* width updates, and flex
+   reflow shrinks `#app` to fill the remainder. No CLJS, no listener,
+   no Causa surface — the browser owns the interaction. This is the
+   path for "I want a bit more room for the event-detail panel right
+   now."
+
+The two cooperate cleanly. The variable establishes the initial
+size; a drag overrides it for the page lifetime; reload (or a fresh
+`--rf-causa-inline-width` override up the cascade) returns to the
+declared initial. The drag handle is the bottom-right corner of the
+host element (in LTR layouts) and is keyboard-accessible per the
+browser's standard `resize` semantics; no ARIA wiring is required.
+
+Causa MUST NOT introduce a JS-driven draggable separator — the
+`resize: horizontal` contract covers the user-drag requirement at
+zero runtime surface, zero new failure modes, and zero ARIA
+semantics for Causa to maintain. If a future use case demands
+pointer-capture beyond what the browser primitive provides, it MUST
+write to `--rf-causa-inline-width` (preserving cascade semantics);
+it MUST NOT introduce a parallel sizing channel.
 
 If the selector cannot be found after the substrate adapter is ready,
 Causa MUST fail loudly but safely: `console.error` with the selector
@@ -245,7 +282,7 @@ full-screen" use case.
 ### Animation
 
 Default inline launch is normal document layout: Causa renders inside
-the host's left column and the app remains visible to the right. The
+the host's right column and the app remains visible to the left. The
 default hide/show operation is a CSS display swap on the mount node
 and MUST respect `prefers-reduced-motion`.
 

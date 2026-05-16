@@ -142,7 +142,7 @@ cascade.
 ### `:layout/host-selector`
 
 The CSS selector Causa uses for its default true-inline shell mount.
-The host app owns the normal-flow left-side layout host; Causa renders
+The host app owns the normal-flow right-side layout host; Causa renders
 inside it after substrate readiness.
 
 | Value | Meaning |
