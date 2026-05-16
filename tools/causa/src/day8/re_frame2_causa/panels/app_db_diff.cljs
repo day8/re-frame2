@@ -15,7 +15,7 @@
              :as sections]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :refer [tokens sans-stack]]))
 
 (rf/reg-view app-db-diff-view
   "The App-DB Diff panel's root view."
@@ -45,11 +45,8 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "Slice-centric. The slices that changed this epoch + pinned "
-       "slices + reserved-keys runtime group. Read-only (Lock #3). Frame: "
-       [:code {:style {:color (:accent-violet tokens)
-                       :font-family mono-stack}}
-        (str target-frame)]]]
+       "Slices that changed this epoch, plus any you have pinned. "
+       "Click a slice to focus its before/after."]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         focused-path

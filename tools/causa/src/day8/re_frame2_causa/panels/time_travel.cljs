@@ -229,15 +229,13 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "Scrub epoch history (passive). Rewind via "
+       "Scrub epoch history. Rewind with "
        [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
         "Reset to current"]
        " or "
        [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
         "Reset to pinned"]
-       ". Frame: "
-       [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
-        (str target-frame)]]]
+       "."]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (if (empty? history)
         (empty-state target-frame)
