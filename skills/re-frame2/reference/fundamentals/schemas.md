@@ -2,7 +2,7 @@
 
 ## When to load
 
-Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or attaching the `validate-at-boundary` interceptor to a handler that ingests untrusted data (HTTP responses, websocket messages, query-strings).
+Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or attaching the `at-boundary` interceptor to a handler that ingests untrusted data (HTTP responses, websocket messages, query-strings).
 
 ## Prerequisite
 
@@ -39,7 +39,7 @@ Every `reg-*` macro accepts a `:spec` key in its metadata-map:
 
 In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:spec` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (`spec.cljc:154-238`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
 
-## `validate-at-boundary` — opt-in production validation
+## `at-boundary` — opt-in production validation
 
 For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor:
 
@@ -50,11 +50,11 @@ For handlers that **must** validate even in production (HTTP response ingestion,
 
 (rf/reg-event-fx :api/response-received
   {:spec ApiResponseSchema}
-  [spec/validate-at-boundary]
+  [spec/at-boundary]
   (fn [_ [_ payload]] ...))
 ```
 
-`rf/validate-at-boundary` is a re-export (`core.cljc:1188`); either spelling works. The interceptor reuses the handler's existing `:spec` — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
+`rf/at-boundary` is a re-export (`core.cljc:1188`); either spelling works. The interceptor reuses the handler's existing `:spec` — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
 
 Behaviour matrix (`spec.cljc:36-43`):
 
@@ -99,7 +99,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:spe
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:spec` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:spec` is a misconfiguration.** Adding `[spec/validate-at-boundary]` to a handler that has no `:spec` metadata emits `:rf.warning/boundary-without-spec` once and passes the dispatch through unchecked.
+- **Boundary interceptor without `:spec` is a misconfiguration.** Adding `[spec/at-boundary]` to a handler that has no `:spec` metadata emits `:rf.warning/boundary-without-spec` once and passes the dispatch through unchecked.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 
@@ -109,4 +109,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `at-boundary` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*

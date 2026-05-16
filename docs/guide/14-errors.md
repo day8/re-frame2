@@ -361,7 +361,7 @@ If you've attached schemas to events and a malformed event arrives:
 (rf/dispatch [:cart/set-quantity "not-a-uuid" -5])
 ```
 
-The `:spec/validate-at-boundary` interceptor (when attached) emits:
+The `:spec/at-boundary` interceptor (when attached) emits:
 
 ```clojure
 {:operation :rf.error/schema-validation-failure

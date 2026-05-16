@@ -156,7 +156,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.
-- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../reference/fundamentals/schemas.md`](../reference/fundamentals/schemas.md) §`validate-at-boundary`.
+- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../reference/fundamentals/schemas.md`](../reference/fundamentals/schemas.md) §`at-boundary`.
 
 ## Worked example
 

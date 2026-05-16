@@ -804,7 +804,7 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # Production-mode CLJS smoke for `:spec/validate-at-boundary`
+      # Production-mode CLJS smoke for `:spec/at-boundary`
       # (Spec 010 §Production builds, rf2-r2uh / rf2-84e9). Compiles
       # `re-frame.schemas-boundary-prod-test` under `:advanced` +
       # `goog.DEBUG=false` so Closure constant-folds the dev gate.

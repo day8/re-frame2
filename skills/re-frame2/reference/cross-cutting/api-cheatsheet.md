@@ -93,7 +93,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 |---|---|
 | `rf/app-schema-at` / `rf/app-schemas` / `rf/app-schemas-digest` | read-only schema queries |
 | `rf/set-schema-validator!` / `rf/set-schema-explainer!` | swap-in non-Malli validator |
-| `rf/validate-at-boundary` | production-side validation interceptor |
+| `rf/at-boundary` | production-side validation interceptor |
 
 ## Trace and epoch — `day8/re-frame2-epoch`
 

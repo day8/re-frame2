@@ -154,18 +154,18 @@ All registered schemas are checked at every validation point. The intent is to c
 
 Validation is **elided** by default — schemas remain registered (so tooling can introspect them) but the validation calls are compile-time-eliminated, alongside trace emission. The mechanism: every `validate-*!` body is wrapped in `(when re-frame.interop/debug-enabled? ...)` on the CLJS reference (other ports use the host's equivalent debug-enabled gate). `debug-enabled?` is an alias of `goog.DEBUG` on CLJS (default `true` in dev, `false` in `:advanced` production), so under `:closure-defines {goog.DEBUG false}` the closure compiler constant-folds and DCEs every validation site — the validator call, the trace-error envelope, the human-readable reason string, and every keyword the failure tags carry. See [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) for the full elision contract and the CI verifier that enforces it.
 
-For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:spec/validate-at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
+For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:spec/at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
 
 ```clojure
 (rf/reg-event-fx :api/response-received
   {:spec ApiResponseSchema}
-  [rf/validate-at-boundary]
+  [rf/at-boundary]
   (fn [m] ...))
 ```
 
-The interceptor is exposed as a value at both `re-frame.core/validate-at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/validate-at-boundary` (for users who prefer a `spec/` alias for schema-related interceptors). Both refer to the same value; pick whichever fits the surrounding code's import style.
+The interceptor is exposed as a value at both `re-frame.core/at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/at-boundary` (for users who prefer a `spec/` alias for schema-related interceptors). Both refer to the same value; pick whichever fits the surrounding code's import style.
 
-**Relationship to the handler's `:spec`.** `:spec/validate-at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
+**Relationship to the handler's `:spec`.** `:spec/at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
 
 - In **dev builds**, every event handler's `:spec` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
 - In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:spec` check inline, so handlers carrying it still validate at the boundary.
@@ -558,7 +558,7 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
 
 ### Boundary-validation seam
 
-The validator/explainer pair also fronts the boundary-validation interceptor (`:spec/validate-at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
+The validator/explainer pair also fronts the boundary-validation interceptor (`:spec/at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
 
 The schemas namespace exposes two fns the interceptor calls — `validate-with-registered-fn` and `explain-with-registered-fn` — both routing through the same atoms `set-schema-validator!` mutates. Apps that swap in their own validator therefore reach every validation surface with one call, not three.
 
@@ -614,7 +614,7 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 (rf/set-schema-validator! nil)
 ```
 
-**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:spec/validate-at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:spec` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
+**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:spec/at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:spec` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
 
 **Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps already only carry `malli.core`, not the error / transform / generator subset), and the mandate-cost is bounded by what `malli.core` weighs gzipped: ~24 KB. The heavy-decode scenario (which pulls `malli.error` + `malli.transform` + `malli.generator`) is worst-case; the typical-app cost is half that, and the opt-out path drops it to zero.
 
@@ -626,15 +626,11 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at rf2-rs0ux); "Boundary-validation interceptor naming" classifies as **`:still-blocking`** at rf2-ys2zn (naming decision needed before v1); "Schema versioning" classifies as **`:post-v1 tracked`** at rf2-7fk8a.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Schema-driven generative tests" classifies as **`:post-v1 tracked`** (folded into the property-based-testing pattern at rf2-rs0ux); "Boundary-validation interceptor naming" was **resolved** at rf2-ys2zn (decision 2026-05-17, see [§Resolved decisions](#resolved-decisions)); "Schema versioning" classifies as **`:post-v1 tracked`** at rf2-7fk8a.
 
 ### Schema-driven generative tests (post-v1, rf2-rs0ux)
 
 Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at rf2-rs0ux.
-
-### Boundary-validation interceptor naming (blocking — needs decision, rf2-ys2zn)
-
-`:spec/validate-at-boundary` is a placeholder name. Alternatives: `:spec/strict`, `:spec/always`, `:spec/at-boundary`. Blocking for v1 because the interceptor name is API surface — downstream tools and tutorials reference it. Decision tracked at rf2-ys2zn.
 
 ### Schema versioning (post-v1, rf2-7fk8a)
 
@@ -648,6 +644,10 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 - **Out of scope for the bead.** App-level migration runner (sequenced `db -> db'` transforms keyed on version delta) is library territory, not framework.
 
 ## Resolved decisions
+
+### Boundary-validation interceptor naming (rf2-ys2zn)
+
+Decision: **`:spec/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/at-boundary`, re-exported as `re-frame.core/at-boundary`). Decided 2026-05-17. Alternatives considered: `:spec/validate-at-boundary` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked name reads tight against the surrounding `:spec/*` registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
 
 ### Schema migration on hot-reload
 

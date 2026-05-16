@@ -924,7 +924,7 @@
   builds where dev-time validation is elided. Per Spec 010 §Production
   builds. The interceptor reuses the handler's existing `:spec`
   metadata — no parallel schema."}
-  validate-at-boundary spec/validate-at-boundary)
+  at-boundary spec/at-boundary)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body
   entirely (Closure DCE on the `interop/debug-enabled?` gate); in dev /

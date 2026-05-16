@@ -967,7 +967,7 @@
       (is (= my-fn @schemas/validator-fn)
           "the atom carries the fn the user registered"))))
 
-;; ---- rf2-r2uh — :spec/validate-at-boundary interceptor -------------------
+;; ---- rf2-r2uh — :spec/at-boundary interceptor ----------------------------
 ;;
 ;; Per Spec 010 §Production builds — the boundary-validation interceptor
 ;; runs the handler's :spec check inline in production builds (where
@@ -995,7 +995,7 @@
       (rf/reg-event-fx :api/response
         {:spec [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
@@ -1029,7 +1029,7 @@
       (rf/reg-event-fx :api/response
         {:spec [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
@@ -1053,7 +1053,7 @@
             assertion."
     (rf/reg-event-fx :api/strict
       {:spec [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary]
+      [rf/at-boundary]
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::tr (fn [ev] (swap! traces conj ev)))
@@ -1061,7 +1061,7 @@
       ;; debug-enabled? stays true on the JVM so emit-error! actually
       ;; fires its body and the trace is observable.
       (with-redefs [spec/dev-mode? (constantly false)]
-        (let [before (:before rf/validate-at-boundary)]
+        (let [before (:before rf/at-boundary)]
           (before {:coeffects {:event [:api/strict "not-an-int"]}})))
       (rf/remove-trace-cb! ::tr)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1100,7 +1100,7 @@
             additional plumbing."
     (rf/reg-event-fx :api/strict
       {:spec [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary]
+      [rf/at-boundary]
       (fn [_ _] {}))
     ;; Direct invocation of the interceptor's :before fn — gives us a
     ;; deterministic surface for asserting the recovery contract
@@ -1108,7 +1108,7 @@
     ;; (dev-mode? false); the boundary interceptor takes its prod
     ;; branch and validates inline.
     (with-redefs [spec/dev-mode? (constantly false)]
-      (let [before    (:before rf/validate-at-boundary)
+      (let [before    (:before rf/at-boundary)
             valid-ctx (before {:coeffects {:event [:api/strict 42]}})
             bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
         (is (not (:rf/skip-handler? valid-ctx))
@@ -1134,14 +1134,14 @@
       (rf/set-schema-validator! custom)
       (rf/reg-event-fx :api/custom
         {:spec :rf/any}                    ;; opaque to the custom validator
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! handler-calls inc) {}))
       (with-redefs [spec/dev-mode? (constantly false)]
         ;; Direct :before invocation so we observe the boundary's
         ;; validator call path without the router-side step-1 also
         ;; firing the same custom validator (which would double-count
         ;; the calls).
-        (let [before (:before rf/validate-at-boundary)
+        (let [before (:before rf/at-boundary)
               ok     (before {:coeffects {:event [:api/custom :good]}})
               bad    (before {:coeffects {:event [:api/custom :bad]}})]
           (is (not (:rf/skip-handler? ok))
@@ -1159,7 +1159,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/disabled
         {:spec [:cat [:= :api/disabled] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::nil (fn [ev] (swap! traces conj ev)))
@@ -1181,7 +1181,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/dev
         {:spec [:cat [:= :api/dev] :int]}
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::dev (fn [ev] (swap! traces conj ev)))
@@ -1208,7 +1208,7 @@
       (rf/reg-event-fx :api/no-spec
         ;; No metadata-map at all — the middle slot is the interceptor
         ;; vector. Handler carries no :spec.
-        [rf/validate-at-boundary]
+        [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::nospec (fn [ev] (swap! traces conj ev)))
