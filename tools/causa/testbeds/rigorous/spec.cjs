@@ -448,50 +448,272 @@ module.exports = {
     await expectRootDisplay(page, 'block', 5000);
 
     // ----------------------------------------------------------------
-    // 9. Per-panel hero affordances (rf2-sb4n6 / audit 4a) — minimal
-    //    one-assertion-per-panel coverage. The existing earlier
-    //    sections cover trace-ribbon filter/clear and time-travel
-    //    population; this section pins:
-    //      9a. event-detail panel renders after a host dispatch
-    //      9b. time-travel slider emits a restore on confirmed-rewind
-    //      9c. app-db diff panel renders the changed slice
-    //      9d. causality graph renders the cascade nodes
+    // 9. Per-panel hero-affordance end-to-end walks (rf2-bo3se).
     //
-    //    Richer multi-step interaction coverage (right-click → pin →
-    //    show-me-when-this-changed; node-click → event-detail pivot)
-    //    is filed as a follow-on per the cluster brief — the budget
-    //    here is "the panel paints something useful for the canonical
-    //    counter cascade".
+    // The earlier sections satisfied the cluster's minimum-coverage
+    // assertion ("panel paints a useful canvas after a host dispatch"
+    // — section 4b for time-travel, section 6 for trace). This
+    // section walks each panel's hero affordance through multi-step
+    // DOM interactions + post-interaction state assertions:
+    //
+    //   9a. event-detail        — cascade-row click → six-domino
+    //                             cascade renders → Clear → list
+    //   9b. time-travel         — jump-to-oldest → Reset to current
+    //                             rewinds host app-db → jump-newest
+    //                             unscrubs
+    //   9c. app-db-diff         — Pin a slice → pinned-group renders
+    //                             → "Show me when this changed" →
+    //                             focus-result-panel renders hits →
+    //                             clear-focus closes it
+    //   9d. causality-graph     — node click selects the dispatch-id
+    //                             → pivot to event-detail → cascade
+    //                             detail is the node we clicked
+    //                             (selection parity across panels)
+    //
+    // The walks assume the host counter has accrued at least one
+    // settled cascade plus the boot `:counter/initialise` — the
+    // earlier sections satisfy that, so we can read deterministic
+    // expectations off the cascade list.
     // ----------------------------------------------------------------
 
-    // 9a. event-detail — fire one host dispatch then assert the
-    // event-detail canvas paints the dispatch row.
+    // 9a. event-detail hero walk — cascade-row click → six-domino
+    // detail → Clear → list.
+    //
+    // Fire one more host dispatch so we know there is at least one
+    // cascade list-row to click. (The earlier `-` click in section 6
+    // also lands one in the buffer; the explicit click here keeps the
+    // walk self-contained should section ordering ever change.)
     await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, '7', 5000);
     await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    // Empty-state cascade list should be visible — selection clears on
+    // mount per the bare event-detail panel's reg-event-db, but the
+    // co-pilot turn earlier in the spec may have left a selection in
+    // place. Force a known-empty starting point.
+    {
+      const lingeringClear = page.locator('[data-testid="rf-causa-event-detail-clear"]');
+      if ((await lingeringClear.count()) > 0) {
+        await lingeringClear.first().click();
+      }
+    }
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
+    const cascadeRows = page.locator('[data-testid^="rf-causa-cascade-row-"]');
     await waitForCondition(
-      () => page.locator('[data-testid="rf-causa-event-detail"]').count(),
+      async () => cascadeRows.count(),
       (count) => count > 0,
-      'event-detail canvas mounted after host dispatch',
+      'at least one cascade row in the event-detail empty-state list',
+      5000,
+    );
+    // Pick the latest row (last child of the cascade list). The id
+    // suffix on `rf-causa-cascade-row-<id>` is the dispatch-id we
+    // expect to see surfaced inside the cascade-detail's
+    // `data-dispatch-id` attribute after the click.
+    const lastCascadeRow = cascadeRows.last();
+    const lastRowTestid = await lastCascadeRow.getAttribute('data-testid');
+    const clickedDispatchId = lastRowTestid.replace('rf-causa-cascade-row-', '');
+    await lastCascadeRow.click();
+    // Cascade-detail mounts — the canvas now shows the six-domino
+    // layout for the clicked dispatch.
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const cascadeDetail = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => cascadeDetail.getAttribute('data-dispatch-id'),
+      (val) => val === clickedDispatchId,
+      `cascade-detail data-dispatch-id=${clickedDispatchId}`,
+      5000,
+    );
+    // Click Clear — back to the list. The detail goes away and the
+    // empty-state list reappears.
+    await page.locator('[data-testid="rf-causa-event-detail-clear"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
+      (count) => count === 0,
+      'cascade-detail to unmount after Clear',
+      5000,
+    );
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
+
+    // 9b. time-travel hero walk — jump-to-oldest → Reset to current
+    // rewinds host app-db → jump-to-newest unscrubs.
+    //
+    // The counter is currently at 7 (boot 5 + three increments — two
+    // pre-section-6 plus the one fired by section 9a). The oldest
+    // epoch in the scrubber holds the boot :counter/initialise state
+    // (counter/value=5). After "Reset to current" the host's
+    // counter-value display rewinds to 5; after "jump-to-newest" the
+    // selection clears back to the head and the slider value matches
+    // its max-index.
+    await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
+    const ttSlider = page.locator('[data-testid="rf-causa-time-travel-slider"]');
+    await expectVisible(ttSlider, 5000);
+    const ttSliderMaxBefore = parseInt(await ttSlider.getAttribute('max'), 10);
+    if (!Number.isFinite(ttSliderMaxBefore) || ttSliderMaxBefore < 2) {
+      throw new Error(
+        `Expected time-travel slider max >= 2 before hero walk; got ${ttSliderMaxBefore}.`,
+      );
+    }
+    // Drag the slider to the oldest position by `fill`-ing the range
+    // input to its min value (0). Playwright's `fill` on a `<input
+    // type=range>` lands the same `on-change` path a real drag would
+    // — the panel's handler reads `(.. e -target -value)` and
+    // dispatches `:rf.causa/select-epoch` for the epoch at that
+    // index.
+    await ttSlider.fill('0');
+    await waitForCondition(
+      async () => ttSlider.inputValue(),
+      (value) => value === '0',
+      'time-travel slider value=0 after scrub to oldest',
+      5000,
+    );
+    // Fire the rewind — `:rf.causa/reset-to-epoch` →
+    // `:rf.causa.fx/restore-epoch` walks `rf/restore-epoch` against
+    // the default frame and the host counter rewinds to its boot
+    // value (5). The "Reset to current" affordance is the time-travel
+    // panel's hero rewind button — the slider scrub is passive (no
+    // host effects); only the button actually commits the restore.
+    await page.locator('[data-testid="rf-causa-reset-to-epoch"]').click();
+    await expectTextEquals(counterValue, '5', 5000);
+    // Unscrub — drag the slider to its new max-index. The slider
+    // value matches max after the rewind dispatch lands its own
+    // settle epoch on the history.
+    const ttSliderMaxAfter = await waitForCondition(
+      async () => parseInt(await ttSlider.getAttribute('max'), 10),
+      (max) => Number.isFinite(max) && max >= ttSliderMaxBefore,
+      `time-travel slider max stable at >= ${ttSliderMaxBefore} after rewind settles`,
+      5000,
+    );
+    await ttSlider.fill(String(ttSliderMaxAfter));
+    await waitForCondition(
+      async () => ttSlider.inputValue(),
+      (value) => value === String(ttSliderMaxAfter),
+      `time-travel slider value=${ttSliderMaxAfter} after scrub to newest`,
       5000,
     );
 
-    // 9c. app-db diff — the diff panel renders actual changed-slice
-    // rows for the most-recent settle.
+    // 9c. app-db-diff hero walk — pin a slice → pinned-group renders
+    // → "Show me when this changed" → focus-result-panel surfaces
+    // hits → clear-focus closes it.
+    //
+    // Bump the counter once more so the most-recent cascade carries a
+    // non-empty changed-slices set (the rewind we just performed
+    // emits its own restore epoch but the diff projection reads from
+    // the *dispatch* cascade buffer; one more `+` click guarantees a
+    // dispatch cascade after the restore).
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, '6', 5000);
     await clickSidebar(page, 'app-db', 'rf-causa-app-db-diff');
+    const sliceRows = page.locator('[data-testid^="rf-causa-app-db-diff-slice-"]');
     await waitForCondition(
-      () => page.locator('[data-testid^="rf-causa-app-db-diff-slice-"]').count(),
+      async () => sliceRows.count(),
       (count) => count > 0,
-      'app-db diff to render at least one changed-slice row',
+      'app-db-diff to render at least one changed-slice row',
+      5000,
+    );
+    const firstSlice = sliceRows.first();
+    const firstSliceTestid = await firstSlice.getAttribute('data-testid');
+    // The slice testid embeds the path's pr-str — `rf-causa-app-db-
+    // diff-slice-<path-prstr>`. The pin / show-when testids share the
+    // same suffix so we can address them directly without re-parsing
+    // the path.
+    const pathSuffix = firstSliceTestid.replace('rf-causa-app-db-diff-slice-', '');
+    const pinBtn = page.locator(
+      `[data-testid="rf-causa-app-db-diff-pin-${pathSuffix}"]`,
+    );
+    await pinBtn.click();
+    // Pinned-group appears with one pinned row for this path. The
+    // pinned-row testid is `rf-causa-app-db-diff-pinned-<pathPrstr>`.
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-app-db-diff-pinned-group"]'),
+      5000,
+    );
+    await expectVisible(
+      page.locator(`[data-testid="rf-causa-app-db-diff-pinned-${pathSuffix}"]`),
+      5000,
+    );
+    // Click "Show me when this changed" on the same slice — the
+    // panel pivots into focus-result mode and renders one row per
+    // epoch in the buffer that touched this path.
+    const showWhenBtn = page.locator(
+      `[data-testid="rf-causa-app-db-diff-show-when-${pathSuffix}"]`,
+    );
+    await showWhenBtn.click();
+    await expectVisible(
+      page.locator('[data-testid="rf-causa-app-db-diff-focus-result"]'),
+      5000,
+    );
+    const focusHits = page.locator('[data-testid^="rf-causa-app-db-diff-focus-hit-"]');
+    await waitForCondition(
+      async () => focusHits.count(),
+      (count) => count > 0,
+      'focus-result-panel to render at least one hit row',
+      5000,
+    );
+    // Clear focus — the panel returns to slice-list mode and the
+    // focus-result section unmounts.
+    await page.locator('[data-testid="rf-causa-app-db-diff-clear-focus"]').click();
+    await waitForCondition(
+      async () => page.locator('[data-testid="rf-causa-app-db-diff-focus-result"]').count(),
+      (count) => count === 0,
+      'focus-result-panel to unmount after clear-focus',
       5000,
     );
 
-    // 9d. causality graph — nodes paint after at least one host
-    // dispatch.
+    // 9d. causality-graph hero walk — node click selects a dispatch
+    // → pivoting to event-detail shows that exact cascade selected
+    // (parity).
+    //
+    // Per causality_graph.cljs the node's on-click fires
+    // `:rf.causa/select-dispatch-id`, which is the same event the
+    // cascade list dispatches. Both panels read the same selection
+    // slot through `:rf.causa/event-detail`; pivoting via the sidebar
+    // should land us directly on the cascade-detail for the clicked
+    // node without a second selection step.
+    //
+    // The trace buffer caps at 1000 events; Causa's own panel-
+    // switching dispatches plus background sub/render cascades can
+    // rotate a cascade out from under us between the node click and
+    // the sidebar pivot. Clear the buffer right before this walk and
+    // fire a single fresh host `+` click so the cascade we target is
+    // guaranteed to still be in the buffer when event-detail
+    // recomputes its composite. The clear also drops the stale
+    // `:selected-epoch-id` carried over from 9b's jump-newest so the
+    // causality graph paints its full topology rather than a single
+    // filtered cascade.
+    const clearedForGraph = await clearTraceBuffer(page);
+    if (!clearedForGraph.ok) {
+      throw new Error(
+        `Could not clear the trace buffer before causality-graph walk: ${clearedForGraph.reason}`,
+      );
+    }
+    await clickHostButtonByLabel(page, '+');
+    await expectTextEquals(counterValue, '7', 5000);
     await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
+    const graphNodes = page.locator('[data-testid^="rf-causa-graph-node-"]');
     await waitForCondition(
-      () => page.locator('[data-testid^="rf-causa-graph-node-"]').count(),
+      async () => graphNodes.count(),
       (count) => count > 0,
-      'causality graph to render at least one cascade node',
+      'causality graph to render at least one node',
+      5000,
+    );
+    // Pick the most-recent node (last in DOM order). The testid
+    // suffix is the dispatch-id — same shape as the cascade-row
+    // testid in event-detail. With a freshly-cleared buffer plus a
+    // single host `+` click the last node is the host counter
+    // cascade we just fired.
+    const lastNode = graphNodes.last();
+    const lastNodeTestid = await lastNode.getAttribute('data-testid');
+    const nodeDispatchId = lastNodeTestid.replace('rf-causa-graph-node-', '');
+    await lastNode.click();
+    // Pivot to event-detail — the selection rides on Causa's app-db
+    // so the cascade-detail mounts straight away with the matching
+    // dispatch-id.
+    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+    await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+    const pivotCascade = page.locator('[data-testid="rf-causa-event-detail-cascade"]');
+    await waitForCondition(
+      async () => pivotCascade.getAttribute('data-dispatch-id'),
+      (val) => val === nodeDispatchId,
+      `event-detail cascade data-dispatch-id=${nodeDispatchId} (parity with graph node click)`,
       5000,
     );
   },
