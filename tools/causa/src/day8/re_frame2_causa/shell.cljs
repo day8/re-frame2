@@ -97,6 +97,7 @@
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.popover.causality :as causality-popover]
+            [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
@@ -359,10 +360,11 @@
 
 (defn- ribbon-right-icons
   "Right-icons cluster — `⚙` settings · `⛶` popout · `✕` close per
-  spec/018 §3 Right-icon behaviour. Settings + popout are stubbed
-  (no settings modal yet; popout dispatches the existing toggle for
-  symmetry). Close dispatches `:rf.causa/close-shell` (handled by
-  mount.cljs in production)."
+  spec/018 §3 Right-icon behaviour. Settings opens the Settings popup
+  modal (rf2-9poxq) via `:rf.causa/settings-open`; popout is stubbed
+  (popout dispatches the existing toggle for symmetry). Close
+  dispatches `:rf.causa/close-shell` (handled by mount.cljs in
+  production)."
   []
   (let [icon-style {:background     "transparent"
                     :border         "none"
@@ -373,8 +375,9 @@
     [:div {:data-testid "rf-causa-ribbon-icons"
            :style {:display "flex" :align-items "center" :gap "4px"}}
      [:button {:data-testid "rf-causa-icon-settings"
-               :title       "Settings (,) — stubbed"
-               :on-click    #(rf/dispatch [:rf.causa/open-settings] {:frame :rf/causa})
+               :title       "Settings (,)"
+               :aria-label  "Open Causa settings"
+               :on-click    #(rf/dispatch [:rf.causa/settings-open] {:frame :rf/causa})
                :style       icon-style}
       "⚙"]
      [:button {:data-testid "rf-causa-icon-popout"
@@ -417,7 +420,6 @@
                    :padding          "0 12px"
                    :background       (:bg-1 tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
-                   :color            (:text-primary tokens)
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
@@ -709,6 +711,11 @@
     ;; `:rf.causa/edit-popup-open?` is false; closed-state cost is
     ;; one subscribe + when-gate.
     [filters/Modal]
+    ;; Settings popup (rf2-9poxq) — same mount discipline as the
+    ;; palette + edit popup: shell-root mount so subscribes resolve
+    ;; through the shell's `:rf/causa` frame-provider, and the modal
+    ;; short-circuits to nil when `:rf.causa/settings-open?` is false.
+    [settings-popup/Modal]
     ;; Causality popover (rf2-dqnuu) — c-key triggered overlay per
     ;; spec/018-Event-Spine.md §10. Replaces the dropped Causality
     ;; tab; the event-list cold-start hint already advertises it

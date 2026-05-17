@@ -37,6 +37,7 @@
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.popover.causality :as causality-popover]
+            [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
@@ -422,6 +423,7 @@
 
     (open-in-editor/install!)
     (palette/install!)
+    (settings-popup/install!)
     ;; Filters install AFTER `:rf.causa/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.causa/filtered-cascades` + the edit-
