@@ -121,8 +121,11 @@
   (testing ":rf.causa/select-panel updates the slot active-panel reads"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-panel :causality-graph])
-      (is (= :causality-graph (core/active-panel)))
+      ;; :trace is an arbitrary panel id — anything currently in the
+      ;; canvas dispatch table works. (Causality removed with
+      ;; rf2-dqnuu — popover, not a tab.)
+      (rf/dispatch-sync [:rf.causa/select-panel :trace])
+      (is (= :trace (core/active-panel)))
       (rf/dispatch-sync [:rf.causa/select-panel :time-travel])
       (is (= :time-travel (core/active-panel))))))
 
@@ -130,8 +133,8 @@
   (testing "set-active-panel! dispatches :rf.causa/select-panel into :rf/causa"
     (let [seen (atom [])]
       (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
-        (core/set-active-panel! :causality-graph))
-      (is (= [[:rf.causa/select-panel :causality-graph]] @seen)
+        (core/set-active-panel! :trace))
+      (is (= [[:rf.causa/select-panel :trace]] @seen)
           "facade dispatches the right event with the right arg"))))
 
 ;; ---- (3) TBD stubs — emit warning trace, return nil --------------------
