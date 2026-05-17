@@ -38,10 +38,12 @@
   them; closure's reachability analysis DCEs the lot."
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
+            [re-frame.story.causa-preset :as causa-preset]
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
             [re-frame.story.identity :as identity]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.runtime :as runtime]
             [re-frame.trace :as rf-trace]
@@ -49,6 +51,7 @@
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.command-palette.view :as command-palette]
             [re-frame.story.ui.controls :as controls]
+            [re-frame.story.ui.dispatch-console :as dispatch-console]
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
@@ -380,7 +383,12 @@
                      ;; before React commits a canvas render that
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
-                     (ensure-variant-frame! now))
+                     (ensure-variant-frame! now)
+                     ;; rf2-q9kv5: apply any per-story Causa preset
+                     ;; (auto-open shell, focus tab, configure filters,
+                     ;; focus a cascade position). Feature-detect-safe;
+                     ;; no-op when Causa is not on the classpath.
+                     (causa-preset/on-variant-selected! now))
                    (reset! selection-prev now))))))
 
 (defn- remove-selection-watcher! []
@@ -432,6 +440,28 @@
      ;; and have no late-bind contract.
      (when (and (:actions vis) variant-id)
        [actions/panel variant-id])
+     ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
+     ;; the running variant's frame. Default visible; opt-out via
+     ;; `:dispatch-console? false` on the story or variant body. The
+     ;; per-story flag wins over the chrome-level `:panel-visibility`
+     ;; slot's default (true). The shell stores the explicit visibility
+     ;; toggle under `:panel-visibility :dispatch-console` so the user can
+     ;; flip it without editing the story body; the story-body flag is the
+     ;; default visibility for that variant.
+     (when (and variant-id
+                (let [vis-flag (:dispatch-console vis)
+                      var-body (registrar/handler-meta :variant variant-id)
+                      story-id (pred/parent-story-id variant-id)
+                      sty-body (when story-id
+                                 (registrar/handler-meta :story story-id))
+                      ;; Story slot default; variant overrides; user toggle wins.
+                      story-default (get sty-body  :dispatch-console? true)
+                      var-default   (get var-body  :dispatch-console? story-default)]
+                  (cond
+                    (true?  vis-flag) true
+                    (false? vis-flag) false
+                    :else             var-default)))
+       [dispatch-console/panel variant-id])
      ;; Stage 6: render any registered :right-placement story panels.
      (when variant-id
        [panels/render-panels-at-placement :right variant-id vis])]))
