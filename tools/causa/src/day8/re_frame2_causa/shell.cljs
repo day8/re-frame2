@@ -109,38 +109,105 @@
 
 ;; ---- regions -------------------------------------------------------------
 
-(rf/reg-view top-strip
-  "Top strip (56px). Per spec/007-UX-IA.md §The five regions item 1:
-  causality strip + frame picker + global actions (Issues badge,
-  epoch counter, command palette, help, close).
+(defn- mode-pill-text
+  "Render text for the mode-pill per spec/018 §3 Mode pill click
+  behaviour. `focus` is the `:rf.causa/focus` sub value."
+  [{:keys [mode paused? head?]}]
+  (case mode
+    :live  (if paused? "● LIVE (paused)" "● LIVE")
+    :retro (if head? "● LIVE" "◐ RETRO")
+    "● LIVE"))
 
-  v1 stub: brand mark + version label + close-affordance text.
-  Live causality strip / frame picker / Issues badge land as
-  follow-on work."
+(defn- mode-pill-on-click
+  "Dispatcher for the mode-pill click — Space-equivalent when in LIVE,
+  L-equivalent when in RETRO. Per spec/018 §3 table 'Mode pill click
+  behaviour'."
+  [{:keys [mode]}]
+  (if (= mode :retro)
+    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
+    #(rf/dispatch [:rf.causa/toggle-live-pause] {:frame :rf/causa})))
+
+(rf/reg-view top-strip
+  "Top strip (56px). Per spec/018-Event-Spine.md §3 Top ribbon anatomy
+  the bar carries the brand mark plus the LIVE/RETRO mode pill (moved
+  here from the dead bottom rail per spec/018 §1 'No bottom rail').
+  The REDACTED indicator surfaces next to the mode pill — the bottom
+  rail used to own it (rf2-azls9); spec/018 specifies the mode-pill
+  hover tooltip + the redaction marker per row, and as a smallest-
+  first-PR step we relocate the indicator to the top strip so the
+  existing redacted-counter assertion surface keeps working
+  unchanged. Frame picker + filter pills + right-cluster chrome land
+  under follow-on beads.
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribes route through
+  React context to `:rf/causa`."
   [_props]
-  [:div {:style {:display          "flex"
-                 :align-items      "center"
-                 :justify-content  "space-between"
-                 :height           (:top-strip-height layout)
-                 :padding          "0 16px"
-                 :background       (:bg-1 tokens)
-                 :border-bottom    (str "1px solid " (:border-subtle tokens))
-                 :color            (:text-primary tokens)
-                 :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                 :font-size        (:body type-scale)
-                 :font-weight      600}}
-   [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-    [:span {:style {:color (:accent-violet tokens)}} "◆"]
-    [:span "Causa"]
-    [:span {:style {:color       (:text-tertiary tokens)
-                    :font-size   (:caption type-scale)
+  (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
+        focus          @(rf/subscribe [:rf.causa/focus])
+        pill-tone      (case (:mode focus)
+                         :live  (if (:paused? focus)
+                                  (:text-secondary tokens)
+                                  (:green tokens))
+                         :retro (if (:head? focus)
+                                  (:green tokens)
+                                  (:cyan tokens))
+                         (:green tokens))]
+    [:div {:data-testid "rf-causa-top-strip"
+           :style {:display          "flex"
+                   :align-items      "center"
+                   :justify-content  "space-between"
+                   :height           (:top-strip-height layout)
+                   :padding          "0 16px"
+                   :background       (:bg-1 tokens)
+                   :border-bottom    (str "1px solid " (:border-subtle tokens))
+                   :color            (:text-primary tokens)
+                   :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+                   :font-size        (:body type-scale)
+                   :font-weight      600}}
+     [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
+      [:span {:style {:color (:accent-violet tokens)}} "◆"]
+      [:span "Causa"]
+      [:span {:style {:color       (:text-tertiary tokens)
+                      :font-size   (:caption type-scale)
+                      :font-weight 400}}
+       "Phase 5 (rf2-pzxsr)"]]
+     [:div {:style {:display "flex" :align-items "center" :gap "12px"
+                    :font-size (:caption type-scale)
                     :font-weight 400}}
-     "Phase 5 (rf2-pzxsr)"]]
-   [:div {:style {:display "flex" :align-items "center" :gap "12px"
-                  :color    (:text-secondary tokens)
-                  :font-size (:caption type-scale)
-                  :font-weight 400}}
-    [:span "Ctrl+Shift+C to toggle"]]])
+      ;; REDACTED indicator (rf2-azls9, relocated from bottom-rail per
+      ;; rf2-adve5). Only renders when the counter is positive.
+      (when (pos? redacted-count)
+        [:span {:data-testid "rf-causa-redacted-indicator"
+                :title       (str "Spec 009 §Privacy: " redacted-count
+                                  " sensitive trace event"
+                                  (when (not= 1 redacted-count) "s")
+                                  " suppressed by default. Set "
+                                  ":trace/show-sensitive? true via "
+                                  "(causa-config/configure! ...) to "
+                                  "surface them.")
+                :style       {:color       (:magenta tokens)
+                              :font-weight 600}}
+         (str "● REDACTED " redacted-count)])
+      ;; Mode pill — spec/018 §3 Mode pill cluster.
+      [:span {:data-testid "rf-causa-mode-pill"
+              :on-click    (mode-pill-on-click focus)
+              :title       (case (:mode focus)
+                             :live  (if (:paused? focus)
+                                      "Resume LIVE feed (Space)"
+                                      "Pause LIVE feed (Space)")
+                             :retro (if (:head? focus)
+                                      "Pause LIVE feed (Space)"
+                                      "Snap to LIVE (L)")
+                             "")
+              :style       {:color       pill-tone
+                            :cursor      "pointer"
+                            :font-weight 600
+                            :padding     "2px 8px"
+                            :border      (str "1px solid " pill-tone)
+                            :border-radius "10px"}}
+       (mode-pill-text focus)]
+      [:span {:style {:color (:text-secondary tokens)}}
+       "Ctrl+Shift+C to toggle"]]]))
 
 (defn- sidebar-item
   "Render one sidebar item. Clicking the row fires
@@ -293,51 +360,10 @@
        ;; ── mcp-server panel end ──
        [unknown-panel selected])]))
 
-(rf/reg-view bottom-rail
-  "Bottom rail (40px) — time-travel scrubber + frame info + issues
-  badge. Per spec/007-UX-IA.md §The five regions item 5.
-
-  Phase 1 stub: minimal frame-info text. Live scrubber lands with the
-  time-travel panel bead.
-
-  ## Redaction indicator (rf2-azls9)
-
-  When Causa's trace collector has dropped one or more `:sensitive?
-  true` events under the default privacy posture, render a
-  `[● REDACTED N]` hint in the centre of the rail. The hint
-  disappears on `trace-bus/clear-buffer!` (counter resets together
-  with the buffer) and when the host calls
-  `(causa-config/configure! {:trace/show-sensitive? true})` BEFORE
-  the events flow (the counter never bumps in that case).
-
-  Per rf2-in6l2 `reg-view`-registered so the subscribe routes
-  through React context to `:rf/causa`."
-  []
-  (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
-    [:footer {:style {:height           (:bottom-rail-height layout)
-                      :display          "flex"
-                      :align-items      "center"
-                      :justify-content  "space-between"
-                      :padding          "0 16px"
-                      :background       (:bg-1 tokens)
-                      :border-top       (str "1px solid " (:border-subtle tokens))
-                      :color            (:text-tertiary tokens)
-                      :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                      :font-size        (:caption type-scale)}}
-     [:span "◀◀  ────●────  ▶▶  (scrubber)"]
-     (when (pos? redacted-count)
-       [:span {:data-testid "rf-causa-redacted-indicator"
-               :title       (str "Spec 009 §Privacy: " redacted-count
-                                 " sensitive trace event"
-                                 (when (not= 1 redacted-count) "s")
-                                 " suppressed by default. Set "
-                                 ":trace/show-sensitive? true via "
-                                 "(causa-config/configure! ...) to "
-                                 "surface them.")
-               :style       {:color       (:magenta tokens)
-                             :font-weight 600}}
-        (str "● REDACTED " redacted-count)])
-     [:span "epoch — / —"]]))
+;; Bottom rail removed per spec/018-Event-Spine.md §2 'Why 4 layers,
+;; not 5' — the previous L0 scrubber rail collapses into the ribbon's
+;; `[◀ ▶ ⏭]` nav cluster + the event list. The REDACTED indicator
+;; relocated to the top strip (see top-strip docstring).
 
 ;; ---- shell view ----------------------------------------------------------
 
@@ -424,7 +450,7 @@
                    :overflow      "hidden"}}
      [sidebar]
      [canvas]]
-    [bottom-rail]
+    ;; Bottom rail removed per spec/018 §2 (rf2-adve5).
     ;; Command palette (rf2-wm7z4) — mounted at the shell root so it
     ;; overlays the chrome + panels. The Modal short-circuits to nil
     ;; when `:rf.causa/palette-open?` is false; closed-state cost is

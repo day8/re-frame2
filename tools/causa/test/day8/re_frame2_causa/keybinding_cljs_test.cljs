@@ -61,6 +61,12 @@
   [event]
   (#'keybinding/palette-toggle-key? event))
 
+(defn- spine-key-id
+  "rf2-adve5 — the spine-binding predicate (Space / L / j / k / G).
+  Returns the spine event id or nil."
+  [event]
+  (#'keybinding/spine-key-id event))
+
 ;; ---- stub `js/document` --------------------------------------------------
 ;;
 ;; The `attach!` / `detach!` helpers are guarded by `(exists?
@@ -357,3 +363,65 @@
           "without js/document the sentinel must NOT flip — otherwise
           a subsequent stub-driven attach! would falsely think it had
           already wired up"))))
+
+;; ---- (5) spine-key-id (rf2-adve5) ---------------------------------------
+;;
+;; Per spec/018 §3 + §6 the five spine bindings are Space, L, j, k, G.
+;; The predicate is *unmodified* — modifier-held variants must not
+;; match (so Cmd+L → focus address bar still works inside Causa). The
+;; mapping table:
+;;
+;;     Space   →  :rf.causa/toggle-live-pause
+;;     L       →  :rf.causa/follow-head      (snap-LIVE)
+;;     G       →  :rf.causa/follow-head      (Shift+G; vim 'Go to head')
+;;     j       →  :rf.causa/focus-cascade-prev
+;;     k       →  :rf.causa/focus-cascade-next
+
+(deftest spine-key-id-space-is-toggle-live-pause
+  (is (= :rf.causa/toggle-live-pause
+         (spine-key-id (mk-event {:key " "}))))
+  (is (= :rf.causa/toggle-live-pause
+         (spine-key-id (mk-event {:code "Space"})))))
+
+(deftest spine-key-id-l-is-follow-head
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:key "l"}))))
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:code "KeyL"})))))
+
+(deftest spine-key-id-shift-g-is-follow-head
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:key "G" :shift? true}))))
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:code "KeyG" :shift? true})))))
+
+(deftest spine-key-id-j-is-prev
+  (is (= :rf.causa/focus-cascade-prev
+         (spine-key-id (mk-event {:key "j"}))))
+  (is (= :rf.causa/focus-cascade-prev
+         (spine-key-id (mk-event {:code "KeyJ"})))))
+
+(deftest spine-key-id-k-is-next
+  (is (= :rf.causa/focus-cascade-next
+         (spine-key-id (mk-event {:key "k"}))))
+  (is (= :rf.causa/focus-cascade-next
+         (spine-key-id (mk-event {:code "KeyK"})))))
+
+(deftest spine-key-id-rejects-modifiers
+  (testing "Ctrl+L must not be hijacked (focus address bar)"
+    (is (nil? (spine-key-id (mk-event {:key "l" :ctrl? true})))))
+  (testing "Cmd+L likewise"
+    (is (nil? (spine-key-id (mk-event {:key "l" :meta? true})))))
+  (testing "Alt+j must not match"
+    (is (nil? (spine-key-id (mk-event {:key "j" :alt? true})))))
+  (testing "Shift+j must not match (capital J is not a spine key)"
+    (is (nil? (spine-key-id (mk-event {:key "j" :shift? true})))))
+  (testing "Lowercase g without Shift must not match (only Shift+G is)"
+    (is (nil? (spine-key-id (mk-event {:key "g"}))))))
+
+(deftest spine-key-id-rejects-unknown-keys
+  (testing "unrelated keys return nil"
+    (is (nil? (spine-key-id (mk-event {:key "x"}))))
+    (is (nil? (spine-key-id (mk-event {:key "Enter"}))))
+    (is (nil? (spine-key-id (mk-event {})))
+        "empty event → nil")))

@@ -52,13 +52,24 @@
     (fn [db [_ text]]
       (assoc db :label-input (or text ""))))
 
+  ;; Spine shim (rf2-adve5) — `:rf.causa/select-epoch` continues to
+  ;; own the legacy `:selected-epoch-id` slot the time-travel panel
+  ;; sub graph reads, AND writes through the spine's `:focus`
+  ;; `:epoch-id` so the `:rf.causa/focus` sub the spec-018 surfaces
+  ;; consume rebinds when the user picks an epoch in the time-travel
+  ;; panel. Symmetric with `:rf.causa/select-dispatch-id` in
+  ;; event_detail.cljs.
   (rf/reg-event-db :rf.causa/select-epoch
     (fn [db [_ epoch-id]]
-      (assoc db :selected-epoch-id epoch-id)))
+      (-> db
+          (assoc :selected-epoch-id epoch-id)
+          (assoc-in [:focus :epoch-id] epoch-id))))
 
   (rf/reg-event-db :rf.causa/clear-selected-epoch
     (fn [db _event]
-      (dissoc db :selected-epoch-id)))
+      (-> db
+          (dissoc :selected-epoch-id)
+          (assoc-in [:focus :epoch-id] nil))))
 
   ;; Per rf2-q4rvx the payload is a single map: `{:eid <epoch-id> :label
   ;; <string>}`. The map shape composes cleanly with optional keys we
