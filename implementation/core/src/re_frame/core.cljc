@@ -34,6 +34,7 @@
             [re-frame.fx :as fx]
             [re-frame.cofx :as cofx]
             [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
             [re-frame.privacy :as privacy]
@@ -494,7 +495,7 @@
   and clear the cache. Cancels any pending grace-period timers before
   disposing. For tests and hot-reload. Per spec/API.md §Clearing
   registrations."}
-  clear-sub-cache! subs/clear-sub-cache!)
+  clear-sub-cache! subs-cache/clear-sub-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
@@ -1152,7 +1153,7 @@
                      (f opts))
     :trace-buffer  (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
                      (f opts))
-    :sub-cache     (subs/configure! opts)
+    :sub-cache     (subs-cache/configure! opts)
     nil))
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A

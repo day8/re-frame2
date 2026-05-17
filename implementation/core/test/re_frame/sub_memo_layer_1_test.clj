@@ -19,7 +19,7 @@
   one-element seqs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -37,7 +37,7 @@
   (require 're-frame.machines :reload)
   (try (test-fn)
        (finally
-         (subs/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -45,7 +45,7 @@
 
 (deftest layer-1-memo-skips-recompute-on-equal-db
   (testing "two consecutive derefs against the same db value run the body once"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed (fn [_ _] {:n 7}))
       (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
@@ -63,7 +63,7 @@
 
 (deftest layer-1-memo-recomputes-on-changed-db
   (testing "deref after an app-db change runs the body again"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
       (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
@@ -82,7 +82,7 @@
 (deftest layer-1-memo-value-equal-but-not-identical-skips
   (testing "two `=`-but-not-`identical?` db values still short-circuit
             — the contract is value equality, not identity"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       ;; Two events that produce structurally-equal but non-identical maps.
       ;; `(assoc db :touched true)` would change the value; instead replace
@@ -103,7 +103,7 @@
 (deftest layer-1-body-receives-db-and-query-v
   (testing "the body fn still receives the canonical (db, query-v) shape
             under the specialised wrapper — no shape regression"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (let [captured (atom nil)]
       (rf/reg-event-db :seed (fn [_ _] {:n 99}))
       (rf/reg-sub :n (fn [db query-v]
@@ -120,7 +120,7 @@
   (testing "nil and false db values are not confused with the ::unset
             sentinel — the body runs once for each, memo skips on
             repeat"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (let [runs (atom 0)]
       (rf/reg-event-db :seed-nil   (fn [_ _] nil))
       (rf/reg-event-db :seed-false (fn [_ _] false))
@@ -152,7 +152,7 @@
 (deftest layer-1-and-layer-2-produce-the-same-stream-of-values
   (testing "a layer-1 sub and a layer-2 sub chained off it produce the
             same stream of values across N db updates"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
     (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
     (rf/reg-sub :n        (fn [db _] (:n db)))

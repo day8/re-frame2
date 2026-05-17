@@ -20,7 +20,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.trace :as trace]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -36,7 +36,7 @@
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites.
          (rf/configure :trace-buffer {:depth 200})
-         (subs/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -49,7 +49,7 @@
         ":trace-buffer {:depth 7} caps retained events at 7"))
   (testing ":sub-cache is wired"
     (rf/configure :sub-cache {:grace-period-ms 123})
-    (is (= 123 (:grace-period-ms (subs/current-config)))
+    (is (= 123 (:grace-period-ms (subs-cache/current-config)))
         ":sub-cache {:grace-period-ms N} reaches the subs config")))
 
 (deftest configure-unknown-key-is-silent-no-op
@@ -76,5 +76,5 @@
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer)) 11)
         ":trace-buffer depth survived bracketing unknown-key calls")
-    (is (= 71 (:grace-period-ms (subs/current-config)))
+    (is (= 71 (:grace-period-ms (subs-cache/current-config)))
         ":sub-cache grace-period survived bracketing unknown-key calls")))

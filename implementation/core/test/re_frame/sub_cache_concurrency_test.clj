@@ -32,7 +32,7 @@
   race from the same gun."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -52,7 +52,7 @@
   (require 're-frame.machines :reload)
   (try (test-fn)
        (finally
-         (subs/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -179,8 +179,8 @@
                                 :on-dispose []
                                 :pending-dispose nil})))
 
-      ;; The fn is private — reach it via var resolution.
-      (let [dispose-fn @#'subs/dispose-entry-now!]
+      ;; The fn lives in re-frame.subs.cache (post rf2-0ytl4 seam S-A).
+      (let [dispose-fn subs-cache/dispose-entry-now!]
         (with-redefs [interop/dispose!
                       (fn [r]
                         (swap! dispose-calls update r (fnil inc 0))
@@ -228,7 +228,7 @@
 ;; assert it under CAS contention rather than serialised calls.
 (deftest unsubscribe-drop-to-zero-no-spurious-fire-under-contention
   (testing "concurrent unsubscribe calls dispose exactly once per slot under contention"
-    (subs/configure! {:grace-period-ms 0})  ;; sync dispose so we can observe
+    (subs-cache/configure! {:grace-period-ms 0})  ;; sync dispose so we can observe
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])

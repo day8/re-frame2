@@ -31,9 +31,9 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.performance :as performance
-             #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
+            [re-frame.subs.cache :as subs-cache]
+            [re-frame.subs.memo :as subs-memo]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]
             ;; JVM autoload (rf2-bmzq0): the tooling sibling has zero
@@ -165,242 +165,22 @@
   [query-v]
   query-v)
 
-;; ---- grace-period configuration -------------------------------------------
-;;
-;; Per Spec 006 §Reference counting and disposal. When the last subscriber
-;; detaches, we don't dispose immediately — we wait grace-period-ms in case
-;; a new subscriber arrives (e.g. across a React re-render). The default
-;; is short enough not to leak under genuine disposal but long enough to
-;; bridge typical React render churn. Tests that want to assert on disposal
-;; configure a short or zero value via configure!.
-
-(def ^:private default-grace-period-ms
-  ;; Long enough to bridge typical React render churn; short enough not
-  ;; to leak under genuine disposal.
-  50)
-
-(defonce ^:private config
-  ;; Map shape so future :sub-cache configure-keys land additively.
-  (atom {:grace-period-ms default-grace-period-ms}))
-
-(defn configure!
-  "Update the sub-cache configuration. Currently supports
-  `{:grace-period-ms N}` — a non-negative integer (or 0 to dispose
-  synchronously when ref-count drops to zero). Per Spec 006."
-  [opts]
-  (when (map? opts)
-    (swap! config merge (select-keys opts [:grace-period-ms])))
-  nil)
-
-(defn current-config
-  "Return the current sub-cache configuration map. Public for tests
-  and tools that want to display the current grace-period."
-  []
-  @config)
-
-(defn- grace-period-ms
-  []
-  (or (:grace-period-ms @config) 0))
+;; Grace-period configuration, ref-counting + scheduling, hot-reload
+;; invalidation, and `clear-sub-cache!` live in `re-frame.subs.cache` —
+;; extracted per rf2-0ytl4 Phase-2 seam S-A (fold-in of seam S-E). The
+;; public surface (`configure!`, `current-config`, `clear-sub-cache!`)
+;; is reached through `re-frame.core`'s defaliases pointing at
+;; `re-frame.subs.cache/*` directly (no facade re-export).
 
 (declare subscribe unsubscribe)
 
-(defn- maybe-validate-sub-return!
-  "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
-  recomputes, validate its return value against any :spec on the sub
-  meta. On failure, emit :rf.error/schema-validation-failure and
-  return nil per :replaced-with-default recovery; otherwise return
-  the value unchanged.
-
-  Looked up lazily through the late-bind registry so this namespace
-  stays free of a hard re-frame.schemas dep (avoids load-order
-  surprises)."
-  [value query-v sub-id sub-meta]
-  (if (and sub-meta (:spec sub-meta))
-    ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
-    (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub-return!)]
-      (if (try (validate sub-id query-v value sub-meta)
-               (catch #?(:clj Throwable :cljs :default) _ true))
-        value
-        nil)
-      value)
-    value))
-
-(defn- validate-and-trace
-  "Run the user's sub body fn once and project the result through the
-  trace + performance + validate + error-recovery layer. Called by the
-  memo wrapper (`make-layer-1-memoised-body` for layer-1 subs,
-  `make-layer-n-memoised-body` for layer-2+) on a true recompute —
-  the memo path skips this entire function when input is `=` to
-  last-seen.
-
-  Concerns folded in here, in order:
-
-  1. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
-     The memo-hit path does NOT emit (per Spec 006 §No-op via value
-     equality).
-  2. Spec 009 §Performance instrumentation (rf2-du3i) — bracket the
-     body call in performance marks so prod builds with the perf flag
-     enabled produce a `rf:sub:<sub-id>` measure entry. Default-off;
-     under `:advanced` + `re-frame.performance/enabled?=false` the
-     bracket DCEs.
-  3. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
-     return value against the sub's `:spec` meta. Failures emit
-     :rf.error/schema-validation-failure and yield nil (recovery
-     :replaced-with-default).
-  4. Spec 009 §Error contract — `try/catch` around (1)+(2)+(3). On
-     exception emit :rf.error/sub-exception and yield nil (recovery
-     :replaced-with-default)."
-  [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
-  ;; Publish the sub's HandlerScope for the duration of `:sub/run` emit
-  ;; + body-fn invocation + validation. Per Spec 009 §:rf.trace/
-  ;; trigger-handler the sub's source-coord rides every emit (`:sub/run`
-  ;; success, `:rf.error/sub-exception` / schema-validation / transitive
-  ;; sub-miss errors). The emit MUST sit inside the scope.
-  (trace/with-handler-scope
-    (trace/handler-scope-from-meta :sub query-id sub-meta)
-    (trace/emit! :sub/run :sub/run
-                 {:sub-id  query-id
-                  :query-v query-v
-                  :frame   frame-id})
-    (try
-      (let [computed (performance/mark-and-measure :sub query-id
-                      (if (empty? input-signals)
-                        (body-fn (first in-vals) query-v)
-                        ;; Layer-2+: deliver inputs as a coll if many,
-                        ;; or singleton when only one chain entry.
-                        (if (= 1 (count input-signals))
-                          (body-fn (first in-vals) query-v)
-                          (body-fn (vec in-vals) query-v))))]
-        (maybe-validate-sub-return! computed query-v query-id sub-meta))
-      (catch #?(:clj Throwable :cljs :default) e
-        (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
-          (trace/emit-error!
-            :rf.error/sub-exception
-            {:failing-id        query-id
-             :sub-id            query-id
-             :sub-query         query-v
-             :exception         e
-             :exception-message msg
-             :reason            (str "Subscription `" query-id
-                                     "` threw while computing: "
-                                     msg ". Returning nil.")
-             :recovery          :replaced-with-default}))
-        nil))))
-
-;; ---- memoisation wrappers ------------------------------------------------
-;;
-;; Per Spec 006 §No-op via value equality (rf2-719e). Reagent's auto-run
-;; reaction unconditionally invokes the compute fn on any source-watch
-;; fire, then dedups *downstream notification* by `=`. That's one level
-;; too late for the spec — the body fn itself must NOT re-run when the
-;; resolved input value is `=` to the last-seen. The memo wrappers
-;; compare the inputs against the previous invocation and short-circuit
-;; to the memoised return value when equal. Reagent's dependency
-;; tracking still observes every `deref` because the wrapper *is* the
-;; compute fn — only the user's body (and the trace+validate+perf+
-;; recovery layer that brackets it) is suppressed.
-;;
-;; The layer-1 path is specialised to a fixed-arity-1 wrapper that
-;; compares the db value directly. This skips the varargs-seq allocation
-;; a `(fn [& in-vals])` form would force on every recompute, and
-;; replaces the seq-vs-seq `=` walk with a direct value compare. Every
-;; layer-1 sub × every dispatch that touches it pays this — the hottest
-;; allocation in the artefact.
-;;
-;; Layer-2 with a single `:<-` input gets the same fixed-arity-1
-;; treatment (rf2-0y2bp). The adapter's `make-derived-value` already
-;; specialises its recompute closure to `(compute-fn @s0)` for the
-;; 1-source case (rf2-v1nu0) — but the layer-N memo wrapper was
-;; varargs (`(fn [& in-vals])`), which forces a one-element ArraySeq
-;; allocation on every recompute. The dominant layer-2 shape is
-;; 1-input, so we mirror the layer-1 specialisation here: fixed-arity-1
-;; wrapper, direct scalar compare against the last-seen input value.
-;; The ≥2-input path keeps the original varargs shape.
-
-(defn- make-layer-1-memoised-body
-  "Specialised memo wrapper for layer-1 subs (which read app-db
-  directly). Fixed-arity-1 — avoids the varargs-seq allocation that a
-  `(fn [& in-vals])` form would force on every reaction recompute, and
-  compares the db value to the last-seen scalar (no seq-vs-seq walk).
-
-  Returns a `(fn [db])`. When `body-fn` is nil (the unknown-sub path
-  — see `compute-and-cache!`) the wrapper yields nil on every call
-  without touching the memo cells.
-
-  The `::unset` sentinel guarantees the first invocation always
-  recomputes (the sentinel is never `=` to any db value)."
-  [body-fn query-id query-v frame-id sub-meta]
-  (let [last-db     (volatile! ::unset)
-        last-result (volatile! nil)]
-    (fn [db]
-      (when body-fn
-        (if (= @last-db db)
-          @last-result
-          (let [computed (validate-and-trace
-                           body-fn (list db) query-id query-v
-                           frame-id [] sub-meta)]
-            (vreset! last-db db)
-            (vreset! last-result computed)
-            computed))))))
-
-(defn- make-layer-n-1-memoised-body
-  "Specialised memo wrapper for layer-2 subs with a single `:<-` input
-  (the dominant layer-2 shape — see rf2-v1nu0 perf-sweep finding).
-  Fixed-arity-1 — avoids the varargs-seq allocation that a
-  `(fn [& in-vals])` form would force on every reaction recompute, and
-  compares the upstream value to the last-seen scalar (no seq-vs-seq
-  walk). Parity with `make-layer-1-memoised-body`.
-
-  Returns a `(fn [v0])`. When `body-fn` is nil (the unknown-sub path
-  — see `compute-and-cache!`) the wrapper yields nil on every call
-  without touching the memo cells.
-
-  The `::unset` sentinel guarantees the first invocation always
-  recomputes (the sentinel is never `=` to any input value).
-
-  `validate-and-trace` receives `in-vals` as a singleton list — the
-  same shape the varargs wrapper would have produced for arity-1 —
-  preserving the `(body-fn (first in-vals) query-v)` invocation path
-  inside the validate/trace bracket (rf2-0y2bp)."
-  [body-fn query-id query-v frame-id input-signals sub-meta]
-  (let [last-v0     (volatile! ::unset)
-        last-result (volatile! nil)]
-    (fn [v0]
-      (when body-fn
-        (if (= @last-v0 v0)
-          @last-result
-          (let [computed (validate-and-trace
-                           body-fn (list v0) query-id query-v
-                           frame-id input-signals sub-meta)]
-            (vreset! last-v0 v0)
-            (vreset! last-result computed)
-            computed))))))
-
-(defn- make-layer-n-memoised-body
-  "Memo wrapper for layer-2+ subs with two or more `:<-` inputs.
-  Varargs — the input arity matches the count of `:<-` entries on the
-  registration, and the wrapper compares the seq of input values
-  against the last-seen seq.
-
-  Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
-  yields nil on every call without touching the memo cells.
-
-  See `make-layer-1-memoised-body` for the layer-1 specialisation and
-  `make-layer-n-1-memoised-body` for the layer-2 single-input
-  specialisation (rf2-0y2bp)."
-  [body-fn query-id query-v frame-id input-signals sub-meta]
-  (let [last-in-vals (volatile! ::unset)
-        last-result  (volatile! nil)]
-    (fn [& in-vals]
-      (when body-fn
-        (if (= @last-in-vals in-vals)
-          @last-result
-          (let [computed (validate-and-trace
-                           body-fn in-vals query-id query-v
-                           frame-id input-signals sub-meta)]
-            (vreset! last-in-vals in-vals)
-            (vreset! last-result computed)
-            computed))))))
+;; The memo wrappers (`make-layer-1-memoised-body`,
+;; `make-layer-n-1-memoised-body`, `make-layer-n-memoised-body`) and
+;; the trace/perf/validate/recover bracket (`validate-and-trace`,
+;; `maybe-validate-sub-return!`) live in `re-frame.subs.memo` — extracted
+;; per rf2-0ytl4 Phase-2 seam S-B. Per-recompute hot path is the closure
+;; body (in-process); only the per-miss constructor call from
+;; `compute-and-cache!` below crosses the ns boundary.
 
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
@@ -444,16 +224,16 @@
                         (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
         memoised-body (cond
                         layer-1?
-                        (make-layer-1-memoised-body
+                        (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
                         ;; Layer-2 with a single `:<-` input — dominant
                         ;; shape per rf2-v1nu0; specialise to fixed-arity-1
                         ;; for parity with layer-1 (rf2-0y2bp).
                         (= 1 (count input-signals))
-                        (make-layer-n-1-memoised-body
+                        (subs-memo/make-layer-n-1-memoised-body
                           body-fn query-id query-v frame-id input-signals sub-meta)
                         :else
-                        (make-layer-n-memoised-body
+                        (subs-memo/make-layer-n-memoised-body
                           body-fn query-id query-v frame-id input-signals sub-meta))
         reaction      (adapter/make-derived-value inputs memoised-body)
         cache         (:sub-cache (frame/frame frame-id))
@@ -642,40 +422,9 @@
 
                     :else
                     (body-fn (mapv #(compute-sub % db) inputs) query-v))]
-            (maybe-validate-sub-return! v query-v query-id meta))
+            (subs-memo/maybe-validate-sub-return! v query-v query-id meta))
           (catch #?(:clj Throwable :cljs :default) _
             nil))))))
-
-(defn- dispose-entry-now!
-  "Synchronous disposal: remove the cache slot for k iff its ref-count
-  is still <= 0 (no resubscribe arrived) and dispose the reaction.
-  Idempotent — a second call is a no-op because the slot is gone.
-
-  The swap-fn body is pure — it returns the new cache map and nothing
-  else; the reaction to dispose is read from the PRE-swap snapshot
-  returned by `swap-vals!` and acted on AFTER the CAS commits. `swap!`
-  is allowed to retry on contention on the JVM, so any side-effect
-  (`interop/dispose!`) inside the swap-fn could fire 2+ times under
-  concurrent invalidate + grace-fire."
-  [cache k]
-  (let [[old new] (swap-vals! cache
-                              (fn [m]
-                                (if-let [entry (get m k)]
-                                  (if (<= (or (:ref-count entry) 0) 0)
-                                    (dissoc m k)
-                                    ;; Resubscribe arrived between schedule
-                                    ;; and fire — keep entry.
-                                    m)
-                                  m)))]
-    ;; The slot was evicted by THIS call iff it was present in `old` and
-    ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
-    ;; replace! or clear-sub-cache!) that won the CAS race would
-    ;; have left the slot absent in `old` too, so we don't double-dispose.
-    (when (and (contains? old k) (not (contains? new k)))
-      (when-let [r (get-in old [k :reaction])]
-        (try (interop/dispose! r)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
-    nil))
 
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
@@ -699,155 +448,19 @@
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
-  to release the cache slot."
+  to release the cache slot.
+
+  Per rf2-0ytl4 seam S-A: ref-counting, grace scheduling, and dispose
+  live in `re-frame.subs.cache`; this facade fn holds the public API
+  shape and delegates to `subs-cache/unsubscribe!` after resolving the
+  cache + key."
   ([query-v]
    (unsubscribe (frame/resolve-current-frame) query-v nil))
   ([frame-id query-v]
    (unsubscribe frame-id query-v nil))
   ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (let [k     (cache-key query-v)
-           ;; An explicit `:grace` in opts overrides the per-runtime
-           ;; configured grace-period. `contains?` (not `(:grace opts)`)
-           ;; so `{:grace 0}` is honoured.
-           grace (if (and (map? opts) (contains? opts :grace))
-                   (:grace opts)
-                   (grace-period-ms))
-           ;; The swap-fn body is pure — it returns only the new cache
-           ;; map. The drop-to-zero signal is read from the diff between
-           ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
-           ;; to retry on JVM contention, so a side-effecting
-           ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
-           ;; could fire on a discarded retry whose CAS lost — leading
-           ;; to a spurious dispose schedule.
-           [old new] (swap-vals! cache
-                                 (fn [m]
-                                   (if-let [entry (get m k)]
-                                     (let [old-n (or (:ref-count entry) 1)
-                                           n     (max 0 (dec old-n))]
-                                       ;; Only trigger drop-to-zero on the 1→0
-                                       ;; transition AND only when no grace-period
-                                       ;; timer is already in flight. Calling
-                                       ;; `unsubscribe` past zero (idempotent
-                                       ;; misuse — e.g. cleanup in both a
-                                       ;; teardown hook and a `finally`) must not
-                                       ;; stack new `pending-dispose` timers on
-                                       ;; top of the prior handle.
-                                       (if (and (= 1 old-n)
-                                                (zero? n)
-                                                (nil? (:pending-dispose entry)))
-                                         (assoc m k (assoc entry :ref-count 0))
-                                         (assoc-in m [k :ref-count] n)))
-                                     m)))
-           ;; This swap drove the 1→0 transition (under no pending-dispose)
-           ;; iff the entry was present in both old and new AND old's
-           ;; ref-count was 1 AND new's ref-count is 0 AND old had no
-           ;; pending-dispose timer. Reading from the snapshots avoids
-           ;; the side-effect-in-swap-fn race.
-           dropped-to-zero? (and (contains? new k)
-                                 (= 1 (or (get-in old [k :ref-count]) 1))
-                                 (zero? (or (get-in new [k :ref-count]) 0))
-                                 (nil? (get-in old [k :pending-dispose])))]
-       (when dropped-to-zero?
-         (if (zero? grace)
-           ;; Grace = 0: dispose synchronously (the test/explicit-tear-down path).
-           (dispose-entry-now! cache k)
-           ;; Grace > 0: schedule deferred disposal. Stash the timer handle
-           ;; so a re-subscribe inside the window can cancel it.
-           (let [handle (interop/set-timeout!
-                          (fn []
-                            (dispose-entry-now! cache k))
-                          grace)
-                 ;; Pure swap-fn: return the new map and a flag indicating
-                 ;; whether the handle was actually stashed. The clear-
-                 ;; timeout! side-effect runs AFTER the CAS commits so
-                 ;; a discarded retry can't double-clear a live timer.
-                 [_ new2] (swap-vals! cache
-                                      (fn [m]
-                                        (if-let [entry (get m k)]
-                                          (if (<= (or (:ref-count entry) 0) 0)
-                                            (assoc m k (assoc entry :pending-dispose handle))
-                                            ;; Subscriber arrived between our swap!
-                                            ;; above and set-timeout! returning —
-                                            ;; do NOT stash; we'll cancel post-swap.
-                                            m)
-                                          m)))]
-             ;; If the handle did NOT land on the entry, cancel it once,
-             ;; outside the swap. Reading from the post-swap snapshot
-             ;; (`new2`) means we make this decision exactly once.
-             (when-not (identical? handle (get-in new2 [k :pending-dispose]))
-               (try (interop/clear-timeout! handle)
-                    (catch #?(:clj Throwable :cljs :default) _ nil))))))
-       nil))))
-
-;; ---- hot-reload invalidation ---------------------------------------------
-;;
-;; Per Spec 001 §Hot-reload semantics: when a :sub re-registers, every
-;; cached reaction whose query-id is that sub MUST be disposed and
-;; evicted across every frame's cache. Cached reactions hold the OLD
-;; body via closure; without explicit invalidation, they'd silently
-;; serve stale values.
-
-(defn- invalidate-sub-on-replace!
-  [{:keys [kind id]}]
-  (when (= kind :sub)
-    (doseq [frame-id (frame/frame-ids)]
-      (when-let [cache (:sub-cache (frame/frame frame-id))]
-        ;; The swap-fn body is pure — it returns only the new cache map.
-        ;; Reactions to dispose and timers to cancel are read from the
-        ;; diff between `old` and `new` AFTER the CAS commits (so a
-        ;; retried `swap!` can't fire dispose 2+ times).
-        (let [[old new] (swap-vals! cache
-                                    (fn [m]
-                                      (let [hit-keys (->> (keys m)
-                                                          (filter #(= id (first %))))]
-                                        (apply dissoc m hit-keys))))
-              ;; The keys actually evicted by THIS swap are those present
-              ;; in `old` but absent in `new`. A concurrent evictor that
-              ;; won the CAS race would have removed its keys before our
-              ;; swap saw them, so the diff names ONLY the keys we own.
-              evicted-keys (filterv #(not (contains? new %))
-                                    (keys old))]
-          ;; Cancel any pending grace-period timers for the evicted slots —
-          ;; the reaction is being disposed now, so the deferred path
-          ;; would fire against a stale closure.
-          (doseq [k evicted-keys]
-            (when-let [h (get-in old [k :pending-dispose])]
-              (try (interop/clear-timeout! h)
-                   (catch #?(:clj Throwable :cljs :default) _ nil))))
-          (doseq [k evicted-keys]
-            (when-let [r (get-in old [k :reaction])]
-              (try (interop/dispose! r)
-                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
-
-(defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
-      :installed))
-
-(defn clear-sub-cache!
-  "Dispose every cached entry in a frame's runtime sub-cache and clear
-  the cache. Cancels any pending grace-period timers before disposing —
-  a deferred disposal landing after this fn returned would close over
-  a stale reaction.
-
-  Test fixtures and REPL-driven reloads call this between scenarios
-  to ensure the cache is empty before re-subscribing. Test code
-  generally prefers `reset-runtime-fixture` (per `test_support`) which
-  bundles cache-clearing with registrar / frame state reset.
-
-  Zero-arity targets `:rf/default`; one-arity targets the named frame.
-  Returns nil. See also: `clear-sub` (registrar-side counterpart)."
-  ([] (clear-sub-cache! :rf/default))
-  ([frame-id]
-   (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (doseq [[_k entry] @cache]
-       (when-let [h (:pending-dispose entry)]
-         (try (interop/clear-timeout! h)
-              (catch #?(:clj Throwable :cljs :default) _ nil)))
-       (when-let [r (:reaction entry)]
-         (try (interop/dispose! r)
-              (catch #?(:clj Throwable :cljs :default) _ nil))))
-     (reset! cache {}))))
+     (subs-cache/unsubscribe! cache (cache-key query-v) opts))))
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;
