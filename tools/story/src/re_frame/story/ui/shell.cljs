@@ -43,6 +43,7 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
             [re-frame.story.identity :as identity]
+            [re-frame.story.play.runner-events :as play-runner-events]
             [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.runtime :as runtime]
@@ -56,6 +57,7 @@
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
+            [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
@@ -388,7 +390,16 @@
                      ;; (auto-open shell, focus tab, configure filters,
                      ;; focus a cascade position). Feature-detect-safe;
                      ;; no-op when Causa is not on the classpath.
-                     (causa-preset/on-variant-selected! now))
+                     (causa-preset/on-variant-selected! now)
+                     ;; rf2-8i2a9: auto-run the variant's `:play-script`
+                     ;; if `:auto-run?` is true. Best-effort — yields one
+                     ;; tick via setTimeout so React commits the canvas
+                     ;; before the script's first dispatch lands; that
+                     ;; way `[:assert-dom selector :visible]` sees the
+                     ;; mounted DOM. Variants without `:play-script` no-op.
+                     (js/setTimeout
+                       (fn [] (play-runner-events/auto-run! now))
+                       0))
                    (reset! selection-prev now))))))
 
 (defn- remove-selection-watcher! []
@@ -507,6 +518,12 @@
      ;; conflates two unrelated UX axes).
      (when (and variant-id (not ws-id))
        [mode-tabs/mode-tabs-strip variant-id])
+     ;; rf2-8i2a9: play-script failure banner. Lives ABOVE the canvas
+     ;; so a failed run is the first thing the user sees. Self-elides
+     ;; when the run is not in `:fail`. Click-to-highlight points the
+     ;; user at the failing DOM selector.
+     (when (and variant-id (not ws-id))
+       [play-status/banner-when-enabled variant-id])
      (cond
        ws-id    [workspace/workspace-view ws-id]
        variant-id (case mode-tab
@@ -561,7 +578,14 @@
          (save-variant-ui/install!)
          (rails/hydrate!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
-           (ensure-listeners-for-variant! vid))))
+           (ensure-listeners-for-variant! vid)
+           ;; rf2-8i2a9: mount-time auto-run for an already-selected
+           ;; variant (deep-link / persisted selection). Yields a tick
+           ;; so the canvas has committed before the script's first
+           ;; DOM-sensitive step runs.
+           (js/setTimeout
+             (fn [] (play-runner-events/auto-run! vid))
+             0))))
      :component-will-unmount
      (fn [_]
        (stop-hot-reload-poll!)

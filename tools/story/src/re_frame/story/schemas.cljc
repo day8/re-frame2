@@ -302,6 +302,55 @@
 
 ;; ---- :rf/variant ----------------------------------------------------------
 
+;; ---- :play-script step DSL (rf2-8i2a9) -----------------------------------
+
+(def PlayStep
+  "A single step in a rich `:play-script` body. Recognised tags:
+
+  - `[:dispatch event-vec]`              — async dispatch into the frame
+  - `[:dispatch-sync event-vec]`         — synchronous dispatch
+  - `[:wait ms]`                         — sleep N ms
+  - `[:assert-db path value]`            — equality assertion
+  - `[:assert-db path :pred fn-sym]`     — predicate assertion
+  - `[:assert-dom selector :visible]`    — DOM presence assertion
+  - `[:assert-dom selector :hidden]`     — DOM hidden assertion
+  - `[:assert-dom selector :text txt]`   — DOM text-content assertion
+  - `[:click selector]`                  — synthetic click
+  - `[:type selector text]`              — synthetic input
+
+  Plain event vectors are ALSO accepted at the script level — the
+  runner lifts them to `[:dispatch <event-vec>]` so legacy `:play`
+  authoring still works inside the new shape.
+
+  Schema is left loose here (`[:vector :any]` + first-element keyword)
+  so authors get clear runner error messages rather than schema
+  rejections on a typo. The runner's `step-arity-ok?` performs deeper
+  shape checks at run time and surfaces an `:unknown-step` result."
+  [:and
+   [:vector :any]
+   [:fn {:error/message "play step must be a vector starting with a keyword"}
+    (fn [v]
+      (and (vector? v)
+           (pos? (count v))
+           (keyword? (first v))))]])
+
+(def PlayScript
+  "A `:script` vector — sequence of `PlayStep`s."
+  [:vector PlayStep])
+
+(def PlaySpec
+  "The full body shape of `:play-script`. Two forms:
+
+  - Bare vector — sugar for `{:script <vector> :auto-run? true}`.
+  - Map         — `{:script :auto-run? :name}` with all keys optional
+                  bar `:script`."
+  [:or
+   PlayScript
+   [:map
+    [:script    PlayScript]
+    [:auto-run? {:optional true} :boolean]
+    [:name      {:optional true} :string]]])
+
 (def Variant
   "Schema for the body of `reg-variant`.
 
@@ -317,6 +366,12 @@
    [:extends               {:optional true} :keyword]
    [:events                {:optional true} [:vector EventVector]]
    [:play                  {:optional true} [:vector EventVector]]
+   ;; rf2-8i2a9 — the rich Storybook-style play script. Coexists with
+   ;; `:play` (the existing phase-4 plain-event-vector sequence).
+   ;; `:play-script` is interpreted post-mount by the play runner; each
+   ;; step is a tagged vector (`[:dispatch ...]`, `[:wait ms]`,
+   ;; `[:assert-db path value]`, etc.). See `PlaySpec`.
+   [:play-script           {:optional true} PlaySpec]
    [:args                  {:optional true} ArgMap]
    [:argtypes              {:optional true} ArgtypesMap]
    [:tags                  {:optional true} TagSet]
