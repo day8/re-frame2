@@ -41,6 +41,7 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:examples` | Browser smoke across the runnable examples. |
 | `npm run test:examples:realworld` | Narrow RealWorld (Conduit / Spec 014) smoke only (rf2-h9ut9). The full sweep above is rigorous local / nightly / release; this changed-surface gate compiles and smokes one example end-to-end for cross-artefact runtime changes. Accepts `--filter <substring>` (or `EXAMPLES_FILTER=<substring>`) for ad-hoc narrowing against any single example or testbed. |
 | `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). Occasional / pre-commit until proven stable — not yet default CI. |
+| `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. Runs in the `story-causa-browser` GH job alongside `test:story-feature-load`. |
 | `npm run test:causa-feature-gate` | Causa browser feature/load gate from `tools/causa/spec/017-Test-Coverage-Matrix.md`. Occasional; not default CI. |
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
 | `npm run story:build` | Build the Story static artefact. |

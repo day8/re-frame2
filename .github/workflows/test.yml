@@ -1104,6 +1104,15 @@ jobs:
       - name: Run Story feature-load browser gate
         run: npm run test:story-feature-load
 
+      # rf2-3qcxk — every Story variant whose body carries a
+      # `:play-script` slot doubles as an automated regression test.
+      # The runner discovers them via `re-frame.story.play.ci-runner`,
+      # drives each through the live shell, and reports a structured
+      # pass/fail row per variant. Lives in the same Story/Causa job
+      # because it shares the testbed bundle and Playwright stack.
+      - name: Run Story :play-script CI-as-test gate
+        run: npm run test:story-play-scripts
+
   cljs-reagent-slim-bundle-isolation:
     name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)
     needs: detect_changed_surfaces
