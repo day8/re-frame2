@@ -52,7 +52,7 @@ path's emit from `re-frame.http-transport/finalise-failure!`:
 For the seven canned-failure outcomes, the per-testbed
 `:http-toggle/canned-failure-with-trace` fx replays this emit before
 delegating to the framework's `:rf.http/managed-canned-failure` stub
-(see [rf2-3g16l](../../../.beads) — the framework stub bypasses
+(see [rf2-3g16l](../../.beads) — the framework stub bypasses
 `trace/emit-error!`, so the testbed wraps it to preserve the live
 path's contract). The successful `:success` outcome rides the live
 transport path and emits no error trace.
