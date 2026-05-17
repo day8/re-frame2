@@ -17,6 +17,10 @@ The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Causa** (`day8/re-fr
 
 ## The swap (dep + preload)
 
+### Prerequisites — apply BEFORE this swap
+
+**M-40 (`(rf/init!)` call) must already be applied.** Causa's preload auto-opens the panel into `[data-rf-causa-host]` *after* `rf/init!` runs (per `preload.cljs`); without an explicit init call the panel silently fails to mount — the host element is in the DOM, the preload loaded, no console error fires, and the panel never appears. This is the most confusing failure mode in the migration. If the codebase is mid-M-rule sweep and M-40 hasn't been applied yet, do M-40 first and verify a clean reload, then come back here.
+
 ### 1. Remove the v1-era dep + preload
 
 ```clojure
@@ -37,6 +41,8 @@ Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-1
 ```
 
 While re-frame2 is in alpha, use the `:local/root` route from a clone of the `day8/re-frame2` repo. Once Causa publishes to Clojars, the coord will be `day8/re-frame2-causa {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`). The skill prints the `:local/root` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
+
+`day8/re-frame2-causa` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Causa's epoch-aware panels (the time-travel scrubber, the causality graph) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-cb!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Causa.
 
 Causa is **dev-only by construction** — production builds elide every byte of it through the framework's `re-frame.interop/debug-enabled?` gate (`goog.DEBUG=false`). A CI gate at `implementation/scripts/check-bundle-isolation.cjs` greps production bundles for Causa-internal sentinels; any hit is a release blocker. See [`tools/causa/README.md` §Bundle isolation](../../../tools/causa/README.md#bundle-isolation).
 
@@ -104,6 +110,70 @@ Per `rf2-um813`, the recommended host CSS reads its `flex-basis` from a single C
 The default (`420px`) is the same one Causa ships in its config defaults. A 320px floor is built into the recommended CSS (`min-width: 320px`) so the panel never collapses below readable.
 
 The custom property is the **only** supported resize knob. Don't fork the `flex-basis` literal; readers (linters, tooling, story-mode chrome) look for the property name. See [`tools/causa/spec/API.md` §Resizing the inline host](../../../tools/causa/spec/API.md) for the full contract.
+
+### The resize *handle* is project-side
+
+Causa ships the custom property and the host contract; it does **not** ship a drag-handle widget. The pointer interaction that writes `--rf-causa-inline-width` (a vertical splitter between `[data-rf-causa-host]` and `#app`) is the app's responsibility — keep it in the project's own dev-only HTML/JS alongside the host element. This keeps the framework surface a single CSS knob and leaves UX decisions (handle thickness, hit-target padding, persistence, a11y semantics) to the app where they belong.
+
+### Containment — keep viewport-fixed children inside the column
+
+When the app's existing layout uses `position: fixed` overlays (modals, toasts, sticky headers), those children are positioned against the **viewport** by default — which means they escape Causa's column and float over the panel even though Causa is inline. The right fix is at the layout shell, **not** at Causa's host:
+
+```css
+.app-shell { display: flex; min-height: 100vh; }
+[data-rf-causa-host] { /* ...flex-basis as above... */ }
+
+#app {
+  flex: 1;
+  min-width: 0;
+  position: relative;   /* establish a containing block for fixed descendants */
+  isolation: isolate;   /* new stacking context — no z-index war with the panel */
+  overflow: hidden;     /* clip anything that still tries to escape */
+}
+```
+
+**Avoid the z-index escalation footgun.** A common (wrong) first reaction is to slap `z-index: 99999` on the Causa host. Don't — it papers over the symptom, leaves fixed children rendered viewport-wide (just under the panel), and gets copy-pasted by every other team that hits the same thing. The containment sub-rule above fixes the root cause: fixed children are scoped to `#app`'s box, the panel sits in its own column, and no z-index argument is needed.
+
+### Canonical resize-handle recipe (20 lines, project-side)
+
+A minimal IDE-splitter recipe the app can drop into its dev-only HTML. Pointer events (not mouse events) so pen + touch + stylus work; `setPointerCapture` so the drag survives the cursor leaving the handle; a transient full-viewport overlay during drag so the cursor stays consistent without the `* { cursor: ew-resize !important }` sledgehammer; localStorage persistence; ARIA semantics for screen readers.
+
+```html
+<div class="rf-causa-resize" role="separator" aria-orientation="vertical" tabindex="0"
+     aria-label="Resize Causa panel"></div>
+```
+
+```css
+.rf-causa-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
+  cursor: ew-resize; z-index: 1; touch-action: none; }
+.rf-causa-resize::after { content: ""; position: absolute; top: 0; left: 4px;
+  width: 1px; height: 100%; background: rgba(0,0,0,0.12); }
+.rf-causa-resize:hover::after, .rf-causa-resize:focus-visible::after { background: rgba(0,0,0,0.32); }
+.rf-causa-drag-overlay { position: fixed; inset: 0; cursor: ew-resize; z-index: 9999; }
+```
+
+```js
+const h = document.querySelector('.rf-causa-resize');
+const root = document.documentElement;
+const KEY = 'rf-causa-inline-width';
+const saved = localStorage.getItem(KEY); if (saved) root.style.setProperty('--rf-causa-inline-width', saved);
+h.addEventListener('pointerdown', e => {
+  h.setPointerCapture(e.pointerId);
+  const overlay = document.createElement('div'); overlay.className = 'rf-causa-drag-overlay';
+  document.body.appendChild(overlay);
+  const move = ev => {
+    const w = Math.max(320, Math.min(window.innerWidth - 240, ev.clientX));
+    root.style.setProperty('--rf-causa-inline-width', w + 'px');
+  };
+  const up = () => {
+    h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up);
+    overlay.remove(); localStorage.setItem(KEY, getComputedStyle(root).getPropertyValue('--rf-causa-inline-width').trim());
+  };
+  h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+});
+```
+
+Mount the `.rf-causa-resize` element as a positioned child of `[data-rf-causa-host]` (the host needs `position: relative` for the `right: -4px` overhang to land between the columns). The handle is a 9px-wide grab zone with a 1px hairline indicator centred inside — wide hit target, thin visual. Authors who want fancier UX (double-click to reset, keyboard arrow nudges, snap points) extend from this base; the recipe is a floor, not a ceiling.
 
 ---
 
