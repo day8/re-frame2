@@ -49,6 +49,7 @@
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -318,7 +319,17 @@
   ;; under the now-registered frame lifts the localStorage / seed
   ;; value into the slot. Idempotent — re-running with an unchanged
   ;; source produces the same slot.
-  (filters/hydrate!))
+  (filters/hydrate!)
+  ;; Auto-open-on-error watcher (rf2-9poxq) — install lazily here so
+  ;; the persisted-true case picks up as soon as the user opens
+  ;; Causa. The watcher subscribes to `:rf.causa/issues-ribbon`
+  ;; (which lives on `:rf/causa`'s app-db), so it CANNOT install
+  ;; until the frame exists. Install is idempotent + guards against
+  ;; the toggle being off — when the user has never enabled the
+  ;; setting (the default), this is a one-time no-op cost on first
+  ;; mount.
+  (when (config/get-setting :general :auto-open-on-error?)
+    (settings-effects/install-auto-open-watcher!)))
 
 (defn open!
   "Mount + show the default Causa shell in the app-provided true-inline

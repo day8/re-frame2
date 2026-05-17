@@ -182,6 +182,11 @@
    :rf.causa/selected-route-id
    :rf.causa/selected-tab
    :rf.causa/selected-violation-id
+   ;; rf2-9poxq — Settings popup subs.
+   :rf.causa/setting
+   :rf.causa/settings
+   :rf.causa/settings-active-tab
+   :rf.causa/settings-open?
    :rf.causa/show-me-when-this-changed-result
    ;; rf2-v869p Phase 2 — UC1 Sim sub-mode subs.
    :rf.causa/sim-active?
@@ -311,6 +316,12 @@
    :rf.causa/set-schema-timeline-window
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
+   ;; rf2-9poxq — Settings popup events.
+   :rf.causa/settings-close
+   :rf.causa/settings-open
+   :rf.causa/settings-select-tab
+   :rf.causa/settings-toggle
+   :rf.causa/settings-update
    ;; rf2-v869p Phase 2 — UC1 Sim sub-mode events.
    :rf.causa/sim-reset
    :rf.causa/sim-set-pending-data
@@ -412,7 +423,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 100 subs + 120 events + 6 fxs"
+  (testing "registry holds exactly 104 subs + 125 events + 6 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -438,14 +449,15 @@
     ;;   :rf.causa/edit-popup-draft
     ;; + 3 popover (rf2-dqnuu) − 1 deleted panel sub:
     ;;   :rf.causa/causality-popover-open? + -layout + -payload added;
-    ;;   :rf.causa/causality-graph-data deleted with the panel.
-    ;;   Net +2.
+    ;;   :rf.causa/causality-graph-data deleted with the panel. Net +2.
+    ;; + 4 settings (rf2-9poxq): settings-open? / settings-active-tab /
+    ;;   setting / settings
     ;; + 9 machine-inspector Mode C (rf2-juon8 Phase 3):
     ;;   :rf.causa/mode-c-cluster-by + mode-c-context-key +
     ;;   mode-c-expanded + mode-c-selection + machine-instances +
     ;;   machine-instances-override + mode-c-clusters +
     ;;   mode-c-compare-table + forced-machine-mode.
-    (is (= 100 (count all-sub-names)))
+    (is (= 104 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -478,13 +490,15 @@
     ;; + 5 popover (rf2-dqnuu):
     ;;   causality-popover-open / -close / -toggle / -toggle-layout /
     ;;   -layout-pulse. The popover replaces the dropped Causality
-    ;;   tab — see spec/018-Event-Spine.md §10. Net +5.
+    ;;   tab — see spec/018-Event-Spine.md §10.
+    ;; + 5 settings (rf2-9poxq): settings-open / settings-close /
+    ;;   settings-toggle / settings-select-tab / settings-update
     ;; + 7 machine-inspector Mode C (rf2-juon8 Phase 3):
     ;;   :rf.causa/set-mode-c-cluster-by + set-mode-c-context-key +
     ;;   toggle-mode-c-cluster-expanded + toggle-mode-c-selection +
     ;;   clear-mode-c-selection + set-forced-machine-mode +
     ;;   set-machine-instances-override-for-test.
-    (is (= 120 (count all-event-names)))
+    (is (= 125 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

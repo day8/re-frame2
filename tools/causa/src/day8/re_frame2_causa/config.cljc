@@ -27,7 +27,8 @@
   cover the round-trip without a CLJS runtime."
   (:require [re-frame.privacy :as privacy]
             [re-frame.source-coords.editor-uri :as editor-uri]
-            #?@(:cljs [[re-frame.core :as rf]
+            #?@(:cljs [[cljs.reader]
+                       [re-frame.core :as rf]
                        [re-frame.frame :as frame]])))
 
 ;; ---- editor preference ---------------------------------------------------
@@ -522,6 +523,219 @@
           (rf/dispatch [:rf.causa/reset-suppressed-counters frame-id]))))
    nil))
 
+;; ---- settings popup defaults + persistence (rf2-9poxq) ------------------
+;;
+;; The Settings popup modal (`settings/popup.cljs`) reads + writes a
+;; settings map carrying user preferences for general / theme /
+;; telemetry knobs. Defaults are catalogued here; the live values
+;; round-trip through localStorage under the key below so they survive
+;; reload (CLJS only — the JVM target reads/writes the in-memory atom).
+;;
+;; ## Why a single nested map
+;;
+;; One atom rather than one-atom-per-knob means the localStorage
+;; round-trip is a single `JSON.stringify` / `JSON.parse` of one EDN
+;; payload; serialisation drift between knobs is structurally
+;; impossible. The popup's `[section key]` addressing (event +
+;; subscription contract) folds onto `get-in` / `assoc-in` over the
+;; same shape.
+;;
+;; ## Locked decisions (rf2-9poxq R3)
+;;
+;; - telemetry default OFF (opt-in)
+;; - auto-open-on-error default OFF (the user is in their app, not
+;;   asking for Causa to interrupt them)
+;; - panel-position default `:right-rail` (matches the existing
+;;   `:layout/host-selector` inline-host posture)
+;; - theme default `:dark` (Causa is a dev tool — the canvas-and-
+;;   chrome palette in `theme/tokens.cljc` is the dark one)
+;; - text-size default 13 (matches `theme/tokens.cljc :type-scale
+;;   :body` — the popup's slider is the one knob that scales every
+;;   subsequent inline-style reads via the published CSS custom
+;;   property `--rf-causa-text-size`).
+
+(def settings-storage-key
+  "localStorage key the settings round-trip uses. Versioned so a future
+  schema change can ignore stale payloads without colliding with the
+  old shape."
+  "re-frame2.causa.settings.v1")
+
+(def default-settings
+  "Default settings map — the shape `configure! :settings` / the
+  `settings/popup` modal / the `:rf.causa/setting` sub all read
+  against. See the comment block above for the rationale on each
+  default."
+  {:general   {:text-size           13              ; px — slider range 10–18
+               :panel-position      :right-rail     ; :right-rail | :popout | :fullscreen
+               :auto-open-on-error? false}
+   :theme     :dark                                  ; :dark | :light
+   :telemetry {:opt-in? false}})
+
+(defonce
+  ^{:doc "Atom holding the live settings map. Seeded with
+         `default-settings`; loaded from localStorage at init time
+         (CLJS only) by `load-settings-from-storage!`. Reads via
+         `get-settings` / `get-setting`; writes via
+         `update-setting!` (the popup's events surface)."}
+  settings
+  (atom default-settings))
+
+(defn get-settings
+  "Return the current full settings map. Mostly useful for tests +
+  for the bulk persistence write. UI consumers read individual slots
+  via `get-setting`."
+  []
+  @settings)
+
+(defn get-setting
+  "Return one setting slot — `(get-setting :general :text-size)` →
+  `13`. Reads from the in-memory atom; never throws on a missing
+  slot (returns nil). The `:theme` slot is flat at the top level,
+  not nested under a key — `(get-setting :theme nil)` returns the
+  current theme keyword."
+  [section key]
+  (if (and (= section :theme) (nil? key))
+    (:theme @settings)
+    (get-in @settings [section key])))
+
+(defn- valid-section-key?
+  "Reject writes whose `[section key]` is not part of `default-
+  settings` — the modal's event surface only emits known paths, so an
+  unknown path is a programmer mistake the test corpus should catch."
+  [section key]
+  (let [base (get default-settings section)]
+    (cond
+      (and (map? base) (contains? base key)) true
+      ;; `:theme` is the only non-map top-level slot. The popup's
+      ;; event sends `[:theme nil <new-theme>]` for that case so
+      ;; both arities address the same updater.
+      (and (= section :theme) (nil? key))    true
+      :else                                  false)))
+
+;; ---- storage shim -------------------------------------------------------
+;;
+;; CLJS production reads/writes `window.localStorage`. Node test runtimes
+;; have no window.localStorage; rather than skip the round-trip tests
+;; there we degrade to an in-process atom that mimics the same get/set
+;; surface. Production calls hit localStorage as expected (because the
+;; localStorage branch wins when it's present); Node tests exercise
+;; the same atom-write code paths the production payload roundtrips
+;; through.
+
+#?(:cljs
+   (defonce ^:private memory-storage
+     ;; Test-runtime fallback. Always created; only consulted when
+     ;; `window.localStorage` is unreachable.
+     (atom {})))
+
+#?(:cljs
+   (defn- localStorage-available?
+     "True when the host runtime exposes a usable `window.localStorage`.
+     False under Node test runtimes, in browsers with storage disabled,
+     or in cross-origin documents that refuse access."
+     []
+     (try
+       (and (exists? js/window)
+            (boolean (.-localStorage js/window)))
+       (catch :default _ false))))
+
+#?(:cljs
+   (defn- storage-set! [k v]
+     (if (localStorage-available?)
+       (try
+         (.setItem (.-localStorage js/window) k v)
+         (catch :default _ (swap! memory-storage assoc k v)))
+       (swap! memory-storage assoc k v))))
+
+#?(:cljs
+   (defn- storage-get [k]
+     (if (localStorage-available?)
+       (try
+         (.getItem (.-localStorage js/window) k)
+         (catch :default _ (get @memory-storage k)))
+       (get @memory-storage k))))
+
+#?(:cljs
+   (defn- storage-remove! [k]
+     (if (localStorage-available?)
+       (try
+         (.removeItem (.-localStorage js/window) k)
+         (catch :default _ (swap! memory-storage dissoc k)))
+       (swap! memory-storage dissoc k))))
+
+#?(:cljs
+   (defn- write-storage!
+     "Round-trip the current settings map into the storage shim. Wraps
+     access in a try/catch — quota errors, private-mode refusals, etc.
+     degrade silently (the setting still applies in memory; reload will
+     reset to defaults). Stored as pr-str so re-frame keywords round-
+     trip without bespoke encoding."
+     []
+     (try
+       (storage-set! settings-storage-key (pr-str @settings))
+       (catch :default _ nil))))
+
+#?(:cljs
+   (defn load-settings-from-storage!
+     "Read the persisted settings map out of localStorage (if any) and
+     deep-merge over the in-memory defaults. Idempotent — safe to call
+     more than once. Failures (no window, no localStorage, malformed
+     payload) degrade silently to the defaults the atom already holds.
+     Called from the preload's side-effect block on CLJS startup."
+     []
+     (try
+       (when-let [raw (storage-get settings-storage-key)]
+         (let [parsed (cljs.reader/read-string raw)]
+           (when (map? parsed)
+             (reset! settings
+                     (-> default-settings
+                         (update :general merge (:general parsed))
+                         (assoc  :theme  (or (:theme parsed)
+                                             (:theme default-settings)))
+                         (update :telemetry merge (:telemetry parsed)))))))
+       (catch :default _ nil))
+     nil))
+
+(defn update-setting!
+  "Write `value` into the settings slot at `[section key]`. CLJS calls
+  also round-trip the whole map through localStorage so the change
+  survives reload. `:theme` is the special case — the modal addresses
+  it as `[:theme nil <kw>]` because the slot is a flat keyword, not a
+  nested map; `assoc-in` on a `nil` key is unsafe, so we special-case.
+
+  Unknown `[section key]` paths are a no-op (and log a tap> so tests
+  can assert the rejection)."
+  [section key value]
+  (cond
+    (not (valid-section-key? section key))
+    (do (tap> {:tag    ::reject-unknown-setting
+               :section section
+               :key     key})
+        nil)
+
+    (and (= section :theme) (nil? key))
+    (do (swap! settings assoc :theme value)
+        #?(:cljs (write-storage!))
+        nil)
+
+    :else
+    (do (swap! settings assoc-in [section key] value)
+        #?(:cljs (write-storage!))
+        nil)))
+
+(defn reset-settings!
+  "Reset the in-memory settings map to `default-settings` and clear
+  the localStorage payload. CLJS-only on the storage side; the JVM
+  target just resets the atom. Useful from test fixtures + from a
+  future 'reset to defaults' affordance in the popup."
+  []
+  (reset! settings default-settings)
+  #?(:cljs
+     (try
+       (storage-remove! settings-storage-key)
+       (catch :default _ nil)))
+  nil)
+
 ;; ---- *filter-pills* (rf2-ak4ms — ribbon filter seeds + storage key) -----
 ;;
 ;; Per `tools/causa/spec/018-Event-Spine.md` §7 ribbon pills persist
@@ -619,6 +833,11 @@
        and the shell's bottom rail surfaces a `[● REDACTED N]` hint.
        Set to `true` while debugging redaction policy to see the raw
        cascade.
+    `{:settings <map>}` — bulk-replace the Settings popup state map
+       (rf2-9poxq). Shape mirrors `default-settings`. The popup's
+       event surface (`:rf.causa/settings-update`) is the normal
+       per-knob write path; this key is the bulk-set escape hatch
+       (e.g. host wants to ship its own default theme).
     `{:filters <{:in [...] :out [...]}>}` — host-supplied seed pill
        set the registry hydrates `:active-filters` with on FIRST
        install (when localStorage is empty). Default `nil` per
@@ -642,7 +861,7 @@
                                 :filters {:out [{:pattern \":mouse-move\"}]}})
 
   Returns nothing."
-  [{:keys [editor project-root]
+  [{:keys [editor project-root settings]
     host-selector-opt :layout/host-selector
     auto-open-opt :launch/auto-open?
     show-sensitive-opt :trace/show-sensitive?
@@ -659,6 +878,18 @@
     (set-auto-open! auto-open-opt))
   (when (contains? opts :trace/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
+  ;; NB: `settings` here is the destructured bulk-config map; the
+  ;; in-namespace defonce atom is reached via the fully-qualified
+  ;; symbol (`day8.re-frame2-causa.config/settings`) to disambiguate.
+  (when (contains? opts :settings)
+    (when (map? settings)
+      (reset! day8.re-frame2-causa.config/settings
+              (-> default-settings
+                  (update :general merge (:general settings))
+                  (assoc  :theme  (or (:theme settings)
+                                      (:theme default-settings)))
+                  (update :telemetry merge (:telemetry settings))))
+      #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed
   ;; persisted under the right key.
