@@ -302,6 +302,83 @@ Note: `:theme` is **no longer reserved** — it now lives inside the
 `:settings` map (see above) and is reachable via the Settings popup's
 Theme tab or `(configure! {:settings {:theme :light}})`.
 
+## Vision — full configure! key inventory (30+ keys)
+
+v1 ships ~5 host-supplied keys (`:editor` / `:project-root` /
+`:layout/host-selector` / `:launch/auto-open?` / `:trace/show-sensitive?`)
+plus the `:filters` seed slot. The full destination per
+[`ai/findings/2026-05-17-10x-config-options-for-causa.md`](#findings)
+absorbs every re-frame-10x configuration option that translates plus
+several Causa-native additions. The full list, grouped by phase
+priority:
+
+### Must-haves (matched against re-frame-10x's anchor)
+
+- `:filters/auto-hide-events <set>` — exact event-ids to auto-hide
+  (re-frame-10x's `ignored-events`). Wired via the IN/OUT pill system
+  in [`018-Event-Spine.md`](./018-Event-Spine.md) §7.
+- `:filters/auto-hide-event-ns <vector>` — event-id namespace
+  patterns to auto-hide (e.g. `["my-app.noisy" "re-com.box"]`).
+- `:filters/auto-hide-error-overrides? <bool>` — when an auto-hidden
+  event raises an exception, surface it anyway (default `true`).
+  Errors override filters.
+- `:buffer/retained-epochs <int>` — exposed retainer-N depth control
+  (re-frame-10x's `retained-epochs`). Floor 25; ceiling 5000.
+- `:theme` — already wired in v1 via `:settings`. Future: `:light`,
+  `:dark`, `:dim`.
+
+### Should-adds
+
+- `:keybinding/handle-keys? <bool>` — master toggle for Causa's
+  keystroke capture; default `true`. Hosts with conflicting global
+  shortcuts can surrender.
+- `:keybinding/bindings <map>` — rebind any action; default carries
+  the spec-mandated set (`Ctrl+Shift+C`, `c`/`r`/`f`/`a`/`v`/`t`/`m`/`i`
+  + spine keys per [`018-Event-Spine.md`](./018-Event-Spine.md) §Keyboard map).
+- `:render/ns-aliases <map>` — rendering substitution so deeply-nested
+  namespaces (`{my-app.deeply.nested mnn}`) collapse in panel renders.
+  Re-frame-10x's `ns-aliases`.
+- `:render/alias-namespaces? <bool>` — master toggle for ns-aliases
+  substitution (paired with above).
+- `:render/auto-expand-below <int>` — auto-expand data nodes with
+  fewer than N children in the cljs-devtools-shaped renderer.
+- `:render/uuids-as <enum :plaintext :identicons :last-4>` — UUID
+  rendering format.
+- `:launch/restore-visibility? <bool>` — persist last-known visibility
+  across reloads.
+- `:launch/popout-geometry <map>` — remember last popout window
+  position `{:w :h :x :y}`.
+- `:trace/collect-when <enum :always :panel-open>` — gate trace
+  collection on panel visibility (re-frame-10x's `trace-when`).
+
+### Nice-to-haves
+
+- `:trace/fatten? <bool>` — opt into trace fattening for
+  context-at-position payloads (Phase 5 prereq per
+  [`013-Trace-Bus.md`](./013-Trace-Bus.md) §Vision).
+- `:settings.tab/persist? <bool>` — persist selected tab across
+  reloads.
+- `:logging/debug? <bool>` — Causa self-debug logs (re-frame-10x's
+  `debug?`). Backlog — Causa instruments itself via the trace bus;
+  redundant for most cases.
+
+### Recovery action (not a key)
+
+- `(causa-config/factory-reset!)` — wipes every
+  `day8.re-frame2-causa.*` localStorage key + resets in-memory atoms.
+  Red button in the Settings popup; CLI escape hatch for "I broke
+  something and don't know what to fix."
+
+The full destination is auditable against `tools/causa/test/.../config_cljc_test.cljc`
+which enforces no slot is forgotten when the surface grows.
+
+<a id="findings"></a>
+
+**Findings:** `ai/findings/2026-05-17-10x-config-options-for-causa.md`
+carries the per-key design rationale, cross-reference against
+re-frame-10x's 26 options, and the priority ranking that drives the
+phase plan above.
+
 ## Production posture
 
 Per [`API.md`](./API.md) §Force-disable, production builds DCE the

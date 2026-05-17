@@ -1,5 +1,48 @@
 # 002-Time-Travel
 
+## Bug class
+
+**"User reported the bug at the end of a 20-step interaction; I need to
+rewind to the moment it went wrong."**
+
+The bug appeared after a sequence of dispatches; the symptom is visible
+NOW but the cause is N events back. The author needs to scrub through
+history, find the divergence point, and either inspect it (passive) or
+rewind the runtime to it (active, opt-in).
+
+## Example bug
+
+A user reports "Submit is greyed out, can't recover." You load the
+session, see the current state, but the cascade that disabled Submit
+fired 8 dispatches ago. You need to walk back through history,
+inspect `app-db` at each step, find the moment Submit became disabled,
+then either re-read the cascade or rewind to it.
+
+## Insight Causa provides
+
+The **scrubber** (the ribbon `[◀ ▶ ⏭]` cluster + the L2 event list,
+per [`018-Event-Spine.md`](018-Event-Spine.md) §6) lets the programmer
+walk history **without disturbing the live app**. Scrubbing is
+**passive** — every Causa panel rebases to show "what the world looked
+like at epoch N" — but `(rf/get-frame-db ...)` still returns the live
+value. The user's mouse clicks against the app still hit live state.
+
+Rewinding the runtime is **explicit and confirmed** — a `Rewind here`
+button calls `(rf/restore-epoch frame-id target-epoch-id)`. Only then
+does the framework's `app-db` actually move. Six named restore
+failures surface as a modal BEFORE the rewind commits, so "this rewind
+won't work because X" is structured rather than a silent no-op.
+
+## Affordance
+
+Passive scrubbing + explicit `r` (rewind) + `Shift+r` (hard rewind
+with failure-mode modal) + `*` (pin a labelled snapshot at current
+epoch). Pins survive the ring buffer ageing-out the underlying epoch
+— the pin retains `:frame-db` so "Reset to pinned" works even after
+the epoch dropped off the scrubber.
+
+---
+
 The time-travel scrubber is pinned to the bottom rail. Its job is to
 let the programmer walk backward and forward through history *without
 disturbing the live app*. Rewinding the runtime is an explicit,
@@ -356,3 +399,40 @@ the scrubber renders an empty state ("no epoch history available; this
 is a production build") if mistakenly loaded.
 
 CI's `npm run test:elision` job verifies the contract.
+
+## Vision
+
+The time-travel surface is mature in v1 — the bones are right. Future
+growth is around two affordances:
+
+### Full bidirectional scrubbing + branch-and-explore
+
+**Bug class:** "I want to scrub back, dispatch a hypothetical event,
+see what would happen, then return to live."
+
+The user wants to **branch** off the timeline at an arbitrary epoch:
+rewind to epoch N, dispatch a different event, watch the new cascade
+play out, then either keep the branch or discard it and return to the
+live trunk. Today, dispatching after a rewind drops everything past
+the rewind point — there is no branch UI.
+
+The branch model: each branch is a labelled fork of the timeline.
+Branches are session-scoped (Lock #4 — no export). The scrubber renders
+branches as horizontal lanes above/below the trunk; clicking a branch
+switches the active scrubber to it. The user can compare two branches
+side-by-side in the App-db diff.
+
+### "Find me when path P last changed" walker (rf2-causa-find-path-change)
+
+**Bug class:** "I notice this value is wrong; show me when it became
+wrong." Both Causa today and re-frame-10x require manual scrubbing for
+this. The walker scans `epoch-history` backward, finds the most-recent
+epoch where path P had a non-equal value, and jumps the scrubber there.
+
+Right-click any app-db path → "Find epoch where this last changed" →
+scrubber seeks. Right-click → "Find next change after this" scans
+forward. This is the affordance that turns "I notice this is wrong"
+into "show me when it became wrong" in two clicks. Mature debuggers
+(Chrome DevTools watch-windows, Visual Studio data tooltips) have
+this for objects-in-watch-windows; re-frame has the entire history
+and should be able to do it natively.

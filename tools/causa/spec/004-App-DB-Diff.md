@@ -1,5 +1,40 @@
 # 004-App-DB-Diff
 
+## Bug class
+
+**"What part of app-db actually changed when I dispatched this event?"**
+
+Real app-dbs are big (1–50MB); the change from one event is small (a
+handful of paths). The author needs to see the slices that changed in
+THIS cascade — added, modified, removed — without scrolling through
+the whole tree.
+
+## Example bug
+
+You dispatched `:cart/add-item {:id 22 :qty 1}`. The UI didn't
+update. You don't know whether the cart slice changed at all, whether
+it changed at an unexpected path, or whether something else changed
+that you weren't expecting (a reset, a clobber).
+
+## Insight Causa provides
+
+A **slice-centric view** — the slices that changed in this epoch,
+each shown with `before` and `after` values, colour-coded by op
+(`:added` green, `:modified` yellow, `:removed` red). Plus **pinned
+watches** — slices the user explicitly marked, always visible across
+epochs. The full tree is one click away via the escape hatch.
+
+This is the **single most-used Causa surface** after the Event tab.
+The 400ms yellow → transparent diff-flash on touched slices is the
+attention-cue that keeps the user oriented across cascades.
+
+## Affordance
+
+App-db tab — slice-centric mini-panels above pinned-slices above the
+`Show full app-db tree ▸` escape hatch.
+
+---
+
 The app-db panel is **slice-centric**, not tree-centric. Real app-dbs
 run 1–50MB. Rendering the whole tree on every dispatch competes for
 canvas real estate, virtualisation only partly helps, and it isn't
@@ -203,3 +238,46 @@ Before any dispatches:
 ```
 
 The pinned-slices area is empty until the user pins something.
+
+## Vision
+
+### Branch-aware diff (Story integration)
+
+**Bug class:** "I'm running a Story variant that sim-clones app-db;
+which slices changed because of my dispatch and which were already
+different on the branch?"
+
+When Causa is embedded inside Story
+([`008-Embedding-Contract.md`](008-Embedding-Contract.md)) and the
+variant is a sim-clone (Story branches `app-db` so each variant runs in
+isolation without polluting the host), the diff has TWO axes:
+
+- **Branch baseline diff** — what's different between the variant's
+  app-db and the host's app-db, irrespective of any dispatch.
+- **Cascade diff** — what changed because of THIS dispatch.
+
+Causa renders both in separate sections; cascade-diff is the headline,
+branch-baseline-diff is a collapsed-by-default "What's different on this
+branch" group.
+
+### Cross-frame diff
+
+**Bug class:** "Multiple frames share substate via shared sub keys;
+where does an event in frame A change values that frame B reads?"
+
+When multi-frame apps share substate (e.g. an auth slice mirrored across
+two frames), Causa renders the diff per-frame and shows where a write
+in one frame propagates to another. Cross-frame causality arrows
+(per [`001-Causality-Graph.md`](001-Causality-Graph.md)) hand off to
+the App-db tab's cross-frame diff for the "what changed" follow-up.
+
+### Pin two epochs side-by-side
+
+**Bug class:** "I want to diff arbitrary epoch A vs epoch B, not just
+before/after of a single event."
+
+Pin two epochs via `*`; press `=` → opens a split view in the App-db
+tab showing slice-by-slice diff between the two pinned epochs. Closes
+a long-standing gap in both 10x and Causa (workflow-gap-4 from the
+findings). Needs Editscript A* for compact diffs over arbitrary epoch
+pairs.

@@ -487,3 +487,30 @@ For the API surface this catalogue describes from the *outside*
 [`API.md`](./API.md). API.md is consumer-facing; this doc is
 contributor-facing — the catalogue lets a new agent or human reader
 audit the registry surface without grepping the source.
+
+## Vision — per-id metadata for golden-path navigation
+
+**Bug class:** "I'm reading an unfamiliar Causa codebase; I see
+`:rf.causa/cascades` in the source; what's its shape? where is it
+registered? what consumes it?"
+
+Today the catalogue enumerates names + roles. The next-step affordance
+is **per-id metadata stamped at registration**:
+
+- **Source coords** — every `reg-sub` / `reg-event-*` / `reg-fx`
+  registration carries a `:source-coord` stamp (per Spec 001 + 006).
+  Causa's own registrations should expose theirs through this
+  catalogue so a human reader can jump directly to the registration
+  site.
+- **Version stamps** — when the registration shape changes (new input
+  sub, removed output key), bump a per-id version. This catalogue
+  surfaces the version alongside the id; downstream consumers can
+  audit "is my code calling the v1 or v2 shape?"
+- **Dependency arrows** — for composite subs, surface the input subs
+  inline so the catalogue reads as a topology, not a flat list.
+
+The catalogue grows from "reference list of names" to **"navigable
+golden-path map of Causa's internal registry"** — a contributor
+opening the spec can trace any path from a panel's high-level
+behaviour all the way down to the source file where the registration
+lives, in one click each step.

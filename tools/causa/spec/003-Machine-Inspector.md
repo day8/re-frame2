@@ -7,6 +7,15 @@ mode (UC1) and dynamic multi-instance views (UC2 Mode A/B/C). The
 state-chart layout primitive lives Causa-internal at
 `tools/causa/src/day8/re_frame2_causa/chart/{layout,svg,interaction}.cljc`.
 
+The Machines tab is the **single most distinctive Causa surface** because
+re-frame2's machine substrate (Spec 005) carries the richest runtime
+behaviour in the framework — cancellation cascades, `:after` timers,
+`:invoke-all` joins, microstep loops, hierarchical state transitions,
+parallel regions, supervision trees. Causa is the only place these
+contracts become legible. Bug-class motivation for each major feature in
+[§The bug catalogue](#the-bug-catalogue) below; see also
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.1.
+
 ## Architectural posture
 
 **The `tools/machines-viz/` artefact is gone** (collapsed into Causa
@@ -469,12 +478,296 @@ ships **without** a chart alt-view; the alt-view is a v1.1 commitment.
 Until then, the transition-history ribbon and the machines picker are
 the accessible surfaces — both are text-heavy and reach the same data.
 
+## The bug catalogue
+
+Every Machines-tab feature is grounded in a concrete bug-class. Format per
+[`000-Vision.md`](000-Vision.md) §Bug-driven, not feature-driven: bug class
+→ example → insight → affordance.
+
+### M.1 — Guard rejection (silent)
+
+**Bug class:** An event fires; the chosen `:on` entry's guard returns
+`false`; the snapshot doesn't move. The
+`:rf.machine.transition/suppressed` trace is the only signal, buried in
+the Trace firehose.
+
+**Example bug:** You dispatched `:auth/cancel` on machine `:checkout` in
+state `:authing`, expected a transition to `:idle`, nothing happened. The
+event landed; the guard `:no-pending-payment?` returned `false` because
+`:data.pending-payment` was `4232`.
+
+**Insight Causa provides:** The transition's edge in the chart **flashes
+red 400ms** with a tooltip naming the rejected event and the guard's
+return value. In the metadata rail (right of chart), a "Recent guard
+rejections (N)" section lists the rejected transitions; click-to-expand
+shows the `:data` snapshot at evaluation time and the guard's source-coord.
+
+**Affordance:** Guard-verdict overlay (M-C1). Three clicks from "huh,
+nothing happened" to "ah, my guard is wrong."
+
+**v1 ships:** the existing chart with no overlay. **Future:** the
+red-flash overlay + the metadata rail's rejections section.
+
+### M.2 — Stale `:after` timer / cancelled-on-resolution
+
+**Bug class:** Wall-clock time-bound bug. The timer arms; the wall clock
+advances; the timer expires; the snapshot doesn't move. Five
+possibilities: (1) epoch stale because we exited and re-entered the state;
+(2) guard returned false; (3) the synthetic event hit a `nil` `:on` entry;
+(4) the timer fired in SSR mode and was suppressed; (5) subscription-driven
+re-resolution cancelled the old timer in favour of a new one that hasn't
+fired yet. The user can't tell from snapshots alone.
+
+**Example bug:** You entered `:loading` with `:after 5000ms → :timeout`.
+30 seconds passed. The snapshot is still `:loading`. The Trace shows both
+`:rf.machine.timer/scheduled` (epoch 12) and `:rf.machine.timer/stale-after`
+(epoch 13) — the state re-entered between schedule and fire.
+
+**Insight Causa provides:** On each state with a live `:after` timer, the
+node has a **thin countdown ring** with an animated arc representing
+time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
+
+- **Live mode:** the ring animates in real time.
+- **Retro mode (scrubber-driven):** the ring is static at the
+  elapsed-fraction the timer had reached at the focused-cascade's
+  timestamp.
+- **Stale timer** (epoch mismatch): the ring is rendered dashed/grey +
+  tooltip "this timer was scheduled in a prior visit and is stale."
+- **Cancelled-on-resolution** (sub-driven re-resolve): the old ring
+  fades out (200ms); new ring fades in.
+
+Click any ring → opens a timer detail popover: `:scheduled-at`,
+`:delay`, `:epoch`, `:source` (`:literal` / `:sub` / `:timeout-config`
+/ `:fn`).
+
+**Affordance:** `:after` countdown rings + scrubber-aware retro-replay
+(M-C2). Time IS the bug surface; the ring makes wall clock visible on a
+tool that previously rendered only the snapshot. **Stately doesn't ship
+this. Nobody does.**
+
+**v1 ships:** no rings (transition-history ribbon only). **Future:** the
+full countdown-ring system + retro-replay (Phase 2 per
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §6).
+
+### M.3 — Cancellation cascade ambiguity
+
+**Bug class:** Parent state exits; child's `:invoke` destroyed; child had
+N in-flight HTTP requests; each aborts. The author sees a flurry of
+`:rf.http/aborted-on-actor-destroy` traces in the Trace firehose and one
+`:rf.machine.lifecycle/destroyed`. They cannot reconstruct which abort
+belongs to which destroy.
+
+**Example bug:** You clicked Cancel on a checkout flow. The Trace tab
+shows 4 abort traces + 1 destroyed trace, scattered through 200 unrelated
+rows. You can't tell which abort came from the cancel vs which were
+independent.
+
+**Insight Causa provides:** A **"Cancellation cascade" detail panel**
+that appears inline in the Machines tab when the focused cascade triggered
+a destroy. Header: "Parent `:checkout/main` exited `:processing` at
+16:42:14. Destroyed 1 child actor (`:http/post#347`) and aborted 3
+in-flight HTTP requests." Body: vertical waterfall showing the parent's
+exit → destroy → per-HTTP-abort → final destroyed trace, indented under
+its parent decision, each row with source-coord.
+
+What was "a flurry of confusing trace lines" becomes "one decision and
+its consequences, laid out vertically."
+
+**Affordance:** Cancellation cascade visualiser (M-C3) — the Machines
+tab's hero growth. Also a template for SSR cancellation cascade (when a
+streaming SSR boundary times out, the same waterfall idiom shows what
+cleanup ran).
+
+**v1 ships:** scattered Trace rows. **Future:** the cascade-grouping
+projection + the detail panel (Phase 3).
+
+### M.4 — `:invoke-all` never joins
+
+**Bug class:** N children spawned; join condition is `:all` (or `:any` /
+`{:n M}` / `{:fn ...}`); some complete, some don't, the parent stays
+stuck. Author wants per-child status, what each is doing right now, the
+join-state map (`:done #{:cfg :flag} :failed #{} :resolved? false`), and
+whether `:on-any-failed` is wired.
+
+**Example bug:** You entered `:hydrating` which declares `:invoke-all
+{:children {:cfg ... :flag ... :user ... :dash ...} :join :all}`. Two
+children completed in <200ms; two are still "running" 2 seconds in. The
+machine hasn't advanced.
+
+**Insight Causa provides:** When the focused machine is in an
+`:invoke-all`-bearing state, the metadata rail shows a **dedicated join
+card**:
+
+```
+┌─ :invoke-all  ·  invoke-id [:hydrating :invoke-all] ─────────────┐
+│ Join condition: :all                                              │
+│ Resolved: ✗   (waiting for 2 of 4)                                │
+│  ✓ :cfg     :load-config#1         done @ +124ms                  │
+│  ✓ :flag    :load-feature-flags#2  done @ +89ms                   │
+│  ⧖ :user    :load-user-profile#3   running 2.3s                   │
+│  ⧖ :dash    :load-dashboards#4     running 2.4s                   │
+│  :on-all-complete  → [:assets-loaded]                             │
+│  :on-any-failed    → [:asset-load-failed]                         │
+│  :cancel-on-decision?  true                                        │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+Each running child row: click → pivots to that child's machine instance.
+Each done/failed: click → opens the per-child completion event.
+
+**Affordance:** `:invoke-all` join inspector card (M-C4).
+
+**v1 ships:** the `:invoke-all` viz row (children rendered inline; basic
+`done?` / `failed?` colouring). **Future:** the full join inspector card
+with click-to-pivot.
+
+### M.5 — Per-instance "why am I stuck"
+
+**Bug class:** Mode C debugging at scale. The user picks one instance
+out of 47 (e.g. `:checkout#c-047` stuck in `:authing` for 30s); they
+need the last few trace events filtered to THAT instance only. No
+cross-instance chatter.
+
+**Example bug:** Of 47 `:request/protocol` instances, `#c-047` is stuck
+in `:authing` for 30s. The Mode C table tells you the state and the
+duration but not WHY.
+
+**Insight Causa provides:** Click an instance row → opens a per-instance
+trace strip below the table showing the last 5 traces for THIS instance
+only. The "32s in state" auto-callout flags suspiciously-long state
+occupancy.
+
+```
+┌─ #c-047  ·  current state :authing  ·  in state for 32s ────────────────┐
+│ Last 5 traces for this instance:                                          │
+│ 16:42:14.103  :rf.machine.transition  :idle → :authing                   │
+│ 16:42:14.108  :rf.machine.timer/scheduled  :after 30000ms epoch 4         │
+│ 16:42:14.110  :rf.http/managed-issued  POST /api/auth/login              │
+│ 16:42:14.140  :rf.http/handled  POST /api/auth/login → 200 (30ms)         │
+│ 16:42:14.142  :rf.machine.transition/suppressed  :auth/ok                │
+│                  guard :2fa-not-required? = FALSE                         │
+│                  (data: {:requires-2fa? true})                            │
+│                                                                            │
+│ ⓘ Instance has not transitioned for 32s. 1 guard rejection pending.       │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Affordance:** Per-instance trace strip (M-C5). Phase 1 quick win.
+
+### M.6 — Hierarchical state cascade (entry/exit along the LCA)
+
+**Bug class:** A transition crosses multiple hierarchy levels. The
+exit-cascade and entry-cascade interleave per Spec 005 §Entry/exit
+cascading along the LCA. Today the chart highlights the new active state
+but doesn't show the cascade.
+
+**Insight Causa provides:** When a transition fires, the chart plays the
+cascade in sequence:
+
+1. The old leaf's `:exit` fires (node ring pulses red, then dims).
+2. Walking up to LCA: each intermediate `:exit` (rings pulse in
+   sequence; 80ms each).
+3. The LCA's level (no action).
+4. Walking down from LCA to new leaf: each intermediate `:entry` (rings
+   pulse green; 80ms each).
+5. The new leaf's `:entry` (ring settles to active-state amber/cyan).
+
+Total: ~500ms for a 3-level cascade. Skippable via Settings → View →
+"Reduced motion."
+
+**Affordance:** Hierarchical state cascade highlighter (M-C6). Phase 5.
+LCA semantics is the most subtle part of XState parity; the cascade
+visualisation makes it obvious in ways no doc ever could.
+
+### M.7 — Microstep loop visualiser
+
+**Bug class:** `:always` fires; lands in a state with `:always`; fires
+again; eventually hits the bounded-depth ceiling and emits
+`:rf.machine.microstep/depth-exceeded`. The microstep chain wants to be
+the diagnostic.
+
+**Insight Causa provides:** When a focused cascade contains ≥3 microsteps,
+render them as a **strip of micro-arrows** in the Machine tab header:
+
+```
+Microsteps (4 of max 12):
+:idle ──always→ :checking ──always→ :checking-deep ──always→ :ready ──always→ :idle
+                                                                                  ↑
+                                                              (loop detected — see ⚠)
+```
+
+If the chain returns to a previously-seen state, mark it `⚠ loop
+detected; will hit microstep depth limit in N more iterations`.
+
+**Affordance:** Microstep loop visualiser (M-C7). Phase 5.
+
+### M.8 — Path-walked transition explainer
+
+**Bug class:** In a hierarchical machine with parent fallthrough, the
+resolution rule is "deepest wins; parent fallthrough on miss." When a
+child consumes an event the parent expected to handle, the author is
+surprised.
+
+**Insight Causa provides:** In the Event tab's "fx handlers that ran"
+block, add a sub-row for each `:rf.machine/transition` showing the
+**path walked**:
+
+```
+:rf.machine/transition  :checkout
+  Path walked:
+    [:processing :paying]  :on {:pay/cancel ...}     ← MATCHED ✓
+    [:processing]          :on {:pay/cancel ...}     ← not reached (deepest wins)
+    [<top>]                :on {:pay/cancel ...}     ← not reached
+```
+
+**Affordance:** Path-walked sub-row (M-C8). Phase 1 quick win.
+
+### M.9 — Spawn ancestry
+
+**Bug class:** "Why is this instance still alive? Who's referencing it?"
+A spawned actor should have been destroyed but wasn't. Could be:
+`:system-id` reference held it alive; parent didn't fully exit
+(hierarchical sticking); manual `:rf.machine/destroy` was never
+dispatched; OR the destroy WAS dispatched but the snapshot's old state
+references it.
+
+**Insight Causa provides:** When an instance is focused, the metadata
+rail shows the **spawn tree leading to it**:
+
+```
+Spawn ancestry:
+  :app/start
+   └── spawned :auth/main#m-001
+        └── spawned :http/post#h-018  ← currently focused
+```
+
+Each ancestor click → focuses that instance. Bottom of card: "Will be
+auto-destroyed when `:auth/main#m-001` exits `:authing`."
+
+**Affordance:** Spawn-ancestry tree in metadata rail (M-C9). Phase 1.
+
+### M.10 — Snapshot diff across transitions
+
+**Bug class:** Each transition mutates the machine's snapshot
+(`:state` + `:data`). Today the chart highlights state changes; `:data`
+mutations are invisible unless the user opens the app-db diff.
+
+**Insight Causa provides:** A **diff card below the chart** when a
+transition fires: side-by-side `:data` before/after, action-attribution
+per slot (`:data.retry-count incremented from 2 → 3 by action
+:increment-retry`).
+
+**Affordance:** Snapshot diff visualisation (M-C10). Phase 5. Needs
+per-action attribution.
+
 ## Cross-references
 
 - [`018-Event-Spine.md`](018-Event-Spine.md) — Machines tab placement
   in the 4-layer chrome; spine-binding contract; isolation invariants.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, editor
   protocol matrix.
+- [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.1 —
+  the bug-class catalogue this spec normalises.
 - [Spec 005 — StateMachines](../../../spec/005-StateMachines.md) — the
   framework contract Causa renders.
 - [Spec 009 — Instrumentation](../../../spec/009-Instrumentation.md) —
