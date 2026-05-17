@@ -324,13 +324,11 @@ Three stacked sections (top to bottom):
 
 ## MCP Server panel
 
-The panel-side surface for `tools/causa-mcp/` (per
-[`010-MCP-Server.md`](./010-MCP-Server.md)). Filters the trace buffer
-to events tagged `:tags :origin :causa-mcp` — the canonical tag the
-causa-mcp jar stamps on every side-effect it performs (per
-[`010-MCP-Server.md`](./010-MCP-Server.md) §Origin tagging +
-[`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-§Origin tagging is the convention).
+The panel-side surface for a future `tools/causa-mcp/` artefact.
+Filters the trace buffer to events tagged `:tags :origin :causa-mcp`
+— the canonical tag the causa-mcp jar will stamp on every
+side-effect it performs (origin tagging is the cross-MCP
+convention).
 
 ### Inputs
 
@@ -401,5 +399,3 @@ spelunking history.
   panel surfaces.
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — what the
   Routes panel surfaces.
-- [`010-MCP-Server.md`](./010-MCP-Server.md) — the agent-side jar
-  whose footprint the MCP Server panel renders.

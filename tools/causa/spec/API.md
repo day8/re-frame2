@@ -299,11 +299,10 @@ yields a clickable URI rather than a no-op; source-coords without
 
 ## MCP API
 
-Per [`010-MCP-Server.md`](./010-MCP-Server.md) §Tool catalogue. The
-MCP server lives at `tools/causa-mcp/` and exposes **18 tools across
-five bands**. Counts and band layout are pinned at
-[`tools/causa-mcp/spec/README.md` §Canonical counts](../../causa-mcp/spec/README.md#canonical-counts)
-— cite that subsection rather than restating cardinalities here.
+A future `tools/causa-mcp/` artefact will expose Causa's agent surface
+as **18 tools across five bands**. The catalogue below is the planned
+shape; the implementing jar will pin canonical counts and band layout
+in its own spec.
 
 | Tool | Band | Kind |
 |---|---|---|

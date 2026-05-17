@@ -384,8 +384,9 @@ Consumer of the canonical 9-axis filter vocabulary documented in
 
 ## MCP Server panel
 
-Spec: [`010-MCP-Server.md`](./010-MCP-Server.md) §Origin tagging.
-Filters the trace-buffer to events tagged `:tags :origin :causa-mcp`.
+Filters the trace-buffer to events tagged `:tags :origin :causa-mcp`
+(the canonical tag a future causa-mcp jar will stamp on every
+side-effect it performs).
 
 ### Subscriptions
 

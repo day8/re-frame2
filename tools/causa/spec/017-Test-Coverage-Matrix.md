@@ -127,5 +127,4 @@ its own bead.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) - owning `:rf.causa/*` ids for panel subscriptions/events/effects.
 - [`015-Configuration.md`](./015-Configuration.md) - host-visible configuration keys and defaults.
 - [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) - contracts for Event Detail, Effects, Flows, Issues, Performance, Routes, and MCP Server.
-- [`../../causa-mcp/spec/000-Vision.md`](../../causa-mcp/spec/000-Vision.md) - MCP-side Causa agent surface.
 - [`../../../testbeds/README.md`](../../../testbeds/README.md) - existing reusable testbeds for schema violation, non-trivial app-db, large/sensitive dispatchers, deep machines, long flows, HTTP, SSR, and multi-frame scenarios.

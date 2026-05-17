@@ -655,10 +655,10 @@ register-epoch-cb! call resolve to a no-op.
 
 ### Mechanism
 
-The MCP server (`tools/causa-mcp/`, per [`010-MCP-Server.md`](./010-MCP-Server.md))
-is an stdio JSON-RPC server launched by the agent host (Claude Code,
-Cursor, etc.) as a subprocess. The server connects over nREPL to the
-running shadow-cljs build (which is connected to the user's browser).
+The MCP server (a future `tools/causa-mcp/` artefact) is an stdio
+JSON-RPC server launched by the agent host (Claude Code, Cursor, etc.)
+as a subprocess. The server connects over nREPL to the running
+shadow-cljs build (which is connected to the user's browser).
 
 The data path:
 
@@ -716,8 +716,7 @@ costs in the agent-host ecosystem) — not by a custom Causa protocol.
 Considered and rejected. Editor-embed surface is a category mistake:
 debuggers belong at workstations alongside the app, not inside the
 editor. Where editor integrations are useful (jump-to-source,
-re-dispatch-from-IDE), they go through MCP (per
-[`010-MCP-Server.md`](./010-MCP-Server.md)) — not through a
+re-dispatch-from-IDE), they go through MCP — not through a
 VS-Code-specific extension.
 
 ## Coexistence

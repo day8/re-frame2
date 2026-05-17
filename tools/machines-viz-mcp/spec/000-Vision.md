@@ -195,9 +195,8 @@ shape:
   content + `:size` band per
   [`tools/mcp-base/`](../../mcp-base/) wire conventions).
 - **Subscribe (streaming).** Tail Spec 009
-  `:rf.machine/*` trace events for a given machine-id; mirrors
-  the streaming-band pattern from
-  [`tools/causa-mcp/spec/000-Vision.md`](../../causa-mcp/spec/000-Vision.md).
+  `:rf.machine/*` trace events for a given machine-id; follows
+  the same streaming-band pattern sibling MCP servers use.
 - **Meta.** `discover-app` and `tail-build` parity with the
   other servers (shared via `tools/mcp-base/`).
 
@@ -221,8 +220,7 @@ queries) are v1.1 candidates.
 - [`004-Wire-Pipeline.md`](004-Wire-Pipeline.md) — the off-box egress contract every tool MUST satisfy.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — the locks (separate jar, architecture template inheritance, closed-set catalogue, share/export inheritance, wire-pipeline pinned pre-impl, two-namespace split, `:origin` tagging).
 - [`tools/machines-viz/spec/000-Vision.md`](../../machines-viz/spec/000-Vision.md) — the component this MCP queries.
-- [`tools/causa-mcp/spec/000-Vision.md`](../../causa-mcp/spec/000-Vision.md) — sibling MCP surface; this artefact follows the same architecture template.
-- [`tools/pair2-mcp/spec/`](../../pair2-mcp/spec/) — the reference for the four-file `001 / 002 / 003 / API` shape this folder grows into when implementation lands.
+- [`tools/pair2-mcp/spec/`](../../pair2-mcp/spec/) — sibling MCP surface; the reference for the four-file `001 / 002 / 003 / API` shape this folder grows into when implementation lands.
 - [`tools/mcp-base/`](../../mcp-base/) — shared wire primitives.
 - [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md) — verb-naming conformance the catalogue must respect.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry this MCP queries.

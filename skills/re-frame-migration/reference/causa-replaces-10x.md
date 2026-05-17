@@ -216,7 +216,7 @@ What's intentionally different:
 - **No persistence.** 10x persisted some panel state to localStorage; Causa keeps nothing across reloads. Configuration is preload-time only.
 - **In-app, not sidecar.** 10x was a sidecar panel that occupied a fixed portion of the viewport via body-padding. Causa is true-inline — the app reserves layout space the same way it reserves space for any other UI region.
 
-Full panel inventory: [`tools/causa/spec/000-Vision.md`](../../../tools/causa/spec/000-Vision.md). Per-panel reference: [`docs/causa/02-panel-tour.md`](../../../docs/causa/02-panel-tour.md) through [`docs/causa/11-mcp-server.md`](../../../docs/causa/11-mcp-server.md).
+Full panel inventory: [`tools/causa/spec/000-Vision.md`](../../../tools/causa/spec/000-Vision.md). Per-panel reference: [`docs/causa/02-panel-tour.md`](../../../docs/causa/02-panel-tour.md) onward.
 
 ---
 
