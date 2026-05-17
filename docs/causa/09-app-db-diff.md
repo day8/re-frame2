@@ -57,4 +57,4 @@ Three patterns the diff handles distinctively:
 - "I think a sub is stale, but `app-db` says the value's right." — pin both the slot and the sub's recompute marker; watch them tick together.
 - "I want a session-long watch on `:auth/state`." — pin it; the panel paints it on every epoch.
 
-Next: [the AI co-pilot rail](10-ai-copilot.md).
+Next: [the MCP-server panel](11-mcp-server.md).

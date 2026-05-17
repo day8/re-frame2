@@ -5,11 +5,11 @@
   Two contract surfaces under test:
 
   1. **Key predicates.** `causa-toggle-key?` (Ctrl+Shift+C) and
-     `copilot-toggle-key?` (Ctrl+Shift+/) are pure functions over a
+     `palette-toggle-key?` (Cmd/Ctrl+K) are pure functions over a
      KeyboardEvent's surface. They are private to the keybinding ns;
-     tests reach in via `#'` var access. Both predicates check the C / /
+     tests reach in via `#'` var access. Both predicates check their
      key via both `.key` and `.code` (the latter is the IME-active
-     fallback), and both reject extra modifiers (meta, alt) — important
+     fallback), and reject extra modifiers (meta, alt) — important
      so the macOS Cmd+Shift+C dev-tools shortcut never collides with
      Causa's toggle.
 
@@ -55,10 +55,6 @@
   "Reach the private predicate via var access."
   [event]
   (#'keybinding/causa-toggle-key? event))
-
-(defn- copilot-toggle-key?
-  [event]
-  (#'keybinding/copilot-toggle-key? event))
 
 (defn- palette-toggle-key?
   "rf2-wm7z4 — the Cmd/Ctrl+K command-palette predicate."
@@ -227,46 +223,7 @@
     (is (false? (causa-toggle-key?
                   (mk-event {:ctrl? true :shift? true}))))))
 
-;; ---- (2) copilot-toggle-key? truth table ---------------------------------
-
-(deftest copilot-toggle-key-matches-ctrl-shift-slash
-  (testing "Ctrl+Shift+/ — most layouts: Shift+/ produces `?`, the
-            predicate accepts both raw `/` and shifted `?` per source
-            docstring"
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:key "/" :ctrl? true :shift? true}))))
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:key "?" :ctrl? true :shift? true})))))
-  (testing "`code` fallback — `Slash`"
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:code "Slash" :ctrl? true :shift? true}))))))
-
-(deftest copilot-toggle-key-rejects-missing-modifiers
-  (testing "no modifiers"
-    (is (false? (copilot-toggle-key? (mk-event {:key "?"})))))
-  (testing "Shift only — Ctrl missing (this is the plain `?` keypress,
-            which must not toggle the rail)"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "?" :shift? true}))))))
-
-(deftest copilot-toggle-key-rejects-extra-modifiers
-  (testing "meta blocks"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "/" :ctrl? true :shift? true :meta? true})))))
-  (testing "alt blocks"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "/" :ctrl? true :shift? true :alt? true}))))))
-
-(deftest copilot-toggle-key-rejects-wrong-key
-  (testing "Ctrl+Shift+C must not also trigger the co-pilot toggle"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "C" :code "KeyC"
-                             :ctrl? true :shift? true})))))
-  (testing "wrong `code`"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:code "KeyA" :ctrl? true :shift? true}))))))
-
-;; ---- (3) toggles are mutually exclusive ----------------------------------
+;; ---- (2) toggles are mutually exclusive ----------------------------------
 
 (deftest predicates-are-mutually-exclusive
   (testing "no synthetic event satisfies more than one predicate at once —
@@ -274,21 +231,17 @@
             `cond` and a multi-match case would silently route to the
             first arm and drop the others"
     (doseq [event [(mk-event {:key "C" :ctrl? true :shift? true})
-                   (mk-event {:key "/" :ctrl? true :shift? true})
-                   (mk-event {:key "?" :ctrl? true :shift? true})
                    (mk-event {:code "KeyC" :ctrl? true :shift? true})
-                   (mk-event {:code "Slash" :ctrl? true :shift? true})
                    (mk-event {:key "k" :ctrl? true})
                    (mk-event {:key "k" :meta? true})
                    (mk-event {:code "KeyK" :ctrl? true})]]
       (let [matches (cond-> 0
                       (causa-toggle-key? event)   inc
-                      (copilot-toggle-key? event) inc
                       (palette-toggle-key? event) inc)]
         (is (<= matches 1)
             (str "event " (js->clj event) " must match at most one predicate"))))))
 
-;; ---- (3b) palette-toggle-key? truth table (rf2-wm7z4) --------------------
+;; ---- (3) palette-toggle-key? truth table (rf2-wm7z4) ---------------------
 
 (deftest palette-toggle-key-matches-cmd-k-and-ctrl-k
   (testing "Ctrl+K — Windows / Linux convention"

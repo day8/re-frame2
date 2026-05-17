@@ -63,56 +63,12 @@ What does the re-frame-10x successor get called?
 
 ---
 
-## Lock #2 — AI co-pilot
+## Lock #2 — AI co-pilot (REVERSED 2026-05-17)
 
-**Locked 2026-05-11 (Mike).** **Ship v1.0.** Pull-only Q&A + slash
-commands. No narration (see lock #10).
-
-### Question
-
-Should Causa ship an AI co-pilot panel at v1.0, or defer to v1.1?
-
-### Options considered
-
-- **Defer to v1.1 (or never).** The AI is a feature, not the pitch;
-  Causa earns its keep on observability alone. Lower v1.0 scope.
-- **Ship at v1.0 as a full co-pilot.** Q&A + slash commands +
-  narration mode (live commentary on the trace stream).
-- **Ship at v1.0 in pull-only form.** Q&A + slash commands only; no
-  narration.
-
-### Pick
-
-**Ship at v1.0 in pull-only form.** The runtime is structured
-enough that an AI can navigate it usefully; not shipping the co-pilot
-at v1 leaves the marquee value on the table. The narration-mode
-variant is dropped (see lock #10).
-
-### Why
-
-- The five canonical questions (per `Principles.md`) are exactly the
-  shape an LLM is good at: walk a graph of structured data, cite
-  the chain. Causa without the co-pilot leaves the canonical
-  questions partially un-answered for users who'd rather ask than
-  click.
-- Cost is bounded: the panel is lazy-loaded (<400 KB extra), the
-  conversation is ephemeral (no persistence cost), and there are
-  no Day8-side services (the user's API key calls the user's
-  provider directly).
-- Pull-only avoids the "AI debugger that thinks for you" failure
-  mode. The model is a navigator pointing at evidence; the user
-  verifies (see lock #10 for the narration carve-out).
-
-### Date locked
-
-2026-05-11 (Mike).
-
-### Trail-of-thought citations
-
-- rf2-buor §10.2 ("AI co-pilot — locked: ship at v1.0; open by
-  default"). Note: the original lock had "open by default"; lock #8
-  below revises that to *collapsed by default*. The shipping-at-v1.0
-  half held.
+**Reversed 2026-05-17 (Mike): drop entirely.** Earlier locks shipped a
+pull-only Q&A + slash-command rail at v1.0; that surface has been
+removed. AI integration lives in `tools/pair2-mcp/` instead; Causa is
+the human surface only. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -229,7 +185,7 @@ Does Causa support mobile / tablet / phone viewports?
 
 - **Phone-form-factor Causa.** Pinch-zoom, mobile-first re-layout.
 - **Tablet-responsive Causa.** Below 900px, Causa takes full width;
-  below 600px, a narrow-mode renders the strip + co-pilot only.
+  below 600px, a narrow-mode renders the strip only.
 - **Tablet-responsive standalone viewer.** Causa itself stays
   desktop; a separate viewer page serves remote-attached tablets.
 - **Desktop only.** Below 600px, Causa refuses to mount with a
@@ -374,54 +330,11 @@ the UX design doc §4 reversed it; Mike locked the reversal
 
 ---
 
-## Lock #8 — AI panel default state
+## Lock #8 — AI panel default state (SUPERSEDED 2026-05-17)
 
-**Locked 2026-05-12 (Mike).** **Collapsed by default.** Subtle
-activation cue marks the rail entry.
-
-### Question
-
-When Causa opens, is the AI co-pilot rail open or closed?
-
-### Options considered
-
-- **Open by default.** The marquee-pull argument — Causa's pitch
-  hinges on the AI co-pilot being immediately visible.
-- **Closed by default.** A subtle cue (the magenta `◇` glyph
-  pulsing every 8 seconds in the top strip) marks the rail entry.
-- **Open on first use only.** Open for the first session; remember
-  the user's close-choice across sessions.
-
-### Pick
-
-**Collapsed by default.** A subtle activation cue (`◇` magenta
-glyph in the top strip; pulses every 8 seconds until the user uses
-the co-pilot once, then stays static).
-
-### Why
-
-- Causa is a *debugger*, not an AI product. The pull-only co-pilot
-  (lock #10) supports the debugging workflow but is not the
-  workflow itself. Putting it open by default would imply the
-  user came to chat; they didn't, they came to inspect.
-- The collapsed state honours the principle of an unobtrusive
-  debugger. The user's app and the event detail are the primary
-  signal; the co-pilot is a sidecar.
-- The activation cue is the discoverability path: the glyph pulses
-  gently so a new user notices it, then stops once they've engaged.
-- The user can change the default in Settings (Sidebar → Co-pilot
-  open by default), but the ship-default is collapsed.
-
-### Date locked
-
-2026-05-12 (Mike). The Causa UX design doc §12.2 originally locked
-"open by default" on 2026-05-11; Mike reversed it on 2026-05-12 in
-favour of the unobtrusive default.
-
-### Trail-of-thought citations
-
-- Causa UX design doc §12.2 (original "open by default" lock).
-- rf2-90d5 notes (the 2026-05-12 reversal).
+**Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
+removed entirely (see Lock #2 reversal).** AI integration lives in
+`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -488,62 +401,11 @@ remote case.
 
 ---
 
-## Lock #10 — Narrate mode
+## Lock #10 — Narrate mode (SUPERSEDED 2026-05-17)
 
-**Locked 2026-05-12 (Mike).** **Dropped.** AI is pull-only (Q&A,
-slash commands).
-
-### Question
-
-Does the AI co-pilot offer a "narrate mode" — live commentary on
-the trace stream, where the model proactively explains what's
-happening as dispatches land?
-
-### Options considered
-
-- **Ship narrate mode at v1.0.** Live commentary; the model
-  describes each significant trace event in plain English.
-- **Ship narrate mode behind a toggle (off by default).** Power
-  users can flip it on.
-- **Drop narrate mode entirely.** The AI is pull-only — speaks only
-  when the user asks.
-
-### Pick
-
-**Drop.** AI is pull-only.
-
-### Why
-
-- **Privacy.** Live commentary means every interesting trace event
-  becomes an LLM API call. The user's runtime may contain sensitive
-  data — emails, internal handler names, snippets of
-  production-shaped repros. Continuous transmission is the wrong
-  default.
-- **Cost.** Even off-the-shelf-cheap models cost tokens. A typical
-  debug session emits hundreds of significant trace events.
-  Background narration would burn the user's budget invisibly.
-- **UX.** Live commentary is chatter. The user is *debugging*, not
-  reading a podcast. The Issues ribbon and the schema-violation
-  timeline already surface anomalies passively; the user doesn't
-  need a narrator.
-- **Failure mode.** A confidently-wrong narration that the user
-  doesn't read carefully primes them to believe something untrue.
-  Pull-only forces the user to *want* the explanation, which
-  forces them to *engage* with the verification step.
-
-The pull-only model retains the co-pilot's value (Q&A on the
-canonical five questions, slash commands for power-user shortcuts)
-without the narration failure modes.
-
-### Date locked
-
-2026-05-12 (Mike).
-
-### Trail-of-thought citations
-
-- The original rf2-buor §4.3 included "watch / narrate" capabilities
-  in the co-pilot description.
-- Mike's 2026-05-12 review dropped narrate mode explicitly.
+**Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
+removed entirely (see Lock #2 reversal).** AI integration lives in
+`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -606,111 +468,19 @@ explicit caller coord), what does it render?
 
 ---
 
-## Lock #12 — Conversation persistence
+## Lock #12 — Conversation persistence (SUPERSEDED 2026-05-17)
 
-**Locked 2026-05-12 (Mike).** **Ephemeral.** No localStorage, no
-save.
-
-### Question
-
-Is the AI co-pilot's conversation history persisted across reloads
-/ sessions?
-
-### Options considered
-
-- **Persist to localStorage** (default on). Conversations survive
-  reloads; cap at 1000 turns; oldest-evict.
-- **Persist with explicit opt-in.** Default off; the user can flip
-  a toggle.
-- **Persist with explicit opt-out.** Default on; the user can
-  disable for a session.
-- **Ephemeral always.** Conversations live only in-memory; cleared
-  on reload, cleared on Causa close.
-
-### Pick
-
-**Ephemeral always.** No localStorage, no save.
-
-### Why
-
-- **Privacy.** Conversations may contain sensitive app data — user
-  emails, internal handler names, production-shaped repros. The
-  user's expectation is that what they discuss with the debugger
-  stays with the debugger session.
-- **Consistency with lock #4 (no session export).** Causa's data
-  plane is consistently session-scoped; the AI conversation
-  follows the same rule.
-- **Simplicity.** No corruption-recovery surface, no version
-  migration for conversation shape, no quota management.
-- **The Settings → Telemetry section's claim** ("Causa stores
-  nothing it doesn't need to") is consistent with ephemeral
-  conversation.
-
-A future v1.1+ could add opt-in persistence if users demand it;
-ephemeral is the conservative ship-default.
-
-### Date locked
-
-2026-05-12 (Mike).
-
-### Trail-of-thought citations
-
-- Causa UX design doc §12.5 ("Conversation persistence default —
-  per-session or persistent-with-opt-out?").
-- Mike's 2026-05-12 lock on ephemeral.
+**Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
+removed entirely (see Lock #2 reversal).** AI integration lives in
+`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
-## Lock #13 — Voice STT
+## Lock #13 — Voice STT (SUPERSEDED 2026-05-17)
 
-**Locked 2026-05-12 (Mike).** **No at v1.0.** Text-only. No mic
-permission prompts.
-
-### Question
-
-Does the AI co-pilot accept voice input (browser STT via the Web
-Speech API) at v1.0?
-
-### Options considered
-
-- **Ship voice at v1.0.** Click `🎙`, browser-local STT
-  transcribes; the user reviews and submits.
-- **Ship voice behind a Settings toggle (off by default).**
-- **Defer to v1.1+.** Text only at v1.0.
-
-### Pick
-
-**No at v1.0.** Text only.
-
-### Why
-
-- **Web Speech API quality is patchy.** Different browsers, different
-  recognition quality, different language support. A "sometimes
-  works" feature damages user trust.
-- **Cloud STT adds cost + latency** and a service-side dependency
-  Causa doesn't currently have.
-- **v1.0 scope is already large.** 16 panels + co-pilot + MCP
-  server. Voice is purely additive — shipping later costs nothing.
-- **Privacy default.** No mic permission prompts in v1.0
-  onboarding (privacy-default-friendly).
-- **Niche use case.** Power users keyboard-fluent will type faster
-  than they speak. The "hands full / hands-free" case is real but
-  small.
-
-Voice can ship in v1.1+ if users demand it. The text input shape
-is unchanged by adding voice later; pure additive feature.
-
-### Date locked
-
-2026-05-12 (Mike).
-
-### Trail-of-thought citations
-
-- Causa UX design doc §8 ("Voice (browser STT) — opt-in").
-- Causa UX design doc §12.6 ("Voice STT at v1 — ship at v1 or
-  defer?").
-- rf2-90d5 notes ("#13 Voice STT LOCKED 2026-05-12 (Mike): NO
-  VOICE AT v1.0").
+**Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
+removed entirely (see Lock #2 reversal).** AI integration lives in
+`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -719,18 +489,18 @@ is unchanged by adding voice later; pure additive feature.
 | # | Question | Pick | Date |
 |---|---|---|---|
 | 1 | Name | **Causa** (`day8/re-frame2-causa`) | 2026-05-11 |
-| 2 | AI co-pilot ship timing | **v1.0 pull-only** | 2026-05-11 |
+| 2 | AI co-pilot ship timing | **REVERSED 2026-05-17: dropped entirely (rf2-s3vx5)** | 2026-05-17 |
 | 3 | App-db editing | **Never — read-only forever** | 2026-05-11 |
 | 4 | Session export | **Never** | 2026-05-11 |
 | 5 | Mobile | **Desktop only** | 2026-05-11 |
 | 6 | MCP timing | **v1.0 via `tools/causa-mcp/`** | 2026-05-12 |
 | 7 | Hero panel | **Event-detail** (graph demoted to peer) | 2026-05-12 |
-| 8 | AI panel default state | **Collapsed** with subtle cue | 2026-05-12 |
+| 8 | AI panel default state | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 9 | Launch modes | **Hybrid: in-app + MCP** | 2026-05-12 |
-| 10 | Narrate mode | **Dropped — AI is pull-only** | 2026-05-12 |
+| 10 | Narrate mode | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 11 | Source-coord fallback | **Handler-coord with `(?)` annotation** | 2026-05-12 |
-| 12 | Conversation persistence | **Ephemeral** | 2026-05-12 |
-| 13 | Voice STT | **No at v1.0** | 2026-05-12 |
+| 12 | Conversation persistence | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
+| 13 | Voice STT | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 
 The 13 locks together define the v1.0 surface. Anything outside
 these decisions is up for design discussion; anything inside is

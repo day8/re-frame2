@@ -17,9 +17,6 @@ On first `:rf.ssr/hydration-mismatch`:
 
 - The Hydration sidebar entry's icon flashes red for 600ms.
 - The Issues badge increments.
-- The co-pilot, if open, surfaces a contextual suggestion: "I see a
-  hydration mismatch. Open the Hydration panel?" (no auto-open; user
-  is in control of their canvas).
 
 ## Substrate
 

@@ -63,8 +63,8 @@
   Causa never reads this property — sizing is owned by the host's
   layout rule (per spec/011-Launch-Modes.md §Layout host contract).
   The constant is published so tooling (story-mode chrome, docs
-  generators, the AI co-pilot's snippet helper) can refer to the
-  exact spelling without forking the string."
+  generators) can refer to the exact spelling without forking the
+  string."
   "--rf-causa-inline-width")
 
 (def default-layout-host-width
@@ -100,9 +100,8 @@
   can override it (e.g. for a tinted brand variant) by setting
   the property on `:root` or any ancestor of the consumer rule.
 
-  Constant exists so tooling (docs generators, the AI co-pilot's
-  snippet helper, Code Connect templates) can refer to the exact
-  spelling without forking the string."
+  Constant exists so tooling (docs generators, Code Connect templates)
+  can refer to the exact spelling without forking the string."
   "--rf-causa-accent")
 
 (def default-accent

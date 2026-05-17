@@ -1,11 +1,10 @@
 (ns day8.re-frame2-causa.palette
   "Facade for the Causa command palette (rf2-wm7z4).
 
-  Per the canonical Causa panel-facade pattern (see
-  `panels/ai_co_pilot.cljs`): the facade owns the `reg-view` that
-  wraps the plain-Reagent body in `palette/view`, and an `install!`
-  fn that wires the palette's subs / events / fxs through the
-  Causa-side registry.
+  Per the canonical Causa panel-facade pattern: the facade owns the
+  `reg-view` that wraps the plain-Reagent body in `palette/view`, and
+  an `install!` fn that wires the palette's subs / events / fxs
+  through the Causa-side registry.
 
   ## Modal vs Panel
 
@@ -13,9 +12,7 @@
   list and no canvas slot. The `Modal` reg-view is mounted at the
   shell-view root (so it overlays the chrome and panels) and
   short-circuits to `nil` when the palette is closed. The render
-  cost when closed is the subscribe call plus a `when` — i.e. the
-  same cost the shell already pays for the rail-gate / co-pilot
-  cue toggles.
+  cost when closed is the subscribe call plus a `when` — cheap.
 
   ## Why the shell mounts the Modal
 

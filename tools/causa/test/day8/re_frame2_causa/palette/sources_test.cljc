@@ -33,9 +33,6 @@
    {:id :user/profile  :kind :sub   :doc "Profile sub" :file "u.cljs" :line 30}
    {:id :http/fetch    :kind :fx    :file "http.cljs" :line 8}])
 
-(def sample-copilot-questions
-  ["What is the last error?" "Show all flows"])
-
 ;; ---- per-source shape ---------------------------------------------------
 
 (deftest panel-items-shape
@@ -89,11 +86,11 @@
     (is (= "user.cljs:12" (:hint login)))
     (is (true? (:popout? login)))))
 
-(deftest setting-items-include-copilot-toggle
+(deftest setting-items-include-density-toggle
   (let [items (sources/setting-items)
-        toggle (first (filter #(= :copilot-toggle (:id %)) items))]
+        toggle (first (filter #(= :density-toggle (:id %)) items))]
     (is (some? toggle))
-    (is (= [:palette/copilot-toggle] (:action toggle)))))
+    (is (= [:palette/cycle-density] (:action toggle)))))
 
 (deftest command-items-include-core-verbs
   (let [items   (sources/command-items)
@@ -103,12 +100,6 @@
     (is (contains? ids :open-popout))
     (is (contains? ids :close-palette))))
 
-(deftest copilot-question-items-rank-most-recent-first
-  (let [items (sources/copilot-question-items sample-copilot-questions)]
-    (is (= 2 (count items)))
-    (is (= 0 (:recency-rank (first items))))
-    (is (= 1 (:recency-rank (second items))))))
-
 ;; ---- build-index --------------------------------------------------------
 
 (deftest build-index-includes-every-source
@@ -116,16 +107,14 @@
                   {:panels             sample-panels
                    :trace-buffer       sample-trace-buffer
                    :frame-ids          sample-frames
-                   :handlers           sample-handlers
-                   :copilot-questions  sample-copilot-questions})
+                   :handlers           sample-handlers})
         sources (set (map :source index))]
     (is (contains? sources :command))
     (is (contains? sources :panel))
     (is (contains? sources :setting))
     (is (contains? sources :recent-event))
     (is (contains? sources :frame))
-    (is (contains? sources :handler))
-    (is (contains? sources :copilot-question))))
+    (is (contains? sources :handler))))
 
 (deftest build-index-dedups-on-source-id
   (let [dup-panels [{:id :trace :label "Trace"}

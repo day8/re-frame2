@@ -22,8 +22,6 @@ The mechanism:
   explicit `Rewind here` button or `r` keypress.
 - Re-dispatch is a right-click context-menu action, never a single
   click.
-- The AI co-pilot proposes actions via clickable chips; clicking is
-  the user's commitment.
 - The MCP server's mutation tools (`restore-epoch`, `reset-frame-db`,
   `dispatch`) are tagged `:origin :causa-mcp` and surface in the
   trace stream as distinguishable from app-issued mutations.
@@ -89,29 +87,10 @@ If usage data later shows the graph carries more weight than
 predicted, Causa self-instruments (panel-view durations) and the
 decision is reversible. Low-cost reversal.
 
-## Cite the evidence
-
-The AI co-pilot's responses are valuable in proportion to how
-quickly the user can verify them. Every claim references data the
-user can verify:
-
-- Source coords (`events.cljs:213`)
-- Epoch ids (`epoch 10`)
-- Event vectors (`:cart/finalise`)
-- Machine states (`:auth/login-flow → :authenticating`)
-
-If a claim doesn't link to data, it's a tell — and the model is
-hallucinating. The system prompt encodes this discipline; the UX
-surfaces every reference as a clickable chip so verification is
-one click.
-
-The co-pilot is a **navigator, not an oracle**.
-
 ## Ephemeral by default
 
-Conversations are session-local (lock #12). Pins are session-local.
-Settings persist (theme, density, AI provider key); content does
-not.
+Pins are session-local. Settings persist (theme, density); content
+does not.
 
 The privacy bet beats the utility bet. The user's runtime may
 contain sensitive data; Causa stores nothing it doesn't need to.
@@ -183,18 +162,15 @@ v1 of 10x assumed one frame and broke gracefully on multi-frame
 apps. Causa is built frame-first; single-frame apps degrade to
 "the picker is a static label."
 
-## Pull-only AI
+## No AI in the panel surface
 
-The AI co-pilot speaks when spoken to. No narration mode (lock
-#10), no background commentary, no proactive alerts.
-
-The Issues ribbon and the schema-violation timeline are *passive*
-surfaces — they surface anomalies without the model needing to
-explain them. When the user wants explanation, they ask.
-
-This is a privacy choice (no unsolicited LLM calls) and a cost choice
-(no unsolicited tokens) and a UX choice (no chatter the user didn't
-opt into).
+Causa is the human surface only. AI integration lives in the
+separate `tools/pair2-mcp/` jar. The Issues ribbon and the
+schema-violation timeline are *passive* surfaces — they surface
+anomalies without an in-panel narrator. The previous AI co-pilot
+rail was removed under bead rf2-s3vx5; the cost / privacy / UX
+trade-offs that earlier locks debated now route through the MCP
+integration instead.
 
 ## Backed by the framework's principles
 

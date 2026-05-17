@@ -63,8 +63,7 @@
             [panel-gallery.time-travel-stories]
             [panel-gallery.trace-stories]
             [panel-gallery.issues-ribbon-stories]
-            [panel-gallery.causality-graph-stories]
-            [panel-gallery.ai-co-pilot-stories]))
+            [panel-gallery.causality-graph-stories]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -129,40 +128,13 @@
     `error` variant — seeds `:sub-cache-override` +
     `:sub-error-cache` in one assoc (Causa exposes the override
     event for the cache half but no public init event for the
-    error half; the runtime fills it from the trace bus).
-  - `:panel-gallery/seed-copilot` — AI Co-Pilot variants — seeds
-    `:copilot-conversation` + `:copilot-input-text` +
-    `:copilot-provider` + `:copilot-streaming-token-count` +
-    `:copilot-first-used?` + `:copilot-open?` +
-    `:copilot-redaction-settings` from one map argument. Necessary
-    because the panel reads seven slots and Causa has no single
-    public seed event for the panel's resting state."
+    error half; the runtime fills it from the trace bus)."
   []
   (rf/reg-event-db :panel-gallery/seed-sub-cache-and-errors
     (fn [db [_ sub-cache error-cache]]
       (-> db
           (assoc :sub-cache-override sub-cache)
-          (assoc :sub-error-cache    error-cache))))
-
-  (rf/reg-event-db :panel-gallery/seed-copilot
-    (fn [db [_ {:keys [conversation input-text provider
-                       streaming-token-count first-used? open?
-                       redaction-settings]
-                :or {conversation         []
-                     input-text           ""
-                     provider             :claude
-                     streaming-token-count 0
-                     first-used?          true
-                     open?                true}}]]
-      (cond-> (-> db
-                  (assoc :copilot-conversation conversation)
-                  (assoc :copilot-input-text input-text)
-                  (assoc :copilot-provider provider)
-                  (assoc :copilot-streaming-token-count streaming-token-count)
-                  (assoc :copilot-first-used? first-used?)
-                  (assoc :copilot-open? open?))
-        (some? redaction-settings)
-        (assoc :copilot-redaction-settings redaction-settings)))))
+          (assoc :sub-error-cache    error-cache)))))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)

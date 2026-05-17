@@ -44,7 +44,6 @@ The chapters:
 - [7. Hydration debugger](07-hydration.md) — server vs client render diff.
 - [8. Machine inspector](08-machine-inspector.md) — Stately-grade state-chart per machine.
 - [9. App-DB diff](09-app-db-diff.md) — slice-centric diff per epoch.
-- [10. AI co-pilot rail](10-ai-copilot.md) — pull-only Q&A and slash commands.
 - [11. MCP-server panel](11-mcp-server.md) — Causa as an agent surface.
 
 ---
@@ -59,7 +58,7 @@ This is what *first-class tooling* means in re-frame2: not "we shipped a devtool
 
 The integration is *deep*, not bolt-on. The trace events aren't a sidecar log file — they're emitted inline from the pipeline that the runtime is already walking. The epoch records aren't a recording made by a plugin — they're the same records the runtime uses internally to drive `restore-epoch`. There's no second substrate, no shadow runtime, no "make sure devtools is installed first." When the framework knows something happened, the trace bus knows. When the trace bus knows, every attached tool knows.
 
-Causa is just the most *complete* listener — sixteen panels deep, lazily mounted, AI-co-pilot-rail-equipped. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
+Causa is just the most *complete* listener — fifteen panels deep, lazily mounted. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
 
 ## What you get for free
 

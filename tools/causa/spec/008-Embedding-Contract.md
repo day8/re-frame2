@@ -92,7 +92,6 @@ mechanism.
 | Subscription graph | v1.1. |
 | Schema timeline | v1.1. |
 | Hydration debugger | Not embeddable (the panel is contextual to a specific hydration; doesn't compose). |
-| AI co-pilot | Not embeddable (per-page singleton; ephemeral conversation per Causa instance). |
 | Settings | Not embeddable. |
 
 The v1.0 embed set covers Story's needs (per `spec/007-Stories.md`

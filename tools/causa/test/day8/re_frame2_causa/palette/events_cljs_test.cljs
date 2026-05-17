@@ -169,21 +169,6 @@
   (is (zero? (count (trace-bus/buffer))))
   (is (false? (boolean (:palette-open? (causa-db))))))
 
-(deftest invoke-copilot-toggle-dispatches-copilot-toggle
-  (setup!)
-  (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/palette-open])
-    (rf/dispatch-sync
-      [:rf.causa/palette-invoke
-       {:source :setting
-        :id     :copilot-toggle
-        :label  "Toggle co-pilot rail"
-        :action [:palette/copilot-toggle]}
-       false]))
-  (is (true? (boolean (:copilot-open? (causa-db))))
-      "palette-invoke lowers :palette/copilot-toggle into the
-       :rf.causa/copilot-toggle event the co-pilot already owns"))
-
 (deftest popout-flag-routes-through-fx-when-popoutable
   (setup!)
   (install-popout-counter!)

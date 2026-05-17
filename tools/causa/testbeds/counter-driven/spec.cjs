@@ -90,7 +90,7 @@ module.exports = {
     const expectedSidebarIds = [
       'event-detail', 'time-travel', 'app-db', 'causality', 'subs',
       'fx', 'trace', 'machines', 'flows', 'routes', 'performance',
-      'issues', 'schemas', 'hydration', 'mcp-server', 'copilot',
+      'issues', 'schemas', 'hydration', 'mcp-server',
     ];
     for (const id of expectedSidebarIds) {
       const item = page.locator(`[data-testid="rf-causa-sidebar-item-${id}"]`);
