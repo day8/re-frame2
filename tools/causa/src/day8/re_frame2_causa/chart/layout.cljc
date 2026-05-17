@@ -246,8 +246,10 @@
 
 ;; ---- placement ----------------------------------------------------------
 
-(defn- node-id
-  "Stable string id for a node, suitable for SVG ids + React keys."
+(defn node-id
+  "Stable string id for a node, suitable for SVG ids + React keys.
+  Exported so the ELK adapter can mint matching ids on the way through
+  ELK's JSON graph + back."
   [path]
   (->> path
        (map (fn [p]
@@ -359,6 +361,25 @@
          :width      chart-width
          :height     chart-height
          :initial-id (when initial-path (node-id initial-path))}))))
+
+(defn layered-fallback
+  "Explicit alias for the simple layered BFS-rank `layout` fn — exported
+  so callers (e.g. the ELK adapter in
+  `day8.re-frame2-causa.chart.elk-layout`) can request the fallback path
+  by name when ELK.js is unavailable or the topology is small enough that
+  the layered placement reads cleanly.
+
+  Rationale: Phase 4 (rf2-m7co9) introduces an ELK-driven layout that
+  produces the same `{:nodes :edges :width :height :initial-id}` shape
+  this fn returns. Both routes flow through `chart/svg`'s renderer
+  unchanged. The fallback is what JVM tests + node-runtime tests assert
+  against (ELK is a browser-only async loader and is unavailable in
+  those rigs). Renaming the public surface to `layered-fallback`
+  documents the role so consumer code reads as `(layered-fallback def)`
+  rather than `(layout def)` — calling intent matters when there are
+  two layout engines."
+  [definition]
+  (layout definition))
 
 (defn highlight-id
   "Resolve a snapshot `:state` value to the node-id used in the

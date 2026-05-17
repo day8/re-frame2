@@ -262,6 +262,8 @@
    :rf.causa/follow-head
    :rf.causa/hide-event-type
    :rf.causa/hydrate-filters
+   ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
+   :rf.causa/machine-chart-layout-pulse
    :rf.causa/machine-state-clicked
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
@@ -423,7 +425,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 104 subs + 125 events + 6 fxs"
+  (testing "registry holds exactly 104 subs + 126 events + 6 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -498,7 +500,9 @@
     ;;   toggle-mode-c-cluster-expanded + toggle-mode-c-selection +
     ;;   clear-mode-c-selection + set-forced-machine-mode +
     ;;   set-machine-instances-override-for-test.
-    (is (= 125 (count all-event-names)))
+    ;; + 1 machine-inspector Phase 4 (rf2-m7co9):
+    ;;   :rf.causa/machine-chart-layout-pulse — ELK layout async pulse.
+    (is (= 126 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

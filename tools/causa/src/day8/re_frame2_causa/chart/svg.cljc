@@ -58,6 +58,96 @@
     final?     (:green tokens/tokens)
     :else      (:border-default tokens/tokens)))
 
+(defn compound-containers
+  "rf2-m7co9 Phase 4 — compute the bounding box of each compound state
+  from the union of its descendant leaves' positions. Returns a vec of
+  `{:node-id :x :y :width :height :path :label}` maps, one per
+  compound parent that has at least one descendant in the positioned
+  graph. Pure fn — JVM-runnable.
+
+  Why an after-the-fact pass: the layered fallback engine places every
+  state (including compound parents) as a flat node so the data
+  interface stays uniform across engines. The compound container is a
+  *visual* concept — its rectangle is the union-bbox of its children
+  plus a small inset margin. Both the layered and ELK engines feed
+  this fn the same way.
+
+  When the compound parent itself has no children in the projected
+  graph (e.g. an empty `:states {}`) the container is dropped."
+  [nodes]
+  (let [compound-parents (filter :compound? nodes)
+        ;; Group every node by the prefix-paths of its ancestors so we
+        ;; can do a single pass instead of scanning per-parent.
+        by-parent-path
+        (reduce (fn [m n]
+                  (let [p (:path n)]
+                    (if (> (count p) 1)
+                      (let [parent-p (subvec p 0 (dec (count p)))]
+                        (update m parent-p (fnil conj []) n))
+                      m)))
+                {}
+                nodes)
+        pad-x 16
+        pad-y 24                            ;; extra top padding for the title strip
+        ;; For deeply-nested compounds, descendant leaves can sit
+        ;; multiple levels down; collect every descendant by
+        ;; checking the path-prefix.
+        descendants-of
+        (fn [parent-path]
+          (filter (fn [n]
+                    (let [p (:path n)]
+                      (and (> (count p) (count parent-path))
+                           (= parent-path (subvec p 0 (count parent-path))))))
+                  nodes))]
+    (vec
+      (keep
+        (fn [parent]
+          (let [parent-path (:path parent)
+                kids        (or (get by-parent-path parent-path) [])
+                ;; Use the full descendant set so a compound with a
+                ;; compound child still draws a sensible outer hull.
+                hull        (descendants-of parent-path)]
+            (when (seq hull)
+              (let [min-x (apply min (map :x hull))
+                    min-y (apply min (map :y hull))
+                    max-x (apply max (map (fn [n] (+ (:x n) (:width n))) hull))
+                    max-y (apply max (map (fn [n] (+ (:y n) (:height n))) hull))]
+                {:node-id (:node-id parent)
+                 :path    parent-path
+                 :label   (:label parent)
+                 :x       (- min-x pad-x)
+                 :y       (- min-y pad-y)
+                 :width   (+ (- max-x min-x) (* 2 pad-x))
+                 :height  (+ (- max-y min-y) pad-x pad-y)
+                 :leaf-count (count kids)}))))
+        compound-parents))))
+
+(defn- render-compound-container
+  "One translucent box around a compound state's children. Carries a
+  small title strip across the top with the compound state's label so
+  the visual grouping is self-explanatory."
+  [{:keys [x y width height label node-id]}]
+  [:g {:data-testid (str "rf-causa-chart-compound-" node-id)
+       :data-node-id node-id}
+   [:rect {:x x :y y :width width :height height
+           :rx 10
+           :fill "rgba(124, 92, 255, 0.06)"          ;; translucent violet
+           :stroke (:accent-violet tokens/tokens)
+           :stroke-width 1
+           :stroke-dasharray "4 3"
+           :pointer-events "none"}]
+   ;; Title strip — small label flushed top-left so the parent state's
+   ;; name reads as a "section heading" above its children.
+   (when label
+     [:text {:x (+ x 10)
+             :y (+ y 14)
+             :font-family font-stack
+             :font-size 10
+             :font-weight 600
+             :fill (:accent-violet tokens/tokens)
+             :pointer-events "none"}
+      label])])
+
 (defn- arrow-marker
   "Define an arrow marker once, reuse it on every edge."
   []
@@ -155,10 +245,17 @@
         "✓"])]))
 
 (defn- path-from-points
-  "Render an SVG path `d` attribute from a point list. Straight lines
-  for 2 points, cubic bezier for 4."
+  "Render an SVG path `d` attribute from a point list.
+
+    - 2 points → straight line.
+    - 4 points → cubic bezier (self-loop / hand-routed S-curve).
+    - 3 or 5+ points → polyline (ELK orthogonal routing returns
+      multi-segment edges via bend points; we render them as connected
+      `L` segments). rf2-m7co9 Phase 4."
   [points]
   (case (count points)
+    0 ""
+    1 ""
     2 (let [[[x1 y1] [x2 y2]] points]
         (str "M " x1 " " y1 " L " x2 " " y2))
     4 (let [[[x1 y1] [cx1 cy1] [cx2 cy2] [x2 y2]] points]
@@ -166,14 +263,34 @@
              " C " cx1 " " cy1
              " "  cx2 " " cy2
              " "  x2  " " y2))
-    ""))
+    ;; 3 or 5+ points → polyline.
+    (let [[[x0 y0] & rst] points]
+      (str "M " x0 " " y0
+           " "
+           (str/join " "
+                     (map (fn [[x y]] (str "L " x " " y)) rst))))))
 
 (defn- edge-label-position
-  "Mid-point of the edge for label placement. For self-loops, place
-  the label to the right of the control points."
+  "Mid-point of the edge for label placement.
+
+    - 4-point self-loop bezier → label to the right of the control
+      points.
+    - 2-point straight line → midpoint of the segment.
+    - 3+ point polyline (orthogonal routing) → midpoint of the middle
+      segment so the label sits near the visual centre of the path."
   [points]
-  (if (= 4 (count points))
+  (cond
+    (= 4 (count points))
     (let [[_ [cx _] _ _] points] [(+ cx 30) (second (second points))])
+
+    (>= (count points) 3)
+    (let [n (count points)
+          mid-idx (quot n 2)
+          [x1 y1] (nth points (dec mid-idx))
+          [x2 y2] (nth points mid-idx)]
+      [(quot (+ x1 x2) 2) (- (quot (+ y1 y2) 2) 6)])
+
+    :else
     (let [[[x1 y1] [x2 y2]] points]
       [(quot (+ x1 x2) 2) (- (quot (+ y1 y2) 2) 6)])))
 
@@ -249,7 +366,8 @@
      (let [initial-node (some (fn [n]
                                 (when (and (:initial? n)
                                            (= 0 (:depth n))) n))
-                              nodes)]
+                              nodes)
+           containers (compound-containers nodes)]
        [:svg {:data-testid (or testid "rf-causa-chart-svg")
               :data-highlight-id (or highlight-id "")
               :viewBox (str "0 0 " width " " height)
@@ -260,6 +378,12 @@
                       :max-height "100%"
                       :display "block"}}
         (arrow-marker)
+        ;; Compound containers sit BELOW edges + nodes so the dashed
+        ;; outline reads as a backdrop. rf2-m7co9 Phase 4.
+        (into [:g {:data-testid "rf-causa-chart-compounds"}]
+              (for [c containers]
+                ^{:key (:node-id c)}
+                (render-compound-container c)))
         ;; Edges first so nodes paint over them
         (into [:g {:data-testid "rf-causa-chart-edges"}]
               (for [edge edges]

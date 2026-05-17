@@ -139,3 +139,36 @@
 
 (deftest highlight-id-nil-for-nil-state
   (is (nil? (layout/highlight-id nil))))
+
+;; ---- layered-fallback (rf2-m7co9 Phase 4) ----------------------------
+
+(deftest layered-fallback-matches-layout
+  (testing "rf2-m7co9 exports `layered-fallback` as an explicit alias
+            for the layered placement so consumer code can request the
+            fallback path by name (ELK is the new primary engine)."
+    (let [via-layout    (layout/layout idle-loading-success)
+          via-fallback  (layout/layered-fallback idle-loading-success)]
+      (is (= via-layout via-fallback)
+          "layered-fallback returns the exact same chart-layout shape
+           as `layout` — they're aliases by design"))))
+
+(deftest layered-fallback-handles-empty
+  (let [g (layout/layered-fallback nil)]
+    (is (= [] (:nodes g)))
+    (is (= [] (:edges g)))
+    (is (pos? (:width g)))
+    (is (pos? (:height g)))))
+
+;; ---- node-id (rf2-m7co9 Phase 4 — exported) --------------------------
+
+(deftest node-id-is-public-fn
+  (testing "node-id is exported (no longer private) so the ELK adapter
+            can mint matching ids on the way through ELK's graph"
+    (is (string? (layout/node-id [:idle])))
+    (is (= (layout/node-id [:idle])
+           (layout/node-id [:idle]))
+        "deterministic")))
+
+(deftest node-id-distinct-for-distinct-paths
+  (is (not= (layout/node-id [:authenticated])
+            (layout/node-id [:authenticated :browsing]))))
