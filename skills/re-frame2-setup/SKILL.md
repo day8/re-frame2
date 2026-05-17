@@ -79,7 +79,7 @@ Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/sc
 ## Troubleshooting (common build failures)
 
 - **`Could not locate re-frame/core.cljs`** — artefact not on classpath. Check `deps.edn` and that `shadow-cljs.edn` reads it (`clj -Stree | grep re-frame2`).
-- **`Could not locate reagent/dom/client.cljs`** — `react` / `react-dom` not installed. `npm install react react-dom`. Reagent 2.x needs React 18+.
+- **`Could not locate reagent/dom/client.cljs`** — `react` / `react-dom` not installed. `npm install react react-dom`. Reagent 2.x needs React 19.
 - **Counter doesn't update, no errors** — `(rf/init! reagent-adapter/adapter)` not called, or called after `rdc/render`. Move it to the top of `run`.
 - **Blank page, no console errors** — `index.html` missing `<main id="app">` / `<div id="app">`, or entry ns looking up a different id.
 - **Causa logs missing layout host** — add the true-inline host markup/CSS from `reference/shadow-cljs.md`, or configure `{:layout/host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.

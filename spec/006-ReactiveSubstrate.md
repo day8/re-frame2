@@ -178,7 +178,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 ;; unmount-fn signature: (fn [] nil) — idempotent; releases all resources
 ```
 
-CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 18+ Root API); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root (rf2-fn5rk).
+CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 19 client-Root API; the same `createRoot` shape React 18 introduced); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root (rf2-fn5rk).
 SSR-on-JVM: this function isn't called server-side — `render-to-string` is used instead. The adapter may stub `render` to throw on the JVM.
 
 ### `(render-to-string render-tree opts) → string`
@@ -667,7 +667,7 @@ This section is the **bridging pseudocode** for both. For each contract function
     (fn [] (apply compute-fn (map deref source-containers)))))
 
 ;; -- 6. render --------------------------------------------------------------
-;; React 18+ takes a `Root` (from `reagent.dom.client/create-root`) — NOT
+;; React 19 takes a `Root` (from `reagent.dom.client/create-root`) — NOT
 ;; a raw DOM element. The non-hydrate path creates the Root then renders
 ;; into it; the hydrate path's `hydrate-root` returns its own Root. The
 ;; returned unmount-fn closes over the Root so the runtime can release it
@@ -716,7 +716,7 @@ This section is the **bridging pseudocode** for both. For each contract function
         (some-> (:pending-dispose entry) interop/clear-timeout!)
         (some-> (:reaction entry) interop/dispose!))
       (reset! cache {})))
-  ;; Step 2 — unmount any active React 18+ Roots (rf2-9fdkb).
+  ;; Step 2 — unmount any active React 19 Roots (rf2-9fdkb).
   (doseq [root @active-roots]
     (try (rdc/unmount root) (catch :default _ nil)))
   (reset! active-roots #{})

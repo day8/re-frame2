@@ -17,18 +17,18 @@ Operational detail for **M-0 — the dep-coord swap**. This is the precondition 
 
 ### Prerequisites — JS-level deps
 
-**React 18+ is required by `day8/re-frame2-reagent`.** The Reagent bridge adapter loads `reagent.dom.client` (the React-18 createRoot path); if the project's `package.json` pins `react`/`react-dom` below 18, the build either fails at module-resolve time or — worse — succeeds and crashes on first render with `createRoot is not a function`. Bump them in the same M-0 pass:
+**React 19 is the only supported floor for `day8/re-frame2-reagent`.** The Reagent bridge adapter targets Reagent 2.x, which ships against React 19; Reagent 1.x is no longer supported. The bridge loads `reagent.dom.client` (the `createRoot` path); if the project's `package.json` pins `react`/`react-dom` to 17 or 18, the build either fails at module-resolve time or succeeds and crashes on first render against React-19-only API surfaces. If your `package.json` pins `react` 17 or 18, bump to `^19` in the same M-0 pass:
 
 ```json
 "dependencies": {
-  "react":     "^18.3.1",
-  "react-dom": "^18.3.1"
+  "react":     "^19.0.0",
+  "react-dom": "^19.0.0"
 }
 ```
 
-Then `npm install` (or the project's package manager equivalent) before the first dev build. UIx and Helix users hit the same floor — both require React 18+ — so the bump applies regardless of substrate. If the project is already on React 18+, leave it alone; do not downgrade.
+Then `npm install` (or the project's package manager equivalent) before the first dev build. UIx and Helix users hit the same floor — all three substrates target React 19 — so the bump applies regardless of substrate. If the project is already on React 19, leave it alone; do not downgrade.
 
-If the v1 codebase has its own hand-rolled `ReactDOM.render` call surviving anywhere (rare; usually wrapped by Reagent), flag it — `ReactDOM.render` is removed in React 18 and that call site needs to migrate to `createRoot` in the same pass. Most v1 codebases route through Reagent and never see this.
+If the v1 codebase has its own hand-rolled `ReactDOM.render` call surviving anywhere (rare; usually wrapped by Reagent), flag it — `ReactDOM.render` was removed in React 18 and is still gone in React 19; that call site needs to migrate to `createRoot` in the same pass. Most v1 codebases route through Reagent and never see this.
 
 ### The swap itself
 

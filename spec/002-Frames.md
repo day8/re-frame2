@@ -525,7 +525,7 @@ The context's value is the **keyword**, not the frame record: each consumer reso
 - **No `frame-provider` in scope.** Reagent's `(.-context cmp)` returns the React empty default (`#js {}`); the keyword/string check fails and the lookup falls through to `:rf/default`. Function-component substrates read `_currentValue` directly, which equals the createContext default (`:rf/default`).
 - **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:rf/default`.
 - **Reagent prop-conversion of named values** (rf2-d4sf). Stock Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props. The canonical user-facing surface (`rf/frame-provider`) sidesteps this by mounting the Provider via Reagent's `:r>` interop head — the props map flows to React as a raw JS object, so `:value :foo/bar` reaches React as the original keyword and the namespace is preserved across the React-context round trip on every adapter. A user who writes `[:> (.-Provider frame-context) {:value :foo}]` directly (raw `:>` interop, not `rf/frame-provider`) still passes through stock Reagent's prop-conversion under the classic adapter: `convert-prop-value` rewrites `:foo` to `"foo"`, and `re-frame.adapter.context/coerce-context-value` rounds the string back to a keyword. Note that `(name kw)` is lossy for namespaced keywords (`(name :auth/main)` → `"main"`); raw-hiccup mounts that need a namespaced frame-id should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
-- **Concurrent rendering.** React 18 may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
+- **Concurrent rendering.** React 19 (and the React 18 concurrent renderer before it) may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
 
 ### View-side details — see Spec 004
 
@@ -1254,7 +1254,7 @@ If two frames depend on a shared piece of *registry* state (handler definitions)
 
 ### Concurrent React rendering
 
-React 18's concurrent rendering can render the same component multiple times before committing. `reg-view`'s injected `dispatch` is a value, so it survives this fine. But any `dispatch` *executed during render* (Form-2's outer fn, `:on-create`-style patterns) may run more than once. Confirm with the substrate (Reagent today; possibly UIx tomorrow) and document.
+React 19's concurrent rendering can render the same component multiple times before committing. `reg-view`'s injected `dispatch` is a value, so it survives this fine. But any `dispatch` *executed during render* (Form-2's outer fn, `:on-create`-style patterns) may run more than once. Confirm with the substrate (Reagent today; possibly UIx tomorrow) and document.
 
 ### Sub-cache disposal on frame destroy
 
