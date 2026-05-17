@@ -1,6 +1,6 @@
 # counter_with_stories
 
-The canonical worked example for [`tools/story/`](../../../tools/story/)
+The canonical worked example for [`tools/story/`](../../../../tools/story/)
 (`day8/re-frame2-story`). The counter the rest of the guide pivots
 around, with the seven Story authoring macros wired up end-to-end:
 
@@ -61,7 +61,7 @@ README markets as a headline feature:
   else passes through.
 
 The example also registers a console-logging
-[`event-emit` listener](../../../docs/guide/22-trace-to-datadog.md)
+[`event-emit` listener](../../../../docs/guide/22-trace-to-datadog.md)
 at boot via `rf/register-event-emit-listener!`. Every dispatched
 event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
@@ -91,7 +91,7 @@ npm run test:examples
 ```
 
 The orchestrator at
-[`examples/scripts/serve-and-run-examples-tests.cjs`](../../scripts/serve-and-run-examples-tests.cjs)
+[`examples/scripts/serve-and-run-examples-tests.cjs`](../../../../examples/scripts/serve-and-run-examples-tests.cjs)
 compiles every example, stages this directory's `index.html`,
 serves the output over HTTP on `127.0.0.1:8030`, and runs every
 `*.spec.cjs` under `examples/`. The spec navigates between
@@ -123,9 +123,9 @@ hot-reload the Story shell against your edits.
 
 ## Bundle isolation
 
-Per [`tools/story/spec/005-SOTA-Features.md` §Production elision](../../../tools/story/spec/005-SOTA-Features.md) and the
+Per [`tools/story/spec/005-SOTA-Features.md` §Production elision](../../../../tools/story/spec/005-SOTA-Features.md) and the
 Stage-8 sentinel addition to
-[`implementation/scripts/check-bundle-isolation.cjs`](../../../implementation/scripts/check-bundle-isolation.cjs),
+[`implementation/scripts/check-bundle-isolation.cjs`](../../../../implementation/scripts/check-bundle-isolation.cjs),
 the counter example's `:advanced` bundle MUST NOT carry any Story
 implementation symbols. The contract is enforced by:
 
@@ -142,7 +142,7 @@ implementation symbols. The contract is enforced by:
 
 ## See also
 
-- The Story tutorial at [`docs/story/`](../../../docs/story/).
-- The Story tool's authoring contract at [`tools/story/spec/`](../../../tools/story/spec/).
-- The normative spec at [`spec/007-Stories.md`](../../../spec/007-Stories.md).
-- The agent-facing MCP surface at [`tools/story-mcp/`](../../../tools/story-mcp/).
+- The Story tutorial at [`docs/story/`](../../../../docs/story/).
+- The Story tool's authoring contract at [`tools/story/spec/`](../../../../tools/story/spec/).
+- The normative spec at [`spec/007-Stories.md`](../../../../spec/007-Stories.md).
+- The agent-facing MCP surface at [`tools/story-mcp/`](../../../../tools/story-mcp/).

@@ -74,9 +74,8 @@ that keyword is the only branch site.
 ## Legacy variant
 
 This example is the canonical implementation of Pattern-NineStates.
-For the pre-parallel-regions variant (nine boolean discriminator subs
-+ priority `cond`) — supported but not recommended for new code — see
-[`spec/Pattern-NineStates.md` §Appendix — Pre-parallel-regions variant](../../../spec/Pattern-NineStates.md#appendix--pre-parallel-regions-variant-deprecated-but-supported).
+The pre-parallel-regions variant — nine boolean discriminator subs
++ priority `cond` — is supported but not recommended for new code.
 
 ## File layout
 

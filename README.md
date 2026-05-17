@@ -178,7 +178,6 @@ spec/                          Full specification (AI-targeted; the primary arte
   CP-5-MachineGuide.md         Companion to Construction-Prompts CP-5 (deeper machine guidance)
   Spec-Schemas.md              Spec-internal shape descriptions
   AI-Audit.md                  Specs scored against the AI-first properties
-  MIGRATION.md                 re-frame v1.x → re-frame2 migration prompt (CLJS)
   Implementor-Checklist.md     Decision-ordered companion to the Host-profile matrix (porting to a new host)
   Tool-Pair.md                 Runtime contract for pair-shaped AI tools (re-frame-pair equivalents)
   Runtime-Architecture.md      Bird's-eye view of the runtime
