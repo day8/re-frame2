@@ -99,3 +99,38 @@
     (when click (click nil))
     (is (= [[:loading]] @seen)
         "click handler receives the state's :path")))
+
+;; ---- sparkline primitive (rf2-juon8, Mode C) ---------------------------
+
+(deftest sparkline-emits-stable-svg-root
+  (let [svg (chart-svg/sparkline [1 2 3])]
+    (is (vector? svg))
+    (is (= :svg (first svg)))
+    (is (= "rf-causa-chart-sparkline"
+           (:data-testid (second svg))))))
+
+(deftest sparkline-empty-samples-still-renders-baseline-only
+  (let [svg      (chart-svg/sparkline [])
+        polylines (filter #(and (vector? %) (= :polyline (first %)))
+                          (hiccup-seq svg))]
+    (is (vector? svg))
+    (is (zero? (count polylines))
+        "empty samples → baseline-only SVG (no polyline)")))
+
+(deftest sparkline-includes-polyline-when-enough-samples
+  (let [svg (chart-svg/sparkline [0 1 2 3])
+        ;; polyline is inline; walk and find one
+        nodes (filter #(and (vector? %) (= :polyline (first %)))
+                      (hiccup-seq svg))]
+    (is (= 1 (count nodes)))
+    (let [pl (first nodes)]
+      (is (string? (-> pl second :points)))
+      (is (= "none" (-> pl second :fill))))))
+
+(deftest sparkline-data-samples-attribute-roundtrips
+  (let [svg (chart-svg/sparkline [0 1 5 2 3])]
+    (is (= "[0 1 5 2 3]" (:data-samples (second svg))))))
+
+(deftest sparkline-honours-custom-testid
+  (let [svg (chart-svg/sparkline [1 2 3] {:testid "rf-cluster-rate-1"})]
+    (is (= "rf-cluster-rate-1" (:data-testid (second svg))))))

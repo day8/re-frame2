@@ -128,11 +128,20 @@
    :rf.causa/hydration-reroot-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
+   :rf.causa/forced-machine-mode
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
+   :rf.causa/machine-instances
+   :rf.causa/machine-instances-override
    :rf.causa/machine-snapshots
    :rf.causa/machine-snapshots-override
+   :rf.causa/mode-c-cluster-by
+   :rf.causa/mode-c-clusters
+   :rf.causa/mode-c-compare-table
+   :rf.causa/mode-c-context-key
+   :rf.causa/mode-c-expanded
+   :rf.causa/mode-c-selection
    :rf.causa/mcp-filters
    :rf.causa/mcp-origin-filter-enabled?
    :rf.causa/mcp-server
@@ -223,6 +232,7 @@
    :rf.causa/clear-machine-selection
    :rf.causa/clear-mcp-filters
    :rf.causa/clear-mismatch-selection
+   :rf.causa/clear-mode-c-selection
    :rf.causa/clear-route-selection
    :rf.causa/clear-selected-dispatch-id
    :rf.causa/clear-selected-epoch
@@ -284,10 +294,14 @@
    :rf.causa/select-tab
    :rf.causa/select-violation
    :rf.causa/set-active-route-slice-override-for-test
+   :rf.causa/set-forced-machine-mode
    :rf.causa/set-frame
    :rf.causa/set-machine-definitions-override-for-test
+   :rf.causa/set-machine-instances-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
    :rf.causa/set-mcp-since-seconds
+   :rf.causa/set-mode-c-cluster-by
+   :rf.causa/set-mode-c-context-key
    :rf.causa/set-performance-budget-ms
    :rf.causa/set-registered-flows-override-for-test
    :rf.causa/set-registered-fxs-override-for-test
@@ -310,6 +324,8 @@
    :rf.causa/toggle-live-pause
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
+   :rf.causa/toggle-mode-c-cluster-expanded
+   :rf.causa/toggle-mode-c-selection
    :rf.causa/unpin
    :rf.causa/unpin-slice
    ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
@@ -396,7 +412,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 91 subs + 113 events + 6 fxs"
+  (testing "registry holds exactly 100 subs + 120 events + 6 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -423,8 +439,13 @@
     ;; + 3 popover (rf2-dqnuu) − 1 deleted panel sub:
     ;;   :rf.causa/causality-popover-open? + -layout + -payload added;
     ;;   :rf.causa/causality-graph-data deleted with the panel.
-    ;;   Net +2 → 91.
-    (is (= 91 (count all-sub-names)))
+    ;;   Net +2.
+    ;; + 9 machine-inspector Mode C (rf2-juon8 Phase 3):
+    ;;   :rf.causa/mode-c-cluster-by + mode-c-context-key +
+    ;;   mode-c-expanded + mode-c-selection + machine-instances +
+    ;;   machine-instances-override + mode-c-clusters +
+    ;;   mode-c-compare-table + forced-machine-mode.
+    (is (= 100 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -457,8 +478,13 @@
     ;; + 5 popover (rf2-dqnuu):
     ;;   causality-popover-open / -close / -toggle / -toggle-layout /
     ;;   -layout-pulse. The popover replaces the dropped Causality
-    ;;   tab — see spec/018-Event-Spine.md §10. Net +5 → 113.
-    (is (= 113 (count all-event-names)))
+    ;;   tab — see spec/018-Event-Spine.md §10. Net +5.
+    ;; + 7 machine-inspector Mode C (rf2-juon8 Phase 3):
+    ;;   :rf.causa/set-mode-c-cluster-by + set-mode-c-context-key +
+    ;;   toggle-mode-c-cluster-expanded + toggle-mode-c-selection +
+    ;;   clear-mode-c-selection + set-forced-machine-mode +
+    ;;   set-machine-instances-override-for-test.
+    (is (= 120 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
