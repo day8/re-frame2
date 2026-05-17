@@ -54,7 +54,6 @@
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
@@ -106,7 +105,7 @@
    ;; ── mcp-server panel begin ──
    {:id :mcp-server   :label "MCP"}
    ;; ── mcp-server panel end ──
-   {:id :copilot      :label "Co-pilot"}])
+   ])
 
 ;; ---- regions -------------------------------------------------------------
 
@@ -117,13 +116,7 @@
 
   v1 stub: brand mark + version label + close-affordance text.
   Live causality strip / frame picker / Issues badge land as
-  follow-on work.
-
-  Per rf2-in6l2 the body subscribes (`:rf.causa/copilot-open?`) so
-  the component is `reg-view`-registered — the wrapper attaches
-  `:contextType frame-context` so the surrounding `[rf/frame-provider
-  {:frame :rf/causa}]` (in `shell-view` below) reaches the subscribe
-  via React context."
+  follow-on work."
   [_props]
   [:div {:style {:display          "flex"
                  :align-items      "center"
@@ -147,12 +140,6 @@
                   :color    (:text-secondary tokens)
                   :font-size (:caption type-scale)
                   :font-weight 400}}
-    ;; Collapsed-cue affordance per spec/007-UX-IA.md §The AI co-pilot
-    ;; collapsed cue — the magenta `◇` glyph pulses every 8 seconds
-    ;; until the user has used the co-pilot once. Renders only when the
-    ;; rail is closed; clicking it toggles the rail open.
-    (when-not @(rf/subscribe [:rf.causa/copilot-open?])
-      [ai-co-pilot/ai-co-pilot-cue])
     [:span "Ctrl+Shift+C to toggle"]]])
 
 (defn- sidebar-item
@@ -304,10 +291,6 @@
        ;; ── mcp-server panel begin ──
        :mcp-server   [mcp-server/Panel]
        ;; ── mcp-server panel end ──
-       ;; Sidebar Co-pilot row renders the panel-style view in the
-       ;; canvas; the rail still lives in the shell's right margin per
-       ;; spec/007-UX-IA.md §The five regions item 4.
-       :copilot      [ai-co-pilot/Panel]
        [unknown-panel selected])]))
 
 (rf/reg-view bottom-rail
@@ -358,22 +341,6 @@
 
 ;; ---- shell view ----------------------------------------------------------
 
-;; Right-edge rail gate (rf2-in6l2). Extracted as its own `reg-view`
-;; so the `:rf.causa/copilot-open?` subscribe routes through React
-;; context to `:rf/causa` — the parent `shell-view` itself is mounted
-;; at the React-context default (no enclosing Provider above it), so
-;; a subscribe in its own body would route to `:rf/default`. Child
-;; components rendered INSIDE the frame-provider see `:rf/causa` via
-;; the React-context tier.
-(rf/reg-view rail-gate
-  "Conditional right-edge rail per spec/007-UX-IA.md §The five regions
-  item 4. Collapsed by default (Lock 8); renders only when
-  `:rf.causa/copilot-open?` is true. The cue glyph in the top strip is
-  the affordance for opening it when collapsed."
-  []
-  (when @(rf/subscribe [:rf.causa/copilot-open?])
-    [ai-co-pilot/ai-co-pilot-rail]))
-
 (defn panel-content
   "Return the hiccup view for a panel id. Dispatch table for the shell
   canvas — every sidebar selection resolves to the matching panel view."
@@ -398,7 +365,6 @@
     ;; ── mcp-server panel begin ──
     :mcp-server   [mcp-server/Panel]
     ;; ── mcp-server panel end ──
-    :copilot      [ai-co-pilot/Panel]
     [unknown-panel selected]))
 
 (rf/reg-view shell-view
@@ -457,8 +423,7 @@
                    :flex-direction "row"
                    :overflow      "hidden"}}
      [sidebar]
-     [canvas]
-     [rail-gate]]
+     [canvas]]
     [bottom-rail]
     ;; Command palette (rf2-wm7z4) — mounted at the shell root so it
     ;; overlays the chrome + panels. The Modal short-circuits to nil

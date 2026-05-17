@@ -52,12 +52,13 @@
   CLJS-only. The shell's `main-pane` only reaches `test-view` via the
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
-  (:require [reagent.core                            :as r]
-            [re-frame.story.ui.open-in-editor        :as open-in-editor]
-            [re-frame.story.ui.state                 :as shell-state]
-            [re-frame.story.ui.test-mode.pure        :as pure]
-            [re-frame.story.ui.test-mode.state       :as state]
-            [re-frame.story.ui.test-mode.view-styles :refer [styles]]))
+  (:require [reagent.core                              :as r]
+            [re-frame.story.ui.open-in-editor          :as open-in-editor]
+            [re-frame.story.ui.state                   :as shell-state]
+            [re-frame.story.ui.test-mode.pure          :as pure]
+            [re-frame.story.ui.test-mode.state         :as state]
+            [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
+            [re-frame.story.ui.test-mode.view-styles   :refer [styles]]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
 ;; leaf, no Reagent dep). Required as `styles` above so the in-file
@@ -414,5 +415,6 @@
                       :aria-label "Variant tests"}
             [header variant-id]
             [summary-section variant-id]
+            [stepper-view/stepper-section variant-id]
             [scrubber-section variant-id]
             [rows-section variant-id]]))})))

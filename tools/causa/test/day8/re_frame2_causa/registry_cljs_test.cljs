@@ -93,19 +93,12 @@
   (and (keyword? id)
        (#{"rf.causa" "rf.causa.issues"} (namespace id))))
 
-(defn- copilot-event-id? [id]
-  (and (keyword? id)
-       (.startsWith (name id) "copilot-")))
-
 (defn- catalogued-causa-event-id? [id]
-  (and (causa-event-id? id)
-       (not (copilot-event-id? id))))
+  (causa-event-id? id))
 
 (def ^:private all-sub-names
   "Every :rf.causa/* sub registered by `register-causa-handlers!`. Sorted
-  for stable iteration in the smoke block. AI Co-Pilot subs live behind
-  a separate `install!` call so they are intentionally excluded — this
-  file's scope is registry.cljs only."
+  for stable iteration in the smoke block."
   [:rf.causa/active-route-slice
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
@@ -134,7 +127,6 @@
    :rf.causa/pinned-slices
    :rf.causa/pinned-slices-store
    :rf.causa/palette-active-item
-   :rf.causa/palette-copilot-questions
    :rf.causa/palette-cursor
    :rf.causa/palette-index
    :rf.causa/palette-open?
@@ -293,7 +285,7 @@
           (str "expected :event handler for " event-id)))))
 
 (deftest registry-installs-every-catalogued-event-and-no-dead-core-events
-  (testing "register-causa-handlers! installs the catalogued non-Co-Pilot Causa events"
+  (testing "register-causa-handlers! installs the catalogued Causa events"
     (registry/register-causa-handlers!)
     (let [actual (->> (registrar/registrations :event)
                       keys
@@ -316,8 +308,7 @@
             duplicates (into {}
                              (filter (fn [[_id n]] (> n 1)))
                              freqs)]
-        (is (= (set all-event-names)
-               (set (remove copilot-event-id? @registered))))
+        (is (= (set all-event-names) (set @registered)))
         (is (= {} duplicates)
             (str "duplicate event registrations: " duplicates))))))
 
@@ -329,12 +320,11 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 73 subs + 75 events + 5 fxs"
-    ;; 66 baseline + 7 palette (rf2-wm7z4):
-    ;;   palette-active-item / palette-copilot-questions /
-    ;;   palette-cursor / palette-index / palette-open? /
-    ;;   palette-query / palette-results
-    (is (= 73 (count all-sub-names)))
+  (testing "registry holds exactly 72 subs + 75 events + 5 fxs"
+    ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
+    ;;   palette-active-item / palette-cursor / palette-index /
+    ;;   palette-open? / palette-query / palette-results
+    (is (= 72 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):

@@ -39,8 +39,7 @@
    :setting          (:yellow tokens)
    :recent-event     (:green tokens)
    :frame            (:magenta tokens)
-   :handler          (:text-secondary tokens)
-   :copilot-question (:orange tokens)})
+   :handler          (:text-secondary tokens)})
 
 (defn- backdrop-style []
   {:position         "fixed"

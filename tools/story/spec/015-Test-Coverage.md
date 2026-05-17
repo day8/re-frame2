@@ -106,6 +106,7 @@ follow-up implementation bead, not here:
 | Mode tabs | `:dev`, `:docs`, and `:test` tabs are per-variant, accessible, persisted, and read-only where specified. | Counter testable variants. | Switch tabs, reload, assert active tab/localStorage. | Unknown persisted tab falls back to `:dev`. | After burst, active tab remains and switching back to `:dev` restores canvas args/modes. | Variant id, tab id, localStorage key, aria-selected. | `npm run test:cljs`; `npm run test:examples`; `test:story-feature-load` | Covered |
 | Docs mode | Docs pane renders header, prose, args, decorators, parameters, tags, and tag links from registry data. | Counter docs-rich variant; prose workspace. | Open docs tab and assert every section. | Variant with minimal metadata renders empty sections gracefully. | After burst, docs remain read-only and content unchanged. | Variant body, parent story body, section projection, source coord. | `npm run test:cljs`; `npm run test:examples`; `test:story-feature-load` | Covered |
 | Test mode pane | Test pane auto-runs testable variants, shows summary, rows, failure detail, elapsed/timestamp, re-run, and empty state. | Counter passing/failing/no-play variants. | Open test tab, assert pass rows and re-run update. | No `:play` variant renders empty state; failing variant shows detail without throw. | After burst, re-open test tab and re-run; counts are deterministic. | Assertion rows, summary counts, elapsed, source coord, run id. | `npm run test:cljs`; `npm run test:examples`; `test:story-feature-load` | Covered |
+| Play step-debugger (rf2-ulw5m) | Step / pause / rewind / step-back / breakpoint controls drive the variant's `:play` sequence one event at a time inside the `:test` pane; the canvas re-renders against each step's app-db. | Counter `:loaded` variant with non-empty `:play` (`/loaded` exposes a multi-step play sequence). | `story_feature_load.cjs` opens `:story.counter/loaded` in `:test` mode, clicks Start, then drives Step → / Step-back → / Rewind / Stop and asserts the progress label transitions through `ready · N steps` → `step 1 of N` → `ready · N steps`. | Step / step-back / rewind buttons render disabled at the boundaries (cursor 0 or cursor = total); Stop returns the section to the inactive placeholder without leaking the substrate's per-frame state. | After burst, re-Start the stepper and re-drive Step → / Step-back / Rewind; progress label transitions remain deterministic. | Variant id, slot `:active?` / `:cursor` / `:total` / `:auto-playing?`, breakpoint set, epoch-stack depth, controls strip data-test selectors. | `npm run test:cljs`; `test:story-feature-load` | Covered |
 | Chrome test widget | Sidebar widget aggregates testable variants, run-all updates dots, and pending/running/pass/fail semantics are visible. | Counter `:test` variants plus failing assertion variant. | Click Run all and assert counts/dots. | No testable variants renders empty widget. | After burst, Run all again and counts/dots remain deterministic. | Testable ids, per-variant summaries, dot statuses, run state. | `npm run test:cljs`; `test:story-feature-load` | Covered |
 | Test watch mode | Watch mode detects snapshot drift and re-runs drifted testable variants only. | Counter variants with editable `:play`/args content hash in dev. | Toggle watch, mutate registration, assert affected dot reruns. | Static mode suppresses watch detector; toggle-off clears baseline. | After burst, enable watch and assert no spurious rerun until drift. | Content hashes, drifted ids, previous/new summaries, static flag. | `npm run test:cljs`; `test:story-feature-load` | Partial — feature shipped (auto-rerun on variant content change, rf2-z1h0f); browser-level toggle + drift-rerun assertion still deferred (bd:rf2-s75sy) |
 | Actions panel | User-action dispatches and dispatch-shaped fx emissions appear chronologically with pause, clear, auto-scroll, and source clicks. | Counter inc/dec/save; login submit/failure. | Click controls and assert action rows. | Empty action log renders empty state; pause stops appending until resumed. | After 20-event burst, exactly 20 new action rows or documented filtered count appear. | Row count, event/fx ids, payloads, timestamps, source coords, paused flag. | `npm run test:cljs`; `npm run test:examples`; `test:story-feature-load` | Covered |
@@ -126,6 +127,193 @@ follow-up implementation bead, not here:
 | Bundle size comparison | Bundle-size bench produces a raw/gzip comparison of Story-on / Story-off / static builds. Output is informational; no threshold gate. By design the bench exits 0 always — size review is a human concern on PRs that touch the production bundle, not a CI fail-stop. (See `tools/story/bench/bundle-size.cjs` and rf2-txb72 bookkeeping note: a hard threshold would either flap on legitimate growth or rubber-stamp regressions; the bench's job is to surface the delta, not adjudicate it.) | Counter baseline, Story-on, static build. | Run bundle-size benchmark and inspect raw/gzip output. | Missing build output is reported with the artifact path; no threshold comparison. | After optional browser burst, no new chunk/assets are generated at runtime. | Raw/gzip sizes, deltas, output files. | `node ../tools/story/bench/bundle-size.cjs` | Covered |
 | Third-party egress | Story does not make third-party network calls except explicit opt-in surfaces; QR is local. | Counter shell with network recorder; share/QR path; a11y no-consent path. | `story_feature_load.cjs` captures browser requests while opening shell and share/QR surfaces. | The gate fails on unexpected cross-origin requests, QR-service URLs, or axe/CDN URLs when a11y opt-in has not been set. | Full feature-load gate checks the network log after the 20-event burst as part of the matrix rerun. | Request URL and whether it matched unexpected cross-origin, QR service, or non-opt-in a11y CDN patterns. | `test:story-feature-load` | Covered |
 | Hot reload / fingerprint drift | Decorator/content fingerprint changes trigger the documented refresh path without losing unrelated shell state. | Dev-only editable counter variant/decorator. | Mutate registration under watch and assert refresh tick/fingerprint. | Static mode disables detector. | After burst, apply one drift and assert only affected variant refreshes. | Old/new fingerprints, hot-reload tick, affected ids, preserved state. | `npm run test:cljs` | Covered |
+
+## Scenario-decomposition matrix (rf2-ny3ih expansion)
+
+> The wide matrix above lists every user-visible feature exactly once. This
+> section decomposes the marquee feature axes into per-scenario rows so an
+> auditor can pivot on "for force-fx-stub, what specific scenarios are
+> tested?" without re-reading source. Each scenario carries its own
+> acceptance criteria + spec cross-reference; where a scenario has no
+> direct test, the row's Status cell names the follow-on bead filed under
+> rf2-ny3ih.
+
+### `force-fx-stub` scenarios — spec/004 §`force-fx-stub` decorator
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| HTTP fx stub (single ref) | Variant with `[:rf.story/force-fx-stub :http {:status :ok}]` decorator; `:play` dispatches an event whose handler returns `{:fx [[:http ...]]}`. | Stub intercepts; real `:http` handler does not run; `stub-call-log-for` records `{:fx-id :http :payload {...}}`; `:rf.assert/effect-emitted :http` passes. | `tools/story/test/re_frame/story_fx_stubs_test.clj` §`force-fx-stub-emits-fx-into-accumulator` + §`force-fx-stub-log-captures-payload`. | Covered |
+| Analytics fx stub | Variant with `[:rf.story/force-fx-stub :analytics {...}]`. | Same shape as HTTP — distinct fx-id keyword routes through identical stub code path. | Same fixture file; scenario adds the per-fx regression net per rf2-ysr4y. | Deferred — bd:rf2-ysr4y |
+| Websocket fx stub | Variant with `[:rf.story/force-fx-stub :websocket {...}]`. | Stub intercepts; `:websocket` fx never reaches the real socket. | Pure-data side covered by §`force-fx-stub-multiple-refs-distinct-fx-ids`; explicit per-fx regression per rf2-ysr4y. | Partial — pure data side covered; explicit per-fx test deferred to bd:rf2-ysr4y |
+| Navigation fx stub | Variant with `[:rf.story/force-fx-stub :navigation {...}]`. | Stub intercepts; `window.location` / history-push never fires; stub-call-log records the navigation target. | Per rf2-ysr4y. | Deferred — bd:rf2-ysr4y |
+| Multi-fx composition | Variant declaring two decorators `[[:rf.story/force-fx-stub :http ...] [:rf.story/force-fx-stub :websocket ...]]`. | Both fx-ids route to distinct stub-event-ids; `:fx-overrides` map carries both keys; emitting either fx-id during `:play` records into the correct stub-call-log. | `tools/story/test/re_frame/story_fx_stubs_test.clj` §`force-fx-stub-multiple-refs-distinct-fx-ids`. | Covered |
+| Stub-overriding-real handler | Real fx-handler for `:http` registered (would throw or perform a network call if reached); stub installed via decorator. | Variant's `:play` dispatches a `:http`-emitting event; real handler is NOT invoked; stub records the payload. | Indirectly covered by `:fx-overrides` map installation (§`force-fx-stub-installs-on-frame`) — explicit non-invocation assertion deferred to bd:rf2-mwr16. | Partial — install path covered; explicit non-invocation assertion deferred to bd:rf2-mwr16 |
+| Stub-failure-mode (response shape failure) | Stub response is a failure payload (e.g. `{:status :error :body {...}}`). | Variant under test reads the failure payload from `app-db`; `:rf.assert/path-equals` against the failure path passes; shell does not crash. | Per rf2-mwr16. | Deferred — bd:rf2-mwr16 |
+| Per-frame stub isolation | Two variants stubbing `:http` in adjacent frames; each dispatches a distinct payload. | Each frame's stub-call-log carries only its own payload; `observed-fx-ids` is per-frame; `:rf.assert/effect-emitted` passes independently. | `tools/story/test/re_frame/story_fx_stubs_test.clj` §`force-fx-stub-log-is-per-frame`. | Covered |
+| Frame-teardown drops stub log | After `destroy-variant!` the stub-call-log no longer carries the destroyed variant's entries. | `frames/stub-call-log-for` returns empty/nil after teardown. | `tools/story/test/re_frame/story_fx_stubs_test.clj` §destroy path. | Covered |
+
+### Trace × scrubber cross-reference scenarios — spec/012
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| `cascade-id-from-trace-events` extracts dispatch-id | Epoch record with `:trace-events` carrying `:tags :dispatch-id 100`. | Returns `100`; degenerate epoch with no events returns `nil`. | `tools/story/test/re_frame/story_scrubber_xref_test.clj` §`cascade-id-from-trace-events-*`. | Covered |
+| `cascade-id-for-epoch` history lookup | Vector of epoch records; lookup by `:epoch-id`. | Returns the dispatch-id of the matching epoch; absent epoch returns `nil`. | Same file §`cascade-id-for-epoch-*`. | Covered |
+| `max-trace-event-id-for-epoch` cap resolution | Epoch with N trace events; lookup returns the max `:id`. | Returns max int; absent epoch returns `nil`. | Same file §`max-trace-event-id-for-epoch-*`. | Covered |
+| `filter-cascades-up-to` nil-cap identity | Cap is `nil`; cascades pass through unchanged. | Output equals input. | Same file §`filter-cascades-up-to-*`. | Covered |
+| `filter-cascades-up-to` drops late cascades | Cap is 6; cascade-b has max event-id 12. | Cascade-b is filtered out; cascade-a (max 6) is retained. | Same file. | Covered |
+| `cascade-matches-selected-epoch?` highlight predicate | Cascade with `:dispatch-id 100`; selected-cascade-id 100. | Returns `true`; 200 returns `false`. | Same file §`cascade-matches-selected-epoch?-*`. | Covered |
+| Cross-frame scrub isolation | Variant A and variant B both have history; scrubbing A's epoch must not filter B's trace panel. | Per-frame `selections` ratom isolates; no cross-frame filter leak. | Per rf2-3dciu. | Deferred — bd:rf2-3dciu |
+| Scrub-on-story-load default | Selecting a variant initialises with `selection = nil`; trace panel renders unfiltered. | No scrub note rendered; full cascade list visible. | Browser-level via `story_feature_load.cjs`; explicit assertion deferred to bd:rf2-3dciu. | Deferred — bd:rf2-3dciu |
+| Scrub note text + selector | Active scrub renders italic note `scrubbed to epoch <id> — N later cascade(s) hidden` with `data-test="story-trace-scrub-note"`. | Note visible; correct count of hidden cascades; selector resolves. | Browser-level via `tools/story/testbeds/counter_with_stories/counter_with_stories.spec.cjs` §11b (per spec/012 §Implementation files). | Covered |
+| Cascade-row `data-selected="true"` highlight | Scrubbing to an epoch sets `data-selected="true"` on the producing cascade row. | Selector binds to the right row; non-selected rows carry `data-selected="false"` or omit the attr. | Spec/012 §Highlight; browser-side. | Partial — covered by `counter_with_stories.spec.cjs` §11b in part; deferred to bd:rf2-s75sy + bd:rf2-3dciu for fuller assertion |
+
+### MCP surface scenarios — spec/006
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Public read-Var surface resolves | Iterate spec/006 §read primitives; each resolves to a callable Var on `re-frame.story`. | Every named Var resolves AND is `fn?`. | `tools/story/test/re_frame/story_mcp_boundary_test.clj` §`public-read-surface-resolves`. | Covered |
+| Public write-Var surface resolves | Iterate spec/006 §write primitives; each resolves to a callable Var. | Every `reg-*` / `unregister!` / `clear-kind!` / `clear-all!` Var resolves. | Same file §`public-write-surface-resolves`. | Covered |
+| `reg-variant*` write-helper end-to-end | Call `reg-variant*` with a clean body; assert side-table receives entry. | `registered? :variant <id>` is true; `variants-of <story-id>` includes the new id. | Same file §`reg-variant-star-*`. | Covered |
+| `unregister!` removes a slot | After `reg-variant*` then `unregister!`, the side-table no longer carries the id. | `registered?` returns false. | Same file §`unregister!-*`. | Covered |
+| `clear-kind!` isolated to kind | Register variants + stories; `(clear-kind! :variant)` clears only variants. | `(ids :story)` survives unchanged. | Same file §`clear-kind!-*`. | Covered |
+| Late-bind panel registration (Causa contract) | Story ships a stub `:rf.story.panel/epoch-view`; Causa registers a live view under the same id. | Live registration replaces stub at lookup; shell picks the live view. | Same file §late-bind contract. | Covered |
+| list-stories / list-variants / list-modes shape | Seeded registry; invoke each list primitive. | Returns vector of keyword ids; shape matches spec/006 read primitive table. | Per rf2-1svim. | Partial — handler-meta + ids paths covered; explicit list-shape regression deferred to bd:rf2-1svim |
+| render-story / run-variant from MCP perspective | Invoke `run-variant` against a seeded variant; assert return shape matches spec/002 + spec/006. | `{:frame ... :app-db ... :assertions ... :rendered-hiccup ... :elapsed-ms ...}` keys present. | Covered by `story_runtime_test.clj` indirectly; explicit MCP-boundary regression deferred to bd:rf2-1svim. | Partial |
+| dispatch-via-mcp end-to-end | Simulate MCP-bridge dispatch into a variant's frame; assert `app-db` reflects the dispatch. | Frame `app-db` carries the dispatched event's effect. | Per rf2-1svim. | Deferred — bd:rf2-1svim |
+| story-state-snapshot identity stability | Invoke `snapshot-identity` for a variant; mutate args; identity changes. Mutate `:source` coords; identity unchanged. | Hash changes on render-relevant input change; unchanged on cosmetic-only edit. | Existing `snapshot-identity` row in main matrix; MCP-perspective regression per bd:rf2-1svim. | Partial — JVM covered; MCP-boundary explicit assertion deferred |
+
+### `:test` mode pane scenarios — spec/009
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| `variant-has-tests?` predicate | Variant with `:play [[:rf.assert/path-equals [:n] 1]]` returns true; empty `:play` returns false. | Predicate returns expected boolean. | `tools/story/test/re_frame/story/ui/test_mode_state_cljs_test.cljs` + `test_widget_cljs_test.cljc`. | Covered |
+| `assertion-row` projection | Pass `:rf.assert/path-equals` record into `assertion-row`. | Returns `{:assertion ... :status :pass :label "..." :detail {...}}` matching spec/009 §Per-test rows. | Pure helper tested in test_widget_cljs_test. | Covered |
+| `aggregate-summary` fold | Pass vector of assertion records; assert `{:total :passed :failed :skipped :all-passed?}` shape. | All counts correct; `:all-passed?` true iff all passed AND total > 0. | `test_mode_state_cljs_test.cljs`. | Covered |
+| Empty-state pane | Variant with empty `:play` mounts; pane renders `[data-test="story-test-empty"]` and does NOT call `run-variant`. | Empty placeholder DOM present; frame allocation skipped. | Spec/009 §Empty state. Browser-level deferred to bd:rf2-aoqyy. | Deferred — bd:rf2-aoqyy |
+| Run-on-mount fires once | First mount of `:test` pane fires `run-variant`; subsequent re-mounts re-fire; switching variants fires for the new id. | Single run per mount; pane local state stores result. | Per rf2-aoqyy. | Deferred — bd:rf2-aoqyy |
+| Re-run button + debounce | Click Re-run; `reset-variant` + lifecycle re-runs. Fast double-click does NOT fire two parallel runs (`:running?` flag). | Single re-run executes; debounce prevents parallel. | Per rf2-aoqyy. | Deferred — bd:rf2-aoqyy |
+| Pass/fail/skip glyph + colour | Render a passing-and-failing variant; assert `data-status="pass"` and `data-status="fail"` rows with respective colour classes. | Each row's DOM carries correct `data-status` + colour. | Per rf2-aoqyy. | Deferred — bd:rf2-aoqyy |
+| Failure detail expansion | Failing row's `[data-test="story-test-row-detail"]` is closed by default; click expands to show `:expected` / `:actual` / `:reason` / `:source`. | Disclosure opens on click; detail content correct. | Per rf2-aoqyy. | Deferred — bd:rf2-aoqyy |
+| Chrome test widget run-all | Click `[data-test="story-test-widget-run-all"]`; all testable variants run; dots transit through `:running` to `:pass`/`:fail`. | All testable variants execute; dot colours match. | `test_widget_cljs_test.cljc` + browser-level partial in `story_feature_load.cjs`. | Covered |
+| Watch-mode toggle + drift detection | Toggle watch-mode on; mutate a testable variant's `:play`; only that variant's dot re-runs. | Drift detector fires only for changed variants; baseline reseats on toggle-off. | Pure-side covered in `test_watch_mode_cljs_test.cljc`; browser-level toggle deferred to bd:rf2-s75sy. | Partial — pure covered; browser toggle deferred to bd:rf2-s75sy |
+
+### `:docs` mode pane scenarios — spec/008
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Header section renders | Docs pane for a variant with `:doc` + tags + parent story. | `[data-test="story-docs-parent-story"]` + `[data-test="story-docs-doc-blurb"]` + `[data-test="story-docs-header-tags"]` all resolve. | Per rf2-ssibv. | Partial — covered by pure projection JVM helpers; browser-level scenario deferred to bd:rf2-ssibv |
+| Prose section omitted when no `:prose` workspace | Variant referenced by zero `:layout :prose` workspaces. | `[data-test="story-docs-prose-section"]` absent. | Per rf2-ssibv. | Deferred — bd:rf2-ssibv |
+| Args table — three columns | Variant with `:argtypes {:k {:doc "..."}}`. | `[data-test="story-docs-args-row"]` rows render with `data-arg-key` AND key/default/doc cells. | Pure helpers covered; row-level browser assertion per bd:rf2-ssibv. | Partial |
+| Decorators table — kind grouping | Variant with one `:hiccup` + one `:fx-override` decorator. | Rows render with `data-section="hiccup"` / `data-section="fx-override"`. | Per rf2-ssibv. | Deferred — bd:rf2-ssibv |
+| Parameters table fallback | Variant declares no `:modes` / `:substrates` / `:platforms`; parent story declares all three. | Pane renders parent's slots; `data-param-key` for each. | Per rf2-ssibv. | Deferred — bd:rf2-ssibv |
+| Tag-chip forward-link | Click `[data-docs-tag="<tag>"]`; sidebar `:tag-filter` toggles. | Sidebar tag-row chip updates; `aria-pressed` round-trips. | Per rf2-ssibv. | Deferred — bd:rf2-ssibv |
+| Read-only contract — switching `:docs` → `:dev` | User makes control edits on `:dev`; switches to `:docs`; switches back. | Canvas args/overrides/modes unchanged; docs pane carries no input elements that mutate variant state. | Per rf2-ssibv. | Deferred — bd:rf2-ssibv |
+| Code snippets render | Variant with `:argtypes` carrying schema definitions; docs pane surfaces the schema as a readable snippet. | Schema printed in args table `default` column or expanded detail. | Per rf2-ssibv (out-of-scope at v1 per spec/008 §Out of scope — MDX rendering deferred). | Deferred — spec/008 §Out of scope (v2) |
+
+### `reg-mode` toolbar primitive scenarios — spec/010
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Theme switch (single mode, single-select within axis) | Register `:Mode.app/dark-theme` + `:Mode.app/light-theme` on `:axis :theme`. | Toggling dark, then light, leaves only light active (single-select within axis). | `tools/story/test/re_frame/story/ui/toolbar_cljs_test.cljc`. | Covered |
+| Viewport switch (multi-select across axes) | `:Mode.app/dark-theme` (:theme) + `:Mode.viewport/mobile` (:viewport). | Both active simultaneously; deep-merge produces both `:theme :dark` AND `:viewport :mobile` in effective args. | Same file + `modes_standard_test.clj`. | Covered |
+| Background switch (canonical viewport+background bundle) | `re-frame.story.modes.standard/viewports` + `/backgrounds` bundles. | Each preset id registers; `:args` carry the expected viewport/background slots. | `tools/story/test/re_frame/story/modes_standard_test.clj`. | Covered |
+| Locale switch (per-app `reg-mode`) | User-registered `:Mode.app/locale-en` + `:Mode.app/locale-fr`. | Args precedence chain merges into effective args; toolbar chip toggles correctly. | Covered structurally via §Args precedence in main matrix; per-axis scenario per rf2-jpi7n. | Partial |
+| Mode persistence across reload | Active modes stored in localStorage; reload page; localStorage rehydrates active set. | Active chips re-select on reload; URL deep-link reload matches. | Per rf2-jpi7n. | Deferred — bd:rf2-jpi7n |
+| Unknown mode id in URL/localStorage | Persisted/URL state references a mode id no longer registered. | Unknown id ignored; diagnostic surfaces; remaining valid modes still apply. | Per rf2-jpi7n + main matrix `reg-mode and toolbar` row. | Partial |
+| Toolbar `<header role="toolbar">` landmark | Toolbar renders inside `<header role="toolbar" aria-label="Story modes">`. | Landmark navigator can jump to it; `aria-label` matches spec/010. | `toolbar_cljs_test.cljc`. | Covered |
+| Empty registry placeholder | Registry has no `:mode` entries. | Toolbar renders single "no modes registered" placeholder. | `toolbar_cljs_test.cljc`. | Covered |
+
+### Tag-as-badge scenarios — spec/014 §Sidebar tag-as-badge affordance
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Badge renders for canonical tag | Variant with `:tags #{:test}`. | Sidebar row renders the badge; `aria-label` reads "test"; visual style matches the canonical palette. | `tools/story/test/re_frame/story/ui/tag_badges_cljs_test.cljc`. | Covered |
+| Status colour per canonical tag | Variant with each of the seven canonical tags. | Each tag renders with its spec-pinned colour class. | Same file. | Covered |
+| Deprecated-badge styling | Variant with `:tags #{:deprecated}`. | Badge renders with deprecated visual treatment (struck-through / muted). | `tag_badges_cljs_test.cljc`. | Covered |
+| Untagged variant — no badge | Variant with empty `:tags`. | Sidebar row renders without a badge AND without layout break. | Same file. | Covered |
+| Multiple badges per row | Variant with `:tags #{:test :a11y}`. | Both badges render in stable order; row layout intact. | Same file. | Covered |
+
+### Static-build scenarios — spec/013
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Build produces deployable artefact | Invoke `npm run story:build` against `:story-static/counter-with-stories`. | Output directory contains `index.html` + `main.js` + asset siblings; no broken `<script>` paths. | `npm run story:build` + `tools/story/test/re_frame/story_static_build_cljs_test.cljs`. | Covered |
+| Static-mode flag flips at build | `re-frame.story.config/static-mode?` is `true` in the built bundle; `false` in dev. | Sentinel grep against bundle confirms the flag. | Covered by build target `:closure-defines`. | Covered |
+| First-visit help auto-open suppressed | Static bundle mounts; first-visit help does NOT auto-open. | localStorage rule does not fire; manual `?` chip still reachable. | Per spec/013 §Static-mode runtime semantics; covered by `story_help_cljs_test.cljs` + browser-level via static target. | Covered |
+| `setInterval` poll never schedules | Static bundle; `start-hot-reload-poll!` short-circuits. | No `setInterval` registered for fingerprint detection; DCE-prune verified by sentinel grep. | Covered by `static-mode?` branch in shell. | Covered |
+| Causa preload omitted from release | `release` build; `day8.re-frame2-causa.preload` not in bundle. | Sentinel grep returns no Causa preload symbols. | Covered structurally by shadow-cljs `:devtools/preloads` (release-only). | Covered |
+| All stories resolvable post-build | Walk built bundle's registry snapshot; assert every variant id resolves. | Each registered variant id has a renderable variant body. | Per rf2-5onip. | Deferred — bd:rf2-5onip |
+| Static-site link integrity | Share URLs / prose cross-refs embedded in build target in-bundle variants. | Each share URL decodes to a resolvable variant id; broken links surface as CLI sanity check. | Per rf2-5onip. | Deferred — bd:rf2-5onip |
+| Bundle is self-contained (no websocket) | Static bundle; no shadow-cljs hot-reload websocket connection. | `window` carries no shadow runtime hook; offline-served bundle still works. | Spec/013 §Static-mode runtime semantics. | Covered |
+
+### Assertion vocabulary scenarios — spec/004
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| `:rf.assert/path-equals` — simple equality | `:play [[:rf.assert/path-equals [:n] 1]]` against a variant with `db = {:n 1}`. | Assertion records `:passed? true` with `:actual 1 :expected 1`. | `tools/story/test/re_frame/story_assertions_test.clj`. | Covered |
+| `:rf.assert/path-matches` — Malli schema | `:play [[:rf.assert/path-matches [:n] :int]]`. | Records pass; non-int payload records fail with Malli explanation. | Same file. | Covered |
+| `:rf.assert/sub-equals` — subscription value | Variant with a registered sub; `:play` dispatches an event that mutates the sub's input; assertion against new value. | Records pass with `:actual @sub :expected expected`. | Same file. | Covered |
+| `:rf.assert/dispatched?` — event ledger | `:play [[:counter/inc] [:rf.assert/dispatched? [:counter/inc]]]`. | Records pass; absent dispatch records fail with the ledger contents. | Same file. | Covered |
+| `:rf.assert/state-is` — machine state | Variant with `reg-machine`; transition into `:authenticated`; assertion against that state. | Records pass. | Same file. | Covered |
+| `:rf.assert/no-warnings` — warning bus | Variant whose `:play` emits a `:rf.warn/*` event. | Assertion records fail with the warning list. | Same file. | Covered |
+| `:rf.assert/effect-emitted` — fx-id only | Variant with `force-fx-stub :http`; `:play` dispatches an event emitting `:http`. | Assertion `[:http]` records pass; `[:other-fx]` records fail. | `story_fx_stubs_test.clj` §`force-fx-stub-emits-fx-into-accumulator`. | Covered |
+| `:rf.assert/effect-emitted` — fx-id + pred | Variant; `:play [[:rf.assert/effect-emitted :http (fn [id] (= id :http))]]`. | Pred truthy → pass; pred throws → records fail (does not propagate). | Covered by `story_assertions_test.clj`. | Covered |
+| Async assertion via deferred play | `:play` dispatches an async-fx event that completes after a tick; subsequent `:rf.assert/sub-equals` waits for the deferred state. | Phase 4 drain waits for completion (per spec/002 §Four-phase lifecycle); assertion records against the settled state. | Covered by lifecycle tests + async fixtures. | Covered |
+| Deep-diff assertion failure detail | `:rf.assert/path-equals [:m] {:a 1}` against `db = {:m {:a 2}}`. | Record carries `:expected {:a 1} :actual {:a 2}` for the test-mode pane to diff. | Covered by §record-don't-throw return shape. | Covered |
+| Assertion-with-redaction (sensitive payload) | `:play [[:rf.assert/path-equals [:auth :token] "secret"]]` where `:auth :token` is path-marked sensitive (per spec/010 Data-Classification — rf2-t2rpu in flight). | Recorded `:actual` is the projected/redacted marker, NOT the raw secret. | Per rf2-shy6n. | Deferred — bd:rf2-shy6n (depends on rf2-t2rpu data-classification spec) |
+| Record-don't-throw aggregation | `:play` mixes passing + failing assertions. | All assertions land in `:assertions`; play continues; no exception propagates. | `story_assertions_test.clj`. | Covered |
+
+### Authoring surface scenarios — spec/001
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| `reg-variant` basic body validation | Variant with minimal `{:component :view-id}` body. | Schema-validates; registers; queryable via `(registered? :variant id)`. | `tools/story/test/re_frame/story_authoring_validation_test.clj`. | Covered |
+| `reg-variant` with `:modes` slot | Variant declaring `:modes #{:Mode.app/dark-theme}`. | Resolved effective args carry the mode's `:args` deep-merged. | Per rf2-ctlm5. | Partial — args resolution covered; explicit `:modes` round-trip per bd:rf2-ctlm5 |
+| `reg-variant` with `:force-fx-stub` decorator (ref-args) | Variant with `:decorators [[:rf.story/force-fx-stub :http {...}]]`. | Ref-args expand to a per-reference body; resolve-decorators returns the materialised body. | `story_fx_stubs_test.clj` §`expand-ref-args-helper` + §`force-fx-stub-ref-args-expansion`. | Covered |
+| `reg-variant` with `:extends` decorator inheritance | Child variant `:extends` parent; both declare `:decorators`. | Child inherits parent's stack; child's `:decorators` append (do NOT replace). | Per rf2-ctlm5 + existing `story_test.clj` `:extends` coverage. | Partial — extends-merge covered; explicit decorator-append order per bd:rf2-ctlm5 |
+| `reg-story` Form B combined `:variants` desugars | Combined form with `:variants {:foo {...} :bar {...}}`. | Each child registers as an independent `reg-variant` call. | `story_test.clj`. | Covered |
+| Source-coord stamping on registration | Variant registered via macro; body carries `:source {:file ... :line ...}`. | Source coord matches the registering form's `meta`. | `tools/story/test/re_frame/story_source_coords_test.clj`. | Covered |
+| Macro-time body validation | Reg-variant with `:render <fn>` (forbidden per `:rf/variant` schema). | Macro rejects with `:rf.error/variant-shape`. | `story_authoring_validation_test.clj`. | Covered |
+| Canonical-vocabulary install | `install-canonical-vocabulary!` registers the seven `:rf.assert/*` events + seven canonical tags + lifecycle machine exactly once. | After install, `(registered? :event :rf.assert/path-equals)` etc are all true; double-install is idempotent. | Covered by `story_test.clj`. | Covered |
+
+### Runtime model scenarios — spec/002
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Per-variant frame allocation | Mount variant; assert `(rf/frame :variant-id)` returns a frame with the variant's `:app-db`. | Frame exists; teardown destroys it. | `tools/story/test/re_frame/story_runtime_test.clj`. | Covered |
+| Args deep-merge precedence | Global + story + mode + variant + cell-overrides; nested maps deep-merge, vectors replace. | Effective args match the spec/002 §Args resolution precedence table. | `story_runtime_test.clj`. | Covered |
+| Decorator chain — story-level outer, variant-level inner | Story + variant both declare `:hiccup` decorators. | Resolved stack has story-level outermost, variant-level innermost. | Per rf2-b9f3i + JVM-side covered. | Partial — JVM resolve order covered; canvas-side DOM-order per bd:rf2-b9f3i |
+| Frame isolation pair | Two variants with same `:events`; dispatch into A; B's `app-db` / `:emitted-fx` / `:assertions` unchanged. | Per spec/002 §Coexistence + §Per-variant frame allocation. | Per rf2-b9f3i. | Partial — fx-isolation covered by `story_fx_stubs_test.clj` §`force-fx-stub-log-is-per-frame`; full app-db isolation pair per bd:rf2-b9f3i |
+| Four-phase lifecycle ordering | Variant with `:events` (phase 2) + `:loaders` (phase 1) + `:play` (phase 4). | Phases execute in order; trace shows phase-1 → phase-4. | `story_runtime_lifecycle_test.clj`. | Covered |
+| `:loaders-complete-when` predicate | Variant whose loader sets a slot; predicate watches the slot. | Phase 1 blocks until predicate true; then phase 2 starts. | `story_runtime_lifecycle_test.clj`. | Covered |
+| `:rf.story/*` namespace preservation by host | Host's `:app/initialise` whole-`db` replacement. | Story's `:rf.story/lifecycle` slot survives (or fails loudly with diagnostic). | Spec/002 §Coexistence — host responsibility, regression net for the cart-total commit c2accadf. | Partial — diagnostic surfaced; explicit regression test deferred to a host-app integration suite |
+| `snapshot-identity` stability | Mutate render-relevant input → hash changes. Mutate `:source` cosmetic-only → hash unchanged. | Per spec/002 §Programmatic API + spec/009 §Watch mode. | `story_runtime_test.clj` + `test_watch_mode_cljs_test.cljc`. | Covered |
+| `destroy-variant!` idempotence | Call `destroy-variant!` twice. | Second call is a no-op (or returns diagnostic, per rule). | `story_runtime_test.clj`. | Covered |
+
+### Render shell scenarios — spec/003
+
+| Scenario | Setup | Acceptance | Test home | Status |
+|---|---|---|---|---|
+| Variant mount/unmount lifecycle | `mount-shell!` + select variant + `unmount-shell!`. | Frame allocated on mount; destroyed on unmount; no listener leak. | `story_runtime_test.clj` + `story_ui_test.clj`. | Covered |
+| Workspace layout dispatch | Five `reg-workspace` bodies — one per layout. | Each renders without crash; cell content matches `:variants` / `:content` slots. | `story_ui_test.clj` + main matrix `reg-workspace layouts` row. | Covered |
+| Hot-reload fingerprint drift | Mutate variant's `:decorators` under watch; affected variant re-mounts; siblings preserved. | Old/new fingerprints differ; only affected variant re-mounts. | `story_runtime_lifecycle_test.clj` + main matrix `Hot reload` row. | Covered |
+| Error-boundary recovery — view throws | Registered view throws on render; multi-substrate try/catch boundary engages. | Inline error projection surfaces; shell remains usable; siblings unaffected. | Per rf2-g5p99. | Deferred — bd:rf2-g5p99 |
+| Slow-loading variant feedback | Variant with `:loaders` that never satisfy `:loaders-complete-when` within budget. | Canvas surfaces loading affordance (not blank); error projection lands after budget. | Per rf2-g5p99 + main matrix `Loader completion` row partially covers. | Partial — loader-incomplete error covered; loading-affordance UX per bd:rf2-g5p99 |
+| Listener-count after variant switching | Switch between N variants in sequence (e.g. 20 cycles). | Listener count after cycles equals listener count before; no leak. | Per rf2-g5p99. | Deferred — bd:rf2-g5p99 |
+| Multi-substrate side-by-side render | Variant declares `:substrates #{:reagent}` + future `:uix` stub. | Each substrate renders inline; failures isolated per pane. | `story_multi_substrate_cljs_test.cljs`. | Covered |
+| Shell `mount-shell!` / `unmount-shell!` lifecycle | Mount root; remount idempotent; unmount cleans up; `active-shell` reads. | Per main matrix `Render shell mount/unmount` row. | Covered (main matrix). |
+
+## Audit findings (rf2-ny3ih, 2026-05-17)
+
+The matrix rows above were audited against the actual Story implementation and the seven Storybook-comparable feature axes from the deep-dive findings. Summary:
+
+- **Upgrades (Partial / Missing → Covered):** none — the existing main matrix is already accurate at the row-coarse level. Scenario decomposition surfaced gaps that map to follow-on beads rather than upgrades.
+- **Downgrades (Covered → Partial / Deferred):** none — every row marked Covered in the main matrix has a corresponding JVM-level or browser-level test.
+- **New scenario rows added:** 81 (across the 12 axes called out by rf2-ny3ih).
+- **Follow-on beads filed for impl gaps:** 10 — see bead ids in scenario-row Status cells. The largest cluster is browser-level UI scenarios (test-mode pane, docs-mode pane, toolbar persistence) that have pure-data JVM coverage but not yet end-to-end Playwright assertions.
+- **Spec-deferred (won't fix at v1):** trace-to-story navigation (the inverse of scrub-to-trace direction; spec/012 §Out of scope) + docs MDX rendering (spec/008 §Out of scope).
+
+The scenario-decomposition section is intended to be additive to the wide matrix — both views serve different auditors (the wide matrix is the "single-row-per-feature" overview; the scenario decomposition is the "what specifically is tested?" pivot).
 
 ## PR #1198 Alignment
 

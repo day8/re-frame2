@@ -225,7 +225,7 @@ visible signal that the pin out-lives the ring buffer.
   - **Remove pin** — drops the pin from the in-memory store. No undo
     (pins are cheap to recreate).
   - **Copy pin reference** — copies the 4-tuple as edn to the
-    clipboard, for pasting into a `bd` bead or co-pilot question.
+    clipboard, for pasting into a `bd` bead or chat session.
 
 `Reset to pinned` is the **only** pin action that writes to `app-db`.
 Click-and-right-click `Reset to this pin` is intentionally a

@@ -14,8 +14,8 @@ folds into the collector path. The bus is the foundation under
 [`001-Causality-Graph.md`](./001-Causality-Graph.md),
 [`004-App-DB-Diff.md`](./004-App-DB-Diff.md),
 [`005-Schema-Timeline.md`](./005-Schema-Timeline.md),
-[`012-Subscriptions.md`](./012-Subscriptions.md), and every other panel
-that reads trace data; those panels project from this buffer.
+[`012-Views.md`](./012-Views.md), and every other tab content
+that reads trace data; those tabs project from this buffer.
 
 ## Why a separate Causa buffer
 
@@ -398,7 +398,7 @@ in the preload.
 
 JVM-hosted Causa surfaces (pair-tool dashboards rendering epoch
 records server-side; see
-[`012-Subscriptions.md`](./012-Subscriptions.md) §JVM behaviour for
+[`012-Views.md`](./012-Views.md) §JVM behaviour for
 the parallel pattern) read the buffer through the same accessor
 contract; the live CLJS-only sub-cache is the only differentiator
 across hosts.

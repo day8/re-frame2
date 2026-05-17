@@ -8,7 +8,7 @@
   - `:rf.causa/palette-cursor`  — selected row index (0-based).
   - `:rf.causa/palette-index`   — full source-aggregator output.
     Recomputes when its input subs (trace-buffer, frame-ids,
-    handler set, copilot questions) change.
+    handler set) change.
   - `:rf.causa/palette-results` — ranked rows for the current query.
     Recomputes only when query OR index changes.
   - `:rf.causa/palette-active-item` — convenience: results[cursor].
@@ -56,8 +56,7 @@
    {:id :issues       :label "Issues"}
    {:id :schemas      :label "Schemas"}
    {:id :hydration    :label "Hydration"}
-   {:id :mcp-server   :label "MCP"}
-   {:id :copilot      :label "Co-pilot"}])
+   {:id :mcp-server   :label "MCP"}])
 
 (defn- handler-entries
   "Flat seq of `{:id :kind :doc :file :line}` rows from the framework
@@ -78,20 +77,6 @@
                           :file (:file meta)
                           :line (:line meta)})))))
          vec)))
-
-(defn- copilot-question-strings
-  "Pull the last N question texts from the co-pilot conversation in
-  app-db. Conversation shape is implemented by
-  `panels/ai-co-pilot-helpers` — each turn is a `{:role :type :text}`
-  map; we keep only `:question` turns. Most-recent first."
-  [db]
-  (->> (get db :copilot-conversation [])
-       (filter #(= :question (:type %)))
-       (map :text)
-       (filter some?)
-       reverse
-       (take 10)
-       vec))
 
 (defn install!
   "Install the palette's subs. Idempotent under re-frame's replace-
@@ -119,35 +104,19 @@
     (fn [buffer _query]
       ;; The sub fn does not receive `db`; we reach into the registrar
       ;; (a process-global atom) + the framework's frame registry
-      ;; via the public rf wrappers. For the copilot-questions
-      ;; source we still need db — pull it via a sibling sub below
-      ;; rather than thread db through this layer-2.
+      ;; via the public rf wrappers.
       (sources/build-index
         {:panels             palette-panels
          :trace-buffer       buffer
          :frame-ids          (rf/frame-ids)
-         :handlers           (handler-entries)
-         :copilot-questions  []})))
+         :handlers           (handler-entries)})))
 
-  ;; Sibling layer-2 carrying the copilot-questions slice — separated
-  ;; so the index sub above stays decoupled from co-pilot conversation
-  ;; churn (every keystroke into the co-pilot input would otherwise
-  ;; recompute the whole palette index).
-  (rf/reg-sub :rf.causa/palette-copilot-questions
-    (fn [db _query]
-      (copilot-question-strings db)))
-
-  ;; Layer-3 — ranked results for the current query. Folds the
-  ;; copilot-questions slice into the index here so the cheap pull
-  ;; rides the rank pass without forcing the whole index to recompute.
+  ;; Layer-3 — ranked results for the current query.
   (rf/reg-sub :rf.causa/palette-results
     :<- [:rf.causa/palette-index]
     :<- [:rf.causa/palette-query]
-    :<- [:rf.causa/palette-copilot-questions]
-    (fn [[index query questions] _query]
-      (let [with-q (into index
-                         (sources/copilot-question-items questions))]
-        (sources/rank with-q query))))
+    (fn [[index query] _query]
+      (sources/rank index query)))
 
   (rf/reg-sub :rf.causa/palette-active-item
     :<- [:rf.causa/palette-results]

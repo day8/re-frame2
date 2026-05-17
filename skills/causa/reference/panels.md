@@ -1,4 +1,4 @@
-# panels — the 16-panel tour
+# panels — the 14-panel tour
 
 Sources of truth: per-panel specs under
 [`tools/causa/spec/`](../../../tools/causa/spec/) (one `00N-*.md` per
@@ -8,7 +8,7 @@ for chrome and sidebar grammar. Sidebar order is set in `shell.cljs`
 
 ## Sidebar groups + badges
 
-Four groups, in `sidebar-items` order:
+Three groups, in `sidebar-items` order:
 
 - **Always-active** — Event detail, Time travel, App-db, Causality,
   Subscriptions, Effects, Trace.
@@ -16,11 +16,10 @@ Four groups, in `sidebar-items` order:
   Performance, Issues, Schemas.
 - **Dormant until first signal** — Hydration (wakes on the first
   `:rf.ssr/hydration-mismatch`).
-- **Auxiliary** — Co-pilot.
 
 Activity badges (right-aligned, fade in once, never fade out): `●` =
 recent activity · `●N` = unread count · `●●●` = multiplicity · `◌` =
-dormant · `◇` = Co-pilot cue glyph.
+dormant.
 
 ## Panel-by-panel
 
@@ -92,7 +91,7 @@ live as upstream slots move (`:cart/total` ← `:cart/items` ←
 **Open when:** "why didn't my view update?", "trace the recompute
 chain for sub X", "is this sub cached or did it recompute?"
 
-Spec: [`012-Subscriptions.md`](../../../tools/causa/spec/012-Subscriptions.md).
+Spec: [`012-Views.md`](../../../tools/causa/spec/012-Views.md) (subs nest under views per the rewrite).
 
 ### Effects *(fx)*
 
@@ -214,20 +213,5 @@ error). Otherwise the panel has nothing to show.
 
 Spec: [`006-Hydration-Debugger.md`](../../../tools/causa/spec/006-Hydration-Debugger.md).
 
-### Co-pilot *(rail)*
-
-Pull-only AI Q&A and slash commands over the live runtime. Collapsed
-by default per Lock 8 — the unobtrusive-debugger principle won. Expand
-via `Ctrl+Shift+/` or click the magenta `◇` cue glyph in the top
-strip (which pulses every 8s until first use, then stops permanently).
-Ephemeral: no persistence across page reloads.
-
-**Open when:** you want natural-language interrogation; when slash-
-commands (`/why <epoch>`, `/explain <epoch>`,
-`/diff <epoch-a> <epoch-b>`, `/state <machine-id>`, `/find <pattern>`)
-are easier than navigating panels.
-
-Spec: [`009-AI-CoPilot.md`](../../../tools/causa/spec/009-AI-CoPilot.md).
-
 For the user-question → panel routing table, see
-[`SKILL.md` §The 16 panels](../SKILL.md).
+[`SKILL.md` §The 14 panels](../SKILL.md).

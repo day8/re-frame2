@@ -42,7 +42,6 @@ catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/0
 | **Schema-violation timeline** | One row per registered schema; coloured dot per failure with recovery mode. |
 | **Hydration debugger** | Server vs client render-tree side-by-side. Only visible when SSR hydration runs. |
 | **Issues ribbon** | Unified feed: errors + warnings + schema violations + hydration mismatches. |
-| **AI co-pilot** (rail) | Pull-only Q&A and slash commands. Collapsed by default; expand on demand. Ephemeral (no persistence). |
 
 Full panel inventory in [`spec/000-Vision.md`](./spec/000-Vision.md).
 
@@ -141,12 +140,11 @@ missing-host diagnostic when no host exists.
 | Hide/show | `Ctrl+Shift+C` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | Programmatic `(causa/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |
-| Open AI co-pilot rail | `Ctrl+Shift+/` |
 
-Two keybindings ship today (`Ctrl+Shift+C`, `Ctrl+Shift+/`). The
-pop-out and command-palette keys some early drafts named are not
-wired pre-alpha — use `(causa/popout!)` for pop-out, and reach the
-palette through the top-strip control once it lands.
+One keybinding ships today (`Ctrl+Shift+C`). The pop-out and
+command-palette keys some early drafts named are not wired pre-alpha —
+use `(causa/popout!)` for pop-out, and reach the palette through the
+top-strip control once it lands.
 
 ### Disable
 
@@ -191,7 +189,6 @@ that the tool could be one-shotted from it.
 | [`spec/006-Hydration-Debugger.md`](./spec/006-Hydration-Debugger.md) | SSR render-tree diff; divergent-node surfacing. |
 | [`spec/007-UX-IA.md`](./spec/007-UX-IA.md) | Layout, interaction, visual language (typography, colour, motion). |
 | [`spec/008-Embedding-Contract.md`](./spec/008-Embedding-Contract.md) | Story-embed contract; the `Panel` component shape. |
-| [`spec/009-AI-CoPilot.md`](./spec/009-AI-CoPilot.md) | Pull-only Q&A; slash commands; ephemeral conversation. |
 | [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md) | `tools/causa-mcp/`; the Causa MCP tool catalogue. |
 | [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone-via-MCP for remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
@@ -212,7 +209,6 @@ tools/causa/
 │   ├── core.cljs                              ; user-facing facade (init!, open!, target-frame, ...)
 │   ├── panels/                                ; one ns per panel
 │   ├── causality/                             ; graph layout + rendering
-│   ├── ai/                                    ; co-pilot panel, provider abstraction
 │   └── theme/                                 ; design tokens, theming
 └── test/...
 ```
@@ -261,10 +257,10 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. Running shell with the full 16-panel layout, two wired
-keybindings (`Ctrl+Shift+C` toggle, `Ctrl+Shift+/` co-pilot), default
-true-inline mount under `[data-rf-causa-host]`, programmatic pop-out
-via `(causa/popout!)`, and a frame-isolated `:rf/causa` registrar.
+Pre-alpha. Running shell with the full 15-panel layout, one wired
+keybinding (`Ctrl+Shift+C` toggle), default true-inline mount under
+`[data-rf-causa-host]`, programmatic pop-out via `(causa/popout!)`,
+and a frame-isolated `:rf/causa` registrar.
 Spec corpus landed via rf2-1lls (2026-05-12); the 17-row test
 coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
 reports `covered` across every row at the unit/helper/view tier.

@@ -369,15 +369,186 @@ will land); watch mode has nothing to detect in that build.
   would gate the rerun set; the existing `watch-rerun!` entry point
   already accepts an arbitrary variant-id seq.
 
+## Play step-debugger (rf2-ulw5m)
+
+> Storybook's Interactions panel ships a UI with step / pause /
+> rewind / breakpoint controls for play() functions; this section
+> specs the `:test` pane's parity surface. The runtime substrate
+> already exists in
+> [`re-frame.story.play`](../src/re_frame/story/play.cljc) —
+> `begin-stepper!` / `step-once!` / `end-stepper!` per
+> [spec/004 §Play sequence execution](004-Assertions.md#play-sequence-execution).
+> What this section locks is the chrome that surfaces it.
+
+The step-debugger renders as a new section in the `:test` pane,
+positioned between the **Summary badge** (§2 above) and the
+**Step-through scrubber** (rf2-lc36w). It is collapsible by design:
+when no stepper is in flight, the section is a one-line affordance;
+clicking **Start** brings up the full controls + step list.
+
+### Surface
+
+```clojure
+(re-frame.story.ui.test-mode.stepper-view/stepper-section variant-id)
+  ; CLJS Reagent component (r/create-class — owns its keyboard handler
+  ; + a component-will-unmount that tears the stepper down if the user
+  ; navigates away with a session in flight).
+
+(re-frame.story.ui.test-mode.stepper-view/render-section variant-id slot)
+  ; Pure hiccup builder; the test corpus calls this directly so the
+  ; rendered tree is inspectable without booting a Reagent root.
+
+;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.stepper-pure:
+(step-position index cursor)
+  ; → :done | :current | :pending
+(enrich-statuses statuses cursor breakpoints)
+  ; → vector of step-rows with :position / :breakpoint? / :outcome stamped on
+(progress-label cursor total)
+  ; → "ready · N steps" | "step N of M" | "done · N of N" | "no steps"
+(can-step?      slot)  ; bool — forward step is legal
+(can-step-back? slot)  ; bool — step-back is legal
+(can-rewind?    slot)  ; bool — rewind is legal (cursor > 0)
+(can-pause?     slot)  ; bool — pause is offered (auto-play in flight)
+(can-resume?    slot)  ; bool — resume is offered (active, not playing, not at end)
+(breakpoint-hit? cursor breakpoints)
+  ; bool — auto-play tick should pause before dispatching
+
+;; CLJS local state — re-frame.story.ui.test-mode.stepper-state:
+(begin!              variant-id)       ; re-allocate the frame + prime the substrate
+(step!               variant-id)       ; dispatch the next play event
+(step-back!          variant-id)       ; restore the prior epoch + decrement cursor
+(rewind!             variant-id)       ; restore the pre-play epoch + reset cursor
+(pause!              variant-id)       ; stop auto-play
+(resume!             variant-id)       ; start auto-play (default 600ms tick)
+(toggle-breakpoint!  variant-id index) ; toggle breakpoint at step index
+(end!                variant-id)       ; tear down (clear interval + substrate state)
+```
+
+### Controls
+
+The strip renders (left-to-right) when the stepper is active:
+
+| Control      | Action                                                   | Disabled when                                |
+|--------------|----------------------------------------------------------|----------------------------------------------|
+| Stop         | Tear down the stepper (return to inactive state).        | never (always available when active)         |
+| ← Back       | Restore the prior epoch; cursor decrements by one.       | `cursor = 0`                                 |
+| Step →       | Dispatch the next play event; cursor increments.         | `cursor = total` (parked at end)             |
+| Pause / Play | Toggle auto-play (default 600ms between steps).          | Pause: not auto-playing. Play: auto-playing OR at end. |
+| ↺ Rewind     | Restore the pre-play epoch + reset cursor to 0.          | `cursor = 0`                                 |
+
+When the stepper is inactive (no slot in `stepper-state/results-atom`)
+the strip carries a single **Start** button and the section body shows
+a one-line hint instructing the user to click Start.
+
+### Step-back semantics
+
+The runtime substrate's `step-once!` only steps FORWARD. To support
+step-back without modifying the runtime, the local-state layer
+threads the variant frame's epoch history (per
+[spec/006-ReactiveSubstrate.md](../../../spec/006-ReactiveSubstrate.md)
+§Epoch buffer): BEFORE each forward step it captures the current
+`:epoch-id` (the head of `epoch-history`) and pushes it onto an
+`:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch`s
+against the new head, then decrements the cursor. Rewind restores
+against the bottom-of-stack epoch (the pre-play state) and resets
+the cursor to 0 plus clears the assertion accumulator (via
+`assertions/reset-trace-accumulators!`) so a fresh forward run
+doesn't pile new records on top of the old ones.
+
+Step-back never re-dispatches the popped event — that would create a
+fresh epoch and break the deterministic 1-to-1 cursor↔epoch mapping.
+The popped event simply becomes pending again.
+
+### Breakpoints
+
+Each step row carries a clickable **BP** chip; the user toggles a
+breakpoint at any step index. Breakpoints live in the slot's
+`:breakpoints` set; the chip's `aria-pressed` reflects membership.
+
+When auto-play is in flight the tick checks `breakpoint-hit?` BEFORE
+dispatching: if the cursor is in `:breakpoints`, the tick pauses
+without consuming the step. The user resumes by clicking Play (or
+pressing Space).
+
+### Keyboard equivalents
+
+When the section is focused (Tab into it or click any control inside),
+the section's `on-key-down` translates these keys into mutators:
+
+| Key      | Action                |
+|----------|-----------------------|
+| Space    | Toggle pause / resume |
+| → (Right) | Step forward         |
+| ← (Left)  | Step back            |
+| R        | Rewind to step 0      |
+| Esc      | Stop (tear down)      |
+
+Every handled key `preventDefault`s so Space doesn't scroll the page,
+arrow keys don't move the slider, etc.
+
+### Section composition
+
+The section renders (top-to-bottom):
+
+| # | Element             | Notes                                                         |
+|---|---------------------|---------------------------------------------------------------|
+| 1 | Header strip        | "Step-debugger · {progress-label} · playing?" + keyboard hint |
+| 2 | Controls strip      | Start (inactive) OR Stop / Back / Step / Pause/Play / Rewind  |
+| 3 | Step list           | One row per `:play` event with glyph / index / label / BP chip; active state only |
+| 3'| Inactive hint       | One-line "Click Start to step…" placeholder; inactive only    |
+
+Each step row carries:
+- A position glyph (`▶` current, `○` pending, or the outcome glyph
+  `✓` / `✗` / `⊘` / `•` for done rows).
+- The step index (1-based for display) + the step label
+  (`(first event)` per `stepper-pure/play-step-label`).
+- A BP chip on the right; clicking the chip OR the row body toggles
+  the breakpoint at that index.
+
+### Test selectors
+
+| Selector                                              | What                                        |
+|-------------------------------------------------------|---------------------------------------------|
+| `[data-test="story-stepper-section"]`                 | Section root. `data-active` = "true" / "false". |
+| `[data-test="story-stepper-progress"]`                | Progress label in the header strip.         |
+| `[data-test="story-stepper-controls"]`                | Controls strip container.                   |
+| `[data-test="story-stepper-start"]`                   | Start button (inactive state only).         |
+| `[data-test="story-stepper-stop"]`                    | Stop button (active state only).            |
+| `[data-test="story-stepper-step"]`                    | Step-forward button.                        |
+| `[data-test="story-stepper-step-back"]`               | Step-back button.                           |
+| `[data-test="story-stepper-pause"]`                   | Pause button (renders while auto-playing).  |
+| `[data-test="story-stepper-resume"]`                  | Play (resume) button (renders while paused). |
+| `[data-test="story-stepper-rewind"]`                  | Rewind button.                              |
+| `[data-test="story-stepper-step-list"]`               | The step list container.                    |
+| `[data-test="story-stepper-row"]`                     | One row per step; `data-index="N"`, `data-position="done\|current\|pending"`, `data-breakpoint="true\|false"`. |
+| `[data-test="story-stepper-bp-toggle"]`               | Breakpoint chip; `aria-pressed` reflects membership in `:breakpoints`. |
+| `[data-test="story-stepper-inactive"]`                | Inactive-state hint.                        |
+
+### Read-only contract
+
+Same as the Re-run button (§Read-only contract above): the stepper
+mutates **runtime state** (re-allocates + drives the variant frame)
+but not the variant's authoring shape. Switching `:test` → `:dev`
+restores the canvas as the user left it (modulo the canvas reflecting
+the current stepper epoch — Stop or Rewind first to return to the
+pre-play state).
+
+### Production elision
+
+CLJS-only. The view ns is loaded by the `:test` mode pane only when
+`re-frame.story.config/enabled?` is true, so production builds DCE
+the lot (per [spec/005 §Production elision](005-SOTA-Features.md)).
+
 ## Foundational status
 
-Per the rf2-9hc8 / rf2-rodx / rf2-qmjo / rf2-q0irb tetrad: the
-`:test` pane and the chrome widget are **leaves** — they consume
-the foundation (the four-phase runtime, the seven canonical
-`:rf.assert/*` events, the `:assertions` record schema) and surface
-it. They do not register new artefact kinds; the only new shell-
-state surface is the `:tests` sub-map (`[:tests :runs]` /
-`[:tests :watch-mode?]` / `[:tests :content-hashes]`), which is a
-pure derivation of `run-variant` results keyed by variant id. Removing them restores
-the placeholder-equivalent empty pane and the dot-free sidebar
-without breaking any other surface.
+Per the rf2-9hc8 / rf2-rodx / rf2-qmjo / rf2-q0irb / rf2-ulw5m tetrad:
+the `:test` pane, the chrome widget, and the play step-debugger are
+all **leaves** — they consume the foundation (the four-phase runtime,
+the seven canonical `:rf.assert/*` events, the `:assertions` record
+schema, the per-frame epoch history) and surface it. They do not
+register new artefact kinds; the only new shell-state surfaces are
+the `:tests` sub-map (`[:tests :runs]` / `[:tests :watch-mode?]` /
+`[:tests :content-hashes]`) and the stepper's per-variant ratom in
+`re-frame.story.ui.test-mode.stepper-state`. Removing them restores
+the placeholder-equivalent empty pane, the dot-free sidebar, and the
+Re-run-only test pane without breaking any other surface.
