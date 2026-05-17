@@ -8,10 +8,14 @@
   (config/set-editor! :vscode)
   (config/set-auto-open! true)
   (config/set-project-root! nil)
+  (config/set-filter-seed! nil)
+  (config/set-filters-storage-key! nil)
   (test-fn)
   (config/set-editor! :vscode)
   (config/set-auto-open! true)
-  (config/set-project-root! nil))
+  (config/set-project-root! nil)
+  (config/set-filter-seed! nil)
+  (config/set-filters-storage-key! nil))
 
 (use-fixtures :each reset-editor)
 
@@ -169,6 +173,61 @@
            (config/editor-uri {:file "src/app/views.cljs"
                                :line 1
                                :column 1})))))
+
+;; ---- filter seed + storage key (rf2-ak4ms) ------------------------------
+;;
+;; Per spec/018-Event-Spine.md §7 'Empty defaults' + rf2-ak4ms 'first-
+;; session honesty beats first-session quietness': default filter set
+;; is empty; hosts may inject a seed via configure!. Per spec/018 §7
+;; Filter persistence: localStorage key is configurable so multiple
+;; Causa instances (Story testbeds) can isolate their pill state.
+
+(deftest default-filter-seed-is-nil
+  (testing "default filter seed is nil per spec/018 §7 — first-session
+            honesty / no auto-filters"
+    (is (nil? (config/get-filter-seed)))))
+
+(deftest set-filter-seed-round-trips
+  (let [seed {:in [{:pattern :auth/*}] :out [{:pattern :mouse-move}]}]
+    (config/set-filter-seed! seed)
+    (is (= seed (config/get-filter-seed)))
+    (config/set-filter-seed! nil)
+    (is (nil? (config/get-filter-seed)))))
+
+(deftest configure-passes-filters-through
+  (let [seed {:in [{:pattern :auth/*}] :out []}]
+    (config/configure! {:filters seed})
+    (is (= seed (config/get-filter-seed)))))
+
+(deftest configure-without-filters-leaves-seed-untouched
+  (config/set-filter-seed! {:in [{:pattern :seeded}] :out []})
+  (config/configure! {:editor :cursor})
+  (is (= {:in [{:pattern :seeded}] :out []}
+         (config/get-filter-seed))))
+
+(deftest default-filters-storage-key-is-stable
+  (testing "the published default key must not drift — host stylesheets
+            and Story testbeds reference the literal string"
+    (is (= "re-frame2.causa.filters.v1"
+           (config/get-filters-storage-key)))))
+
+(deftest set-filters-storage-key-round-trips
+  (config/set-filters-storage-key! "myhost.filters.v1")
+  (is (= "myhost.filters.v1" (config/get-filters-storage-key)))
+  (config/set-filters-storage-key! nil)
+  (is (= "re-frame2.causa.filters.v1"
+         (config/get-filters-storage-key))
+      "nil resets to the default"))
+
+(deftest configure-passes-filters-storage-key-through
+  (config/configure! {:filters/storage-key "story.testbed.a.filters"})
+  (is (= "story.testbed.a.filters"
+         (config/get-filters-storage-key))))
+
+(deftest configure-without-storage-key-leaves-key-untouched
+  (config/set-filters-storage-key! "myhost.filters")
+  (config/configure! {:editor :cursor})
+  (is (= "myhost.filters" (config/get-filters-storage-key))))
 
 (deftest editor-uri-project-root-regression-rf2-5m5n2
   (testing "regression: the relative source-coord case the editor's

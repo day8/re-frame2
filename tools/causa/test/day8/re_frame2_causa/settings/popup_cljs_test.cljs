@@ -134,12 +134,12 @@
   (rf/with-frame :rf/causa
     (let [rendered (popup/Modal)]
       (is (find-by-testid rendered "rf-causa-settings-section-filters"))
-      ;; The filters ns is not on the classpath here — install hint
-      ;; should render instead of the open button.
-      (is (find-by-testid rendered "rf-causa-settings-filters-install-hint")
-          "install hint shows when filters feature is absent")
-      (is (nil? (find-by-testid rendered "rf-causa-settings-filters-open"))
-          "open button hidden when filters feature is absent"))))
+      ;; The filters ns is loaded (rf2-ak4ms landed) — the section
+      ;; surfaces the open button rather than the install hint.
+      (is (find-by-testid rendered "rf-causa-settings-filters-open")
+          "open button renders when filters feature is present")
+      (is (nil? (find-by-testid rendered "rf-causa-settings-filters-install-hint"))
+          "install hint hidden when filters feature is present"))))
 
 (deftest theme-section-renders
   (setup!)

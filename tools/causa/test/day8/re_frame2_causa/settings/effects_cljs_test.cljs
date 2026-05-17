@@ -129,19 +129,18 @@
 
 ;; ---- filters feature detect --------------------------------------------
 
-(deftest filters-section-shows-install-hint-when-ns-absent
-  ;; The view's `filters-feature-present?` uses `find-ns` against
-  ;; `day8.re-frame2-causa.filters` — that ns is NOT on the
-  ;; classpath here (rf2-ak4ms is in a sibling worker), so the hint
-  ;; branch should fire.
-  (is (nil? (find-ns 'day8.re-frame2-causa.filters))
-      "filters ns is genuinely absent")
-  (let [section (view/popup-view)]
-    ;; The popup-view always renders general first (default tab).
-    ;; Just assert the absence-branch helper resolves false; the
-    ;; section render is covered in popup_cljs_test.
-    (is (false? (#'view/filters-feature-present?))
-        "feature detect reports absent")))
+(deftest filters-section-feature-detect-reports-present-when-ns-loaded
+  ;; Post rf2-ak4ms the auto-filter ns ships in the same bundle as
+  ;; the Settings popup; the view's `filters-feature-present?` uses
+  ;; `find-ns` against `day8.re-frame2-causa.filters` and should
+  ;; return true. The presence branch surfaces the "Open auto-filter
+  ;; UI" button rather than the install hint (covered in
+  ;; popup_cljs_test/filters-section-renders).
+  (is (some? (find-ns 'day8.re-frame2-causa.filters))
+      "filters ns is loaded post rf2-ak4ms")
+  (let [_section (view/popup-view)]
+    (is (true? (#'view/filters-feature-present?))
+        "feature detect reports present")))
 
 ;; ---- auto-open watcher --------------------------------------------------
 ;;

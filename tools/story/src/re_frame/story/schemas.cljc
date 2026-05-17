@@ -225,6 +225,39 @@
 
 ;; ---- :rf/story ------------------------------------------------------------
 
+(def CausaPreset
+  "Schema for the optional `:causa` slot on a story / variant body —
+  per-story Causa pre-configuration applied when Causa mounts inside
+  the rendered variant's frame (rf2-q9kv5).
+
+  All slots are optional. The preset is plain data; the runtime side
+  (`re-frame.story.causa-preset`) feature-detects Causa and the optional
+  filters API, no-opping gracefully when absent.
+
+  - `:open?`   — when truthy, auto-open the Causa shell on variant mount.
+  - `:tab`     — registered Causa panel-id keyword to pre-focus
+                 (e.g. `:event-detail :time-travel :app-db :issues
+                 :machines :trace :subs :fx :flows :routes :performance
+                 :hydration :causality :mcp-server :schemas`).
+  - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Causa
+                 auto-filter pills to pre-populate. Both axes are
+                 optional. Skipped with a console warning when
+                 `day8.re-frame2-causa.filters` (rf2-ak4ms) is not on
+                 the classpath.
+  - `:focus`   — optional pre-focus coordinates. `{:event-pos N}` selects
+                 the Nth event in the current cascade. Rare; usually you
+                 want LIVE to track head."
+  [:map
+   [:open?   {:optional true} :boolean]
+   [:tab     {:optional true} :keyword]
+   [:filters {:optional true}
+    [:map
+     [:out {:optional true} [:vector :keyword]]
+     [:in  {:optional true} [:vector :keyword]]]]
+   [:focus   {:optional true}
+    [:map
+     [:event-pos {:optional true} :int]]]])
+
 (def Story
   "Schema for the body of `reg-story`.
 
@@ -240,7 +273,16 @@
   - `:substrates` — default substrate set for variants.
   - `:platforms` — SSR opt-in.
   - `:variants` — the Form-B combined-form sugar; the macro desugars
-    into N independent `reg-variant` calls."
+    into N independent `reg-variant` calls.
+  - `:dispatch-console?` — Story-shell dispatch console panel opt-in.
+    Default false (panel hidden). Set true to surface the per-variant
+    dispatch console for this story / its variants (rf2-q9kv5). Toolbar
+    real-estate is precious; the chrome-level toolbar chip lets the user
+    flip the chrome-toggle without editing the story body.
+  - `:causa` — per-story Causa preset (auto-open, tab focus, filter
+    pre-population). See `CausaPreset` schema. The preset is read on
+    variant mount and applied via `re-frame.story.causa-preset/
+    apply-preset!`. (rf2-q9kv5)."
   [:map
    [:doc        {:optional true} :string]
    [:component  {:optional true} :keyword]
@@ -251,6 +293,8 @@
    [:modes      {:optional true} ModeRefSet]
    [:substrates {:optional true} SubstrateSet]
    [:platforms  {:optional true} PlatformSet]
+   [:dispatch-console? {:optional true} :boolean]
+   [:causa      {:optional true} CausaPreset]
    ;; The Form-B combined-form sugar. Variant-name keys map to variant
    ;; bodies — the macro expands these into N independent reg-variant
    ;; calls. Validated separately when the macro desugars.
@@ -285,7 +329,13 @@
    [:args->events          {:optional true} [:map-of :keyword :keyword]]
    [:platforms             {:optional true} PlatformSet]
    [:substrates            {:optional true} SubstrateSet]
-   [:modes                 {:optional true} ModeRefSet]])
+   [:modes                 {:optional true} ModeRefSet]
+   ;; rf2-q9kv5: per-variant overrides for the dispatch-console panel +
+   ;; Causa preset. A variant may opt out of the dispatch-console panel
+   ;; (default true at story level) or carry a Causa preset that
+   ;; overrides the parent story's preset.
+   [:dispatch-console?     {:optional true} :boolean]
+   [:causa                 {:optional true} CausaPreset]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
 

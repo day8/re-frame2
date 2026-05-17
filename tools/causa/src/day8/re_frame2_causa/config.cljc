@@ -3,9 +3,9 @@
 
   Phase 1 held a single config concern: the 'Open in editor'
   preference (rf2-evgf5). Causa now also exposes the default inline
-  layout-host selector and default auto-open switch used by the dev
-  preload (rf2-eehov). Future phases extend this with theme defaults,
-  buffer depth, etc.
+  layout-host selector, default auto-open switch (rf2-eehov), and the
+  ribbon filter pill seed + persistence key (rf2-ak4ms). Future phases
+  extend this with theme defaults, buffer depth, etc.
 
   ## Why a separate config ns
 
@@ -736,6 +736,78 @@
        (catch :default _ nil)))
   nil)
 
+;; ---- *filter-pills* (rf2-ak4ms — ribbon filter seeds + storage key) -----
+;;
+;; Per `tools/causa/spec/018-Event-Spine.md` §7 ribbon pills persist
+;; via localStorage per host-app under a Causa-namespaced key. Two
+;; configure! axes:
+;;
+;;   - `:filters/seed` — initial pill set hosts can ship as a default
+;;     (Story testbeds use this to inject a known starting point for
+;;     reproducibility). Default `nil` — no seed; the user surfaces
+;;     filters themselves per spec/018 §7 'Empty defaults'.
+;;
+;;   - `:filters/storage-key` — localStorage key the persistence layer
+;;     reads / writes. Default `"re-frame2.causa.filters.v1"`. Hosts
+;;     that run multiple Causa instances (Story testbeds) override so
+;;     each instance keeps its own pill state.
+;;
+;; The atoms here are the data primitives; the CLJS-only
+;; `filters.persistence` ns thunks them through localStorage. CLJC so
+;; the JVM test corpus can exercise the configure! round-trip without
+;; a CLJS runtime.
+
+(def default-filters
+  "Default ribbon filter set Causa ships with — empty, per spec/018 §7
+  'Empty defaults' / rf2-ak4ms: first-session honesty beats first-
+  session quietness. Shipping a default `:mouse-move` filter would
+  silently hide events the user didn't know they were emitting."
+  {:in [] :out []})
+
+(defonce
+  ^{:doc "Atom holding the host-supplied seed filter set Causa
+         hydrates the slot with on FIRST install (when localStorage
+         is empty). Default `nil` — no seed; the registry's default
+         empty shape wins."}
+  filter-seed
+  (atom nil))
+
+(defn set-filter-seed!
+  "Set the seed filter set the registry hydrates `:active-filters`
+  with on first install when localStorage is empty. `nil` clears the
+  seed. Shape: `{:in [{:pattern <kw-or-str>}] :out [{:pattern <…>}]}`."
+  [seed]
+  (reset! filter-seed seed)
+  nil)
+
+(defn get-filter-seed
+  "Return the current host-supplied filter seed, or nil when unset."
+  []
+  @filter-seed)
+
+(defonce
+  ^{:doc "Atom holding the localStorage key the filter-persistence
+         layer reads / writes. Default
+         `\"re-frame2.causa.filters.v1\"`. Hosts mount multiple
+         Causa instances (Story testbeds) override for isolation."}
+  filters-storage-key
+  (atom "re-frame2.causa.filters.v1"))
+
+(defn set-filters-storage-key!
+  "Replace the localStorage key Causa uses for filter persistence.
+  `nil` resets to the default. The CLJS-side `filters.persistence`
+  ns reads this atom directly at every load / save so the round-trip
+  always honours the current setting — no separate sync call."
+  [k]
+  (reset! filters-storage-key
+          (or k "re-frame2.causa.filters.v1"))
+  nil)
+
+(defn get-filters-storage-key
+  "Return the current localStorage key for filter persistence."
+  []
+  @filters-storage-key)
+
 ;; ---- configure! convenience ---------------------------------------------
 
 (defn configure!
@@ -766,6 +838,16 @@
        event surface (`:rf.causa/settings-update`) is the normal
        per-knob write path; this key is the bulk-set escape hatch
        (e.g. host wants to ship its own default theme).
+    `{:filters <{:in [...] :out [...]}>}` — host-supplied seed pill
+       set the registry hydrates `:active-filters` with on FIRST
+       install (when localStorage is empty). Default `nil` per
+       spec/018 §7 'Empty defaults' — first-session honesty beats
+       first-session quietness (rf2-ak4ms). Story testbeds use this
+       to inject a known starting point for reproducibility.
+    `{:filters/storage-key <string>}` — localStorage key the filter
+       persistence layer reads / writes. Default
+       `\"re-frame2.causa.filters.v1\"`. Hosts that run multiple
+       Causa instances (Story testbeds) override for isolation.
 
   Future phases extend this with theme / buffer / placement keys.
 
@@ -775,13 +857,16 @@
       (causa-config/configure! {:editor       :cursor
                                 :project-root \"C:/Users/me/code/my-app\"
                                 :layout/host-selector \"#causa\"
-                                :launch/auto-open? true})
+                                :launch/auto-open? true
+                                :filters {:out [{:pattern \":mouse-move\"}]}})
 
   Returns nothing."
   [{:keys [editor project-root settings]
     host-selector-opt :layout/host-selector
     auto-open-opt :launch/auto-open?
     show-sensitive-opt :trace/show-sensitive?
+    filters-opt :filters
+    filters-key-opt :filters/storage-key
     :as opts}]
   (when (some? editor)
     (set-editor! editor))
@@ -805,6 +890,13 @@
                                       (:theme default-settings)))
                   (update :telemetry merge (:telemetry settings))))
       #?(:cljs (write-storage!))))
+  ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
+  ;; seed so a host that overrides both in one call gets the seed
+  ;; persisted under the right key.
+  (when (contains? opts :filters/storage-key)
+    (set-filters-storage-key! filters-key-opt))
+  (when (contains? opts :filters)
+    (set-filter-seed! filters-opt))
   nil)
 
 ;; ---- pass-through: editor-uri --------------------------------------------

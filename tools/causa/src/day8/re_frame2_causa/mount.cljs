@@ -48,6 +48,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -312,6 +313,13 @@
     (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])
     (rf/dispatch-sync [:rf.causa/sync-epoch-history
                        (vec (rf/epoch-history defaults/default-target-frame))]))
+  ;; Hydrate the auto-filter pills (rf2-ak4ms). The preload-time
+  ;; `filters/install!` call ran BEFORE the `:rf/causa` frame was
+  ;; registered, so its hydrate attempt no-op'd; re-running here
+  ;; under the now-registered frame lifts the localStorage / seed
+  ;; value into the slot. Idempotent — re-running with an unchanged
+  ;; source produces the same slot.
+  (filters/hydrate!)
   ;; Auto-open-on-error watcher (rf2-9poxq) — install lazily here so
   ;; the persisted-true case picks up as soon as the user opens
   ;; Causa. The watcher subscribes to `:rf.causa/issues-ribbon`

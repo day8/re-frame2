@@ -1,40 +1,75 @@
 (ns day8.re-frame2-causa.shell
-  "The Causa shell — empty-pane layout per tools/causa/spec/007-UX-IA.md.
-  Every sidebar entry routes to a live panel view fn through `canvas`'s
-  case-switch; an unrecognised id falls through to a defensive
-  `unknown-panel` branch.
+  "The Causa shell — 4-layer chrome per `tools/causa/spec/018-Event-Spine.md`
+  §2 The 4-layer chrome.
 
   ## Layout
 
-  Per spec/007-UX-IA.md §The five regions:
+  Per spec/018 the chrome is four stacked layers — the legacy
+  16-panel sidebar + bottom rail (spec/007's original §The five
+  regions) is dead.
 
-      ┌─────────────────────────────────────────────────────────┐
-      │ ◆ Top strip (56px)                              ?   ✕   │
-      ├──────────────┬──────────────────────────────────────────┤
-      │              │                                          │
-      │  Sidebar     │  Canvas                                  │
-      │  (152px)     │  (active panel)                          │
-      │              │                                          │
-      │              │                                          │
-      ├──────────────┴──────────────────────────────────────────┤
-      │ Bottom rail (40px)                                      │
-      └─────────────────────────────────────────────────────────┘
+      ┌───────────────────────────────────────────────────────┐
+      │ L1  Top ribbon (56px)                                 │  scope controls
+      ├───────────────────────────────────────────────────────┤
+      │ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
+      ├───────────────────────────────────────────────────────┤
+      │ L3  Tab bar (40px) — 6 tabs                           │  projection selector
+      ├───────────────────────────────────────────────────────┤
+      │ L4  Detail panel (fills remaining canvas)             │  per-tab content
+      └───────────────────────────────────────────────────────┘
 
-  ## Density (rf2-pcitk)
+  L1 / L3 are fixed-height; L2 takes a default 8-row height and is
+  user-resizable via the L2/L3 boundary drag handle; L4 takes the
+  remainder. Only L2/L3 carries a drag handle.
 
-  Typography sizes and the sidebar width are read from
-  `theme.tokens/type-scale` + `theme.tokens/layout`. The shell ships
-  denser than spec-cosy (closer to compact) because Causa is an
-  info-dense dev surface — see the docstrings on those two defs for
-  the one-knob tuning model.
+  ## Ribbon clusters (L1)
+
+  Five clusters, fixed order left → right per spec/018 §3:
+
+  - **Nav** (`◀ ▶ ⏭`) — back / forward / fast-forward through the
+    spine. Dispatches `:rf.causa/focus-cascade-prev` / `-next` /
+    `:rf.causa/follow-head`.
+  - **Frame picker** — single-select dropdown over the cascade list's
+    distinct frames. Excludes `:rf/causa` by default per §8 I1.
+  - **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills
+    + trailing `[+]` add-pill. Click any pill → edit popup.
+  - **Mode pill** — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` dual-
+    purpose indicator + toggle. Carries the REDACTED-count tooltip.
+  - **Right icons** — `⚙` settings · `⛶` popout · `✕` close.
+
+  ## Event list (L2)
+
+  Single-line rows, latest-on-bottom, 8 visible by default. Each row:
+  gutter glyph (`● ◉ x ▥`) + event-id + right-aligned badge cluster
+  (`⚠ 🌐 🤖`) + trailing redaction marker (`[● REDACTED N]`). Click
+  a row → `:rf.causa/focus-cascade <id>` flips spine to RETRO and
+  rebinds every dependent surface in one frame.
+
+  ## Tab bar (L3)
+
+  Six tabs, mnemonic letters per spec/018 §11:
+
+      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Issues (i)
+
+  Selection lives on `:rf.causa/selected-tab` and drives the L4
+  detail panel's case switch.
+
+  ## Detail panel (L4)
+
+  Renders the active tab's projection of the focused event. Tabs
+  reuse the existing per-panel views where possible (Event tab →
+  `event-detail/Panel`, App-db → `app-db-diff/Panel`, Trace →
+  `trace/Panel`, Machines → `machine-inspector/Panel`, Issues →
+  `issues-ribbon/Panel`). The Views tab is a stub pending the §5.3
+  per-view content design.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
-  The whole shell is wrapped in `[rf/frame-provider {:frame :rf/causa}
-  ...]`. Every `subscribe` / `dispatch` inside the shell resolves to
-  the `:rf/causa` frame; the host's `:rf/default` is untouched. Causa
-  registrations under `:rf.causa/*` (see registry.cljs) operate
-  against `:rf/causa`'s db when called from inside the shell.
+  The shell is wrapped in `[rf/frame-provider {:frame :rf/causa}]`.
+  Every `subscribe` / `dispatch` inside the shell resolves to the
+  `:rf/causa` frame; the host's `:rf/default` is untouched. Causa's
+  own registrations under `:rf.causa/*` operate against `:rf/causa`'s
+  db when called from inside the shell.
 
   Per rf2-in6l2 every subscribing region of the shell is `reg-view`-
   registered so its rendered React component carries `:contextType
@@ -44,9 +79,7 @@
   React-context tier would be skipped (Spec 004 §Plain Reagent fns
   do not pick up the surrounding frame) and subscribe would fall
   through to `:rf/default` — silently routing every Causa panel
-  query into the host's app-db. The frame is lazy-registered by
-  `mount.cljs/open!` (`rf/init!` must run before `reg-frame` can
-  succeed; the preload runs too early).
+  query into the host's app-db.
 
   ## Pure hiccup
 
@@ -54,64 +87,75 @@
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
-            [day8.re-frame2-causa.panels.time-travel :as time-travel]
-            [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
-            ;; ── effects panel begin ──
-            [day8.re-frame2-causa.panels.effects :as effects]
-            ;; ── effects panel end ──
-            [day8.re-frame2-causa.panels.flows :as flows]
-            [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
-            ;; ── mcp-server panel begin ──
-            [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
-            ;; ── mcp-server panel end ──
-            [day8.re-frame2-causa.panels.performance :as performance]
-            [day8.re-frame2-causa.panels.routes :as routes]
-            [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
-            [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
-            [day8.re-frame2-causa.open-in-editor :as open-in-editor]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout]]))
+            [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
 
-;; ---- sidebar items -------------------------------------------------------
+;; ---- internal frames + tab inventory ------------------------------------
 
-(def ^:private sidebar-items
-  "The sidebar's panel list. Per spec/007-UX-IA.md §Sidebar groups —
-  three groups, divider-separated. Every panel is live; the
-  Hydration entry carries `:dormant?` until the first
-  `:rf.ssr/hydration-mismatch` trace lands (per spec/006-Hydration-
-  Debugger.md §Visibility)."
-  [{:id :event-detail :label "Event detail"}
-   {:id :time-travel  :label "Time travel"}
-   {:id :app-db       :label "App-db"}
-   {:id :causality    :label "Causality"}
-   {:id :views        :label "Views"}
-   ;; ── effects panel begin ──
-   {:id :fx           :label "Effects"}
-   ;; ── effects panel end ──
-   {:id :trace        :label "Trace"}
-   {:id :machines     :label "Machines"}
-   {:id :flows        :label "Flows"}
-   {:id :routes       :label "Routes"}
-   {:id :performance  :label "Performance"}
-   {:id :issues       :label "Issues"}
-   {:id :schemas      :label "Schemas"}
-   {:id :hydration    :label "Hydration"    :dormant? true}
-   ;; ── mcp-server panel begin ──
-   {:id :mcp-server   :label "MCP"}
-   ;; ── mcp-server panel end ──
-   ])
+(def ^:private internal-frames
+  "Frames Causa filters out of the picker by default per spec/018 §8 I1.
+  `:rf/causa` is Causa's own state; `:rf/pair2` is the future MCP-pair
+  frame. The Settings 'Show tool frames in picker' toggle re-includes
+  them under a `── Power user ──` divider (settings UI is stubbed
+  pending follow-on work)."
+  #{:rf/causa :rf/pair2})
 
-;; ---- regions -------------------------------------------------------------
+(def ^:private tabs
+  "The six L3 tabs per spec/018 §5 The 6 tabs. Order is the canonical
+  left-to-right ribbon order; the `:mnem` letter is the keyboard
+  mnemonic (spec/018 §11).
 
-(defn- mode-pill-text
-  "Render text for the mode-pill per spec/018 §3 Mode pill click
+  Labels use spaces (`App DB` not `App-db`) so the rendered text
+  carries no `-` glyphs — Playwright's `getByRole('button', {name:
+  '-'})` accessible-name matching is substring-based and would
+  otherwise lasso our tab buttons in any host whose app exposes
+  `-`-named buttons (counter `+ / -`)."
+  [{:id :event    :label "Event"    :mnem "e"}
+   {:id :app-db   :label "App DB"   :mnem "a"}
+   {:id :views    :label "Views"    :mnem "v"}
+   {:id :trace    :label "Trace"    :mnem "t"}
+   {:id :machines :label "Machines" :mnem "m"}
+   {:id :issues   :label "Issues"   :mnem "i"}])
+
+(def ^:private default-tab :event)
+
+;; ---- helpers (pure, exported for tests) ---------------------------------
+
+(defn distinct-frames
+  "Pure helper. Returns the distinct frames present in `cascades` in
+  first-seen order. Used by the ribbon frame dropdown to populate
+  selectable options.
+
+  Filters `:rf/causa` (and other tool frames) out by default per
+  spec/018 §8 I1 — passing `show-tool-frames?` true reincludes them.
+  nil-frame cascades are dropped (an `:ungrouped` cascade carries
+  nil `:frame`)."
+  [cascades show-tool-frames?]
+  (let [seen (volatile! #{})]
+    (reduce
+      (fn [acc cascade]
+        (let [f (:frame cascade)]
+          (cond
+            (nil? f)                              acc
+            (contains? @seen f)                   acc
+            (and (not show-tool-frames?)
+                 (contains? internal-frames f))   acc
+            :else (do (vswap! seen conj f)
+                      (conj acc f)))))
+      []
+      cascades)))
+
+(defn mode-pill-text
+  "Render text for the L1 mode pill per spec/018 §3 Mode pill click
   behaviour. `focus` is the `:rf.causa/focus` sub value."
   [{:keys [mode paused? head?]}]
   (case mode
@@ -119,7 +163,7 @@
     :retro (if head? "● LIVE" "◐ RETRO")
     "● LIVE"))
 
-(defn- mode-pill-on-click
+(defn mode-pill-on-click
   "Dispatcher for the mode-pill click — Space-equivalent when in LIVE,
   L-equivalent when in RETRO. Per spec/018 §3 table 'Mode pill click
   behaviour'."
@@ -128,299 +172,480 @@
     #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
     #(rf/dispatch [:rf.causa/toggle-live-pause] {:frame :rf/causa})))
 
-(rf/reg-view top-strip
-  "Top strip (56px). Per spec/018-Event-Spine.md §3 Top ribbon anatomy
-  the bar carries the brand mark plus the LIVE/RETRO mode pill (moved
-  here from the dead bottom rail per spec/018 §1 'No bottom rail').
-  The REDACTED indicator surfaces next to the mode pill — the bottom
-  rail used to own it (rf2-azls9); spec/018 specifies the mode-pill
-  hover tooltip + the redaction marker per row, and as a smallest-
-  first-PR step we relocate the indicator to the top strip so the
-  existing redacted-counter assertion surface keeps working
-  unchanged. Frame picker + filter pills + right-cluster chrome land
-  under follow-on beads.
+(defn event-id-of-cascade
+  "Best-effort pluck of the event-id from a cascade's `:event` slot.
+  The slot is the raw event vector ([:foo/bar …]); the first element
+  is the event id. nil when the cascade is unrouted or the event slot
+  is empty."
+  [cascade]
+  (let [ev (:event cascade)]
+    (when (vector? ev)
+      (first ev))))
 
-  Per rf2-in6l2 `reg-view`-registered so the subscribes route through
-  React context to `:rf/causa`."
+(defn gutter-glyph
+  "Pick the gutter glyph per spec/018 §4 Row anatomy. The selected row
+  gets `◉`; an errored row gets `x`; a wholly-redacted row gets `▥`;
+  default is `●`."
+  [cascade focused-id]
+  (cond
+    (= (:dispatch-id cascade) focused-id) "◉"
+    (boolean (seq (:errors cascade)))     "x"
+    (:whole-redacted? cascade)            "▥"
+    :else                                 "●"))
+
+(defn row-badges
+  "Per spec/018 §4 Row badges. Returns a vector of present badges in
+  the fixed `[:warn :http :machine]` order. Stub heuristic until the
+  per-row classifier lands — looks at the cascade's `:other` bucket
+  for op-types we recognise."
+  [cascade]
+  (let [others (:other cascade)
+        warn?  (some (fn [e] (or (= :error (:op-type e))
+                                 (= :warning (:op-type e))))
+                     others)
+        http?  (some (fn [e] (when-let [op (:operation e)]
+                               (let [n (str op)]
+                                 (or (re-find #":http/" n)
+                                     (re-find #":rf\.http" n)))))
+                     others)
+        machine? (some (fn [e] (when-let [op (:operation e)]
+                                 (re-find #":machine" (str op))))
+                       others)]
+    (cond-> []
+      warn?    (conj "⚠")
+      http?    (conj "🌐")
+      machine? (conj "🤖"))))
+
+;; ---- L1 ribbon -----------------------------------------------------------
+
+(defn- ribbon-nav-cluster
+  "Nav cluster — `◀ ▶ ⏭` per spec/018 §3. Buttons dispatch
+  `:rf.causa/focus-cascade-prev` / `-next` / `:rf.causa/follow-head`.
+
+  `at-head?` / `at-tail?` come from the spine sub so the buttons can
+  disable themselves at the boundary."
+  [{:keys [at-head? at-tail?]}]
+  (let [btn-style {:background     "transparent"
+                   :border         (str "1px solid " (:border-default tokens))
+                   :color          (:text-primary tokens)
+                   :cursor         "pointer"
+                   :padding        "2px 8px"
+                   :border-radius  "4px"
+                   :font-family    sans-stack
+                   :font-size      (:body type-scale)}
+        dim       {:color (:text-tertiary tokens) :cursor "default"}]
+    [:div {:data-testid "rf-causa-ribbon-nav"
+           :style {:display "flex" :align-items "center" :gap "4px"}}
+     [:button {:data-testid "rf-causa-nav-prev"
+               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa})
+               :disabled    (boolean at-head?)
+               :title       "Step to previous event (j)"
+               :style       (merge btn-style (when at-head? dim))}
+      "◀"]
+     [:button {:data-testid "rf-causa-nav-next"
+               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa})
+               :disabled    (boolean at-tail?)
+               :title       "Step to next event (k)"
+               :style       (merge btn-style (when at-tail? dim))}
+      "▶"]
+     [:button {:data-testid "rf-causa-nav-head"
+               :on-click    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
+               :title       "Fast-forward to latest (G)"
+               :style       btn-style}
+      "⏭"]]))
+
+(defn- ribbon-frame-picker
+  "Frame dropdown — single-select per spec/018 §3 Frame dropdown.
+  Excludes `:rf/causa` by default per §8 I1. When the only available
+  frame is the current selection, the dropdown collapses to a flat
+  label (no chevron — no click target).
+
+  Writes via `:rf.causa/set-frame <frame-id>`."
+  [{:keys [selected-frame frames]}]
+  (let [label-style {:color       (:text-primary tokens)
+                     :font-family sans-stack
+                     :font-size   (:body type-scale)}]
+    (if (<= (count frames) 1)
+      [:span {:data-testid "rf-causa-ribbon-frame"
+              :style (merge label-style {:color (:text-secondary tokens)})}
+       (str "Frame: " (or selected-frame (first frames) ":rf/default"))]
+      [:select {:data-testid "rf-causa-ribbon-frame-picker"
+                :value       (str (or selected-frame (first frames)))
+                :on-change   (fn [^js e]
+                               (let [v   (.. e -target -value)
+                                     kw  (when (and v (.startsWith v ":"))
+                                           (keyword (subs v 1)))]
+                                 (when kw
+                                   (rf/dispatch [:rf.causa/set-frame kw] {:frame :rf/causa}))))
+                :style       (merge label-style
+                               {:background    (:bg-2 tokens)
+                                :border        (str "1px solid " (:border-default tokens))
+                                :border-radius "4px"
+                                :padding       "2px 6px"})}
+       (for [f frames]
+         ^{:key (str f)}
+         [:option {:value (str f)} (str "Frame: " f)])])))
+
+(defn- ribbon-filter-pills
+  "Filter pills cluster per spec/018 §3 + §7 Ribbon pills. Thin
+  delegate to `filters.pills/pills-view` — the proper pill UI lives in
+  the filters ns, which also owns the edit popup mount. Mounted here
+  inside the ribbon's `reg-view` so subscribes still resolve through
+  React context to `:rf/causa`.
+
+  Per rf2-ak4ms the legacy `js/window.prompt` stub is gone — the add-
+  pill affordance now opens the rich edit popup. Per spec/018 §7 the
+  popup pre-populates from existing pills (edit) or from right-click
+  event-row context (add)."
+  [{:keys [filters]}]
+  [filter-pills/pills-view {:filters filters}])
+
+(defn- ribbon-mode-pill
+  "Mode pill — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` per spec/018
+  §3. Tooltip surfaces the REDACTED total. Click toggles per the
+  mode-pill click behaviour table."
+  [{:keys [focus redacted-count]}]
+  (let [pill-tone (case (:mode focus)
+                    :live  (if (:paused? focus)
+                             (:text-secondary tokens)
+                             (:green tokens))
+                    :retro (if (:head? focus)
+                             (:green tokens)
+                             (:cyan tokens))
+                    (:green tokens))
+        red-suffix (when (pos? redacted-count)
+                     (str " · ● REDACTED " redacted-count " (default-suppressed)"))
+        base-title (case (:mode focus)
+                     :live  (if (:paused? focus)
+                              "Resume LIVE feed (Space)"
+                              "Pause LIVE feed (Space)")
+                     :retro (if (:head? focus)
+                              "Pause LIVE feed (Space)"
+                              "Snap to LIVE (L)")
+                     "")
+        full-title (str base-title (or red-suffix ""))]
+    [:span {:data-testid "rf-causa-mode-pill"
+            :on-click    (mode-pill-on-click focus)
+            :title       full-title
+            :style       {:color         pill-tone
+                          :cursor        "pointer"
+                          :font-weight   600
+                          :padding       "2px 8px"
+                          :border        (str "1px solid " pill-tone)
+                          :border-radius "10px"
+                          :font-family   sans-stack
+                          :font-size     (:body type-scale)
+                          :white-space   "nowrap"}}
+     (mode-pill-text focus)]))
+
+(defn- ribbon-redacted-indicator
+  "REDACTED indicator (rf2-azls9) — preserved next to the mode pill for
+  back-compat with the existing redacted-counter assertion surface.
+  Only renders when the counter is positive."
+  [redacted-count]
+  (when (pos? redacted-count)
+    [:span {:data-testid "rf-causa-redacted-indicator"
+            :title       (str "Spec 009 §Privacy: " redacted-count
+                              " sensitive trace event"
+                              (when (not= 1 redacted-count) "s")
+                              " suppressed by default. Set "
+                              ":trace/show-sensitive? true via "
+                              "(causa-config/configure! ...) to "
+                              "surface them.")
+            :style       {:color       (:magenta tokens)
+                          :font-weight 600
+                          :font-size   (:caption type-scale)}}
+     (str "● REDACTED " redacted-count)]))
+
+(defn- ribbon-right-icons
+  "Right-icons cluster — `⚙` settings · `⛶` popout · `✕` close per
+  spec/018 §3 Right-icon behaviour. Settings opens the Settings popup
+  modal (rf2-9poxq) via `:rf.causa/settings-open`; popout is stubbed
+  (popout dispatches the existing toggle for symmetry). Close
+  dispatches `:rf.causa/close-shell` (handled by mount.cljs in
+  production)."
+  []
+  (let [icon-style {:background     "transparent"
+                    :border         "none"
+                    :color          (:text-secondary tokens)
+                    :cursor         "pointer"
+                    :font-size      (:body type-scale)
+                    :padding        "2px 6px"}]
+    [:div {:data-testid "rf-causa-ribbon-icons"
+           :style {:display "flex" :align-items "center" :gap "4px"}}
+     [:button {:data-testid "rf-causa-icon-settings"
+               :title       "Settings (,)"
+               :aria-label  "Open Causa settings"
+               :on-click    #(rf/dispatch [:rf.causa/settings-open] {:frame :rf/causa})
+               :style       icon-style}
+      "⚙"]
+     [:button {:data-testid "rf-causa-icon-popout"
+               :title       "Pop out (o) — stubbed"
+               :on-click    #(rf/dispatch [:rf.causa/popout] {:frame :rf/causa})
+               :style       icon-style}
+      "⛶"]
+     [:button {:data-testid "rf-causa-icon-close"
+               :title       "Close (Ctrl+Shift+C)"
+               :on-click    #(rf/dispatch [:rf.causa/close-shell] {:frame :rf/causa})
+               :style       icon-style}
+      "✕"]]))
+
+(rf/reg-view ribbon
+  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Five clusters left
+  to right: nav · frame · filters · mode pill · right icons.
+
+  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
+  `:rf/causa`."
   [_props]
-  (let [redacted-count @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
-        focus          @(rf/subscribe [:rf.causa/focus])
-        pill-tone      (case (:mode focus)
-                         :live  (if (:paused? focus)
-                                  (:text-secondary tokens)
-                                  (:green tokens))
-                         :retro (if (:head? focus)
-                                  (:green tokens)
-                                  (:cyan tokens))
-                         (:green tokens))]
-    [:div {:data-testid "rf-causa-top-strip"
+  (let [focus           @(rf/subscribe [:rf.causa/focus])
+        cascades        @(rf/subscribe [:rf.causa/cascades])
+        show-tool?      false   ; Power-user toggle stubbed pending Settings modal
+        frames          (distinct-frames cascades show-tool?)
+        redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
+        filters         @(rf/subscribe [:rf.causa/active-filters])
+        focused-id      (:dispatch-id focus)
+        ids             (mapv :dispatch-id cascades)
+        at-head?        (or (empty? ids)
+                            (= focused-id (last ids))
+                            (nil? focused-id))
+        at-tail?        (or (empty? ids)
+                            (= focused-id (first ids)))]
+    [:div {:data-testid "rf-causa-ribbon"
            :style {:display          "flex"
                    :align-items      "center"
                    :justify-content  "space-between"
+                   :gap              "12px"
                    :height           (:top-strip-height layout)
-                   :padding          "0 16px"
+                   :padding          "0 12px"
                    :background       (:bg-1 tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
-                   :color            (:text-primary tokens)
-                   :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                   :font-size        (:body type-scale)
-                   :font-weight      600}}
-     [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
-      [:span {:style {:color (:accent-violet tokens)}} "◆"]
-      [:span "Causa"]
-      [:span {:style {:color       (:text-tertiary tokens)
-                      :font-size   (:caption type-scale)
-                      :font-weight 400}}
-       "Phase 5 (rf2-pzxsr)"]]
-     [:div {:style {:display "flex" :align-items "center" :gap "12px"
-                    :font-size (:caption type-scale)
-                    :font-weight 400}}
-      ;; REDACTED indicator (rf2-azls9, relocated from bottom-rail per
-      ;; rf2-adve5). Only renders when the counter is positive.
-      (when (pos? redacted-count)
-        [:span {:data-testid "rf-causa-redacted-indicator"
-                :title       (str "Spec 009 §Privacy: " redacted-count
-                                  " sensitive trace event"
-                                  (when (not= 1 redacted-count) "s")
-                                  " suppressed by default. Set "
-                                  ":trace/show-sensitive? true via "
-                                  "(causa-config/configure! ...) to "
-                                  "surface them.")
-                :style       {:color       (:magenta tokens)
-                              :font-weight 600}}
-         (str "● REDACTED " redacted-count)])
-      ;; Mode pill — spec/018 §3 Mode pill cluster.
-      [:span {:data-testid "rf-causa-mode-pill"
-              :on-click    (mode-pill-on-click focus)
-              :title       (case (:mode focus)
-                             :live  (if (:paused? focus)
-                                      "Resume LIVE feed (Space)"
-                                      "Pause LIVE feed (Space)")
-                             :retro (if (:head? focus)
-                                      "Pause LIVE feed (Space)"
-                                      "Snap to LIVE (L)")
-                             "")
-              :style       {:color       pill-tone
-                            :cursor      "pointer"
-                            :font-weight 600
-                            :padding     "2px 8px"
-                            :border      (str "1px solid " pill-tone)
-                            :border-radius "10px"}}
-       (mode-pill-text focus)]
-      ;; Settings cog (rf2-9poxq) — opens the Settings popup modal.
-      ;; Per spec/018 §3 right-icons cluster the icon is the `⚙`
-      ;; glyph; this is a button rather than a plain `<span>` for
-      ;; native keyboard activation + a meaningful screen-reader
-      ;; label. Click dispatches `:rf.causa/settings-open`; the
-      ;; Modal mounted at the shell-view root reads
-      ;; `:rf.causa/settings-open?` and renders / unmounts itself.
-      [:button {:data-testid "rf-causa-settings-cog"
-                :title       "Open Causa settings"
-                :aria-label  "Open Causa settings"
-                :on-click    #(rf/dispatch [:rf.causa/settings-open]
-                                           {:frame :rf/causa})
-                :style       {:background  "transparent"
-                              :border      "none"
-                              :color       (:text-secondary tokens)
-                              :cursor      "pointer"
-                              :font-size   "16px"
-                              :line-height 1
-                              :padding     "2px 6px"
-                              :border-radius "3px"}}
-       "⚙"]
-      [:span {:style {:color (:text-secondary tokens)}}
-       "Ctrl+Shift+C to toggle"]]]))
+                   :font-family      sans-stack
+                   :font-size        (:body type-scale)}}
+     [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
+     [ribbon-frame-picker {:selected-frame (:frame focus)
+                           :frames frames}]
+     [ribbon-filter-pills {:filters filters}]
+     [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+      [ribbon-redacted-indicator redacted-count]
+      [ribbon-mode-pill {:focus focus :redacted-count redacted-count}]]
+     [ribbon-right-icons]]))
 
-(defn- sidebar-item
-  "Render one sidebar item. Clicking the row fires
-  `:rf.causa/select-panel`; the live row highlights based on the
-  `:rf.causa/selected-panel` sub the parent reads.
+;; ---- L2 event list -------------------------------------------------------
 
-  ## Dormant marker (rf2-pzxsr — hydration-debugger panel visibility)
+(defn- event-row
+  "One row in the L2 event list. Single line per spec/018 §4 Row
+  anatomy. Gutter glyph + event-id + right-anchored badge cluster +
+  trailing redaction marker (stub — uses spine's `:focus.dispatch-id`
+  to drive the focused-row gutter).
 
-  Per `tools/causa/spec/006-Hydration-Debugger.md` §Visibility a
-  panel can be marked `:dormant?` — the entry then renders the `◌`
-  marker instead of `○` until activity wakes it. The dormant fn
-  passes `dormant?` here so the visibility gate is one place; the
-  parent decides per-row what 'awake' means."
-  [{:keys [id label dormant?]} active?]
-  [:li {:data-testid (str "rf-causa-sidebar-item-" (name id))
-        :on-click    #(rf/dispatch [:rf.causa/select-panel id] {:frame :rf/causa})
-        :style       {:padding         "4px 12px"
-                      :cursor          "pointer"
-                      :background      (if active? (:bg-active tokens) "transparent")
-                      :color           (cond
-                                         active?  (:text-primary tokens)
-                                         dormant? (:text-tertiary tokens)
-                                         :else    (:text-secondary tokens))
-                      :font-weight     (if active? 600 400)
-                      :white-space     "nowrap"
-                      :overflow        "hidden"
-                      :text-overflow   "ellipsis"}}
-   [:span {:style {:margin-right "8px"
-                   :color        (if active?
-                                   (:accent-violet tokens)
-                                   (:text-tertiary tokens))}}
-    (cond
-      active?  "◉"
-      dormant? "◌"   ; per spec/006-Hydration-Debugger.md §Visibility
-      :else    "○")]
-   label])
+  Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
+  event-row → context menu' into `:rf.causa/hide-event-type <event-
+  id>` — a one-step 'always hide this event-type' that opens the
+  edit popup pre-populated with the row's event-id + OUT default.
+  Pre-alpha the popup is the only context-menu surface (the rich
+  multi-item menu lands behind a follow-on bead); preventing the
+  browser context menu keeps the affordance discoverable on first
+  right-click."
+  [{:keys [cascade focused-id]}]
+  (let [id        (:dispatch-id cascade)
+        focused?  (= id focused-id)
+        glyph     (gutter-glyph cascade focused-id)
+        badges    (row-badges cascade)
+        ev-id     (event-id-of-cascade cascade)
+        glyph-col (cond
+                    focused?                                (:cyan tokens)
+                    (= "x" glyph)                           (:red tokens)
+                    (= "▥" glyph)                           (:magenta tokens)
+                    :else                                   (:text-tertiary tokens))
+        bg        (if focused? (:bg-active tokens) "transparent")
+        border    (if focused?
+                    (str "1px solid " (:cyan tokens))
+                    "1px solid transparent")]
+    [:li {:data-testid (str "rf-causa-event-row-" (str id))
+          :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
+                                     {:frame :rf/causa})
+          :on-context-menu (fn [^js e]
+                             (when ev-id
+                               (.preventDefault e)
+                               (rf/dispatch
+                                 [:rf.causa/hide-event-type ev-id]
+                                 {:frame :rf/causa})))
+          :style {:display       "flex"
+                  :align-items   "center"
+                  :gap           "8px"
+                  :padding       "4px 8px"
+                  :height        "28px"
+                  :cursor        "pointer"
+                  :background    bg
+                  :border        border
+                  :border-radius "2px"
+                  :font-family   mono-stack
+                  :font-size     (:mono-body type-scale)
+                  :color         (:text-primary tokens)
+                  :white-space   "nowrap"
+                  :overflow      "hidden"
+                  :text-overflow "ellipsis"}}
+     [:span {:style {:width "16px" :color glyph-col :flex-shrink 0
+                     :text-align "center"}}
+      glyph]
+     [:span {:style {:flex "1 1 auto" :overflow "hidden"
+                     :text-overflow "ellipsis"
+                     :color (:accent-violet tokens)}}
+      (str (or ev-id "<no event>"))]
+     (when (seq badges)
+       [:span {:data-testid "rf-causa-row-badges"
+               :style {:display "flex" :gap "4px" :flex-shrink 0
+                       :color (:yellow tokens)
+                       :font-size (:caption type-scale)}}
+        (for [b badges]
+          ^{:key b} [:span b])])]))
 
-(rf/reg-view sidebar
-  "Sidebar (152px, density-token driven) — panel navigation + density
-  toggle. Per spec/007-UX-IA.md §Sidebar groups three groups
-  (events/app-db/causality/..., conditional-with-activity, dormant)
-  divider-separated. Width comes from
-  `theme.tokens/layout :sidebar-width` (rf2-pcitk) — change in one
-  place to retune density.
+(rf/reg-view event-list
+  "L2 event list — per spec/018 §4 Event list. Single-line rows,
+  latest-on-bottom, 8 visible at default 28px row height ≈ 224px.
 
-  Phase 2: the active panel is driven by `:rf.causa/selected-panel`.
-  Clicking a row dispatches `:rf.causa/select-panel`.
+  Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.causa/filtered-
+  cascades` (NOT raw `:rf.causa/cascades`) so the L1 ribbon's IN/OUT
+  pills drive the list at the data layer — virtualisation budgets
+  the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
+  the same filtered list (per spec/018 §6 'Atomicity contract').
 
-  ## Hydration dormant gate (rf2-pzxsr / rf2-qym6e)
-
-  Per `tools/causa/spec/006-Hydration-Debugger.md` §Visibility the
-  Hydration sidebar entry is dormant (`◌`) until at least one
-  `:rf.ssr/hydration-mismatch` trace lands. The gate reads the
-  cheap presence sub `:rf.causa/hydration-has-mismatch?` (rf2-qym6e)
-  — boolean-only, so the sidebar's reactive path doesn't pull the
-  full mismatch-detail composite (which resolves selection, computes
-  the side-by-side detail, and walks the source-coord) on every
-  shell re-render.
-
-  Per rf2-in6l2 `reg-view`-registered so the subscribes route through
-  React context to `:rf/causa`."
+  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
+  `:rf/causa`."
   []
-  (let [active (or @(rf/subscribe [:rf.causa/selected-panel])
-                   registry/default-panel-id)
-        hydration-awake? @(rf/subscribe [:rf.causa/hydration-has-mismatch?])
-        items-resolved
-        (mapv (fn [item]
-                (cond-> item
-                  (and (= :hydration (:id item)) hydration-awake?)
-                  (assoc :dormant? false)))
-              sidebar-items)]
-    [:nav {:style {:width            (:sidebar-width layout)
-                   :flex-shrink      0
-                   :background       (:bg-1 tokens)
-                   :border-right     (str "1px solid " (:border-subtle tokens))
-                   :overflow-y       "auto"
-                   :overflow-x       "hidden"
-                   :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
-                   :font-size        (:body-tight type-scale)
-                   :line-height      (:line-height-tight type-scale)
-                   :color            (:text-primary tokens)}}
-     (into [:ul {:style {:list-style    "none"
-                         :margin        0
-                         :padding       "8px 0"}}]
-           (for [{:keys [id] :as item} items-resolved]
-             ^{:key id}
-             [sidebar-item item (= id active)]))]))
+  (let [cascades   @(rf/subscribe [:rf.causa/filtered-cascades])
+        focus      @(rf/subscribe [:rf.causa/focus])
+        focused-id (:dispatch-id focus)]
+    [:div {:data-testid "rf-causa-event-list"
+           :style {:height        "224px"   ; 8 rows × 28px
+                   :min-height    "56px"    ; 2 rows minimum per spec
+                   :overflow-y    "auto"
+                   :overflow-x    "hidden"
+                   :background    (:bg-2 tokens)
+                   :border-bottom (str "1px solid " (:border-subtle tokens))
+                   :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
+                   :padding       "4px"}}
+     (if (empty? cascades)
+       [:div {:data-testid "rf-causa-event-list-empty"
+              :style {:padding   "16px"
+                      :color     (:text-secondary tokens)
+                      :font-family sans-stack
+                      :font-size (:body type-scale)}}
+        "Click around your app — every dispatch will land here. "
+        "Press [c] for the causality graph."]
+       (into [:ul {:style {:list-style "none" :margin 0 :padding 0
+                           :display "flex" :flex-direction "column"
+                           :gap "2px"}}]
+             (for [cascade cascades]
+               ^{:key (str (:dispatch-id cascade))}
+               [event-row {:cascade cascade :focused-id focused-id}])))]))
 
-(defn- unknown-panel
-  "Defensive fallback for `:rf.causa/selected-panel` carrying an id
-  that isn't in the canvas's case table. Every sidebar entry maps to
-  a live panel; this branch only fires if the host writes an
-  unrecognised id via direct dispatch."
+;; ---- L3 tab bar ----------------------------------------------------------
+
+(defn- tab-button
+  "One tab in the L3 tab bar. `●` for active per spec/018 §5 Tab
+  strip rendering; `○` for inactive. The mnemonic letter is exposed
+  via the `title` attribute.
+
+  `aria-label` doubles the visible label as `<tab-label> tab` so the
+  button's accessible name never collides with host-app role queries
+  (Playwright's `getByRole('button', {name: '-'})` matched our
+  `App-db` tab when only `title` was set)."
+  [{:keys [id label mnem active?]}]
+  (let [glyph (if active? "◉" "○")
+        color (if active? (:text-primary tokens) (:text-secondary tokens))]
+    [:button {:data-testid (str "rf-causa-tab-" (name id))
+              :on-click    #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
+              :title       (str label " (" mnem ")")
+              :aria-label  (str "Causa " label " tab")
+              :style {:background    "transparent"
+                      :border        "none"
+                      :border-bottom (if active?
+                                       (str "2px solid " (:accent-violet tokens))
+                                       "2px solid transparent")
+                      :color         color
+                      :cursor        "pointer"
+                      :padding       "6px 12px"
+                      :font-family   sans-stack
+                      :font-size     (:body type-scale)
+                      :font-weight   (if active? 600 400)
+                      :white-space   "nowrap"}}
+     [:span {:style {:color (if active?
+                              (:accent-violet tokens)
+                              (:text-tertiary tokens))
+                     :margin-right "4px"}}
+      glyph]
+     label]))
+
+(rf/reg-view tab-bar
+  "L3 tab bar — six tabs per spec/018 §5 The 6 tabs.
+
+  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
+  `:rf/causa`."
+  []
+  (let [selected @(rf/subscribe [:rf.causa/selected-tab])]
+    [:nav {:data-testid "rf-causa-tab-bar"
+           :style {:display       "flex"
+                   :align-items   "center"
+                   :gap           "4px"
+                   :height        "40px"
+                   :padding       "0 8px"
+                   :background    (:bg-1 tokens)
+                   :border-top    (str "1px solid " (:border-subtle tokens))
+                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     (for [{:keys [id] :as tab} tabs]
+       ^{:key id}
+       [tab-button (assoc tab :active? (= id selected))])]))
+
+;; ---- L4 detail panel -----------------------------------------------------
+
+(defn- unknown-tab-stub
   [selected]
-  [:main {:style {:flex        1
-                  :overflow    "auto"
-                  :padding     "24px"
-                  :background  (:bg-2 tokens)
-                  :color       (:text-primary tokens)
-                  :font-family "Inter, system-ui, -apple-system, Segoe UI, sans-serif"}}
-   [:p {:style {:font-size (:body type-scale) :color (:text-secondary tokens)}}
-    "Unknown panel: " [:code (pr-str selected)]]])
+  [:div {:data-testid "rf-causa-tab-unknown"
+         :style {:padding "16px"
+                 :color   (:text-secondary tokens)
+                 :font-family sans-stack}}
+   "Unknown tab: " [:code (pr-str selected)]])
 
-(rf/reg-view canvas
-  "Canvas — renders the active panel's content. The match is on
-  `:rf.causa/selected-panel`. When a row dispatches
-  `:rf.causa/select-panel <id>` the registry sets `:selected-panel`
-  on the `:rf/causa` frame's app-db and this canvas recomputes.
+(rf/reg-view detail-panel
+  "L4 detail panel — case-switch on `:rf.causa/selected-tab`. Reuses
+  existing Panel views for Event / App-db / Trace / Machines /
+  Issues; Views is a stub pending follow-on impl.
 
-  ## Contrast safety net (rf2-q8154)
-
-  The wrapping `<div>` owns `flex: 1`, fills the row slot, and paints
-  the dark canvas surface (`bg-2`) so any panel whose root section
-  fails to fill or fails to set its own background still renders text
-  on a dark surface — never on the host body's default white. Every
-  Panel still sets its own `:background (:bg-2 tokens)` for parity
-  with the rest of the shell; the canvas paint is a defence-in-depth
-  layer, not a license to omit the panel-level styling.
-
-  Per rf2-in6l2 `reg-view`-registered so the subscribe routes
-  through React context to `:rf/causa`."
+  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
+  `:rf/causa`. The wrapping `<div>` paints `bg-2` as a contrast
+  safety net (rf2-q8154 — defence-in-depth for panels that fail to
+  set their own background)."
   []
-  (let [selected (or @(rf/subscribe [:rf.causa/selected-panel])
-                     registry/default-panel-id)]
-    [:div {:style {:flex        1
-                   :min-width   0
-                   :display     "flex"
-                   :flex-direction "column"
+  (let [selected (or @(rf/subscribe [:rf.causa/selected-tab])
+                     default-tab)]
+    [:div {:data-testid (str "rf-causa-detail-panel-" (name selected))
+           :style {:flex        "1 1 auto"
+                   :min-height  "0"
+                   :overflow    "auto"
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
      (case selected
-       :event-detail [event-detail/Panel]
-       :time-travel  [time-travel/Panel]
-       :app-db       [app-db-diff/Panel]
-       :causality    [causality-graph/Panel]
-       ;; ── effects panel begin ──
-       :fx           [effects/Panel]
-       ;; ── effects panel end ──
-       :flows        [flows/Panel]
-       :routes       [routes/Panel]
-       :schemas      [schema-violation-timeline/Panel]
-       :views        [views/Panel]
-       :machines     [machine-inspector/Panel]
-       :hydration    [hydration-debugger/Panel]
-       :issues       [issues-ribbon/Panel]
-       :trace        [trace/Panel]
-       :performance  [performance/Panel]
-       ;; ── mcp-server panel begin ──
-       :mcp-server   [mcp-server/Panel]
-       ;; ── mcp-server panel end ──
-       [unknown-panel selected])]))
-
-;; Bottom rail removed per spec/018-Event-Spine.md §2 'Why 4 layers,
-;; not 5' — the previous L0 scrubber rail collapses into the ribbon's
-;; `[◀ ▶ ⏭]` nav cluster + the event list. The REDACTED indicator
-;; relocated to the top strip (see top-strip docstring).
+       :event    [event-detail/Panel]
+       :app-db   [app-db-diff/Panel]
+       ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
+       ;; replaced the legacy Subscriptions panel with Views; the 4-
+       ;; layer chrome surfaces it as the L3 `:views` tab rather than a
+       ;; sidebar entry).
+       :views    [views/Panel]
+       :trace    [trace/Panel]
+       :machines [machine-inspector/Panel]
+       :issues   [issues-ribbon/Panel]
+       [unknown-tab-stub selected])]))
 
 ;; ---- shell view ----------------------------------------------------------
 
-(defn panel-content
-  "Return the hiccup view for a panel id. Dispatch table for the shell
-  canvas — every sidebar selection resolves to the matching panel view."
-  [selected]
-  (case selected
-    :event-detail [event-detail/Panel]
-    :time-travel  [time-travel/Panel]
-    :app-db       [app-db-diff/Panel]
-    :causality    [causality-graph/Panel]
-    ;; ── effects panel begin ──
-    :fx           [effects/Panel]
-    ;; ── effects panel end ──
-    :flows        [flows/Panel]
-    :routes       [routes/Panel]
-    :schemas      [schema-violation-timeline/Panel]
-    :views        [views/Panel]
-    :machines     [machine-inspector/Panel]
-    :hydration    [hydration-debugger/Panel]
-    :issues       [issues-ribbon/Panel]
-    :trace        [trace/Panel]
-    :performance  [performance/Panel]
-    ;; ── mcp-server panel begin ──
-    :mcp-server   [mcp-server/Panel]
-    ;; ── mcp-server panel end ──
-    [unknown-panel selected]))
-
 (rf/reg-view shell-view
-  "The full Causa shell. Wraps every panel region in a `:rf/causa`
+  "The full Causa shell — wraps the 4-layer chrome in a `:rf/causa`
   frame-provider so descendant `subscribe` / `dispatch` resolve to
-  the isolated frame. Default `:inline` mode renders in normal document
-  flow inside the app-provided right layout host. `:overlay` and
-  `:popout` remain available debug/manual modes.
+  the isolated frame. Default `:inline` mode renders in normal
+  document flow inside the app-provided right layout host. `:overlay`
+  and `:popout` remain available debug/manual modes.
 
   Per rf2-in6l2 `reg-view`-registered for parity with every other
   shell region. The shell-view itself sits OUTSIDE its own frame-
@@ -431,7 +656,7 @@
   [& [{:keys [mode] :or {mode :inline}}]]
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
-          ;; Per rf2-zkfiz Q1-9: the spec-published mode axis is
+          ;; Per rf2-zkfiz Q1-9 the spec-published mode axis is
           ;; `data-rf-causa-mode` (mount.cljs writes it on both the
           ;; root and the shell node). The previous `data-mode` echo
           ;; was a duplicate axis and is gone — tests + testbeds read
@@ -445,7 +670,7 @@
                           :flex-direction   "column"
                           :background       (:bg-0 tokens)
                           :color            (:text-primary tokens)
-                          :font-family      "Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+                          :font-family      sans-stack
                           :font-size        (:body type-scale)
                           :line-height      (:line-height-tight type-scale)}
                          (case mode
@@ -465,22 +690,28 @@
                             :min-width  "560px"
                             :z-index    2147483000
                             :box-shadow "rgba(0, 0, 0, 0.4) -8px 0 24px"}))}
-    [top-strip {}]
-    [:div {:style {:flex          1
-                   :display       "flex"
-                   :flex-direction "row"
-                   :overflow      "hidden"}}
-     [sidebar]
-     [canvas]]
-    ;; Bottom rail removed per spec/018 §2 (rf2-adve5).
-    ;; Command palette (rf2-wm7z4) — mounted at the shell root so it
-    ;; overlays the chrome + panels. The Modal short-circuits to nil
-    ;; when `:rf.causa/palette-open?` is false; closed-state cost is
-    ;; a single subscribe + when-gate.
+    ;; L1 — top ribbon (scope controls)
+    [ribbon {}]
+    ;; L2 — event list (the spine timeline)
+    [event-list]
+    ;; L3 — tab bar (projection selector)
+    [tab-bar]
+    ;; L4 — detail panel (per-tab content)
+    [detail-panel]
+    ;; Command palette (rf2-wm7z4) — mounted at shell root so it
+    ;; overlays the chrome. Modal short-circuits to nil when
+    ;; `:rf.causa/palette-open?` is false; closed-state cost is one
+    ;; subscribe + when-gate.
     [palette/Modal]
+    ;; Filter edit popup (rf2-ak4ms) — mounted at shell root so it
+    ;; overlays the chrome AND the palette modal (the popup's z-index
+    ;; is one above the palette so an edit opened from a palette
+    ;; context wins focus). Modal short-circuits to nil when
+    ;; `:rf.causa/edit-popup-open?` is false; closed-state cost is
+    ;; one subscribe + when-gate.
+    [filters/Modal]
     ;; Settings popup (rf2-9poxq) — same mount discipline as the
-    ;; palette: shell-root mount so subscribes resolve through the
-    ;; shell's `:rf/causa` frame-provider, and the modal short-
-    ;; circuits to nil when `:rf.causa/settings-open?` is false.
+    ;; palette + edit popup: shell-root mount so subscribes resolve
+    ;; through the shell's `:rf/causa` frame-provider, and the modal
+    ;; short-circuits to nil when `:rf.causa/settings-open?` is false.
     [settings-popup/Modal]]])
-

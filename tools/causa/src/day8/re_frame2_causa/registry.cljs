@@ -33,6 +33,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
@@ -130,10 +131,43 @@
         (reduce + 0 (vals (get db :suppressed-counters {})))))
 
     ;; Currently-active panel — drives the canvas's switch logic in
-    ;; shell.cljs. Default is the hero panel per §10 Lock 7.
+    ;; shell.cljs. Default is the hero panel per §10 Lock 7. The 4-
+    ;; layer chrome refactor (rf2-xy4yb) routes via `:rf.causa/selected-
+    ;; tab` instead; this sub stays for back-compat with any tests /
+    ;; consumers that still address the legacy sidebar slot.
     (rf/reg-sub :rf.causa/selected-panel
       (fn [db _query]
         (get db :selected-panel defaults/default-panel-id)))
+
+    ;; ---- 4-layer chrome — selected tab (rf2-xy4yb / spec/018) ----
+    ;;
+    ;; The L3 tab bar reads `:rf.causa/selected-tab` to pick which
+    ;; projection of the focused event the L4 detail panel renders.
+    ;; Default is `:event` per spec/018 §5 — the Event tab carries
+    ;; the fattened event detail (handler return + db writes + fx +
+    ;; fx-handlers that ran).
+    (rf/reg-sub :rf.causa/selected-tab
+      (fn [db _query]
+        (get db :selected-tab :event)))
+
+    ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
+    ;;
+    ;; The ribbon's filter cluster reads `:rf.causa/active-filters` —
+    ;; shape `{:in [{:pattern <str> :scope #{:event-id ...}}]
+    ;;         :out [{:pattern <str> :scope #{...}}]}`. The
+    ;; `:rf.causa/filtered-cascades` sub (rf2-ak4ms, installed via
+    ;; `filters/install!` further down) composes against this slot to
+    ;; produce the filtered cascade list every consumer reads.
+    ;;
+    ;; The sub returns a well-shaped map even when one bucket is
+    ;; absent — a save into just `:out` leaves `:in` as `nil` in
+    ;; the raw db, but consumers downstream count on `(:in filters)`
+    ;; resolving to a vector.
+    (rf/reg-sub :rf.causa/active-filters
+      (fn [db _query]
+        (let [stored (get db :active-filters)]
+          {:in  (vec (get stored :in []))
+           :out (vec (get stored :out []))})))
 
     ;; Shared cascade projection. The event-detail, causality-graph,
     ;; and performance composites all consume `projection/group-cascades`
@@ -147,10 +181,65 @@
       (fn [buffer _query]
         (projection/group-cascades buffer)))
 
-    ;; Cross-panel sidebar selection.
+    ;; Cross-panel sidebar selection. Legacy slot kept alive for tests
+    ;; that still address the pre-refactor sidebar contract.
     (rf/reg-event-db :rf.causa/select-panel
       (fn [db [_ panel-id]]
         (assoc db :selected-panel panel-id)))
+
+    ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
+
+    ;; L3 tab bar — flip the active tab. Six valid ids per spec/018 §5:
+    ;; :event :app-db :views :trace :machines :issues.
+    (rf/reg-event-db :rf.causa/select-tab
+      (fn [db [_ tab-id]]
+        (assoc db :selected-tab tab-id)))
+
+    ;; L1 filter pills — add / remove. Mode is :in or :out; index
+    ;; identifies the pill within its mode bucket. The pure reducers
+    ;; live here so direct dispatchers (palette quick-actions, the
+    ;; pill cluster's `×` remove button) stay history-clean; the rich
+    ;; edit popup in `filters/save-edit-popup` composes against the
+    ;; same slot but threads through the popup's draft. Both surfaces
+    ;; share the `:rf.causa.filters/persist` fx so every mutation
+    ;; round-trips to localStorage in one place (rf2-ak4ms).
+    (rf/reg-event-fx :rf.causa/add-filter
+      (fn [{:keys [db]} [_ mode pill]]
+        (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
+          {:db next-db
+           :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
+
+    (rf/reg-event-fx :rf.causa/remove-filter
+      (fn [{:keys [db]} [_ mode idx]]
+        (let [next-db
+              (update-in db [:active-filters mode]
+                         (fn [pills]
+                           (let [v (or pills [])]
+                             (vec (concat (subvec v 0 (min idx (count v)))
+                                          (subvec v (min (inc idx) (count v))))))))]
+          {:db next-db
+           :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
+
+    ;; Ribbon right-icon stubs — wired to events so the click round-
+    ;; trips through the registry surface even though the user-facing
+    ;; modals / popout / close behaviours are follow-on work.
+    (rf/reg-event-db :rf.causa/open-settings
+      (fn [db _event]
+        ;; Settings popup lands behind rf2-pending-settings-modal.
+        (assoc db :settings-open? true)))
+
+    (rf/reg-event-db :rf.causa/popout
+      (fn [db _event]
+        ;; Popout dispatch is symbolic until the popout window handle
+        ;; lands; the slot signals intent.
+        (assoc db :popout-requested? true)))
+
+    (rf/reg-event-db :rf.causa/close-shell
+      (fn [db _event]
+        ;; Close intent — mount.cljs reads the slot in production to
+        ;; drive the CSS-only hide. The reactive flag is set here so
+        ;; tests can assert the round-trip.
+        (assoc db :close-requested? true)))
 
     ;; ---- trace-buffer mirror events (rf2-in6l2 / rf2-wq6gx) -------
     ;;
@@ -335,6 +424,14 @@
     (open-in-editor/install!)
     (palette/install!)
     (settings-popup/install!)
+    ;; Filters install AFTER `:rf.causa/active-filters` + the
+    ;; add-filter / remove-filter events above are registered (the
+    ;; filters facade adds `:rf.causa/filtered-cascades` + the edit-
+    ;; popup events + the persistence fx + hydrates the slot from
+    ;; localStorage). Hydration runs through the orchestrator so the
+    ;; idempotency sentinel above prevents the hydrate-dispatch from
+    ;; firing twice on shadow-cljs `:after-load`.
+    (filters/install!)
     ;; Spine MUST install before event-detail / time-travel — their
     ;; legacy selection events shim writes through the spine slot,
     ;; and the slot's reducer helpers live in spine.cljs.
