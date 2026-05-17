@@ -87,6 +87,8 @@
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
@@ -283,77 +285,19 @@
          ^{:key (str f)}
          [:option {:value (str f)} (str "Frame: " f)])])))
 
-(defn- filter-pill
-  "One IN or OUT filter pill per spec/018 §7 Pill visual contract.
-  `mode` is `:in` (green `+`) or `:out` (magenta `×`). Click → edit
-  popup (the popup itself is a follow-on; click currently removes the
-  pill so the round-trip path is exercised)."
-  [{:keys [mode pattern idx]}]
-  (let [hue       (case mode :in (:green tokens) :out (:magenta tokens))
-        glyph     (case mode :in "+" :out "×")
-        testid    (str "rf-causa-filter-pill-" (name mode) "-" idx)]
-    [:button {:data-testid testid
-              :on-click    #(rf/dispatch [:rf.causa/remove-filter mode idx] {:frame :rf/causa})
-              :title       "Click to remove (edit popup stubbed)"
-              :style {:background    "transparent"
-                      :border        (str "1px solid " hue)
-                      :color         hue
-                      :cursor        "pointer"
-                      :padding       "2px 8px"
-                      :border-radius "10px"
-                      :font-family   mono-stack
-                      :font-size     (:caption type-scale)
-                      :white-space   "nowrap"}}
-     (str glyph " " pattern " ✎")]))
-
 (defn- ribbon-filter-pills
-  "Filter pills cluster per spec/018 §7 Ribbon pills. Renders IN +
-  OUT pills + trailing `[+]` add-pill. Click `[+]` → simple prompt for
-  pattern (the rich popup is a follow-on)."
+  "Filter pills cluster per spec/018 §3 + §7 Ribbon pills. Thin
+  delegate to `filters.pills/pills-view` — the proper pill UI lives in
+  the filters ns, which also owns the edit popup mount. Mounted here
+  inside the ribbon's `reg-view` so subscribes still resolve through
+  React context to `:rf/causa`.
+
+  Per rf2-ak4ms the legacy `js/window.prompt` stub is gone — the add-
+  pill affordance now opens the rich edit popup. Per spec/018 §7 the
+  popup pre-populates from existing pills (edit) or from right-click
+  event-row context (add)."
   [{:keys [filters]}]
-  (let [{:keys [in out]} filters
-        add-style {:background    "transparent"
-                   :border        (str "1px dashed " (:text-tertiary tokens))
-                   :color         (:text-tertiary tokens)
-                   :cursor        "pointer"
-                   :padding       "2px 8px"
-                   :border-radius "10px"
-                   :font-family   sans-stack
-                   :font-size     (:caption type-scale)}]
-    [:div {:data-testid "rf-causa-ribbon-filters"
-           :style {:display "flex" :align-items "center" :gap "6px"
-                   :flex "1 1 auto" :flex-wrap "wrap"}}
-     (for [[idx pill] (map-indexed vector in)]
-       ^{:key (str "in-" idx)}
-       [filter-pill {:mode :in :pattern (:pattern pill) :idx idx}])
-     (for [[idx pill] (map-indexed vector out)]
-       ^{:key (str "out-" idx)}
-       [filter-pill {:mode :out :pattern (:pattern pill) :idx idx}])
-     [:button {:data-testid "rf-causa-filter-add"
-               :on-click    (fn []
-                              (when-let [v (some-> js/window
-                                             (.prompt
-                                               "Filter pattern (prefix with `-` for OUT, default IN; e.g. `:auth/*` or `-:mouse-move`):"
-                                               ""))]
-                                (when (seq v)
-                                  (let [out? (.startsWith v "-")
-                                        pat  (if out? (subs v 1) v)]
-                                    (rf/dispatch
-                                      [:rf.causa/add-filter
-                                       (if out? :out :in)
-                                       {:pattern pat}]
-                                      {:frame :rf/causa})))))
-               ;; The accessible name doubles the visible label so
-               ;; assistive tech reads "Add filter" rather than the
-               ;; bare brackets. The bracket glyph (not `+` alone)
-               ;; avoids colliding with host apps that own a `+`
-               ;; button — Playwright `getByRole('button', {name:
-               ;; '+'})` resolved both the counter `+` and Causa's
-               ;; `[+]` add-pill when the names overlapped.
-               :aria-label  "Add filter pill"
-               :title       "Add filter pill"
-               :style       add-style}
-      "[ + ]"]]))
+  [filter-pills/pills-view {:filters filters}])
 
 (defn- ribbon-mode-pill
   "Mode pill — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` per spec/018
@@ -490,7 +434,16 @@
   "One row in the L2 event list. Single line per spec/018 §4 Row
   anatomy. Gutter glyph + event-id + right-anchored badge cluster +
   trailing redaction marker (stub — uses spine's `:focus.dispatch-id`
-  to drive the focused-row gutter)."
+  to drive the focused-row gutter).
+
+  Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
+  event-row → context menu' into `:rf.causa/hide-event-type <event-
+  id>` — a one-step 'always hide this event-type' that opens the
+  edit popup pre-populated with the row's event-id + OUT default.
+  Pre-alpha the popup is the only context-menu surface (the rich
+  multi-item menu lands behind a follow-on bead); preventing the
+  browser context menu keeps the affordance discoverable on first
+  right-click."
   [{:keys [cascade focused-id]}]
   (let [id        (:dispatch-id cascade)
         focused?  (= id focused-id)
@@ -509,6 +462,12 @@
     [:li {:data-testid (str "rf-causa-event-row-" (str id))
           :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
                                      {:frame :rf/causa})
+          :on-context-menu (fn [^js e]
+                             (when ev-id
+                               (.preventDefault e)
+                               (rf/dispatch
+                                 [:rf.causa/hide-event-type ev-id]
+                                 {:frame :rf/causa})))
           :style {:display       "flex"
                   :align-items   "center"
                   :gap           "8px"
@@ -543,10 +502,16 @@
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
   latest-on-bottom, 8 visible at default 28px row height ≈ 224px.
 
+  Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.causa/filtered-
+  cascades` (NOT raw `:rf.causa/cascades`) so the L1 ribbon's IN/OUT
+  pills drive the list at the data layer — virtualisation budgets
+  the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
+  the same filtered list (per spec/018 §6 'Atomicity contract').
+
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
   []
-  (let [cascades   @(rf/subscribe [:rf.causa/cascades])
+  (let [cascades   @(rf/subscribe [:rf.causa/filtered-cascades])
         focus      @(rf/subscribe [:rf.causa/focus])
         focused-id (:dispatch-id focus)]
     [:div {:data-testid "rf-causa-event-list"
@@ -735,4 +700,11 @@
     ;; overlays the chrome. Modal short-circuits to nil when
     ;; `:rf.causa/palette-open?` is false; closed-state cost is one
     ;; subscribe + when-gate.
-    [palette/Modal]]])
+    [palette/Modal]
+    ;; Filter edit popup (rf2-ak4ms) — mounted at shell root so it
+    ;; overlays the chrome AND the palette modal (the popup's z-index
+    ;; is one above the palette so an edit opened from a palette
+    ;; context wins focus). Modal short-circuits to nil when
+    ;; `:rf.causa/edit-popup-open?` is false; closed-state cost is
+    ;; one subscribe + when-gate.
+    [filters/Modal]]])
