@@ -118,13 +118,12 @@ If they don't exist already, create the following `/loops`:
 
 ---
 
-/loop 30m Carefully review open beads and action ones that can be activated
+/loop 15m Carefully review open beads and action ones that can be activated
 now in a background agent. Don't dispatch ones blocked on others or
 my decision. Continue dispatching appropriate beads to get as close
 to 0 beads as possible. If there are no P1 issues, try P2, and then
 P3. Try to avoid merge conflicts across concurrently dispatched
 agents. Best if they are working on largely disjoint surfaces.
-Dispatch in batches of 5 maximum.
 
 Procedure:
 1. Read open beads — `bd ready` or `bd list --status=open`.
@@ -187,12 +186,6 @@ before/after counts for each:
    the branch lock at merge time (Windows in particular).
 3. Stale tracking refs: `git remote prune origin`.
 
-The original prompt only swept `.claude/worktrees/agent-*` — that
-path is empty in normal use (reserved for IDE-spawned agents, not
-the mayor's worker fleet). Limiting the sweep to that path makes
-every firing a no-op while real cleanup work (origin orphans, stale
-refs) accumulates silently.
-
 ---
 
 /loop 30m Continue to merge PRs. Always check if the latest was green and if
@@ -236,7 +229,7 @@ filed.
 
 ---
 
-/loop 30m Remember to update `ai/dashboard.md` on each significant signal. This
+/loop 10m Remember to update `ai/dashboard.md` on each significant signal. This
 document is how I understand what is going on and what I have to do
 next. Don't batch updates; refresh on every PR merge, worker return,
 cluster dispatch, and decision-resolution.
@@ -272,7 +265,7 @@ Interview the operator to establish this stance, and inject it into every
 dispatch to a background agent.
 
 So, once at the beginning, interview the operator with a series of leading
-questions about this:
+questions about this, for example (don't be limited to just these):
    - eg: is it a production system where backward compatibility is a
      concern? Or is it pre-alpha? Other?
    - eg: are there any constraints — performance? Give other examples.
