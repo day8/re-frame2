@@ -33,6 +33,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.spine :as spine]
@@ -152,14 +153,20 @@
     ;;
     ;; The ribbon's filter cluster reads `:rf.causa/active-filters` —
     ;; shape `{:in [{:pattern <str> :scope #{:event-id ...}}]
-    ;;         :out [{:pattern <str> :scope #{...}}]}`. Pre-alpha the
-    ;; pills do not actually filter the cascade list — that wiring
-    ;; lands in the follow-on `:rf.causa/filtered-cascades` sub
-    ;; (spec/018 §6 sub-graph). For now the pills round-trip through
-    ;; the slot so the visual contract is testable.
+    ;;         :out [{:pattern <str> :scope #{...}}]}`. The
+    ;; `:rf.causa/filtered-cascades` sub (rf2-ak4ms, installed via
+    ;; `filters/install!` further down) composes against this slot to
+    ;; produce the filtered cascade list every consumer reads.
+    ;;
+    ;; The sub returns a well-shaped map even when one bucket is
+    ;; absent — a save into just `:out` leaves `:in` as `nil` in
+    ;; the raw db, but consumers downstream count on `(:in filters)`
+    ;; resolving to a vector.
     (rf/reg-sub :rf.causa/active-filters
       (fn [db _query]
-        (or (get db :active-filters) {:in [] :out []})))
+        (let [stored (get db :active-filters)]
+          {:in  (vec (get stored :in []))
+           :out (vec (get stored :out []))})))
 
     ;; Shared cascade projection. The event-detail, causality-graph,
     ;; and performance composites all consume `projection/group-cascades`
@@ -188,20 +195,29 @@
         (assoc db :selected-tab tab-id)))
 
     ;; L1 filter pills — add / remove. Mode is :in or :out; index
-    ;; identifies the pill within its mode bucket. Patterns are stored
-    ;; verbatim — the matcher contract lands with `:rf.causa/filtered-
-    ;; cascades` per spec/018 §7 Data-layer filtering.
-    (rf/reg-event-db :rf.causa/add-filter
-      (fn [db [_ mode pill]]
-        (update-in db [:active-filters mode] (fnil conj []) pill)))
+    ;; identifies the pill within its mode bucket. The pure reducers
+    ;; live here so direct dispatchers (palette quick-actions, the
+    ;; pill cluster's `×` remove button) stay history-clean; the rich
+    ;; edit popup in `filters/save-edit-popup` composes against the
+    ;; same slot but threads through the popup's draft. Both surfaces
+    ;; share the `:rf.causa.filters/persist` fx so every mutation
+    ;; round-trips to localStorage in one place (rf2-ak4ms).
+    (rf/reg-event-fx :rf.causa/add-filter
+      (fn [{:keys [db]} [_ mode pill]]
+        (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
+          {:db next-db
+           :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
 
-    (rf/reg-event-db :rf.causa/remove-filter
-      (fn [db [_ mode idx]]
-        (update-in db [:active-filters mode]
-                   (fn [pills]
-                     (let [v (or pills [])]
-                       (vec (concat (subvec v 0 (min idx (count v)))
-                                    (subvec v (min (inc idx) (count v))))))))))
+    (rf/reg-event-fx :rf.causa/remove-filter
+      (fn [{:keys [db]} [_ mode idx]]
+        (let [next-db
+              (update-in db [:active-filters mode]
+                         (fn [pills]
+                           (let [v (or pills [])]
+                             (vec (concat (subvec v 0 (min idx (count v)))
+                                          (subvec v (min (inc idx) (count v))))))))]
+          {:db next-db
+           :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
 
     ;; Ribbon right-icon stubs — wired to events so the click round-
     ;; trips through the registry surface even though the user-facing
@@ -406,6 +422,14 @@
 
     (open-in-editor/install!)
     (palette/install!)
+    ;; Filters install AFTER `:rf.causa/active-filters` + the
+    ;; add-filter / remove-filter events above are registered (the
+    ;; filters facade adds `:rf.causa/filtered-cascades` + the edit-
+    ;; popup events + the persistence fx + hydrates the slot from
+    ;; localStorage). Hydration runs through the orchestrator so the
+    ;; idempotency sentinel above prevents the hydrate-dispatch from
+    ;; firing twice on shadow-cljs `:after-load`.
+    (filters/install!)
     ;; Spine MUST install before event-detail / time-travel — their
     ;; legacy selection events shim writes through the spine slot,
     ;; and the slot's reducer helpers live in spine.cljs.

@@ -105,9 +105,13 @@
    :rf.causa/app-db-diff
    :rf.causa/cascades
    :rf.causa/causality-graph-data
+   :rf.causa/edit-popup-draft
+   :rf.causa/edit-popup-open?
+   :rf.causa/edit-popup-trigger
    :rf.causa/effects-data
    :rf.causa/epoch-history
    :rf.causa/event-detail
+   :rf.causa/filtered-cascades
    :rf.causa/flow-trace-events
    :rf.causa/flows-data
    :rf.causa/focus
@@ -213,19 +217,27 @@
    :rf.causa/clear-trace-buffer
    :rf.causa/clear-trace-filters
    :rf.causa/clear-violation-selection
+   :rf.causa/close-edit-popup
    :rf.causa/close-shell
    :rf.causa/copy-path-to-clipboard
    :rf.causa/copy-value-to-clipboard
+   :rf.causa/delete-edit-popup
    :rf.causa/dismiss-pin-overflow-toast
+   :rf.causa/edit-popup-set-mode
+   :rf.causa/edit-popup-set-pattern
+   :rf.causa/edit-popup-toggle-scope
    :rf.causa/epoch-recorded
    :rf.causa/focus-cascade
    :rf.causa/focus-cascade-next
    :rf.causa/focus-cascade-prev
    :rf.causa/focus-slice-path
    :rf.causa/follow-head
+   :rf.causa/hide-event-type
+   :rf.causa/hydrate-filters
    :rf.causa/machine-state-clicked
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
+   :rf.causa/open-edit-popup
    :rf.causa/open-in-editor
    :rf.causa/open-settings
    :rf.causa/palette-close
@@ -247,6 +259,7 @@
    :rf.causa/reset-suppressed-counters
    :rf.causa/reset-to-epoch
    :rf.causa/reset-to-pinned
+   :rf.causa/save-edit-popup
    :rf.causa/select-dispatch-id
    :rf.causa/select-epoch
    :rf.causa/select-flow-id
@@ -302,6 +315,12 @@
   [:rf.causa.fx/copy-to-clipboard
    :rf.causa.fx/reset-frame-db!
    :rf.causa.fx/restore-epoch
+   ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
+   ;; filter-specific prefix because the localStorage write is bound
+   ;; to the filter-mutating events (add-filter / remove-filter /
+   ;; save-edit-popup / delete-edit-popup) — every mutation round-trips
+   ;; to localStorage in one place.
+   :rf.causa.filters/persist
    ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Causa surface invokes.
@@ -364,7 +383,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 85 subs + 99 events + 5 fxs"
+  (testing "registry holds exactly 89 subs + 108 events + 6 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -385,7 +404,10 @@
     ;;   :rf.causa/sim-by-machine / :rf.causa/sim-state /
     ;;   :rf.causa/sim-active? / :rf.causa/sim-available-transitions /
     ;;   :rf.causa/sim-event-suggestions
-    (is (= 85 (count all-sub-names)))
+    ;; + 4 auto-filter (rf2-ak4ms): :rf.causa/filtered-cascades +
+    ;;   :rf.causa/edit-popup-open? + :rf.causa/edit-popup-trigger +
+    ;;   :rf.causa/edit-popup-draft
+    (is (= 89 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -411,12 +433,17 @@
     ;; + 6 sim sub-mode (rf2-v869p Phase 2):
     ;;   :rf.causa/sim-start / sim-step / sim-reset / sim-stop /
     ;;   sim-set-pending-event / sim-set-pending-data
-    (is (= 99 (count all-event-names)))
+    ;; + 9 auto-filter (rf2-ak4ms): open-edit-popup + close-edit-popup +
+    ;;   edit-popup-set-mode + edit-popup-set-pattern +
+    ;;   edit-popup-toggle-scope + save-edit-popup + delete-edit-popup +
+    ;;   hide-event-type + hydrate-filters
+    (is (= 108 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
-    ;; rf2-wm7z4).
-    (is (= 5  (count all-fx-names)))))
+    ;; rf2-wm7z4) + 1 auto-filter (`:rf.causa.filters/persist`,
+    ;; rf2-ak4ms).
+    (is (= 6  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"
