@@ -179,7 +179,12 @@
       (is (= :rf.error/handler-exception (:error @listener-saw)))
       (is (= :prod/both (:event-id @listener-saw))))))
 
-;; ---- rf2-vnjfg :sensitive? redaction enforcement under prod -------------
+;; ---- (removed) rf2-vnjfg handler-meta :sensitive? redaction under prod ---
+;;
+;; The handler-meta `:sensitive?` annotation has been removed. Per-path
+;; elision (the per-frame `:rf/elision` registry, populated from app-schema
+;; `:sensitive?` slot meta) is the load-bearing privacy surface on the
+;; error-emit path under prod.
 
 ;; ---- rf2-3un2g :source-coord rides the prod error-emit substrate --------
 
@@ -261,31 +266,8 @@
 
 ;; ---- end rf2-3un2g block -------------------------------------------------
 
-(deftest sensitive-handler-error-record-redacted-under-prod
-  (testing "Per rf2-vnjfg: under `:advanced` + `goog.DEBUG=false` the
-            always-on error-emit substrate MUST still enforce
-            `:sensitive?` redaction on the corpus-wide listener path.
-            Production builds are where this matters most — the
-            Sentry / Honeybadger forwarder is exactly the boundary
-            that would otherwise ship credentials off-box."
-    (let [listener-saw (atom nil)
-          policy-saw   (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-emit-listener!
-        :prod/recorder
-        (fn [record] (reset! listener-saw record)))
-      (rf/reg-event-db :prod/sensitive
-                       {:sensitive? true
-                        :no-redaction-needed? true}
-                       (fn [_db _] (throw (ex-info "boom" {}))))
-      (rf/dispatch-sync [:prod/sensitive {:password "shhh"}])
-      (is (some? @listener-saw))
-      (is (= :rf/redacted (:event @listener-saw))
-          "listener record's :event is redacted under prod-elision")
-      (is (= :prod/sensitive (:event-id @listener-saw))
-          "event-id flows through")
-      (is (some? @policy-saw))
-      (is (= :rf/redacted (get-in @policy-saw [:tags :event]))
-          "policy fn's :tags :event is redacted under prod-elision")
-      (is (= :prod/sensitive (get-in @policy-saw [:tags :event-id]))))))
+;; (removed) sensitive-handler-error-record-redacted-under-prod
+;; The handler-meta `:sensitive?` annotation has been removed. Redaction on
+;; the error-emit substrate is now driven exclusively by the per-path elision
+;; wire-walker — see the rf2-3un2g block above for the prod-survivable
+;; substrate contract.

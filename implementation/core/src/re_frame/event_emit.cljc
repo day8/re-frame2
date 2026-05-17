@@ -19,16 +19,18 @@
   belt-and-braces gate alongside an explicit config flag. The
   substrate proper carries no gate.
 
-  If the event's registered handler-meta carries `:sensitive? true`,
-  the record is dropped entirely (listeners are NOT invoked).
-  `:rf.trace/no-emit? true` likewise drops — framework-internal
-  bookkeeping handlers (Causa, Story) are not user-domain observable
-  signal."
+  `:rf.trace/no-emit? true` on the event's registered handler-meta
+  drops the record entirely — framework-internal bookkeeping handlers
+  (Causa, Story) are not user-domain observable signal.
+
+  NOTE: handler-meta `:sensitive?` is no longer consulted here.
+  Sensitive data marking is path-based per the upcoming data-
+  classification mechanism (separate spec doc; in progress)."
   (:require [re-frame.elision       :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind     :as late-bind]
-            [re-frame.privacy       :as privacy]
-            [re-frame.registrar     :as registrar]))
+            [re-frame.registrar     :as registrar]
+            [re-frame.trace         :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -68,12 +70,12 @@
 
   Short-circuits to a no-op when the registry is empty (one deref +
   empty-map check). Otherwise looks up the event's handler-meta and
-  drops the record when `:sensitive?` (rf2-6hklf) or
-  `:rf.trace/no-emit?` (rf2-qsjda) is set. Surviving records run
-  through `re-frame.elision/elide-wire-value` ONCE with off-box
-  defaults (large → `:rf.size/large-elided`; sensitive →
-  `:rf/redacted`), then fan out through the emit-substrate registry.
-  Listener exceptions are caught inside the registry's fan-out.
+  drops the record when `:rf.trace/no-emit?` (rf2-qsjda) is set.
+  Surviving records run through `re-frame.elision/elide-wire-value`
+  ONCE with off-box defaults (large → `:rf.size/large-elided`;
+  sensitive paths → `:rf/redacted`), then fan out through the emit-
+  substrate registry. Listener exceptions are caught inside the
+  registry's fan-out.
 
   Called by `router.cljc` once per processed event after the cascade
   body settles (`:db` committed, flows run, `:fx` walked). Published
@@ -82,8 +84,7 @@
   [event event-id frame time outcome elapsed-ms]
   (when (seq @listeners)
     (let [handler-meta (registrar/lookup :event event-id)]
-      (when-not (or (privacy/sensitive?-from-meta handler-meta)
-                    (:rf.trace/no-emit? handler-meta))
+      (when-not (trace/no-emit?-from-meta handler-meta)
         (let [elided-event (elision/elide-wire-value event {:frame frame})
               record       {:event      elided-event
                             :event-id   event-id

@@ -233,9 +233,11 @@
                  active-platform (active-platform-for-frame frame-id)]
              (if (cofx-runs-on-platform? meta active-platform)
                ;; Publish the cofx handler's HandlerScope.
-               ;; `:trigger-handler` / `:sensitive?` / `:no-emit?` come
-               ;; from the cofx's registration meta per Spec 009's
-               ;; "innermost in-scope handler" rule. `:call-site` is
+               ;; `:trigger-handler` / `:no-emit?` come from the cofx's
+               ;; registration meta per Spec 009's "innermost in-scope
+               ;; handler" rule. (`:sensitive?` is path-marked via
+               ;; schema-slot meta; the handler-meta annotation has
+               ;; been removed.) `:call-site` is
                ;; either the macro-captured site (when reached via the
                ;; `inject-cofx` macro) or inherited from the parent
                ;; scope's call-site — `handler-scope-from-meta` returns

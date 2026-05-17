@@ -83,43 +83,15 @@
 
 ;; ---- 1. Sensitive handler stamps :sensitive? on the failure trace event ---
 
-(deftest sensitive-handler-stamps-trace-event-on-5xx
-  (testing "a 5xx failure from a :sensitive? handler emits a trace event
-            stamped :sensitive? with the body redacted"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 500 "text/plain" "internal-secret-PII")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (trace/register-trace-cb! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
+;; ---- 1. (removed) handler-meta :sensitive? annotation no longer exists ----
+;;
+;; The original `sensitive-handler-stamps-trace-event-on-5xx` test pinned the
+;; behaviour where handler registration metadata `:sensitive? true` propagated
+;; to HTTP trace events. That annotation has been removed in favour of
+;; path-marked classification + per-call `:sensitive?` on the args map (the
+;; latter is covered by the test below).
 
-        (rf/reg-event-fx :auth/sign-in
-          {:doc "Sensitive sign-in operation."
-           :sensitive? true}
-          (fn [_ [_ _msg]]
-            {:fx [[:rf.http/managed
-                   {:request {:method :get
-                              :url    (str "http://127.0.0.1:" port "/login")}
-                    :on-failure nil}]]}))
-
-        (rf/dispatch-sync [:auth/sign-in {:user "ada" :pass "shhh"}])
-
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
-          (is (or (true? (:sensitive? ev))
-                  (true? (get-in ev [:tags :sensitive?])))
-              "the trace event carries :sensitive? — at the top level (core has hoisted from tags) or under tags (pre-hoist)")
-          (is (= :rf/redacted (get-in ev [:tags :body]))
-              "the response body is redacted before reaching the trace surface"))
-        (finally
-          (stop-server! srv))))))
-
-;; ---- 2. Per-call :sensitive? on a non-sensitive handler -------------------
+;; ---- 2. Per-call :sensitive? on the request --------------------------------
 
 (deftest per-call-sensitive-flag-takes-effect
   (testing "per-call :sensitive? on the args map redacts even when the
@@ -305,10 +277,10 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 7. Sensitive handler scrubs ALL URL query params (rf2-2p8wr) ----------------
+;; ---- 7. Per-call sensitive request scrubs ALL URL query params (rf2-2p8wr) -
 
-(deftest sensitive-handler-redacts-all-url-query-params
-  (testing "when the originating handler is :sensitive?, ALL query-string
+(deftest sensitive-request-redacts-all-url-query-params
+  (testing "when the request is per-call :sensitive?, ALL query-string
             params (denylisted or not) are scrubbed in the failure trace
             event's URL — the broader rule (rf2-2p8wr)"
     (let [srv (start-server!
@@ -321,12 +293,12 @@
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :auth/login
-          {:doc        "Sensitive login op."
-           :sensitive? true}
+          {:doc "Login op (handler-meta :sensitive? annotation removed)."}
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
                                  :url    (str "http://127.0.0.1:" port "/x?user_id=42&page=2")}
+                    :sensitive? true
                     :on-failure nil}]]}))
 
         (rf/dispatch-sync [:auth/login])

@@ -8,7 +8,8 @@
    - `redact-headers` walks a map and replaces sensitive header values —
      `re-frame.http-privacy-headers`.
    - Query-param denylist + URL redaction — `re-frame.http-url`.
-   - `request-sensitive?` reads per-call, per-request, and handler-meta —
+   - `request-sensitive?` reads per-call and per-request flags
+     (handler-meta `:sensitive?` has been removed) —
      `re-frame.http-privacy`.
    - `redact-request-tags` / `redact-failure` / `stamp-sensitive` /
      `prepare-emit-tags` / `prepare-emit-failure` compose correctly —
@@ -118,24 +119,24 @@
                  {:request {:url "/x" :sensitive? true}}
                  [:some/event])))))
 
-(deftest request-sensitive-via-handler-metadata
-  (testing "handler-meta :sensitive? true triggers sensitivity"
-    (registrar/register! :event :secret/login
-                         {:handler-fn (fn [_ctx _ev] nil)
-                          :doc        "Secret op"
-                          :sensitive? true})
-    (is (true? (privacy/request-sensitive?
-                 {:request {:url "/x"}}
-                 [:secret/login {:user "ada"}])))))
-
 (deftest request-sensitive-default-false
-  (testing "no metadata + no per-call flag = not sensitive"
+  (testing "no per-call flag = not sensitive (handler-meta :sensitive? has been removed)"
     (registrar/register! :event :ordinary/op
                          {:handler-fn (fn [_ctx _ev] nil)
                           :doc        "Ordinary op"})
     (is (false? (privacy/request-sensitive?
                   {:request {:url "/x"}}
                   [:ordinary/op {}])))))
+
+(deftest request-sensitive-ignores-handler-metadata
+  (testing "handler-meta :sensitive? true no longer triggers sensitivity (annotation removed)"
+    (registrar/register! :event :secret/login
+                         {:handler-fn (fn [_ctx _ev] nil)
+                          :doc        "Secret op"
+                          :sensitive? true})
+    (is (false? (privacy/request-sensitive?
+                  {:request {:url "/x"}}
+                  [:secret/login {:user "ada"}])))))
 
 (deftest request-sensitive-tolerates-missing-handler
   (testing "unknown handler id does not blow up"

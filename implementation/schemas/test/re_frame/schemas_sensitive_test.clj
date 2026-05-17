@@ -4,10 +4,11 @@
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
   traces, the validation hot path MUST consult the registered schema's
-  per-slot `:sensitive?` (and the registration-meta `:sensitive?`)
-  before including the failing value in the
-  `:rf.error/schema-validation-failure` trace event. When either source
-  declares the slot sensitive:
+  per-slot `:sensitive?` before including the failing value in the
+  `:rf.error/schema-validation-failure` trace event. The handler/cofx/
+  sub registration-meta `:sensitive?` annotation has been removed —
+  the schema-walker is now the sole driver. When the schema declares
+  the slot sensitive:
 
     1. The failing value (`:value` / `:received`) is replaced with the
        framework-reserved `:rf/redacted` sentinel.
@@ -228,36 +229,29 @@
 
 ;; ---- redaction at event validation site ----------------------------------
 
-(deftest event-validation-redacts-when-registration-sensitive
-  (testing "Per Spec 010 §`:sensitive?` — handler :sensitive? true
-            triggers redaction of the event-payload validation trace"
+(deftest event-validation-ignores-handler-meta-sensitive
+  (testing "The handler-meta `:sensitive?` annotation has been removed.
+            Event-payload validation traces are NOT redacted by
+            handler-meta sensitivity; event vectors aren't `:map`-
+            shaped so per-slot walker doesn't run either."
     (let [calls (atom 0)]
       (rf/reg-event-db :auth/sign-in
         {:doc        "Verify creds"
-         :sensitive? true
+         :sensitive? true                                      ;; ignored — annotation removed
          :spec       [:cat [:= :auth/sign-in] :string :string]}
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::ev (fn [ev] (swap! traces conj ev)))
-        ;; Malformed payload — second arg should be string.
         (rf/dispatch-sync [:auth/sign-in "ada" 42])
         (rf/remove-trace-cb! ::ev)
         (is (= 0 @calls) "handler skipped — validation failed")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
-          (is (true? (:sensitive? v))
-              "top-level :sensitive? stamp present — consumers filter on this (per Spec 009 hoist)")
-          (is (= :rf/redacted (-> v :tags :received))
-              ":received — the event vector — is the redacted sentinel")
-          (is (= :rf/redacted (-> v :tags :value))
-              ":value — failing-value mirror — also redacted")
-          (is (= :rf/redacted (-> v :tags :explain))
-              ":explain — Malli explanation re-leaks the values")
-          (is (not (contains? (:tags v) :event))
-              ":event slot is gone (rf2-4fbsd) — consumers reach for :received")
-          (is (not (contains? (:tags v) :malli-error))
-              ":malli-error slot is gone (rf2-4fbsd) — consumers reach for :explain")
+          (is (not (true? (:sensitive? v)))
+              "no top-level :sensitive? stamp — handler-meta annotation removed")
+          (is (= [:auth/sign-in "ada" 42] (-> v :tags :received))
+              ":received rides verbatim — no redaction")
           ;; Structural slots survive.
           (is (= :event (-> v :tags :where)))
           (is (= :auth/sign-in (-> v :tags :event-id)))
@@ -292,14 +286,17 @@
 
 ;; ---- redaction at cofx validation site -----------------------------------
 
-(deftest cofx-validation-redacts-when-cofx-meta-sensitive
-  (testing "Per Spec 010 §`:sensitive?` — cofx :sensitive? true triggers
-            redaction of the cofx-validation trace"
+(deftest cofx-validation-ignores-meta-sensitive
+  (testing "The handler-meta `:sensitive?` annotation has been removed.
+            Cofx-meta `:sensitive?` no longer triggers cofx-validation
+            redaction — the schema-walker now drives the decision
+            exclusively. With a plain `:string` spec (no per-slot
+            sensitive prop) the failure rides verbatim."
     (rf/reg-cofx :auth/credentials
       {:doc "Inject the user's auth token"
-       :sensitive? true
+       :sensitive? true   ;; ignored — annotation removed
        :spec :string}
-      (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42))) ; int, not string
+      (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42)))
     (rf/reg-event-fx :auth/use-creds
       [(rf/inject-cofx :auth/credentials)]
       (fn [_ _] {}))
@@ -310,11 +307,10 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
-        (is (true? (:sensitive? v))
-            "top-level :sensitive? stamp on cofx validation (per Spec 009 hoist)")
-        (is (= :rf/redacted (-> v :tags :value)))
-        (is (= :rf/redacted (-> v :tags :received)))
-        (is (= :rf/redacted (-> v :tags :explain)))
+        (is (not (true? (:sensitive? v)))
+            "no top-level :sensitive? stamp — schema has no per-slot :sensitive? prop")
+        (is (= 42 (-> v :tags :value)))
+        (is (= 42 (-> v :tags :received)))
         (is (= :cofx (-> v :tags :where))
             "structural :where slot survives")
         (is (= :auth/credentials (-> v :tags :cofx-id))
@@ -343,13 +339,14 @@
 ;; ---- redaction at sub-return validation site -----------------------------
 
 (deftest sub-return-validation-redacts-when-sensitive
-  (testing "Per Spec 010 §`:sensitive?` — sub :sensitive? true triggers
-            redaction of the sub-return validation trace"
+  (testing "Per Spec 010 §`:sensitive?` — schema-walker (`:vector
+            [:string {:sensitive? true}]`) drives sub-return redaction
+            now that the handler/sub-meta `:sensitive?` annotation has
+            been removed."
     (rf/reg-event-db :secrets/init (fn [_ _] {:secrets ["a-secret"]}))
     (rf/reg-event-db :secrets/break (fn [db _] (assoc db :secrets [1 2 3])))
     (rf/reg-sub :secrets
-      {:sensitive? true
-       :spec [:vector :string]}
+      {:spec [:vector [:string {:sensitive? true}]]}
       (fn [db _] (:secrets db)))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
@@ -389,8 +386,7 @@
                                                        [:tokens "user-42-token"]
                                                        99))) ; int — fails :string
     (rf/reg-sub :token-for
-      {:sensitive? true
-       :spec       :string}
+      {:spec [:string {:sensitive? true}]}
       (fn [db [_ token]] (get-in db [:tokens token])))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::qv (fn [ev] (swap! traces conj ev)))

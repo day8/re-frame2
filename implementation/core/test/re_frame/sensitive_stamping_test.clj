@@ -40,19 +40,27 @@
     (doseq [ev evs]
       (is (not (contains? ev :sensitive?))))))
 
-(deftest handler-meta-sensitive-stamps-every-event
+(deftest handler-meta-sensitive-no-longer-stamps-events
+  (testing "The handler-meta `:sensitive?` annotation has been removed.
+            The `:sensitive?` stamp is now driven exclusively by the
+            schema-derived overlap (see `schema-auto-redaction-*` tests
+            below). A handler-meta `:sensitive?` value is preserved on
+            the registrar's stored meta (registry is opaque) but is no
+            longer consulted by the trace surface."
   (rf/reg-event-fx :sensitive/cross-cutting
-                   {:sensitive? true}
+                   {:sensitive? true}   ;; stored, not consulted
                    (fn [{:keys [db]} _]
                      {:db (assoc db :ran? true)
                       :fx [[:sensitive/noop nil]]}))
   (rf/reg-fx :sensitive/noop (fn [_ _] nil))
   (let [evs (record-traces #(rf/dispatch-sync
-                               [:sensitive/cross-cutting {:token "secret"}]))
-        ops (->> evs (map (juxt :operation :sensitive?)) set)]
+                               [:sensitive/cross-cutting {:token "secret"}]))]
     (doseq [op #{:event/dispatched :event :event/db-changed :event/do-fx}]
-      (is (some (fn [[o s]] (and (= o op) (true? s))) ops)
-          (str op " carries handler-meta sensitivity")))))
+      (let [matches (filterv #(= op (:operation %)) evs)]
+        (is (seq matches) (str op " was emitted"))
+        (doseq [ev matches]
+          (is (not (true? (:sensitive? ev)))
+              (str op " is NOT stamped sensitive (handler-meta annotation removed)"))))))))
 
 (deftest schema-auto-redaction-for-path-scoped-handler
   (testing "A sensitive schema slot installs redaction without user-written
@@ -115,23 +123,29 @@
            (get-in db-changed [:tags :event 1 :password])))))
 
 (deftest trace-buffer-sensitive-filter
+  (testing "Trace-buffer `:sensitive?` filter operates on the trace event's
+            top-level `:sensitive?` field. Now that the handler-meta
+            annotation has been removed, the stamp is schema-derived
+            only: a sensitive app-schema slot drives it."
   (rf/clear-trace-buffer!)
   (rf/configure :trace-buffer {:depth 100})
+  (rf/reg-app-schema [:auth]
+                     [:map [:password {:sensitive? true} :string]])
   (rf/reg-event-db :sensitive/buf
-                   {:sensitive? true}
-                   (fn [db _] db))
+                   [(rf/path :auth)]
+                   (fn [auth _] auth))
   (rf/reg-event-db :plain/buf
                    (fn [db _] db))
-  (rf/dispatch-sync [:sensitive/buf])
+  (rf/dispatch-sync [:sensitive/buf {:password "x"}])
   (rf/dispatch-sync [:plain/buf])
   (let [all   (rf/trace-buffer)
         sens  (rf/trace-buffer {:sensitive? true})
         plain (rf/trace-buffer {:sensitive? false})]
-    (is (pos? (count sens)))
+    (is (pos? (count sens)) "schema-driven sensitive events present in the buffer")
     (is (pos? (count plain)))
     (is (= (count all) (+ (count sens) (count plain))))
     (doseq [ev sens]  (is (true? (:sensitive? ev))))
-    (doseq [ev plain] (is (not (true? (:sensitive? ev)))))))
+    (doseq [ev plain] (is (not (true? (:sensitive? ev))))))))
 
 (deftest sensitive-predicate
   (is (true? (rf/sensitive? {:sensitive? true})))

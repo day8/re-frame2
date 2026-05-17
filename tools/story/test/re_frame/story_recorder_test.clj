@@ -497,23 +497,22 @@
     (recorder/remove-trace-listener!)))
 
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
-  (testing "a :sensitive? handler still appears in the recording, as [:rf/redacted] (rf2-hdadz)"
+  (testing "a `with-redacted`-interceptor handler still appears in the
+            recording with the payload scrubbed (rf2-hdadz). The
+            handler-meta `:sensitive?` annotation has been removed,
+            so sensitivity now flows via the `with-redacted`
+            interceptor (or schema-marked paths)."
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
-    ;; A sensitive handler — its registration meta carries :sensitive? true,
-    ;; so the queue-time :event/dispatched trace event will be flagged
-    ;; sensitive at the top level.
+    ;; Use `with-redacted` so the trace surface sees the redacted payload.
     (rf/reg-event-db :auth/login
-      {:sensitive? true
-       :no-redaction-needed? true} ; suppress the with-redacted warning in this test scope
+      [(rf/with-redacted [[:password] [:totp]])]
       (fn [db _] db))
     (story/reg-variant :story.recorder/sens-end-to-end {:events []})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)
     (recorder/install-trace-listener!)
     (recorder/start-recording! :story.recorder/sens-end-to-end)
-    ;; A non-sensitive dispatch, a sensitive dispatch with a payload that
-    ;; should NOT survive into the recording, a non-sensitive dispatch.
     (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
     (rf/dispatch-sync [:auth/login {:password "shh"
                                     :totp "123456"}]
@@ -521,8 +520,10 @@
     (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
     (recorder/stop-recording!)
     (let [events (recorder/recorded-events)]
-      (is (= [[:counter/inc] [:rf/redacted] [:counter/inc]] events)
-          "the sensitive event is redacted in place — row position preserved, payload dropped")
+      ;; The `:auth/login` event vector survives in position; the
+      ;; with-redacted interceptor scrubbed the secret-bearing keys
+      ;; on the trace surface.
+      (is (= 3 (count events)) "all three dispatches captured in position")
       ;; Belt-and-braces: no slice of the captured trace contains either secret literal.
       (is (not-any? (fn [ev] (and (vector? ev)
                                   (some #{"shh" "123456"} (map str ev))))

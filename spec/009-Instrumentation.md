@@ -793,7 +793,7 @@ Every handler-execution boundary the runtime crosses (the router's `process-even
 | `:trigger-handler` | Registration coord of the in-scope handler — `{:kind :id :source-coord {...}}` or nil when no source-coord is stamped. Hoisted as the top-level `:rf.trace/trigger-handler` field on every emit. | rf2-3nn8 (error path) / rf2-lf84g (success path) |
 | `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`) — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on error emits only. | rf2-ts1a |
 | `:dispatch-id` | Cascade-wide correlation id — allocated once on entry to the drain (`router.cljc`'s `process-event!`) and merged into `:tags :dispatch-id` of every event emitted inside the cascade. | rf2-g6ih4 |
-| `:sensitive?` | Boolean. True when the in-scope handler's registration meta carries `:sensitive? true`. Emitted events get a top-level `:sensitive? true` stamp; absent reads as false (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). | rf2-isdwf |
+| `:sensitive?` | Boolean. True when the router computed a schema-derived sensitive-path overlap for the in-scope handler (the handler-meta annotation has been removed — rf2-hjs2d). Emitted events get a top-level `:sensitive? true` stamp; absent reads as false (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). | rf2-isdwf |
 | `:no-emit?` | Boolean. True when the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. `emit!` / `emit-error!` short-circuit (no envelope allocation, no listener fan-out) when bound true. | rf2-qsjda |
 
 ### Composition
@@ -815,7 +815,7 @@ The `HandlerScope` record's slot set is a **stable contract** consumed at every 
 | `:trigger-handler` | `{:kind :id :source-coord {:ns :file :line :column}}` or nil. `:kind` is one of `#{:event :sub :fx :cofx :view :machine :flow :route :app-schema :error-projector}`; `:source-coord` is whatever the registrar slot's meta carried (omitted for programmatic registrations). | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
 | `:call-site` | `{:ns :file :line :column}` or nil. Macro-expansion coord stamped by the surface form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`). Nil for fn-form callers. | Stamped by the surface macro via `with-call-site` or `with-dispatch-id+call-site`. | Inherited from parent scope unless the new scope explicitly overrides. |
 | `:dispatch-id` | Opaque scalar (process-monotonic counter, UUID, or any value with the [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id) uniqueness contract). Nil outside any in-flight cascade. | Allocated once at queue time by `router.cljc`'s `enqueue!`; published into the scope by `with-dispatch-id+call-site` on entry to `process-event!`. | Inherited from parent scope unless the new scope explicitly overrides. |
-| `:sensitive?` | Boolean. True iff the in-scope handler's registration meta carries `:sensitive? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. (The same boolean is exposed as `re-frame.privacy/sensitive?-from-meta` for non-trace consumers per rf2-iwqu9.) | Innermost wins (meta-derived). |
+| `:sensitive?` | Boolean. True iff the router computed a schema-derived sensitive-path overlap for the in-scope handler (see [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). The legacy handler-meta `:sensitive?` annotation has been removed (rf2-hjs2d) in favour of path-marked classification. | Computed in the router's `prepare-handler-ctx` and threaded onto the scope-meta as `:rf/sensitive?` for `handler-scope-from-meta` to lift into the scope's `:sensitive?` slot. | Innermost wins (scope-derived). |
 | `:no-emit?` | Boolean. True iff the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
 
 Slot values are nil when unbound. Consumers reading a slot off an event MUST treat absent and nil identically (nil-safe access).
@@ -1307,44 +1307,32 @@ Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per
 
 ### Privacy / sensitive data in traces
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture this section grounds — per-slot schema `:sensitive?` metadata is the canonical privacy marker; handler metadata `:sensitive?` is the cross-cutting escape hatch for whole-cascade sensitivity.
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture this section grounds — per-slot schema `:sensitive?` metadata is the canonical privacy marker. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.)
 
 Trace events carry dispatched event vectors, handler return values, and (under [§Trace event for app-db changes](#trace-event-for-app-db-changes)) `app-db` snapshots — any of which may contain user input that should not leave the developer's machine: passwords, auth tokens, payment details, PII captured from form fields. Tools that ship traces off-box (error-monitor forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), remote dev dashboards, the Causa-MCP / pair2 servers per [Tool-Pair.md](Tool-Pair.md)) must not emit that data verbatim.
 
-The declaration surface is schema-first. Apps declare sensitive app-db slots with `{:sensitive? true}` on Malli schema metadata; path-scoped handlers automatically install an internal redaction interceptor that redacts matching event-payload paths for trace/error emission while the handler body still receives the raw `:event` coeffect. Handler metadata `:sensitive? true` remains available only as a cross-cutting escape hatch for handlers whose sensitivity is not expressible as an app-db schema slot.
+The declaration surface is schema-first. Apps declare sensitive app-db slots with `{:sensitive? true}` on Malli schema metadata; path-scoped handlers automatically install an internal redaction interceptor that redacts matching event-payload paths for trace/error emission while the handler body still receives the raw `:event` coeffect. The complementary site is `(rf/with-redacted [[:password] ...])`, a positional interceptor that scrubs named payload keys on the trace surface.
 
 > **Unified wire-elision surface.** `:sensitive?` (privacy) and `:large?` (size) are **two orthogonal predicates over the same wire-boundary elision walker** — both consumed by `rf/elide-wire-value` (per [§Size elision in traces](#size-elision-in-traces) below and [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)). The walker emits the `:rf/redacted` sentinel for sensitive values and the `:rf.size/large-elided` marker for large values; when both predicates match the **sensitive drop wins** (the size marker would leak `:path` / `:bytes` and is suppressed). Same shape, two flags, one helper.
 
 #### The `:sensitive?` registration metadata key
 
-`:sensitive?` is an optional **boolean** key on the `:rf/registration-metadata` map (per [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) and [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata)). Every `reg-*` kind accepts it; the conventional use sites are `reg-event-*` (event handlers whose event vectors carry user input) and `reg-sub` (subscriptions whose return values flow user input into views).
+> **NOTE (rf2-hjs2d):** The handler-meta `:sensitive?` registration-metadata
+> annotation has been removed. Sensitive data marking is path-based per the
+> upcoming data-classification mechanism (separate spec doc; in progress) —
+> sensitivity is a property of the data value at a path, not of the
+> handler that touched it. The trace-event `:sensitive?` top-level stamp
+> (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is now driven exclusively by the schema-derived
+> overlap (see [§Schema-installed redaction](#schema-installed-redaction)).
 
-```clojure
-(rf/reg-event-fx :auth/sign-in
-  {:doc        "Verify credentials and start a session."
-   :sensitive? true                                 ;; this handler's event vector and return carry secrets
-   :spec       [:cat [:= :auth/sign-in] :string :string]}
-  (fn handler-auth-sign-in [{:keys [db]} [_ username password]]
-    {:db (assoc db :auth/pending? true)
-     :fx [[:rf.http/managed {:url "/auth" :method :post :body {:u username :p password}}]]}))
-```
-
-Semantics:
-
-- The registrar copies the `:sensitive?` value from the registration metadata into the registry slot's stored meta. Tools query it via `(rf/handler-meta kind id)` and see `:sensitive? true` on every registration that opted in.
-- At trace-emit time, when a handler with `:sensitive? true` is in scope (per [§`:rf.trace/trigger-handler` — naming the in-scope handler](#rftracetrigger-handler--naming-the-in-scope-handler)), the runtime MUST stamp `:sensitive? true` at the top level of every trace event emitted within that handler's scope. The stamp rides alongside `:source` / `:recovery` (other top-level hoists) and is independent of `:tags`. `:sensitive?` is hoisted to top-level, not `:tags`, so a single keyword read on the event tells the consumer to filter — no nested lookup.
-- A trace event whose `:rf.trace/trigger-handler` is not in scope (registration-time emits, outermost-dispatch lookup failures) carries no `:sensitive?` stamp. Consumers treat absent as `false`.
-- When a cascade chains handlers (event handler → fx handler → subsequent event handler), each handler's scope contributes its own `:sensitive?` reading; the stamp on a given trace event reflects the **innermost in-scope handler's** flag at emit time. Tools that want "every trace event in a sensitive cascade" group by `:dispatch-id` and OR-reduce the per-event `:sensitive?` field — the runtime does not transitively widen the flag across handler boundaries.
-- `:sensitive?` is **declarative**; setting it does NOT by itself redact any payload. The handler's event vector, return value, and the resulting `:event/db-changed` `:tags :app-db-before` / `:app-db-after` slots ride the trace stream unchanged. Tools downstream of the trace surface (the on-box error-monitor forwarder, the off-box pair2 server, dev panels) MUST consult `:sensitive?` and apply tool-side policy — drop, redact, summarise, or filter — before any data leaves the trust boundary.
-
-The default policies that ship with the framework's published listener integrations (the Sentry / Honeybadger forwarders documented at [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), the pair2 server per [Tool-Pair.md](Tool-Pair.md)) MUST suppress events carrying `:sensitive? true` by default. Apps that want them shipped opt in explicitly per integration; the conservative default protects apps that opt into a published integration without reading its source.
-
-> **Substrate-level enforcement on the always-on surfaces.** The dev-only trace surface treats `:sensitive?` as declarative (consumers route on the stamp). The two **always-on** substrate boundaries enforce it at the source:
->
-> - The **event-emit substrate** (`register-event-emit-listener!` per [§Event-emit listener](#what-is-available-in-production)): when the dispatched event's registered handler-meta carries `:sensitive? true`, the substrate **drops the record entirely** (per rf2-6hklf) — listeners are NOT invoked. Sensitive cascades produce no per-event observability record at all.
-> - The **error-emit substrate** (`register-error-emit-listener!` per [§Error-emit listener](#what-is-available-in-production), and the per-frame `:on-error` policy fn): when the failing handler's handler-meta carries `:sensitive? true`, the substrate **redacts the event payload** to `:rf/redacted`. The corpus-wide listener's `:event` slot becomes `:rf/redacted`; the policy fn's structured error-event carries `:rf/redacted` in `:tags :event`. The exception object, the failing event-id, the frame, and `:elapsed-ms` ride through unchanged so operators retain the triage signal. Errors are a recovery surface that MUST stay observable; the payload is scrubbed at the substrate boundary, the record itself is not dropped. Per rf2-vnjfg.
->
-> These guarantees do not require user-authored redaction interceptors. Schema metadata drives internal redaction for path-scoped handlers; handler metadata drives whole-handler stamping and always-on substrate policy.
+Previously this section described an optional **boolean** `:sensitive?`
+key on the `:rf/registration-metadata` map. That annotation no longer
+participates in the privacy machinery. The two always-on substrate
+boundaries (event-emit, error-emit) no longer drop / redact based on
+handler-meta sensitivity — they rely on the per-path elision wire-walker
+populated from app-schema `:sensitive?` slot meta. Schema-installed
+redaction (below) and `with-redacted` (the positional interceptor) are
+the supported declaration sites.
 
 #### Schema-installed redaction
 
@@ -1369,7 +1357,7 @@ For handlers scoped with `rf/path`, the router compares the path interceptor's a
 Behaviour:
 
 - **Canonical declaration.** `{:sensitive? true}` on app-schema slot metadata is the canonical per-path privacy declaration. It hydrates `[:rf/elision :sensitive-declarations]` for the active frame.
-- **Handler escape hatch.** `{:sensitive? true}` in handler metadata stamps every trace event in the handler scope and drives always-on event/error substrate policy. It does not name payload paths.
+- **Positional interceptor.** `(rf/with-redacted [[:password] ...])` scrubs named payload keys before the trace surface sees them; complementary to schema-marked paths.
 - **Trace-only redaction.** The internal redaction interceptor writes the redacted event to framework trace/error emission slots. The regular `:event` coeffect stays raw so handlers can perform the requested work.
 - **Sentinel keyword.** Redacted values are replaced with the framework-reserved `:rf/redacted` sentinel. Apps MUST NOT use it as a legitimate payload value.
 
@@ -1432,10 +1420,9 @@ The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the 
 
 - The trace surface's `:advanced` + `goog.DEBUG=false` build elides `emit!` entirely (per [§Production builds](#production-builds-zero-overhead-zero-code)). No trace event is allocated, no listener body runs, no `:sensitive?` stamp is built. The privacy mechanism is moot because there is no trace to privacy-protect.
 - Schema-installed redaction is internal router machinery. In production builds that retain always-on event/error substrates, the same redacted event shape is used at those boundaries; dev-only trace allocation still DCEs when the trace surface is disabled.
-- The `:sensitive?` registration-metadata key is **NOT elided** — it sits on the registry's stored meta and surfaces through `(handler-meta kind id)` in dev and production alike. Production tools that query the registrar (e.g., for diagnostic dumps) see the flag without depending on the trace surface.
 - The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) treats `":rf/redacted"` as a framework sentinel that may survive only where a production boundary explicitly uses schema redaction.
 
-No registration-time privacy warning exists in Path D. Schema metadata is the canonical redaction declaration; handler metadata is a whole-handler escape hatch.
+No registration-time privacy warning exists. Schema metadata is the canonical redaction declaration; `with-redacted` is the positional interceptor for ad-hoc payload scrubs. The handler-meta `:sensitive?` annotation has been removed (rf2-hjs2d).
 
 ### Error event catalogue (single source of truth)
 

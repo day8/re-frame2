@@ -93,13 +93,15 @@
   "Build a HandlerScope from a registrar slot's `meta` for a handler
   about to execute. `:call-site` and `:dispatch-id` are left nil for
   `with-handler-scope` to inherit from the parent. The `:sensitive?`
-  reading is inlined here to avoid a require cycle with
-  `re-frame.privacy`. Per Spec 009 §Handler-scope."
+  slot is fed by the router's schema-derived overlap calculation
+  (`:rf/sensitive?` on the scope-meta map) — the handler-meta
+  annotation has been removed; sensitivity is now path-marked at the
+  schema slot. Per Spec 009 §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
                   nil
-                  (true? (:sensitive? meta))
+                  (true? (:rf/sensitive? meta))
                   (true? (:rf.trace/no-emit? meta))))
 
 (defn inherit-scope

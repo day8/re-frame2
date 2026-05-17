@@ -174,31 +174,18 @@
         (is (not (contains? r :origin)))
         (is (not (contains? r :rf.trace/trigger-handler)))))))
 
-;; ---- 6. Handler-meta :sensitive? drops the record (rf2-6hklf) -----------
-
-(deftest sensitive-handler-meta-drops-record
-  (testing "Per rf2-6hklf: when an event's registered handler-meta
-            carries `:sensitive? true`, `dispatch-on-event!` drops
-            the record entirely — listeners are NOT invoked, even
-            when the payload contains no `:rf/elision`-registered
-            sensitive paths. This is the chapter-22 promise: flagging
-            a handler `:sensitive?` is sufficient to keep its records
-            out of production observability."
-    (let [seen (atom [])]
-      (rf/register-event-emit-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/sensitive
-                       {:sensitive? true}
-                       (fn [db _] (assoc db :touched true)))
-      (rf/dispatch-sync [:evt/sensitive "secret-payload"])
-      (is (= 0 (count @seen))
-          "no listener invocation for a :sensitive? handler — record dropped at the boundary"))))
+;; ---- 6. (removed) handler-meta :sensitive? drop ---------------------------
+;;
+;; The handler-meta `:sensitive?` annotation has been removed. Event-emit
+;; records are no longer dropped based on handler-level sensitivity; per-path
+;; elision (driven by the per-frame `:rf/elision` registry, populated from
+;; app-schema `:sensitive?` slot meta) is the load-bearing privacy surface
+;; here. Path-marked classification supersedes the previous handler-level
+;; short-circuit.
 
 (deftest non-sensitive-handler-meta-fires-normally
-  (testing "Handlers WITHOUT `:sensitive?` (or `:sensitive? false`)
-            continue to fan out as before — the rf2-6hklf short-
-            circuit fires only for explicit `:sensitive? true`."
+  (testing "Handlers continue to fan out — handler-meta `:sensitive?`
+            no longer short-circuits the substrate."
     (let [seen (atom [])]
       (rf/register-event-emit-listener!
         :test/recorder
@@ -207,9 +194,9 @@
                        (fn [db _] (assoc db :touched true)))
       (rf/dispatch-sync [:evt/normal "payload"])
       (is (= 1 (count @seen))
-          "non-sensitive handler still fans out normally")
+          "handler fans out normally")
       (is (= [:evt/normal "payload"] (:event (first @seen)))
-          "the elided event payload reaches the listener as before"))))
+          "the elided event payload reaches the listener"))))
 
 ;; ---- 7. No registered listeners → no-op (hot-path floor) -----------------
 

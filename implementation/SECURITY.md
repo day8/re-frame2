@@ -22,7 +22,6 @@ Four sections:
 | Pattern obligation (`../spec/Security.md`) | CLJS reference name | Owning artefact / namespace |
 |---|---|---|
 | Wire-elision walker — single emission site for `:rf/redacted` and `:rf.size/large-elided` | `re-frame.core/elide-wire-value` | `day8/re-frame2` (core) — `re-frame.elision` |
-| Sensitive-meta reader (non-trace consumers — always-on substrates) | `re-frame.privacy/sensitive?-from-meta` | `day8/re-frame2` (core) — `re-frame.privacy` |
 | Production-elision gate (CLJS) | `re-frame.interop/debug-enabled?` — alias of `goog.DEBUG` | `day8/re-frame2` (core) — `re-frame.interop` |
 | Open-redirect-mitigating fx | `:rf.server/safe-redirect` (registered fx) | `day8/re-frame2-ssr` (`re-frame.ssr.fx.safe-redirect`) |
 | Header CRLF check site | `:rf.server/set-header` / `:rf.server/append-header` fx handlers | `day8/re-frame2-ssr` (`re-frame.ssr.fx.headers`) |
@@ -86,7 +85,7 @@ Three substrates survive `:advanced` + `goog.DEBUG=false` on CLJS, and survive `
 - **The event-emit listener surface** — `re-frame.event-emit/emit-event!` plus the listener registry. Always fans out per-event records to registered observability listeners (Datadog, Honeycomb, Sentry, custom).
 - **The error-emit listener surface** — `re-frame.error-emit/emit-error!` plus the listener registry. Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn.
 
-Listeners on these substrates honour `:sensitive?` via `re-frame.privacy/sensitive?-from-meta` — same boolean as the trace surface uses, exposed for non-trace consumers (per rf2-iwqu9).
+Sensitive data marking on these substrates is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation has been removed; per-path elision (the per-frame `:rf/elision` registry, populated from app-schema `:sensitive?` slot meta) is the load-bearing privacy surface on these substrates.
 
 ### CLJS-only optimisations (not JVM-mirrored)
 
@@ -166,13 +165,12 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 
 | Bead | Call | Rationale |
 |---|---|---|
-| rf2-vnjfg | `:sensitive?` enforcement on always-on error path (not warning-only) | Always-on error-emit substrate survives `:advanced` + `goog.DEBUG=false`; a sensitive failing value would land at hosted error monitors as a verbatim secret without substrate-level enforcement. |
+| rf2-hjs2d | Removal of handler-meta `:sensitive?` annotation | Mike 2026-05-17: "We won't be having :sensitive? true on the event handler. That's a bad idea." Sensitive data marking is path-based per the upcoming data-classification mechanism (separate spec doc; in progress) — sensitivity is a property of the data value at a path, not of the handler that touched it. |
 | rf2-kj51z | Schema-validation-failure redacts `:value` / `:received` / `:explain` / `:fx-args` when slot is `:sensitive?` | Malli's standard behaviour carries the failing value verbatim under `:value` / `:errors[].value`. Without redaction the trace event re-leaks the secret to every registered listener. |
 | rf2-hdadz | Recorder redacts payload but records the slot | Drop-the-payload semantics, not refuse-to-record — devs lose useful correlation otherwise. Matches the always-on error-emit substrate's posture. |
 | rf2-czv3p | Direct-read tools MUST run `re-frame.core/elide-wire-value`; named mutations need no extra gate | Direct reads (`get-app-db`, `get-path`) bypass handler-scoped trace stamping. The MCP egress is the right boundary for schema-declared live-value redaction. Named mutations get no extra gate — invoking the tool is the consent. |
 | rf2-b2hip | spec/004-Wire-Pipeline.md aligned to spec/Tool-Pair MUST on direct-read privacy | Spec-vs-spec drift resolution: trace redaction does NOT protect a live-value direct read. Tool-Pair MUST wins. |
 | rf2-isdwf | `:sensitive?` hoisted from `:tags` to trace-event top-level | Consumers route on top-level `:sensitive?` rather than `(get-in trace-event [:tags :sensitive?])` — flatter access path, cheaper conformance gate. |
-| rf2-iwqu9 | `re-frame.privacy/sensitive?-from-meta` for non-trace consumers | Same boolean as the trace surface uses, exposed for non-trace consumers (the always-on substrates). One reader, two surfaces. |
 | rf2-j1m7x / rf2-mrsck | `re-frame.epoch/projected-record` (`day8/re-frame2-epoch`) — single normative projection helper wrapping `elide-wire-value`; `re-frame.epoch/configure!` `:trace-events-keep` finite retention cap; `:rf.epoch/sensitive?` record-level rollup | Listener fan-out delivers raw records (Causa diff / `restore-epoch` need them); off-box egress (Causa-MCP `watch-epochs`, story / pair recorders, hosted forwarders) routes through `projected-record` at the wire boundary. The `:trace-events-keep` cap bounds dev-session heap growth (the most-recent N records keep raw `:trace-events`; older keep only the cheap structured projections). The `:rf.epoch/sensitive?` rollup mirrors the trace-event `:sensitive?` boolean so consumers branch on one slot per record. |
 
 ### MCP tool authority

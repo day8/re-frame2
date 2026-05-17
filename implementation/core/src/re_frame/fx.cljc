@@ -496,8 +496,10 @@
           nil
           ;; Publish the fx handler's HandlerScope — `:trigger-handler`
           ;; for the fx handler's invocation AND the success-path
-          ;; `:rf.fx/handled` emit; `:sensitive?` and `:no-emit?` per
-          ;; Spec 009 "innermost handler wins". Errors emitted from
+          ;; `:rf.fx/handled` emit; `:no-emit?` per Spec 009
+          ;; "innermost handler wins". (`:sensitive?` is path-marked
+          ;; via schema-slot meta; the handler-meta annotation has
+          ;; been removed.) Errors emitted from
           ;; inside the fx body carry the fx handler's source-coord;
           ;; the success-path `:rf.fx/handled` emit picks up the same
           ;; coord through `emit!`'s hoist of `*handler-scope*` — the

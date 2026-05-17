@@ -908,10 +908,9 @@
   payload keys with the `:rf/redacted` sentinel on the trace surface
   while the handler body still sees the unredacted payload via the
   `:event` coeffect. `paths` is a sequence of `get-in`-style key paths
-  into the M-19 payload map. The third composition site for
-  `:sensitive?` (alongside registration meta and schema-declared
-  paths) — see Security.md §Behavioural MUSTs across the privacy
-  surface. Usage:
+  into the M-19 payload map. Composes additively with schema-declared
+  sensitive slots (handler-meta `:sensitive?` has been removed in
+  favour of path-marked classification). Usage:
   `(reg-event-fx :auth/login [(with-redacted [[:password]])] ...)`.
   Per spec/API.md §Privacy and Spec 009 §Privacy."}
   with-redacted   privacy/with-redacted)

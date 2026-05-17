@@ -4,8 +4,10 @@
   Schema metadata is the canonical path-level privacy declaration:
   `{:sensitive? true}` on an app-schema slot feeds the elision registry
   and the router installs an internal redaction interceptor for matching
-  path-scoped handlers. Handler metadata `:sensitive?` remains the
-  cross-cutting escape hatch."
+  path-scoped handlers. Path-marked sensitive classification (planned)
+  supersedes the previous handler-meta `:sensitive?` annotation —
+  sensitivity is now a property of the data value at a path, not of the
+  handler that touched it."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]))
 
@@ -13,10 +15,6 @@
 
 (def redacted-sentinel
   :rf/redacted)
-
-(defn sensitive?-from-meta
-  [meta]
-  (true? (:sensitive? meta)))
 
 (defn sensitive?
   [trace-event]
@@ -117,11 +115,10 @@
 
 ;; ---- with-redacted — user-installed positional interceptor ----------------
 ;;
-;; The third composition site for `:sensitive?` (per Security.md §Behavioural
-;; MUSTs across the privacy surface): the positional `with-redacted`
-;; interceptor scrubs named payload keys *before* the handler body runs.
-;; The handler sees the unredacted value via the regular `:event` coeffect;
-;; the trace surface sees the redacted version via `:rf/redacted-event`.
+;; The positional `with-redacted` interceptor scrubs named payload keys
+;; *before* the handler body runs. The handler sees the unredacted value
+;; via the regular `:event` coeffect; the trace surface sees the redacted
+;; version via `:rf/redacted-event`.
 ;;
 ;; The interceptor carries its `:paths` on the interceptor map itself so
 ;; the router can collect them at chain-assembly time and fold them into
@@ -151,9 +148,6 @@
   pass through unchanged.
 
   Composition:
-    - With registration-meta `:sensitive? true` — orthogonal. The meta
-      stamps `:sensitive? true` on every trace event in the handler's
-      scope; `with-redacted` scrubs the payload slot. Both apply.
     - With schema `:sensitive?` on a path-scoped handler — additive. The
       router installs an internal redaction interceptor for schema-
       declared paths; this user-installed interceptor extends (does not

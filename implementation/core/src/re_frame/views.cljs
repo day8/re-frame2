@@ -229,14 +229,14 @@
   instance (per Spec 004 §Render-tree primitives).
 
   The view's HandlerScope is pre-computed once at registration time
-  from `metadata` (source-coord stamp, `:sensitive?`,
-  `:rf.trace/no-emit?` — all three fixed for the life of the
-  registered view). Each render binds the scope (via
-  `with-handler-scope`, which inherits parent's `:call-site` /
+  from `metadata` (source-coord stamp + `:rf.trace/no-emit?` — fixed
+  for the life of the registered view). Each render binds the scope
+  (via `with-handler-scope`, which inherits parent's `:call-site` /
   `:dispatch-id`) around the render-fn invocation. Errors emitted
   during render ride the view's `:trigger-handler` coord;
-  `:view/render` emits ride `:sensitive?` per Spec 009 §Privacy and
-  short-circuit when `:no-emit?` is true.
+  `:view/render` emits short-circuit when `:no-emit?` is true.
+  (Handler-meta `:sensitive?` annotation has been removed; per-path
+  classification is the v2 mechanism.)
 
   The body is a five-line pipeline; the work lives in the named
   helpers above."

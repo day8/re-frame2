@@ -101,17 +101,19 @@
            branch on (true? ...) / (false? ...) without an absence
            special case"))))
 
-(deftest rollup-true-from-handler-meta
-  (testing "a handler whose registration meta carries :sensitive? true
-            stamps every trace event in scope; the rollup reads that
-            stamp from the captured trace-events vector"
+(deftest rollup-false-from-handler-meta-sensitive-removed
+  (testing "Handler-meta `:sensitive?` annotation has been removed —
+            it no longer stamps trace events, so the rollup reads
+            false for a cascade whose only sensitive signal was the
+            (now-ignored) handler annotation."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :secret-write
-                     {:sensitive? true}
+                     {:sensitive? true}   ;; stored, no longer consulted
                      (fn [db _] (assoc db :token "shh")))
     (rf/dispatch-sync [:secret-write] {:frame :test/main})
     (let [r (last-record :test/main)]
-      (is (true? (:rf.epoch/sensitive? r))))))
+      (is (false? (:rf.epoch/sensitive? r))
+          "rollup reads false — handler-meta annotation no longer drives the stamp"))))
 
 (deftest rollup-true-from-schema-declared-non-nil-leaf
   (testing "a schema-declared sensitive path that resolves to a non-nil

@@ -1128,7 +1128,7 @@ The HTTP privacy machinery rides the trace surface and elides with it:
 
 - The redact / stamp helpers all gate on `interop/debug-enabled?` at their call sites (the same gate as `trace/emit!` and `trace/emit-error!`). In `:advanced` + `goog.DEBUG=false` builds Closure DCE removes the trace emits AND the redaction step that prepares them.
 - The header denylist atom itself ships in production (it's read by `declare-sensitive-header!`). The walker only runs against it when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
-- The `:sensitive?` registration-metadata key survives production builds per Spec 009 §Privacy §Production-elision — `(rf/handler-meta :event id)` reports the flag in dev and production alike for diagnostic-dump tooling that consults the registrar without depending on the trace surface.
+- Handler-meta `:sensitive?` is no longer consulted (the annotation has been removed per rf2-hjs2d). Per-call `:sensitive?` on the `:rf.http/managed` args map is the supported per-request sensitivity opt-in.
 
 ### Cross-references
 
