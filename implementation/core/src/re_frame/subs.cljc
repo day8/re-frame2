@@ -32,6 +32,7 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.subs.memo :as subs-memo]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]
@@ -164,42 +165,12 @@
   [query-v]
   query-v)
 
-;; ---- grace-period configuration -------------------------------------------
-;;
-;; Per Spec 006 §Reference counting and disposal. When the last subscriber
-;; detaches, we don't dispose immediately — we wait grace-period-ms in case
-;; a new subscriber arrives (e.g. across a React re-render). The default
-;; is short enough not to leak under genuine disposal but long enough to
-;; bridge typical React render churn. Tests that want to assert on disposal
-;; configure a short or zero value via configure!.
-
-(def ^:private default-grace-period-ms
-  ;; Long enough to bridge typical React render churn; short enough not
-  ;; to leak under genuine disposal.
-  50)
-
-(defonce ^:private config
-  ;; Map shape so future :sub-cache configure-keys land additively.
-  (atom {:grace-period-ms default-grace-period-ms}))
-
-(defn configure!
-  "Update the sub-cache configuration. Currently supports
-  `{:grace-period-ms N}` — a non-negative integer (or 0 to dispose
-  synchronously when ref-count drops to zero). Per Spec 006."
-  [opts]
-  (when (map? opts)
-    (swap! config merge (select-keys opts [:grace-period-ms])))
-  nil)
-
-(defn current-config
-  "Return the current sub-cache configuration map. Public for tests
-  and tools that want to display the current grace-period."
-  []
-  @config)
-
-(defn- grace-period-ms
-  []
-  (or (:grace-period-ms @config) 0))
+;; Grace-period configuration, ref-counting + scheduling, hot-reload
+;; invalidation, and `clear-sub-cache!` live in `re-frame.subs.cache` —
+;; extracted per rf2-0ytl4 Phase-2 seam S-A (fold-in of seam S-E). The
+;; public surface (`configure!`, `current-config`, `clear-sub-cache!`)
+;; is reached through `re-frame.core`'s defaliases pointing at
+;; `re-frame.subs.cache/*` directly (no facade re-export).
 
 (declare subscribe unsubscribe)
 
@@ -455,37 +426,6 @@
           (catch #?(:clj Throwable :cljs :default) _
             nil))))))
 
-(defn- dispose-entry-now!
-  "Synchronous disposal: remove the cache slot for k iff its ref-count
-  is still <= 0 (no resubscribe arrived) and dispose the reaction.
-  Idempotent — a second call is a no-op because the slot is gone.
-
-  The swap-fn body is pure — it returns the new cache map and nothing
-  else; the reaction to dispose is read from the PRE-swap snapshot
-  returned by `swap-vals!` and acted on AFTER the CAS commits. `swap!`
-  is allowed to retry on contention on the JVM, so any side-effect
-  (`interop/dispose!`) inside the swap-fn could fire 2+ times under
-  concurrent invalidate + grace-fire."
-  [cache k]
-  (let [[old new] (swap-vals! cache
-                              (fn [m]
-                                (if-let [entry (get m k)]
-                                  (if (<= (or (:ref-count entry) 0) 0)
-                                    (dissoc m k)
-                                    ;; Resubscribe arrived between schedule
-                                    ;; and fire — keep entry.
-                                    m)
-                                  m)))]
-    ;; The slot was evicted by THIS call iff it was present in `old` and
-    ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
-    ;; replace! or clear-sub-cache!) that won the CAS race would
-    ;; have left the slot absent in `old` too, so we don't double-dispose.
-    (when (and (contains? old k) (not (contains? new k)))
-      (when-let [r (get-in old [k :reaction])]
-        (try (interop/dispose! r)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
-    nil))
-
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
   When ref-count reaches 0, schedule the entry for disposal after the
@@ -508,155 +448,19 @@
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
-  to release the cache slot."
+  to release the cache slot.
+
+  Per rf2-0ytl4 seam S-A: ref-counting, grace scheduling, and dispose
+  live in `re-frame.subs.cache`; this facade fn holds the public API
+  shape and delegates to `subs-cache/unsubscribe!` after resolving the
+  cache + key."
   ([query-v]
    (unsubscribe (frame/resolve-current-frame) query-v nil))
   ([frame-id query-v]
    (unsubscribe frame-id query-v nil))
   ([frame-id query-v opts]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (let [k     (cache-key query-v)
-           ;; An explicit `:grace` in opts overrides the per-runtime
-           ;; configured grace-period. `contains?` (not `(:grace opts)`)
-           ;; so `{:grace 0}` is honoured.
-           grace (if (and (map? opts) (contains? opts :grace))
-                   (:grace opts)
-                   (grace-period-ms))
-           ;; The swap-fn body is pure — it returns only the new cache
-           ;; map. The drop-to-zero signal is read from the diff between
-           ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
-           ;; to retry on JVM contention, so a side-effecting
-           ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
-           ;; could fire on a discarded retry whose CAS lost — leading
-           ;; to a spurious dispose schedule.
-           [old new] (swap-vals! cache
-                                 (fn [m]
-                                   (if-let [entry (get m k)]
-                                     (let [old-n (or (:ref-count entry) 1)
-                                           n     (max 0 (dec old-n))]
-                                       ;; Only trigger drop-to-zero on the 1→0
-                                       ;; transition AND only when no grace-period
-                                       ;; timer is already in flight. Calling
-                                       ;; `unsubscribe` past zero (idempotent
-                                       ;; misuse — e.g. cleanup in both a
-                                       ;; teardown hook and a `finally`) must not
-                                       ;; stack new `pending-dispose` timers on
-                                       ;; top of the prior handle.
-                                       (if (and (= 1 old-n)
-                                                (zero? n)
-                                                (nil? (:pending-dispose entry)))
-                                         (assoc m k (assoc entry :ref-count 0))
-                                         (assoc-in m [k :ref-count] n)))
-                                     m)))
-           ;; This swap drove the 1→0 transition (under no pending-dispose)
-           ;; iff the entry was present in both old and new AND old's
-           ;; ref-count was 1 AND new's ref-count is 0 AND old had no
-           ;; pending-dispose timer. Reading from the snapshots avoids
-           ;; the side-effect-in-swap-fn race.
-           dropped-to-zero? (and (contains? new k)
-                                 (= 1 (or (get-in old [k :ref-count]) 1))
-                                 (zero? (or (get-in new [k :ref-count]) 0))
-                                 (nil? (get-in old [k :pending-dispose])))]
-       (when dropped-to-zero?
-         (if (zero? grace)
-           ;; Grace = 0: dispose synchronously (the test/explicit-tear-down path).
-           (dispose-entry-now! cache k)
-           ;; Grace > 0: schedule deferred disposal. Stash the timer handle
-           ;; so a re-subscribe inside the window can cancel it.
-           (let [handle (interop/set-timeout!
-                          (fn []
-                            (dispose-entry-now! cache k))
-                          grace)
-                 ;; Pure swap-fn: return the new map and a flag indicating
-                 ;; whether the handle was actually stashed. The clear-
-                 ;; timeout! side-effect runs AFTER the CAS commits so
-                 ;; a discarded retry can't double-clear a live timer.
-                 [_ new2] (swap-vals! cache
-                                      (fn [m]
-                                        (if-let [entry (get m k)]
-                                          (if (<= (or (:ref-count entry) 0) 0)
-                                            (assoc m k (assoc entry :pending-dispose handle))
-                                            ;; Subscriber arrived between our swap!
-                                            ;; above and set-timeout! returning —
-                                            ;; do NOT stash; we'll cancel post-swap.
-                                            m)
-                                          m)))]
-             ;; If the handle did NOT land on the entry, cancel it once,
-             ;; outside the swap. Reading from the post-swap snapshot
-             ;; (`new2`) means we make this decision exactly once.
-             (when-not (identical? handle (get-in new2 [k :pending-dispose]))
-               (try (interop/clear-timeout! handle)
-                    (catch #?(:clj Throwable :cljs :default) _ nil))))))
-       nil))))
-
-;; ---- hot-reload invalidation ---------------------------------------------
-;;
-;; Per Spec 001 §Hot-reload semantics: when a :sub re-registers, every
-;; cached reaction whose query-id is that sub MUST be disposed and
-;; evicted across every frame's cache. Cached reactions hold the OLD
-;; body via closure; without explicit invalidation, they'd silently
-;; serve stale values.
-
-(defn- invalidate-sub-on-replace!
-  [{:keys [kind id]}]
-  (when (= kind :sub)
-    (doseq [frame-id (frame/frame-ids)]
-      (when-let [cache (:sub-cache (frame/frame frame-id))]
-        ;; The swap-fn body is pure — it returns only the new cache map.
-        ;; Reactions to dispose and timers to cancel are read from the
-        ;; diff between `old` and `new` AFTER the CAS commits (so a
-        ;; retried `swap!` can't fire dispose 2+ times).
-        (let [[old new] (swap-vals! cache
-                                    (fn [m]
-                                      (let [hit-keys (->> (keys m)
-                                                          (filter #(= id (first %))))]
-                                        (apply dissoc m hit-keys))))
-              ;; The keys actually evicted by THIS swap are those present
-              ;; in `old` but absent in `new`. A concurrent evictor that
-              ;; won the CAS race would have removed its keys before our
-              ;; swap saw them, so the diff names ONLY the keys we own.
-              evicted-keys (filterv #(not (contains? new %))
-                                    (keys old))]
-          ;; Cancel any pending grace-period timers for the evicted slots —
-          ;; the reaction is being disposed now, so the deferred path
-          ;; would fire against a stale closure.
-          (doseq [k evicted-keys]
-            (when-let [h (get-in old [k :pending-dispose])]
-              (try (interop/clear-timeout! h)
-                   (catch #?(:clj Throwable :cljs :default) _ nil))))
-          (doseq [k evicted-keys]
-            (when-let [r (get-in old [k :reaction])]
-              (try (interop/dispose! r)
-                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
-
-(defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
-      :installed))
-
-(defn clear-sub-cache!
-  "Dispose every cached entry in a frame's runtime sub-cache and clear
-  the cache. Cancels any pending grace-period timers before disposing —
-  a deferred disposal landing after this fn returned would close over
-  a stale reaction.
-
-  Test fixtures and REPL-driven reloads call this between scenarios
-  to ensure the cache is empty before re-subscribing. Test code
-  generally prefers `reset-runtime-fixture` (per `test_support`) which
-  bundles cache-clearing with registrar / frame state reset.
-
-  Zero-arity targets `:rf/default`; one-arity targets the named frame.
-  Returns nil. See also: `clear-sub` (registrar-side counterpart)."
-  ([] (clear-sub-cache! :rf/default))
-  ([frame-id]
-   (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (doseq [[_k entry] @cache]
-       (when-let [h (:pending-dispose entry)]
-         (try (interop/clear-timeout! h)
-              (catch #?(:clj Throwable :cljs :default) _ nil)))
-       (when-let [r (:reaction entry)]
-         (try (interop/dispose! r)
-              (catch #?(:clj Throwable :cljs :default) _ nil))))
-     (reset! cache {}))))
+     (subs-cache/unsubscribe! cache (cache-key query-v) opts))))
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;

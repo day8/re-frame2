@@ -11,7 +11,7 @@
   fastest test path) and grace>0 (the production path)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -32,7 +32,7 @@
   ;; toggle it for assertions and we don't want the value to leak.
   (try (test-fn)
        (finally
-         (subs/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -54,21 +54,21 @@
   (testing "the default grace-period is 50ms"
     ;; 50ms is short enough not to leak under genuine disposal but long
     ;; enough to bridge React re-render churn (per Spec 006).
-    (subs/configure! {:grace-period-ms 50})  ;; explicit; the fixture restores
-    (is (= 50 (:grace-period-ms (subs/current-config))))))
+    (subs-cache/configure! {:grace-period-ms 50})  ;; explicit; the fixture restores
+    (is (= 50 (:grace-period-ms (subs-cache/current-config))))))
 
 (deftest configure-overrides-grace-period
   (testing "(rf/configure :sub-cache {...}) updates the grace-period"
     (rf/configure :sub-cache {:grace-period-ms 200})
-    (is (= 200 (:grace-period-ms (subs/current-config))))
+    (is (= 200 (:grace-period-ms (subs-cache/current-config))))
     (rf/configure :sub-cache {:grace-period-ms 0})
-    (is (= 0 (:grace-period-ms (subs/current-config))))))
+    (is (= 0 (:grace-period-ms (subs-cache/current-config))))))
 
 ;; ---- synchronous-disposal path (grace = 0) --------------------------------
 
 (deftest sync-disposal-when-grace-is-zero
   (testing "with grace=0, ref-count → 0 disposes the cache slot synchronously"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -83,7 +83,7 @@
 
 (deftest sync-disposal-respects-multiple-subscribers
   (testing "with grace=0, only the LAST subscriber dropping disposes"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -103,7 +103,7 @@
 
 (deftest deferred-disposal-after-grace-period
   (testing "ref-count → 0 → grace-period elapses → entry disposed"
-    (subs/configure! {:grace-period-ms 30})
+    (subs-cache/configure! {:grace-period-ms 30})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -131,7 +131,7 @@
 
 (deftest resubscribe-within-grace-cancels-disposal
   (testing "resubscribe inside the grace-period cancels disposal; cached value reused"
-    (subs/configure! {:grace-period-ms 100})
+    (subs-cache/configure! {:grace-period-ms 100})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -158,7 +158,7 @@
 
 (deftest grace-zero-disposes-without-pending-handle
   (testing "with grace=0 the synchronous path leaves no pending-dispose handle"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -179,7 +179,7 @@
 
 (deftest subscribe-once-disposes-synchronously
   (testing "subscribe-once's teardown is synchronous regardless of the configured grace-period (rf2-zmufj)"
-    (subs/configure! {:grace-period-ms 60000})  ;; long grace; pre-fix this leaked
+    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; pre-fix this leaked
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -197,7 +197,7 @@
 
 (deftest subscribe-once-respects-concurrent-subscriber
   (testing "subscribe-once's :grace 0 teardown only disposes when it drove 1→0 (rf2-zmufj)"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -230,7 +230,7 @@
 
 (deftest unsubscribe-with-grace-opt-overrides-configured-grace
   (testing "(unsubscribe frame-id query-v {:grace 0}) disposes synchronously even when configured grace > 0"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -243,14 +243,14 @@
     (rf/unsubscribe :rf/default [:n] {:grace 0})
     (is (not (contains? (cache-keys) [:n]))
         "slot disposed synchronously despite configured grace=60000ms")
-    (is (= 60000 (:grace-period-ms (subs/current-config)))
+    (is (= 60000 (:grace-period-ms (subs-cache/current-config)))
         "per-runtime grace-period-ms is unchanged — only THIS call was overridden")))
 
 ;; ---- clear-sub-cache! cancels pending timers ---------------------
 
 (deftest clear-subscription-cache-cancels-pending
   (testing "clear-sub-cache! cancels any pending grace-period timers"
-    (subs/configure! {:grace-period-ms 60000})  ;; long grace; we'll clear before it fires
+    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; we'll clear before it fires
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -269,7 +269,7 @@
 
 (deftest hot-reload-cancels-pending-and-disposes
   (testing "re-registering a sub disposes cached slots and cancels pending timers"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -294,7 +294,7 @@
 
 (deftest subscribe-before-register-does-not-cache
   (testing "subscribing before reg-sub does not cache; later registration is observed"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/dispatch-sync [:init])
 
@@ -323,7 +323,7 @@
 
 (deftest subscribe-before-register-survives-multiple-misses
   (testing "repeated subscribe-before-register calls do not poison the cache"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 11}))
     (rf/dispatch-sync [:init])
 
@@ -354,7 +354,7 @@
 
 (deftest clear-sub-id-leaves-cache-intact
   (testing "(clear-sub id) removes the registration but does not evict cache slots"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -383,7 +383,7 @@
 
 (deftest clear-sub-no-arg-leaves-cache-intact
   (testing "(clear-sub) clears every registration but leaves the cache untouched"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :a (fn [db _] (:n db)))
     (rf/reg-sub :b (fn [db _] (* 2 (:n db))))
@@ -424,7 +424,7 @@
 
 (deftest unsubscribe-past-zero-is-idempotent
   (testing "calling unsubscribe twice for the same sub-id does not leak pending-dispose handles (rf2-zikr)"
-    (subs/configure! {:grace-period-ms 60000})  ;; long grace; we won't let it fire
+    (subs-cache/configure! {:grace-period-ms 60000})  ;; long grace; we won't let it fire
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -463,7 +463,7 @@
             "third unsubscribe still preserves the original handle"))))
 
   (testing "extra unsubscribe before any subscribe is a complete no-op"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
@@ -485,7 +485,7 @@
   (testing "after full unsubscription, a state change does NOT re-invoke
             the sub's compute fn — the cache entry has been disposed,
             its watch on app-db unwound"
-    (subs/configure! {:grace-period-ms 0})  ;; sync dispose so the contract is observable
+    (subs-cache/configure! {:grace-period-ms 0})  ;; sync dispose so the contract is observable
     (let [recompute-count (atom 0)]
       (rf/reg-event-db :seed   (fn [_ _]   {:n 0}))
       (rf/reg-event-db :update (fn [db [_ n]] (assoc db :n n)))
@@ -551,7 +551,7 @@
 
 (deftest layer-2-disposal-decrements-input-ref-counts
   (testing "disposing a layer-2 sub decrements ref-counts on every :<- input"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -582,7 +582,7 @@
 
 (deftest layer-2-disposal-respects-shared-inputs
   (testing "disposing one layer-2 sub decrements shared input only by one"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -625,7 +625,7 @@
 
 (deftest layer-2-disposal-respects-externally-held-input
   (testing "an input also held by a direct subscribe is not over-disposed"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -658,7 +658,7 @@
 
 (deftest layer-3-disposal-cascades-through-chain
   (testing "disposal cascades recursively through a layer-3 chain"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
@@ -680,7 +680,7 @@
 
 (deftest layer-2-multi-subscriber-disposal-keeps-inputs-alive
   (testing "with two parent subscribers, dropping one keeps inputs at ref-count 1"
-    (subs/configure! {:grace-period-ms 0})
+    (subs-cache/configure! {:grace-period-ms 0})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))

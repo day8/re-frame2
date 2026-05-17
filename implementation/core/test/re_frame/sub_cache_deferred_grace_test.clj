@@ -45,7 +45,7 @@
   ScheduledExecutorService has comfortable room."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -64,7 +64,7 @@
   (require 're-frame.machines :reload)
   (try (test-fn)
        (finally
-         (subs/configure! {:grace-period-ms 50}))))
+         (subs-cache/configure! {:grace-period-ms 50}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -106,7 +106,7 @@
             parent reaction is actually disposed (i.e. when the timer
             lands or when invalidate-sub-on-replace! evicts the slot)"
     ;; Long grace — we'll never let it fire naturally during this test.
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -140,7 +140,7 @@
   (testing "with a short grace, the parent's timer fires, the cascade
             schedules input dispose, and after waiting another grace
             window the entire chain is disposed"
-    (subs/configure! {:grace-period-ms 30})
+    (subs-cache/configure! {:grace-period-ms 30})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -173,7 +173,7 @@
             each level's grace fires, releases the next-down ref-count
             (which schedules ITS grace), and so on. The whole chain
             takes roughly N × grace to drain"
-    (subs/configure! {:grace-period-ms 30})
+    (subs-cache/configure! {:grace-period-ms 30})
     (rf/reg-event-db :init (fn [_ _] {:a 2}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _]  (* 2 a)))
@@ -210,7 +210,7 @@
             subs, disposing only one parent leaves the shared input at
             ref-count 1 — even after waiting past the parent's grace,
             the shared input is NEVER scheduled for dispose"
-    (subs/configure! {:grace-period-ms 30})
+    (subs-cache/configure! {:grace-period-ms 30})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -264,7 +264,7 @@
             reaction's on-dispose callback — no input ref-count leak"
     ;; Long grace so the eviction path is the only thing that can
     ;; release the parent slot.
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -310,7 +310,7 @@
             resubscribe path cancels it and increments the ref-count.
             Net effect: new parent at ref-count 1, inputs at ref-count 1,
             no leaked timers, no stale references."
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -355,7 +355,7 @@
             cascade-pending-dispose is in flight: invalidate-sub-on-
             replace! cancels the pending timer and disposes the input
             reaction. The parent (already disposed) is unaffected."
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -408,7 +408,7 @@
             new reaction (rf2-e8e74)."
     ;; Long grace — the timer cannot fire during this test under any
     ;; realistic scheduler.
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -453,7 +453,7 @@
             scheduler-jitter risk is gone — we're only asserting that
             the slot is STILL ALIVE after a wait that's an order of
             magnitude past the original window."
-    (subs/configure! {:grace-period-ms 50})
+    (subs-cache/configure! {:grace-period-ms 50})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -489,7 +489,7 @@
             per-input subscribe goes through the HIT branch on each
             input, cancelling its pending-dispose timer and bumping
             ref-count from 0 → 1"
-    (subs/configure! {:grace-period-ms 60000})
+    (subs-cache/configure! {:grace-period-ms 60000})
     (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -542,7 +542,7 @@
       (if (even? i)
         ;; Cancel-mid-window arm — long grace, no wall-clock dependency.
         (do
-          (subs/configure! {:grace-period-ms 60000})
+          (subs-cache/configure! {:grace-period-ms 60000})
           (let [r (rf/subscribe [:sum])]
             (is (= 5 @r))
             (is (= 1 (entry-ref-count [:sum])))
@@ -556,12 +556,12 @@
                   (str "iter " i ": timer cancelled on resubscribe"))))
           ;; Collapse grace to 0 to tear down synchronously — both arms
           ;; converge on a fully drained cache before the next iteration.
-          (subs/configure! {:grace-period-ms 0})
+          (subs-cache/configure! {:grace-period-ms 0})
           (rf/unsubscribe [:sum]))
         ;; Let-fire arm: short grace + poll on cache-drained so the
         ;; full cascade fires through the deferred path (rf2-fun38).
         (do
-          (subs/configure! {:grace-period-ms 30})
+          (subs-cache/configure! {:grace-period-ms 30})
           (let [r (rf/subscribe [:sum])]
             (is (= 5 @r))
             (is (= 1 (entry-ref-count [:sum])))
