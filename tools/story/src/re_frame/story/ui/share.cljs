@@ -97,18 +97,26 @@
 
 (defn- current-share-url
   "Compute the share URL against the current shell state. Returns a
-  string."
+  string. Per rf2-o4u18 the share popover encodes the FULL chrome
+  state — workspace + mode-tab + viewport + background + tag-filter —
+  so a shared link drops the recipient onto the exact same view."
   [variant-id]
   (let [shell @state/shell-state-atom
         base  (when js/window
                 (let [loc (.-location js/window)]
-                  (str (.-origin loc) (.-pathname loc) "#/stories")))]
+                  (str (.-origin loc) (.-pathname loc) "#/stories")))
+        mode-tab (get-in shell [:active-mode-tab variant-id])]
     (share/variant-share-url
       variant-id
       (or base "")
       {:active-modes   (:active-modes shell)
        :cell-overrides (get-in shell [:cell-overrides variant-id])
-       :substrate      (:substrate shell)})))
+       :substrate      (:substrate shell)
+       :workspace-id   (:selected-workspace shell)
+       :mode-tab       mode-tab
+       :viewport       (:viewport shell)
+       :background     (:background shell)
+       :tag-filter     (:tag-filter shell)})))
 
 (defn- current-url-params
   []

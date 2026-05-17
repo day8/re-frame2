@@ -66,6 +66,7 @@
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.shell.rails :as rails]
+            [re-frame.story.ui.url-state :as url-state]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -415,6 +416,47 @@
   ;; value held over from the previous mount.
   (reset! selection-prev nil))
 
+;; ---- url-state apply-fn ---------------------------------------------------
+;;
+;; rf2-o4u18: bridge between the pure `url-state` engine and the live
+;; registrar / preset tables. `url-state/apply-parsed-to-state` takes a
+;; validators map; we build it here so the engine ns stays portable
+;; (CLJC) and the live wiring sits in one place.
+
+(defn- url-state-apply-fn
+  "Build the `apply-fn` `url-state` consumes — closes over the live
+  registrar + viewport + backgrounds tables. Returns a `(state →
+  parsed → state')` fn."
+  []
+  (let [validators {:variant?    (fn [vid]
+                                   (or (nil? vid)
+                                       (registrar/registered? :variant vid)))
+                    :workspace?  (fn [wid]
+                                   (or (nil? wid)
+                                       (registrar/registered? :workspace wid)))
+                    :viewport?   (fn [v]
+                                   (or (nil? v) (viewport/valid-selection? v)))
+                    :background? (fn [b]
+                                   (or (nil? b) (backgrounds/valid-selection? b)))}]
+    (fn [state parsed]
+      (url-state/apply-parsed-to-state state parsed validators))))
+
+(defn- hydrate-url-state!
+  "One-shot URL → shell-state hydration on mount. Also folds the
+  `share/parse-overrides-param*` dropped-entries hint for the focused
+  variant (rf2-9jthx parity) and selects the variant through the
+  existing `share/hydrate-from-url!` cell-overrides path so the
+  selection-watcher's preallocate-frame branch fires.
+
+  Order:
+    1. `url-state/hydrate-from-url!` writes selection / mode-tab /
+       modes / viewport / background / tag-filter / substrate.
+    2. `share/hydrate-from-url!` adds cell-overrides + the
+       share-import hint (idempotent; selection is already set)."
+  []
+  (url-state/hydrate-from-url! state/shell-state-atom (url-state-apply-fn))
+  (share/hydrate-from-url!))
+
 ;; ---- the top-level component ---------------------------------------------
 
 (defn- right-panel
@@ -623,11 +665,24 @@
          (backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
-         ;; Hydrate the share URL's focused variant / overrides /
-         ;; substrate slots after the selection watcher is installed:
-         ;; deep-link selection must take the same preallocate-frame path
-         ;; as a user clicking a sidebar row.
-         (share/hydrate-from-url!)
+         ;; rf2-o4u18: hydrate the URL-state slots (workspace + mode-tab +
+         ;; viewport + background + tag-filter + variant / modes /
+         ;; substrate) BEFORE the per-variant overrides — the URL-state
+         ;; engine sets the focused selection, then share/hydrate-from-url!
+         ;; folds in cell-overrides + the share-import hint (rf2-9jthx).
+         ;; Selection runs through the same shell-state-atom swap path
+         ;; the user's click would take, so the selection-watcher's
+         ;; preallocate-frame branch fires for deep-linked variants.
+         (hydrate-url-state!)
+         ;; rf2-o4u18: subscribe to popstate so the back-button restores
+         ;; prior URL state, and watch shell-state-atom so user-driven
+         ;; selection / viewport / background / tag-filter changes
+         ;; pushState the canonical URL. Cell-override edits are NOT
+         ;; pushed (too chatty) — they ride the share popover.
+         (url-state/install-popstate-listener!
+           state/shell-state-atom
+           (url-state-apply-fn))
+         (url-state/install-state-watcher! state/shell-state-atom)
          ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
          ;; listener once at shell mount. The listener short-circuits
          ;; on every emit when no recording is in flight, so leaving
@@ -670,6 +725,9 @@
        ;; rf2-d5u89: tear down DOM-capture listeners alongside the
        ;; trace listener so we don't leak listeners across re-mounts.
        (recorder-dom/remove!)
+       ;; rf2-o4u18: drop popstate + shell-state URL watchers so a
+       ;; re-mount doesn't accumulate listeners.
+       (url-state/tear-down! state/shell-state-atom)
        (teardown-all-listeners!))
      :reagent-render
      (fn []
