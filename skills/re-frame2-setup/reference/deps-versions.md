@@ -88,7 +88,7 @@ re-frame2 itself ships no npm code — but Reagent depends on React, and shadow-
 
 Read `<path-to-re-frame2>/implementation/package.json` (verified pinned checkout — see [`../SKILL.md`](../SKILL.md) cardinal rule 1) and copy the `shadow-cljs` / `react` / `react-dom` versions verbatim. This is the **default path** and the safer baseline; pinning what the framework itself builds against avoids surprise breakage and silent exposure to newly published packages.
 
-**Latest-from-npm is opt-in only.** If the author explicitly asks for the newest versions, run `npm view shadow-cljs version` / `npm view react version` / `npm view react-dom version` and **show the result for confirmation before writing it into `package.json`**. Do not auto-substitute. Reagent 2.x requires React 18+; flag any pick below 18 as a conflict and stop.
+**Latest-from-npm is opt-in only.** If the author explicitly asks for the newest versions, run `npm view shadow-cljs version` / `npm view react version` / `npm view react-dom version` and **show the result for confirmation before writing it into `package.json`**. Do not auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop.
 
 Then `npm install` (after the author has approved the resolved `package.json`).
 

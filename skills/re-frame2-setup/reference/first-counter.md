@@ -88,7 +88,7 @@ Inside the body, two locals are **auto-injected** by the macro:
 
 This is what makes registered views frame-aware without you threading the frame through every component. The macro resolves both at render time against whatever frame is in scope (the default frame, here; `frame-provider` lets multi-frame apps swap it for a subtree).
 
-The result is regular Reagent hiccup. Reagent renders, the React 18 root commits, the DOM updates.
+The result is regular Reagent hiccup. Reagent renders, the React 19 root commits, the DOM updates.
 
 ### Mount
 

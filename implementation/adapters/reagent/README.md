@@ -1,10 +1,22 @@
 # Reagent adapter
 
-Maven artefact: `day8/re-frame2-reagent`. Target: Reagent 2.x. Public ns: `re-frame.adapter.reagent`.
+Maven artefact: `day8/re-frame2-reagent`. Target: Reagent 2.x on React 19. Public ns: `re-frame.adapter.reagent`.
 
 This is the canonical CLJS reference adapter — the substrate `reg-view` was designed against. It implements the contract from [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) on top of Reagent's RAtom/Reaction graph and React commit lifecycle.
 
 See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 004 — Views](../../../spec/004-Views.md) for `reg-view` / `reg-view*` semantics.
+
+## Floor: Reagent 2.x + React 19
+
+The bridge supports **exactly one combination**: Reagent 2.x (currently pinned to `2.0.1` in [`implementation/core/deps.edn`](../../core/deps.edn)) running against React 19. There is no Reagent 1.x compat path and no React 17/18 fallback.
+
+Rationale, mirroring the `reagent-slim` `DECISION-5` framing ([`../reagent-slim/IMPL-SPEC.md`](../reagent-slim/IMPL-SPEC.md) §Hard constraints, Stage 1 §2.3a):
+
+- **Reagent 1.x is end-of-life for re-frame2.** Reagent 2.0 (released 2025-10-29) added React 19 support, dropped the deprecated `reagent.dom/dom-node`, and removed the second arity of `reagent.core/force-update`. Re-frame2 targets the modern Reagent surface; carrying a 1.x compat layer would freeze design choices that pre-date concurrent rendering.
+- **React 19 is the React floor.** The slim rewrite (`day8/reagent-slim`) sets a React 19 floor as a hard DECISION; the bridge follows the same floor so that adopters can move between bridge and slim without changing their `package.json`. Reagent 2.0.1's own `devDependencies` pin `react`/`react-dom` to `19.2.0`, so this is the version Reagent itself is tested against.
+- **No back-compat shims.** Per pre-alpha posture: there is no v1-Reagent compat, no React-18 fallback, no `reagent.dom`-legacy-mount support. Apps that need any of those stay on re-frame v1.
+
+The migration story for React-19-removed Reagent surfaces (`reagent.dom/render`, `reagent.core/dom-node`, etc.) lives in [`migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim`](../../../migration/from-re-frame-v1/README.md) — that section is the canonical reference for both bridge and slim consumers because the *removal* is React's, not the rewrite's.
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 

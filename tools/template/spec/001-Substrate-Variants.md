@@ -67,8 +67,8 @@ All three variants emit the same top-level project shape — see
 choice swaps:
 
 - `core.cljs` — the entry point. Reagent uses
-  `reagent.dom.client/create-root` + `.render` (the React-18
-  hooks-era API); UIx uses `uix.dom/render-root`; Helix uses
+  `reagent.dom.client/create-root` + `.render` (the React 19
+  client-Root API); UIx uses `uix.dom/render-root`; Helix uses
   `react-dom/client`'s `createRoot`.
 - `views.cljs` — the counter view. Reagent uses plain hiccup;
   UIx uses `$` with `defui`; Helix uses `defnc` and `d/...`

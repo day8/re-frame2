@@ -72,10 +72,10 @@ The adapter map carries the substrate's `state-container`, `read-container`, `re
 
 Two contractual bits:
 
-- **`defonce`** — under shadow-cljs hot-reload, `core.cljs` reloads on every save. Without `defonce`, every reload calls `create-root` again on the same DOM node, and React 18 complains loudly (or, worse, silently mounts two roots that fight each other). `defonce` ensures the root is created exactly once per page load.
+- **`defonce`** — under shadow-cljs hot-reload, `core.cljs` reloads on every save. Without `defonce`, every reload calls `create-root` again on the same DOM node, and React 19 complains loudly (or, worse, silently mounts two roots that fight each other). `defonce` ensures the root is created exactly once per page load.
 - **`(js/document.getElementById "app")`** — must match the `id` in `index.html`. Mismatch here is the most common cause of a blank page with no console error.
 
-In `run`, `rdc/render` is called against `react-root` (not against the DOM node directly). Both `create-root` and `render` come from `reagent.dom.client` — that's the React 18 entry surface for Reagent 2.x.
+In `run`, `rdc/render` is called against `react-root` (not against the DOM node directly). Both `create-root` and `render` come from `reagent.dom.client` — that's the React 19 client-Root entry surface for Reagent 2.x.
 
 ## Where everything else goes
 
@@ -105,7 +105,7 @@ If the author is coming from re-frame v1 (re-frame's first version), three thing
 
 | v1 | v2 |
 |---|---|
-| `(:require [reagent.core :as r])` then `(r/render ...)` | `(:require [reagent.dom.client :as rdc])` then `(rdc/render root [view])` — React 18 surface |
+| `(:require [reagent.core :as r])` then `(r/render ...)` | `(:require [reagent.dom.client :as rdc])` then `(rdc/render root [view])` — React 19 client-Root surface |
 | No explicit boot — `re-frame.core` was self-installing against Reagent | `(rf/init! reagent-adapter/adapter)` is mandatory; adapter is a value the app supplies |
 | `defn` views — re-frame v1 had no view registration | `reg-view` macro registers views in a per-app registry; auto-injects `dispatch` / `subscribe` |
 | Implicit single global `app-db` | One default frame; multi-frame apps are first-class via `frame-provider` |

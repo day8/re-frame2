@@ -348,7 +348,7 @@ Spec/007 doesn't mention MCP. Storybook v10 ships it built-in. **Decision needed
 
 ### 6.2 How does the substrate selector handle substrate-specific failures?
 
-A variant may render under reagent but fail under helix (e.g., a React-18-only API). **Decision needed:** does the multi-substrate pane render each substrate's failure inline (with the error), or auto-skip non-supporting substrates? Spec/007 doesn't address this.
+A variant may render under reagent but fail under helix (e.g., a React-19-only API). **Decision needed:** does the multi-substrate pane render each substrate's failure inline (with the error), or auto-skip non-supporting substrates? Spec/007 doesn't address this.
 
 **Recommended:** render the failure inline — making substrate-portability gaps *visible* is the entire point. Add `:platforms` analogue `:substrates #{:reagent :uix ...}` for explicit opt-in/out per variant.
 

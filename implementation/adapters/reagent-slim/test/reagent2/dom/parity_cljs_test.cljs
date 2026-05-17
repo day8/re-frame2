@@ -39,6 +39,22 @@
     "loop" "multiple" "muted" "novalidate" "open" "playsinline"
     "readonly" "required" "reversed" "selected" "itemscope"})
 
+(defn- strip-react-19-resource-hints
+  "React 19's `renderToStaticMarkup` auto-emits `<link rel=\"preload\">`
+  resource hints in front of certain media tags (`<img>`, `<script>`,
+  certain `<link>` and `<style>` cases) — see React 19's
+  Float / resource-loading docs. The pure-CLJS rewrite does not emit
+  these hints; they are React's runtime concern, not part of the
+  hiccup-to-HTML contract this parity suite asserts. Strip the
+  auto-emitted hints from React's output before the diff so the
+  comparison remains a static-markup parity check rather than a
+  resource-loading-strategy check."
+  [s]
+  (clojure.string/replace
+   s
+   #"<link[^>]*\srel=\"preload\"[^>]*>"
+   ""))
+
 (defn- normalise-attr-order
   "Canonicalise both serialisers' output for the parity diff. Per
   §8.7's known-difference allow-list:
@@ -51,34 +67,39 @@
        short form.
     3. React's attribute insertion order may differ from hiccup map
        order. Sort attributes within each tag.
+    4. React 19 auto-emits `<link rel=\"preload\">` resource hints in
+       front of `<img>` (and other media tags); these are React's
+       resource-loading concern and are stripped before the diff —
+       see `strip-react-19-resource-hints`.
 
   This canonicalisation operates ONLY on the open-tag region; nested
   HTML structure / element order / text content / escape sequences
   remain part of the diff."
   [s]
-  (clojure.string/replace
-   s
-   ;; Match `<tag ...>` (or `<tag .../>`) — captures tag, attr string, slash.
-   #"<([a-zA-Z][a-zA-Z0-9]*)((?:\s+[^>]*?)?)(/?)>"
-   (fn [[_ tag attrs _slash]]
-     (let [parts (->> (re-seq #"\s+([^=\s>]+)(?:=\"([^\"]*)\")?" attrs)
-                      (map (fn [[_ k v]]
-                             (cond
-                               ;; Boolean attr with empty value → short form.
-                               (and (contains? boolean-attr-set
-                                               (clojure.string/lower-case k))
-                                    (or (nil? v) (= "" v)))
-                               (str " " k)
+  (-> s
+      strip-react-19-resource-hints
+      (clojure.string/replace
+       ;; Match `<tag ...>` (or `<tag .../>`) — captures tag, attr string, slash.
+       #"<([a-zA-Z][a-zA-Z0-9]*)((?:\s+[^>]*?)?)(/?)>"
+       (fn [[_ tag attrs _slash]]
+         (let [parts (->> (re-seq #"\s+([^=\s>]+)(?:=\"([^\"]*)\")?" attrs)
+                          (map (fn [[_ k v]]
+                                 (cond
+                                   ;; Boolean attr with empty value → short form.
+                                   (and (contains? boolean-attr-set
+                                                   (clojure.string/lower-case k))
+                                        (or (nil? v) (= "" v)))
+                                   (str " " k)
 
-                               v
-                               (str " " k "=\"" v "\"")
+                                   v
+                                   (str " " k "=\"" v "\"")
 
-                               :else
-                               (str " " k))))
-                      sort
-                      (apply str))]
-       ;; Always drop the trailing slash; HTML5 doesn't use it.
-       (str "<" tag parts ">")))))
+                                   :else
+                                   (str " " k))))
+                          sort
+                          (apply str))]
+           ;; Always drop the trailing slash; HTML5 doesn't use it.
+           (str "<" tag parts ">"))))))
 
 (defn- =parity
   "Assert that both serialisers produce byte-identical output (after

@@ -611,7 +611,7 @@
   ([handle]
    (when handle
      ;; rf2-fq1yg: `rdc/unmount` requires the React Root, NOT the DOM
-     ;; node — `(.unmount root)` is the React 18 contract. Passing the
+     ;; node — `(.unmount root)` is the React 19 client-Root contract. Passing the
      ;; DOM node here silently no-op'd (DOM nodes have no `.unmount`
      ;; method), so the shell's root stayed alive on `#app` and a
      ;; subsequent `mount-app!` → `create-root` on the same node fired
