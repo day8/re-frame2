@@ -265,6 +265,178 @@ filter-pill UX (per [`018-Event-Spine.md`](./018-Event-Spine.md) §5.3)
 covers "show me only what the agent did" via an IN pill on `:origin
 pair2-mcp`.
 
+## Settings popup — v1 ships
+
+The Settings popup modal (trigger: `,` / `s` / ribbon `⚙`) is the
+transient overlay through which the user tunes Causa's preferences.
+The architectural shape — modal not panel, persistence-on-commit,
+section-per-row — is normatively specified in
+[`018-Event-Spine.md`](./018-Event-Spine.md) §9. This section
+backfills what v1 actually ships.
+
+### v1 tab inventory
+
+| Tab | What it carries |
+|---|---|
+| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · "Auto-open Causa when an issue is observed" checkbox |
+| **Filters** | Pointer into the auto-filter pills feature. When the `day8.re-frame2-causa.filters` ns is on the classpath the tab renders an "Open auto-filter UI" button that dispatches `:rf.causa.filters/open`; otherwise it shows the "install the feature first" hint. The full pill management surface lives in the ribbon (per [`018-Event-Spine.md`](./018-Event-Spine.md) §7) — this tab is a discoverability handle. |
+| **Theme** | Dark (default) / Light radio. Toggles the `rf-causa-theme-{dark,light}` class on the shell root + `<html>`. Accent picker deferred. |
+| **Telemetry** | Single "Send anonymous usage telemetry" checkbox, **default OFF** (opt-in). No telemetry endpoint exists in v1 — the toggle round-trips to localStorage so a future endpoint lands with the user's preference already persisted. |
+
+**v1 ships:** four tabs (General / Filters / Theme / Telemetry). The
+fuller [`018-Event-Spine.md`](./018-Event-Spine.md) §9 catalogue
+(Keybindings, Buffer, Popout, Actions) is deferred to follow-on
+beads.
+
+### Defaults
+
+| Slot | Default | Rationale |
+|---|---|---|
+| `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. |
+| `:general :panel-position` | `:right-rail` | Matches the existing `:layout/host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
+| `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Causa to interrupt them. |
+| `:theme` | `:dark` | Causa is a dev tool; the canvas-and-chrome palette in `theme/tokens.cljc` is the dark one. |
+| `:telemetry :opt-in?` | `false` | Opt-in; no payloads sent. |
+
+### Persistence
+
+- **Storage key:** `re-frame2.causa.settings.v1` (versioned so future
+  schema changes can ignore stale payloads without colliding with the
+  old shape).
+- **One nested map, not one atom per knob** — the round-trip is a
+  single `pr-str` of the whole settings shape; serialisation drift
+  between knobs is structurally impossible. Loaded from localStorage
+  at preload time via `config/load-settings-from-storage!`; applied to
+  the live shell before first paint via
+  `settings/effects/apply-all!`.
+- **Dual-write on change.** `:rf.causa/settings-update [section key
+  value]` writes through to (a) the in-process atom in `config.cljc`
+  (canonical, drives the localStorage round-trip) AND (b) Causa's
+  app-db at `[:settings <section> <key>]` (drives the immediate
+  reactive re-render of the popup's controls). Without the dual-write
+  the popup's radio buttons would not redraw until the user closed
+  and reopened the modal.
+
+### Auto-open-on-error semantics
+
+When `:auto-open-on-error?` flips ON, a sub-watcher is installed
+against the existing `:rf.causa/issues-ribbon` sub. On the **first
+empty → non-empty** transition (and only when Causa is not already
+visible) the watcher dispatches the late-bound `mount/open!` browser
+API export. Two install triggers (both idempotent): (1) on toggle
+flip-on inside `:rf.causa/settings-update`, and (2) on first Causa
+open via `mount/ensure-causa-frame!` when the persisted toggle is
+already on. The install is a **defensive no-op pre-mount** — if the
+`:rf/causa` frame isn't yet registered, the subscribe would return
+nil and `(add-watch nil …)` would throw; the frame-presence guard
+makes the early call safe and the watcher lands on first frame
+registration. Detached on flip-off.
+
+### Bulk configure! escape hatch
+
+`(causa-config/configure! {:settings <map>})` bulk-replaces the
+whole settings map. Shape mirrors the defaults table above. The
+popup's per-knob event surface is the normal write path; this key
+is for hosts that want to ship a non-default starting posture (e.g.
+a corporate fork that wants light theme as the factory default).
+
+### Reset to defaults
+
+`config/reset-settings-to-defaults!` clears the localStorage payload
+and resets the in-memory atom to `default-settings`. No popup
+affordance ships in v1 (deferred to the §018 §9 "Actions" tab
+follow-on).
+
+### Cross-references
+
+- [`015-Configuration.md`](./015-Configuration.md) — host-facing
+  `configure!` surface; `{:settings <map>}` bulk-set; `:editor` /
+  `:project-root` / `:layout/host-selector` / `:launch/auto-open?` /
+  `:trace/show-sensitive?` enumeration.
+- [`018-Event-Spine.md`](./018-Event-Spine.md) §9 — full architectural
+  contract (modal not panel, why; reset semantics; future sections).
+
+## Causality popover — v1 ships
+
+The Causality popover (trigger: `c` key from any tab; mouse:
+ancestor-graph icon next to source-coord in Event tab) renders the
+focused event's causal graph: ancestor chain + descendants tree on a
+centred floating overlay. Architectural shape is normatively
+specified in [`018-Event-Spine.md`](./018-Event-Spine.md) §10. This
+section backfills v1 implementation specifics.
+
+### Geometry
+
+- **Default size:** 640×480 (matches spec §10). `max-width: 92vw` /
+  `max-height: 82vh` so the dialog adapts to small viewports without
+  overflowing.
+- **Backdrop dim:** 15% black (spec §10).
+- **Resize handle:** deferred. v1 ships the default size only; the
+  resize-and-remember affordance per spec §10 §Interaction is a
+  follow-on bead.
+
+### Layout direction — single-axis with footer toggle
+
+**v1 ships:** the popover renders **a single direction at a time** —
+TB (descendants-tree dominant, default) OR LR (ancestor-chain
+dominant) — with a footer **LR ↔ TB toggle** persisting the choice
+in `:rf.causa/causality-popover-layout` per session.
+
+The §018 §10 "Q12 hybrid: ancestors-LR + descendants-TB in the same
+popover" remains the intent, but v1 ships single-axis-at-a-time
+because:
+
+- ELK's per-region direction support requires laying out two graphs
+  separately and stitching them into one SVG with a divider; that's
+  a stretch v1 doesn't yet do.
+- The footer toggle is one click; switching between "show me the
+  ancestor chain" and "show me the descendants tree" is the common
+  mode anyway. The hybrid is the polish.
+
+The Q12 hybrid lands when ELK's per-region wiring is tackled in a
+follow-on bead.
+
+### Lazy ELK load + fallback list
+
+The popover uses the same lazy-load pattern as the Machine Inspector
+chart (see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
+§Layout engine — ELK with layered fallback): ELK.js loads
+asynchronously on first popover open; the fallback path is a flat
+list render until ELK resolves.
+
+**Fallback render shape.** When ELK is unavailable (test rig, CSP
+block, offline) the popover drops into a `fallback-list` render — a
+flat `<ul>` listing the focused event + its ancestors and descendants
+with edges shown as `parent → child` lines. The cascade lineage is
+fully readable; the visual graph affordance is the only thing lost.
+The footer surfaces a "Causality graph unavailable (ELK.js failed to
+load)" status hint so the user understands why the layout looks
+different.
+
+The fallback is also what the test corpus asserts against — node
+runtimes have no bundler-resolvable `elkjs` package and the import
+rejects immediately.
+
+### Close + interaction (recap of spec §10)
+
+- **Close:** `Esc`, click backdrop, `c` again, or the `×` icon in the
+  header.
+- **Node click:** dispatches `:rf.causa/focus-cascade <id>` AND
+  `:rf.causa/causality-popover-close` — the user landed somewhere new
+  and the popover's job is done. Spine rebinds; tab content reflects
+  the new focus.
+- **Tab switch under popover (`1`–`6`)**: popover stays open; user
+  can survey the cascade graph against changing tab content
+  underneath.
+
+### Cross-references
+
+- [`018-Event-Spine.md`](./018-Event-Spine.md) §10 — full
+  architectural contract (trigger, geometry, interaction matrix,
+  depth limits, empty states).
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Layout
+  engine — sibling consumer of the same ELK loader pattern.
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab

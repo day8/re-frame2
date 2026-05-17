@@ -333,6 +333,73 @@ per-machine in localStorage).
 - **Transition history** virtualises past 200 entries; older entries
   scroll into view but are not retained in DOM.
 
+## Layout engine — ELK with layered fallback
+
+Two layout engines flow through `chart/svg.cljc`'s renderer behind the
+same `{:nodes :edges :width :height :initial-id}` data shape:
+
+| Engine | Source ns | When used |
+|---|---|---|
+| **ELK.js** (preferred) | `chart/elk_layout.cljs` | Browser session once the lazy import resolves; produces orthogonal edge routing + layered placement. |
+| **Layered fallback** | `chart/layout.cljc` (`layered-fallback`) | Sync, pure, JVM-runnable. Used by the JVM + node-runtime test corpus, and as the runtime fallback whenever ELK is unavailable. Simple BFS-rank placement + straight-line edges. |
+
+### Lazy load + render-pulse cadence
+
+ELK.js is a ~250 kB browser bundle (gzipped). Bundling it into every
+Causa dev session would inflate the preload cost whether the user
+opens the Machines tab or not, so the loader mirrors the Causality
+popover pattern (per [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
+§Causality popover):
+
+1. First open of the Machines tab triggers a `js/import` of
+   `"elkjs/lib/elk.bundled.js"`.
+2. The loader atom tracks `nil → :loading → {:elk <inst>} | {:failed <msg>}`.
+3. ELK's `layout` returns a Promise — the synchronous renderer can't
+   wait. So the panel renders the **layered-fallback layout
+   immediately**, kicks the ELK pass in the background, caches the
+   result keyed on `[definition direction]`, and dispatches a no-op
+   render-pulse event so the subscribe-driven view re-runs and picks
+   up the cached ELK positions on the next tick.
+4. Subsequent renders of the same `[definition direction]` resolve
+   synchronously from the cache; the cache holds the most-recent
+   layout (one machine inspected at a time is the common case).
+
+### Fallback semantics
+
+The fallback engages whenever ELK is not ready or the layout call
+rejects — three concrete paths:
+
+| Trigger | Cause |
+|---|---|
+| Offline / CSP block | The dynamic `js/import` rejects with a module-not-found. |
+| Test rigs | Node + JVM runtimes have no bundler-resolvable `elkjs`; the import is unavailable. |
+| Transient layout failure | ELK's `.layout` Promise rejects (rare). The cache is left untouched; the next render-pulse retries. |
+
+In every fallback path the chart still mounts — the `layered-fallback`
+shape is data-compatible with ELK's positioned output. The user gets
+a readable chart that loses orthogonal routing but keeps the
+node/edge content. v1 does NOT surface a "layout engine: fallback"
+status indicator on the Machines tab itself (the chart just renders);
+the Causality popover surfaces an equivalent hint because its graph
+density makes the missing-orthogonal-router more visually jarring.
+
+### v1 ships (deferred follow-ons)
+
+- **Edge polylines from ELK's bend points** — v1 collapses ELK's
+  multi-point routes to straight lines between source/target centres.
+  `chart/svg.cljc` already supports the multi-point case via
+  `path-from-points`; lifting ELK's bend points into the `:points`
+  slot is follow-on work.
+- **Compound-state hierarchical containment in ELK** — v1 ships every
+  state as a flat ELK child + relies on the existing dashed-border
+  treatment for visual grouping. ELK's hierarchical mode (parent
+  containers with child layout) is a richer follow-on.
+- **Unified ELK loader** — both this surface and the Causality
+  popover (`popover/causality_graph.cljs`) hold their own loader atom
+  so the two consumers fail independently. In practice once one
+  succeeds the other will too. A future bead can fold the loader into
+  a shared `chart/elk_loader.cljs`.
+
 ## Share affordance
 
 Right-click on the machine chart (or use the panel header's `⋯`
