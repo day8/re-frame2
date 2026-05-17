@@ -49,6 +49,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]))
 
@@ -359,6 +360,12 @@
                             (assoc-in s [:panel-visibility :dispatch-console]
                                       (not effective?)))))}
           (if effective? "Dispatch ▾" "Dispatch ▸")]))
+     ;; rf2-8i2a9 — Play-script status chip. Visible only when a variant
+     ;; is focused AND the variant carries a `:play-script` body. Shows
+     ;; `IDLE / RUNNING (step N/M) / PASS / FAIL (N/M)` + a `[Re-run]`
+     ;; button. Self-elides when no script is present.
+     (when (:selected-variant shell)
+       [play-status/chip-when-enabled (:selected-variant shell)])
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
      ;; affordance so the chrome-wide recorder is reachable regardless of
      ;; which variant the user has focused.
