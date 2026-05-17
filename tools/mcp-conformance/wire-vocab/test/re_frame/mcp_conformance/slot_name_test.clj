@@ -3,7 +3,9 @@
 
   Pins the cross-server **argument-slot vocabulary** that an agent
   learns once and recognises identically across every MCP server in
-  the re-frame2 triplet (pair2-mcp, story-mcp, causa-mcp).
+  the re-frame2 pair (pair2-mcp, story-mcp). (causa-mcp was dropped
+  in rf2-bu21t — causa now ships as a Clojars-only library, not an
+  MCP server.)
 
   Sibling to:
 
@@ -28,11 +30,11 @@
 
   ... and the same vocabulary works on every server. Cross-server
   divergence on any of these slot names breaks the agent's mental
-  model in the cross-MCP workflow (chained pair2-mcp +
-  story-mcp + causa-mcp in one session). The audit (rf2-m9yoi
-  §TE2) called out that the cross-server promise was **unenforced**
-  before this gate landed — multiple Principles.md sections claim
-  identity but no test actually pinned the wire-level agreement.
+  model in the cross-MCP workflow (chained pair2-mcp + story-mcp in
+  one session). The audit (rf2-m9yoi §TE2) called out that the
+  cross-server promise was **unenforced** before this gate landed —
+  multiple Principles.md sections claim identity but no test
+  actually pinned the wire-level agreement.
 
   Composes on the indicator-field gate pattern from rf2-6m8tq
   (#866) and the wire-vocab marker gate from rf2-j2z7o.
@@ -46,25 +48,11 @@
   2. **No near-miss variants** — snake_case / pluralised / quoted
      forms (`:include_sensitive`, `:max_tokens`, `\"includeSensitive\"`)
      don't appear in any server's tool source.
-  3. **Cross-server divergence pin** — `:include-large?` is the
-     spec'd cross-server slot per causa-mcp Principles §Mechanism 6;
-     pair2-mcp today surfaces the same posture under a different
-     spelling (`:elision`). The divergence is captured EXPLICITLY
-     in this file so a future bead either (a) renames pair2-mcp to
-     `:include-large?` and removes the divergence pin, or (b) extends
-     causa-mcp's spec to recognise `:elision` as an alias. The pin
-     surfaces the choice; it doesn't silently green-light drift.
-  4. **mcp-base re-export pin** — the canonical slot keywords are
+  3. **mcp-base re-export pin** — the canonical slot keywords are
      defined ONCE in `tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`
      (`include-sensitive-opt`, `include-large-opt`) and re-used by
      consumers. The grep step asserts the literal keyword form in the
      vocab ns so a rename there breaks everyone.
-  5. **causa-mcp impl-landed pin** — causa-mcp's T-Insp tool cluster
-     (rf2-8xzoe.14..22) shipped `src/.../tools/` with nine
-     tree-walking tools; the per-server source-file grep covers them
-     alongside pair2-mcp + story-mcp. The historical tripwire (this
-     row was a `causa-mcp-impl-still-absent` gate) has done its job
-     and is replaced by an impl-landed assertion below.
 
   ## Why pure JVM Clojure (not Node SDK)
 
@@ -78,16 +66,14 @@
 
   [1]: ../../../../spec/Conventions.md
   [2]: ../../TOKEN-BUDGETS.md"
-  (:require [clojure.java.io :as io]
-            [clojure.string  :as str]
+  (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
             [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
-;; (rf2-113ti). `io` is still required for the `causa-mcp-impl-still-absent`
-;; directory probe below.
+;; (rf2-113ti).
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
@@ -123,7 +109,7 @@
 (def ^:private canonical-slots
   [{:slot     :include-sensitive?
     :role     :opt-in-boolean
-    :servers  #{:pair2-mcp :story-mcp :causa-mcp}
+    :servers  #{:pair2-mcp :story-mcp}
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
                ;; story-mcp's `:include-sensitive?` parsing lives in
@@ -133,30 +119,13 @@
                ;; No `sensitive.cljc` (the path was a stale guess from
                ;; the pair2-mcp shape that doesn't apply to story-mcp).
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
-                           "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]
-               ;; causa-mcp's T-Insp cluster (rf2-8xzoe.14..22) shipped
-               ;; per-tool tree-walkers under `src/.../tools/`. The
-               ;; canonical literal `:include-sensitive?` appears in the
-               ;; per-tool args-schema splices (e.g. `get_app_db.cljs`'s
-               ;; `:inputSchema` :properties map) and the runtime-opts
-               ;; map handed to the walker. Both pair2-mcp and story-mcp
-               ;; already pin per-tool sources; causa-mcp matches that
-               ;; posture.
-               :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"]}
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
                default-drop on `:sensitive? true` items. Default false."}
 
    {:slot     :max-tokens
     :role     :override-integer
-    :servers  #{:pair2-mcp :story-mcp :causa-mcp}
+    :servers  #{:pair2-mcp :story-mcp}
     :sources  {;; pair2-mcp surfaces the slot as the Clojure keyword
                ;; `:max-tokens` in the descriptor-splice helper
                ;; (`descriptors.cljs/with-budget-knob`) and reads the
@@ -167,70 +136,22 @@
                :pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-                           "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]
-               ;; causa-mcp's T-Insp cluster splices `:max-tokens` into
-               ;; every per-tool `:inputSchema` :properties map and reads
-               ;; it off the args object in `token_cap.cljs`. Same posture
-               ;; as pair2-mcp's descriptor + cap split.
-               :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs"]}
+                           "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
                `0` disables the cap. Triggers an `:rf.mcp/overflow` marker
                when the rendered payload exceeds the cap (cross-server)."}])
 
 ;; ---------------------------------------------------------------------------
-;; Divergence pin — `:include-large?` (causa-mcp) vs `:elision`
-;; (pair2-mcp). Pinned explicitly so the divergence cannot creep in
-;; silently — the reviewer either renames pair2-mcp to align with
-;; `:include-large?` or extends the vocabulary to recognise `:elision`
-;; cross-server. The test does NOT choose for them; it surfaces the
-;; choice.
-;;
-;; Both slots are *semantically* the cross-MCP size-elision opt-out.
-;; The pair2-mcp implementation predates causa-mcp's spec naming
-;; (rf2-urjnc landed `:elision` before causa-mcp's mechanism 6
-;; consolidated under `:include-large?`).
+;; Historical note — the size-elision opt-out divergence pin
+;; (`:include-large?` vs pair2-mcp's `:elision`) lived here while
+;; causa-mcp shipped as an MCP server (rf2-8xzoe T-Insp cluster). The
+;; rf2-bu21t drop reverted causa-mcp; the divergence collapsed to a
+;; single-server pair2-mcp `:elision` form. If a future MCP server
+;; adopts `:include-large?` (per the canonical reserved spelling in
+;; `mcp-base/vocab.cljc`), restore the divergence pin so the
+;; cross-server choice surfaces explicitly instead of drifting
+;; silently.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private elision-arg-divergence
-  {:canonical :include-large?
-   :servers   {:causa-mcp {:slot    :include-large?
-                           ;; T-Insp cluster (rf2-8xzoe.14..22) shipped
-                           ;; `:include-large?` as the canonical slot in
-                           ;; every per-tool `:inputSchema` and in the
-                           ;; runtime-opts map handed to the elision
-                           ;; walker. The spec-only stand-in is no longer
-                           ;; needed; tool sources carry the literal.
-                           :sources ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
-                                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"]
-                           :status  :impl-landed}
-               :pair2-mcp {:slot    :elision
-                           :sources ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"
-                                     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
-                           :status  :impl-divergent}}
-   :resolution
-   "Resolve in one of two ways. Option A — rename pair2-mcp's
-    `:elision` arg to `:include-large?` (the polarity flips too —
-    `:elision true` becomes `:include-large? false`); remove this
-    divergence pin. Option B — extend causa-mcp's spec to document
-    `:elision` as cross-server cognate; update this pin's `:canonical`
-    slot. Today the gate prevents the slot from drifting further (e.g.
-    a third server inventing a fourth spelling)."})
 
 ;; ---------------------------------------------------------------------------
 ;; mcp-base vocab pin — the keyword constants. The canonical home for
@@ -403,23 +324,7 @@
                      "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
-                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]
-         ;; causa-mcp's T-Insp cluster (rf2-8xzoe.14..22) shipped the
-         ;; per-tool tree-walkers — the full surface gets near-miss-
-         ;; variant coverage alongside pair2-mcp + story-mcp.
-         :causa-mcp ["tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_app_db_diff.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_epoch_history.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_handlers.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_issues.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_list.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_machine_state.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_source_coord.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/get_trace_buffer.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/elision.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/privacy.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs"
-                     "tools/causa-mcp/src/day8/re_frame2_causa_mcp/wire.cljs"]}]
+                     "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"]}]
     (doseq [{:keys [slot]}     canonical-slots
             variant            (near-miss-variants slot)
             [server files]     impl-sources-by-server
@@ -437,62 +342,17 @@
                    "it in the divergence pin section of this test.")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 4 — divergence pin for `:include-large?` vs `:elision`. The
-;; pin doesn't ASSERT anything different from gate 2 — it makes the
-;; deliberate divergence visible to a future reviewer.
+;; Gate 4 — divergence pin (HISTORICAL).
 ;;
-;; If a third spelling appears on any server, the gate trips. If
-;; causa-mcp's impl lands and pair2-mcp's rename happens in lockstep
-;; (option A in the divergence-pin doc), the reviewer removes the
-;; entry from `elision-arg-divergence` and the test confirms zero
-;; divergence remains.
+;; This slot was the `:include-large?` (causa-mcp) vs `:elision`
+;; (pair2-mcp) divergence pin. With causa-mcp removed in rf2-bu21t,
+;; pair2-mcp is the sole live emitter; the divergence collapses to a
+;; single-server `:elision` spelling. The canonical
+;; `:rf.size/include-large?` form remains reserved in
+;; `mcp-base/vocab.cljc` for any future MCP server adoption — restore
+;; the divergence pin (data + assertion) when a second server lands
+;; on either spelling so the cross-server choice surfaces explicitly.
 ;; ---------------------------------------------------------------------------
-
-(deftest elision-arg-divergence-stays-bounded
-  ;; Assert the canonical-slot keyword from causa-mcp's spec appears
-  ;; in causa-mcp's spec sources.
-  (let [causa-entry (get-in elision-arg-divergence [:servers :causa-mcp])
-        causa-slot  (:slot causa-entry)
-        causa-files (:sources causa-entry)
-        literal     (slot-literal causa-slot)]
-    (is (some (fn [rel]
-                (str/includes? (fx/read-source rel) literal))
-              causa-files)
-        (str "Canonical slot " literal " for elision opt-out missing "
-             "from causa-mcp spec sources " causa-files
-             ". Update `elision-arg-divergence` or the spec."))
-
-    ;; Assert pair2-mcp's divergent spelling still lives where the pin
-    ;; says it does — i.e. the divergence has NOT silently closed via
-    ;; a rename the reviewer didn't notice.
-    (let [pair2-entry (get-in elision-arg-divergence [:servers :pair2-mcp])
-          pair2-slot  (:slot pair2-entry)
-          pair2-files (:sources pair2-entry)
-          pair2-lit   (slot-literal pair2-slot)]
-      (is (some (fn [rel]
-                  (str/includes? (fx/read-source rel) pair2-lit))
-                pair2-files)
-          (str "pair2-mcp's divergent spelling " pair2-lit
-               " missing from " pair2-files
-               ".\nIf the rename to " literal " landed, remove the "
-               ":pair2-mcp entry from `elision-arg-divergence`."))))
-
-  ;; Defence-in-depth: causa-mcp's spec sources MUST NOT use the
-  ;; pair2-mcp divergent spelling — that would silently close the
-  ;; divergence the wrong way (causa-mcp adopting pair2-mcp's name
-  ;; without bumping the spec naming).
-  (let [pair2-slot  (get-in elision-arg-divergence [:servers :pair2-mcp :slot])
-        pair2-lit   (slot-literal pair2-slot)
-        causa-files (get-in elision-arg-divergence [:servers :causa-mcp :sources])]
-    (doseq [rel causa-files]
-      (testing (str "causa-mcp source " rel " must not adopt pair2-mcp's "
-                    pair2-lit)
-        (is (not (str/includes? (fx/read-source rel) pair2-lit))
-            (str "causa-mcp source " rel " now contains the pair2-mcp "
-                 "divergent slot " pair2-lit
-                 ". If the cross-MCP convention is moving from "
-                 ":include-large? to " pair2-lit ", update "
-                 "`canonical-slots` and `elision-arg-divergence`."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 5 — mcp-base vocab ns is the single source of truth for the
@@ -512,34 +372,18 @@
                  "the literal or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 6 — causa-mcp impl-landed pin. The T-Insp tool cluster
-;; (rf2-8xzoe.14..22) landed the per-tool tree-walkers under
-;; `src/.../tools/`. The historical `causa-mcp-impl-still-absent`
-;; tripwire fired correctly when impl landed; it's replaced here by
-;; an impl-landed assertion so a future regression that DELETES the
-;; tool directory (and reverts to spec-only stand-ins) trips the
-;; gate. The per-tool `:sources` entries above are the load-bearing
-;; coverage; this gate is the structural floor.
+;; Gate 6 — causa-mcp impl-landed pin (HISTORICAL).
+;;
+;; This row was a `causa-mcp-tools-directory-present` structural-floor
+;; assertion under the T-Insp tool cluster (rf2-8xzoe.14..22). The
+;; rf2-bu21t drop removed `tools/causa-mcp/` entirely; the directory
+;; is now legitimately absent and the assertion is no longer
+;; applicable.
 ;; ---------------------------------------------------------------------------
-
-(deftest causa-mcp-tools-directory-present
-  (let [tools-dir (io/file fx/repo-root
-                           "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools")]
-    (is (.exists tools-dir)
-        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ is "
-             "missing. The T-Insp cluster (rf2-8xzoe.14..22) landed "
-             "this directory; if it was intentionally removed, revert "
-             "the `:causa-mcp` :sources entries on `canonical-slots` "
-             "and `elision-arg-divergence` to spec-only stand-ins."))
-    (is (seq (filter #(.isFile ^java.io.File %) (file-seq tools-dir)))
-        (str "tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/ "
-             "exists but contains no files. Same restoration path as "
-             "the missing-directory case."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 7 — server-coverage sanity. Every server referenced in
-;; `canonical-slots` and in `elision-arg-divergence` is one of the
-;; three known servers. Typos surface here.
+;; `canonical-slots` is one of the known servers. Typos surface here.
 ;; ---------------------------------------------------------------------------
 
 (deftest server-references-are-all-known
@@ -547,11 +391,7 @@
     (testing (str "slot " slot " — :servers values")
       (is (every? fx/known-servers servers)
           (str "Unknown server in :servers for " slot ": "
-               (remove fx/known-servers servers)))))
-  (doseq [server (keys (:servers elision-arg-divergence))]
-    (testing (str "elision-arg-divergence — :servers key " server)
-      (is (contains? fx/known-servers server)
-          (str "Unknown server in elision-arg-divergence: " server)))))
+               (remove fx/known-servers servers))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 8 — slot uniqueness. No two `canonical-slots` rows share the
