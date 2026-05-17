@@ -1,6 +1,6 @@
-(ns panel-gallery.issues-ribbon-fixtures
-  "Pure fixture builders for the Causa issues-ribbon panel gallery
-  (rf2-8r20i, Phase 2).
+(ns panel-gallery.fixtures-issues
+  "Pure fixture builders for the Causa Issues tab gallery (rf2-sszlr —
+  rebuild for new 6-tab Causa shape).
 
   The issues-ribbon panel reads its rows from
   `:rf.causa/issues-ribbon`, a composite over:
@@ -204,6 +204,39 @@
                                        "ClassCastException at auth/sign-in-h:18"
                                        "TimeoutException at report/upload-h:103"
                                        "OutOfMemoryError at dashboard/refresh-h:88"] i)}))))
+
+(defn multiple-issues-stacked-buffer
+  "Eight issues in a tight time window — pins the feed's visual
+  rendering when issues stack quickly (one fault cascade producing
+  many warnings + errors). Mixes exceptions + schema + SSR + HTTP."
+  []
+  [(issue {:id 1 :time 1000 :severity :error
+           :operation :rf.error/handler-threw :dispatch-id 100
+           :event [:cart/add :apple]
+           :reason "handler threw"
+           :exception-message "NullPointerException at cart/add-h:42"})
+   (issue {:id 2 :time 1001 :severity :error
+           :operation :rf.schema/violation :dispatch-id 100
+           :path [:cart :items 0 :id]
+           :reason "expected keyword, got integer"})
+   (issue {:id 3 :time 1002 :severity :warning
+           :operation :rf.warning/large-value-unschema'd :dispatch-id 100
+           :reason "payload truncated at 1MB"})
+   (issue {:id 4 :time 1003 :severity :error
+           :operation :rf.http/request-timeout :dispatch-id 101
+           :reason "GET /api/cart timed out after 30s"})
+   (issue {:id 5 :time 1004 :severity :warning
+           :operation :rf.ssr/hydration-mismatch :dispatch-id 102
+           :reason "SSR/CSR markup divergence on :cart/list"})
+   (issue {:id 6 :time 1005 :severity :error
+           :operation :rf.error/fx-failed :dispatch-id 103
+           :reason "fx :http failed"})
+   (issue {:id 7 :time 1006 :severity :warning
+           :operation :rf.fx/dispatch-loop-suspected :dispatch-id 104
+           :reason "dispatch loop suspected at depth 24"})
+   (issue {:id 8 :time 1007 :severity :advisory
+           :operation :rf.info/snapshot-restored :dispatch-id 105
+           :reason "Restored from snapshot #42 after error cascade"})])
 
 (defn recovery-spans-buffer
   "Panel-specific axis D: issues carry `:recovery` slot per Spec 009

@@ -1,6 +1,6 @@
-(ns panel-gallery.app-db-diff-fixtures
-  "Pure fixture builders for the Causa app-db-diff panel gallery
-  (rf2-5nvk2, Phase 1b).
+(ns panel-gallery.fixtures-app-db
+  "Pure fixture builders for the Causa App-db tab gallery
+  (rf2-sszlr — rebuild for new 6-tab Causa shape).
 
   The app-db-diff panel reads four slots from the Causa frame:
 
@@ -227,3 +227,113 @@
                   :rf/machines {:checkout {:state :idle}}
                   :rf/spawned  {:worker/sync :alive}
                   :counter 6}})])
+
+;; ---- tab-specific buffer builders --------------------------------------
+;;
+;; Per the rf2-sszlr per-tab gallery spec the App-db tab needs richer
+;; variant coverage: tiny app-db, large app-db, sensitive paths, large
+;; sentinels, watched-keys diff highlighting.
+
+(defn tiny-app-db-buffer
+  "Single epoch whose db-after is a deliberately tiny three-key map.
+  Exercises the panel's resting render shape on a minimal app-db."
+  []
+  [(epoch-record
+     {:epoch-id 20
+      :event    [:counter/init]
+      :db-before {}
+      :db-after  {:counter 0
+                  :user    nil
+                  :ui      {:theme :light}}})])
+
+(defn large-app-db-buffer
+  "Single epoch whose db-after is a large multi-tier app-db (~500
+  leaf keys across nested groups). Exercises the panel's render
+  behaviour against a typical mid-session production app-db size."
+  []
+  (let [group   (fn [prefix n]
+                  (into {} (for [i (range n)]
+                             [(keyword (str prefix "-" i)) (str "val-" i)])))
+        before  {:auth    {:user {:id 7 :name "Ada"}}
+                 :catalog (group "sku" 200)
+                 :cart    {:items [{:id :apple :qty 1}]}
+                 :prefs   (group "pref" 50)
+                 :session {:expires-at 1000}}
+        after   (-> before
+                    (assoc-in [:auth :user :last-seen] 2000)
+                    (update :catalog merge (group "sku-new" 50))
+                    (update-in [:cart :items] conj {:id :pear :qty 2}))]
+    [(epoch-record
+       {:epoch-id 21
+        :event    [:bootstrap/load-all]
+        :db-before before
+        :db-after  after})]))
+
+(defn sensitive-paths-buffer
+  "Single epoch where multiple app-db paths carry `:rf/redacted`
+  markers — across `:auth`, `:user/profile`, `:billing`. The panel's
+  slice renderer surfaces each marker verbatim per Spec 009 §Privacy
+  + the new spec/015-Data-Classification opt-in path marks
+  (rf2-vw7f5)."
+  []
+  [(epoch-record
+     {:epoch-id 22
+      :event    [:user/sign-in {:email "ada@example.com"}]
+      :db-before {:auth {:status :anonymous}}
+      :db-after  {:auth          {:status :authenticated
+                                  :token  :rf/redacted}
+                  :user/profile  {:id     7
+                                  :name   "Ada Lovelace"
+                                  :ssn    :rf/redacted
+                                  :totp   :rf/redacted}
+                  :billing       {:card-number :rf/redacted
+                                  :cvv         :rf/redacted}}})])
+
+(defn large-sentinels-buffer
+  "Single epoch where multiple app-db slices carry `:rf.size/large-
+  elided` sentinels (per Spec 009 §Size elision). The panel must
+  surface the sentinel without trying to expand the underlying value."
+  []
+  [(epoch-record
+     {:epoch-id 23
+      :event    [:report/download {:id 42}]
+      :db-before {:report/cache {}}
+      :db-after  {:report/cache {:report-42
+                                 {:rf.size/large-elided
+                                  {:source :payload
+                                   :handle :report/payload-42
+                                   :original-size 12480293
+                                   :truncated-preview "{\"rows\": [{...} ...]"}}}
+                  :metrics/raw {:rf.size/large-elided
+                                {:source :metrics
+                                 :handle :metrics/raw-2026-05-18
+                                 :original-size 8920134
+                                 :truncated-preview "[[1620345600, 0.42], ..."}}}})])
+
+(defn watched-keys-buffer
+  "Three epochs in series — exercises the cross-epoch 'show me when
+  this changed' walker (per spec/004-AppDbDiff §Show me when this
+  changed). Each epoch mutates a slice the user would plausibly
+  watch (`:counter`, `:user/profile`, `:cart`)."
+  []
+  [(epoch-record
+     {:epoch-id 30
+      :event    [:counter/inc]
+      :db-before {:counter 5 :user/profile {:id 7 :name "Ada"}
+                  :cart {:items []}}
+      :db-after  {:counter 6 :user/profile {:id 7 :name "Ada"}
+                  :cart {:items []}}})
+   (epoch-record
+     {:epoch-id 31
+      :event    [:user/edit-profile {:name "Ada Lovelace"}]
+      :db-before {:counter 6 :user/profile {:id 7 :name "Ada"}
+                  :cart {:items []}}
+      :db-after  {:counter 6 :user/profile {:id 7 :name "Ada Lovelace"}
+                  :cart {:items []}}})
+   (epoch-record
+     {:epoch-id 32
+      :event    [:cart/add-item :apple]
+      :db-before {:counter 6 :user/profile {:id 7 :name "Ada Lovelace"}
+                  :cart {:items []}}
+      :db-after  {:counter 6 :user/profile {:id 7 :name "Ada Lovelace"}
+                  :cart {:items [{:id :apple :qty 1}]}}})])

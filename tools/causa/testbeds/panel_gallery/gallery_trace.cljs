@@ -1,50 +1,33 @@
-(ns panel-gallery.trace-stories
-  "Story coverage for the Causa trace panel under gallery framing
-  (rf2-8r20i, Phase 2).
+(ns panel-gallery.gallery-trace
+  "Story coverage for the **Trace tab** of the new 6-tab Causa chrome
+  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
-  Nine variants, each one render of `trace/Panel` against a variant
-  frame whose `:trace-buffer` (and optionally `:trace-filters`) has
-  been seeded by REAL Causa init events fired into the variant frame.
-
-  ## Why real init events
-
-  Variant `:events` are dispatched via `(rf/dispatch-sync ev {:frame
-  variant-id})` per `tools/story/spec/002-Runtime.md`. Causa's
-  registered handlers (`:rf.causa/sync-trace-buffer`,
-  `:rf.causa/set-trace-filter`) write via `(assoc db ...)` — Story's
-  `:rf.story/*` runtime slots survive untouched. Direct app-db assoc
-  would wipe the lifecycle / loaders-complete / assertions slots and
-  corrupt the variant.
-
-  ## Why frame-provider {:frame variant-id} not :rf/causa
-
-  The Story canvas wraps each variant in `[frame-provider {:frame
-  variant-id}]`. Subscriptions inside the rendered tree resolve to
-  the variant frame. `:rf.causa/trace-feed` reads from the current
-  frame's app-db (the seeded buffer + filters). Each variant therefore
-  observes its own bespoke trace stream in isolation; no two variants
-  share state."
+  The Trace tab body is the `trace/Panel` view: the raw-event ribbon
+  over the 9-axis filter vocabulary. Each variant seeds its frame's
+  `:trace-buffer` (and optionally `:trace-filters`) via REAL Causa
+  init events fired into the variant frame."
   (:require [re-frame.story :as story]
-            [panel-gallery.trace-fixtures :as fixtures]
-            [panel-gallery.gallery-views :as gallery-views]))
+            [panel-gallery.fixtures-trace :as fixtures]
+            [panel-gallery.panel-views :as panel-views]))
 
 (defn register-gallery-view! []
-  (gallery-views/register!))
+  (panel-views/register!))
 
 (defn register-all!
-  "Register the trace Story surface. Idempotent under
-  `register-canonical-vocabulary!` resets so the namespace is reloadable."
+  "Register the Trace tab Story surface. Idempotent under
+  `install-canonical-vocabulary!` resets so the namespace is
+  reloadable."
   []
   (story/install-canonical-vocabulary!)
   (register-gallery-view!)
 
   (story/reg-tag :feature/causa-trace
     {:axis :feature
-     :doc  "Causa trace panel — raw-event ribbon over the 9-axis
-            filter vocabulary."})
+     :doc  "Causa Trace tab — raw-event ribbon over the 9-axis
+            filter vocabulary (per spec/018-Event-Spine §5.4)."})
 
   (story/reg-story :story.causa.trace
-    {:doc        "Visual gallery of the Causa trace panel under varying
+    {:doc        "Visual gallery of the Causa Trace tab under varying
                  buffer depth + filter state. Each variant seeds its
                  frame's :trace-buffer via :rf.causa/sync-trace-buffer;
                  the rendered panel reads from the variant frame in
@@ -53,16 +36,16 @@
      :tags       #{:dev :feature/causa-trace}
      :substrates #{:reagent}})
 
-  ;; ----- 1. empty buffer --------------------------------------------
-  (story/reg-variant :story.causa.trace/empty-buffer
+  ;; ----- 1. short trace (empty) --------------------------------------
+  (story/reg-variant :story.causa.trace/empty-trace
     {:doc        "No events in the buffer. Panel renders the
                  :no-events empty-state copy."
      :events     [[:rf.causa/sync-trace-buffer (fixtures/empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
-  ;; ----- 2. ten events (small) --------------------------------------
-  (story/reg-variant :story.causa.trace/ten-events
+  ;; ----- 2. short trace (ten events) ---------------------------------
+  (story/reg-variant :story.causa.trace/short-trace
     {:doc        "Ten events spanning every canonical op-type. Chip
                  rows surface op-type / source / origin / frame with
                  ≥2 values each; the feed renders one row per event."
@@ -70,8 +53,8 @@
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 3. one hundred events (medium) -----------------------------
-  (story/reg-variant :story.causa.trace/hundred-events
+  ;; ----- 3. medium trace (100 events) --------------------------------
+  (story/reg-variant :story.causa.trace/medium-trace
     {:doc        "One hundred events spanning all four op-types,
                  three frames, three origins, four sources. The cap
                  (200) is not hit; cap-eviction indicator stays
@@ -80,8 +63,8 @@
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
-  ;; ----- 4. one thousand events (cap-eviction) ----------------------
-  (story/reg-variant :story.causa.trace/thousand-events-cap-eviction
+  ;; ----- 4. long trace (1000 events; cap-eviction) -------------------
+  (story/reg-variant :story.causa.trace/long-trace
     {:doc        "One thousand events — exercises the 200-row cap and
                  surfaces the overflow indicator at the head of the
                  feed. Per `overflow_indicator.cljc` §capped-list the
@@ -91,7 +74,26 @@
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
-  ;; ----- 5. filter active -------------------------------------------
+  ;; ----- 5. trace with errors ----------------------------------------
+  (story/reg-variant :story.causa.trace/trace-with-errors
+    {:doc        "Every row is an issue: two errors, two warnings,
+                 one info. Severity chip row surfaces all three
+                 tiers populated; per-row dot colours match."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/error-buffer)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 6. trace with flows -----------------------------------------
+  (story/reg-variant :story.causa.trace/trace-with-flows
+    {:doc        "Cascade rooted on `:cart/add` that triggers three
+                 `:rf.flow/computed` recompute events followed by a
+                 downstream view render. Pins the panel's rendering
+                 of the flow op-type alongside the dominoes."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/flows-buffer)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 7. filter active --------------------------------------------
   (story/reg-variant :story.causa.trace/filter-active
     {:doc        "Ten events with an active :op-type :event filter.
                  Header surfaces 'Clear filters'; the chip row
@@ -102,7 +104,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 6. redacted slot present -----------------------------------
+  ;; ----- 8. redacted slot --------------------------------------------
   (story/reg-variant :story.causa.trace/redacted
     {:doc        "Dispatched event payload carries `:rf/redacted`
                  markers on `:password` + `:totp` slots. The panel's
@@ -112,21 +114,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 7. errors / warnings / advisories --------------------------
-  (story/reg-variant :story.causa.trace/error
-    {:doc        "Every row is an issue: two errors, two warnings,
-                 one info. Severity chip row surfaces all three
-                 tiers populated; per-row dot colours match."
-     :events     [[:rf.causa/sync-trace-buffer (fixtures/error-buffer)]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
-
-  ;; ----- 8. cross-frame mix (panel-specific axis A) -----------------
-  ;;
-  ;; Panel-specific axis: the :frame chip row surfaces 3+ values
-  ;; (:rf/default, :rf/causa, :tenant/alpha) side-by-side. Per Spec 009
-  ;; §Canonical per-frame routing key this is the trace panel's
-  ;; signature multi-tenancy axis.
+  ;; ----- 9. cross-frame ----------------------------------------------
   (story/reg-variant :story.causa.trace/cross-frame
     {:doc        "Twelve events spanning three frames evenly. The
                  :frame chip row populates the full ladder; the per-
@@ -136,13 +124,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 9. source-coord populated (panel-specific axis B) ----------
-  ;;
-  ;; Panel-specific axis: every emit inside a dispatch can carry
-  ;; :rf.trace/trigger-handler :source-coord (per Spec 009 §Source-
-  ;; coord). The trace panel's per-row source-coord chip is the
-  ;; affordance for jump-to-editor — this variant pins the rendering
-  ;; surface.
+  ;; ----- 10. source-coord --------------------------------------------
   (story/reg-variant :story.causa.trace/source-coord
     {:doc        "Six events each carrying a `:source-coord` slot
                  (file + line). The per-row source-coord chip
@@ -154,10 +136,10 @@
 
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.causa.trace/all
-    {:doc      "All nine trace variants in one auto-grid. Scroll to
-                see the panel's response across empty / 10 / 100 /
-                1000 events, filter active, redacted, error mix,
-                cross-frame, and source-coord populated."
+    {:doc      "All ten Trace tab variants in one auto-grid. Scroll
+                to see the panel's response across empty / short /
+                medium / long / errors / flows / filter-active /
+                redacted / cross-frame / source-coord."
      :layout   :variants-grid
      :story    :story.causa.trace
      :columns  2

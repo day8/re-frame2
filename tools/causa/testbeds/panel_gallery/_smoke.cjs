@@ -81,46 +81,57 @@ function waitForReady(url, timeoutMs) {
     // an unmounted-but-still-cached cell), so a clean page per workspace
     // is the conservative assertion of "every variant renders" without
     // entangling with shell-state teardown semantics.
+    // Per rf2-sszlr: gallery rebuilt for the new 6-tab Causa shape.
+    // One workspace per L4 tab + one for the full chrome. Causality
+    // and time-travel are no longer panel tabs (Causality is a c-key
+    // popover, deferred to rf2-dqnuu; Time Travel folds into the
+    // spine per spec/018-Event-Spine).
     const panels = [
       {
-        id:          'event-detail',
-        workspaceRe: /Workspace\.causa\.event-detail\/all/,
-        cardTestid:  'panel-gallery-event-detail-card',
+        id:          'event',
+        workspaceRe: /Workspace\.causa\.event\/all/,
+        cardTestid:  'panel-gallery-event-card',
         expectedAtLeast: 12,
       },
       {
-        id:          'app-db-diff',
-        workspaceRe: /Workspace\.causa\.app-db-diff\/all/,
-        cardTestid:  'panel-gallery-app-db-diff-card',
-        expectedAtLeast: 11,
+        id:          'app-db',
+        workspaceRe: /Workspace\.causa\.app-db\/all/,
+        cardTestid:  'panel-gallery-app-db-card',
+        expectedAtLeast: 12,
       },
       {
-        id:          'subscriptions',
-        workspaceRe: /Workspace\.causa\.subscriptions\/all/,
-        cardTestid:  'panel-gallery-subscriptions-card',
-        expectedAtLeast: 10,
-      },
-      {
-        id:          'time-travel',
-        workspaceRe: /Workspace\.causa\.time-travel\/all/,
-        cardTestid:  'panel-gallery-time-travel-card',
-        expectedAtLeast: 8,
+        id:          'views',
+        workspaceRe: /Workspace\.causa\.views\/all/,
+        cardTestid:  'panel-gallery-views-card',
+        expectedAtLeast: 7,
       },
       {
         id:          'trace',
         workspaceRe: /Workspace\.causa\.trace\/all/,
         cardTestid:  'panel-gallery-trace-card',
-        expectedAtLeast: 9,
+        expectedAtLeast: 10,
       },
       {
-        id:          'issues-ribbon',
-        workspaceRe: /Workspace\.causa\.issues-ribbon\/all/,
-        cardTestid:  'panel-gallery-issues-ribbon-card',
-        expectedAtLeast: 9,
+        id:          'machines',
+        workspaceRe: /Workspace\.causa\.machines\/all/,
+        cardTestid:  'panel-gallery-machines-card',
+        expectedAtLeast: 6,
       },
-      // causality-graph entry removed with rf2-dqnuu — the panel was
-      // replaced by the c-key triggered popover (popover/causality.cljs);
-      // a popover-gallery variant is a follow-on bead.
+      {
+        id:          'issues',
+        workspaceRe: /Workspace\.causa\.issues\/all/,
+        cardTestid:  'panel-gallery-issues-card',
+        expectedAtLeast: 11,
+      },
+      // Chrome workspace renders 10 cells in a :variants-grid; all
+      // share :rf/causa state but each cell IS mounted, so the
+      // card-count assertion still proves the chrome renders.
+      {
+        id:          'chrome',
+        workspaceRe: /Workspace\.causa\.chrome\/all/,
+        cardTestid:  'panel-gallery-chrome-card',
+        expectedAtLeast: 10,
+      },
     ];
 
     const results = [];
