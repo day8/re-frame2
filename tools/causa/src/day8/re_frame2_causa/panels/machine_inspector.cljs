@@ -81,6 +81,9 @@
             [day8.re-frame2-causa.panels.machine-inspector-cluster :as cluster]
             [day8.re-frame2-causa.panels.machine-inspector-cluster-helpers :as ch]
             [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
+            [day8.re-frame2-causa.panels.machine-inspector-arc :as arc]
+            [day8.re-frame2-causa.panels.machine-inspector-scrubber :as scrubber]
+            [day8.re-frame2-causa.share :as share]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -291,9 +294,15 @@
   Phase 2 (rf2-v869p): when `sim-snapshot` is non-nil the chart's
   highlight is sourced from the sim snapshot and the `:sim?` flag is
   flipped on `chart/svg.cljc`'s renderer so the highlight palette
-  shifts from cyan (live) to amber (sim) per design §5."
-  ([props] (placeholder-chart props nil))
-  ([props sim-snapshot]
+  shifts from cyan (live) to amber (sim) per design §5.
+
+  Phase 5 (rf2-nqw0v): when `arc-highlight-state` is non-nil (the
+  user has scrubbed back through the instance's state-arc), the chart
+  highlight is overridden to the scrubbed-to state and the per-
+  instance arc overlay mounts on top of the chart SVG."
+  ([props] (placeholder-chart props nil nil))
+  ([props sim-snapshot] (placeholder-chart props sim-snapshot nil))
+  ([props sim-snapshot arc-highlight-state]
    (cond
      (nil? props)
      [:div {:data-testid "rf-causa-machine-inspector-placeholder-empty"
@@ -310,9 +319,14 @@
      (let [definition   (:definition props)
            sim?         (some? sim-snapshot)
            override     (:current-state-override props)
-           state-value  (if sim?
-                          (:state sim-snapshot)
-                          (:state override))
+           ;; Phase 5: arc-highlight-state wins over the live snapshot
+           ;; when the user has scrubbed back. Sim still wins over
+           ;; arc — sim is the user's explicit "I'm walking topology"
+           ;; intent, the arc is a historical view.
+           state-value  (cond
+                          sim?                        (:state sim-snapshot)
+                          (some? arc-highlight-state) arc-highlight-state
+                          :else                       (:state override))
            highlight-id (chart-layout/highlight-id state-value)
            ;; Phase 4 (rf2-m7co9): ELK.js layout with layered fallback.
            ;;
@@ -352,16 +366,22 @@
               :data-machine-id (str (:machine-id props))
               :data-highlight-id (or highlight-id "")
               :data-sim-active (str sim?)
+              :data-arc-scrubbing (str (some? arc-highlight-state))
               :data-layout-engine engine
               :style       {:margin "12px"
                             :padding "12px"
                             :background (:bg-1 tokens)
                             :border (str "1px solid "
-                                         (if sim?
-                                           (:yellow tokens)
-                                           (:border-subtle tokens)))
+                                         (cond
+                                           sim?                        (:yellow tokens)
+                                           (some? arc-highlight-state) (:accent-violet tokens)
+                                           :else                       (:border-subtle tokens)))
                             :border-radius "4px"
-                            :overflow "auto"}}
+                            :overflow "auto"
+                            ;; Phase 5: position-relative so the arc
+                            ;; overlay can absolute-position itself
+                            ;; over the chart SVG.
+                            :position "relative"}}
         (chart-svg/render
           positioned
           {:highlight-id   highlight-id
@@ -371,7 +391,11 @@
                                [:rf.causa/machine-state-clicked
                                 {:machine-id (:machine-id props)
                                  :path       path}]
-                               {:frame :rf/causa}))})]))))
+                               {:frame :rf/causa}))})
+        ;; Phase 5: per-instance arc overlay. Hidden in sim mode (the
+        ;; arc represents the LIVE trajectory; sim is a clone walk).
+        (when (not sim?)
+          [arc/ArcOverlay positioned])]))))
 
 ;; ---- transition history ribbon ------------------------------------------
 
@@ -631,6 +655,31 @@
 
 ;; ---- public view --------------------------------------------------------
 
+;; ---- share button (Phase 5, rf2-nqw0v) ---------------------------------
+
+(defn- share-button
+  "Top-right Share button in the panel toolbar. Opens the Share
+  modal (mounted at the shell root). Per spec §Share affordance the
+  button is enabled whenever a machine is registered (the empty-state
+  branch hides it implicitly — the empty-state replaces the toolbar)."
+  []
+  [:button
+   {:data-testid "rf-causa-machine-inspector-share-button"
+    :on-click    (fn [_]
+                   (rf/dispatch [:rf.causa/share-modal-open] {:frame :rf/causa}))
+    :title       "Share this view (URL with focus + mode + scrubber)"
+    :style       {:background "transparent"
+                  :border (str "1px solid " (:border-default tokens))
+                  :color (:accent-violet tokens)
+                  :font-family sans-stack
+                  :font-size "11px"
+                  :font-weight 600
+                  :padding "4px 12px"
+                  :border-radius "10px"
+                  :cursor "pointer"
+                  :white-space "nowrap"}}
+   "⤴ Share"])
+
 (rf/reg-view Panel
   "The Machine Inspector panel's root view. Subscribes to
   `:rf.causa/machine-inspector-data` and renders either the empty
@@ -655,12 +704,27 @@
         ;; and the side rail mounts between the chart and the ribbon.
         sim-state      @(rf/subscribe [:rf.causa/sim-state])
         sim-active?    (boolean (:active? sim-state))
-        sim-snapshot   (when sim-active? (:snapshot sim-state))]
+        sim-snapshot   (when sim-active? (:snapshot sim-state))
+        ;; Phase 5 (rf2-nqw0v): arc + scrubber + share.
+        ;;
+        ;; `arc-data` powers the per-instance state-arc overlay; the
+        ;; scrubber-position governs which slice the chart highlight
+        ;; shows. Hidden in Mode A (no instance) and in sim mode (sim
+        ;; is its own walking-clone surface).
+        arc-data           @(rf/subscribe [:rf.causa/machine-arc-data])
+        scrubber-position  @(rf/subscribe [:rf.causa/machine-scrubber-position])
+        arc-active?        (and (not sim-active?)
+                                (contains? #{:mode-b :mode-c} mode)
+                                (seq arc-data))
+        arc-highlight      (when arc-active?
+                             @(rf/subscribe
+                                [:rf.causa/machine-arc-highlight-state]))]
     [:section {:data-testid "rf-causa-machine-inspector"
                :data-view-mode (name mode)
                :data-instance-count instance-count
                :data-forced-mode (when forced-mode (name forced-mode))
                :data-sim-active (str sim-active?)
+               :data-arc-active (str (boolean arc-active?))
                :style       {:height         "100%"
                              :display        "flex"
                              :flex-direction "column"
@@ -668,16 +732,27 @@
                              :color          (:text-primary tokens)
                              :font-family    sans-stack
                              :font-size      "14px"}}
-     [:header {:style {:padding "16px 16px 8px 16px"}}
-      [:h1 {:style {:font-size "16px"
-                    :font-weight 600
-                    :margin 0
-                    :color (:text-primary tokens)}}
-       "Machine inspector"]
-      [:p {:style {:font-size "12px"
-                   :color     (:text-tertiary tokens)
-                   :margin    "4px 0 0 0"}}
-       "Pick a machine to inspect its current state and recent transitions."]]
+     [:header {:data-testid "rf-causa-machine-inspector-header"
+               :style {:padding "16px 16px 8px 16px"
+                       :display "flex"
+                       :align-items "flex-start"
+                       :justify-content "space-between"
+                       :gap "12px"}}
+      [:div
+       [:h1 {:style {:font-size "16px"
+                     :font-weight 600
+                     :margin 0
+                     :color (:text-primary tokens)}}
+        "Machine inspector"]
+       [:p {:style {:font-size "12px"
+                    :color     (:text-tertiary tokens)
+                    :margin    "4px 0 0 0"}}
+        "Pick a machine to inspect its current state and recent transitions."]]
+      ;; Share button — visible whenever the panel has more than empty
+      ;; state. Empty-state branch hides the whole inner div below so
+      ;; the button only appears when there's something to share.
+      (when (not= :no-machines empty-kind)
+        (share-button))]
      (if (= :no-machines empty-kind)
        (empty-state)
        [:div {:style {:flex 1 :display "flex" :flex-direction "column"
@@ -692,7 +767,12 @@
             :instance-count instance-count
             :definition     (:definition selected)
             :sim-active?    sim-active?})
-         (placeholder-chart chart-props sim-snapshot)
+         (placeholder-chart chart-props sim-snapshot arc-highlight)
+         ;; Phase 5: scrubber strip beneath the chart. Visible whenever
+         ;; the arc has at least one step (i.e. ≥1 transition or an
+         ;; initial-state-only arc).
+         (when arc-active?
+           [scrubber/ScrubberStrip])
          (when (= :mode-c mode)
            [cluster/ClusterView])
          (when sim-active?
@@ -909,4 +989,24 @@
   ;; `panels/machine_inspector_cluster.cljs`. The install fn registers
   ;; `:rf.causa/mode-c-*` events + subs against the same `:rf/causa`
   ;; frame the panel reads.
-  (cluster/install!))
+  (cluster/install!)
+
+  ;; ---- Phase 5 (rf2-nqw0v) — per-instance arc + mini-scrubber -----
+  ;;
+  ;; The arc + scrubber sub/event family lives in
+  ;; `panels/machine_inspector_arc.cljs`. The install fn registers
+  ;; `:rf.causa/machine-arc-*` + `:rf.causa/set-scrubber-position` +
+  ;; `:rf.causa/set-arc-hover` against the same `:rf/causa` frame the
+  ;; panel reads. The arc-helper algebra is JVM-runnable and lives in
+  ;; `machine_inspector_arc_helpers.cljc`.
+  (arc/install!)
+
+  ;; ---- Phase 5 (rf2-nqw0v) — Share affordance --------------------
+  ;;
+  ;; The Share affordance encodes the current focus + mode + scrubber
+  ;; position into a URL the user can paste anywhere. The infra lives
+  ;; in `day8.re-frame2-causa.share` (subs + events + clipboard fx);
+  ;; the modal view lives in `day8.re-frame2-causa.share-modal`. The
+  ;; modal mounts at the shell root per the palette / settings popup
+  ;; pattern; this install registers the sub/event/fx family.
+  (share/install!))
