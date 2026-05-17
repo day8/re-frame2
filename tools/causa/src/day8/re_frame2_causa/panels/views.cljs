@@ -29,6 +29,7 @@
   `subscriptions.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.views-events :as events]
+            [day8.re-frame2-causa.panels.views-sub-diff-subs :as sub-diff-subs]
             [day8.re-frame2-causa.panels.views-subs :as subs]
             [day8.re-frame2-causa.panels.views-view :as view]))
 
@@ -41,8 +42,15 @@
 
 (defn install!
   "Idempotent install for the Views panel's Causa-side registrations.
-  Returns nil per the facade convention."
+  Returns nil per the facade convention.
+
+  Order: `subs/install!` registers `:rf.causa/views-focused-cascade-
+  pair`; `sub-diff-subs/install!` (rf2-xjhhp Phase 2) registers the
+  sub-output structural-diff composite that depends on it. Re-frame's
+  lazy `:<-` resolution makes the order cosmetic, but the dependency
+  chain reads top-down here for clarity."
   []
   (subs/install!)
+  (sub-diff-subs/install!)
   (events/install!)
   nil)
