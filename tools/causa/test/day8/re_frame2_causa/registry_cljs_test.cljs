@@ -191,9 +191,11 @@
    :rf.causa/schema-violations-window
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
+   :rf.causa/selected-epoch-annotated-tree
    :rf.causa/selected-epoch-diff
    :rf.causa/selected-epoch-id
    :rf.causa/selected-epoch-record
+   :rf.causa/selected-epoch-sections
    :rf.causa/selected-flow-id
    :rf.causa/selected-fx-id
    :rf.causa/selected-machine-id
@@ -534,7 +536,10 @@
     ;;   :rf.causa/active-timers-for-focused-machine + :rf.causa/now-ms
     ;;   + :rf.causa/timer-hover. The rings overlay rides the same
     ;;   composite + scrubber wiring the arc does (no new scrubber sub).
-    (is (= 122 (count all-sub-names)))
+    ;; + 2 structural-diff engine (rf2-gfxmk Phase 1):
+    ;;   :rf.causa/selected-epoch-annotated-tree +
+    ;;   :rf.causa/selected-epoch-sections.
+    (is (= 124 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
