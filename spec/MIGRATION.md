@@ -2086,6 +2086,18 @@ Drops: the counter sets in `:data`, the `:record-bucket-*` actions, the `:all-bu
 
 Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:invoke-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which. Per rf2-6vmw.
 
+### O-16. Convert `day8.re-frame/async-flow-fx` flows to `reg-machine` (rf2-qonq4)
+
+**Type B** (semantic rewrite, ask first). The full rule — detection, the async-flow → machine concept mapping table, before/after worked boot-orchestration example, the explicit-escalation cases (notably the `:halt-fns?` predicate-closing-over-external-state case), and the reporting protocol — lives in a dedicated companion doc:
+
+**[migration/async-flow-fx-to-reg-machine.md](migration/async-flow-fx-to-reg-machine.md).**
+
+The summary: `day8.re-frame/async-flow-fx` (latest 0.4.0) is a v1-era **separate add-on lib** — not the in-tree `on-changes` interceptor that [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors) drops — that ships a rule-engine for orchestrating multi-step asynchronous boot / wizard / init sequences. The canonical v2 successor is `reg-machine` (per [005-StateMachines.md](005-StateMachines.md), shipped in the [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) artefact `day8/re-frame2-machines`): each flow becomes a machine whose `:states` model the workflow phases, whose `:on` maps consume the same HTTP-completion events the flow's `:when :events` watched for, and whose `:final?` states correspond to the flow's `:halt?` termination. The parallel-fetch pattern (`:seen-all-of?` over N success events) lowers to `:invoke-all` with `:join :all`. Machine snapshots live at `[:rf/machines <id>]` in `app-db`, inheriting revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility that the v1 add-on did not offer.
+
+Per-call-site escalations: `:halt-fns?` predicates closing over state outside the machine's `:data` (Spec 005 §Strict encapsulation locks actions and guards to `:data` only); `:events` declared as a predicate fn rather than keyword(s); rule-sets built at runtime; flows whose `:db-path` is read by other code. The agent surfaces every flow and waits for operator approval.
+
+Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-fx` 0.4.0 continues to work against v2 — its surface (`reg-event-fx`, `reg-fx`, event observation) is preserved. Per rf2-qonq4 / gh-1368.
+
 ---
 
 ## What stays the same (do not change these)
