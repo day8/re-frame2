@@ -18,6 +18,7 @@
   their documented namespace-qualified names."
   (:require [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.substrate.adapter :as adapter]
@@ -227,6 +228,13 @@
                        :inputs  (:inputs flow)
                        :path    (:path flow)
                        :frame   frame-id})))
+     ;; Per Spec 015 §7. Flows — stash `:sensitive` / `:large` and
+     ;; `:sensitive?` / `:large?` declarations so emit-time projection
+     ;; resolves the flow's output marks. Late-bound — no-op when the
+     ;; marks artefact is absent (which it never is in core, but the
+     ;; indirection keeps flows decoupled).
+     (when-let [register-marks! (late-bind/get-fn :marks/register-marks!)]
+       (register-marks! :flow flow-id flow))
      flow-id)))
 
 (defn- dissoc-in-safe

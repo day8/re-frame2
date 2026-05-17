@@ -47,6 +47,7 @@
             [re-frame.event-emit :as event-emit]
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
+            [re-frame.marks   :as marks]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -471,6 +472,30 @@
   and cross-runtime deterministic. Per Spec 010 §Digest algorithm
   (rf2-wla45). Implementation ships in `day8/re-frame2-schemas`."}
   set-schema-printer!    rf-schemas/set-schema-printer!)
+
+;; ---- data classification (Spec 015) -------------------------------------
+
+(def ^{:doc "Declare path-marks against `app-db` for a frame, per Spec 015
+  §reg-marks. `metadata` is a map of optional `:sensitive [paths]` and
+  `:large [paths]` keys; each path is a `get-in`-shaped vector. A second
+  call against the same frame REPLACES the previous declaration set
+  (schema-attached marks are preserved — the two sources union per
+  Spec 015 §Relationship with schema-attached marks). The declaration
+  feeds the mark-lookup table the observation surfaces (trace bus,
+  Causa, MCP, third-party log sinks) consult at emission time — real
+  values flow through the application unchanged.
+
+  Example:
+
+      (rf/reg-marks :rf/default
+        {:sensitive [[:user :ssn]
+                     [:auth :token]]
+         :large     [[:docs :csv-upload]]})
+
+  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
+  does NOT install an interceptor, does NOT change any handler's view
+  of the data."}
+  reg-marks marks/reg-marks)
 
 ;; ---- clearing ------------------------------------------------------------
 

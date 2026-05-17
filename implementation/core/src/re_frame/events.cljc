@@ -9,9 +9,17 @@
 
   All three register under registry kind :event with an :event/kind sub-tag
   recording which form was used. The runtime treats all three uniformly
-  during drain — the difference is only in the wrapping shape."
+  during drain — the difference is only in the wrapping shape.
+
+  Per Spec 015 §1. Event handlers — the registration meta-map accepts
+  optional `:sensitive [paths]` and `:large [paths]` keys that index
+  into the dispatched event vector's arg-map (the second element).
+  The marks are stashed in the per-(kind, id) marks table via
+  `re-frame.marks/register-marks!` (called through the late-bind
+  hook to keep events decoupled from the optional marks artefact)."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -241,6 +249,13 @@
              :event/kind   kind
              :handler-fn   handler-fn
              :interceptors (-> [] (into interceptors) (conj wrapped))))
+    ;; Per Spec 015 §1. Event handlers: stash any declared `:sensitive`
+    ;; / `:large` paths in the marks table so emit-time projection can
+    ;; resolve them. Late-bound — the hook is unbound when the marks
+    ;; artefact is absent (which it never is in the canonical build,
+    ;; but the indirection keeps `events` decoupled from `marks`).
+    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+      (register! :event id meta))
     id))
 
 (defn reg-event-db

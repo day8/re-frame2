@@ -152,6 +152,11 @@
           [{} metadata-or-handler])]
     (registrar/register! :cofx id (assoc (source-coords/merge-coords meta)
                                          :handler-fn handler-fn))
+    ;; Per Spec 015 §5. Coeffects — stash `:sensitive` / `:large` path
+    ;; declarations so emit-time projection redacts the cofx-injected
+    ;; value's slots in trace events that surface `:coeffects`.
+    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+      (register! :cofx id meta))
     id))
 
 (defn inject-cofx
