@@ -23,7 +23,21 @@
   on `Ctrl+Shift+/`. The listener routes the keypress through the
   `:rf.causa/copilot-toggle` event dispatched on the Causa frame, so
   the panel's open / closed state lives in Causa's app-db (not the
-  host's)."
+  host's).
+
+  ## Phase 5 — Cmd/Ctrl+K command palette (rf2-wm7z4)
+
+  Per spec/007-UX-IA.md §Command palette the palette opens on
+  Cmd+K (macOS convention) or Ctrl+K (every other host). Unlike the
+  other shortcuts this one is a *single* modifier — no Shift — and
+  must accept either Meta (Cmd) or Ctrl. The listener routes the
+  keypress through `:rf.causa/palette-toggle` dispatched on the
+  Causa frame so the modal's open state lives in Causa's app-db.
+
+  The palette modal renders its own ESC handler on the input
+  element, so this listener does NOT close the palette on ESC —
+  doing so would race the input's onKeyDown and risk
+  double-dispatch."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.mount :as mount]))
 
@@ -69,6 +83,37 @@
     (fn [k code]
       (or (= "/" k) (= "?" k) (= "Slash" code)))))
 
+(defn- palette-toggle-key?
+  "True when `event` is a Cmd+K (macOS) or Ctrl+K (every other host)
+  keydown. Per spec/007-UX-IA.md §Command palette this is the
+  industry-standard 'open command palette' shortcut (VS Code, Linear,
+  GitHub, Slack).
+
+  Unlike the causa / copilot toggles this predicate is a *single*
+  modifier:
+  - meta XOR ctrl (exactly one) — Cmd on macOS, Ctrl elsewhere.
+  - no Shift / no Alt.
+
+  Allowing both Cmd and Ctrl gives mac users their muscle-memory
+  Cmd+K while keeping Ctrl+K live on Windows/Linux where there is
+  no Cmd key. Rejecting Shift / Alt means we don't collide with
+  printable-character shortcuts (Ctrl+Shift+K is browser dev-tools
+  on Firefox; Ctrl+Alt+K is some IME compositions). Checks the K
+  key via both `.key` and `.code`."
+  [event]
+  (let [^js e event
+        ctrl?  (.-ctrlKey e)
+        meta?  (.-metaKey e)
+        shift? (.-shiftKey e)
+        alt?   (.-altKey e)
+        k      (.-key e)
+        code   (.-code e)]
+    (and (or (and ctrl? (not meta?))
+             (and meta? (not ctrl?)))
+         (not shift?)
+         (not alt?)
+         (or (= "k" k) (= "K" k) (= "KeyK" code)))))
+
 (defn- handle-keydown [^js event]
   (cond
     (causa-toggle-key? event)
@@ -84,7 +129,20 @@
         ;; the panel's open / closed state lands on :rf/causa, not the
         ;; host's :rf/default.
         (rf/with-frame :rf/causa
-          (rf/dispatch [:rf.causa/copilot-toggle])))))
+          (rf/dispatch [:rf.causa/copilot-toggle])))
+
+    (palette-toggle-key? event)
+    (do (.preventDefault event)
+        (.stopPropagation event)
+        ;; Per spec/007-UX-IA.md §Command palette — Cmd/Ctrl+K
+        ;; toggles the command palette modal. Open the shell first
+        ;; if it's not visible so the palette has somewhere to mount;
+        ;; the toggle dispatch is routed through Causa's frame so the
+        ;; palette open-state lives on :rf/causa.
+        (when-not (mount/visible?)
+          (mount/open!))
+        (rf/with-frame :rf/causa
+          (rf/dispatch [:rf.causa/palette-toggle])))))
 
 (defn attach!
   "Install the global Ctrl+Shift+C listener once. No-op on second +

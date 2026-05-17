@@ -60,6 +60,11 @@
   [event]
   (#'keybinding/copilot-toggle-key? event))
 
+(defn- palette-toggle-key?
+  "rf2-wm7z4 — the Cmd/Ctrl+K command-palette predicate."
+  [event]
+  (#'keybinding/palette-toggle-key? event))
+
 ;; ---- stub `js/document` --------------------------------------------------
 ;;
 ;; The `attach!` / `detach!` helpers are guarded by `(exists?
@@ -264,18 +269,70 @@
 ;; ---- (3) toggles are mutually exclusive ----------------------------------
 
 (deftest predicates-are-mutually-exclusive
-  (testing "no synthetic event satisfies both predicates simultaneously —
+  (testing "no synthetic event satisfies more than one predicate at once —
             mutual exclusivity matters because `handle-keydown` uses
-            `cond` and a both-match case would silently route to causa
-            and drop the copilot path"
+            `cond` and a multi-match case would silently route to the
+            first arm and drop the others"
     (doseq [event [(mk-event {:key "C" :ctrl? true :shift? true})
                    (mk-event {:key "/" :ctrl? true :shift? true})
                    (mk-event {:key "?" :ctrl? true :shift? true})
                    (mk-event {:code "KeyC" :ctrl? true :shift? true})
-                   (mk-event {:code "Slash" :ctrl? true :shift? true})]]
-      (is (not (and (causa-toggle-key? event)
-                    (copilot-toggle-key? event)))
-          (str "event " (js->clj event) " must match at most one predicate")))))
+                   (mk-event {:code "Slash" :ctrl? true :shift? true})
+                   (mk-event {:key "k" :ctrl? true})
+                   (mk-event {:key "k" :meta? true})
+                   (mk-event {:code "KeyK" :ctrl? true})]]
+      (let [matches (cond-> 0
+                      (causa-toggle-key? event)   inc
+                      (copilot-toggle-key? event) inc
+                      (palette-toggle-key? event) inc)]
+        (is (<= matches 1)
+            (str "event " (js->clj event) " must match at most one predicate"))))))
+
+;; ---- (3b) palette-toggle-key? truth table (rf2-wm7z4) --------------------
+
+(deftest palette-toggle-key-matches-cmd-k-and-ctrl-k
+  (testing "Ctrl+K — Windows / Linux convention"
+    (is (true? (palette-toggle-key?
+                 (mk-event {:key "k" :ctrl? true}))))
+    (is (true? (palette-toggle-key?
+                 (mk-event {:key "K" :ctrl? true})))))
+  (testing "Cmd+K — macOS convention (Meta modifier)"
+    (is (true? (palette-toggle-key?
+                 (mk-event {:key "k" :meta? true})))))
+  (testing "`code` fallback — KeyK"
+    (is (true? (palette-toggle-key?
+                 (mk-event {:code "KeyK" :ctrl? true}))))))
+
+(deftest palette-toggle-key-rejects-shift
+  (testing "Ctrl+Shift+K is Firefox dev-tools — must not be hijacked"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:key "k" :ctrl? true :shift? true})))))
+  (testing "Cmd+Shift+K likewise"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:key "k" :meta? true :shift? true}))))))
+
+(deftest palette-toggle-key-rejects-both-modifiers
+  (testing "Ctrl+Cmd+K — both modifiers held is ambiguous; reject"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:key "k" :ctrl? true :meta? true}))))))
+
+(deftest palette-toggle-key-rejects-no-modifier
+  (testing "plain k must NOT open the palette — that would hijack
+            every k keystroke in the host app"
+    (is (false? (palette-toggle-key? (mk-event {:key "k"}))))))
+
+(deftest palette-toggle-key-rejects-alt
+  (testing "Ctrl+Alt+K is an IME composition on some layouts — reject"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:key "k" :ctrl? true :alt? true}))))))
+
+(deftest palette-toggle-key-rejects-wrong-key
+  (testing "wrong key letter, right modifiers"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:key "j" :ctrl? true})))))
+  (testing "wrong `code`, right modifiers"
+    (is (false? (palette-toggle-key?
+                  (mk-event {:code "KeyJ" :ctrl? true}))))))
 
 ;; ---- (4) attach! / detach! idempotency sentinel --------------------------
 

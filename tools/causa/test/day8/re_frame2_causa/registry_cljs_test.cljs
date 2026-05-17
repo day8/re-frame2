@@ -133,6 +133,13 @@
    :rf.causa/pin-store
    :rf.causa/pinned-slices
    :rf.causa/pinned-slices-store
+   :rf.causa/palette-active-item
+   :rf.causa/palette-copilot-questions
+   :rf.causa/palette-cursor
+   :rf.causa/palette-index
+   :rf.causa/palette-open?
+   :rf.causa/palette-query
+   :rf.causa/palette-results
    :rf.causa/pinned-snapshots
    :rf.causa/registered-flows
    :rf.causa/registered-fxs
@@ -206,6 +213,14 @@
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
    :rf.causa/open-in-editor
+   :rf.causa/palette-close
+   :rf.causa/palette-cursor-down
+   :rf.causa/palette-cursor-set
+   :rf.causa/palette-cursor-up
+   :rf.causa/palette-invoke
+   :rf.causa/palette-open
+   :rf.causa/palette-set-query
+   :rf.causa/palette-toggle
    :rf.causa/pin-current
    :rf.causa/pin-slice
    :rf.causa/rename-pin
@@ -251,6 +266,10 @@
   [:rf.causa.fx/copy-to-clipboard
    :rf.causa.fx/reset-frame-db!
    :rf.causa.fx/restore-epoch
+   ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
+   ;; palette-specific prefix because it wraps a mount-layer pop-out
+   ;; call that no other Causa surface invokes.
+   :rf.causa.palette.fx/popout
    ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Lives under
    ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.causa.fx/*`
    ;; because the rf2-cm93v allowlist seam is editor-related, not
@@ -310,17 +329,24 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 66 subs + 67 events + 4 fxs"
-    (is (= 66 (count all-sub-names)))
+  (testing "registry holds exactly 73 subs + 75 events + 5 fxs"
+    ;; 66 baseline + 7 palette (rf2-wm7z4):
+    ;;   palette-active-item / palette-copilot-questions /
+    ;;   palette-cursor / palette-index / palette-open? /
+    ;;   palette-query / palette-results
+    (is (= 73 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
-    (is (= 67 (count all-event-names)))
-    ;; 4 fxs = 3 baseline (`:rf.causa.fx/copy-to-clipboard`,
-    ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`)
-    ;; + rf2-g5q8d's `:rf.editor/open` (cross-panel open-in-editor
-    ;; launcher; lives under the editor-generic prefix because the
-    ;; rf2-cm93v allowlist is editor-related, not Causa-specific).
-    (is (= 4  (count all-fx-names)))))
+    ;; 67 baseline + 8 palette (rf2-wm7z4):
+    ;;   palette-close / palette-cursor-down / palette-cursor-set /
+    ;;   palette-cursor-up / palette-invoke / palette-open /
+    ;;   palette-set-query / palette-toggle
+    (is (= 75 (count all-event-names)))
+    ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
+    ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
+    ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
+    ;; rf2-wm7z4).
+    (is (= 5  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"

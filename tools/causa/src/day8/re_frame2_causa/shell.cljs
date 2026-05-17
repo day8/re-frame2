@@ -74,6 +74,7 @@
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.panels.trace :as trace]
+            [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout]]))
@@ -458,5 +459,10 @@
      [sidebar]
      [canvas]
      [rail-gate]]
-    [bottom-rail]]])
+    [bottom-rail]
+    ;; Command palette (rf2-wm7z4) — mounted at the shell root so it
+    ;; overlays the chrome + panels. The Modal short-circuits to nil
+    ;; when `:rf.causa/palette-open?` is false; closed-state cost is
+    ;; a single subscribe + when-gate.
+    [palette/Modal]]])
 
