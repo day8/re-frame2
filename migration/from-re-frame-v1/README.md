@@ -88,11 +88,11 @@ day8/re-frame2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
 
 ---
 
-### M-1. Private namespace access — `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`
+### M-1. Private namespace access — `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar` (+ public `clear-subscription-cache!` rename)
 
 **Type A** (mechanical).
 
-re-frame2's compatibility commitment covers `re-frame.core` only. Internal namespaces are off-contract and are very likely to have moved or changed shape (the global `app-db` now lives inside the default frame's record; the registrar may have a different shape; the router state is per-frame).
+re-frame2's compatibility commitment covers `re-frame.core` only. Internal namespaces are off-contract and are very likely to have moved or changed shape (the global `app-db` now lives inside the default frame's record; the registrar may have a different shape; the router state is per-frame). One **public** v1 symbol — `re-frame.core/clear-subscription-cache!` — is also renamed (`clear-sub-cache!`) and re-shaped (takes a frame-id arg); it is covered here rather than as a separate rule because every codebase that uses it trips the same mechanical rewrite.
 
 **What to look for** in the codebase:
 
@@ -102,9 +102,18 @@ re-frame2's compatibility commitment covers `re-frame.core` only. Internal names
 (:require [re-frame.subs :as subs])
 (:require [re-frame.events :as events])
 (:require [re-frame.registrar :as reg])
+
+;; …and the one public-API rename:
+(re-frame.core/clear-subscription-cache!)    ;; no-arg public form, v1
 ```
 
-…and any usage of the symbols imported.
+…and any usage of the symbols imported. For the public `clear-subscription-cache!` rename, the canonical sweep is a literal grep:
+
+```bash
+rg -n 'clear-subscription-cache!' .          ;; every call site, every namespace alias form
+```
+
+Hit every alias the project uses (`rf/`, `re-frame/`, `re-frame.core/`, bare `clear-subscription-cache!` from a `:refer` clause); the function is removed and the symbol does not resolve in v2.
 
 **What to do:**
 
@@ -112,11 +121,12 @@ re-frame2's compatibility commitment covers `re-frame.core` only. Internal names
 |---|---|
 | `@re-frame.db/app-db` | `(rf/get-frame-db :rf/default)` — returns the current `app-db` value (a plain map). |
 | `(reset! re-frame.db/app-db v)` | Don't. If the user truly needs to bypass the event pipeline, replace with `(rf/dispatch-sync [::reset-app-db v])` and add a handler that does the reset. Flag this for human review — direct mutation is almost always a code smell. |
-| `re-frame.subs/clear-sub-cache!` | `(rf/clear-sub-cache! :rf/default)` (or whichever frame is intended) |
+| `(re-frame.core/clear-subscription-cache!)` (no-arg, public) | `(rf/clear-sub-cache! :rf/default)` — public v2 surface; frame-id is required (the v1 zero-arg form is gone). Per [API §`clear-sub-cache!`](../../spec/API.md#dispatch-and-subscribe). The no-arg call site cleared *the* (single) sub-cache; in v2 every frame has its own cache and the call site must name the target — `:rf/default` is the like-for-like replacement for code that didn't address frames. |
+| `re-frame.subs/clear-sub-cache!` (private alias) | `(rf/clear-sub-cache! :rf/default)` (or whichever frame is intended) — same rewrite as the public form above; the private-namespace alias was the v1 way to reach the same function. |
 | `re-frame.registrar/get-handler` | Use the public `(rf/get-handler kind id)` from `re-frame.core`. |
 | Any other private-namespace symbol | Look for a public equivalent in `re-frame.core`. If none, flag for human review with the specific call site and what it is trying to do. |
 
-**Why:** these private namespaces are explicitly off-contract in re-frame2. They will change shape and may not exist with the same interface.
+**Why:** these private namespaces are explicitly off-contract in re-frame2. They will change shape and may not exist with the same interface. The public `clear-subscription-cache!` → `clear-sub-cache!` rename is part of the same family of changes — the v1 no-arg form assumed a single global sub-cache; v2 has one per frame, so the function takes a frame-id. The shorter v2 name matches its sibling registrar-clear fns (`clear-fx`, `clear-cofx`, `clear-sub`).
 
 ---
 
@@ -517,17 +527,23 @@ Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fr
 
 ---
 
-### M-16. `^:flush-dom` event-vector metadata removed — replace with `:dispatch-later {:ms 0}`
+### M-16. `^:flush-dom` event-vector metadata removed — replace with `:dispatch-later {:ms 0}` (inside effect maps) or the top-level rewrite (outside event handlers)
 
 **Type A** (mechanical).
 
-re-frame v1 supported a `^:flush-dom` metadata on dispatched event vectors that forced a DOM repaint between handlers — used for the "show modal, then run a synchronous block" pattern. re-frame2 doesn't carry this metadata. The modern equivalent is `:dispatch-later {:ms 0 :dispatch <event-vec>}`, which schedules through the host clock primitive (via `re-frame.interop`) and yields one render tick before the next handler runs.
+re-frame v1 supported a `^:flush-dom` metadata on dispatched event vectors that forced a DOM repaint between handlers — used for the "show modal, then run a synchronous block" pattern. re-frame2 doesn't carry this metadata. The modern equivalent inside an effect map is `:dispatch-later {:ms 0 :dispatch <event-vec>}`, which schedules through the host clock primitive (via `re-frame.interop`) and yields one render tick before the next handler runs.
+
+The rule has **two sub-cases** depending on where the `^:flush-dom` form appears: inside a `reg-event-fx` handler's effect map (M-16a) or at the top level as a direct `dispatch` call (M-16b). The mechanical rewrite for (a) compiles and runs unchanged; (b) compiles AND superficially looks like the (a) rewrite, but **throws at runtime** because `rf/dispatch-later` is not a function in v2. (b) needs a different rewrite.
 
 **What to look for** in the codebase:
 
 - `^:flush-dom` reader-tag on dispatched event vectors, e.g. `^:flush-dom [:do-the-thing]`.
 
-**What to do:** wrap the dispatched event in a `:dispatch-later` fx with `{:ms 0}`:
+The grep is the same for both sub-cases; classify each hit by *where the form appears* — inside an effect map returned from a handler (M-16a) versus inside a top-level `(rf/dispatch ...)` call from app init / a component callback / a REPL (M-16b).
+
+#### M-16a. Inside an effect map (the common case)
+
+Wrap the dispatched event in a `:dispatch-later` fx with `{:ms 0}` inside the effect map's `:fx` slot:
 
 ```clojure
 ;; v1
@@ -541,7 +557,45 @@ re-frame v1 supported a `^:flush-dom` metadata on dispatched event vectors that 
 
 The mechanics differ but the observable effect is the same: one render tick happens between the `:db` write and the dispatched handler running. See [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) for the full pattern (chunked work + cancellation + progress reporting) that subsumes the v1 flush-DOM use case.
 
-**Why:** event-vector reader-tags are surface-area the framework no longer needs; the host clock primitive in `re-frame.interop` handles all delayed dispatch uniformly. `:dispatch-later {:ms 0}` is consistent with `:dispatch-later` for any other delay; no special metadata.
+#### M-16b. Top-level `(rf/dispatch ^:flush-dom [:bootstrap])` (the runtime-throwing case)
+
+v1 also allowed `^:flush-dom` on a top-level `dispatch` call — typically in app init or a UI-event callback that wanted a paint tick before the dispatched handler ran:
+
+```clojure
+;; v1 — top-level dispatch with ^:flush-dom
+(rf/dispatch ^:flush-dom [:bootstrap])
+```
+
+The mechanical M-16a rewrite (`{:fx [[:dispatch-later {:ms 0 :dispatch [:bootstrap]}]]}`) does NOT apply at the top level — effect maps only exist inside a `reg-event-fx` handler. A naïve port to `(rf/dispatch-later {:ms 0 :dispatch [:bootstrap]})` also fails: **`rf/dispatch-later` is NOT a function in re-frame2** — it exists only as an fx-id consumed by the `:fx` runner. The form compiles (the symbol resolves; CLJS doesn't arity-check at compile time) but throws at runtime as the `dispatch-later` symbol resolves to `nil` or raises an arity error depending on host.
+
+**Pick one of two rewrites depending on intent.**
+
+**(i) Drop the latency — the metadata was incidental.** Most top-level call sites annotated `^:flush-dom` defensively, copy-pasted from a pattern that no longer applies, or because the v1 author wasn't sure whether the next code line depended on a paint tick. If the call site is at app boot / a button-click callback / any context where you don't actually need an intervening render, drop the metadata:
+
+```clojure
+;; re-frame2 (i) — no latency wanted
+(rf/dispatch [:bootstrap])
+```
+
+re-frame2's run-to-completion drain (per [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)) means the dispatched event drains to fixed point before the caller returns, but the caller's caller (the browser event loop / boot sequence) sees the same paint cadence as v1; render scheduling is unchanged for top-level dispatches. The defensive `^:flush-dom` was always doing nothing useful at the top level — v1's flush-dom inserted a tick *between two synchronously-chained dispatches*, but there's no chain at the top level.
+
+**(ii) Preserve the latency — move the dispatch through a one-shot event handler.** If the call site genuinely wants a paint tick between something the caller already did (e.g. a component just mutated DOM via a ref) and the dispatched handler running, register a one-shot trampoline event whose body is the M-16a rewrite:
+
+```clojure
+;; re-frame2 (ii) — wrap in a one-shot trampoline
+(rf/reg-event-fx :rf/dispatch-later-once
+  (fn [_ [_ ev]]
+    {:fx [[:dispatch-later {:ms 0 :dispatch ev}]]}))
+
+;; at the call site
+(rf/dispatch [:rf/dispatch-later-once [:bootstrap]])
+```
+
+The trampoline is the canonical hop — register it once per project (or copy from this rule into a `boot.cljc`), then route every "I need a flush-dom tick from the top level" call site through it. The dispatch into the trampoline drains synchronously per M-3; the trampoline's `:fx` schedules the real dispatch through the host clock primitive with one render tick of latency, matching the v1 observable effect.
+
+Flag every M-16b hit for human review when choosing between (i) and (ii) — the metadata was usually load-bearing or usually defensive depending on the codebase's history, and the choice is a one-line judgement the operator owns. Don't silently pick (i): if the v1 author *did* depend on the paint tick, (i) breaks the call site in a hard-to-debug way.
+
+**Why:** event-vector reader-tags are surface-area the framework no longer needs; the host clock primitive in `re-frame.interop` handles all delayed dispatch uniformly. `:dispatch-later {:ms 0}` is consistent with `:dispatch-later` for any other delay; no special metadata. The split between (a) and (b) reflects the fact that `:dispatch-later` in v2 is **fx-id-only** — it lives inside `:fx`, never as a top-level function — so the top-level use case takes a different shape than the in-handler one.
 
 ---
 
@@ -2097,6 +2151,32 @@ The summary: `day8.re-frame/async-flow-fx` (latest 0.4.0) is a v1-era **separate
 Per-call-site escalations: `:halt-fns?` predicates closing over state outside the machine's `:data` (Spec 005 §Strict encapsulation locks actions and guards to `:data` only); `:events` declared as a predicate fn rather than keyword(s); rule-sets built at runtime; flows whose `:db-path` is read by other code. The agent surfaces every flow and waits for operator approval.
 
 Apply only when the operator wants the modernisation. `day8.re-frame/async-flow-fx` 0.4.0 continues to work against v2 — its surface (`reg-event-fx`, `reg-fx`, event observation) is preserved. Per rf2-qonq4 / gh-1368.
+
+### O-17. Convert `day8.re-frame/http-fx` (`:http-xhrio`) to re-frame2 managed HTTP (`:rf.http/managed`) (rf2-ncsog)
+
+**Type B** (semantic rewrite, ask first). The full rule — detection, the `:http-xhrio` → `:rf.http/managed` slot-by-slot mapping, before/after worked GET-with-JSON-decode example, the explicit-escalation cases (notably `:progress-cb`, custom `:format` / `:response-format` fns, hand-rolled retry, response-side `:interceptors` chains), and the reporting protocol — lives in a dedicated companion doc:
+
+**[http-fx-to-managed-http.md](http-fx-to-managed-http.md).**
+
+The summary: `day8.re-frame/http-fx` is a v1-era **separate add-on lib** shipping the `:http-xhrio` fx (Google Closure `XhrIo` transport behind a re-frame `reg-fx` registration). The canonical v2 successor is `:rf.http/managed` (per [014-HTTPRequests.md](../../spec/014-HTTPRequests.md), shipped in the [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) artefact `day8/re-frame2-http`): the request envelope is the same shape, but the response surface adds the eight-category closed `:rf.http/*` failure taxonomy, schema-driven Malli decode + `:accept` projection, transport-level retry-with-backoff, per-attempt timeouts with a 30s security default, abort via `:request-id`, classification ordering (status-before-decode), and a co-located reply addressing mode. Trace events (`:rf.http/retry-attempt`, per-category failure traces) integrate with the standard trace surface that 10x / Causa / `register-trace-cb!`-consumers see for free.
+
+Per-call-site escalations: per-XHR progress callbacks (out of scope for v1 managed-HTTP); custom `:format` / `:response-format` fns that aren't one of the canonical helpers; hand-rolled retry that closes over body content or app state (lift to a state machine per [O-16](#o-16-convert-day8re-frameasync-flow-fx-flows-to-reg-machine-rf2-qonq4) — semantic retry); cljs-ajax `:interceptors` chains with response-side transforms (request-side ports to [M-39](#m-39-reg-http-interceptor--clear-http-interceptor--additive-request-side-middleware-on-rfhttpmanaged), response-side splits to `:accept` or `register-trace-cb!`); `(rf/reg-fx :http-xhrio ...)` user-registrations that wrapped or overrode the lib's fx. The agent surfaces every request site and waits for operator approval.
+
+Apply only when the operator wants the modernisation. `day8.re-frame/http-fx` continues to work against v2 — its surface (`reg-fx`, `reg-event-fx`, `dispatch`) is preserved. Per rf2-ncsog / gh-1374.
+
+### O-18. Security + operational logging sweep on the observability interceptor surface (rf2-ihzz9)
+
+**Type B** (semantic flag, ask per site). The full rule — discovery patterns, the closed sensitive-key floor checklist + recursive-walk discipline, the size-cap pattern with dropped-count surfacing, and the reference mediation interceptor body (composing the framework's `:sensitive?` defense + the wire-elision walker + the dropped-count signal) — lives in a dedicated companion doc:
+
+**[observability-logging-sweep.md](observability-logging-sweep.md).**
+
+The summary: [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision for `reg-event-error-handler` and `reg-global-interceptor` hits — "this was an observer; convert to `register-trace-cb!`." What those rules leave on the floor is the **security and operational consequence** of the conversion: v1 audit-loggers hooked the dispatch envelope and saw the whole event vector (passwords, tokens, PII); the v2-canonical `register-trace-cb!` listener receives the same payload under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, SIEM, log file). This rule is the dedicated sweep that turns the post-M-13 / post-M-17 observer set into a v2-canonical set with privacy + oversize defenses composed at every egress.
+
+Four sections in the companion doc: **(1) Discovery** — grep patterns for every observer surface plus a four-way classification (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body). **(2) Sensitive-key checklist** — closed floor set (`password`, `token`, `secret`, `jwt`, `sudo`, `auth-uri`, `user-id`, `email`, `phone`, `ssn`, `cc`, `card`) with case-insensitive substring matching and recursive `postwalk` discipline. **(3) Size-cap pattern + register-trace-cb! for dropped count** — `cap-or-elide` body that runs the framework wire-elision walker, plus a `[:audit/dropped-counter-inc ...]` dispatch so operators see when the cap fires. **(4) Reference mediation interceptor** — the canonical body for cross-frame observers (`register-trace-cb!`, Shape A), assembled-epoch observers (`register-epoch-cb!`, Shape B), and behaviour-modifying interceptors (point at [M-17](#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors)'s per-frame `:interceptors`, Shape C).
+
+The follow-on per rewrite is a schema-annotation pass — every sensitive key the agent found that **does** appear in a registered schema gets a proposed `{:sensitive? true}` annotation (per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) and [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The schema declaration is strictly stronger than per-listener explicit drops — it covers every consumer (trace listeners, error monitors, MCP servers, hosted dashboards) uniformly and the framework's always-on substrates honour it before fan-out.
+
+Apply this rule whenever the codebase has any observability sites (the discovery grep in §1 always finds them in non-trivial v1 codebases). Per rf2-ihzz9 / gh-1375.
 
 ---
 
