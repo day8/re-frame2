@@ -36,11 +36,11 @@
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
+            [day8.re-frame2-causa.popover.causality :as causality-popover]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.effects :as effects]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.flows :as flows]
@@ -437,7 +437,13 @@
     ;; and the slot's reducer helpers live in spine.cljs.
     (spine/install!)
     (app-db-diff/install!)
-    (causality-graph/install!)
+    ;; Causality popover (rf2-dqnuu) — replaces the dropped Causality
+    ;; tab. The popover's subs depend on `:rf.causa/cascades` (shared
+    ;; projection, registered above) + `:rf.causa/focus` (spine,
+    ;; installed above) — order matters for clarity (the dependency
+    ;; chain reads top-down) but re-frame's lazy :<- resolution makes
+    ;; the registration order incidental.
+    (causality-popover/install!)
     (effects/install!)
     (event-detail/install!)
     (flows/install!)

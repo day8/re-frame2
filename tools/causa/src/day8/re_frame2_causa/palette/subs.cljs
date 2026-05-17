@@ -42,10 +42,13 @@
 ;; regardless of activity — a Hydration row shows up even when the
 ;; dormant glyph would otherwise hide it).
 (def palette-panels
+  ;; Causality removed (rf2-dqnuu) — it is now a popover, not a tab;
+  ;; per spec/018 §10 + §11. The palette surfaces it via the dedicated
+  ;; `:causality-popover-open` command (handled by the popover events
+  ;; ns) rather than as a sidebar panel.
   [{:id :event-detail :label "Event detail"}
    {:id :time-travel  :label "Time travel"}
    {:id :app-db       :label "App-db"}
-   {:id :causality    :label "Causality"}
    {:id :views        :label "Views"}
    {:id :fx           :label "Effects"}
    {:id :trace        :label "Trace"}

@@ -65,7 +65,11 @@
             [panel-gallery.time-travel-stories]
             [panel-gallery.trace-stories]
             [panel-gallery.issues-ribbon-stories]
-            [panel-gallery.causality-graph-stories]))
+            ;; Causality-graph stories removed with rf2-dqnuu — the
+            ;; panel was replaced by the c-key triggered popover
+            ;; (`popover/causality.cljs`). A popover-gallery variant is
+            ;; a follow-on bead.
+            ))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)

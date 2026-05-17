@@ -104,7 +104,13 @@
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
    :rf.causa/cascades
-   :rf.causa/causality-graph-data
+   ;; :rf.causa/causality-graph-data removed with rf2-dqnuu — the
+   ;; Causality panel was replaced by the c-key popover; the popover's
+   ;; payload sub `:rf.causa/causality-popover-payload` stands in for
+   ;; the panel's composite sub.
+   :rf.causa/causality-popover-open?
+   :rf.causa/causality-popover-layout
+   :rf.causa/causality-popover-payload
    :rf.causa/edit-popup-draft
    :rf.causa/edit-popup-open?
    :rf.causa/edit-popup-trigger
@@ -210,6 +216,13 @@
    :rf.causa.issues/toggle-severity
    :rf.causa/add-filter
    :rf.causa/bump-restore-epoch-tick
+   ;; Causality popover events (rf2-dqnuu) — replace the dropped
+   ;; Causality tab. See spec/018-Event-Spine.md §10.
+   :rf.causa/causality-popover-close
+   :rf.causa/causality-popover-layout-pulse
+   :rf.causa/causality-popover-open
+   :rf.causa/causality-popover-toggle
+   :rf.causa/causality-popover-toggle-layout
    :rf.causa/clear-flow-selection
    :rf.causa/clear-fx-selection
    :rf.causa/clear-machine-selection
@@ -394,7 +407,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 93 subs + 113 events + 6 fxs"
+  (testing "registry holds exactly 95 subs + 118 events + 6 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -418,9 +431,12 @@
     ;; + 4 auto-filter (rf2-ak4ms): :rf.causa/filtered-cascades +
     ;;   :rf.causa/edit-popup-open? + :rf.causa/edit-popup-trigger +
     ;;   :rf.causa/edit-popup-draft
+    ;; + 3 popover (rf2-dqnuu) − 1 deleted panel sub:
+    ;;   :rf.causa/causality-popover-open? + -layout + -payload added;
+    ;;   :rf.causa/causality-graph-data deleted with the panel. Net +2.
     ;; + 4 settings (rf2-9poxq): settings-open? / settings-active-tab /
     ;;   setting / settings
-    (is (= 93 (count all-sub-names)))
+    (is (= 95 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -450,9 +466,13 @@
     ;;   edit-popup-set-mode + edit-popup-set-pattern +
     ;;   edit-popup-toggle-scope + save-edit-popup + delete-edit-popup +
     ;;   hide-event-type + hydrate-filters
+    ;; + 5 popover (rf2-dqnuu):
+    ;;   causality-popover-open / -close / -toggle / -toggle-layout /
+    ;;   -layout-pulse. The popover replaces the dropped Causality
+    ;;   tab — see spec/018-Event-Spine.md §10.
     ;; + 5 settings (rf2-9poxq): settings-open / settings-close /
     ;;   settings-toggle / settings-select-tab / settings-update
-    (is (= 113 (count all-event-names)))
+    (is (= 118 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
@@ -809,16 +829,31 @@
         (is (nil? (:focused-path data)))
         (is (= [] (:focused-hits data)))))))
 
-(deftest sub-causality-graph-data-shape
-  (testing ":rf.causa/causality-graph-data returns the canonical shape"
+(deftest sub-causality-popover-payload-shape
+  (testing ":rf.causa/causality-popover-payload returns the canonical
+            shape (rf2-dqnuu — the popover replaces the panel)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/causality-graph-data])]
-        (is (contains? data :graph))
-        (is (contains? data :layout))
-        (is (contains? data :selected-dispatch-id))
-        (is (contains? data :selected-epoch-id))
-        (is (false? (:filtered? data)))))))
+      (let [data @(rf/subscribe [:rf.causa/causality-popover-payload])]
+        (is (contains? data :focused))
+        (is (contains? data :ancestors))
+        (is (contains? data :descendants))
+        (is (contains? data :nodes))
+        (is (contains? data :edges))
+        (is (true? (:empty? data))
+            "no focused event on a fresh frame → :empty? true")))))
+
+(deftest sub-causality-popover-open?-defaults-false
+  (testing ":rf.causa/causality-popover-open? defaults to false"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (is (false? @(rf/subscribe [:rf.causa/causality-popover-open?]))))))
+
+(deftest sub-causality-popover-layout-defaults-tb
+  (testing ":rf.causa/causality-popover-layout defaults to :tb"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (is (= :tb @(rf/subscribe [:rf.causa/causality-popover-layout]))))))
 
 (deftest sub-hydration-debugger-data-shape-no-mismatch
   (testing ":rf.causa/hydration-debugger-data dormant on an empty buffer"
@@ -945,8 +980,10 @@
   (testing ":rf.causa/select-panel stores under :selected-panel"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-panel :causality-graph])
-      (is (= :causality-graph
+      ;; :trace is an arbitrary still-live panel id (Causality removed
+      ;; with rf2-dqnuu — popover, not a tab).
+      (rf/dispatch-sync [:rf.causa/select-panel :trace])
+      (is (= :trace
              @(rf/subscribe [:rf.causa/selected-panel]))))))
 
 (deftest event-select-dispatch-id-and-clear
@@ -1403,12 +1440,14 @@
   (testing "every :rf.causa/* event-db handler writes to :rf/causa, never :rf/default"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-panel :causality-graph])
+      ;; :trace is an arbitrary live panel id (Causality removed with
+      ;; rf2-dqnuu — popover, not a tab).
+      (rf/dispatch-sync [:rf.causa/select-panel :trace])
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
       (rf/dispatch-sync [:rf.causa/select-epoch :e]))
     (let [causa-db   (frame/frame-app-db-value :rf/causa)
           default-db (frame/frame-app-db-value :rf/default)]
-      (is (= :causality-graph (:selected-panel causa-db)))
+      (is (= :trace (:selected-panel causa-db)))
       (is (= 1 (:selected-dispatch-id causa-db)))
       (is (= :e (:selected-epoch-id causa-db)))
       (is (nil? (:selected-panel default-db)))
@@ -1428,7 +1467,9 @@
       (doseq [sub-id [:rf.causa/event-detail
                       :rf.causa/time-travel
                       :rf.causa/app-db-diff
-                      :rf.causa/causality-graph-data
+                      ;; :rf.causa/causality-graph-data removed with rf2-dqnuu;
+                      ;; the popover's payload sub stands in for the smoke.
+                      :rf.causa/causality-popover-payload
                       :rf.causa/hydration-debugger-data
                       :rf.causa/effects-data
                       :rf.causa/flows-data

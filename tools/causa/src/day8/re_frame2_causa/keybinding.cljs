@@ -142,9 +142,10 @@
 (defn- spine-key-id
   "Map an unmodified keydown to the spine event id it dispatches, or
   nil when the key is not a spine binding. Per spec/018 §3 + §6 the
-  five bindings are Space / L / j / k / G. Bare-key (no modifiers)
+  five bindings are Space / L / j / k / G; per spec/018 §10 + §11 the
+  Causality popover binds unmodified `c`. Bare-key (no modifiers)
   is required so the bindings don't collide with browser shortcuts
-  (Cmd+L → focus address bar, etc.)."
+  (Cmd+L → focus address bar, Ctrl+Shift+C → Causa toggle, etc.)."
   [^js event]
   (when (and (not (.-ctrlKey event))
              (not (.-metaKey event))
@@ -171,7 +172,14 @@
 
         ;; k — step forward
         (and (not shift?) (or (= "k" k) (= "KeyK" code)))
-        :rf.causa/focus-cascade-next))))
+        :rf.causa/focus-cascade-next
+
+        ;; c — toggle Causality popover. Per spec/018 §10 §11 the
+        ;; popover replaces the dropped Causality tab; `c` from any
+        ;; tab opens it, second `c` closes it. The toggle event lives
+        ;; in popover/causality_events.cljs.
+        (and (not shift?) (or (= "c" k) (= "KeyC" code)))
+        :rf.causa/causality-popover-toggle))))
 
 (defn- handle-keydown [^js event]
   (cond
