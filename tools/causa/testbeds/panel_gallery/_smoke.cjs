@@ -132,6 +132,35 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-chrome-card',
         expectedAtLeast: 10,
       },
+      // Settings popup workspace (rf2-mpn8m) — 4 variants. Each
+      // cell mounts the chrome + opens the Settings popup on a
+      // different tab (General / Filters / Theme / Telemetry).
+      // Same shared :rf/causa caveat as the chrome workspace.
+      {
+        id:          'settings-popup',
+        workspaceRe: /Workspace\.causa\.settings-popup\/all/,
+        cardTestid:  'panel-gallery-chrome-card',
+        expectedAtLeast: 4,
+      },
+      // Auto-filter pill + edit-popup workspace (rf2-kbrkx) — 5
+      // variants. Each cell mounts the chrome and either seeds
+      // ribbon pill state or opens the edit popup against a
+      // different trigger shape (:add, :pill, :context).
+      {
+        id:          'filters',
+        workspaceRe: /Workspace\.causa\.filters\/all/,
+        cardTestid:  'panel-gallery-chrome-card',
+        expectedAtLeast: 5,
+      },
+      // Causality popover workspace (rf2-pt1e1) — 4 variants. Each
+      // cell mounts the chrome + opens the popover against a
+      // different graph / layout / fallback configuration.
+      {
+        id:          'causality-popover',
+        workspaceRe: /Workspace\.causa\.causality-popover\/all/,
+        cardTestid:  'panel-gallery-chrome-card',
+        expectedAtLeast: 4,
+      },
     ];
 
     const results = [];

@@ -87,6 +87,17 @@ function waitForReady(url, timeoutMs) {
     // The chrome workspace uses :layout :tabs (not :variants-grid)
     // so it isn't subject to the same shared-cell concern as the
     // grid workspaces; we walk it last as a round-trip target.
+    // The chrome-follow-on workspaces (rf2-mpn8m settings popup,
+    // rf2-kbrkx auto-filter edit-popup, rf2-pt1e1 causality popover)
+    // are deliberately excluded from this single-session walk. They
+    // mount the chrome shell which writes to `:rf/causa` AND opens
+    // a global modal whose backdrop covers the entire viewport. The
+    // modal state lives in the process-global `:rf/causa` frame, so
+    // it persists across workspace switches (Story tears down the
+    // variant tree but the frame state survives). The sibling
+    // `_smoke.cjs` covers these workspaces on FRESH pages where the
+    // shared-state caveat is harmless; the rf2-kgn0c IDeref-null
+    // regression that THIS smoke pins is orthogonal to modal state.
     const walk = [
       { name: 'Workspace.causa.event/all',    expectedAtLeast: 12 },
       { name: 'Workspace.causa.app-db/all',   expectedAtLeast: 12 },
