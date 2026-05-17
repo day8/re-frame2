@@ -49,9 +49,11 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.ui.viewport-switcher :as viewport-switcher]))
 
 ;; ---- localStorage --------------------------------------------------------
 
@@ -366,6 +368,17 @@
      ;; button. Self-elides when no script is present.
      (when (:selected-variant shell)
        [play-status/chip-when-enabled (:selected-variant shell)])
+     ;; rf2-zll4h — viewport + backgrounds switchers (Storybook addon-
+     ;; viewport + addon-backgrounds parity). Both chips are chrome-wide
+     ;; dropdowns; they live before the recorder REC chip so the
+     ;; left-side chrome cluster reads:
+     ;;   [dispatch] [play-status] [viewport] [backgrounds] [REC] [reset]
+     ;; Each chip uses `aria-haspopup`/`aria-expanded` (NOT
+     ;; `aria-pressed`) so the toolbar reset assertion in story-feature-
+     ;; load (which counts `[aria-pressed="true"]` post-reset) is not
+     ;; tripped by viewport / background state.
+     [viewport-switcher/chip-when-enabled]
+     [backgrounds-switcher/chip-when-enabled]
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
      ;; affordance so the chrome-wide recorder is reachable regardless of
      ;; which variant the user has focused.

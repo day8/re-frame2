@@ -129,7 +129,14 @@
    :rail-widths         {:left 260 :right 320}
    :tests               {:runs           {}
                          :watch-mode?    false
-                         :content-hashes {}}})
+                         :content-hashes {}}
+   ;; rf2-zll4h: chrome-wide toolbar selections for the viewport +
+   ;; background switchers. nil means "use neutral default" — the
+   ;; switcher resolves to `:full` / `:light` respectively. A per-story
+   ;; `:viewport` / `:background` override on the story / variant body
+   ;; takes precedence over the chrome-wide selection at resolve time.
+   :viewport            nil
+   :background          nil})
 
 ;; ---- pure transitions (extracted to state.transitions, rf2-gcpon) -------
 

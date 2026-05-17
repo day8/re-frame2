@@ -49,6 +49,7 @@
             [re-frame.story.runtime :as runtime]
             [re-frame.trace :as rf-trace]
             [re-frame.story.ui.actions :as actions]
+            [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.command-palette.view :as command-palette]
             [re-frame.story.ui.controls :as controls]
@@ -69,7 +70,10 @@
             [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.toolbar :as toolbar]
             [re-frame.story.ui.trace :as trace]
-            [re-frame.story.ui.workspace :as workspace]))
+            [re-frame.story.ui.viewport-switcher :as viewport-switcher]
+            [re-frame.story.ui.workspace :as workspace]
+            [re-frame.story.backgrounds :as backgrounds]
+            [re-frame.story.viewport :as viewport]))
 
 ;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -484,6 +488,53 @@
      (when variant-id
        [panels/render-panels-at-placement :right variant-id vis])]))
 
+(defn- framed-canvas
+  "Render the variant `canvas/canvas` wrapped with the effective
+  viewport + background framing (rf2-zll4h).
+
+  The wrapper is a single `<div data-test=\"story-canvas-frame\">` so
+  Playwright specs can introspect the framed region. Resolution per
+  rf2-zll4h:
+    - per-variant `:viewport` / `:background` body slot wins
+    - then per-story `:viewport` / `:background` body slot
+    - then the chrome toolbar selection
+    - then the neutral defaults (`:full` / `:light`).
+
+  Both axes resolve via their respective switcher namespaces'
+  `effective-viewport` / `effective-background` helpers — keeping the
+  fallback logic in one place per axis so the chip label and the
+  rendered canvas always agree."
+  []
+  (let [vp        (viewport-switcher/effective-viewport)
+        bg        (backgrounds-switcher/effective-background)
+        vp-style  (viewport/wrap-style vp)
+        bg-style  (backgrounds/wrap-style bg)
+        ;; Match the canvas's own `.wrap` minimum so framed regions
+        ;; never collapse to zero height when the user picks a
+        ;; tiny custom viewport.
+        wrap-style (merge {:padding    "16px"
+                           :display    "flex"
+                           :flex       "1"
+                           :min-height "200px"
+                           :align-items "flex-start"
+                           :justify-content "center"
+                           :overflow   "auto"
+                           :box-sizing "border-box"}
+                          bg-style)
+        ;; When sizing is in effect, wrap canvas/canvas in an
+        ;; intermediate div with explicit width/height. Otherwise the
+        ;; framed-canvas just applies the background.
+        sized?   (some? vp-style)]
+    [:div {:style       wrap-style
+           :data-test   "story-canvas-frame"
+           :data-viewport (name (viewport-switcher/effective-id))
+           :data-background (name (backgrounds-switcher/effective-id))}
+     (if sized?
+       [:div {:style     vp-style
+              :data-test "story-canvas-frame-sized"}
+        [canvas/canvas]]
+       [canvas/canvas])]))
+
 (defn- main-pane
   "The main content pane — workspace if one is selected, otherwise the
   variant canvas. Stage 6 (rf2-zhwd) appends any registered
@@ -529,7 +580,11 @@
        variant-id (case mode-tab
                     :docs [docs/docs-view variant-id]
                     :test [test-mode-view/test-view variant-id]
-                    [canvas/canvas])
+                    ;; rf2-zll4h — wrap the canvas with viewport sizing
+                    ;; + background colour. The :docs and :test panes
+                    ;; are NOT framed (they're shell chrome, not the
+                    ;; variant render surface).
+                    [framed-canvas])
        :else
        [:div {:style {:padding "32px"
                       :color "#9a9a9a"
@@ -558,6 +613,12 @@
          ;; canvas. URL wins over localStorage per spec/010 §URL deep-
          ;; link. Idempotent and one-shot.
          (toolbar/hydrate!)
+         ;; rf2-zll4h: hydrate the chrome-wide viewport + background
+         ;; selections from localStorage. Both are idempotent and
+         ;; one-shot; they no-op when the slot is already populated
+         ;; (e.g. a programmatic test fixture seeded them).
+         (viewport-switcher/hydrate!)
+         (backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
          ;; Hydrate the share URL's focused variant / overrides /

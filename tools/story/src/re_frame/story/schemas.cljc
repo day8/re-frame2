@@ -223,6 +223,28 @@
   "A set of registered mode ids the artefact opts into."
   [:set :keyword])
 
+;; ---- viewport + background (rf2-zll4h) -----------------------------------
+
+(def ViewportSlot
+  "Schema for the optional `:viewport` slot on a story / variant body.
+  Accepts either a preset id keyword (e.g. `:tablet`) — membership is
+  not enforced here so authors keep registration-time freedom — or a
+  literal `{:width N :height N}` map for an ad-hoc size. The runtime
+  drops unrecognised values back to `:full` at resolve time."
+  [:or
+   :keyword
+   [:map
+    [:width  [:int {:min 1}]]
+    [:height [:int {:min 1}]]]])
+
+(def BackgroundSlot
+  "Schema for the optional `:background` slot on a story / variant body.
+  Accepts either a preset id keyword (e.g. `:dark`) or a CSS-colour
+  string (the dropdown's colour-input emits `#rrggbb`-shaped strings).
+  Membership of the preset id is not enforced; the runtime drops
+  unrecognised values back to `:light` at resolve time."
+  [:or :keyword :string])
+
 ;; ---- :rf/story ------------------------------------------------------------
 
 (def CausaPreset
@@ -295,6 +317,12 @@
    [:platforms  {:optional true} PlatformSet]
    [:dispatch-console? {:optional true} :boolean]
    [:causa      {:optional true} CausaPreset]
+   ;; rf2-zll4h — viewport + background switchers. Per-story override
+   ;; that wins over the chrome toolbar selection at canvas mount time.
+   ;; Both slots are optional; absent means 'inherit the toolbar
+   ;; selection' (or the neutral default).
+   [:viewport   {:optional true} ViewportSlot]
+   [:background {:optional true} BackgroundSlot]
    ;; The Form-B combined-form sugar. Variant-name keys map to variant
    ;; bodies — the macro expands these into N independent reg-variant
    ;; calls. Validated separately when the macro desugars.
@@ -390,7 +418,11 @@
    ;; (default true at story level) or carry a Causa preset that
    ;; overrides the parent story's preset.
    [:dispatch-console?     {:optional true} :boolean]
-   [:causa                 {:optional true} CausaPreset]])
+   [:causa                 {:optional true} CausaPreset]
+   ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
+   ;; with variant-first, then story-level, then chrome toolbar.
+   [:viewport              {:optional true} ViewportSlot]
+   [:background            {:optional true} BackgroundSlot]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
 
