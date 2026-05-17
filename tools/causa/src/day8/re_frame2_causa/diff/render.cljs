@@ -43,6 +43,12 @@
   reveal."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.annotated-tree :as at]
+            ;; Phase 3 (rf2-i39w2) — hiccup-diff micro-engine renderer.
+            ;; Additive dispatch: when this renderer encounters a
+            ;; hiccup-diff op (`:element-changed`/`:element-moved`/
+            ;; `:fn-ref-changed`) it delegates to the hiccup-specific
+            ;; renderer; the generic ops still resolve here.
+            [day8.re-frame2-causa.diff.hiccup-render :as hd-render]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
@@ -349,20 +355,38 @@
     - `:modified` → inline `before → after`
     - `:added` / `:removed` → coloured-gutter leaf
 
+  Hiccup-engine ops (`:element-changed` / `:element-moved` /
+  `:fn-ref-changed`, rf2-i39w2 Phase 3) carry the parallel `::hd/op`
+  key — when a section subtree is a hiccup-diff (e.g. a future Views-
+  panel section), this dispatch detects and delegates to the
+  hiccup-specific renderer in `diff.hiccup-render`. Today the Views
+  panel calls `hd-render/render-root` directly; this branch keeps the
+  generic section pipeline forward-compatible.
+
   `:same` rendered via greyed-out inspector pass."
   [node section-path sub-path surface depth]
   (let [node-key (node-key-for surface section-path sub-path)
-        op       (at/op-of node)]
-    (case op
-      :children (render-children-container node section-path sub-path
-                                           surface depth)
-      :modified (gutter :modified (render-modified-leaf node node-key))
-      :added    (gutter :added    (render-added-leaf    node node-key))
-      :removed  (gutter :removed  (render-removed-leaf  node node-key))
-      :same     (render-same-inline node node-key)
-      ;; Fallback — shouldn't happen for well-formed input.
-      [:span {:style {:color (:red tokens)}}
-       (str "unknown op: " (pr-str op))])))
+        op       (at/op-of node)
+        hd-op    (get node :day8.re-frame2-causa.diff.hiccup/op)]
+    (cond
+      ;; Hiccup-engine op short-circuit — delegate. Path conjoins
+      ;; section-path + sub-path to preserve the unique node-key contract.
+      (#{:element-changed :element-moved :fn-ref-changed} hd-op)
+      (hd-render/render-hiccup-annotated node surface
+                                         (vec (concat section-path sub-path))
+                                         depth)
+
+      :else
+      (case op
+        :children (render-children-container node section-path sub-path
+                                             surface depth)
+        :modified (gutter :modified (render-modified-leaf node node-key))
+        :added    (gutter :added    (render-added-leaf    node node-key))
+        :removed  (gutter :removed  (render-removed-leaf  node node-key))
+        :same     (render-same-inline node node-key)
+        ;; Fallback — shouldn't happen for well-formed input.
+        [:span {:style {:color (:red tokens)}}
+         (str "unknown op: " (pr-str op))]))))
 
 ;; ---- section + panel ---------------------------------------------------
 
