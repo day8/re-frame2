@@ -29,5 +29,8 @@ After the front matter:
 ## Index
 
 - [Mayor Recovery After Token Limits or Worker Crashes](mayor-recovery-after-token-limit-or-worker-crash.md): how to reconstruct reality when prior mayor/worker sessions died and left stale bead, PR, branch, or worktree state.
-- [Background Worker Worktree Boundaries](background-worker-worktree-boundaries.md): mandatory prompt and checks that prevent background workers from applying patches to the mayor checkout instead of their assigned worktree.
 - [Story Browser Testbed Invariants](story-browser-testbed-invariants.md): Story browser-testbed lessons around per-worktree ports, hot-reload baselines, panel scoping, and browser-visible snapshot hashes.
+
+The mayor-method docs (including the dispatch prompt template, the
+worktree-boundary block, the standing cron loops, and the merge protocol)
+live in [`/docs/the-mayor-method/`](../../docs/the-mayor-method/).
