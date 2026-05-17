@@ -328,6 +328,37 @@
                   ^{:key mid}
                   [chip mid (get modes mid) (contains? active mid)])]]]))))
      [:span {:style (:spacer styles)}]
+     ;; rf2-q9kv5 — Dispatch console toolbar toggle. The chip flips the
+     ;; chrome-level visibility override; the right-panel resolves
+     ;; story-flag + chrome-toggle together. Shown only when a variant is
+     ;; focused (the panel is per-variant — no variant, nothing to
+     ;; dispatch into).
+     (when (:selected-variant shell)
+       (let [vis-flag (get-in shell [:panel-visibility :dispatch-console])
+             ;; Same default resolution as the right-panel — when the
+             ;; chrome-toggle is nil, the story body's `:dispatch-console?`
+             ;; takes over (defaults to FALSE — toolbar real-estate is
+             ;; precious; authors opt in via `:dispatch-console? true`).
+             ;; We surface the *effective* state on the chip so the user
+             ;; sees what's actually showing.
+             effective? (cond
+                          (true?  vis-flag) true
+                          (false? vis-flag) false
+                          :else             false)]
+         [:button
+          {:style     (merge (:chip styles)
+                             (when effective? (:chip-active styles)))
+           :data-test "story-toolbar-dispatch-console"
+           :aria-pressed (str effective?)
+           :title     (if effective?
+                        "Hide dispatch console"
+                        "Show dispatch console")
+           :on-click  (fn [_]
+                        (state/swap-state!
+                          (fn [s]
+                            (assoc-in s [:panel-visibility :dispatch-console]
+                                      (not effective?)))))}
+          (if effective? "Dispatch ▾" "Dispatch ▸")]))
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
      ;; affordance so the chrome-wide recorder is reachable regardless of
      ;; which variant the user has focused.

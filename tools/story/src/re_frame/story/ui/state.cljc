@@ -119,6 +119,11 @@
    :hot-reload-tick     0
    :fingerprints        {}
    :pinned-snapshots    {}
+   ;; rf2-q9kv5 — `:dispatch-console` slot. Default is nil (not false)
+   ;; so the per-story `:dispatch-console?` body flag is the effective
+   ;; default. The shell's right-panel checks the per-story flag first
+   ;; and falls back to FALSE when nothing is declared (opt-in default;
+   ;; the chrome-level toolbar chip flips this without a body edit).
    :panel-visibility    {:trace true :scrubber true :controls true :actions true}
    :active-mode-tab     {}
    :rail-widths         {:left 260 :right 320}
