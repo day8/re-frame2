@@ -16,6 +16,12 @@ playground:
 - Each variant ships with **schema-derived controls** (`spec/010`),
   **assertion-vocabulary play sequences** (`:rf.assert/*`), and a
   **content-hashed snapshot identity** for visual-regression keying.
+- **Mock anything, not just the network.** Storybook needs a separate addon
+  for each fake (MSW for HTTP, custom decorators for analytics, shim libs for
+  storage, …). Story has it in **one primitive**: `force-fx-stub` stubs any
+  effect handler you registered with `reg-fx` in three lines of variant body.
+  See [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md)
+  §`force-fx-stub`.
 - The story tool **embeds re-frame-10x's epoch panel** as a registered story
   panel — time-travel via `restore-epoch` is a UI affordance, not a
   reimplementation.
@@ -89,8 +95,8 @@ The substantive implementation contract is decomposed into
 | [`spec/001-Authoring.md`](./spec/001-Authoring.md) | The seven `reg-*` macros; EDN-first variant contract; inclusion tags; source-coord stamping. |
 | [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
 | [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / scrubber / trace); the five workspace layouts; multi-substrate side-by-side. |
-| [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; `force-fx-stub`. |
-| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | Layout-debug trio; a11y; QR share; multi-substrate; 10x embed; v1.1 deferrals; production elision. |
+| [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
+| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; QR share; multi-substrate; 10x embed; v1.1 deferrals; production elision. |
 | [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
 | [`spec/Principles.md`](./spec/Principles.md) | Design principles (EDN-first, no fn-slots, production-elision strict, etc.). |
 | [`spec/API.md`](./spec/API.md) | Consolidated public API surface. |
