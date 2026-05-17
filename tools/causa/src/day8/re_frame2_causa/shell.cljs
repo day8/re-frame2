@@ -90,6 +90,7 @@
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
@@ -724,6 +725,14 @@
     ;; the palette Modal: closed-state is one subscribe + when-gate,
     ;; so the dormant cost is negligible.
     [causality-popover/Popover]
+    ;; Cancellation-cascade popover (rf2-59e7k) — single waterfall view
+    ;; of the rf2-wvkn cancellation contract. Opened from the Trace tab
+    ;; (right-click a destroy-event row → 'Show cancellation cascade')
+    ;; or imperatively via `:rf.causa/cancellation-cascade-open`. Same
+    ;; mount discipline as the other popovers: shell-root mount so
+    ;; subscribes resolve through the `:rf/causa` frame-provider;
+    ;; closed-state cost is one subscribe + a when-gate.
+    [cancellation-cascade/Popover]
     ;; Share modal (rf2-nqw0v Phase 5) — encodes the current Causa
     ;; state (focused machine + mode + scrubber + tab) into a URL the
     ;; user can paste anywhere. Same mount discipline as the other

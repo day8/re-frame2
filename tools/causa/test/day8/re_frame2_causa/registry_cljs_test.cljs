@@ -104,6 +104,14 @@
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
    :rf.causa/cascades
+   ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
+   ;; tab side-panel + Trace popover). Per
+   ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
+   :rf.causa/cancellation-cascade-expanded?
+   :rf.causa/cancellation-cascade-for-focused-event
+   :rf.causa/cancellation-cascade-for-focused-machine
+   :rf.causa/cancellation-cascade-popover-focus
+   :rf.causa/cancellation-cascade-popover-open?
    ;; :rf.causa/causality-graph-data removed with rf2-dqnuu — the
    ;; Causality panel was replaced by the c-key popover; the popover's
    ;; payload sub `:rf.causa/causality-popover-payload` stands in for
@@ -238,6 +246,12 @@
    :rf.causa.issues/toggle-severity
    :rf.causa/add-filter
    :rf.causa/bump-restore-epoch-tick
+   ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
+   ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
+   :rf.causa/cancellation-cascade-close
+   :rf.causa/cancellation-cascade-open
+   :rf.causa/cancellation-cascade-set-expanded
+   :rf.causa/cancellation-cascade-toggle-expand
    ;; Causality popover events (rf2-dqnuu) — replace the dropped
    ;; Causality tab. See spec/018-Event-Spine.md §10.
    :rf.causa/causality-popover-close
@@ -276,6 +290,9 @@
    ;; (HANDLER DISPATCHED row dispatches this to pivot the spine).
    :rf.causa/focus-event
    :rf.causa/focus-slice-path
+   ;; rf2-59e7k — Cancellation-cascade row-click jump (delegates into
+   ;; :rf.causa/select-dispatch-id via the spine shim).
+   :rf.causa/focus-trace-entry
    :rf.causa/follow-head
    :rf.causa/hide-event-type
    :rf.causa/hydrate-filters
@@ -452,7 +469,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 104 subs + 126 events + 6 fxs"
+  (testing "registry holds exactly 119 subs + 140 events + 7 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -493,7 +510,13 @@
     ;;   share-url + share-copy-status.
     ;; + 1 managed-fx wire-boundary diff (rf2-uyp86):
     ;;   :rf.causa/managed-fx-for-focused-event composite sub.
-    (is (= 114 (count all-sub-names)))
+    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
+    ;;   :rf.causa/cancellation-cascade-popover-open? +
+    ;;   cancellation-cascade-popover-focus +
+    ;;   cancellation-cascade-expanded? +
+    ;;   cancellation-cascade-for-focused-machine +
+    ;;   cancellation-cascade-for-focused-event
+    (is (= 119 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -545,7 +568,12 @@
     ;;   correct count rises by 8 events; subs add another 9.
     ;; + 1 managed-fx cross-link (rf2-uyp86):
     ;;   :rf.causa/focus-event — HANDLER DISPATCHED row pivots the spine.
-    (is (= 135 (count all-event-names)))
+    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
+    ;;   :rf.causa/cancellation-cascade-open +
+    ;;   cancellation-cascade-close + cancellation-cascade-toggle-expand +
+    ;;   cancellation-cascade-set-expanded +
+    ;;   :rf.causa/focus-trace-entry (row-click jump shim).
+    (is (= 140 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
