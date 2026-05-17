@@ -242,7 +242,11 @@
    :rf.causa/views-expanded-rows
    :rf.causa/views-focused-cascade-pair
    :rf.causa/views-group-by
-   :rf.causa/views-heatmap?])
+   :rf.causa/views-heatmap?
+   ;; rf2-xjhhp Phase 2 — sub-output structural-diff composite for the
+   ;; Views row drilldown. Reuses the Phase 1 engine
+   ;; (`diff.annotated_tree` + `diff.section_grouping`).
+   :rf.causa/views-sub-diff-for-focused-event])
 
 (def ^:private all-event-names
   ;; Issues-ribbon panel-internal events (rf2-nmc1f) — nested under
@@ -545,7 +549,9 @@
     ;;   :rf.causa/selected-epoch-sections.
     ;; + 1 modal positioning (rf2-om6fa):
     ;;   :rf.causa/modal-positioning — Story-aware modal positioning opt.
-    (is (= 125 (count all-sub-names)))
+    ;; + 1 sub-output structural-diff composite (rf2-xjhhp Phase 2):
+    ;;   :rf.causa/views-sub-diff-for-focused-event.
+    (is (= 126 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -1617,7 +1623,11 @@
                       :rf.causa/performance-data
                       :rf.causa/machine-inspector-data
                       :rf.causa/schema-violation-timeline
-                      :rf.causa/views-data]]
+                      :rf.causa/views-data
+                      ;; rf2-xjhhp Phase 2 — sub-output structural diff
+                      ;; composite. Empty-frame contract: returns
+                      ;; `{:dispatch-id nil :records []}`.
+                      :rf.causa/views-sub-diff-for-focused-event]]
         (is (some? @(rf/subscribe [sub-id]))
             (str sub-id " must not throw on an empty frame"))))))
 

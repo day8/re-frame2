@@ -44,6 +44,7 @@
             ;; payloads. Per spec §Renderer the panel uses
             ;; `inspect-inline` for the one-line list cells and `inspect`
             ;; for the click-expand hero in the inline drilldown.
+            [day8.re-frame2-causa.panels.views-sub-diff :as sub-diff]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -205,15 +206,38 @@
 
 ;; ---- per-row body builders ---------------------------------------------
 
+(defn- relevant-sub-diff-records
+  "Filter the cascade-wide sub-diff records to subs in this row's
+  `invalidated-by` list. Sub-id match — args (`:query-v`) might
+  differ across consumers but the most common case is identical args
+  per row. Phase 2 v1 ships the cascade-wide records pre-filtered to
+  the row's invalidating subs; per-row sub-attribution lands when the
+  render-tracker emits `:owning-frame` (P17 wave)."
+  [records invalidated-by]
+  (let [wanted (set (keep :sub-id invalidated-by))]
+    (filterv (fn [rec] (contains? wanted (:sub-id rec))) records)))
+
 (defn- expanded-block
   "Inline expansion content per spec §Per-component drilldown — single-
   column block placed BELOW the row. v1 ships the structural
   scaffolding (props-diff section header, subs-consumed list,
   reason); the props-diff and React-fiber slots stay placeholder
-  until `theme/data_inspector.cljc` lands."
+  until `theme/data_inspector.cljc` lands.
+
+  ## Sub-output diff (rf2-xjhhp Phase 2)
+
+  Below the structural scaffolding we mount the sub-output structural
+  diff for the row's invalidating subs. Records come from
+  `:rf.causa/views-sub-diff-for-focused-event`; rendering goes
+  through the Phase 1 sections-per-cluster engine
+  (`day8.re-frame2-causa.diff.render/render-sections`) via the
+  thin `views-sub-diff/drilldown` wrapper."
   [item]
   (let [r (:render item)
-        invalidated-by (:invalidated-by item)]
+        invalidated-by (:invalidated-by item)
+        sub-diff-data @(rf/subscribe [:rf.causa/views-sub-diff-for-focused-event])
+        sub-records   (relevant-sub-diff-records (:records sub-diff-data)
+                                                 invalidated-by)]
     [:div {:data-testid "rf-causa-views-row-expanded"
            :style {:padding "8px 16px 12px 32px"
                    :background (:bg-1 tokens)
@@ -238,6 +262,12 @@
      (when (seq invalidated-by)
        [:div [:strong "Subs consumed"]
         (invalidated-by-list invalidated-by)])
+     ;; rf2-xjhhp Phase 2 — sub-output structural diff for the row's
+     ;; invalidating subs. The renderer ships an empty-state chip when
+     ;; no records remain after filtering (e.g. for parent-forced
+     ;; re-renders where no sub invalidated the row).
+     [:div [:strong "Sub-output diff"]
+      (sub-diff/drilldown sub-records)]
      [:div [:strong "Reason"]
       [:p {:style {:margin "4px 0"}}
        (cond
