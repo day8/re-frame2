@@ -15,6 +15,23 @@ Operational detail for **M-0 — the dep-coord swap**. This is the precondition 
 
 ## The coord swap (M-0)
 
+### Prerequisites — JS-level deps
+
+**React 18+ is required by `day8/re-frame2-reagent`.** The Reagent bridge adapter loads `reagent.dom.client` (the React-18 createRoot path); if the project's `package.json` pins `react`/`react-dom` below 18, the build either fails at module-resolve time or — worse — succeeds and crashes on first render with `createRoot is not a function`. Bump them in the same M-0 pass:
+
+```json
+"dependencies": {
+  "react":     "^18.3.1",
+  "react-dom": "^18.3.1"
+}
+```
+
+Then `npm install` (or the project's package manager equivalent) before the first dev build. UIx and Helix users hit the same floor — both require React 18+ — so the bump applies regardless of substrate. If the project is already on React 18+, leave it alone; do not downgrade.
+
+If the v1 codebase has its own hand-rolled `ReactDOM.render` call surviving anywhere (rare; usually wrapped by Reagent), flag it — `ReactDOM.render` is removed in React 18 and that call site needs to migrate to `createRoot` in the same pass. Most v1 codebases route through Reagent and never see this.
+
+### The swap itself
+
 v1 ships as `re-frame/re-frame`. v2 ships as a **pair** of artefacts at the same VERSION:
 
 - `day8/re-frame2` — the core (registry, drain, dispatch, subscribe, fx, the substrate-adapter contract).

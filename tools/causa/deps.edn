@@ -34,6 +34,25 @@
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
 
+         ;; Per rf2-5so8f — `day8/re-frame2-epoch` is a hard dep of Causa,
+         ;; not an optional add-on. The Causa preload `:require`s
+         ;; `re-frame.epoch` (see preload.cljs §rf2-1barg) so the Time
+         ;; Travel scrubber + causality graph have an epoch-history seed
+         ;; table to read from `rf/epoch-history` / `rf/register-epoch-cb!`.
+         ;; Without the artefact on the classpath the preload fails to
+         ;; compile in any downstream consumer build that doesn't
+         ;; coincidentally already declare `day8/re-frame2-epoch` — a
+         ;; silent footgun for migration authors following the skill doc.
+         ;;
+         ;; Spec C-000.27 forbids only *core* from transitively requiring
+         ;; per-feature namespaces; a downstream tool artefact pulling a
+         ;; per-feature artefact is allowed. Pay-as-you-go still holds at
+         ;; the level the user cares about: production builds never see
+         ;; Causa (per the `:devtools/preloads` gate + the
+         ;; `interop/debug-enabled?` elision in `re-frame.epoch`), and
+         ;; apps that don't install Causa don't get epoch unless they ask.
+         day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
+
          ;; Per rf2-wl5pa — Causa targets day8/reagent-slim (the rewrite)
          ;; rather than stock Reagent. Causa has zero direct `reagent.*`
          ;; requires under tools/causa/src/ (the dep is purely the
