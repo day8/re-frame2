@@ -1,5 +1,10 @@
 /*
- * Causa shell — browser smoke (rf2-s2bhn).
+ * Causa shell — browser smoke for the 4-layer-chrome refactor (rf2-xy4yb).
+ *
+ * Per `tools/causa/spec/018-Event-Spine.md` §2 the shell mounts four
+ * stacked layers — L1 ribbon, L2 event list, L3 tab bar, L4 detail
+ * panel. The legacy 16-panel sidebar + bottom rail is gone (spec/018
+ * §1 Non-goals).
  *
  * The :examples/counter shadow-cljs build pulls
  * day8.re-frame2-causa.preload into its :devtools/:preloads block (see
@@ -10,31 +15,27 @@
  *      :rf.causa/trace-collector.
  *   3. Attaches a global Ctrl+Shift+C keydown listener.
  *
- * The shell now mounts by default into the app-provided inline host
+ * The shell mounts by default into the app-provided inline host
  * (`[data-rf-causa-host]`) once the runtime is ready. Ctrl+Shift+C
  * toggles the already-mounted shell's visibility.
  *
- * This spec is the only test in the repo that exercises the full
- * mount → keybinding → substrate-adapter render → shell hiccup tree →
- * panel routing pipeline end-to-end. Node-test alone cannot drive it
- * (no DOM, no substrate render, no event loop). It covers:
+ * This spec covers the new 4-layer-chrome surface end-to-end:
  *
  *   1. Mount: Causa auto-mounts inline on page load.
- *   2. Sidebar: the default inline shell renders every panel entry.
- *   3. Panel handoff: clicking a sidebar entry switches the canvas to
- *      render that panel's distinctive `[data-testid]` element.
- *   4. Toggle off: a second Ctrl+Shift+C hides the shell's container
- *      (CSS-only display:none toggle per mount.cljs `set-visible!`).
+ *   2. Chrome: all four layers (ribbon, event list, tab bar, detail
+ *      panel) and the palette modal mount; legacy sidebar testids
+ *      are absent.
+ *   3. Ribbon: nav cluster, frame picker, filter pills, mode pill,
+ *      right-icons cluster all render.
+ *   4. Tab bar: all six tabs (Event / App-db / Views / Trace /
+ *      Machines / Issues) render and clicking each tab updates the
+ *      L4 detail panel's testid (`rf-causa-detail-panel-<tab>`).
  *   5. Live trace bus: with Causa visible, clicking the counter's '+'
- *      button produces a fresh trace row in the Trace panel — proves
- *      Causa is observing the framework's live trace bus.
+ *      button produces a fresh trace row visible in the Trace tab.
  *   6. [● REDACTED N] indicator: calling `config/note-suppressed!`
- *      from the page console bumps the bottom-rail's counter and
- *      the indicator re-renders IMMEDIATELY — proves the reactive
- *      wiring through the sub-graph (rf2-0vxdn — the call
- *      dispatches `:rf.causa/note-sensitive-suppressed` so the
- *      sub fires on the standard app-db write path; no host-
- *      dispatch workaround is required).
+ *      from the page console bumps the counter and the indicator
+ *      re-renders IMMEDIATELY (per rf2-0vxdn).
+ *   7. Toggle off: a second Ctrl+Shift+C hides the shell's container.
  */
 
 const { expectTextEquals, expectVisible } = require('../../../../examples/scripts/spec-helpers.cjs');
@@ -42,16 +43,16 @@ const { expectTextEquals, expectVisible } = require('../../../../examples/script
 const SHELL_TESTID = 'rf-causa-shell';
 const REDACTED_TESTID = 'rf-causa-redacted-indicator';
 
-// Sidebar entry id → the distinctive top-level testid the canvas
-// switches to when that entry is selected. Picked from each panel
-// view's outermost [:section {:data-testid ...}] wrapper.
-const PANEL_HANDOFFS = [
-  { id: 'event-detail', canvas: 'rf-causa-event-detail' },
-  { id: 'time-travel',  canvas: 'rf-causa-time-travel' },
-  { id: 'app-db',       canvas: 'rf-causa-app-db-diff' },
-  { id: 'causality',    canvas: 'rf-causa-causality-graph' },
-  { id: 'trace',        canvas: 'rf-causa-trace' },
-  { id: 'machines',     canvas: 'rf-causa-machine-inspector' },
+// Tab id → the L4 detail panel testid the panel renders when the tab
+// is active. The shell's `detail-panel` writes
+// `rf-causa-detail-panel-<tab-id>` per spec/018 §5.
+const TAB_HANDOFFS = [
+  { id: 'event',    panel: 'rf-causa-detail-panel-event' },
+  { id: 'app-db',   panel: 'rf-causa-detail-panel-app-db' },
+  { id: 'views',    panel: 'rf-causa-detail-panel-views' },
+  { id: 'trace',    panel: 'rf-causa-detail-panel-trace' },
+  { id: 'machines', panel: 'rf-causa-detail-panel-machines' },
+  { id: 'issues',   panel: 'rf-causa-detail-panel-issues' },
 ];
 
 module.exports = {
@@ -61,10 +62,6 @@ module.exports = {
     // ----------------------------------------------------------------
     // 1. Mount — counter is ready, Causa shell auto-mounted inline.
     // ----------------------------------------------------------------
-    //
-    // Wait for the counter to be interactive (asserts the page loaded
-    // and the substrate adapter installed via (rf/init! ...)), then
-    // assert Causa mounted into the explicit host beside the app.
     const span = page.locator('#app [data-testid="counter-value"]');
     await expectTextEquals(span, '5', 10000);
 
@@ -84,62 +81,67 @@ module.exports = {
       throw new Error(`Expected Causa to auto-mount in the inline host; got ${JSON.stringify(inline)}`);
     }
 
-    // Every sidebar entry from shell.cljs's `sidebar-items` should be
-    // present in the DOM — the sidebar is rendered eagerly even though
-    // only the selected panel's canvas hydrates.
-    const expectedSidebarIds = [
-      'event-detail', 'time-travel', 'app-db', 'causality', 'subs',
-      'fx', 'trace', 'machines', 'flows', 'routes', 'performance',
-      'issues', 'schemas', 'hydration', 'mcp-server',
-    ];
-    for (const id of expectedSidebarIds) {
-      const item = page.locator(`[data-testid="rf-causa-sidebar-item-${id}"]`);
-      if ((await item.count()) === 0) {
-        throw new Error(`Sidebar entry for "${id}" did not render`);
+    // ----------------------------------------------------------------
+    // 2. Chrome — the four layers + palette mount; legacy gone.
+    // ----------------------------------------------------------------
+    await expectVisible(page.locator(`[data-testid="rf-causa-ribbon"]`), 5000);
+    await expectVisible(page.locator(`[data-testid="rf-causa-event-list"]`), 5000);
+    await expectVisible(page.locator(`[data-testid="rf-causa-tab-bar"]`), 5000);
+    await expectVisible(page.locator(`[data-testid="rf-causa-detail-panel-event"]`), 5000);
+
+    const legacySidebarCount = await page.locator('[data-testid^="rf-causa-sidebar-item-"]').count();
+    if (legacySidebarCount !== 0) {
+      throw new Error(
+        `Expected no legacy sidebar rows post-rf2-xy4yb; got ${legacySidebarCount}. ` +
+        `spec/018 §2 removed the 16-panel sidebar.`,
+      );
+    }
+
+    // ----------------------------------------------------------------
+    // 3. Ribbon clusters — five fixed-order regions per spec/018 §3.
+    // ----------------------------------------------------------------
+    await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-nav"]`), 5000);
+    // frame cluster is either a label OR a select depending on count
+    const frameLabel = page.locator(`[data-testid="rf-causa-ribbon-frame"]`);
+    const framePicker = page.locator(`[data-testid="rf-causa-ribbon-frame-picker"]`);
+    const frameCount = (await frameLabel.count()) + (await framePicker.count());
+    if (frameCount === 0) {
+      throw new Error('Expected ribbon frame cluster (label or dropdown) to render');
+    }
+    await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-filters"]`), 5000);
+    await expectVisible(page.locator(`[data-testid="rf-causa-mode-pill"]`), 5000);
+    await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-icons"]`), 5000);
+
+    // ----------------------------------------------------------------
+    // 4. Tab bar — six tabs + L4 detail panel rebinding.
+    // ----------------------------------------------------------------
+    for (const { id, panel } of TAB_HANDOFFS) {
+      const tab = page.locator(`[data-testid="rf-causa-tab-${id}"]`);
+      if ((await tab.count()) === 0) {
+        throw new Error(`Tab button for "${id}" did not render`);
       }
     }
 
-    // ----------------------------------------------------------------
-    // 3. Panel handoff — clicking a sidebar entry swaps the canvas.
-    // ----------------------------------------------------------------
-    //
-    // The default landing panel is :event-detail (registry.cljs
-    // default-panel-id, per spec/007-UX-IA.md §Lock 7). Asserting it
-    // is visible without clicking covers the default path; the loop
-    // then clicks each remaining entry and verifies the canvas swap.
-    await expectVisible(
-      page.locator(`[data-testid="rf-causa-event-detail"]`),
-      5000,
-    );
-
-    for (const { id, canvas } of PANEL_HANDOFFS) {
-      await page.locator(`[data-testid="rf-causa-sidebar-item-${id}"]`).click();
-      await expectVisible(page.locator(`[data-testid="${canvas}"]`), 5000);
+    // Default landing tab is :event — already covered above; iterate
+    // through the others and confirm the L4 detail panel testid
+    // rebinds each time.
+    for (const { id, panel } of TAB_HANDOFFS) {
+      await page.locator(`[data-testid="rf-causa-tab-${id}"]`).click();
+      await expectVisible(page.locator(`[data-testid="${panel}"]`), 5000);
     }
+
+    // Snap back to the Event tab so subsequent steps land on a known
+    // surface.
+    await page.locator(`[data-testid="rf-causa-tab-event"]`).click();
+    await expectVisible(page.locator(`[data-testid="rf-causa-detail-panel-event"]`), 5000);
 
     // ----------------------------------------------------------------
     // 5. Live trace bus — counter click produces a Trace row.
     // ----------------------------------------------------------------
     //
-    // Done before the toggle-off step so the shell is still visible
-    // for the assertion. Select the Trace panel, snapshot the row
-    // count (the buffer is non-empty after init), click '+' on the
-    // counter, then assert the total count grew.
-    //
-    // The Trace panel renders a <ul data-testid="rf-causa-trace-feed">
-    // containing <li data-testid="rf-causa-trace-row-<id>">. The 'no
-    // events' / 'no matches' empty-state branches do NOT render the
-    // feed so its absence is a meaningful signal in its own right.
-    //
-    // Per the rigorous spec — we assert on the panel's `:total`
-    // count (read off `[data-testid="rf-causa-trace-counts"]`)
-    // rather than the DOM row count. The 200-row rendering cap +
-    // the per-row sub-element testid scheme (`-time`, `-operation`,
-    // etc all matching the `rf-causa-trace-row-` prefix) make the
-    // DOM count a noisy signal; `total` reflects the underlying
-    // buffer size which monotonically grows on every dispatch up
-    // to the 1000-event buffer cap.
-    await page.locator(`[data-testid="rf-causa-sidebar-item-trace"]`).click();
+    // Switch to the Trace tab so the Panel mounts, then count rows
+    // before / after a counter dispatch.
+    await page.locator(`[data-testid="rf-causa-tab-trace"]`).click();
     await expectVisible(page.locator(`[data-testid="rf-causa-trace"]`), 5000);
 
     const parseTotal = (text) => {
@@ -165,28 +167,14 @@ module.exports = {
     }
     if (totalAfter === totalBefore) {
       throw new Error(
-        `Trace panel total count did not change after dispatch (before=${totalBefore}, after=${totalAfter}).` +
-        ' Expected the counter +1 click to land at least one new event in Causa\'s trace buffer.',
+        `Trace panel total count did not change after dispatch (before=${totalBefore}, after=${totalAfter}).`,
       );
     }
 
     // ----------------------------------------------------------------
-    // 6. [● REDACTED N] indicator — config/note-suppressed! bumps
-    //     the counter and the bottom-rail hint re-renders
-    //     IMMEDIATELY (rf2-0vxdn).
+    // 6. [● REDACTED N] indicator — relocated to L1 ribbon next to
+    //     the mode pill per rf2-xy4yb (was on the dead bottom rail).
     // ----------------------------------------------------------------
-    //
-    // The collector path that emits this call is exercised by the
-    // node-test sensitive_trace_cljs_test.cljc; this browser-level
-    // assertion proves the reactive wiring through Causa's app-db
-    // slot, the subscription, and the shell's bottom-rail render.
-    //
-    // Per rf2-0vxdn `config/note-suppressed!` itself dispatches
-    // `:rf.causa/note-sensitive-suppressed` into `:rf/causa` (the
-    // atom-bump remains for JVM tests; the dispatch is the
-    // reactive surface for CLJS). The sub reads `:suppressed-
-    // counters` off Causa's app-db, so the indicator re-renders on
-    // the next React commit without any extra host dispatch.
     const noted = await page.evaluate(() => {
       const cfg =
         window.day8 &&
@@ -204,9 +192,6 @@ module.exports = {
       throw new Error(`Could not bump suppressed counter: ${noted.reason}`);
     }
 
-    // No host-dispatch workaround required — the bump itself
-    // dispatched `:rf.causa/note-sensitive-suppressed`, so the
-    // bottom-rail sub re-fired and the indicator is now visible.
     const redacted = page.locator(`[data-testid="${REDACTED_TESTID}"]`);
     await expectVisible(redacted, 5000);
     const redactedText = (await redacted.textContent()) || '';
@@ -217,19 +202,10 @@ module.exports = {
     }
 
     // ----------------------------------------------------------------
-    // 4. Toggle off — Ctrl+Shift+C hides the shell container.
+    // 7. Toggle off — Ctrl+Shift+C hides the shell container.
     // ----------------------------------------------------------------
-    //
-    // mount.cljs `close!` sets the container's display to 'none' rather
-    // than unmounting React, so the [data-testid="rf-causa-shell"]
-    // element still exists in the DOM tree but its enclosing
-    // <div id="rf-causa-root"> has display:none. We assert visibility
-    // is false on the root container.
     await page.keyboard.press('Control+Shift+C');
 
-    // Poll until the root container reports display:none — the
-    // toggle handler runs synchronously but the CSS update settles
-    // on the next paint.
     const start2 = Date.now();
     let display = null;
     while (Date.now() - start2 < 5000) {
@@ -244,8 +220,6 @@ module.exports = {
       throw new Error(`Expected #rf-causa-root display:none after second toggle; got "${display}".`);
     }
 
-    // Sanity — a second toggle re-opens the shell (CSS-only show, no
-    // re-mount per spec/007-UX-IA.md §The default landing view).
     await page.keyboard.press('Control+Shift+C');
     const display2 = await page.evaluate(() => {
       const root = document.getElementById('rf-causa-root');

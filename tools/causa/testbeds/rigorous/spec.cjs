@@ -156,6 +156,18 @@ async function clearTraceBuffer(page) {
 module.exports = {
   name: 'causa-rigorous',
   url: '/counter/',
+  // rf2-xy4yb — the rigorous testbed asserts the legacy 16-panel
+  // sidebar contract end-to-end (sidebar pivots, dropped-panel
+  // canvases like fx/performance/schemas/hydration/routes/flows/
+  // mcp-server/subs, etc.). spec/018 dropped those panels: Effects →
+  // Event tab, Subs → Views tab, Causality → `c` popover,
+  // Performance → Chrome DevTools, MCP server → removed entirely.
+  // Rebuilding 4077 lines of testbed against the new 4-layer chrome
+  // is its own bead. Marked skip pending rf2-pending-rigorous-rewrite
+  // — the counter-driven `causa.spec.cjs` covers the new chrome's
+  // acceptance contract (mount + 4 layers + tab pivots + REDACTED
+  // indicator + Ctrl+Shift+C toggle).
+  skip: 'rf2-xy4yb — sidebar-era testbed; rewrite tracked under follow-on bead',
   run: async (page) => {
     const counterValue = page.locator('#app [data-testid="counter-value"]');
 

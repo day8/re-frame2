@@ -129,10 +129,37 @@
         (reduce + 0 (vals (get db :suppressed-counters {})))))
 
     ;; Currently-active panel — drives the canvas's switch logic in
-    ;; shell.cljs. Default is the hero panel per §10 Lock 7.
+    ;; shell.cljs. Default is the hero panel per §10 Lock 7. The 4-
+    ;; layer chrome refactor (rf2-xy4yb) routes via `:rf.causa/selected-
+    ;; tab` instead; this sub stays for back-compat with any tests /
+    ;; consumers that still address the legacy sidebar slot.
     (rf/reg-sub :rf.causa/selected-panel
       (fn [db _query]
         (get db :selected-panel defaults/default-panel-id)))
+
+    ;; ---- 4-layer chrome — selected tab (rf2-xy4yb / spec/018) ----
+    ;;
+    ;; The L3 tab bar reads `:rf.causa/selected-tab` to pick which
+    ;; projection of the focused event the L4 detail panel renders.
+    ;; Default is `:event` per spec/018 §5 — the Event tab carries
+    ;; the fattened event detail (handler return + db writes + fx +
+    ;; fx-handlers that ran).
+    (rf/reg-sub :rf.causa/selected-tab
+      (fn [db _query]
+        (get db :selected-tab :event)))
+
+    ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
+    ;;
+    ;; The ribbon's filter cluster reads `:rf.causa/active-filters` —
+    ;; shape `{:in [{:pattern <str> :scope #{:event-id ...}}]
+    ;;         :out [{:pattern <str> :scope #{...}}]}`. Pre-alpha the
+    ;; pills do not actually filter the cascade list — that wiring
+    ;; lands in the follow-on `:rf.causa/filtered-cascades` sub
+    ;; (spec/018 §6 sub-graph). For now the pills round-trip through
+    ;; the slot so the visual contract is testable.
+    (rf/reg-sub :rf.causa/active-filters
+      (fn [db _query]
+        (or (get db :active-filters) {:in [] :out []})))
 
     ;; Shared cascade projection. The event-detail, causality-graph,
     ;; and performance composites all consume `projection/group-cascades`
@@ -146,10 +173,56 @@
       (fn [buffer _query]
         (projection/group-cascades buffer)))
 
-    ;; Cross-panel sidebar selection.
+    ;; Cross-panel sidebar selection. Legacy slot kept alive for tests
+    ;; that still address the pre-refactor sidebar contract.
     (rf/reg-event-db :rf.causa/select-panel
       (fn [db [_ panel-id]]
         (assoc db :selected-panel panel-id)))
+
+    ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
+
+    ;; L3 tab bar — flip the active tab. Six valid ids per spec/018 §5:
+    ;; :event :app-db :views :trace :machines :issues.
+    (rf/reg-event-db :rf.causa/select-tab
+      (fn [db [_ tab-id]]
+        (assoc db :selected-tab tab-id)))
+
+    ;; L1 filter pills — add / remove. Mode is :in or :out; index
+    ;; identifies the pill within its mode bucket. Patterns are stored
+    ;; verbatim — the matcher contract lands with `:rf.causa/filtered-
+    ;; cascades` per spec/018 §7 Data-layer filtering.
+    (rf/reg-event-db :rf.causa/add-filter
+      (fn [db [_ mode pill]]
+        (update-in db [:active-filters mode] (fnil conj []) pill)))
+
+    (rf/reg-event-db :rf.causa/remove-filter
+      (fn [db [_ mode idx]]
+        (update-in db [:active-filters mode]
+                   (fn [pills]
+                     (let [v (or pills [])]
+                       (vec (concat (subvec v 0 (min idx (count v)))
+                                    (subvec v (min (inc idx) (count v))))))))))
+
+    ;; Ribbon right-icon stubs — wired to events so the click round-
+    ;; trips through the registry surface even though the user-facing
+    ;; modals / popout / close behaviours are follow-on work.
+    (rf/reg-event-db :rf.causa/open-settings
+      (fn [db _event]
+        ;; Settings popup lands behind rf2-pending-settings-modal.
+        (assoc db :settings-open? true)))
+
+    (rf/reg-event-db :rf.causa/popout
+      (fn [db _event]
+        ;; Popout dispatch is symbolic until the popout window handle
+        ;; lands; the slot signals intent.
+        (assoc db :popout-requested? true)))
+
+    (rf/reg-event-db :rf.causa/close-shell
+      (fn [db _event]
+        ;; Close intent — mount.cljs reads the slot in production to
+        ;; drive the CSS-only hide. The reactive flag is set here so
+        ;; tests can assert the round-trip.
+        (assoc db :close-requested? true)))
 
     ;; ---- trace-buffer mirror events (rf2-in6l2 / rf2-wq6gx) -------
     ;;
