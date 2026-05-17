@@ -60,6 +60,7 @@
   `trace_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as cch]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
@@ -272,7 +273,12 @@
            source-coord dispatch-id]
     :as row}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
-        dot-colour  (h/op-type-colour op-type)]
+        dot-colour  (h/op-type-colour op-type)
+        ;; rf2-59e7k — destroy-event rows surface a 'Show cancellation
+        ;; cascade' action button next to the source-coord cell. The
+        ;; classifier mirrors helpers/destroy-operations so the trace
+        ;; ns has no upward dep on the cascade view.
+        destroy?    (cch/destroy-event? {:operation operation})]
     [:li {:key         (h/row-key row)
           :data-testid row-test-id
           :on-click    (fn []
@@ -281,9 +287,17 @@
                                          dispatch-id frame] {:frame :rf/causa})
                            (rf/dispatch [:rf.causa/select-panel
                                          :event-detail] {:frame :rf/causa})))
+          :on-context-menu (when destroy?
+                             (fn [e]
+                               (.preventDefault e)
+                               (.stopPropagation e)
+                               (rf/dispatch
+                                 [:rf.causa/cancellation-cascade-open
+                                  {:kind :dispatch-id :id dispatch-id}]
+                                 {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns
-                        "84px 14px minmax(140px, 1fr) 2fr auto auto"
+                        "84px 14px minmax(140px, 1fr) 2fr auto auto auto"
                         :gap           "10px"
                         :align-items   "center"
                         :padding       "6px 16px"
@@ -355,7 +369,34 @@
         source-coord]
        [:span {:style {:color (:text-tertiary tokens)
                        :font-size "10px"}}
-        "—"])]))
+        "—"])
+     ;; rf2-59e7k cancellation-cascade action (destroy rows only).
+     ;; Opens the popover focused on this row's dispatch-id. Right-
+     ;; clicking the row anywhere is the same action — this button is
+     ;; the visible affordance for the same shortcut.
+     (if destroy?
+       [:button {:data-testid (str row-test-id "-cancellation-cascade")
+                 :title       "Show cancellation cascade"
+                 :on-click    (fn [e]
+                                (.stopPropagation e)
+                                (rf/dispatch
+                                  [:rf.causa/cancellation-cascade-open
+                                   {:kind :dispatch-id :id dispatch-id}]
+                                  {:frame :rf/causa}))
+                 :style       {:background  "transparent"
+                               :color       (or (:red tokens)
+                                                (:text-secondary tokens))
+                               :border      (str "1px solid " (:border-subtle tokens))
+                               :padding     "1px 6px"
+                               :border-radius "3px"
+                               :cursor      "pointer"
+                               :font-family mono-stack
+                               :font-size   "10px"}}
+        "⟲ cascade"]
+       [:span {:style {:color (:text-tertiary tokens)
+                       :font-size "10px"
+                       :min-width "10px"}}
+        ""])]))
 
 ;; ---- empty states -------------------------------------------------------
 

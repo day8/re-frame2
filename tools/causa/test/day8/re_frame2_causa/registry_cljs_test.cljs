@@ -104,6 +104,14 @@
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
    :rf.causa/cascades
+   ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
+   ;; tab side-panel + Trace popover). Per
+   ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
+   :rf.causa/cancellation-cascade-expanded?
+   :rf.causa/cancellation-cascade-for-focused-event
+   :rf.causa/cancellation-cascade-for-focused-machine
+   :rf.causa/cancellation-cascade-popover-focus
+   :rf.causa/cancellation-cascade-popover-open?
    ;; :rf.causa/causality-graph-data removed with rf2-dqnuu — the
    ;; Causality panel was replaced by the c-key popover; the popover's
    ;; payload sub `:rf.causa/causality-popover-payload` stands in for
@@ -236,6 +244,12 @@
    :rf.causa.issues/toggle-severity
    :rf.causa/add-filter
    :rf.causa/bump-restore-epoch-tick
+   ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
+   ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
+   :rf.causa/cancellation-cascade-close
+   :rf.causa/cancellation-cascade-open
+   :rf.causa/cancellation-cascade-set-expanded
+   :rf.causa/cancellation-cascade-toggle-expand
    ;; Causality popover events (rf2-dqnuu) — replace the dropped
    ;; Causality tab. See spec/018-Event-Spine.md §10.
    :rf.causa/causality-popover-close
@@ -271,6 +285,9 @@
    :rf.causa/focus-cascade-next
    :rf.causa/focus-cascade-prev
    :rf.causa/focus-slice-path
+   ;; rf2-59e7k — Cancellation-cascade row-click jump (delegates into
+   ;; :rf.causa/select-dispatch-id via the spine shim).
+   :rf.causa/focus-trace-entry
    :rf.causa/follow-head
    :rf.causa/hide-event-type
    :rf.causa/hydrate-filters
@@ -486,7 +503,13 @@
     ;;   machine-arc-highlight-state + machine-arc-hover +
     ;;   machine-scrubber-position + share-modal-open? + share-state +
     ;;   share-url + share-copy-status.
-    (is (= 113 (count all-sub-names)))
+    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
+    ;;   :rf.causa/cancellation-cascade-popover-open? +
+    ;;   cancellation-cascade-popover-focus +
+    ;;   cancellation-cascade-expanded? +
+    ;;   cancellation-cascade-for-focused-machine +
+    ;;   cancellation-cascade-for-focused-event
+    (is (= 118 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -536,7 +559,12 @@
     ;;   restore-from-share-url (8 share/arc events) + the
     ;;   arc-data implicit composite has no event of its own. The
     ;;   correct count rises by 8 events; subs add another 9.
-    (is (= 134 (count all-event-names)))
+    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
+    ;;   :rf.causa/cancellation-cascade-open +
+    ;;   cancellation-cascade-close + cancellation-cascade-toggle-expand +
+    ;;   cancellation-cascade-set-expanded +
+    ;;   :rf.causa/focus-trace-entry (row-click jump shim).
+    (is (= 139 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
