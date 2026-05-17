@@ -102,21 +102,40 @@
   (rf/dispatch-sync
     [:rf.causa/set-machine-snapshots-override-for-test snapshots]))
 
+(defn- override-definitions! [definitions]
+  (rf/dispatch-sync
+    [:rf.causa/set-machine-definitions-override-for-test definitions]))
+
+(def ^:private fixture-definition
+  {:initial :idle
+   :states  {:idle    {:on {:start :authing}}
+             :authing {:on {:ok :done :err :failed}}
+             :done    {:final? true}
+             :failed  {:final? true}}})
+
 ;; ---- (1) registry wiring ------------------------------------------------
 
 (deftest registry-installs-machine-inspector-handlers
-  (testing "register-causa-handlers! installs every rf2-r9f9u handler"
+  (testing "register-causa-handlers! installs every rf2-r9f9u handler
+            (plus the rf2-2tkza Phase 1 chart + Mode A/B additions)"
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/registered-machines)))
     (is (some? (registrar/handler :sub :rf.causa/machine-snapshots)))
+    (is (some? (registrar/handler :sub :rf.causa/machine-definitions)))
+    (is (some? (registrar/handler :sub :rf.causa/machine-definitions-override)))
     (is (some? (registrar/handler :sub :rf.causa/selected-machine-id)))
     (is (some? (registrar/handler :sub :rf.causa/machine-inspector-data)))
     (is (some? (registrar/handler :event :rf.causa/select-machine-id)))
     (is (some? (registrar/handler :event :rf.causa/clear-machine-selection)))
+    (is (some? (registrar/handler :event :rf.causa/machine-state-clicked))
+        "rf2-2tkza Phase 1: chart click → source-coord jump trigger")
     (is (some? (registrar/handler
                  :event :rf.causa/set-registered-machines-override-for-test)))
     (is (some? (registrar/handler
-                 :event :rf.causa/set-machine-snapshots-override-for-test)))))
+                 :event :rf.causa/set-machine-snapshots-override-for-test)))
+    (is (some? (registrar/handler
+                 :event :rf.causa/set-machine-definitions-override-for-test))
+        "rf2-2tkza Phase 1: definitions test override hook")))
 
 (deftest composite-defaults-to-empty-when-no-override
   (testing "with an empty machines override the composite returns the
@@ -216,9 +235,10 @@
                      tree "rf-causa-machine-inspector-placeholder-banner"))
             "placeholder banner present — surfaces the deferred impl")))))
 
-(deftest placeholder-shows-prop-summary-with-selection
-  (testing "the placeholder renders the MachineChart prop summary for
-            the selected machine — the contract is what matters at v1"
+(deftest placeholder-falls-back-to-prop-summary-without-definition
+  (testing "when no machine-definition is available (no introspection
+            metadata), the panel falls back to the prop-summary
+            view so the panel still renders something useful"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines!  [:auth/login])
@@ -227,6 +247,35 @@
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-placeholder")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-machine-id")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-frame-id")))))))
+
+(deftest chart-renders-when-definition-is-available
+  (testing "with the definitions override populated, the panel renders
+            the live SVG chart instead of the prop-summary fallback"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-snapshots!   {:auth/login {:state :authing :data {}}})
+      (override-definitions! {:auth/login fixture-definition})
+      (let [tree (machine-inspector/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-chart"))
+            "the chart container replaces the prop-summary fallback")
+        (is (some? (find-by-testid tree "rf-causa-chart-svg"))
+            "the SVG primitive emits a root <svg>")
+        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-placeholder"))
+            "the fallback is suppressed when a definition is available")))))
+
+(deftest chart-highlights-active-state-from-snapshot
+  (testing "the chart's root data-highlight-id matches the snapshot's :state"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-snapshots!   {:auth/login {:state :authing :data {}}})
+      (override-definitions! {:auth/login fixture-definition})
+      (let [tree (machine-inspector/Panel)
+            chart (find-by-testid tree "rf-causa-machine-inspector-chart")]
+        (is (some? chart))
+        (is (= "authing" (:data-highlight-id (second chart)))
+            "the chart container carries the resolved highlight-id")))))
 
 ;; ---- (5) transition history ribbon --------------------------------------
 
@@ -291,6 +340,50 @@
             (when handler (handler))))
         (is (some #(= [:rf.causa/select-dispatch-id "d-42"] %) @dispatches)
             "select-dispatch-id fired with the dispatch-id from the trace event")))))
+
+;; ---- (5b) Mode A / Mode B (UC2 dynamic instance modes) ----------------
+
+(deftest view-mode-helper-routes-by-instance-count
+  (testing "the view-mode classifier returns :mode-a / :mode-b / :mode-c
+            per spec/003-Machine-Inspector.md §UC2"
+    (is (= :mode-a (machine-inspector/view-mode 0)))
+    (is (= :mode-a (machine-inspector/view-mode nil)))
+    (is (= :mode-b (machine-inspector/view-mode 1)))
+    (is (= :mode-b (machine-inspector/view-mode 3)))
+    (is (= :mode-c (machine-inspector/view-mode 4)))
+    (is (= :mode-c (machine-inspector/view-mode 100)))))
+
+(deftest mode-a-renders-when-no-snapshot-state
+  (testing "with a registered machine but no snapshot :state, the panel
+            renders in Mode A (definition view; instance-tabs hidden)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (let [tree (machine-inspector/Panel)
+            root (find-by-testid tree "rf-causa-machine-inspector")]
+        (is (= "mode-a" (:data-view-mode (second root))))
+        (is (= 0 (:data-instance-count (second root))))
+        (is (nil? (find-by-testid
+                    tree "rf-causa-machine-inspector-instance-tabs"))
+            "instance-tabs strip is hidden in Mode A")))))
+
+(deftest mode-b-renders-instance-tabs-when-snapshot-present
+  (testing "with a registered machine + a live snapshot, the panel
+            renders in Mode B (instance tabs visible above the chart)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-snapshots!   {:auth/login {:state :authing :data {}}})
+      (override-definitions! {:auth/login fixture-definition})
+      (let [tree (machine-inspector/Panel)
+            root (find-by-testid tree "rf-causa-machine-inspector")
+            tabs (find-by-testid
+                   tree "rf-causa-machine-inspector-instance-tabs")]
+        (is (= "mode-b" (:data-view-mode (second root))))
+        (is (= 1 (:data-instance-count (second root))))
+        (is (some? tabs) "instance-tabs strip is present in Mode B")
+        (is (= "mode-b" (:data-mode (second tabs))))))))
 
 ;; ---- (6) frame isolation ------------------------------------------------
 
