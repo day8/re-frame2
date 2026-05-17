@@ -75,6 +75,7 @@
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout]]))
 
@@ -206,6 +207,27 @@
                             :border      (str "1px solid " pill-tone)
                             :border-radius "10px"}}
        (mode-pill-text focus)]
+      ;; Settings cog (rf2-9poxq) — opens the Settings popup modal.
+      ;; Per spec/018 §3 right-icons cluster the icon is the `⚙`
+      ;; glyph; this is a button rather than a plain `<span>` for
+      ;; native keyboard activation + a meaningful screen-reader
+      ;; label. Click dispatches `:rf.causa/settings-open`; the
+      ;; Modal mounted at the shell-view root reads
+      ;; `:rf.causa/settings-open?` and renders / unmounts itself.
+      [:button {:data-testid "rf-causa-settings-cog"
+                :title       "Open Causa settings"
+                :aria-label  "Open Causa settings"
+                :on-click    #(rf/dispatch [:rf.causa/settings-open]
+                                           {:frame :rf/causa})
+                :style       {:background  "transparent"
+                              :border      "none"
+                              :color       (:text-secondary tokens)
+                              :cursor      "pointer"
+                              :font-size   "16px"
+                              :line-height 1
+                              :padding     "2px 6px"
+                              :border-radius "3px"}}
+       "⚙"]
       [:span {:style {:color (:text-secondary tokens)}}
        "Ctrl+Shift+C to toggle"]]]))
 
@@ -455,5 +477,10 @@
     ;; overlays the chrome + panels. The Modal short-circuits to nil
     ;; when `:rf.causa/palette-open?` is false; closed-state cost is
     ;; a single subscribe + when-gate.
-    [palette/Modal]]])
+    [palette/Modal]
+    ;; Settings popup (rf2-9poxq) — same mount discipline as the
+    ;; palette: shell-root mount so subscribes resolve through the
+    ;; shell's `:rf/causa` frame-provider, and the modal short-
+    ;; circuits to nil when `:rf.causa/settings-open?` is false.
+    [settings-popup/Modal]]])
 

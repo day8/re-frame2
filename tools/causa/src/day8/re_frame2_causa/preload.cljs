@@ -72,9 +72,11 @@
             ;; (gated by shadow-cljs `:devtools/preloads`) so this
             ;; require is excluded from production bundles.
             [re-frame.trace.tooling :as trace-tooling]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.keybinding :as keybinding]
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.settings.effects :as settings-effects]
             ;; rf2-8xzoe.4 (F-4) — pull the Causa-MCP injected-runtime
             ;; namespace into the preload classpath. The `:require` is the
             ;; load: `day8.re-frame2-causa.runtime` installs its
@@ -226,9 +228,22 @@
 ;; tree-shaking).
 
 (when interop/debug-enabled?
+  ;; Settings persistence (rf2-9poxq) — load BEFORE registry install
+  ;; so the first sub read from the popup's events lands on the
+  ;; persisted values, not on the defaults.
+  (config/load-settings-from-storage!)
   (registry/register-causa-handlers!)
   (register-trace-collector!)
   (register-epoch-collector!)
   (install-browser-api-exports!)
   (keybinding/attach!)
+  ;; Apply the persisted CSS-var + theme-class effects. The shell
+  ;; root may not exist yet (auto-open is async) — apply-all! no-ops
+  ;; on a missing root; the events handler re-applies on every
+  ;; subsequent update.
+  (settings-effects/apply-all!)
+  ;; Auto-open-on-error watcher (rf2-9poxq) — installs the sub
+  ;; watcher against `:rf.causa/issues-ribbon`. Per-tick the watch
+  ;; fn short-circuits when the user has the toggle off.
+  (settings-effects/install-auto-open-watcher!)
   (mount/auto-open-inline!))
