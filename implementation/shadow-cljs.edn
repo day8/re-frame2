@@ -129,6 +129,27 @@
                 [com.pitch/uix.dom  "1.4.4"]
                 [lilactown/helix   "0.2.2"]]
 
+ ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
+ ;; map binds a port to a list of file roots; the dev server cascades
+ ;; through the roots in order, returning the first match. Used here for
+ ;; the :testbeds/panel-gallery build so `npx shadow-cljs watch
+ ;; :testbeds/panel-gallery` is a one-command UX — open
+ ;; http://localhost:8765 and the testbed loads.
+ ;;
+ ;; The two roots cascade:
+ ;;   1. ../tools/causa/testbeds/panel_gallery — source dir with the
+ ;;      hand-written index.html (under version control).
+ ;;   2. out/testbeds/panel-gallery — shadow's :output-dir with the
+ ;;      compiled main.js + cljs-runtime/.
+ ;;
+ ;; The order matters: shadow's push-state handler serves index.html
+ ;; for `/` (when Accept: text/html — every browser sends this) by
+ ;; scanning roots in order. Putting the source dir FIRST means the
+ ;; index.html is found without a copy step; per-file requests like
+ ;; /main.js fall through to the second root automatically.
+ :dev-http {8765 ["../tools/causa/testbeds/panel_gallery"
+                  "out/testbeds/panel-gallery"]}
+
  :builds
  {:node-test
   {:target    :node-test
@@ -422,6 +443,9 @@
   ;; <panel>_stories.cljs to this same testbed (one URL, one workspace
   ;; mega-grid). No Causa preload — the gallery embeds bare panels
   ;; inside Story variants and never mounts Causa's own shell.
+  ;;
+  ;; Served at http://localhost:8765 via the top-level `:dev-http` map
+  ;; (rf2-aqcix) — see the docstring on that key for the cascade rationale.
   :testbeds/panel-gallery
   {:target     :browser
    :output-dir "out/testbeds/panel-gallery"
