@@ -162,6 +162,16 @@
   (reset! elk-state nil)
   nil)
 
+(defn force-elk-failed-for-test!
+  "Force the loader state into the `:failed` shape — test / gallery
+  only. Pins the popover's render path to the failed-fallback branch
+  (flat list + 'Causality graph unavailable' footer) without running
+  a real import. Idempotent."
+  ([] (force-elk-failed-for-test! "forced fallback"))
+  ([reason]
+   (reset! elk-state {:failed reason})
+   nil))
+
 ;; ---- ELK layout sub-cache -----------------------------------------------
 
 (defonce ^:private layout-cache
