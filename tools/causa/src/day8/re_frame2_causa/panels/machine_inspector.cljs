@@ -77,6 +77,7 @@
             [day8.re-frame2-causa.chart.layout :as chart-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
+            [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -132,13 +133,14 @@
 (defn- placeholder-banner
   "Header above the chart canvas. Per spec/003-Machine-Inspector.md
   §Definition view this banner names the current selection and (when
-  no live instances exist) nudges Sim mode (deferred to a follow-on
-  bead — the toggle stub renders disabled with a tooltip).
+  no live instances exist) nudges Sim mode. rf2-v869p Phase 2 wires
+  the toggle through to the `:rf.causa/sim-start` / `sim-stop` events
+  (rf2-2tkza Phase 1 shipped the toggle stub).
 
   The fn keeps its historical name (`placeholder-banner`) so existing
   tests pin it via testid; the user-visible text reflects what is
   now actually shown — the rendered chart with live highlighting."
-  [{:keys [machine-id state instance-count]}]
+  [{:keys [machine-id state instance-count definition sim-active?]}]
   [:div {:data-testid "rf-causa-machine-inspector-placeholder-banner"
          :style       {:padding "10px 12px"
                        :margin "10px 12px 0 12px"
@@ -146,7 +148,10 @@
                        :align-items "center"
                        :justify-content "space-between"
                        :gap "12px"
-                       :border (str "1px solid " (:border-subtle tokens))
+                       :border (str "1px solid "
+                                    (if sim-active?
+                                      (:yellow tokens)
+                                      (:border-subtle tokens)))
                        :border-radius "4px"
                        :background (:bg-1 tokens)
                        :color (:text-secondary tokens)
@@ -154,32 +159,75 @@
                        :font-size "11px"
                        :line-height 1.5}}
    [:div
-    [:strong {:style {:color (:accent-violet tokens)
+    [:strong {:style {:color (if sim-active?
+                               (:yellow tokens)
+                               (:accent-violet tokens))
                       :font-weight 600
                       :font-size "11px"
                       :text-transform "uppercase"
                       :letter-spacing "0.5px"}}
-     "Definition view"]
+     (if sim-active? "Sim ●  Definition view" "Definition view")]
     [:p {:style {:margin "4px 0 0 0"
                  :color (:text-tertiary tokens)}}
-     (if (zero? (or instance-count 0))
+     (cond
+       sim-active?
        (str (h/format-machine-id machine-id)
-            " — 0 live instances (toggle Sim ○ to walk topology — coming soon)")
+            " — sim mode active; clicks walk the topology against a clone")
+
+       (zero? (or instance-count 0))
+       (str (h/format-machine-id machine-id)
+            " — 0 live instances "
+            (if definition
+              "(toggle Sim ▶︎ to walk topology)"
+              "(no introspectable definition — Sim unavailable)"))
+
+       :else
        (str (h/format-machine-id machine-id)
             " — current state: "
             (h/format-state state)))]]
-   ;; Sim toggle stub (rf2-2tkza Phase 2 will wire this)
-   [:span {:data-testid "rf-causa-machine-inspector-sim-toggle"
-           :title       "Sim mode coming soon — Phase 2 (rf2-2tkza)"
-           :style       {:color (:text-tertiary tokens)
-                         :font-family mono-stack
-                         :font-size "11px"
-                         :padding "2px 8px"
-                         :border (str "1px solid " (:border-subtle tokens))
-                         :border-radius "10px"
-                         :cursor "not-allowed"
-                         :opacity 0.6}}
-    "Sim ○"]])
+   ;; Sim toggle — active when a definition is available (rf2-v869p Phase 2).
+   (let [enabled? (some? definition)]
+     [:button
+      {:data-testid "rf-causa-machine-inspector-sim-toggle"
+       :on-click    (when enabled?
+                      (fn [_]
+                        (if sim-active?
+                          (rf/dispatch
+                            [:rf.causa/sim-stop {:machine-id machine-id}]
+                            {:frame :rf/causa})
+                          (rf/dispatch
+                            [:rf.causa/sim-start
+                             {:machine-id machine-id
+                              :definition definition}]
+                            {:frame :rf/causa}))))
+       :title       (cond
+                      (not enabled?) "Sim requires an introspectable machine definition"
+                      sim-active?    "Exit sim — disposes the cloned snapshot"
+                      :else          "Enter sim — clones the machine + walks transitions interactively")
+       :data-active (str (boolean sim-active?))
+       :style       {:color (cond
+                              (not enabled?) (:text-tertiary tokens)
+                              sim-active?    "#1c2030"
+                              :else          (:yellow tokens))
+                     :background (cond
+                                   (not enabled?) "transparent"
+                                   sim-active?    (:yellow tokens)
+                                   :else          "transparent")
+                     :font-family mono-stack
+                     :font-size "11px"
+                     :font-weight 600
+                     :padding "3px 10px"
+                     :border (str "1px solid "
+                                  (cond
+                                    (not enabled?) (:border-subtle tokens)
+                                    :else          (:yellow tokens)))
+                     :border-radius "10px"
+                     :cursor (if enabled? "pointer" "not-allowed")
+                     :opacity (if enabled? 1 0.6)}}
+      (cond
+        sim-active?    "Sim ●"
+        enabled?       "Sim ▶︎"
+        :else          "Sim ○")])])
 
 (defn- prop-row
   "One labelled row inside the prop summary (used for the metadata
@@ -235,43 +283,57 @@
   `chart/svg.cljc`. Live state highlighting reflects the snapshot's
   `:state` slot. The fn keeps the historical name `placeholder-chart`
   so existing tests pin it via testid; the user-visible surface is now
-  the real chart, not a prop summary."
-  [props]
-  (cond
-    (nil? props)
-    [:div {:data-testid "rf-causa-machine-inspector-placeholder-empty"
-           :style       {:padding "16px"
-                         :color (:text-tertiary tokens)
-                         :font-family sans-stack
-                         :font-size "12px"}}
-     "No machine selected — nothing to chart."]
+  the real chart, not a prop summary.
 
-    (nil? (:definition props))
-    (chart-fallback props)
+  Phase 2 (rf2-v869p): when `sim-snapshot` is non-nil the chart's
+  highlight is sourced from the sim snapshot and the `:sim?` flag is
+  flipped on `chart/svg.cljc`'s renderer so the highlight palette
+  shifts from cyan (live) to amber (sim) per design §5."
+  ([props] (placeholder-chart props nil))
+  ([props sim-snapshot]
+   (cond
+     (nil? props)
+     [:div {:data-testid "rf-causa-machine-inspector-placeholder-empty"
+            :style       {:padding "16px"
+                          :color (:text-tertiary tokens)
+                          :font-family sans-stack
+                          :font-size "12px"}}
+      "No machine selected — nothing to chart."]
 
-    :else
-    (let [definition  (:definition props)
-          override    (:current-state-override props)
-          state-value (:state override)
-          highlight-id (chart-layout/highlight-id state-value)]
-      [:div {:data-testid "rf-causa-machine-inspector-chart"
-             :data-machine-id (str (:machine-id props))
-             :data-highlight-id (or highlight-id "")
-             :style       {:margin "12px"
-                           :padding "12px"
-                           :background (:bg-1 tokens)
-                           :border (str "1px solid " (:border-subtle tokens))
-                           :border-radius "4px"
-                           :overflow "auto"}}
-       (chart-svg/render-from-definition
-         definition
-         {:highlight-id   highlight-id
-          :on-state-click (fn [path]
-                            (rf/dispatch
-                              [:rf.causa/machine-state-clicked
-                               {:machine-id (:machine-id props)
-                                :path       path}]
-                              {:frame :rf/causa}))})])))
+     (nil? (:definition props))
+     (chart-fallback props)
+
+     :else
+     (let [definition   (:definition props)
+           sim?         (some? sim-snapshot)
+           override     (:current-state-override props)
+           state-value  (if sim?
+                          (:state sim-snapshot)
+                          (:state override))
+           highlight-id (chart-layout/highlight-id state-value)]
+       [:div {:data-testid "rf-causa-machine-inspector-chart"
+              :data-machine-id (str (:machine-id props))
+              :data-highlight-id (or highlight-id "")
+              :data-sim-active (str sim?)
+              :style       {:margin "12px"
+                            :padding "12px"
+                            :background (:bg-1 tokens)
+                            :border (str "1px solid "
+                                         (if sim?
+                                           (:yellow tokens)
+                                           (:border-subtle tokens)))
+                            :border-radius "4px"
+                            :overflow "auto"}}
+        (chart-svg/render-from-definition
+          definition
+          {:highlight-id   highlight-id
+           :sim?           sim?
+           :on-state-click (fn [path]
+                             (rf/dispatch
+                               [:rf.causa/machine-state-clicked
+                                {:machine-id (:machine-id props)
+                                 :path       path}]
+                               {:frame :rf/causa}))})]))))
 
 ;; ---- transition history ribbon ------------------------------------------
 
@@ -447,10 +509,17 @@
         ;; follow-on bead replaces this with `count` over the spawned-
         ;; instances vector.
         instance-count (if (and selected (:state selected)) 1 0)
-        mode           (view-mode instance-count)]
+        mode           (view-mode instance-count)
+        ;; Phase 2 (rf2-v869p): pull sim state via the per-machine sub.
+        ;; When active, the chart highlight + banner shift to sim mode
+        ;; and the side rail mounts between the chart and the ribbon.
+        sim-state      @(rf/subscribe [:rf.causa/sim-state])
+        sim-active?    (boolean (:active? sim-state))
+        sim-snapshot   (when sim-active? (:snapshot sim-state))]
     [:section {:data-testid "rf-causa-machine-inspector"
                :data-view-mode (name mode)
                :data-instance-count instance-count
+               :data-sim-active (str sim-active?)
                :style       {:height         "100%"
                              :display        "flex"
                              :flex-direction "column"
@@ -478,8 +547,12 @@
          (placeholder-banner
            {:machine-id     (:machine-id selected)
             :state          (:state selected)
-            :instance-count instance-count})
-         (placeholder-chart chart-props)]
+            :instance-count instance-count
+            :definition     (:definition selected)
+            :sim-active?    sim-active?})
+         (placeholder-chart chart-props sim-snapshot)
+         (when sim-active?
+           [sim/SimSideRail])]
         (transition-ribbon transitions)])]))
 
 ;; ---- registration entry --------------------------------------------------
@@ -639,4 +712,13 @@
   ;; without an editor-jump side effect leaking into smoke tests.
   (rf/reg-event-db :rf.causa/machine-state-clicked
     (fn [db [_ _payload]]
-      db)))
+      db))
+
+  ;; ---- Phase 2 (rf2-v869p) — UC1 Sim sub-mode ---------------------
+  ;;
+  ;; The sim sub family lives in its own ns
+  ;; (`panels/machine_inspector_sim.cljs`) so the panel ns stays
+  ;; focused on the live observation chrome. The sim install fn
+  ;; registers `:rf.causa/sim-*` events + subs against the same
+  ;; `:rf/causa` frame the panel reads.
+  (sim/install!))
