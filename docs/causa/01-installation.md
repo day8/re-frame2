@@ -29,9 +29,10 @@ second — flex flow puts the aside to the right of the app column:
 ```
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;            /* the 1px border lives inside the
                                         documented width */

@@ -76,9 +76,10 @@ right-side host to the app layout (DOM order: `<main>` first, host
 ```
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
@@ -93,7 +94,7 @@ browser-native, both JS-free:
 
 - **CSS variable** (host-owned). Override `--rf-causa-inline-width`
   anywhere up the cascade (e.g.
-  `:root { --rf-causa-inline-width: 560px; }`) to set the initial
+  `:root { --rf-causa-inline-width: 720px; }`) to set the initial
   width.
 - **Browser-native drag** (user-controlled). `resize: horizontal` +
   `overflow: auto` give the host a drag-handle in the bottom corner;

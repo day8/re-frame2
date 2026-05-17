@@ -71,9 +71,10 @@ Add a left-side host to the app's HTML and CSS:
 ```
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — host stylesheets read var(--rf-causa-accent) to tint dev chrome */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
 }
 #app { flex: 1; min-width: 0; }

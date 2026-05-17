@@ -42,11 +42,18 @@ cycle re-runs without double-registration:
    before adapter readiness (e.g. Story-only tool pages).
 
 The layout host is sized by the host's stylesheet; the recommended
-rule reads `var(--rf-causa-inline-width, 420px)` for its
+rule reads `var(--rf-causa-inline-width, 560px)` for its
 `flex-basis` so developers can resize the inline panel by
 overriding a single CSS custom property anywhere up the cascade
-(rf2-um813). Causa itself does not read or set the property — the
-host's stylesheet is the single source of truth for inline width.
+(rf2-um813; default bumped 420 → 560 under rf2-9ovfb). Causa itself
+does not read or set the property — the host's stylesheet is the
+single source of truth for inline width.
+
+The recommended snippet also publishes `--rf-causa-accent` (default
+`#7C5CFF` — the brand violet) on `:root` so host stylesheets can
+read it to colour their own dev chrome (resize handles, dock
+separators, story chips) without forking the hex (rf2-9ovfb). See
+`spec/011-Launch-Modes.md` §Brand-accent CSS variable.
 
 If the layout host selector cannot be found after adapter
 readiness, the preload reports the missing host via
@@ -81,18 +88,34 @@ day8.re-frame2-causa.config/default-layout-host-css-var
 ;;   generators / snippet helpers.
 
 day8.re-frame2-causa.config/default-layout-host-width
-;; "420px"
+;; "560px"
 ;; — the default value Causa recommends for --rf-causa-inline-width
-;;   when the host does not override. Matches the historical fixed-
-;;   pixel default from the pre-rf2-um813 testbed snippets so existing
-;;   pages render identically after adopting the variable.
+;;   when the host does not override. Bumped 420 → 560 under rf2-9ovfb
+;;   (Pitch8 field feedback: event vectors with map payloads wrap
+;;   awkwardly at 420; 560 reads much better for the Event Detail
+;;   panel).
+
+day8.re-frame2-causa.config/default-accent-css-var
+;; "--rf-causa-accent"
+;; — the CSS custom property the recommended host snippet publishes
+;;   on :root for Causa's brand-accent colour (rf2-9ovfb). Host
+;;   stylesheets read var(--rf-causa-accent) to colour their own dev
+;;   chrome to match Causa (resize handles, dock separators, story
+;;   chips) without forking the hex. Causa never SETS this property
+;;   from CLJS — the host's stylesheet is the single source of truth.
+
+day8.re-frame2-causa.config/default-accent
+;; "#7C5CFF"
+;; — the default value Causa publishes for --rf-causa-accent. Matches
+;;   theme/tokens.cljc's :accent-violet and spec/007-UX-IA.md
+;;   §Colour system.
 
 day8.re-frame2-causa.config/default-layout-host-snippet
 ;; A copy-pasteable HTML + CSS block carrying the recommended host
-;; markup, flex-basis read through var(--rf-causa-inline-width, 420px),
-;; and the min-width: 320px floor. Reported back to the user in the
-;; missing-host diagnostic so the actionable console.error already
-;; carries the fix.
+;; markup, flex-basis read through var(--rf-causa-inline-width, 560px),
+;; the :root --rf-causa-accent publish, and the min-width: 320px floor.
+;; Reported back to the user in the missing-host diagnostic so the
+;; actionable console.error already carries the fix.
 ```
 
 These are constants, not setters — overriding the selector goes
