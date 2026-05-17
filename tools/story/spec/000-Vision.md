@@ -53,6 +53,23 @@ Story owns **no new framework primitives.** Every registry it uses
 required by the
 [downstream-EPs-consume-foundation](../../../AGENTS.md) discipline.
 
+### One primitive beats a parade of single-purpose addons
+
+The discipline above pays off most visibly in `force-fx-stub` (see
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`).
+Storybook ships a separate addon for each thing you want to fake —
+MSW for HTTP, custom decorators for analytics, shim libraries for
+storage, more addons for websockets and navigation. Story uses
+**one** decorator that stubs any handler you registered with
+`reg-fx`. Same shape for HTTP, websockets, analytics, geolocation,
+storage. No addon-per-concern.
+
+This is the design lens Story applies wherever a Storybook
+integration is really "give me a seam I can hijack." Story has the
+seam already — frames, decorators, registered effects — so the
+"addon" collapses to a three-line decorator citation in the variant
+body.
+
 ## What re-frame2-story is for
 
 - **Visual development.** Iterate on a component in isolation; see
