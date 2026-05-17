@@ -16,6 +16,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core      :as rf]
             [re-frame.story     :as story]
+            [re-frame.story.play.ci-runner :as story-ci]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-causa.config :as causa-config]
             ;; Source the events + subs + views via the stories ns,
@@ -105,6 +106,11 @@
   ;; handler and the `:rf.size/large-elided` marker for the `:large?`
   ;; schema slot without needing the trace surface or Causa attached.
   (elision/install-listener!)
+  ;; rf2-3qcxk — install the CI-as-test global hook the Playwright
+  ;; play-script runner reads. Inert until the runner polls it; safe
+  ;; to install unconditionally because the function body is gated
+  ;; on Story being enabled (the ns itself is Story-tooling).
+  (story-ci/install-ci-hooks!)
   ;; Wire hash-change so reloading `#/stories` lands on the shell
   ;; without a manual click-through.
   (.addEventListener js/window "hashchange" on-hash-change!)

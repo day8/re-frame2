@@ -235,6 +235,16 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  (story/reg-story :story.counter-play-script
+    {:doc        "Parent story for the rich-DSL :play-script CI-as-test
+                 fixtures (rf2-3qcxk). Two variants exercise both the
+                 pass and fail terminal paths of the play runner so the
+                 CI runner has live targets in every browser-gate run."
+     :component  :counter-with-stories.views/counter-card
+     :args       {:label "Play-script CI"}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   (story/reg-story :story.counter-matrix
     {:doc        "Deterministic browser-only affordances for the
                  Story feature coverage matrix. These variants keep
@@ -533,6 +543,62 @@
      :events    [[:counter/initialise 0]]
      :play      [[:rf.assert/effect-emitted :never-stubbed]]
      :tags      #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  ;; -------------------------------------------------------------------------
+  ;; :play-script fixtures (rf2-3qcxk — CI-as-test)
+  ;;
+  ;; The CI runner at `examples/scripts/serve-and-run-story-play-scripts.cjs`
+  ;; discovers every registered variant whose body carries a non-empty
+  ;; `:play-script` slot (via `re-frame.story.play.ci-runner/
+  ;; variants-with-play-scripts`), navigates the live Story shell to
+  ;; each, waits for the auto-run's terminal status, and asserts the
+  ;; aggregate result. These two fixtures pin the contract: one passes,
+  ;; one is deliberately wrong so the CI runner's failure path stays
+  ;; under continuous coverage too.
+  ;;
+  ;; The fixtures use `:dispatch-sync` (not `:dispatch`) so the runner
+  ;; observes the resulting app-db state on the very next step without
+  ;; needing a `:wait`. The play-script slot coexists with the legacy
+  ;; `:play` slot — both run, independently, post-mount.
+  ;; -------------------------------------------------------------------------
+
+  ;; Both fixtures use IDEMPOTENT scripts (initialise → assert) so
+  ;; the shell's deep-link auto-run AND its watcher-edge auto-run
+  ;; both reach the same terminal state. The cumulative-dispatch
+  ;; pattern (e.g. three `:dispatch-sync [:counter/inc]` then
+  ;; `[:assert-db [:count] 3]`) drifts under double-fire — the CI
+  ;; runner is gating the auto-run plumbing, not the under-test app's
+  ;; idempotency, so we keep the scripts neutral on that axis.
+  (story/reg-variant :story.counter-play-script/passing
+    {:doc        "rf2-3qcxk CI fixture — initialise the counter to 3
+                 and assert :count equals 3. Idempotent under any
+                 number of auto-run repeats."
+     :args       {:label "Play-script pass"}
+     :events     []
+     :play-script
+     {:name      "initialise-three-and-assert-pass"
+      :auto-run? true
+      :script    [[:dispatch-sync [:counter/initialise 3]]
+                  [:assert-db [:count] 3]]}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-play-script/failing
+    {:doc        "rf2-3qcxk CI fixture — initialise the counter to 1
+                 then assert the WRONG final count (expect 9). The CI
+                 runner observes the :fail terminal status and matches
+                 it against the variant id's `failing` marker, so the
+                 process-level result stays clean even though the
+                 variant deliberately fails."
+     :args       {:label "Play-script fail"}
+     :events     []
+     :play-script
+     {:name      "initialise-one-but-expect-nine"
+      :auto-run? true
+      :script    [[:dispatch-sync [:counter/initialise 1]]
+                  [:assert-db [:count] 9]]}
+     :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------

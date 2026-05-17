@@ -27,6 +27,7 @@
     "test:examples:realworld": "node ../examples/scripts/serve-and-run-examples-tests.cjs --filter realworld",
     "story:build": "node scripts/story-build.cjs",
     "test:story-feature-load": "node ../examples/scripts/serve-and-run-story-feature-load-tests.cjs",
+    "test:story-play-scripts": "node ../examples/scripts/serve-and-run-story-play-scripts.cjs",
     "test:causa-feature-gate": "node scripts/serve-and-run-causa-feature-gate.cjs",
     "test:story-static": "node scripts/check-story-static.cjs",
     "test:script-policy": "node scripts/_path-policy.test.cjs && node scripts/_changed-surfaces.test.cjs && node scripts/_story-feature-load-port.test.cjs",
