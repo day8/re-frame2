@@ -247,6 +247,61 @@
       (is (some? play-str) "extractor found a :play vector substring")
       (is (= events (edn/read-string play-str))))))
 
+;; ---- rf2-d5u89: DOM-event entries + per-event timestamps ----------------
+
+(deftest append-dom-click-pure-shape
+  (testing "append-dom of a click vector lands an :entries entry"
+    (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+          s1 (recorder/append-dom s0 [:dom/click "[data-test=\"a\"]" 100])]
+      (is (= 1 (count (:entries s1))))
+      (is (= {:kind :dom/click :selector "[data-test=\"a\"]" :t 100}
+             (first (:entries s1)))))))
+
+(deftest append-dom-type-pure-shape
+  (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+        s1 (recorder/append-dom s0 [:dom/type "[id=\"x\"]" "alice" 200])]
+    (is (= {:kind :dom/type :selector "[id=\"x\"]" :text "alice" :t 200}
+           (first (:entries s1))))))
+
+(deftest append-dom-submit-pure-shape
+  (let [s0 (recorder/start recorder/initial-state :story.x/y 0)
+        s1 (recorder/append-dom s0 [:dom/submit "[id=\"login\"]" 300])]
+    (is (= {:kind :dom/submit :selector "[id=\"login\"]" :t 300}
+           (first (:entries s1))))))
+
+(deftest append-dom-rejects-malformed
+  (let [s0 (recorder/start recorder/initial-state :story.x/y 0)]
+    (is (= [] (:entries (recorder/append-dom s0 nil))))
+    (is (= [] (:entries (recorder/append-dom s0 []))))
+    (is (= [] (:entries (recorder/append-dom s0 [:not-a-dom-kind "x" 0]))))))
+
+(deftest append-dom-noop-when-not-recording
+  (testing "DOM-events drop on the floor when no recording is in flight"
+    (let [s0 recorder/initial-state
+          s1 (recorder/append-dom s0 [:dom/click "[data-test=\"x\"]" 0])]
+      (is (= [] (:entries s1))))))
+
+(deftest append-event-stamps-timestamp
+  (testing "(append state event now-ms) populates :entries[:t]"
+    (let [s0 (recorder/start recorder/initial-state :story.x/y 1000)
+          s1 (recorder/append s0 [:counter/inc] 1250)]
+      (is (= [[:counter/inc]] (:events s1)) ":events carries bare event")
+      (let [{:keys [kind event t]} (first (:entries s1))]
+        (is (= :event/dispatch kind))
+        (is (= [:counter/inc] event))
+        (is (= 250 t) ":t = now-ms - started-ms (1250 - 1000)")))))
+
+(deftest record-dom-event!-impure-entry
+  (testing "the impure record-dom-event! entry mutates the shared atom"
+    (recorder/clear!)
+    (recorder/start-recording! :story.x/y)
+    (recorder/record-dom-event! [:dom/click "[data-test=\"go\"]" 50])
+    (recorder/record-dom-event! [:dom/type "[id=\"x\"]" "hi" 100])
+    (let [entries (recorder/recorded-entries)]
+      (is (= 2 (count entries)))
+      (is (= :dom/click (:kind (first entries))))
+      (is (= :dom/type (:kind (second entries)))))))
+
 ;; ---- mid-recording assertion insertion (rf2-39u9e) ----------------------
 
 (deftest assertion-vocabulary-covers-canonical-seven
@@ -446,7 +501,19 @@
     (rf/dispatch-sync [:counter/dec] {:frame :story.recorder/v})
     (recorder/stop-recording!)
     (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
-           (recorder/recorded-events)))
+           (recorder/recorded-events))
+        "back-compat :events slot still carries bare event vectors")
+    ;; rf2-d5u89: parallel :entries slot carries the rich shape too.
+    (let [entries (recorder/recorded-entries)]
+      (is (= 3 (count entries))
+          ":entries mirrors :events one-for-one")
+      (is (every? #(= :event/dispatch (:kind %)) entries)
+          "each entry is an :event/dispatch shape")
+      (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
+             (mapv :event entries))
+          ":event slot on each entry is the bare event vector")
+      (is (every? #(number? (:t %)) entries)
+          "each entry carries a numeric :t timestamp"))
     (story/destroy-variant! :story.recorder/v)
     (recorder/remove-trace-listener!)))
 
