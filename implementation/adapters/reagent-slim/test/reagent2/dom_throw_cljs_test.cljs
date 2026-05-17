@@ -63,8 +63,8 @@
           "message names the legacy stock-Reagent symbol")
       (is (re-find #"reagent2\.dom\.client/" msg)
           "message points at the reagent2 migration target")
-      (is (re-find #"MIGRATION\.md#legacy-mount-path" msg)
-          "message links to the MIGRATION.md anchor"))))
+      (is (re-find #"migration/from-re-frame-v1/README\.md#legacy-mount-path" msg)
+          "message links to the migration guide anchor"))))
 
 (deftest reagent2-dom-unmount-throws
   (testing "reagent2.dom/unmount-component-at-node throws"
@@ -109,8 +109,8 @@
           "message names the underlying React 17 API that was removed")
       (is (re-find #"ref" msg)
           "message points at the :ref migration target")
-      (is (re-find #"MIGRATION\.md#dom-node-removal" msg)
-          "message links to the MIGRATION.md anchor"))))
+      (is (re-find #"migration/from-re-frame-v1/README\.md#dom-node-removal" msg)
+          "message links to the migration guide anchor"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-shim contract — one try/catch matches all five
