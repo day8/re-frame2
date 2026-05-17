@@ -78,6 +78,39 @@
   (into friend-discount-events
         [[:cart/clear-discount]]))
 
+;; ============================================================================
+;; Boundary fixtures (rf2-4ip3r) — additional Story variants pinning
+;; the two app-shape cascades a developer should be able to inspect in
+;; Causa beyond the pure-data variants above: HTTP-5xx during finalize,
+;; and a populated PII slot the wire surfaces redact.
+;; ============================================================================
+
+(def checkout-http-error-events
+  "Seed → start checkout → fire `:checkout/finalize` which issues
+  `:rf.http/managed-canned-failure` with `:rf.http/http-5xx`. The
+  reply lands `:checkout/error` in app-db and flips `:checkout/status`
+  to `:error`. Causa's Effects + Trace + Issues panels all see the
+  same canonical cascade as a live 5xx (per Spec 014 §Testing).
+
+  The dispatch-sync of `:checkout/finalize` runs the initial branch
+  synchronously. The canned-stub's reply path dispatches *back* to
+  `:checkout/finalize` (default reply-addressing); under the
+  Story replay loop that reply also lands synchronously, so the
+  variant's `:ready` snapshot already carries `:checkout/error`."
+  (conj checkout-snapshot-events [:checkout/finalize]))
+
+(def customer-pii-events
+  "Seed + populate the schema-:sensitive? `:customer/email` and
+  `:payment/token` slots. Causa's App-DB Diff displays `:rf/redacted`
+  for the payload-bearing event and the sensitive-trace count badge
+  updates; the underlying handler still receives the raw values, so
+  the live subs (`:customer/email`, `:payment/token`) read them back
+  for the in-page DOM mirror."
+  (conj tutorial-seed-events
+        [:cart/set-customer-pii
+         {:email "ada@example.com"
+          :token "tok_pii_visa_4242"}]))
+
 (defn dispatch-sync-events!
   "Replay an event fixture into the current frame."
   [events]

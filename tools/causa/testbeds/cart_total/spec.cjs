@@ -32,7 +32,7 @@
  *      the dev back to the line).
  */
 
-const { expectTextEquals, expectVisible } =
+const { expectTextEquals, expectTextContains, expectVisible } =
   require('../../../../examples/scripts/spec-helpers.cjs');
 
 module.exports = {
@@ -107,5 +107,53 @@ module.exports = {
     // total flips back to $0.00 despite the live basket having an
     // Apple ($1.50) in it.
     await expectTextEquals(total, '$0.00');
+
+    // --- 6. rf2-4ip3r — HTTP 5xx during finalize ---------------------------
+    //
+    // Re-start checkout so the Finalize button is enabled, then click
+    // Finalize. The handler issues `:rf.http/managed-canned-failure`
+    // with `:rf.http/http-5xx`; default reply-addressing routes the
+    // failure-map back to `:checkout/finalize`, which pins it at
+    // `:checkout/error` and flips `:checkout/status` to `:error`.
+    // The HTTP-error banner shows the status / kind from the
+    // failure-map for the spec to read directly.
+    await page.locator('[data-test="checkout-start"]').click();
+    await expectVisible(page.locator('[data-test="checkout-banner"]'), 5000);
+    await page.locator('[data-test="checkout-finalize"]').click();
+    await expectVisible(page.locator('[data-test="checkout-http-error"]'), 5000);
+    await expectTextEquals(
+      page.locator('[data-test="checkout-http-error-status"]'),
+      '503',
+    );
+    await expectTextContains(
+      page.locator('[data-test="checkout-http-error-kind"]'),
+      ':rf.http/http-5xx',
+    );
+
+    // --- 7. rf2-4ip3r — PII redaction (schema-:sensitive? slot) ------------
+    //
+    // The PII form lives in the cart panel. Type the schema-sensitive
+    // email + payment-token, click Save — the handler carries
+    // `:sensitive? true` registration meta + `(rf/path :customer)` so
+    // the trace / MCP wire surfaces redact the event payload to
+    // `:rf/redacted`. The handler body still receives the raw values,
+    // so the in-page DOM mirror reads the lengths back as proof the
+    // values landed. The `:rf/redacted` marker on the wire is a
+    // Causa-panel inspection — the App-DB Diff renders it; this spec
+    // asserts the runtime contract that the handler ran end-to-end.
+    await page.locator('[data-test="customer-email-input"]')
+      .fill('ada@example.com');
+    await page.locator('[data-test="payment-token-input"]')
+      .fill('tok_pii_visa_4242');
+    await page.locator('[data-test="set-customer-pii"]').click();
+    await expectVisible(page.locator('[data-test="pii-saved"]'), 5000);
+    await expectTextEquals(
+      page.locator('[data-test="pii-email-length"]'),
+      String('ada@example.com'.length),
+    );
+    await expectTextEquals(
+      page.locator('[data-test="pii-token-length"]'),
+      String('tok_pii_visa_4242'.length),
+    );
   },
 };

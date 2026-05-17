@@ -23,15 +23,40 @@
 
   Domain shape:
 
-    {:cart/items     [{:id :apple :name \"Apple\" :price 150 :qty 2}
-                      {:id :bread :name \"Bread\" :price 350 :qty 1}]
-     :cart/discount  nil
-     :checkout/items []}                  ;; populated mid-checkout
+    {:cart/items       [{:id :apple :name \"Apple\" :price 150 :qty 2}
+                        {:id :bread :name \"Bread\" :price 350 :qty 1}]
+     :cart/discount    nil
+     :checkout/items   []                  ;; populated mid-checkout
+     :checkout/status  :idle               ;; :idle | :submitting | :error | :done
+     :checkout/error   nil                 ;; failure-map after a 5xx
+     :customer         {:customer/email nil
+                        :payment/token  nil}} ;; both schema-:sensitive?
 
   Two state slots; one is the *live* basket the user sees in the
   cart, the other is the snapshot the checkout flow took. The bug
   the tutorial describes is the projection sub reading the wrong
   one of those two.
+
+  ## Boundary variants (rf2-4ip3r) — HTTP error + PII redaction
+
+  Two additional cascades the pure-data variants couldn't express:
+
+  * Mid-flight HTTP 5xx during *Finalize checkout* — the Finalize
+    button issues a managed-HTTP request via
+    `:rf.http/managed-canned-failure` (a deterministic stub from
+    `re-frame.http-test-support` per Spec 014 §Testing) so Causa's
+    Effects + Trace + Issues panels can be inspected against an
+    error cascade without crossing the network. The reply lands
+    `:checkout/error` in app-db and flips `:checkout/status` to
+    `:error`.
+
+  * PII redaction — `:customer/email` and `:payment/token` are
+    declared `:sensitive? true` via `reg-app-schema` on the
+    `[:customer]` slice. The handler `:cart/set-customer-pii`
+    carries `:sensitive? true` registration meta + `(rf/path
+    :customer)` so the schema-derived redaction interceptor
+    replaces the event payload with `:rf/redacted` on the trace /
+    MCP wire while the live handler still receives the raw values.
 
   This file is deliberately self-contained as an app, but it also
   exposes `#/stories` so the same Causa bug can be inspected through
@@ -44,8 +69,23 @@
   (:require [reagent.core       :as r]
             [reagent.dom.client :as rdc]
             [re-frame.core      :as rf]
+            [re-frame.schemas]
             [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
+            ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at
+            ;; app boot triggers its load-time fx registrations
+            ;; (`:rf.http/managed` / `:rf.http/managed-abort`); without
+            ;; it, dispatching the HTTP-5xx cascade would fail with
+            ;; :rf.error/no-such-fx.
+            [re-frame.http-managed]
+            ;; rf2-4ip3r — the HTTP-5xx variant drives
+            ;; `:rf.http/managed-canned-failure` directly via :fx so
+            ;; the cascade is deterministic under the Playwright smoke.
+            ;; Per the rf2-zk08x gate, the canned-stub fx ids register
+            ;; from `re-frame.http-test-support`. A testbed IS a test
+            ;; affordance, so requiring it here is correct (mirrors the
+            ;; pattern in testbeds/http_toggle/core.cljs).
+            [re-frame.http-test-support]
             [cart-total.fixtures :as fixtures]
             [cart-total.stories])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -73,9 +113,19 @@
     ;; app-db. Initialise only the cart's domain slots so the same event
     ;; is safe in both the live app and Story-isolated frames.
     (assoc db
-           :cart/items     []
-           :cart/discount  nil
-           :checkout/items [])))
+           :cart/items      []
+           :cart/discount   nil
+           :checkout/items  []
+           ;; rf2-4ip3r — checkout-finalize HTTP state. :status flips
+           ;; :idle → :submitting → :error|:done; :error carries the
+           ;; failure map the 5xx variant pins for Causa inspection.
+           :checkout/status :idle
+           :checkout/error  nil
+           ;; rf2-4ip3r — :customer slice is path-scoped so the
+           ;; schema-derived `:sensitive?` redaction interceptor fires
+           ;; on every event routed through `(rf/path :customer)`.
+           :customer        {:customer/email nil
+                             :payment/token  nil})))
 
 (rf/reg-event-db :cart/add-item
   (fn [db [_ item-id]]
@@ -129,7 +179,114 @@
 
 (rf/reg-event-db :checkout/reset
   (fn [db _event]
-    (assoc db :checkout/items [])))
+    (assoc db
+           :checkout/items  []
+           :checkout/status :idle
+           :checkout/error  nil)))
+
+;; ============================================================================
+;; rf2-4ip3r — Boundary variant 1: mid-flight HTTP 5xx during finalize
+;; ============================================================================
+;;
+;; The Finalize button issues a managed-HTTP POST against a stub
+;; endpoint. The Spec 014 §Testing canned-failure stub
+;; (`:rf.http/managed-canned-failure`) synthesises a deterministic 5xx
+;; reply via the same late-bind dispatch path the live transport uses,
+;; so Causa's Effects / Trace / Issues / Performance panels all see
+;; the canonical `:rf.http/http-5xx` cascade without the test crossing
+;; the network.
+;;
+;; Default reply-addressing sends the reply back to the originating
+;; event id (`:checkout/finalize`) with `:rf/reply` merged. The reply
+;; branch lands the failure-map at `:checkout/error` and flips
+;; `:checkout/status` to `:error` for the in-page banner. Open Causa,
+;; click Finalize, and walk the resulting cascade.
+
+(rf/reg-event-fx :checkout/finalize
+  (fn [{:keys [db]} [_ msg]]
+    (cond
+      ;; Reply branch — the canned-failure stub fires this with
+      ;; {:kind :failure :failure {...}}. Pin the failure-map at
+      ;; :checkout/error and flip :checkout/status so the banner
+      ;; renders and the spec / Story assertion can read both.
+      (some-> msg :rf/reply :kind (= :failure))
+      {:db (-> db
+               (assoc :checkout/status :error)
+               (assoc :checkout/error  (:failure (:rf/reply msg))))}
+
+      ;; Reply branch — success (live path; the stub never fires this).
+      (some-> msg :rf/reply :kind (= :success))
+      {:db (-> db
+               (assoc :checkout/status :done)
+               (assoc :checkout/error  nil))}
+
+      ;; Initial branch — issue the request via the canned-failure
+      ;; stub. The args-map is the same shape `:rf.http/managed`
+      ;; would carry; the canned stub short-circuits the live
+      ;; Fetch and synthesises the {:kind :failure ...} reply via
+      ;; the default reply-addressing path (back to :checkout/finalize).
+      :else
+      {:db (-> db
+               (assoc :checkout/status :submitting)
+               (assoc :checkout/error  nil))
+       :fx [[:rf.http/managed-canned-failure
+             {:request    {:method :post :url "/api/checkout"}
+              :request-id ::checkout-in-flight
+              :decode     :json
+              :kind       :rf.http/http-5xx
+              :tags       {:status      503
+                           :status-text "Service Unavailable"
+                           :body        "{\"error\":\"checkout temporarily unavailable\"}"
+                           :headers     {}}}]]})))
+
+;; ============================================================================
+;; rf2-4ip3r — Boundary variant 2: schema-derived PII redaction
+;; ============================================================================
+;;
+;; `:customer/email` and `:payment/token` carry `:sensitive? true` in
+;; their Malli slot props. Registering the schema on the `[:customer]`
+;; slice + calling `populate-sensitive-from-schemas!` at boot wires
+;; the schema-derived redaction interceptor (per Spec 010 §`:sensitive?`)
+;; for any handler path-scoped through `(rf/path :customer)`.
+;;
+;; The handler `:cart/set-customer-pii` carries both `:sensitive? true`
+;; registration meta (drops the substrate-level event-emit record per
+;; rf2-6hklf) AND the `(rf/path :customer)` interceptor (so the trace /
+;; MCP wire sees the payload replaced with `:rf/redacted`). The
+;; handler body still receives the raw values; only the wire shapes
+;; change. App-DB Diff's `:rf/redacted` display + sensitive-trace
+;; count badge can be inspected in Causa as the user types.
+
+(def CustomerSlice
+  ;; Both PII slots carry `:sensitive? true` so the schema walker
+  ;; produces redaction entries at `[:customer :customer/email]` and
+  ;; `[:customer :payment/token]` (Spec 010 §Schema metadata flags).
+  [:map
+   [:customer/email {:optional true :sensitive? true} [:maybe :string]]
+   [:payment/token  {:optional true :sensitive? true} [:maybe :string]]])
+
+(rf/reg-app-schema [:customer] CustomerSlice)
+
+(rf/reg-event-db :cart/set-customer-pii
+  {:doc        "Stash the customer's email + payment token in the
+                schema-:sensitive? :customer slice. The handler body
+                receives the raw payload; the trace, error-emit, and
+                MCP wire surfaces see the event payload redacted to
+                :rf/redacted (Spec 010 §`:sensitive?` + Spec 009
+                §Privacy)."
+   :sensitive? true}
+  [(rf/path :customer)]
+  (fn [customer [_ {:keys [email token]}]]
+    (-> (or customer {})
+        (assoc :customer/email email)
+        (assoc :payment/token  token))))
+
+(rf/reg-event-db :cart/clear-customer-pii
+  {:doc "Clear the customer PII slice — wipes both sensitive slots."}
+  [(rf/path :customer)]
+  (fn [_customer _event]
+    {:customer/email nil
+     :payment/token  nil}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS  (CP-2) — the projection graph, with the deliberate bug
@@ -224,6 +381,39 @@
   :<- [:checkout/items]
   (fn [items _query]
     (boolean (seq items))))
+
+;; rf2-4ip3r — checkout-finalize HTTP cascade subs. :checkout/status
+;; flips :idle → :submitting → :error|:done; :checkout/error carries
+;; the failure-map post-5xx so Causa's App-DB Diff can show the
+;; failure shape on its own row.
+
+(rf/reg-sub :checkout/status
+  (fn [db _query]
+    (:checkout/status db)))
+
+(rf/reg-sub :checkout/error
+  (fn [db _query]
+    (:checkout/error db)))
+
+;; rf2-4ip3r — :customer slice subs. Both slots are schema-`:sensitive?`,
+;; so the trace / MCP wire never sees the raw values when a handler
+;; routes through `(rf/path :customer)`. The subs return the LIVE
+;; values for the view layer — `:sensitive?` is about the wire shape,
+;; not about what the app itself can read (per Spec 010 §`:sensitive?`).
+
+(rf/reg-sub :customer/email
+  (fn [db _query]
+    (get-in db [:customer :customer/email])))
+
+(rf/reg-sub :payment/token
+  (fn [db _query]
+    (get-in db [:customer :payment/token])))
+
+(rf/reg-sub :customer/pii-set?
+  :<- [:customer/email]
+  :<- [:payment/token]
+  (fn [[email token] _query]
+    (boolean (or (seq email) (seq token)))))
 
 ;; ============================================================================
 ;; VIEWS  (CP-4) — the cart UI
@@ -324,14 +514,93 @@
                  :style     {:margin-left "8px"}}
         "Reset checkout"]])))
 
+(reg-view checkout-http-error-banner []
+  ;; rf2-4ip3r — surfaces the HTTP-5xx failure-map from
+  ;; `:checkout/error` for the inspector and the Playwright spec.
+  ;; Causa's Effects + Trace + Issues panels also carry this same
+  ;; cascade end-to-end; this banner is the DOM mirror so a spec
+  ;; can assert against the rendered state directly.
+  (let [status @(subscribe [:checkout/status])
+        error  @(subscribe [:checkout/error])]
+    (when (= :error status)
+      [:div {:style {:background "#fde7e9" :border "1px solid #c50f1f"
+                     :padding    "8px 12px" :border-radius "4px"
+                     :font-size  "13px" :margin "0 0 1em 0" :color "#a4262c"}
+             :data-test "checkout-http-error"}
+       [:strong "Checkout finalize failed."]
+       " status="
+       [:span {:data-test "checkout-http-error-status"}
+        (str (:status error "?"))]
+       " kind="
+       [:span {:data-test "checkout-http-error-kind"}
+        (pr-str (:kind error))]])))
+
+(reg-view customer-pii-form []
+  ;; rf2-4ip3r — small inline form for the PII slice. Typing into
+  ;; either field dispatches `:cart/set-customer-pii`, which carries
+  ;; `:sensitive? true` registration meta + `(rf/path :customer)` so
+  ;; the trace / MCP wire sees the event payload replaced with
+  ;; `:rf/redacted`. The handler still receives the raw values —
+  ;; that's why these subs render the actual text.
+  (let [state (r/atom {:email nil :token nil})]
+    (fn []
+      (let [email     @(subscribe [:customer/email])
+            token     @(subscribe [:payment/token])
+            pii-set?  @(subscribe [:customer/pii-set?])
+            current   (fn [k live] (or (get @state k) live))]
+        [:section {:style {:margin-top "1.5em" :border "1px solid #e0e0e0"
+                           :border-radius "6px" :padding "0.75em 1em"
+                           :background "#fafafa"}
+                   :data-test "customer-pii-form"}
+         [:h4 {:style {:margin "0 0 0.5em 0"}} "Customer details (PII)"]
+         [:p {:style {:font-size "11px" :color "#666" :margin "0 0 0.5em 0"}}
+          "Schema-:sensitive? slots. The trace / MCP wire sees "
+          [:code ":rf/redacted"]
+          " — open Causa's App-DB Diff to inspect."]
+         [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"
+                        :align-items "center"}}
+          [:input {:type        "email"
+                   :placeholder "you@example.com"
+                   :data-test   "customer-email-input"
+                   :value       (or (current :email email) "")
+                   :on-change   #(swap! state assoc :email (.. % -target -value))}]
+          [:input {:type        "text"
+                   :placeholder "payment token"
+                   :data-test   "payment-token-input"
+                   :value       (or (current :token token) "")
+                   :on-change   #(swap! state assoc :token (.. % -target -value))}]
+          [:button {:on-click  #(dispatch [:cart/set-customer-pii
+                                           {:email (or (:email @state) email "")
+                                            :token (or (:token @state) token "")}])
+                    :data-test "set-customer-pii"}
+           "Save"]
+          (when pii-set?
+            [:button {:on-click  #(do (reset! state {:email nil :token nil})
+                                      (dispatch [:cart/clear-customer-pii]))
+                      :data-test "clear-customer-pii"
+                      :style     {:font-size "11px"}}
+             "clear"])]
+         (when pii-set?
+           [:p {:style {:margin "0.5em 0 0 0" :font-size "12px" :color "#107c10"}
+                :data-test "pii-saved"}
+            "PII stored at "
+            [:code "[:customer]"]
+            ". email-len="
+            [:span {:data-test "pii-email-length"} (count (str email))]
+            " token-len="
+            [:span {:data-test "pii-token-length"} (count (str token))]])]))))
+
 (reg-view cart-panel []
-  (let [lines    @(subscribe [:cart/line-totals])
-        discount @(subscribe [:cart/discount])]
+  (let [lines           @(subscribe [:cart/line-totals])
+        discount        @(subscribe [:cart/discount])
+        active?         @(subscribe [:cart/checkout-active?])
+        checkout-status @(subscribe [:checkout/status])]
     [:section {:style {:border "1px solid #ddd" :border-radius "6px"
                        :padding "1em 1.5em" :background "#fff"
                        :min-width "320px"}}
      [:h3 {:style {:margin-top 0}} "Cart"]
      [checkout-banner]
+     [checkout-http-error-banner]
      (if (seq lines)
        [:table {:style {:border-collapse "collapse" :width "100%"}}
         [:tbody
@@ -347,12 +616,28 @@
         [:span (str "Discount (" (:percent discount) "%)")]
         [:span "—"]])
      [cart-total-line]
-     [:div {:style {:margin-top "1em" :display "flex" :justify-content "flex-end"}}
+     [:div {:style {:margin-top "1em" :display "flex" :justify-content "flex-end"
+                    :gap "8px"}}
       [:button {:on-click   #(dispatch [:checkout/start])
                 :data-test  "checkout-start"
                 :aria-label "Start checkout"
                 :style      {:padding "6px 14px"}}
-       "Checkout →"]]]))
+       "Checkout"]
+      ;; rf2-4ip3r — Finalize fires the HTTP-5xx cascade. Disabled
+      ;; until checkout has started (so the user can see the natural
+      ;; cart → snapshot → finalize ordering); not gated on the
+      ;; cascade's :submitting state — Causa wants to see the
+      ;; click-through, not be blocked at the UI.
+      [:button {:on-click   #(dispatch [:checkout/finalize])
+                :data-test  "checkout-finalize"
+                :aria-label "Finalize checkout"
+                :disabled   (not active?)
+                :style      {:padding "6px 14px"}}
+       (case checkout-status
+         :submitting "Finalizing..."
+         :error      "Retry finalize"
+         "Finalize")]]
+     [customer-pii-form]]))
 
 (reg-view tutorial-hint []
   ;; A tiny tutorial-context badge so a curious visitor who lands on
@@ -425,6 +710,12 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
+  ;; rf2-4ip3r — wire the schema-derived `:sensitive?` redaction
+  ;; index. Called after `init!` so the registered app-schemas
+  ;; (`[:customer]`) are visible to the walker. Without this call
+  ;; the path-D redaction interceptor silently soft-passes and
+  ;; the PII variant's wire trace would NOT show `:rf/redacted`.
+  (rf/populate-sensitive-from-schemas!)
   (story/install-canonical-vocabulary!)
   (.addEventListener js/window "hashchange" on-hash-change!)
   (on-hash-change!))

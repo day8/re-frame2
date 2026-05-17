@@ -153,6 +153,51 @@
      :tags       #{:dev :test}
      :substrates #{:reagent}})
 
+  ;; -------------------------------------------------------------------------
+  ;; Boundary variants (rf2-4ip3r) — two cascades the pure-data variants
+  ;; couldn't express: mid-flight HTTP 5xx during finalize-checkout, and
+  ;; populated PII slots the trace / MCP wire redact.
+  ;; -------------------------------------------------------------------------
+
+  (story/reg-variant :story.causa.cart-total/checkout-http-error
+    {:doc        "Mid-flight HTTP 5xx during finalize-checkout. After
+                 the seed + :checkout/start the fixture dispatches
+                 :checkout/finalize, which issues
+                 :rf.http/managed-canned-failure with kind
+                 :rf.http/http-5xx. Default reply-addressing routes
+                 the failure-map back to :checkout/finalize, which
+                 lands it at :checkout/error and flips
+                 :checkout/status to :error. Open Causa's Effects /
+                 Trace / Issues panels — the same canonical 5xx
+                 cascade a live failure would produce."
+     :events     fixtures/checkout-http-error-events
+     :play       [[:rf.assert/path-equals [:checkout/status] :error]
+                  [:rf.assert/path-equals [:checkout/error :status] 503]
+                  [:rf.assert/path-equals [:checkout/error :kind] :rf.http/http-5xx]
+                  ;; The wrong-slot bug is still live — the snapshot
+                  ;; survives even though the finalize failed.
+                  [:rf.assert/sub-equals [:cart/total] 650]]
+     :tags       #{:dev :test :docs}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.causa.cart-total/customer-pii-set
+    {:doc        "Schema-:sensitive? PII populated. The seeded basket
+                 plus :customer/email and :payment/token landed in the
+                 :customer slice. The handler :cart/set-customer-pii
+                 carries :sensitive? true registration meta + a
+                 (rf/path :customer) interceptor, so trace / MCP
+                 wire surfaces see :rf/redacted in place of the
+                 payload (the App-DB Diff renders the redaction
+                 marker; the sensitive-trace count badge advances).
+                 The handler body still receives the raw values, so
+                 the subs and the in-page DOM mirror read them back."
+     :events     fixtures/customer-pii-events
+     :play       [[:rf.assert/path-equals [:customer :customer/email] "ada@example.com"]
+                  [:rf.assert/path-equals [:customer :payment/token]  "tok_pii_visa_4242"]
+                  [:rf.assert/sub-equals  [:customer/pii-set?]        true]]
+     :tags       #{:dev :test :docs}
+     :substrates #{:reagent}})
+
   (story/reg-workspace :Workspace.causa.cart-total/debugging-states
     {:doc      "All cart-total Causa debugging states side-by-side."
      :layout   :grid
@@ -165,7 +210,10 @@
                 :story.causa.cart-total/stacked-same-item
                 :story.causa.cart-total/all-three-items
                 :story.causa.cart-total/friend-discount-applied
-                :story.causa.cart-total/discount-then-cleared]
+                :story.causa.cart-total/discount-then-cleared
+                ;; rf2-4ip3r boundary variants
+                :story.causa.cart-total/checkout-http-error
+                :story.causa.cart-total/customer-pii-set]
      :columns  2
      :tags     #{:docs}}))
 

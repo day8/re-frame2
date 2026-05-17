@@ -54,9 +54,12 @@
                    :story.causa.cart-total/stacked-same-item
                    :story.causa.cart-total/all-three-items
                    :story.causa.cart-total/friend-discount-applied
-                   :story.causa.cart-total/discount-then-cleared]]
+                   :story.causa.cart-total/discount-then-cleared
+                   ;; rf2-4ip3r boundary variants (HTTP-5xx + PII)
+                   :story.causa.cart-total/checkout-http-error
+                   :story.causa.cart-total/customer-pii-set]]
         (is (contains? vs vid) (str vid " registered")))
-      (is (= 10 (count vs))))))
+      (is (= 12 (count vs))))))
 
 (deftest variants-reuse-shared-cart-total-fixtures
   (testing "Story variants are pinned to the shared Causa testbed event fixtures"
@@ -152,4 +155,41 @@
       :story.causa.cart-total/discount-then-cleared
       (fn [result]
         (is (nil? (get-in result [:app-db :cart/discount])))
+        (is (= 2 (get-in result [:app-db :cart/items 0 :qty])))))))
+
+;; rf2-4ip3r boundary variants — runtime assertions per variant so the
+;; HTTP-5xx cascade lands the failure-map in app-db and the PII slice
+;; reaches the schema-`:sensitive?` slots with the live raw values
+;; (the handler body always sees raw — only the trace / MCP wire sees
+;; `:rf/redacted`; the assertions here read the post-handler app-db).
+
+(deftest checkout-http-error-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/checkout-http-error
+      (fn [result]
+        ;; The 5xx reply landed via default reply-addressing — the
+        ;; reply-branch flipped :checkout/status to :error and pinned
+        ;; the failure-map at :checkout/error.
+        (is (= :error          (get-in result [:app-db :checkout/status])))
+        (is (= 503             (get-in result [:app-db :checkout/error :status])))
+        (is (= :rf.http/http-5xx (get-in result [:app-db :checkout/error :kind])))
+        ;; The wrong-slot snapshot survived the finalize failure —
+        ;; the basket-snapshot drift is independent of the HTTP cascade.
+        (is (= 2 (get-in result [:app-db :checkout/items 0 :qty])))))))
+
+(deftest customer-pii-set-variant-runs
+  (async done
+    (assert-variant-passes!
+      done
+      :story.causa.cart-total/customer-pii-set
+      (fn [result]
+        ;; Handler body received the raw values; app-db carries them.
+        ;; Wire-redaction is a separate orthogonal concern asserted in
+        ;; the Playwright smoke against the live Causa surface.
+        (is (= "ada@example.com"   (get-in result [:app-db :customer :customer/email])))
+        (is (= "tok_pii_visa_4242" (get-in result [:app-db :customer :payment/token])))
+        ;; The seeded basket is still present underneath the PII
+        ;; slice; the two cascades coexist without contamination.
         (is (= 2 (get-in result [:app-db :cart/items 0 :qty])))))))
