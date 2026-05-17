@@ -11,22 +11,23 @@ const {
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
 
+// Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
+// sidebar + bottom rail is dead. The L3 tab bar exposes 6 tabs only:
+// event / app-db / views / trace / machines / issues (spec/018 §5).
+// Panels without a tab no longer have a UI handoff and are dropped
+// from the shell-sweep scenario.
 const PANEL_HANDOFFS = [
-  ['event-detail', 'rf-causa-event-detail'],
-  ['time-travel', 'rf-causa-time-travel'],
+  ['event', 'rf-causa-event-detail'],
   ['app-db', 'rf-causa-app-db-diff'],
-  ['causality', 'rf-causa-causality-graph'],
-  ['subs', 'rf-causa-subscriptions'],
-  ['fx', 'rf-causa-fx'],
+  // The views tab is a stub pending follow-on impl (see shell.cljs
+  // `views-tab-stub`); we verify the L4 detail-panel wrapper writes
+  // the views selector — `rf-causa-detail-panel-views`. The stub
+  // content's own `rf-causa-tab-views` testid collides with the tab
+  // button so we don't rely on it.
+  ['views', 'rf-causa-detail-panel-views'],
   ['trace', 'rf-causa-trace'],
   ['machines', 'rf-causa-machine-inspector'],
-  ['flows', 'rf-causa-flows'],
-  ['routes', 'rf-causa-routes'],
-  ['performance', 'rf-causa-performance'],
   ['issues', 'rf-causa-issues-ribbon'],
-  ['schemas', 'rf-causa-schema-violation-timeline'],
-  ['hydration', 'rf-causa-hydration-debugger'],
-  ['mcp-server', 'rf-causa-mcp-server'],
 ];
 
 const STAGED_SURFACES = [
@@ -133,9 +134,40 @@ async function openCausa(page) {
   await expectVisible(page.locator('[data-testid="rf-causa-shell"]'), 5000);
 }
 
-async function clickSidebar(page, id, canvasTestId) {
-  await page.locator(`[data-testid="rf-causa-sidebar-item-${id}"]`).click();
+// Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
+// expose `data-testid="rf-causa-tab-<id>"` for the 6 surviving panels
+// (event / app-db / views / trace / machines / issues — spec/018 §5).
+async function clickTab(page, id, canvasTestId) {
+  await page.locator(`[data-testid="rf-causa-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);
+}
+
+// Legacy panel ids → new L3 tab ids. Panels removed by the 4-layer
+// refactor (time-travel, causality, subs, fx, flows, routes,
+// performance, schemas, hydration, mcp-server) have no UI handoff
+// — callers that target them must be updated separately.
+const LEGACY_PANEL_TO_TAB = {
+  'event-detail': 'event',
+  'app-db':       'app-db',
+  'trace':        'trace',
+  'machines':     'machines',
+  'issues':       'issues',
+};
+
+// Back-compat wrapper used by scenarios still pointing at the old
+// panel-id vocabulary (multi-frame, large-dispatcher, etc.). Maps to
+// a tab when possible; throws explicitly when a caller targets a
+// panel the new chrome no longer exposes so the test surfaces the
+// real gap instead of timing out on a missing testid.
+async function clickSidebar(page, id, canvasTestId) {
+  const tabId = LEGACY_PANEL_TO_TAB[id];
+  if (!tabId) {
+    throw new Error(
+      `clickSidebar: panel '${id}' has no L3 tab in the 4-layer chrome ` +
+        `(rf2-xy4yb removed it). Update the scenario or restore the panel.`,
+    );
+  }
+  await clickTab(page, tabId, canvasTestId);
 }
 
 async function clickTestId(page, testId) {
@@ -837,46 +869,35 @@ async function runShellFeatureSweep(page) {
   await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
 
+  // Sweep every L3 tab. Each tab click must surface its panel canvas
+  // (per spec/018 §5). The 4-layer chrome dropped the legacy
+  // time-travel / routes / schemas / mcp-server panels — they no
+  // longer have a tab and are not part of this sweep.
   for (const [id, canvas] of PANEL_HANDOFFS) {
-    await clickSidebar(page, id, canvas);
+    await clickTab(page, id, canvas);
   }
 
   await clickHostButtonByLabel(page, '+');
   await clickHostButtonByLabel(page, '+');
   await clickHostButtonByLabel(page, '-');
 
-  await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+  await clickTab(page, 'event', 'rf-causa-event-detail');
   await waitForValue(
     () => page.locator('[data-testid^="rf-causa-cascade-row-"]').count(),
     (count) => count > 0,
     { timeoutMs: 5000, description: 'event-detail cascade rows' },
   );
 
-  await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
-  const slider = page.locator('[data-testid="rf-causa-time-travel-slider"]');
-  await expectVisible(slider, 5000);
-  const sliderMax = Number(await slider.getAttribute('max'));
-  if (!Number.isFinite(sliderMax) || sliderMax < 2) {
-    throw new Error(`Expected time-travel slider max >= 2, got ${sliderMax}.`);
-  }
-
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clickTab(page, 'trace', 'rf-causa-trace');
   const traceCounts = await readTraceCounts(page);
   if (traceCounts.total < 1) {
     throw new Error(`Expected non-empty trace feed, got ${traceCounts.text}.`);
   }
-
-  await clickSidebar(page, 'routes', 'rf-causa-routes');
-  await expectVisible(page.locator('[data-testid="rf-causa-routes-empty"]'), 5000);
-  await clickSidebar(page, 'schemas', 'rf-causa-schema-violation-timeline');
-  await expectVisible(page.locator('[data-testid="rf-causa-schema-timeline-empty-no-schemas"]'), 5000);
-  await clickSidebar(page, 'mcp-server', 'rf-causa-mcp-server');
-  await expectVisible(page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'), 5000);
 }
 
 async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
   await openCausa(page);
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clickTab(page, 'trace', 'rf-causa-trace');
   await clearTrace(page);
   await clickHostButtonByLabel(page, '+');
   await waitForTraceMatch(page, /counter\/core\.cljs/, 'counter source-coordinate trace');
@@ -908,10 +929,10 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     ['machine exception', /machine-action-exception|deliberate-throw \/ machine action/],
   ]);
 
-  await clickSidebar(page, 'issues', 'rf-causa-issues-ribbon');
+  await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
   await assertSourceCoordBridge(page, state, ctx, { panel: 'issues' });
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clickTab(page, 'trace', 'rf-causa-trace');
   await expectVisible(page.locator('[data-testid="rf-causa-trace-feed"]'), 5000);
 }
 
@@ -1461,23 +1482,19 @@ const SCENARIOS = [
     name: 'feature matrix shell and panel handoff',
     url: '/counter/',
     panels: PANEL_HANDOFFS.map(([id]) => id),
+    // Post rf2-xy4yb: coverage narrowed to the 6 surviving L3 tabs.
+    // Removed surfaces (Time Travel, Causality Graph, Subscriptions,
+    // Routes, Schemas, Hydration, Performance, Flows, Effects, MCP
+    // Server) lost their UI handoff with the 4-layer chrome refactor
+    // and are covered (where still functionally present) by their
+    // dedicated substrate scenarios.
     coveredRows: [
       'Event Detail',
       'Causality Strip and Event Log',
-      'Time Travel',
       'App-DB Diff',
-      'Causality Graph',
       'Trace',
-      'Subscriptions',
       'Machines',
-      'Routes',
-      'Schemas / Schema Timeline',
-      'Hydration',
-      'Performance',
       'Issues Ribbon',
-      'Flows',
-      'Effects',
-      'MCP Server',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runShellFeatureSweep,
