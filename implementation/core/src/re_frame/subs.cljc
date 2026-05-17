@@ -138,6 +138,13 @@
       (assoc (source-coords/merge-coords meta)
              :handler-fn    handler-fn
              :input-signals input-signals))
+    ;; Per Spec 015 §3. Subscriptions — stash declarations:
+    ;;   :sensitive / :large — per-output-path marks
+    ;;   :sensitive? / :large? — whole-output override
+    ;; The propagation table (`re-frame.marks/mark-sub-output!`) is
+    ;; updated on each sub-cache compute pass — see `compute-and-cache!`.
+    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+      (register! :sub id meta))
     ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription
     ;; materialisation — emitted at registration time so tools see when
     ;; the sub becomes available in the registry.
@@ -238,6 +245,19 @@
         reaction      (adapter/make-derived-value inputs memoised-body)
         cache         (:sub-cache (frame/frame frame-id))
         k             (cache-key query-v)]
+    ;; Per Spec 015 §App-db → subs / §Subs → fx propagation: when this
+    ;; sub is being built, resolve whether its output should be marked
+    ;; sensitive/large for downstream emit-time consultation. Honours
+    ;; the `:sensitive? true/false` and `:large? true/false` overrides
+    ;; on the sub's registration meta. Late-bound — when the marks
+    ;; artefact is absent, this is a silent no-op. Gated by debug so
+    ;; production builds DCE the lookup.
+    (when interop/debug-enabled?
+      (when sub-meta
+        (when-let [resolve (late-bind/get-fn :marks/resolve-sub-output-marks)]
+          (when-let [mark! (late-bind/get-fn :marks/mark-sub-output!)]
+            (let [[s? l?] (resolve frame-id query-id input-signals layer-1?)]
+              (mark! frame-id query-id s? l?))))))
     ;; Skip caching the no-such-sub miss — see the rf2-l9u5 note in the
     ;; docstring. The reaction is built so callers that hold a reference
     ;; deref to nil (per Spec 009 §Error contract recovery

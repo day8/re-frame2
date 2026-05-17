@@ -64,6 +64,36 @@
     :design-bead "rf2-w3n5u"
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
+   ;; ---- re-frame.marks (rf2-vw7f5 Spec 015 data classification) -------------
+   {:key         :marks/reg-marks
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Declare path-marks against a frame's app-db (Spec 015 §reg-marks)."}
+   {:key         :marks/register-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Stash a registration's :sensitive / :large declarations in the per-(kind, id) marks table at registration time."}
+   {:key         :marks/project-trace-event
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Implementation notes recommendation B)."}
+   {:key         :marks/resolve-sub-output-marks
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Compute the sensitive/large propagation flags for a sub's most recent output (Spec 015 §App-db → subs / §Subs → fx)."}
+   {:key         :marks/mark-sub-output!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Record the resolved sensitive/large state of a sub's most recent output in the per-(frame, sub-id) propagation table."}
+   {:key         :marks/clear-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Drop every registered marks declaration (test isolation)."}
+   {:key         :marks/clear-sub-output-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Drop the per-frame sub-output propagation table (test isolation)."}
+
    ;; ---- re-frame.flows -------------------------------------------------------
    ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the
    ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs route through
