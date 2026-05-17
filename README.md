@@ -240,7 +240,6 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                nREPL companion
   causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
-  machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer (spec-only)
   machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP agent surface for machines-viz
                                (spec-only)
   mcp-base/                    Shared CLJC library for the MCP servers (arg parsing, redaction,

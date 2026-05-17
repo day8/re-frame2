@@ -255,18 +255,13 @@ runtime implementation has landed on disk yet. They will graduate to
 "Shipped" once their `src/` tree gains substance; empty scaffolding is
 not created up-front.
 
-- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
-  state-chart component for re-frame2 machines. Ships one component
-  (`MachineChart`) plus a static read-only viewer page (decodes a
-  `#machine=<base64-edn>` URL fragment). Causa's Machine Inspector
-  embeds the component; Story's per-variant machine panel embeds it
-  the same way. Explicitly **not** a visualiser-as-product (Stately's
-  Visualizer + Studio occupy that lane). Per-tool spec scaffolded via
-  rf2-x50eu; see [`tools/machines-viz/spec/`](./machines-viz/spec/).
-
 - **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
   A likely separate MCP surface for machine viz. Confirmed separation
-  pending the first cut.
+  pending the first cut. (The chart-component role originally scoped
+  to `tools/machines-viz/` was superseded by Causa's Machine Inspector
+  panel per PR #1400/#1402/#1407; the pure Mermaid emitter relocated
+  to `implementation/machines/src/re_frame/machines/mermaid.cljc` per
+  rf2-yamkm.)
 
 ## Distinction from `skills/`
 
