@@ -11,12 +11,17 @@
 ;; tools/pair2-mcp/deps.edn, tools/story/deps.edn,
 ;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
 ;;
-;; Other tool directories (machines-viz/, machines-viz-mcp/,
-;; mcp-conformance/) are spec-only or Node-only today — no `deps.edn` /
-;; CLJ surface to coordinate. They will be added here when their `src/`
-;; trees land. The Node-side `tools/mcp-conformance/wire-vocab/deps.edn`
-;; is a self-contained JVM conformance test; it is run from its own
+;; Other tool directories (machines-viz-mcp/, mcp-conformance/) are
+;; spec-only or Node-only today — no `deps.edn` / CLJ surface to
+;; coordinate. They will be added here when their `src/` trees land.
+;; The Node-side `tools/mcp-conformance/wire-vocab/deps.edn` is a
+;; self-contained JVM conformance test; it is run from its own
 ;; directory and is not coordinated here.
+;;
+;; (Per rf2-yamkm the `tools/machines-viz/` artefact was collapsed:
+;; the pure Mermaid emitter relocated to `implementation/machines/`,
+;; and the live chart-component role was absorbed by Causa's Machine
+;; Inspector panel (PR #1400/#1402/#1407).)
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every tool artefact onto a single
