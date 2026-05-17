@@ -122,9 +122,34 @@ and does NOT change any source-side panel.
 Tier-2 cluster — it depends on a release decision and is tracked as
 its own bead.
 
+## Vision — bug-class coverage column
+
+**Discipline:** every bug-class named in
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2 (and
+in the per-tab spec's bug catalogue, e.g.
+[`003-Machine-Inspector.md`](003-Machine-Inspector.md) §The bug
+catalogue) MUST have at least one matrix row that exercises the
+**user-visible insight** the catalogue promises.
+
+Add a **`bug-class`** column to the matrix mapping each test row to
+the bug-class ids it covers (e.g. `M.1`, `M.2`, `S.1`, `F.4`, `R.3`).
+For a row covering more than one bug-class, list all ids
+comma-separated.
+
+The audit query: "every `M.*` / `R.*` / `S.*` / `F.*` id appears in
+at least one matrix row." A failing audit blocks PR merge — the
+spec promised the user this affordance; the matrix must verify it
+ships.
+
+This closes a structural gap: today's coverage matrix tests
+**surfaces** (does the panel render? does the click work?); the
+bug-class column tests **insight delivery** (does the surface answer
+the question the user came in with?).
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) - panel inventory and the five canonical questions.
+- [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) - the bug-class catalogue this matrix must cover.
 - [`007-UX-IA.md`](./007-UX-IA.md) - chrome, keyboard, source-coordinate, redaction, launch, and production posture.
 - [`011-Launch-Modes.md`](./011-Launch-Modes.md) - true-inline host default, optional overlay/debug chrome, pop-out, MCP coexistence, preload, and mount lifecycle.
 - [`013-Trace-Bus.md`](./013-Trace-Bus.md) - trace buffer, filter vocabulary, privacy gate, lifecycle, and production elision.

@@ -1,5 +1,40 @@
 # 005-Schema-Timeline
 
+## Bug class
+
+**"Schema violations are spamming the console; show me where + when."**
+
+Silent schema violations are real bugs in disguise. The runtime emits
+`:rf.error/schema-validation-failure` traces with recovery mode +
+Malli explanation; without a timeline view, the author has to grep
+the trace firehose to find them.
+
+## Example bug
+
+Your app subtly mis-renders. The console shows nothing dramatic; the
+trace firehose shows three `:rf.error/schema-validation-failure`
+events scattered across the last 100 traces. You can't tell which
+schema, which path, or whether the framework recovered (replaced with
+default) or rolled back app-db.
+
+## Insight Causa provides
+
+A **horizontal timeline** with one row per registered schema; coloured
+dot per failure (red = `:skip-handler` / `:rollback-db` /
+`:re-raised`; yellow = `:replaced-with-default`); a 600ms label-flash
+on the empty→non-empty transition so newly-failing schemas catch the
+eye. Click a dot → side panel with full Malli explanation, recovery
+mode, triggering cascade, registration source-coord, and three
+actions: open in causality graph, open source, filter timeline to
+just this schema.
+
+## Affordance
+
+Issues tab — schema-violation timeline (today as its own panel; future
+folds into Issues per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)).
+
+---
+
 Silent schema violations are real bugs in disguise. The schema
 violation timeline surfaces them temporally so they become impossible
 to ignore.

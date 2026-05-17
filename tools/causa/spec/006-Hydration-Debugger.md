@@ -1,5 +1,78 @@
 # 006-Hydration-Debugger
 
+## Bug class
+
+**Body / head hydration mismatch.** The server-rendered tree and the
+client first-render tree disagree at a node. The
+`:rf.ssr/hydration-mismatch` trace fires with `:first-diff-path`. The
+console error is one line; the divergent node is rarely the one the
+error points to. SSR debugging is **uniformly opaque** in every framework
+— React's "hydration error" message tells you a node mismatched but
+gives you nothing about WHY the upstream state diverged.
+
+## Example bug
+
+You run the page; SSR returned `<span class="user-name">Guest</span>`;
+the client first-render produced `<span class="user-name">Alice</span>`.
+The browser console says "hydration mismatch at `[:div.app :header
+:span.user-name]`." You don't know why — was the server missing the
+session? Was the sub computing `nil`? Was the `:user/display-name` sub
+watching the wrong slice?
+
+## Insight Causa provides
+
+The **hydration mismatch bisector** — a depth-first walk over the
+canonical EDN serialisation that finds the first divergent node,
+surfaces both trees side-by-side, names the **sub that produced the
+divergent value on each side**, names the **upstream `app-db` slice**
+each side observed, and emits a **heuristic "likely cause" hypothesis**
+that links to the source.
+
+This is the **hero SSR feature**. Causa is the only re-frame2-shaped tool
+that can do this — the framework already emits the structured data; this
+spec turns it into the picture.
+
+## Affordance
+
+Issues tab — hydration mismatch bisector with sub-attribution. Per
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.3 the
+canonical bug-class catalogue. The bisector replaces a generic Issues
+row with a dedicated drill-into surface:
+
+```
+┌─ Hydration mismatch  ·  cascade #1  :rf/hydrate ───────────────────────┐
+│ Failing-id:    :rf/hydrate (body mismatch)                              │
+│ Server hash:   abc123                                                    │
+│ Client hash:   def456                                                    │
+│                                                                          │
+│ Bisector (depth-first over canonical EDN):                              │
+│   ✓ root <div id="app">                                                  │
+│   ✓ <div.layout>                                                         │
+│   ✓ <header>                                                             │
+│   ✗ FIRST DIVERGENCE: <span.user-name>                                   │
+│                                                                          │
+│ Side-by-side:                                                            │
+│ ┌─ Server ─────────────────────┬─ Client ──────────────────────┐        │
+│ │  [:span.user-name "Guest"]    │  [:span.user-name "Alice"]    │        │
+│ │  Subbed to: :user/display-name│  Subbed to: :user/display-name│        │
+│ │  Server sub returned: "Guest" │  Client sub returned: "Alice" │        │
+│ │  Server :user value: nil      │  Client :user value: {:id 1 …}│        │
+│ │  Server :auth/session: nil    │  Client :auth state: :authed  │        │
+│ └────────────────────────────────┴────────────────────────────────┘     │
+│                                                                          │
+│ Likely cause: server-side session cofx not injected (request cookie     │
+│ was present but `:auth/server-init` event was not in `:on-create`)      │
+│ ↗ Open server-side init: src/server/init.cljs:42                        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+The "Likely cause" line is heuristic — Causa suggests "session not
+injected" when the divergent sub depends on `:auth/*` and the server's
+`:auth/*` slice is empty. It is **a hint, not an answer**; it links to a
+panel pivot that lets the user verify.
+
+---
+
 SSR hydration mismatches are structurally hard to debug: the failing
 client render and the failing server render disagree on a tree, the
 console error is one line, and the divergent node is rarely the one
@@ -423,3 +496,106 @@ fires — the panel's render code is lazy-loaded on first activity
 
 (Second message is again deliberately a positive result — a clean
 hydration is the goal, not the absence of a result to display.)
+
+## Vision — beyond v1's bisector
+
+The bisector is the v1 hero. The next-step features push Causa from
+"shows you the mismatch" to "tells you the runtime story behind every
+SSR contract":
+
+### Sub-attribution at hydration time
+
+The bisector knows which subs ran on the server and which ran on the
+client. It can show, per divergent node, the **input chain** for the sub
+on each side — which slice the sub watched, which value it returned, and
+why the cache state differed.
+
+Phase 3 per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
+§6. Needs sub-recompute attribution at hydration time (a new projection
+over the trace bus).
+
+### Schema digest mismatch — per-schema diff
+
+When `:rf.ssr/schema-digest-mismatch` fires, the author wants to see
+**which schemas diverged** (server's registered set vs client's). Causa
+surfaces a per-schema diff: schemas only on server (greyed); schemas
+only on client (highlighted); shared schemas whose digests don't match
+(side-by-side digest comparison + the registration source-coord on each
+side).
+
+### Server-side error projection trace
+
+When a server-side handler errored, the public-error projection
+sanitises the internal trace. In dev mode, `:dev-error-detail? true`
+includes `:details`. Causa surfaces the projector's work:
+
+```
+┌─ Server error projection  ·  cascade #1 :on-create ────────────────────┐
+│ Internal trace:                                                          │
+│   :rf.error/handler-exception                                            │
+│   :handler-id [:dispatch :user/load-profile]                             │
+│   :exception ArgumentError: user-id missing                              │
+│   :stack    at user.events.load-profile (src/user/events.cljs:42)       │
+│ Projector: :myapp/public-error  src/server/projector.cljs:18 ↗          │
+│ Public projection:                                                       │
+│   { :status 500, :code :internal-error, :message "Something went wrong",│
+│     :retryable? false, :details <absent in prod; …> }                   │
+│ Rendered to client:  HTTP 500 + error-page view rendered with public    │
+│                      projection. No internal detail crossed the wire.    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+The security boundary is invisible to authors today; this surface makes
+it legible. "What did the client actually see?" gets a direct answer.
+
+### Payload-policy verdict
+
+When the hydration payload landed, surface the policy used + which keys
+shipped + which keys were dropped. Catches the
+`:payload-policy :rf.ssr.payload/whole-app-db` security mis-configuration
+loudly.
+
+### Head model inspector
+
+When the focused cascade involved a `reg-head` resolution, surface
+inputs (db slice + route) → head model output → rendered HTML head, in
+three columns.
+
+### Per-request frame teardown auditor (dev-only summary)
+
+At per-request frame destroy time, Causa verifies each slot was released.
+Surfaces a one-line "frame destroyed cleanly" + slot tally, or a leak
+warning if any slot persists. Summary only; deep audit lives in CI.
+
+### Streaming SSR boundary timeline
+
+When the focused cascade involves streaming SSR
+(`:rf.ssr/suspense-boundary-*` traces present), render a vertical
+waterfall in the Trace tab — shell flush time, per-boundary fallback
+emit times, per-boundary resolution times (or failures), final payload
+chunk status. Each boundary that failed shows the throwable + fallback
+retention status.
+
+### Side-by-side SSR replay (post-v1 dream)
+
+Causa offers a "replay SSR" affordance: given the live runtime, spin up
+a JVM SSR pipeline (if dev environment has it wired), render the page
+server-side from scratch, show the rendered HTML side-by-side with what
+the live browser is showing. Diff the two. Author sees exactly what's
+different. Way too ambitious for v1; documented as the eventual "SSR
+development is interactive" North Star.
+
+### Placement question — Mike's iteration surface
+
+The bisector deserves more than an Issues row. Three options (see
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §7):
+
+- **(a)** Conditional 7th tab — visible only when SSR is detected for
+  the session.
+- **(b)** Inline panel inside the Issues tab (the current v1 plan).
+- **(c)** `h`-keyboard popover (consistent with Causality `c` and
+  Nav-token `r`).
+
+**Lean: (c).** Keeps the chrome at 6 tabs; joins the popover pattern.
+But "always visible when relevant" is a strong (a) argument for SSR-heavy
+apps.

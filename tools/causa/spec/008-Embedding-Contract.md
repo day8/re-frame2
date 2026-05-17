@@ -255,3 +255,48 @@ it under a new sidebar entry with the same `Panel` shape.
 No commitment is made about the third-party plugin surface
 shape — the embedding contract above is for the **canonical
 first-party panels**, not for any future third-party kind.
+
+## Vision — Story ↔ Causa preset round-tripping
+
+**Bug class:** "I built a Story variant that captures a specific
+debugging posture (filters set, tab selected, pinned epoch); when
+someone else opens that story, they should land in the same posture."
+
+The Story embedding contract (above) covers the **structural** props
+the host passes to a panel. The next-step affordance is **deep preset
+round-tripping**: when a Story variant declares `{:causa/preset {…}}`,
+Causa restores **the full visible state** on mount:
+
+- **Selected tab** (`:tab :machines`).
+- **Active filters** (`:filters {:in […] :out […]}`).
+- **Focused machine** + **selected instance** (for Machines tab
+  embeds).
+- **Pinned cascade** (`:pinned-dispatch-id <id>`) — restored if the
+  cascade is still in the trace buffer at story mount; otherwise
+  surfaced as a "pinned cascade aged out — re-run to recapture" hint.
+- **Settings sub-state** — density, theme override per story.
+
+The preset is **per-Story** (not per-Causa-instance); each story
+carries its own preset; switching stories switches the preset.
+
+## Vision — per-story Causa state snapshots via share-URL
+
+Story already supports share-URLs that round-trip the story state.
+Causa extends this: when a developer pins an interesting debugging
+posture in a Story variant, the share-URL captures:
+
+- The Story variant (existing).
+- The Causa preset (above).
+- A **trace snapshot** — the last N cascades up to and including the
+  pinned focused cascade, serialised into the URL fragment (when small
+  enough) or fetched from a session-local cache when the URL refers
+  to a recent same-session pin.
+
+The recipient opens the share-URL → Story renders the variant → Causa
+mounts with the preset → the trace snapshot is loaded into Causa's
+read-only buffer → they see exactly what the sender saw.
+
+The snapshot is **read-only** (rewinds work; new dispatches do not
+mutate the snapshot — the story's app-db is the source of truth). Lock
+#4 (no session export) is preserved by scope: this is a Story-shared
+state, not a free-standing Causa export.

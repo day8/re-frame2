@@ -437,10 +437,116 @@ rejects immediately.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Layout
   engine — sibling consumer of the same ELK loader pattern.
 
+## Vision — auxiliary content growth
+
+### Event tab — per-fx wire-boundary diff
+
+**Bug class:** "I dispatched event X; it issued an HTTP request; the
+UI updated incorrectly. What went over the wire? What came back? What
+did the handler apply?"
+
+The Event tab's "fx handlers that ran" block grows a **rich expand
+block per managed-effect fx** showing the entire wire interaction:
+request payload (post-elision) → wire transit (status / headers /
+timing waterfall) → response → handler dispatched → app-db slice
+touched. One template; five surfaces (HTTP, WebSocket, machine
+`:invoke`, SSR `:rf.server/*`, flows). See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.1.
+
+### Event tab — `:on-match` event chain (Routes)
+
+When the focused cascade is a routing cascade
+(`:rf.route/navigate` or `:rf.route/handle-url-change`), the Event
+tab's "fx handlers that ran" block adds a dedicated `:on-match`
+dispatch chain sub-section showing each loader event, drain duration,
+and any `:on-error` consequence. See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.2.
+
+### Event tab — retry timeline
+
+When an `:rf.http/managed` retried, surface the per-attempt timeline
+(attempt id · result · category · backoff interval · total elapsed)
+under the fx row. See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.3.
+
+### Event tab — head model inspector (SSR)
+
+When the focused cascade involved a `reg-head` resolution, surface
+inputs (db slice + route) → head model output → rendered HTML head,
+in three columns. See
+[`006-Hydration-Debugger.md`](006-Hydration-Debugger.md)
+§Vision §Head model inspector.
+
+### Issues tab — pending-navigation card
+
+When `:rf/pending-navigation` is set in app-db (a `:can-leave` guard
+rejected), surface it as a yellow card at the top of the App-db tab
++ the Issues tab. Shows the requested URL, the reason, the rejecting
+route, the rejecting guard, and three action buttons (re-evaluate /
+force continue / cancel). See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.6.
+
+### Issues tab — flow cascade-halt alarm
+
+When `:rf.error/flow-eval-exception` fires, surface a high-priority
+entry listing the subsequent flows that did NOT run (the four-rule
+cascade-halt rule per Spec 013). See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.4.
+
+### Issues tab — open-redirect / CRLF / trusted-shell advisories
+
+Three security-class advisories surface in Issues at `:advisory`
+severity (different from `:error` / `:warning`, not pushed to top):
+
+- Open-redirect when `:rf.server/redirect` uses caller-untrusted
+  input (Spec 011 rf2-zfm8v).
+- CRLF in header value when `:rf.error/header-invalid-value` fires.
+- Trusted-shell opt advisory when `:head` / `:body-end` /
+  `:script-src` carry caller-controlled strings.
+
+Causa is a debugger, not a linter — advisories are quiet by default;
+configurable to "loud" via Settings → Trace → "Security advisories".
+
+### App-db tab — `:rf/route` slice always-visible
+
+The `:rf/route` slice is structured and small; it pins at the top of
+the App-db tab under a `[reserved]` group banner, always-expanded,
+with each sub-key on its own line. See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.11.
+
+### Settings popup — full 6-section catalogue
+
+v1 ships the Settings popup with **4 sections** (Theme, Density,
+Editor, Trace). Future: **6 sections** (add **Keybindings** for in-app
+rebind UI; add **Buffer** for retained-epochs control; add **Popout**
+for popout-geometry; add **Actions** for factory-reset + clear-buffer):
+
+| Section | v1 | Future |
+|---|---|---|
+| **Theme** | dark / light / dim | + custom palettes |
+| **Density** | compact / cosy / comfy | (stable) |
+| **Editor** | URI scheme + project-root | (stable) |
+| **Trace** | sensitive-data gate + filter algebra | + security-advisory toggle |
+| **Keybindings** | — | Full rebind UI; conflict-detection; reset-to-defaults |
+| **Buffer** | — | Retained-epochs slider; clear-buffer button; filter persistence schema bump warning |
+| **Popout** | — | Window-geometry restore; "always popout" toggle |
+| **Actions** | — | Factory-reset (red button); clear-buffer-now; reload-without-state |
+
+### Causality popover — full Q12 hybrid layout
+
+The Causality popover ships v1 with single-axis vertical layout.
+Future: hybrid LR-ancestors + TB-descendants per-region; resizable +
+per-session persistence; depth-disclosure pills + per-segment hover
+tooltips; machine-edge types. See
+[`001-Causality-Graph.md`](001-Causality-Graph.md) §Vision.
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab
   inventory.
+- [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) —
+  the 5-idioms × 4-areas matrix driving the per-tab content growth
+  above.
 - [`007-UX-IA.md`](./007-UX-IA.md) — typography, colour tokens,
   density gradients, keyboard map.
 - [`018-Event-Spine.md`](./018-Event-Spine.md) — 4-layer chrome,

@@ -416,6 +416,47 @@ to the elision verifier so `npm run test:elision` ([Spec 009
 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code))
 blocks any leak.
 
+## Vision — trace fattening for context-at-position
+
+**Bug class:** "I want to replay this instance's history from epoch 47
+to epoch 53 — what was the `app-db` state at each step? what subs were
+cached? what was the in-flight HTTP set?"
+
+**v1 ships:** trace events carry an opaque `:dispatch-id` /
+`:parent-dispatch-id` linkage plus `:tags` payloads. Replay from
+arbitrary position requires re-applying the events forward from the
+last snapshot, which loses cache state and in-flight context.
+
+**Future:** trace events grow **context-at-position** payloads — per
+trace event, the runtime stamps a compact reference to the cache state,
+in-flight set, and machine snapshot at the time of emission. This
+enables:
+
+- **Per-instance Phase-5 replay** — the per-instance mini-scrubber
+  (003 §Per-instance mini-scrubber) can rebuild full context at any
+  position in an instance's arc without re-running.
+- **Side-by-side epoch diff** — pin two arbitrary epochs (004 §Pin two
+  epochs side-by-side); diff their cache state and in-flight set, not
+  just app-db.
+- **"What was running when this fired?"** — for any trace event,
+  surface the in-flight HTTP, the spawned machines, the queued
+  `:dispatch-later` arrivals at the moment of emission.
+
+The fattening is **opt-in via configure!** (`:trace/fatten? true`) and
+elides in production. The runtime memory cost is significant (one
+reference per event); the developer cost when the feature is needed is
+prohibitive without it.
+
+## Vision — wall-clock axis in the Trace tab
+
+Per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §1.1,
+the Trace tab grows a **wall-clock axis** for timer rings, retry
+waterfalls, deferred-dispatch arrivals, streaming SSR boundary
+resolutions. The axis is rendered as a vertical time-strip on the
+left edge of the Trace tab; trace events plot against wall-clock time
+not just event sequence. Toggle via `t`-key chord or Settings →
+Trace → "Show wall-clock axis."
+
 ## Cross-references
 
 - [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)

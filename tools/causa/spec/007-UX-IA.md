@@ -1,5 +1,35 @@
 # 007-UX-IA
 
+## The one-event-spine model (the load-bearing statement)
+
+Every Causa surface orients around **one focused event** — the spine
+sub `:rf.causa/focus`. The user picks an event in the L2 list; every
+dependent surface rebinds atomically. Tabs are **lenses on that one
+event**:
+
+| Tab | Bug-class it answers |
+|---|---|
+| **Event** (`e`) | "What does this event do?" — six dominoes + wire-boundary diff per managed fx. |
+| **App-db** (`a`) | "What changed because of this event?" — slice diff. |
+| **Views** (`v`) | "Why did these views re-render?" — sub invalidation chain. |
+| **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. |
+| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. |
+| **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. |
+
+Plus popovers (`c` causality · `r` nav-token timeline · `f` wire-trace
++ `h` hydration bisector, future). Every popover is invokable from any
+tab. Every popover anchors on `:rf.causa/focus`.
+
+**This is the single most important model in the spec.** Every
+information-architecture decision in this doc derives from "one event
+in, full insight out via tab + popover lenses." Cross-cutting concerns
+(SSR · Machines · Routes · Managed-Fx) extend tabs; they never
+fragment the chrome. See
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) for the
+5-idioms × 4-areas matrix.
+
+---
+
 The user experience, the information architecture, the visual
 language. This doc is what an implementer reads to ship pixels that
 feel right — typography sizes, colour tokens, animation timings,
@@ -8,7 +38,9 @@ keyboard maps, density gradients.
 For the *why* behind these picks, see [`Principles.md`](./Principles.md)
 and [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md). For the
 architectural contract of the 4-layer chrome + spine binding + tab
-content, see [`018-Event-Spine.md`](./018-Event-Spine.md).
+content, see [`018-Event-Spine.md`](./018-Event-Spine.md). For the
+cross-cutting-concerns rendering vocabulary, see
+[`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md).
 
 ## Layout
 

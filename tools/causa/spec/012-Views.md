@@ -1,5 +1,43 @@
 # 012-Views
 
+## Bug class
+
+**"Component re-rendered 50 times when I dispatched once — why?"** And:
+**"Why is this subscription returning the wrong value?"**
+
+The render-cascade is invisible from the component. A dispatch
+invalidates N subs; each invalidated sub re-runs (or hits cache); each
+re-run sub triggers re-render of every view subscribed to it. The
+author sees the symptom (excess renders, stale value) but not the
+chain.
+
+## Example bug
+
+You dispatched `:cart/add-item`. You expected 1 view to re-render
+(`cart-summary`). The Views tab shows 50 view renders for THIS
+cascade. You don't know which sub invalidated which view, or whether
+some views re-rendered identically (wasted work) vs because their
+inputs actually changed.
+
+## Insight Causa provides
+
+A **three-group view list** (mounted / re-rendered / unmounted)
+attributed to the focused cascade. **Each view row carries its subs
+nested beneath** — the subs the view actually consumed, with their
+return values inline. Per-sub click → invalidation-chain drilldown
+("why did this sub re-run"). Cluster-large-grids (≥50
+same-identity-key) collapse into a single row with count. Heatmap
+mode tints rows by render cost.
+
+## Affordance
+
+Views tab — three-group layout, nested subs, per-component
+drilldown headline (props-diff). Replaces the pre-rewrite
+Subscriptions panel — subs are nested under their views, not a
+separate tab.
+
+---
+
 The Views tab (tab 3 of 6 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) is the answer to two of
 the five canonical questions:

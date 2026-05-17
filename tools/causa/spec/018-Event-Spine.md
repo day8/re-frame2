@@ -1116,6 +1116,72 @@ The [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) rows for the dr
 
 ---
 
+## §13.5 Vision — wider matcher scopes + recorder → Story export
+
+### Wider matcher scopes
+
+v1 ships the IN/OUT pill matcher with **event-id substring/glob/exact**
+matching only. **Future:** the same pill machinery extends to:
+
+- **Event-args matchers** — `:order/* {:method :pay/* …}` matches
+  events with specific arg payload shape. Useful for filtering
+  high-volume events by their payload (e.g. `:input/changed` is noisy
+  but `:input/changed {:field :credit-card-number}` is interesting).
+- **Path matchers** — pills can match by app-db path touched
+  (`path:/cart/items`) — surface the cascades that modified this slice.
+- **Source-coord matchers** — pills can match by source file/line
+  range, useful for "show me everything dispatched from this module."
+- **Origin matchers** — already wired for `:origin` axis; future
+  expansion to include custom origins from third-party tools.
+
+The matcher algebra stays AND-across-modes / OR-within-mode (per §7);
+the matcher vocabulary grows.
+
+### Recorder → `:play-script` export pipeline (Story integration)
+
+**Bug class:** "I caught this bug in dev; I want a Story variant that
+reproduces it so my colleague can see the same thing."
+
+The Causa session has every dispatch (and its outcome) in the trace
+buffer. Story has the `:play-script` machinery (per Story's spec) for
+declarative variant replay. The pipeline bridges them:
+
+```clojure
+;; In Causa, right-click a focused cascade → "Record from here"
+;;   → marker dropped at the focused cascade.
+;; Continue clicking around the app to capture the repro path.
+;; Right-click → "Export to Story" → opens a dialog with the
+;;   generated `:play-script`:
+
+{:play-script
+ [{:dispatch [:cart/add-item {:id 22}]}
+  {:dispatch [:cart/begin-checkout]}
+  {:wait-for-machine [:checkout :review]}
+  {:dispatch [:pay/decline]}
+  {:assert-state [:checkout :failure]}]}
+```
+
+The pipeline:
+
+1. **Recorder mode** — Causa marks a cascade as the "start" of a
+   recording; subsequent cascades (until the user stops recording) are
+   captured as the script.
+2. **Sanitisation** — payloads with `:sensitive?` paths render as
+   `[:rf/redacted]` (the script captures the cascade structure, not
+   the secret).
+3. **Export dialog** — paste into a Story variant file, or "Save to
+   Story" (when Story is embedded in the same dev build) drops the
+   variant straight into the story.
+4. **Round-trip** — opening that Story variant runs the play-script;
+   Causa, embedded in the Story chrome, lands on the same cascade.
+
+This is the **only "export" Causa offers**, and it lands in Story's
+persistent layer — Lock #4 (no session export) is preserved because
+the export target is Story (which already has a persistence model),
+not Causa.
+
+---
+
 ## §14 Cross-references
 
 - [`000-Vision.md`](000-Vision.md) — 6-tab inventory; philosophy shift to human-only surface.

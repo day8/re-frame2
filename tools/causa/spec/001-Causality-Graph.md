@@ -1,5 +1,50 @@
 # 001-Causality-Graph
 
+## Bug class
+
+**"I dispatched event X, why did event Y also fire 200ms later?"**
+
+The cascade tree is invisible from the call site. In re-frame2, one
+dispatch can cascade through fxs that dispatch other events, through
+machine transitions that emit their own dispatches, through cross-frame
+fxs, through `:dispatch-later` arrivals. The author sees the cascade
+TAIL (event Y firing) but not the CAUSE (event X's fx that dispatched
+Y). Stack traces are insufficient — the dispatcher unwinds before Y
+runs.
+
+## Example bug
+
+You clicked Save. The page eventually re-rendered a card three modules
+over. The Trace shows 18 events fired between your click and the
+re-render. You don't know which event in the chain caused the
+re-render; you don't know which fx in the chain dispatched which
+event; you don't know whether the re-render came from your code or
+from a third-party hook.
+
+## Insight Causa provides
+
+A **vertical directed graph** keyed by `:dispatch-id` /
+`:parent-dispatch-id`. Cascade roots are diamonds (`◆`); children are
+circles (`○`); the currently-selected dispatch is filled (`◉`). The
+walk from any node up through `:parent-dispatch-id` shows the
+ancestor chain ("why did this event fire?"); the walk down through
+the children index shows the descendant tree ("what did this event
+spawn?"). Cross-frame dispatches render as explicit arrows traversing
+horizontal swimlanes.
+
+The graph is the **deeper-walk** answer when the cascade is more than
+two hops, spans frames, or when triaging a session with 30+ events.
+
+## Affordance
+
+The causality graph is a **peer popover** — first-class, keyboard
+mnemonic `c`, transient overlay over any tab. It is **not** the front
+door (the front door is the Event tab + the inline mini-graph). The
+popover is the deeper-walk view when the cascade is more than two
+hops or spans frames.
+
+---
+
 The causality graph is a **peer** panel — first-class, sidebar entry,
 keyboard mnemonic `c`, but **not** the front door. The hero is the
 event-detail panel. The graph is the deeper-walk view when the cascade
@@ -345,3 +390,62 @@ framework's boot epoch.
 - **No edge labels.** Earlier drafts proposed labelling parent → child
   edges with the fx that caused them. The signal-to-noise was poor
   (every edge was labelled `:fx [[:dispatch ...]]`). Removed.
+
+## Vision — full hybrid LR+TB layout
+
+**v1 ships:** single-axis vertical layout (older at top, newer at
+bottom; frames as horizontal swimlanes). **Future:** **hybrid
+LR-ancestors + TB-descendants per-region layout** (Q12-lock):
+
+- **Ancestors** (parent walk from focused node) render LEFT-TO-RIGHT —
+  the older the ancestor, the further left. This matches the "left =
+  cause, right = effect" reading.
+- **Descendants** (children walk from focused node) render
+  TOP-TO-BOTTOM — the deeper the descendant, the further down. This
+  matches the cascade-tree mental model.
+- The **focused node** sits at the LR / TB hinge; the eye reads "cause
+  on the left, focus in the middle, consequences below."
+
+The hybrid layout is more legible than uniform TB for deep cascades
+because the cause-chain reads naturally left-to-right (like a
+narrative) while the consequence-tree branches naturally downward
+(like a stack trace).
+
+## Vision — resizable popover with per-session persistence
+
+The popover opens at 640×480 default. **Future:** it is **draggable to
+any size**, the user's size persists for the session (cleared on
+reload), and the layout reflows. For dense cascades the user wants
+larger; for shallow walks 640×480 is fine. The persistence is
+session-scoped — pins-do-not-survive-reload (Lock #4) extends to
+popover geometry.
+
+## Vision — depth-disclosure + per-segment hover tooltips
+
+For very deep cascades (>10 hops), the graph collapses runs of
+single-child segments into a **"... N steps ..." pill** that expands
+on click. Hovering any pill shows the collapsed events in a tooltip
+without committing to expansion. This is the same affordance pattern
+GitHub uses for collapsing large diffs into "Show N hidden lines."
+
+## Vision — machine-edge types (the cross-cutting growth)
+
+The causality graph's primitive grows new **edge vocabulary** to
+render machine relationships
+([`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §4):
+
+- **Spawn edges** (`─◇▶`) — when machine A's transition triggers
+  `[:rf.machine/spawn machine-B]`, the graph renders a hollow arrow
+  from A's node to B's spawn-dispatch.
+- **Final edges** (`═▶`) — when machine A reaches `:final`, the graph
+  renders a doubled arrow from A's `:final`-transition to the
+  `:on-done` cascade's dispatch.
+- **`:invoke-all` join edges** (`⋈`) — N parallel children converging
+  at a parent's join-condition render as N edges merging into a single
+  `⋈` join node before the parent's continuation.
+
+These are additions to the existing causality-graph rendering
+vocabulary, not a separate panel. The user reading "why did this
+`:order/notify` fire?" walks the graph and sees "because `:checkout`
+reached `:final`" — same affordance as walking any cascade, richer
+edge types.

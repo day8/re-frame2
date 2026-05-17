@@ -1,29 +1,135 @@
 # Causa — Spec
 
+This folder is the **vision-of-record** for Causa. It describes the full
+destination: the surfaces Causa will eventually offer, the bug-classes
+each surface answers, the chrome they live in. Where v1 ships only part
+of a surface, the spec says "v1 ships X; **future:** Y" — and **Y is the
+main read**.
+
 ## Files
 
-- **[000-Vision.md](000-Vision.md)** — Causa, the re-frame2 devtools panel; the five canonical questions an app's programmer should answer in seconds.
-- **[001-Causality-Graph.md](001-Causality-Graph.md)** — Causality graph as a peer panel — the deeper-walk view when a cascade spans frames or 30+ events.
-- **[002-Time-Travel.md](002-Time-Travel.md)** — Bottom-rail time-travel scrubber: walk history without disturbing the live app; rewind is explicit and confirmed.
-- **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — Stately-quality state-chart per registered machine, embedded via `tools/machines-viz/`.
-- **[004-App-DB-Diff.md](004-App-DB-Diff.md)** — Slice-centric (not tree-centric) `app-db` panel: only the slices that changed this epoch, plus pinned watches.
-- **[005-Schema-Timeline.md](005-Schema-Timeline.md)** — Temporal surface for silent schema-violation traces from Spec 010 + Spec 009.
-- **[006-Hydration-Debugger.md](006-Hydration-Debugger.md)** — SSR hydration-mismatch debugger: renders the structured Spec 011 emissions no other JS devtool surfaces.
-- **[007-UX-IA.md](007-UX-IA.md)** — Typography, colour tokens, animation timings, keyboard maps, density gradients — the pixels-that-feel-right reference.
-- **[008-Embedding-Contract.md](008-Embedding-Contract.md)** — Per-panel `Panel` component contract so Story (and others) can embed Causa surfaces outside Causa's own chrome.
-- **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline host and standalone-via-MCP remote-attach.
-- **[012-Views.md](012-Views.md)** — Views tab: three-group layout (mounted / re-rendered / unmounted); subs nested under each view row with return values; cluster-large-grids (≥ 50 same-identity-key); heatmap mode; per-component inline drilldown with props-diff headline. Replaces the pre-rewrite Subscriptions panel — subs are nested under their views, not a separate tab.
-- **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector contract: the ring-buffer data plane every panel reads from, the consumer-side filter algebra, and the `:sensitive?` privacy gate.
-- **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative enumeration of every `:rf.causa/*` subscription, event, effect, and instrumentation callback Causa registers (~155 ids), grouped by owning panel.
-- **[015-Configuration.md](015-Configuration.md)** — `configure!` entry-point contract: every accepted key, default, and the `:rf/causa` app-db slot it drives.
-- **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-tab content contract for tabs beyond the hero 4-layer chrome (event-detail, issues-ribbon, routes content, flows content): inputs (subs / events consumed), main interactions, observable outputs (rf2-3lduz).
-- **[017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md)** — Browser-feature coverage matrix for every Causa panel/feature: user-visible contract, required testbed affordance, direct and failure paths, 20-event/load re-check, diagnostics, owning gate, and current status.
-- **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core: 4-layer chrome (ribbon · event list · tab bar · detail panel), spine sub `:rf.causa/focus`, 6-tab inventory, ribbon anatomy, IN/OUT filter pills, frame-observation isolation invariants, Settings modal popup, Causality popover, keyboard map, data-classification rendering contract. Reading order: read this FIRST for the architectural shape, then the per-tab specs (003 Machines, 004 App-db, 012 Views, 016 Event/Issues, 013 Trace) for content.
-- **[API.md](API.md)** — Consolidated user-facing reference: installation, configuration, public surface; per-area specs are normative.
-- **[Principles.md](Principles.md)** — Causa-specific load-bearing principles (read-only-by-default, etc.); cites framework `Principles.md` where they overlap.
-- **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — The 13 direction-setting decisions: question, options, pick, why, date locked.
-- **[findings/](findings/)** — Exploratory working substrate (Causa UX/UI design, 10x-v2 blank-slate design); audit lineage, not normative.
+### Read these first (the architectural spine)
 
-## How to use
+- **[000-Vision.md](000-Vision.md)** — The claim. Causa shows you what
+  happens when an event fires. The five canonical questions; the audience;
+  the "two doors" split (Causa = human; pair2-mcp = AI); the 6-tab
+  inventory.
+- **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
+  the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
+  spine sub `:rf.causa/focus`, the 6-tab inventory, the popover invocation
+  contract, the data-classification rendering contract. Reading order:
+  read THIS after 000-Vision, then per-tab specs.
+- **[019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md)** — The
+  **5 idioms × 4 areas** matrix. How Causa accommodates SSR, Machines,
+  Routes, Managed-Effects without growing tabs. The bug-class catalogue
+  for each area. Sequenced PR plan (Phase 1–5).
 
-This folder is complete enough to one-shot the tool. Read [`000-Vision.md`](000-Vision.md) first to anchor *why*; the capability docs (001–016) are normative — each owns its surface and is independent of the others bar explicit cross-references. [`Principles.md`](Principles.md) and [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) capture the locks. [`API.md`](API.md) is the consolidated reference. `findings/` preserves the audit lineage and is never normative.
+### Per-tab content specs
+
+- **[001-Causality-Graph.md](001-Causality-Graph.md)** — The Causality
+  popover (`c`-key). Peer affordance — first-class, but not the front
+  door. v1: single-axis vertical; future: hybrid LR-ancestors +
+  TB-descendants per-region layout; resizable + per-session persistence;
+  machine-edge types (spawn / final / `:invoke-all` join).
+- **[002-Time-Travel.md](002-Time-Travel.md)** — Time-travel scrubber:
+  passive scrubbing rebases panels; explicit `r` rewinds the runtime; six
+  named restore failures surface as a modal. Pins survive ring-buffer
+  age-out. Future: branch-and-explore; "find me when path P last changed"
+  walker.
+- **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — The Machines
+  tab. UC1 simulation + UC2 dynamic Mode A/B/C; cancellation cascade
+  visualiser; `:after` timer countdown rings; `:invoke-all` join
+  inspector; per-instance "why am I stuck" trace; shift-click divergence;
+  ELK+SVG primitive Causa-internal. **The bug catalogue at the bottom
+  (M.1–M.10) is the per-feature motivation.**
+- **[004-App-DB-Diff.md](004-App-DB-Diff.md)** — Slice-centric (not
+  tree-centric) app-db panel. Future: branch-aware diff (for Story
+  sim-clones); cross-frame diff; pin-two-epochs side-by-side.
+- **[005-Schema-Timeline.md](005-Schema-Timeline.md)** — Per-schema
+  timeline; empty→non-empty flash; full Malli explanation in detail.
+- **[006-Hydration-Debugger.md](006-Hydration-Debugger.md)** — The
+  hydration mismatch bisector. Hero SSR feature. Side-by-side server vs
+  client with sub-attribution + likely-cause hypothesis. Future
+  sections: server error projection trace; payload-policy verdict; head
+  model inspector; per-request frame teardown auditor; streaming SSR
+  boundary timeline; side-by-side SSR replay (post-v1 dream).
+- **[007-UX-IA.md](007-UX-IA.md)** — Typography, colour tokens, animation
+  timings, keyboard maps, density gradients — the pixels-that-feel-right
+  reference.
+- **[008-Embedding-Contract.md](008-Embedding-Contract.md)** — Per-panel
+  `Panel` component contract so Story (and others) can embed Causa
+  surfaces outside Causa's own chrome.
+- **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline
+  host and standalone-via-MCP remote-attach.
+- **[012-Views.md](012-Views.md)** — Views tab: three-group layout
+  (mounted / re-rendered / unmounted); subs nested under each view row;
+  cluster-large-grids; heatmap mode; per-component inline drilldown.
+  Replaces the legacy Subscriptions panel.
+- **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector
+  contract: the ring-buffer data plane every panel reads from, the
+  consumer-side filter algebra, the `:sensitive?` privacy gate. Future:
+  trace fattening to enable context-at-position (Phase 5 prereq for
+  per-instance replay).
+- **[014-Registry-Catalogue.md](014-Registry-Catalogue.md)** — Normative
+  enumeration of every `:rf.causa/*` subscription, event, effect, and
+  instrumentation callback Causa registers (~155 ids), grouped by owning
+  panel.
+- **[015-Configuration.md](015-Configuration.md)** — `configure!`
+  entry-point contract. v1 ships ~5 keys; future: full 30+ keys
+  (auto-hide filters, theme, retained-epochs, keybindings, factory-reset,
+  ns-aliases, etc.).
+- **[016-Auxiliary-Panels.md](016-Auxiliary-Panels.md)** — Per-tab
+  content contract for the Event tab, Issues ribbon, Routes content,
+  Flows content. Future: wire-boundary diff per managed fx;
+  `:on-match` event chain; pending-navigation card; route-chain
+  visualiser; head model inspector; retry timeline; full 6-section
+  Settings popup (Keybindings, Buffer, Popout, Actions in addition to
+  v1's 4).
+- **[017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md)** —
+  Browser-feature coverage matrix. Future: bug-class coverage column
+  ensures every bug-class in spec has at least one test-row.
+
+### Reference
+
+- **[API.md](API.md)** — Consolidated user-facing reference: installation,
+  configuration, public surface.
+- **[Principles.md](Principles.md)** — Causa-specific load-bearing
+  principles (read-only-by-default, etc.).
+- **[Conventions.md](Conventions.md)** — Causa's reserved namespaces,
+  IDs, etc.
+- **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — The direction-setting
+  decisions: question, options, pick, why, date locked.
+- **[findings/](findings/)** — Exploratory working substrate; audit
+  lineage, not normative.
+
+## How to use this spec
+
+1. **Read [`000-Vision.md`](000-Vision.md) first.** Anchors the claim
+   ("Causa shows you what happens when an event fires") and the five
+   canonical questions.
+2. **Read [`018-Event-Spine.md`](018-Event-Spine.md) next** for the
+   chrome architecture — the 4-layer + spine + 6 tabs + popovers.
+3. **Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
+   third** for the matrix of features across the four cross-cutting areas
+   (SSR · Machines · Routes · Managed-Fx).
+4. **Then per-tab specs (003 Machines, 004 App-db, 006 Hydration, 012
+   Views, 013 Trace, 016 Event/Issues)** for the specific surfaces. Each
+   is independent of the others bar explicit cross-references.
+
+The 19-doc set is complete enough to one-shot the tool. Where v1's
+shipping surface and the spec's destination differ, the spec wins as the
+direction-setter; v1's staged delivery is called out in "v1 ships X;
+future: Y" markers in the per-tab specs.
+
+## Bug-driven design discipline
+
+Every feature in this spec is motivated by a concrete bug-class. The
+uniform structure:
+
+> **Bug class:** what the user is staring at when the question forms.
+> **Example bug:** the vignette — "you dispatched X, expected Y, got Z because W."
+> **Insight Causa provides:** what the user SEES that resolves the mystery.
+> **Affordance:** the UI surface + interaction model.
+
+When in doubt, add the bug; don't add the feature. The spec is auditable
+against this rule.
