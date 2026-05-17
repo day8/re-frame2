@@ -200,6 +200,8 @@
    :rf.causa/selected-fx-id
    :rf.causa/selected-machine-id
    :rf.causa/selected-mismatch-id
+   ;; rf2-om6fa — Story-aware modal positioning opt.
+   :rf.causa/modal-positioning
    :rf.causa/selected-panel
    :rf.causa/selected-route-id
    :rf.causa/selected-tab
@@ -353,6 +355,8 @@
    :rf.causa/set-mcp-since-seconds
    :rf.causa/set-mode-c-cluster-by
    :rf.causa/set-mode-c-context-key
+   ;; rf2-om6fa — Story-aware modal positioning opt.
+   :rf.causa/set-modal-positioning
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
    :rf.causa/set-now-ms-override-for-test
    :rf.causa/set-performance-budget-ms
@@ -485,7 +489,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 119 subs + 140 events + 7 fxs"
+  (testing "registry holds exactly 125 subs + 144 events + 7 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -539,7 +543,9 @@
     ;; + 2 structural-diff engine (rf2-gfxmk Phase 1):
     ;;   :rf.causa/selected-epoch-annotated-tree +
     ;;   :rf.causa/selected-epoch-sections.
-    (is (= 124 (count all-sub-names)))
+    ;; + 1 modal positioning (rf2-om6fa):
+    ;;   :rf.causa/modal-positioning — Story-aware modal positioning opt.
+    (is (= 125 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -601,7 +607,9 @@
     ;;   (rich-tooltip lifecycle slot) +
     ;;   :rf.causa/set-now-ms-override-for-test (deterministic timestamp
     ;;   pin for the CLJS-side test surface).
-    (is (= 143 (count all-event-names)))
+    ;; + 1 modal positioning (rf2-om6fa):
+    ;;   :rf.causa/set-modal-positioning — Story-aware shell-view opt.
+    (is (= 144 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

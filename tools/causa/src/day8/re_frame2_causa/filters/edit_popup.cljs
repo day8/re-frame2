@@ -50,22 +50,28 @@
              :refer [tokens type-scale sans-stack mono-stack]]))
 
 ;; ---- styles --------------------------------------------------------------
+;;
+;; Backdrop honours `:rf.causa/modal-positioning` (rf2-om6fa). `:fixed`
+;; (production default) keeps the full-viewport overlay with max-int
+;; z-index (one above the palette so an edit popup opened over an
+;; open palette wins focus — palette is z 2147483646 per rf2-wm7z4).
+;; `:absolute` (Story testbeds) confines the backdrop to the shell
+;; cell and drops the z-index to a sane in-cell layer.
 
-(defn- backdrop-style []
-  {:position         "fixed"
-   :top              0
-   :left             0
-   :right            0
-   :bottom           0
-   :background       "rgba(0,0,0,0.55)"
-   :backdrop-filter  "blur(2px)"
-   :display          "flex"
-   :align-items      "flex-start"
-   :justify-content  "center"
-   :padding-top      "12vh"
-   ;; One above the palette so an edit popup opened over an open
-   ;; palette wins focus; the palette is z 2147483646 (rf2-wm7z4).
-   :z-index          2147483647})
+(defn- backdrop-style [positioning]
+  (let [absolute? (= positioning :absolute)]
+    {:position         (if absolute? "absolute" "fixed")
+     :top              0
+     :left             0
+     :right            0
+     :bottom           0
+     :background       "rgba(0,0,0,0.55)"
+     :backdrop-filter  "blur(2px)"
+     :display          "flex"
+     :align-items      "flex-start"
+     :justify-content  "center"
+     :padding-top      (if absolute? "8%" "12vh")
+     :z-index          (if absolute? 101 2147483647)}))
 
 (defn- dialog-style []
   {:width            "420px"
@@ -251,21 +257,23 @@
   "The popup body. Caller (`filters/Modal`) gates the mount on
   `:rf.causa/edit-popup-open?`."
   []
-  (let [trigger @(rf/subscribe [:rf.causa/edit-popup-trigger])
-        draft   @(rf/subscribe [:rf.causa/edit-popup-draft])
-        mode    (or (:mode draft) :in)
-        scope   (or (:scope draft) #{:event-id})
-        editing? (= :pill (:source trigger))
-        title    (case (:source trigger)
-                   :pill    "Edit filter"
-                   :context "Add filter for this event"
-                   "Add filter")
+  (let [trigger     @(rf/subscribe [:rf.causa/edit-popup-trigger])
+        draft       @(rf/subscribe [:rf.causa/edit-popup-draft])
+        positioning @(rf/subscribe [:rf.causa/modal-positioning])
+        mode        (or (:mode draft) :in)
+        scope       (or (:scope draft) #{:event-id})
+        editing?    (= :pill (:source trigger))
+        title       (case (:source trigger)
+                      :pill    "Edit filter"
+                      :context "Add filter for this event"
+                      "Add filter")
         ;; Apply is enabled when the pattern is non-blank.
-        can-apply? (let [p (:pattern draft)]
-                     (and (string? p) (seq (clojure.string/trim p))))]
+        can-apply?  (let [p (:pattern draft)]
+                      (and (string? p) (seq (clojure.string/trim p))))]
     [:div {:data-testid "rf-causa-edit-popup-backdrop"
+           :data-rf-causa-modal-positioning (name (or positioning :fixed))
            :on-click    #(rf/dispatch [:rf.causa/close-edit-popup] {:frame :rf/causa})
-           :style       (backdrop-style)}
+           :style       (backdrop-style positioning)}
      [:div {:data-testid "rf-causa-edit-popup-dialog"
             :on-click    #(.stopPropagation %)
             :style       (dialog-style)}

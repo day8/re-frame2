@@ -411,18 +411,24 @@
       (render-cascade cascade nil))))
 
 ;; ---- popover (overlay) ---------------------------------------------------
+;;
+;; Backdrop honours `:rf.causa/modal-positioning` (rf2-om6fa).
+;; `:fixed` (production default) — full-viewport overlay. `:absolute`
+;; (Story testbeds) — backdrop confined to the shell cell with a
+;; sane in-cell z-index.
 
-(defn- backdrop-style []
-  {:position         "fixed"
-   :top              0
-   :left             0
-   :right            0
-   :bottom           0
-   :background       "rgba(0,0,0,0.18)"
-   :display          "flex"
-   :align-items      "center"
-   :justify-content  "center"
-   :z-index          2147483644})
+(defn- backdrop-style [positioning]
+  (let [absolute? (= positioning :absolute)]
+    {:position         (if absolute? "absolute" "fixed")
+     :top              0
+     :left             0
+     :right            0
+     :bottom           0
+     :background       "rgba(0,0,0,0.18)"
+     :display          "flex"
+     :align-items      "center"
+     :justify-content  "center"
+     :z-index          (if absolute? 97 2147483644)}))
 
 (defn- dialog-style []
   {:width            "720px"
@@ -455,15 +461,17 @@
   cascade body inside the dialog."
   []
   (when @(rf/subscribe [:rf.causa/cancellation-cascade-popover-open?])
-    (let [cascade @(rf/subscribe [:rf.causa/cancellation-cascade-for-focused-event])
-          close   (fn [_]
-                    (rf/dispatch [:rf.causa/cancellation-cascade-close]
-                                 {:frame :rf/causa}))]
+    (let [cascade     @(rf/subscribe [:rf.causa/cancellation-cascade-for-focused-event])
+          positioning @(rf/subscribe [:rf.causa/modal-positioning])
+          close       (fn [_]
+                        (rf/dispatch [:rf.causa/cancellation-cascade-close]
+                                     {:frame :rf/causa}))]
       [:div {:data-testid "rf-causa-cancellation-cascade-popover-backdrop"
+             :data-rf-causa-modal-positioning (name (or positioning :fixed))
              :on-click    close
              :on-key-down handle-popover-keydown
              :tab-index   -1
-             :style       (backdrop-style)}
+             :style       (backdrop-style positioning)}
        [:div {:data-testid "rf-causa-cancellation-cascade-popover-dialog"
               :on-click    #(.stopPropagation %)
               :on-key-down handle-popover-keydown

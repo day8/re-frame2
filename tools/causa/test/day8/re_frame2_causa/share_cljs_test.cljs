@@ -21,9 +21,10 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.share :as share]
+            [day8.re-frame2-causa.share-modal :as share-modal]
             [day8.re-frame2-causa.test-support :as causa-test-support]
-            [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.share :as share]))
+            [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -263,3 +264,62 @@
         "modal-open flag lands on Causa")
     (is (nil? (:share/modal-open? default-db))
         "host frame is untouched")))
+
+;; ---- Modal positioning (rf2-om6fa) -------------------------------------
+
+(defn- expand-tree
+  [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)))
+    (expand-tree (apply (first tree) (rest tree)))
+
+    (vector? tree)
+    (mapv expand-tree tree)
+
+    (seq? tree)
+    (map expand-tree tree)
+
+    :else
+    tree))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (tree-seq (some-fn vector? seq?) seq (expand-tree tree))))
+
+(deftest share-modal-backdrop-defaults-to-fixed-positioning
+  (testing "with no :rf.causa/modal-positioning slot set, the share
+            modal backdrop renders position: fixed at the production
+            z-index"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/share-modal-open]))
+    (rf/with-frame :rf/causa
+      (let [tree     (share-modal/Modal)
+            backdrop (find-by-testid tree "rf-causa-share-modal-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "fixed" (:position style)))
+        (is (= 2147483100 (:z-index style)))
+        (is (= "fixed"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+(deftest share-modal-backdrop-honours-absolute-positioning
+  (testing "after `:rf.causa/set-modal-positioning :absolute` the
+            share modal backdrop switches to position: absolute"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/share-modal-open])
+      (rf/dispatch-sync [:rf.causa/set-modal-positioning :absolute]))
+    (rf/with-frame :rf/causa
+      (let [tree     (share-modal/Modal)
+            backdrop (find-by-testid tree "rf-causa-share-modal-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "absolute" (:position style)))
+        (is (< (:z-index style) 1000))
+        (is (= "absolute"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))

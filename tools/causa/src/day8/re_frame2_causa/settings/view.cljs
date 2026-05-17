@@ -27,20 +27,29 @@
   (boolean (find-ns 'day8.re-frame2-causa.filters)))
 
 ;; ---- styles --------------------------------------------------------------
+;;
+;; The backdrop's `:position` and `:z-index` honour the
+;; `:rf.causa/modal-positioning` opt published by `shell-view` (rf2-om6fa).
+;; `:fixed` (default, production) — full-viewport overlay at the
+;; chrome's max-int stacking layer. `:absolute` (Story testbeds) —
+;; contained to the nearest positioned ancestor (the shell's outer
+;; `<div>` is `position: relative` in `:inline` mode) with a sane
+;; z-index so the cell's modals never paint over Story chrome.
 
-(defn- backdrop-style []
-  {:position         "fixed"
-   :top              0
-   :left             0
-   :right            0
-   :bottom           0
-   :background       "rgba(0,0,0,0.55)"
-   :backdrop-filter  "blur(2px)"
-   :display          "flex"
-   :align-items      "flex-start"
-   :justify-content  "center"
-   :padding-top      "8vh"
-   :z-index          2147483646})
+(defn- backdrop-style [positioning]
+  (let [absolute? (= positioning :absolute)]
+    {:position         (if absolute? "absolute" "fixed")
+     :top              0
+     :left             0
+     :right            0
+     :bottom           0
+     :background       "rgba(0,0,0,0.55)"
+     :backdrop-filter  "blur(2px)"
+     :display          "flex"
+     :align-items      "flex-start"
+     :justify-content  "center"
+     :padding-top      (if absolute? "5%" "8vh")
+     :z-index          (if absolute? 100 2147483646)}))
 
 (defn- dialog-style []
   {:width            "600px"
@@ -338,11 +347,13 @@
   and always renders. ESC closes; click outside the dialog closes;
   the ✕ button in the header closes."
   []
-  (let [active-tab @(rf/subscribe [:rf.causa/settings-active-tab])]
+  (let [active-tab  @(rf/subscribe [:rf.causa/settings-active-tab])
+        positioning @(rf/subscribe [:rf.causa/modal-positioning])]
     [:div {:data-testid "rf-causa-settings-backdrop"
+           :data-rf-causa-modal-positioning (name (or positioning :fixed))
            :on-click    #(rf/dispatch [:rf.causa/settings-close])
            :on-key-down handle-keydown
-           :style       (backdrop-style)}
+           :style       (backdrop-style positioning)}
      [:div {:data-testid "rf-causa-settings-dialog"
             :data-rf-causa-mode "settings"
             :on-click    #(.stopPropagation %)

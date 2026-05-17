@@ -200,3 +200,45 @@
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/settings-toggle]))
   (is (false? (boolean (:settings-open? (rf/get-frame-db :rf/causa))))))
+
+;; ---- Modal positioning (rf2-om6fa) -------------------------------------
+
+(deftest backdrop-defaults-to-fixed-positioning
+  (testing "with no :rf.causa/modal-positioning slot set, backdrop
+            renders position: fixed at the production z-index"
+    (setup!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-open]))
+    (rf/with-frame :rf/causa
+      (let [rendered (popup/Modal)
+            backdrop (find-by-testid rendered "rf-causa-settings-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "fixed" (:position style))
+            ":position is :fixed by default")
+        (is (= 2147483646 (:z-index style))
+            "production z-index unchanged")
+        (is (= "fixed"
+               (:data-rf-causa-modal-positioning (second backdrop)))
+            "data attribute echoes the resolved positioning")))))
+
+(deftest backdrop-honours-absolute-positioning
+  (testing "after `:rf.causa/set-modal-positioning :absolute` the
+            backdrop switches to position: absolute with a sane
+            in-cell z-index"
+    (setup!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-open])
+      (rf/dispatch-sync [:rf.causa/set-modal-positioning :absolute]))
+    (rf/with-frame :rf/causa
+      (let [rendered (popup/Modal)
+            backdrop (find-by-testid rendered "rf-causa-settings-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "absolute" (:position style))
+            ":position is :absolute under the testbed opt")
+        (is (< (:z-index style) 1000)
+            "z-index drops to a sane in-cell value")
+        (is (= "absolute"
+               (:data-rf-causa-modal-positioning (second backdrop)))
+            "data attribute echoes the resolved positioning")))))

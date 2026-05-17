@@ -543,3 +543,57 @@
   (is (= :foo/bar (shell/event-id-of-cascade {:event [:foo/bar {:x 1}]})))
   (is (nil? (shell/event-id-of-cascade {:event nil}))
       "missing event → nil"))
+
+;; -------------------------------------------------------------------------
+;; (9) :modal-positioning opt — rf2-om6fa
+;; -------------------------------------------------------------------------
+;;
+;; The opt threads through `shell-view` into `:rf/causa`'s app-db so every
+;; modal can read it via the `:rf.causa/modal-positioning` sub. Default
+;; `:fixed` preserves production behaviour; `:absolute` is the testbed-
+;; scoped containment mode (Story workspaces).
+
+(deftest modal-positioning-defaults-to-fixed
+  (testing "shell-view with no opt renders :fixed on the shell-root
+            attribute. Slot stays unwritten (sub falls back to :fixed
+            via `(get db :modal-positioning :fixed)`) — no dispatch
+            fires because the sub already matches the default prop."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            shell (find-by-testid tree "rf-causa-shell")]
+        (is (some? shell))
+        (is (= "fixed" (:data-rf-causa-modal-positioning (second shell)))
+            "default attribute is :fixed")))
+    (rf/with-frame :rf/causa
+      (is (= :fixed @(rf/subscribe [:rf.causa/modal-positioning]))
+          "sub resolves to :fixed default"))))
+
+(deftest modal-positioning-absolute-opt-publishes-attribute
+  (testing "shell-view with :modal-positioning :absolute seeds the
+            slot via dispatch-sync and writes
+            data-rf-causa-modal-positioning=\"absolute\" on the shell
+            root"
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree  (shell/shell-view {:modal-positioning :absolute})
+            shell (find-by-testid tree "rf-causa-shell")]
+        (is (some? shell))
+        (is (= "absolute" (:data-rf-causa-modal-positioning (second shell)))
+            "explicit attribute is :absolute"))
+      (is (= :absolute @(rf/subscribe [:rf.causa/modal-positioning]))
+          "sub returns :absolute after the first render"))))
+
+(deftest modal-positioning-toggle-round-trips
+  (testing "flipping the opt re-seeds the slot — render with :absolute,
+            then render with :fixed (no opt) settles back to :fixed"
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (shell/shell-view {:modal-positioning :absolute}))
+    (rf/with-frame :rf/causa
+      (is (= :absolute @(rf/subscribe [:rf.causa/modal-positioning]))))
+    (rf/with-frame :rf/causa
+      (shell/shell-view))
+    (rf/with-frame :rf/causa
+      (is (= :fixed @(rf/subscribe [:rf.causa/modal-positioning]))
+          "no-opt render re-defaults the slot to :fixed"))))

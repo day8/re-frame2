@@ -65,8 +65,16 @@
 (def ^:private card-style
   "Card chrome around an embedded panel — gives the variants-grid a
   consistent visual shell with a labelled border so a reviewer can
-  spot the panel boundary."
-  {:height          "520px"
+  spot the panel boundary.
+
+  `:position :relative` (rf2-om6fa) — establishes the positioning
+  context for `:modal-positioning :absolute` modal backdrops mounted
+  inside the chrome shell. The shell's `:inline` mode already sets
+  its outer `<div>` to `position: relative`, but pinning it on the
+  card too keeps containment robust against future tweaks to the
+  shell's outer styling."
+  {:position        "relative"
+   :height          "520px"
    :width           "100%"
    :display         "flex"
    :flex-direction  "column"
@@ -134,11 +142,25 @@
   per spec/018-Event-Spine.md §2. The shell sits inside its own
   `[frame-provider {:frame :rf/causa}]` (per shell.cljs); variant
   seed events therefore dispatch with `{:frame :rf/causa}` so the
-  reads land where the shell reads."
+  reads land where the shell reads.
+
+  ## `:modal-positioning :absolute` (rf2-om6fa)
+
+  Story workspaces mount multiple chrome cells side-by-side. With
+  the production default `:fixed` positioning every cell's modal
+  backdrop would paint over the entire viewport at max-int z-index
+  (`position: fixed; inset: 0`), and a workspace of N cells would
+  stack N full-viewport backdrops over the Story shell — popup
+  kills window. `:absolute` confines each cell's modals to the
+  cell's positioning context (the card's `:position :relative`
+  established by `chrome-card-style` / `card-style`) with a sane
+  in-cell z-index, so per-cell modals can be opened, dismissed, and
+  inspected without leaking into the Story chrome."
   [_args]
   [:div {:style       chrome-card-style
          :data-testid "panel-gallery-chrome-card"}
-   [shell/shell-view {:mode :inline}]])
+   [shell/shell-view {:mode :inline
+                      :modal-positioning :absolute}]])
 
 ;; ---- registration --------------------------------------------------------
 

@@ -273,3 +273,40 @@
       (let [db @(rf/subscribe [:rf/app-db])]
         (is (not (contains? db :cancellation-cascade-popover-open?))
             "no leak into the host's :rf/default frame")))))
+
+;; ---- (7) Modal positioning (rf2-om6fa) -------------------------------
+
+(deftest popover-backdrop-defaults-to-fixed-positioning
+  (testing "with no :rf.causa/modal-positioning slot set, the
+            cancellation-cascade popover backdrop renders position:
+            fixed at the production z-index"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/cancellation-cascade-open nil]))
+    (rf/with-frame :rf/causa
+      (let [tree     (cc/Popover)
+            backdrop (find-by-testid tree "rf-causa-cancellation-cascade-popover-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "fixed" (:position style)))
+        (is (= 2147483644 (:z-index style)))
+        (is (= "fixed"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+(deftest popover-backdrop-honours-absolute-positioning
+  (testing "after `:rf.causa/set-modal-positioning :absolute` the
+            cancellation-cascade backdrop switches to position:
+            absolute with a sane in-cell z-index"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/cancellation-cascade-open nil])
+      (rf/dispatch-sync [:rf.causa/set-modal-positioning :absolute]))
+    (rf/with-frame :rf/causa
+      (let [tree     (cc/Popover)
+            backdrop (find-by-testid tree "rf-causa-cancellation-cascade-popover-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "absolute" (:position style)))
+        (is (< (:z-index style) 1000))
+        (is (= "absolute"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))
