@@ -141,33 +141,42 @@
   "One row per registered machine. `machine-id` is the keyword the
   machine is registered under (per Spec 005); `snapshot` is the
   current `{:state :data}` map (or nil for uninitialised machines).
+  `definition` is the registered machine spec (`(rf/machine-meta
+  machine-id)`); nil when the spec is not yet introspectable.
 
   Per the panel's minimum-viable contract the row carries:
 
     :machine-id   — the registered id (keyword)
     :state        — the snapshot's :state keyword (nil if uninit)
     :data         — the snapshot's :data map (nil if uninit)
+    :definition   — the registered machine spec (nil if not available)
     :registered?  — always true (the row exists because the id is
                     registered); included so the view can render the
                     fact distinctly from `:state` (an uninitialised
                     registered machine still appears in the picker)."
-  [machine-id snapshot]
-  {:machine-id  machine-id
-   :state       (when (map? snapshot) (:state snapshot))
-   :data        (when (map? snapshot) (:data snapshot))
-   :registered? true})
+  ([machine-id snapshot] (project-machine-row machine-id snapshot nil))
+  ([machine-id snapshot definition]
+   {:machine-id  machine-id
+    :state       (when (map? snapshot) (:state snapshot))
+    :data        (when (map? snapshot) (:data snapshot))
+    :definition  definition
+    :registered? true}))
 
 (defn project-machine-rows
-  "Project the registered-machine set + the live snapshots map into
-  one row per id. Sorted alphabetically by `(name machine-id)` for
-  deterministic test output. Pure fn — JVM-runnable."
-  [machines snapshots]
-  (->> (or machines [])
-       (map (fn [id]
-              (project-machine-row id (get snapshots id))))
-       (sort-by (fn [{:keys [machine-id]}]
-                  (str machine-id)))
-       vec))
+  "Project the registered-machine set + the live snapshots map (+
+  the per-id definition map, when available) into one row per id.
+  Sorted alphabetically by `(name machine-id)` for deterministic
+  test output. Pure fn — JVM-runnable."
+  ([machines snapshots] (project-machine-rows machines snapshots nil))
+  ([machines snapshots definitions]
+   (->> (or machines [])
+        (map (fn [id]
+               (project-machine-row id
+                                    (get snapshots id)
+                                    (get definitions id))))
+        (sort-by (fn [{:keys [machine-id]}]
+                   (str machine-id)))
+        vec)))
 
 (defn pick-selected
   "Resolve the row for the selected machine-id. When `selected-id` is
@@ -199,13 +208,15 @@
   renders the empty-chart state in that case."
   [selected-row frame-id]
   (when selected-row
-    (let [{:keys [machine-id state data]} selected-row]
+    (let [{:keys [machine-id state data definition]} selected-row]
       (cond-> {:machine-id machine-id
                :frame-id   frame-id}
         (some? state)
         (assoc :current-state-override
                (cond-> {:state state}
-                 (some? data) (assoc :data data)))))))
+                 (some? data) (assoc :data data)))
+        (some? definition)
+        (assoc :definition definition)))))
 
 ;; ---- transition history --------------------------------------------------
 
@@ -291,21 +302,23 @@
        :chart-props  <props-or-nil>
        :transitions  [<transition-row> ...]
        :empty-kind   <:no-machines / nil>}"
-  [machines snapshots trace-buffer selected-id frame-id]
-  (let [rows         (project-machine-rows machines snapshots)
-        total        (count rows)
-        selected     (pick-selected rows selected-id)
-        effective-id (:machine-id selected)
-        props        (chart-props selected frame-id)
-        transitions  (project-transitions trace-buffer effective-id)
-        empty-kind   (when (zero? total) :no-machines)]
-    {:machines    rows
-     :total       total
-     :selected-id effective-id
-     :selected    selected
-     :chart-props props
-     :transitions transitions
-     :empty-kind  empty-kind}))
+  ([machines snapshots trace-buffer selected-id frame-id]
+   (project-data machines snapshots nil trace-buffer selected-id frame-id))
+  ([machines snapshots definitions trace-buffer selected-id frame-id]
+   (let [rows         (project-machine-rows machines snapshots definitions)
+         total        (count rows)
+         selected     (pick-selected rows selected-id)
+         effective-id (:machine-id selected)
+         props        (chart-props selected frame-id)
+         transitions  (project-transitions trace-buffer effective-id)
+         empty-kind   (when (zero? total) :no-machines)]
+     {:machines    rows
+      :total       total
+      :selected-id effective-id
+      :selected    selected
+      :chart-props props
+      :transitions transitions
+      :empty-kind  empty-kind})))
 
 ;; ---- formatting helpers (consumed by the view) --------------------------
 

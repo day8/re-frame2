@@ -197,7 +197,13 @@
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-cbs!          :phase :post-dispose}
-   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
+   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}
+   ;; Per Spec 015 — clear the per-(kind, id) marks table and the
+   ;; per-frame sub-output propagation table so each test starts
+   ;; from a clean classification slate. No-op when the marks
+   ;; artefact is absent.
+   {:hook :marks/clear-marks!              :phase :post-dispose}
+   {:hook :marks/clear-sub-output-marks!   :phase :post-dispose}])
 
 (defn- run-reset-hooks!
   "Driver: fire every `reset-hook-table` row whose `:phase` matches and

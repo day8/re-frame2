@@ -2,6 +2,7 @@
   "Changed-slice rows for the App-DB Diff panel."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -25,7 +26,7 @@
     "No diffs yet — every dispatch will land here with the slices it touched."]])
 
 (defn- value-block
-  [label value tone]
+  [label value tone path]
   [:div {:style {:display     "flex"
                  :align-items "flex-start"
                  :gap         "8px"
@@ -46,7 +47,14 @@
                   :color         (:text-primary tokens)
                   :word-break    "break-word"
                   :white-space   "pre-wrap"}}
-    (f/format-display-edn value)]])
+    ;; cljs-devtools-shaped renderer (rf2-x9fzk) — replaces the
+    ;; previous `f/format-display-edn` pr-str rendering. Sentinels
+    ;; (`:rf/redacted`, `:rf/large`) get bespoke chrome per
+    ;; spec/015 / spec/018 §12. Display-value still elides giant
+    ;; strings to `:rf.size/large-elided` first; the inspector
+    ;; renders that marker like any other map.
+    (inspector/inspect (f/display-value value)
+                       (str "app-db-diff/" (pr-str path) "/" (name label)))]])
 
 (defn slice-row
   [{:keys [op path before after] :as _triple}]
@@ -136,12 +144,12 @@
                               :font-size   "10px"}}
        "Copy value"]]
      (case op
-       :added    (value-block "added" after :green)
+       :added    (value-block "added" after :green path)
        :removed  [:div {:style {:text-decoration "line-through"}}
-                  (value-block "removed" before :red)]
+                  (value-block "removed" before :red path)]
        :modified [:div
-                  (value-block "before" before :text-tertiary)
-                  (value-block "after"  after  :yellow)])]))
+                  (value-block "before" before :text-tertiary path)
+                  (value-block "after"  after  :yellow path)])]))
 
 (defn changed-slices-stack
   [non-reserved-triples]

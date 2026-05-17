@@ -264,6 +264,23 @@
   (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
     (deliver-tooling event)))
 
+(defn- maybe-project-marks
+  "Apply the data-classification marks projection if the marks
+  artefact is loaded. Per Spec 015 §Implementation notes
+  recommendation B: emit-time path-walk + sentinel substitution.
+
+  The projection hook is published by `re-frame.marks` at ns-load;
+  when the marks artefact is absent the hook is unbound and this is
+  a no-op pass-through. Inside the existing `interop/debug-enabled?`
+  gate (in `emit!`) so production builds DCE the hook lookup along
+  with the rest of the trace emit."
+  [event]
+  ;; Sticky hook (rf2-f72pd) — `:marks/project-trace-event` is
+  ;; published once at re-frame.marks load and never withdrawn.
+  (if-let [project (late-bind/get-fn-cached :marks/project-trace-event)]
+    (project event)
+    event))
+
 (defn emit!
   "Emit a trace event. Production builds elide the body entirely
   (Closure DCE on the `interop/debug-enabled?` gate); in dev / JVM
@@ -275,6 +292,14 @@
   into `:tags`, `:sensitive?` stamped at top level. Short-circuits
   before allocation when the scope's `:no-emit?` slot is true.
 
+  Per Spec 015 (data classification): after envelope assembly and
+  before delivery, the marks-projection hook walks `:tags` to
+  substitute `:rf/redacted` and `:rf.size/large-elided` markers at
+  paths declared sensitive / large by the in-scope handler's
+  registration meta or `reg-marks`. Gated by the same
+  `interop/debug-enabled?` so production CLJS bundles DCE the entire
+  marks machinery.
+
   Per Spec 009 §Emitting trace events and §Handler-scope."
   [op operation tags]
   (when interop/debug-enabled?
@@ -283,7 +308,7 @@
     ;; (the outer gate must stand alone for Closure DCE — see
     ;; §Production-elision verification).
     (when-not (true? (some-> *handler-scope* :no-emit?))
-      (deliver! (build-event op operation tags)))))
+      (deliver! (maybe-project-marks (build-event op operation tags))))))
 
 (defn emit-error!
   "Emit a structured error trace event. `:operation` is the error
@@ -294,13 +319,17 @@
   Reads `*handler-scope*` to hoist `:trigger-handler`, `:call-site`,
   and `:dispatch-id` onto the envelope, and to honour the `:no-emit?`
   short-circuit (symmetric with `emit!`). Per Spec 009 §Error contract
-  and §Handler-scope."
+  and §Handler-scope.
+
+  Per Spec 015: the same marks-projection hook runs on error traces so
+  exception traces don't accidentally leak sensitive event-args /
+  fx-args / cofx-values."
   [error-operation tags]
   (when interop/debug-enabled?
     ;; `:no-emit?` short-circuit sits *inside* the outer
     ;; `interop/debug-enabled?` gate per Spec 009 §Production builds.
     (when-not (true? (some-> *handler-scope* :no-emit?))
-      (deliver! (build-event :error error-operation tags)))))
+      (deliver! (maybe-project-marks (build-event :error error-operation tags))))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;; Published through `late-bind` so registrar can emit without requiring
