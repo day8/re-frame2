@@ -249,9 +249,11 @@ Spec: [`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md).
 | `:rf.causa/reroot-tree-view` | `[_ path]` | Re-roots at `path` (per spec §Render-tree hash bisector). Empty path clears. |
 | `:rf.causa/open-in-editor` | `[_ coord]` | Records the attempted source-coord. Full handler lives in `open-in-editor.cljs`; this is the thin record-the-attempt path. |
 
-## Subscriptions panel
+## Views tab (incl. nested subs — replaces the pre-rewrite Subscriptions panel)
 
-Spec: [`012-Subscriptions.md`](./012-Subscriptions.md).
+Spec: [`012-Views.md`](./012-Views.md). Subs nest under views per the
+rewrite; the sub-cache + sub-graph primitives below continue to back
+the nested-sub-row renderer in the Views tab.
 
 ### Subscriptions
 

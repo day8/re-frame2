@@ -92,7 +92,7 @@ live as upstream slots move (`:cart/total` ← `:cart/items` ←
 **Open when:** "why didn't my view update?", "trace the recompute
 chain for sub X", "is this sub cached or did it recompute?"
 
-Spec: [`012-Subscriptions.md`](../../../tools/causa/spec/012-Subscriptions.md).
+Spec: [`012-Views.md`](../../../tools/causa/spec/012-Views.md) (subs nest under views per the rewrite).
 
 ### Effects *(fx)*
 

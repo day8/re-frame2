@@ -1,62 +1,266 @@
 # 003-Machine-Inspector
 
-The machine inspector renders a Stately-quality state-chart per
-registered machine, embedded in Causa as one of the 16 panels. The
-state-chart component itself lives in `tools/machines-viz/` —
-Causa embeds it.
+The Machines tab (tab 5 of 6 in the 4-layer chrome — see
+[`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
+state-chart per registered machine, plus an interactive simulation
+mode (UC1) and dynamic multi-instance views (UC2 Mode A/B/C). The
+state-chart layout primitive lives Causa-internal at
+`tools/causa/src/day8/re_frame2_causa/chart/{layout,svg,interaction}.cljc`.
 
-## Embedding posture
+## Architectural posture
 
-`tools/machines-viz/` owns the chart component. Causa embeds it. The
-dependency arrow:
+**The `tools/machines-viz/` artefact is gone** (collapsed into Causa
+in a separate PR; this spec already reflects the post-collapse shape).
+The ELK+SVG layout primitive is Causa-internal. The Mermaid text
+emitter relocates to `implementation/machines/src/re_frame/machines/mermaid.cljc`
+so the framework can re-export `(rf/machine->mermaid <id>)` without a
+tool-jar dependency.
 
 ```
-tools/causa/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
+tools/causa/  ─requires→  implementation/machines/
+   (chart primitive: chart/{layout,svg,interaction}.cljc)
 ```
 
-Same direction as Story → Causa (per
-[`008-Embedding-Contract.md`](./008-Embedding-Contract.md)). The
-inverse is forbidden: `machines-viz` does **not** depend on Causa, so
-programmers who want a chart without the rest of Causa can pull
-`machines-viz` standalone.
+The Causality popover (see [`018-Event-Spine.md`](018-Event-Spine.md)
+§10) reuses the same ELK+SVG primitive for ancestor-chain +
+descendants-tree rendering. Two consumers, one layout engine.
 
-The contract: `machines-viz` exports a `MachineChart` component that
-accepts a `machine-id` and a `frame-id`, renders the chart, handles
-the live-highlight. Causa's machine-inspector panel is a thin wrapper
-that adds the transition-history ribbon and the source-coord jump
-affordance.
+## Tab placement
 
-```clojure
-;; In Causa's machine-inspector panel namespace:
-(ns day8.re-frame2-causa.panels.machine
-  (:require [day8.re-frame2-machines-viz.chart :as viz]))
+- **Tab id:** 5 of 6 (`m` mnemonic).
+- **Spine binding:** reads `:rf.causa/focus`. The Machines tab inherits
+  the ribbon's selected frame; if a user has a machine spawned in
+  `:app/dialog`, they need to select `:app/dialog` in the picker to see
+  it.
+- **Isolation invariant:** the tab shows ONLY the selected frame's
+  machines per [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3.
 
-(defn machine-inspector-panel [{:keys [machine-id frame-id]}]
-  [:div.causa-machine-inspector
-   [viz/MachineChart {:machine-id machine-id
-                      :frame-id   frame-id
-                      :on-state-click  causa-jump-to-source
-                      :on-transition-click causa-jump-to-transition-history}]
-   [transition-history-ribbon frame-id machine-id]])
+## Definition view — Mode A resting state
+
+The Machines tab opens in **registry-index** mode when no specific
+machine is selected (showing live count per definition + dormant
+defs). When a machine is selected, the inspection view renders:
+
+```
+╭─ Machine Inspector · :checkout ─── frame: :app/main ── Sim ○ ──╮
+│ 6 states · 11 transitions · 2 spawned children · src/cart/...:42 │
+├──────────────────────────────────────────────┬─────────────────┤
+│  [diagram canvas: ELK+SVG primitive]         │ Metadata          │
+│                                              │ ─────────────     │
+│  (states, edges, source coords inline)       │ id   :checkout    │
+│                                              │ tags #{:user-flow}│
+│                                              │ data {...}        │
+│                                              │ Transitions (11)  │
+│                                              │ ▶ :checkout/begin │
+│                                              │ ▶ :pay/approved   │
+│                                              │ ▶ :pay/declined   │
+│                                              │ ...               │
+│                                              │ Source            │
+│                                              │ src/cart/...:42 ↗ │
+├──────────────────────────────────────────────┴─────────────────┤
+│ Live instances (0)                                              │
+│  ⬚ idle — toggle Sim ↑ to walk topology                         │
+╰─────────────────────────────────────────────────────────────────╯
 ```
 
-## What the panel shows
+When 0 instances: empty hint nudges Sim mode (UC1). When ≥1 instances:
+roster (Mode B/C per UC2 §Dynamic Mode A/B/C below).
 
-For the selected machine:
+## UC1 — Sim sub-mode
 
-- **A directional state-chart.** Nodes are states (compound states
-  nested visually). Edges are transitions, labelled with their event
-  id.
-- **The current state pulses softly.** Compound states' active child
-  is highlighted recursively.
-- **Hover an edge** → see the guard and action functions; click to
-  jump to source.
-- **`:invoke` / `:invoke-all` spawned children** appear as smaller
-  machines next to their parent, each with their own state.
-- **`:after` timers show a countdown ring** on the source state.
-- **Transition history ribbon** below the chart: a scrubbable list of
-  the last *N* `:rf.machine/transition` events; clicking one rewinds
-  the chart to that microstep.
+The interactive simulation mode. **A sub-mode of Mode A** (entry only
+when no live instances OR when explicitly toggled on against live
+instances — in the latter case, sim runs on a parallel mocked
+instance, never touching the live runtime).
+
+### Toggle and persistence
+
+- **Per-(frame-id, machine-id) toggle** persisted to localStorage.
+- **`Sim ●` indicator** in the panel header — visually distinct from
+  live (cyan) by being amber.
+- **`E` key** opens the event picker for "what event do you want to
+  fire?"
+- **`R` key** resets to initial state.
+- **`Esc`** from chart exits Sim mode.
+
+### Visual cues (three reinforcing)
+
+1. **24px tinted banner** across top of panel canvas:
+   `▓▓▓▓▓ SIMULATING — no live data; clicks walk the topology ▓▓▓▓▓ ?`
+2. **Amber tint** on active-state highlight (live uses cyan; sim uses
+   amber — the existing palette reserves cyan for live, red for
+   errors, amber for "informational, not a real event").
+3. **`Sim ●` header indicator** alongside the toggle.
+
+### Mock `:data` form
+
+Schema-derived (Malli, when registered) row-per-key form in the right
+rail; type-inferred when no schema; EDN fallback for unknown shapes.
+Actions execute against mocked `:data` so it evolves through the walk.
+
+### Failed-guard handling (strongest opinion in UC1)
+
+Transitions whose guards fail against current `:data` are **LISTED but
+greyed**, not silently hidden. **`Shift+Enter` fires-despite-guard**
+with the message *"firing despite guard — this would not happen in a
+live instance."*
+
+This diverges deliberately from Stately (who silently hides failed
+transitions); listing them with the verdict makes the guard's role
+part of the lesson:
+
+```
+Available transitions from :authing (current mocked :data: {…}):
+
+  ▸ :auth/login-ok             → :ready         (guard ✓ passed)
+  ▸ :auth/login-fail           → :error         (guard ✓ passed)
+  ▸ :auth/two-factor-required  → :awaiting-2fa  (guard ✓ passed)
+  ▸ :auth/admin-override        → :admin        (guard ✗ failed — :data.user.role ≠ :admin)
+       Shift+Enter to fire despite guard
+```
+
+### Skip-guards toggle
+
+Opt-in (`G` chord or "Ignore guards" checkbox). For the legitimate use
+case "walk topology before writing guards." Default off.
+
+### Sim trail
+
+Below diagram: horizontal `state→state` sequence; hover rewinds without
+truncating; click truncates ("forked here"). Distinct from live
+transition-history ribbon (no timestamps, no source-coord, no
+causation — just `state→state`).
+
+### Save as scenario
+
+Clipboard-only for v1; emits `(machines.test/simulate-scenario {...})`
+form for pasting into a test file. No in-app saved scenarios library
+(violates Lock #4 / Causa-as-product creep).
+
+## UC2 — Dynamic Mode A / B / C
+
+Three view modes adapt to instance count. The mode is selected
+automatically based on `(count (rf/machine-instances <frame-id>
+<machine-id>))`; user can pin a mode via the panel header toggle.
+
+| Mode | Trigger | Diagram | Above diagram | Below diagram |
+|---|---|---|---|---|
+| **A — Zero instances** (or Sim on) | 0 live | Neutral OR sim'd walk | Sim toggle | Empty hint OR sim trail |
+| **B — Few (1–3)** | 1–3 live | All on same diagram (different hues) | Inline instance tabs | Instance roster + active-instance arc |
+| **C — Many (4+)** | ≥4 live | Diagram + cluster-by-state count badges | Search/filter/sort bar + selected breadcrumb | Virtualised instance table + focused-instance arc |
+
+### Per-instance highlighting on SAME diagram
+
+Two reasons (Lock #11 topology/runtime separation):
+
+1. **Layout cost.** Per-instance diagrams = N layout passes. Same
+   diagram = 1 layout pass + O(N) attr mutations.
+2. **Topology IS topology.** Two instances of `:checkout` walk the
+   same graph. Separate charts imply they could diverge; they can't.
+
+In Mode B, each instance gets a stable hue (assigned at spawn,
+persisted per id) — `#c-001` always cyan, `#c-047` always magenta. The
+focused instance's active state has the strong amber ring; others
+render as thinner rings with `◀── #c-047 ●` side-tag arrows.
+
+In Mode C (4+ instances), per-instance overlays would saturate the
+diagram. Switch to **cluster-by-state count badges** on each state
+node (`●12` = 12 live instances in `:authing`); state background tint
+scales with count.
+
+### Mode C — Erlang-Observer pattern
+
+The Mode C table is the closest peer for "thousands of instances, see
+them grouped, click into one." Erlang's Observer Process tab is the
+structural template:
+
+- **Virtualised table** above the diagram — 8 rows visible at default
+  density; scrollable; row icons per status (`●` focused, `◯` live,
+  `╳` errored, `⊘` final, `⊕` recently spawned, `⊖` recently
+  destroyed); sortable by any column.
+- **Cluster-by-state count badges** on the topology — the aggregate
+  read.
+- **Aggregate row** (top of table or sticky footer):
+  `Total: 47 live · 12 :authing · 28 :sending · 3 :error · 4 :ok`.
+- **Shift-click multi-select** for divergence highlight: shift-click an
+  instance → secondary focus (violet); diagram renders two highlights
+  + arc strip splits into two stacked lanes; the **first event where
+  the arcs diverge** auto-marks with `⚠` in both lanes. The diff that
+  answers "I clicked Submit twice and got different results."
+
+Shift-click a third instance → tertiary focus (cyan); cap at 4 lanes.
+
+### Per-instance mini-scrubber
+
+When a machine instance is focused, an in-arc-strip mini-scrubber lets
+the user rewind THAT instance without affecting the rest of Causa:
+
+- **Global timeline** = L2 event list + ribbon `[◀ ▶ ⏭]` (every Causa
+  surface rebinds).
+- **Per-instance scrubber** = inline `◀ scrub ▶` widget in arc strip +
+  the focused-instance highlight gets a `⏪` glyph appended (only the
+  diagram's focused-instance highlight changes; other instances
+  continue live).
+
+This mini-scrubber is intra-tab content (inside the Machines tab); it
+is NOT related to the (now-dead) bottom rail / global scrubber. The
+global scrubber surface is the ribbon `[◀ ▶ ⏭]` cluster + the L2 event
+list per [`018-Event-Spine.md`](018-Event-Spine.md) §6.
+
+## Spec 005 actor lifecycle — full XState parity
+
+Causa renders the supervision tree. The framework contract behind it:
+
+- **Invoke auto-cleanup** — `:invoke`d actors are state-scoped; leaving
+  the invoking state destroys the child. Stately/XState semantics.
+- **Spawn explicit destroy** — `[:rf.machine/spawn]` returns an
+  instance id; explicit `[:rf.machine/destroy <id>]` to clean up.
+- **Parent-stop cascades** — destroying a parent cascades destroy to
+  all children (supervision tree, Erlang OTP style).
+
+Causa surfaces this in:
+
+- **Parent/child relationship section** in metadata rail.
+- **Spawn ancestry** in instance tab labels (`#c-001 ... by [:app/start]`).
+- **`⊕`/`⊖` markers** in the arc strip at spawn/destroy moments.
+- **Recent-deaths buffer** — 10s after destroy, the row red-fades and
+  disappears; arc is preserved in `recently-destroyed` sub-list (last
+  10 entries) for 30s; still reachable from time-travel.
+- **`:invoke-all` inline children** — render as decorated rows beneath
+  the invoking state, per Spec 005.
+
+## Selection and switching
+
+The panel header carries a machine picker — a dropdown over
+`(rf/machines frame-id)`. The dropdown shows machine-id, current
+state, and a tiny activity indicator (filled green if transitioned in
+the last 5s; grey otherwise).
+
+Switching the active frame via the ribbon (Layer 1) re-binds the
+picker to that frame's machines. Machines spawned via
+`:rf.machine/spawn` (dynamic actors) appear in the picker with their
+gensym'd id; named addressing via `:system-id` is surfaced as a
+parenthetical (e.g. `:gensym-42 (:auth/main)`).
+
+## Transition history ribbon
+
+A horizontal scrubbable list under the chart. Each entry is one
+`:rf.machine/transition`:
+
+```
+[14:32:01 :login    → :authing ] [14:32:02 :authing  → :error  ]
+[14:32:04 :error    → :idle    ] [14:32:11 :idle     → :login  ]
+```
+
+- **Click an entry** → chart rewinds to show the state pre-transition,
+  with the inbound edge highlighted. The rewind is **view-only** (same
+  passive-scrubbing rule as the global spine in
+  [`018-Event-Spine.md`](018-Event-Spine.md) §6) — Causa does not call
+  `restore-epoch` from this affordance.
+- **Hover** → tooltip with the triggering event vector and guard
+  result.
+- **Microstep entries** (from `:rf.machine.microstep/transition`) are
+  rendered slightly indented under their outer transition.
 
 ## Data sources
 
@@ -75,38 +279,6 @@ Per Spec 005 and Spec 009:
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
 | Source-coord stamping | Every clickable element jumps to source. |
 
-## Selection and switching
-
-The panel header carries a machine picker — a dropdown over
-`(rf/machines frame-id)`. The dropdown shows machine-id, current
-state, and a tiny activity indicator (filled green if transitioned in
-the last 5s; grey otherwise).
-
-Switching the active frame re-binds the picker to that frame's
-machines. Machines spawned via `:rf.machine/spawn` (dynamic actors)
-appear in the picker with their gensym'd id; named addressing via
-`:system-id` is surfaced as a parenthetical (e.g. `:gensym-42
-(:auth/main)`).
-
-## Transition history ribbon
-
-A horizontal scrubbable list under the chart. Each entry is one
-`:rf.machine/transition`:
-
-```
-[14:32:01 :login    → :authing ] [14:32:02 :authing  → :error  ]
-[14:32:04 :error    → :idle    ] [14:32:11 :idle     → :login  ]
-```
-
-- **Click an entry** → chart rewinds to show the state pre-transition,
-  with the inbound edge highlighted. The rewind is **view-only** (same
-  passive-scrubbing rule as [`002-Time-Travel.md`](./002-Time-Travel.md))
-  — Causa does not call `restore-epoch` from this affordance.
-- **Hover** → tooltip with the triggering event vector and guard
-  result.
-- **Microstep entries** (from `:rf.machine.microstep/transition`) are
-  rendered slightly indented under their outer transition.
-
 ## Source-coord integration
 
 Every clickable element on the chart jumps to source:
@@ -120,8 +292,8 @@ Every clickable element on the chart jumps to source:
 
 Source coords are surfaced as copyable `file:line` chips; clicking
 opens the file via the editor URL handler the user configured in
-Settings → Source. No protocol-handler dependency (lock #11 in
-[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)).
+Settings → Source. See [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol
+matrix.
 
 When the dispatch coord is missing (e.g., a synthetic dispatch from a
 machine action), Causa falls back to the registered handler's source
@@ -146,9 +318,9 @@ As children complete or fail, the row updates:
 ## Auto-pan
 
 Large machines (many states, deep nesting) are wider than the panel.
-Causa auto-pans on every transition so the active state stays in
-view. The user can disable auto-pan via the panel header toggle (kept
-state per-machine in localStorage).
+Causa auto-pans on every transition so the active state stays in view.
+The user can disable auto-pan via the panel header toggle (kept state
+per-machine in localStorage).
 
 ## Performance
 
@@ -170,92 +342,43 @@ overflow menu) surfaces a **Copy machine as…** sub-menu:
 |---|---|
 | **PNG** | Rasterised chart at 2x DPR, transparent background, current-state highlight included. Copied to clipboard as an image. |
 | **SVG** | Vector chart with embedded fonts (so it renders identically when pasted into a doc or a Figma frame), current-state highlight included. Copied to clipboard as `image/svg+xml`. |
-| **Share URL** | A URL with a serialised static machine definition encoded in the fragment (`#machine=<base64-edn>`). When opened in a Causa-equipped page, Causa renders the chart in a read-only viewer; when opened elsewhere it falls back to a hosted viewer in `tools/machines-viz/`. |
+| **Mermaid text** | Markdown-friendly Mermaid block. Emitted by `(rf/machine->mermaid <id>)` (lives in `implementation/machines/`). Copied as plain text. |
 
-Inspired by Stately Visualizer's registry-style share (save chart,
-share URL, embed iframe). The use cases: dropping a chart into a
-pull-request description, into a design doc, into a Slack thread,
-or onto a whiteboard during a design discussion.
+Inspired by Stately Visualizer's registry-style share. Use cases:
+dropping a chart into a pull-request description, into a design doc,
+into a Slack thread, or onto a whiteboard during a design discussion.
+
+### No Stately compatibility
+
+Causa is the canonical rendering surface for re-frame2 machines. There
+is no `machine->xstate-json` export; no Stately Studio bridge. Stately
+compat would constrain re-frame2 machine semantics to XState's subset;
+we want to evolve freely.
 
 ### NOT a session export
 
 This is **not** a session export. Lock #4 holds: Causa never
 serialises the running trace stream, the epoch buffer, the app-db
-history, or the conversation — those are session-local by design,
-for the privacy and reproducibility reasons spelled out in
-[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) (Lock #4 — Session
-export).
+history, or the conversation — those are session-local by design.
 
-What this share affordance serialises is a **static machine
-definition**:
-
-- The machine's topology (states, transitions, guards, actions,
-  `:invoke` / `:invoke-all` declarations, `:after` timer
-  specifications) — i.e. the data that was registered via
-  `reg-machine`.
-- The machine's current state at the moment of the share (the
-  `[:rf/machines <id>]` snapshot) — for visual continuity, so the
-  recipient sees what the sharer was looking at.
-- The machine-id and the source-coord metadata for jump-to-source
-  resolution.
-
-What it does **not** serialise:
-
-- Trace events, epochs, app-db slices outside `[:rf/machines <id>]`,
-  user inputs, fx outputs, conversation buffer.
-- Any data from any panel other than the machine inspector.
-- Any cross-machine state (parent / sibling machines unless the
-  sharer's chart explicitly includes them via `:invoke-all`).
-
-The serialised form is **reproducible from the registry alone**:
-anyone with the same re-frame2 build and the same `reg-machine`
-call can reconstruct the topology byte-for-byte. The current-state
-field is the only non-reproducible bit, and it is purely a
-visual-highlight hint — the recipient can clear it via the
-read-only viewer's "show idle" toggle.
-
-### Read-only viewer
-
-A page that loads with `#machine=...` in its URL fragment renders
-the chart in a read-only `MachineChart` (the same component from
-`tools/machines-viz/` but with `:on-state-click` and
-`:on-transition-click` no-op'd, and the transition-history ribbon
-hidden — there is no transition history to show; this is a
-snapshot, not a session). The page surfaces a single banner: "This
-is a static machine chart, not a Causa session — interactions are
-disabled."
-
-### Privacy posture
-
-A share URL embeds **only** machine topology + current-state. It
-contains no event vectors, no user data, no app-db slices, no
-source code. Authors of state machines must still treat the
-registered topology as code (it may reveal product structure), but
-the share affordance does not leak run-time data.
-
-The chart is generated client-side; nothing is sent to a server.
-The hosted viewer in `tools/machines-viz/` is statically hostable
-and itself stateless.
+PNG / SVG / Mermaid serialise a **static machine definition** only —
+topology + current-state hint (purely visual). The serialised form is
+reproducible from the registry alone.
 
 ### Performance
 
 - PNG / SVG rendering: client-side via the same SVG primitive the
-  inspector uses, at the chart's natural size. Sub-50ms for charts
-  up to ~80 nodes.
-- Share-URL encoding: edn → transit-write → base64; for typical
-  machines (~20 states, ~30 transitions) the URL is under 4 KB.
-  Charts large enough to exceed common URL limits (~8 KB) surface
-  a "Copy as edn fragment instead" fallback that puts the payload
-  on the clipboard.
+  inspector uses, at the chart's natural size. Sub-50ms for charts up
+  to ~80 nodes.
+- Mermaid emit: pure data → text projection; sub-1ms for typical
+  machines.
 
 ### Accessibility
 
-The PNG / SVG outputs include an `<title>` and `<desc>` element
-(SVG) or alt-text companion (PNG, as a sidecar `text/plain` payload
-on the clipboard) summarising the machine: its id, its current
-state, and the number of states / transitions. Screen readers
-pasting the SVG into a document have the same overview the
-sighted user has.
+The PNG / SVG outputs include `<title>` and `<desc>` element (SVG) or
+alt-text companion (PNG, as a sidecar `text/plain` payload on the
+clipboard) summarising the machine: its id, its current state, and
+the number of states / transitions.
 
 ## Empty state
 
@@ -268,13 +391,28 @@ When no machines are registered:
    • Live state-chart highlighting
    • Transition history
    • :after countdown rings
+   • UC1 simulation (Sim toggle)
    → Read about machine integration
 ```
 
 ## Accessibility
 
 The state-chart is a graph, which is hard for screen readers. v1.0
-ships **without** a chart alt-view; the alt-view is a v1.1
-commitment (per the original v2 design's accessibility plan). Until
-then, the transition-history ribbon and the machines picker are the
-accessible surfaces — both are text-heavy and reach the same data.
+ships **without** a chart alt-view; the alt-view is a v1.1 commitment.
+Until then, the transition-history ribbon and the machines picker are
+the accessible surfaces — both are text-heavy and reach the same data.
+
+## Cross-references
+
+- [`018-Event-Spine.md`](018-Event-Spine.md) — Machines tab placement
+  in the 4-layer chrome; spine-binding contract; isolation invariants.
+- [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, editor
+  protocol matrix.
+- [Spec 005 — StateMachines](../../../spec/005-StateMachines.md) — the
+  framework contract Causa renders.
+- [Spec 009 — Instrumentation](../../../spec/009-Instrumentation.md) —
+  the `:rf.machine/*` trace contract Causa consumes.
+- [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — the
+  `:rf.causa/*` registry ids for the Machines tab.
+- [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — Sim
+  mode + Mode A/B/C dynamic instance test rows.
