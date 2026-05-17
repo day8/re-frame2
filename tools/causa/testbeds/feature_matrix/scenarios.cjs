@@ -16,7 +16,7 @@ const PANEL_HANDOFFS = [
   ['time-travel', 'rf-causa-time-travel'],
   ['app-db', 'rf-causa-app-db-diff'],
   ['causality', 'rf-causa-causality-graph'],
-  ['subs', 'rf-causa-subscriptions'],
+  ['views', 'rf-causa-views'],
   ['fx', 'rf-causa-fx'],
   ['trace', 'rf-causa-trace'],
   ['machines', 'rf-causa-machine-inspector'],

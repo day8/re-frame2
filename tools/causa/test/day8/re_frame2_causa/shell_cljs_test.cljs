@@ -59,7 +59,7 @@
             [day8.re-frame2-causa.panels.performance :as performance]
             [day8.re-frame2-causa.panels.routes :as routes]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as svt]
-            [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.trace :as trace]))
 
@@ -175,7 +175,7 @@
    :time-travel  time-travel/Panel
    :app-db       app-db-diff/Panel
    :causality    causality-graph/Panel
-   :subs         subscriptions/Panel
+   :views        views/Panel
    :fx           effects/Panel
    :trace        trace/Panel
    :machines     machine-inspector/Panel

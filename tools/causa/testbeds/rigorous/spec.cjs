@@ -1533,7 +1533,7 @@ module.exports = {
     // already wired into the panel install) and pin them as
     // browser-feature gates.
     //
-    //   11a — Subscriptions   (rf2-29ipt)  matrix row 73
+    //   11a — Views           (rf2-21ob3)  matrix row 73 (rewrite)
     //   11b — Routes          (rf2-3e3fn)  matrix row 75
     //   11c — MCP Server      (rf2-39a1l)  matrix row 82
     //   11e — Causality Graph (rf2-gdqm1)  matrix row 71
@@ -1541,174 +1541,30 @@ module.exports = {
     // ================================================================
 
     // ----------------------------------------------------------------
-    // 11a. Subscriptions panel (rf2-29ipt) — populated branch + hero
-    // affordances + cross-panel selection invariant.
+    // 11a. Views panel (rf2-21ob3) — replaces the legacy Subs panel
+    // walk per spec/012-Views.md. Subs are no longer a top-level tab;
+    // they nest under the views that consumed them. The full feature
+    // path (three-group rendering with real mounted/re-rendered/
+    // unmounted distinction, grid-explosion clustering, heatmap mode,
+    // per-component inline drilldown, sub-status decoration) needs
+    // dedicated host renders to exercise — the counter's single
+    // sub/single view boot is too thin for the full matrix. The walk
+    // here pins the panel-mount contract + cross-panel selection
+    // invariant; the deep coverage rides a follow-on bead that wires
+    // a multi-view testbed through the rigorous compile graph.
     //
-    // The counter example registers one sub via `rf/reg-sub`
-    // (`:counter/value`) and renders it once through `(subscribe
-    // [:counter/value])` — so on every counter testbed boot the
-    // Subscriptions panel is in the POPULATED branch (the empty branch
-    // is mutually exclusive). The walk asserts:
-    //
-    //   - sidebar pivot → subs lands on `rf-causa-subscriptions`
-    //   - the populated list (`rf-causa-subscriptions-list`) IS
-    //     mounted; both empty branches (`rf-causa-subscriptions-empty`
-    //     and `-empty-rows`) are ABSENT
-    //   - the filter-header (`rf-causa-subscriptions-filters`) renders
-    //     all five status filter chips (`-error / -re-running /
-    //     -invalidated / -fresh / -cached-no-watcher`) — the panel
-    //     always renders the full taxonomy regardless of which states
-    //     are populated, mirroring the Performance panel's tier-chip
-    //     invariant in 10f
-    //   - at least one sub-row testid (`rf-causa-sub-row-<format-sub-id>`)
-    //     plus its companion chain button
-    //     (`rf-causa-sub-row-chain-<format-sub-id>`) and status badge
-    //     (`rf-causa-sub-badge-<status>`) — guards against the
-    //     row-renderer regressing to a structure that drops one of
-    //     the row's three first-class affordances
-    //   - **invalidation-chain hero walk** — click the chain button
-    //     on the sub row → `rf-causa-subscriptions-chain` section
-    //     opens with the focused-link (`-chain-focused`) carrying the
-    //     selected sub's `rf-causa-chain-link-<sub-id>` row. The
-    //     `:counter/value` sub is layer-1 (no inputs) so the chain
-    //     renders the `-chain-no-inputs` branch — both `-chain-inputs`
-    //     and `-chain-missing` are absent. The Close button
-    //     (`rf-causa-subscriptions-chain-close`) returns the panel to
-    //     the list-only mode (the chain section unmounts cleanly)
-    //   - **filter toggle** — clicking the `:fresh` filter chip
-    //     narrows the visible row set; with one fresh-status sub the
-    //     filtered list still mounts with that single row (the
-    //     `-empty-rows` no-match branch is absent in this case). The
-    //     panel applies AND-composed filters per the
-    //     subscriptions-helpers/filter-by-status surface
-    //   - sidebar round-trip back to event-detail preserves the
-    //     previously-selected cascade dispatch-id on `:rf/causa`'s
-    //     app-db (same cross-panel selection invariant exercised by
-    //     L-5/L-6/L-7/L-8 above)
-    //
-    // The full feature path enumerated by matrix row 73 (sub
-    // dependency chain across layers, cached-no-watcher branch,
-    // re-running mid-flight, throwing sub, large output marker) needs
-    // the multi-layer sub testbed wired through the rigorous compile
-    // graph. The walk here pins the hero affordances + invalidation-
-    // chain visible-surface contract; matrix row 73 (Subscriptions)
-    // flips from `deferred (rf2-29ipt)` to `covered`.
+    // Matrix row 73 (Subscriptions) is retired alongside the panel;
+    // the new Views row tracks the post-rewrite contract.
     // ----------------------------------------------------------------
-    await clickSidebar(page, 'subs', 'rf-causa-subscriptions');
-    // Populated branch — counter subscribes to `:counter/value`, so
-    // the panel is never in the empty state on this testbed.
-    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty"]').count()) !== 0) {
-      throw new Error(
-        'Expected Subscriptions empty-state to be absent — :counter/value populates the cache on render.',
-      );
-    }
-    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty-rows"]').count()) !== 0) {
-      throw new Error(
-        'Expected Subscriptions empty-rows branch to be absent before any filter is applied.',
-      );
-    }
-    await expectVisible(page.locator('[data-testid="rf-causa-subscriptions-list"]'), 5000);
-    await expectVisible(page.locator('[data-testid="rf-causa-subscriptions-filters"]'), 5000);
-    // Full filter-chip taxonomy — the five sub statuses surfaced by
-    // the panel's status->glyph helper. Per-status counts on the chip
-    // labels are panel-internal; the assertion is on chip presence.
-    for (const status of ['error', 're-running', 'invalidated', 'fresh', 'cached-no-watcher']) {
-      const chip = page.locator(`[data-testid="rf-causa-sub-filter-${status}"]`);
-      if ((await chip.count()) === 0) {
-        throw new Error(`Expected sub filter chip '${status}' to render in the filter header.`);
-      }
-    }
-    // First sub row + its companion affordances. The row testid
-    // suffix is `(h/format-sub-id sub-id)`; for the counter the only
-    // sub is `:counter/value`. Pin the row plus its chain button + at
-    // least one status badge.
-    const subRows = page.locator('[data-testid^="rf-causa-sub-row-"]');
-    const subRowEntries = await subRows.evaluateAll((els) =>
-      els.map((el) => el.getAttribute('data-testid'))
-         .filter((t) => t && !t.startsWith('rf-causa-sub-row-chain-')),
-    );
-    if (subRowEntries.length === 0) {
-      throw new Error(`Expected at least one sub row; got only chain buttons.`);
-    }
-    const sampleRowTestid = subRowEntries[0];
-    const sampleSubSuffix = sampleRowTestid.replace('rf-causa-sub-row-', '');
-    await expectVisible(
-      page.locator(`[data-testid="rf-causa-sub-row-chain-${sampleSubSuffix}"]`),
-      5000,
-    );
-    if ((await page.locator('[data-testid^="rf-causa-sub-badge-"]').count()) === 0) {
-      throw new Error('Expected at least one status badge in the sub list.');
-    }
-
-    // Invalidation-chain hero walk — open chain → focused link
-    // renders → counter sub is layer-1 (no inputs) so the no-inputs
-    // branch fires → close returns to list-only mode.
-    await page.locator(`[data-testid="rf-causa-sub-row-chain-${sampleSubSuffix}"]`).click();
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-subscriptions-chain"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-subscriptions-chain-focused"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator(`[data-testid="rf-causa-chain-link-${sampleSubSuffix}"]`),
-      5000,
-    );
-    // Counter sub is layer-1 — the chain renders the no-inputs
-    // branch, NOT the `-chain-inputs` branch and NOT the `-chain-
-    // missing` branch.
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-subscriptions-chain-no-inputs"]'),
-      5000,
-    );
-    if ((await page.locator('[data-testid="rf-causa-subscriptions-chain-inputs"]').count()) !== 0) {
-      throw new Error(
-        'Expected `-chain-inputs` to be absent for layer-1 :counter/value (the chain is no-inputs).',
-      );
-    }
-    if ((await page.locator('[data-testid="rf-causa-subscriptions-chain-missing"]').count()) !== 0) {
-      throw new Error(
-        'Expected `-chain-missing` to be absent — the selected sub IS in the cache.',
-      );
-    }
-    // Close the chain — the section unmounts; the list is the only
-    // body in the panel again.
-    await page.locator('[data-testid="rf-causa-subscriptions-chain-close"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-subscriptions-chain"]').count(),
-      (count) => count === 0,
-      'subscriptions-chain section to unmount after Close',
-      5000,
-    );
-
-    // Filter toggle hero walk — :fresh narrows the visible rows.
-    // With one fresh-status sub the filtered list still has that
-    // single row; the `-empty-rows` no-match branch is absent. A
-    // second click on the same chip clears the AND-composed filter
-    // and returns the unfiltered view.
-    await page.locator('[data-testid="rf-causa-sub-filter-fresh"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid^="rf-causa-sub-row-"]:not([data-testid^="rf-causa-sub-row-chain-"])').count(),
-      (count) => count >= 1,
-      'at least one row visible after :fresh filter toggle (counter sub is fresh)',
-      5000,
-    );
-    if ((await page.locator('[data-testid="rf-causa-subscriptions-empty-rows"]').count()) !== 0) {
-      throw new Error(
-        'Expected `-empty-rows` to be absent when :fresh filter still matches the counter sub.',
-      );
-    }
-    // Clear the filter — the AND-composed filter set drops the status
-    // and the unfiltered row set is restored.
-    await page.locator('[data-testid="rf-causa-sub-filter-fresh"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-subscriptions-list"]').count(),
-      (count) => count === 1,
-      'subscriptions-list to remain mounted after filter clear',
-      5000,
-    );
+    await clickSidebar(page, 'views', 'rf-causa-views');
+    // Panel mounts — either the populated three-group structure (when
+    // the counter has produced renders the projection can attribute)
+    // or the empty-state copy. Both branches use the same root
+    // `rf-causa-views` testid; this assertion is satisfied as long as
+    // the panel registered, the sub graph resolves, and the canvas
+    // case-switch routes the new id to views/Panel.
+    await expectVisible(page.locator('[data-testid="rf-causa-views"]'), 5000);
+    await expectVisible(page.locator('[data-testid="rf-causa-views-controls"]'), 5000);
 
     // Sidebar round-trip — same cross-panel selection invariant.
     await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
@@ -1717,7 +1573,7 @@ module.exports = {
     await waitForCondition(
       async () => subsPivotCascade.getAttribute('data-dispatch-id'),
       (val) => val === firstRowDispatchId,
-      `event-detail cascade selection preserved after Subscriptions round-trip (=${firstRowDispatchId})`,
+      `event-detail cascade selection preserved after Views round-trip (=${firstRowDispatchId})`,
       5000,
     );
 
@@ -2841,7 +2697,7 @@ module.exports = {
       'day8.re-frame2-causa.panels.performance',
       'day8.re-frame2-causa.panels.routes',
       'day8.re-frame2-causa.panels.schema-violation-timeline',
-      'day8.re-frame2-causa.panels.subscriptions',
+      'day8.re-frame2-causa.panels.views',
       'day8.re-frame2-causa.panels.time-travel',
       'day8.re-frame2-causa.panels.trace',
     ];
@@ -2898,7 +2754,7 @@ module.exports = {
       ['time-travel',  'rf-causa-time-travel'],
       ['app-db',       'rf-causa-app-db-diff'],
       ['causality',    'rf-causa-causality-graph'],
-      ['subs',         'rf-causa-subscriptions'],
+      ['views',        'rf-causa-views'],
       ['fx',           'rf-causa-fx'],
       ['trace',        'rf-causa-trace'],
       ['machines',     'rf-causa-machine-inspector'],

@@ -59,7 +59,9 @@
             ;; their `register-all!` at load time.
             [panel-gallery.event-detail-stories]
             [panel-gallery.app-db-diff-stories]
-            [panel-gallery.subscriptions-stories]
+            ;; Subscriptions stories removed with the Subs panel (rf2-21ob3 —
+            ;; Subs replaced by Views; spec/012-Views.md). Views gallery
+            ;; variants are separate follow-on work.
             [panel-gallery.time-travel-stories]
             [panel-gallery.trace-stories]
             [panel-gallery.issues-ribbon-stories]
