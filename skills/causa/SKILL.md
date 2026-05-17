@@ -58,10 +58,9 @@ Tool-Pair epoch history, the registrar query API) — it adds nothing the
 framework didn't already expose. The 16 panels are *presentation* of an
 already-structured runtime.
 
-A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP tools
-for AI agents — same architecture as `tools/pair2-mcp/`, different tool
-catalogue. This skill does not cover the MCP surface; see
-[`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../tools/causa-mcp/spec/004-Tools-Catalogue.md).
+For an AI agent surface against the running app, use `tools/pair2-mcp/`
+— the raw nREPL pair-programming companion. Causa is the human-facing
+panel; pair2-mcp is the AI-facing surface.
 
 ---
 
@@ -75,7 +74,7 @@ situation.
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-causa-host]` column in the app layout. Causa auto-opens on page load. |
 | Put Causa on a second monitor with the app full-screen | **Pop-out window** | `(causa/popout!)` from CLJS, or `window.day8.re_frame2_causa.popout_BANG_()` from devtools. |
 | Mount Causa from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(causa/init! opts)` after `rf/init!`. Idempotent. |
-| Have an AI agent inspect the runtime | **Causa-MCP** (separate artefact) | Configure `tools/causa-mcp/` in the agent host. Out of scope for this skill — see [`tools/causa-mcp/`](../../tools/causa-mcp/). |
+| Have an AI agent inspect the runtime | **pair2-mcp** | Configure `tools/pair2-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/pair2-mcp/`](../../tools/pair2-mcp/). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
@@ -160,9 +159,6 @@ short of improvising.
   [`tools/causa/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
   and the per-panel implementation specs. A `causa-implementor` sibling
   skill is **deferred to post-alpha** until the Causa surface stabilises.
-- **Causa-MCP tools.** Different artefact, different surface — see
-  [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../tools/causa-mcp/spec/004-Tools-Catalogue.md).
-
 ---
 
 ## Style guidance

@@ -12,7 +12,6 @@
 - **[007-UX-IA.md](007-UX-IA.md)** — Typography, colour tokens, animation timings, keyboard maps, density gradients — the pixels-that-feel-right reference.
 - **[008-Embedding-Contract.md](008-Embedding-Contract.md)** — Per-panel `Panel` component contract so Story (and others) can embed Causa surfaces outside Causa's own chrome.
 - **[009-AI-CoPilot.md](009-AI-CoPilot.md)** — Pull-only Q&A and slash-command surface: never narrates, never authors code, always cites verifiable runtime data.
-- **[010-MCP-Server.md](010-MCP-Server.md)** — Separate `tools/causa-mcp/` jar exposing Causa's surfaces as MCP tools for AI agents.
 - **[011-Launch-Modes.md](011-Launch-Modes.md)** — In-app true-inline host and standalone-via-MCP remote-attach.
 - **[012-Subscriptions.md](012-Subscriptions.md)** — Subscription panel: the canonical sub-status badge taxonomy (fresh / re-running / invalidated / cached-no-watcher / error) and the one-click invalidation-chain affordance ("why did this sub re-run?").
 - **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector contract: the ring-buffer data plane every panel reads from, the consumer-side filter algebra, and the `:sensitive?` privacy gate.

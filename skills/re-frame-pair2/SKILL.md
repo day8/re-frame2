@@ -197,8 +197,6 @@ A pair2 session and a running Causa panel are **complementary** surfaces over th
 
 The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/reference/tooling/causa.md`](../re-frame2/reference/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
 
-For a programmatic agent surface (read Causa state without opening the panel), `tools/causa-mcp/` is the peer artefact — same trace bus, same epoch history, 18 tools across five bands.
-
 ---
 
 *Deep-dive content (full API reference, EP design rationale, spec corpus, migration guide) routes through [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md) at the repo root. Full skill-disambiguation matrix (when to use which skill) lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*

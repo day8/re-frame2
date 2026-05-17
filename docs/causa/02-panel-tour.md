@@ -100,10 +100,6 @@ The server-vs-client hydration debugger. Only visible when SSR hydration actuall
 
 See [chapter 7](07-hydration.md).
 
-## MCP
-
-A panel that exposes Causa's surfaces over the `causa-mcp` JSON-RPC server. You'd point an AI agent host at it for "drive Causa from a tool catalogue" workflows. See [chapter 11](11-mcp-server.md).
-
 ## Co-pilot
 
 The pull-only AI rail. `Ctrl+Shift+/` toggles it. The agent runs against Causa's read surface — `epoch-history`, `(rf/sub-topology)`, the current trace stream — and answers questions in-context. No writes; no auto-action.

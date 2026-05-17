@@ -76,23 +76,6 @@
                 ;; implementation/ may :require anything under tools/.
                 "../tools/causa/src"
                 "../tools/causa/test"
-                ;; tools/causa-mcp (Causa MCP server, rf2-8xzoe parent).
-                ;; The MCP-server is a Node binary published to npm as
-                ;; @day8/re-frame2-causa-mcp; nothing under implementation/
-                ;; may :require its namespaces (the dependency arrow is
-                ;; tool → implementation, never the reverse — Lock #11 of
-                ;; tools/causa-mcp/spec/DESIGN-RATIONALE.md). The source
-                ;; path is added here so the rf2-8xzoe.35 bundle-isolation
-                ;; contract in implementation/scripts/check-bundle-isolation.cjs
-                ;; has the sentinel-bearing namespace on the classpath —
-                ;; making the contract testable rather than vacuous (if
-                ;; a future regression added the forbidden :require, the
-                ;; sentinel string would appear in the counter bundle and
-                ;; the gate would fail). Mirrors the tools/story + tools/causa
-                ;; pattern: classpath inclusion does NOT itself create a
-                ;; :require, so the bodies stay DCE'd in the no-feature
-                ;; counter reference app.
-                "../tools/causa-mcp/src"
                 ;; tools/causa/testbeds (rf2-p8f2s — examples-split step 1).
                 ;; Tool-owned testbeds colocate the testbed app source (where
                 ;; an app is needed — perf-counter) with the spec that drives

@@ -21,7 +21,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
 
 **Consumers.**
-- [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) and pinned in [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` §Lock #10](../tools/causa-mcp/spec/DESIGN-RATIONALE.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
+- [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
 - `tools/pair2-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/causa/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
@@ -44,23 +44,21 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 ## 3. Token budgets
 
-**Design problem.** MCP tool responses are expensive in the agent's context window — anywhere from 5x to 10x larger in tokens than the equivalent CLI output. A single oversized response burns the budget the agent needs across the whole task. Multiple MCP servers (pair2-mcp, causa-mcp, story-mcp) each face the same set of decisions: where in the stack does the cap live; how is it configured per-call; what shape does an over-budget response take; how do per-tool trim mechanisms (pagination, lazy summary, path slicing, diff encoding, dedup, size elision) compose with the cap.
+**Design problem.** MCP tool responses are expensive in the agent's context window — anywhere from 5x to 10x larger in tokens than the equivalent CLI output. A single oversized response burns the budget the agent needs across the whole task. Multiple MCP servers (pair2-mcp, story-mcp) each face the same set of decisions: where in the stack does the cap live; how is it configured per-call; what shape does an over-budget response take; how do per-tool trim mechanisms (pagination, lazy summary, path slicing, diff encoding, dedup, size elision) compose with the cap.
 
 **Canonical homes.**
 - [`tools/pair2-mcp/spec/Principles.md` §Tight token budget per response](../tools/pair2-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
 - [`tools/pair2-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/pair2-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record (rf2-rvyzy): egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
-- [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §Tight token budget per response](../tools/causa-mcp/spec/004-Wire-Pipeline.md) — sibling lock with the same shape; causa-mcp inherits the cap, the `:max-tokens` override, and the overflow marker keyword from pair2-mcp's design rationale.
 
 **Consumers.**
 - `tools/pair2-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
-- `tools/causa-mcp/` — adopts the same cap, the same override slot, the same overflow shape per its Principles lock #1.
 - `tools/story-mcp/` — enforces the cap in `tools/cap.cljc` at the `invoke-tool` egress (rf2-zavp5); nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
 **The result.** Cross-MCP, the token-cap shape is one decision applied uniformly. New MCP tools land against the catalogued cap (5K default), the catalogued override slot (`:max-tokens` per-call, `0` to disable), and the catalogued overflow marker shape (`{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}`). The mechanisms above the cap (path slicing, lazy summary, dedup, pagination) shape the response so the cap rarely trips; the cap stays the backstop.
 
 ## 4. Naming (verbs across MCP tools)
 
-**Design problem.** The re-frame2 MCP triplet (pair2-mcp, story-mcp, causa-mcp) exposes ~50 tools today (14 + 19 + 18), trending upwards. An agent host with two or three servers attached sees the union as one surface. The verb a tool uses is the first signal the agent parses; verb drift across siblings (`snapshot` in pair2 vs `snapshot-identity` in story; `read-` in story vs `get-` in causa) makes that signal lossy and pushes the agent towards trial-and-error rather than pattern-match.
+**Design problem.** The re-frame2 MCP servers (pair2-mcp, story-mcp) expose ~33 tools today (14 + 19), trending upwards. An agent host with both servers attached sees the union as one surface. The verb a tool uses is the first signal the agent parses; verb drift across siblings (`snapshot` in pair2 vs `snapshot-identity` in story) makes that signal lossy and pushes the agent towards trial-and-error rather than pattern-match.
 
 **Canonical home.**
 - [`tools/mcp-conformance/NAMING.md`](../tools/mcp-conformance/NAMING.md) — the cross-MCP verb table with semantics and examples per verb (`get-` / `list-` / `read-` / `discover-` / `dispatch` / `eval-cljs` / `restore-` / `reset-` / `register-` / `unregister-` / `run-` / `preview-` / `record-as-` / `subscribe` / `unsubscribe` / `tail-` / bare-name mega-ops); the explicitly-rejected verbs (`fetch-`, `query-`, `find-`, `lookup-`, `update-`, `set-`, `enumerate-`, `call-`, `invoke-`, `stream-`, `observe-`); the catalogued bare-noun and `->edn` exceptions; and a per-server audit table.
@@ -68,7 +66,6 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - `tools/pair2-mcp/` — 14 tools, audited as fully conformant.
 - `tools/story-mcp/` — 19 tools, audited; two named deviations (`variant->edn`, `snapshot-identity`) catalogued as accepted exceptions.
-- `tools/causa-mcp/` — 18 tools per `tools/causa-mcp/spec/004-Tools-Catalogue.md` (locked by Lock #5 + Lock #12), audited against the verb table for cross-server conformance.
 - [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
 
 **The result.** Verb drift is detected at PR review, not at agent runtime. New tools land against an existing verb; novel verbs require a Lock entry in the server's `DESIGN-RATIONALE.md` and a return-trip to NAMING.md to extend the table. Cross-server, the same verb means the same thing — `get-` is single-entity read, `list-` is enumeration, `subscribe` is streaming pair, `dispatch` is the bare event-fire — so an agent that knows one server's grammar reads the others.
@@ -83,9 +80,8 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Consumers.**
 - `tools/pair2-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :pair2-mcp` (per its NAMING.md row).
-- `tools/causa-mcp/` — same shape, value `:causa-mcp`.
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
-- `tools/causa/` — trace panel filter axis; one of the catalogued filter facets in `010-MCP-Server.md`.
+- `tools/causa/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.
 
 **The result.** One `:origin` keyword, one default (`:app`), one open vocabulary. Every dispatching surface — application, framework, tool — picks a value; every consuming surface filters on `(get-in trace-event [:tags :origin])`. Adding a sixth dispatching actor is one keyword choice and zero framework changes. The pair- and story-mcp catalogues both explicitly call out their `:origin` value so post-mortem "who dispatched this?" filters are one-key lookups.

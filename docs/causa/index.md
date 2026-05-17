@@ -45,7 +45,6 @@ The chapters:
 - [8. Machine inspector](08-machine-inspector.md) — Stately-grade state-chart per machine.
 - [9. App-DB diff](09-app-db-diff.md) — slice-centric diff per epoch.
 - [10. AI co-pilot rail](10-ai-copilot.md) — pull-only Q&A and slash commands.
-- [11. MCP-server panel](11-mcp-server.md) — Causa as an agent surface.
 
 ---
 
@@ -130,7 +129,7 @@ The framework commits to stable data shapes and query APIs; tools own presentati
 - Causa itself — the in-app devtools panel, this tutorial's subject.
 - [`re-frame-pair2`](../skills/re-frame-pair2.md) — the AI pair-programming skill that attaches over nREPL.
 - [Story](../story/index.md) — the Storybook-class component playground.
-- The `story-mcp` JVM server and the `causa-mcp` Node server packaging the surface as MCP tools for AI agents.
+- The `story-mcp` JVM server packaging the Story surface as MCP tools for AI agents.
 - APM-shipper wiring — see [Guide 22 — Trace to Datadog](../guide/22-trace-to-datadog.md).
 
 Causa is the first of three Tool-Pair tools that share this substrate. Story sits alongside, with frame-per-variant isolation; the pair skill sits across, driving the running app through an editor's nREPL bridge. They never coordinate. They never need to.

@@ -16,7 +16,7 @@ Four groups, in `sidebar-items` order:
   Performance, Issues, Schemas.
 - **Dormant until first signal** — Hydration (wakes on the first
   `:rf.ssr/hydration-mismatch`).
-- **Auxiliary** — MCP, Co-pilot.
+- **Auxiliary** — Co-pilot.
 
 Activity badges (right-aligned, fade in once, never fade out): `●` =
 recent activity · `●N` = unread count · `●●●` = multiplicity · `◌` =
@@ -213,17 +213,6 @@ no other JS devtool surfaces this view.
 error). Otherwise the panel has nothing to show.
 
 Spec: [`006-Hydration-Debugger.md`](../../../tools/causa/spec/006-Hydration-Debugger.md).
-
-### MCP
-
-Live feed of MCP-server activity: tool calls in flight, recent
-results, per-origin colouring (`:causa-mcp`, `:pair2-mcp`,
-`:story-mcp`, etc.).
-
-**Open when:** "what is my agent doing right now?", "did the MCP call
-land?", "which tool ran most recently?"
-
-Spec: [`010-MCP-Server.md`](../../../tools/causa/spec/010-MCP-Server.md).
 
 ### Co-pilot *(rail)*
 
