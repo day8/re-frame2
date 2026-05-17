@@ -142,6 +142,8 @@
    :rf.causa/machine-scrubber-position
    :rf.causa/machine-snapshots
    :rf.causa/machine-snapshots-override
+   ;; rf2-uyp86 — managed-fx wire-boundary diff composite.
+   :rf.causa/managed-fx-for-focused-event
    :rf.causa/mode-c-cluster-by
    :rf.causa/mode-c-clusters
    :rf.causa/mode-c-compare-table
@@ -270,6 +272,9 @@
    :rf.causa/focus-cascade
    :rf.causa/focus-cascade-next
    :rf.causa/focus-cascade-prev
+   ;; rf2-uyp86 — managed-fx wire-boundary diff cross-link event
+   ;; (HANDLER DISPATCHED row dispatches this to pivot the spine).
+   :rf.causa/focus-event
    :rf.causa/focus-slice-path
    :rf.causa/follow-head
    :rf.causa/hide-event-type
@@ -486,7 +491,9 @@
     ;;   machine-arc-highlight-state + machine-arc-hover +
     ;;   machine-scrubber-position + share-modal-open? + share-state +
     ;;   share-url + share-copy-status.
-    (is (= 113 (count all-sub-names)))
+    ;; + 1 managed-fx wire-boundary diff (rf2-uyp86):
+    ;;   :rf.causa/managed-fx-for-focused-event composite sub.
+    (is (= 114 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -536,7 +543,9 @@
     ;;   restore-from-share-url (8 share/arc events) + the
     ;;   arc-data implicit composite has no event of its own. The
     ;;   correct count rises by 8 events; subs add another 9.
-    (is (= 134 (count all-event-names)))
+    ;; + 1 managed-fx cross-link (rf2-uyp86):
+    ;;   :rf.causa/focus-event — HANDLER DISPATCHED row pivots the spine.
+    (is (= 135 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
