@@ -35,8 +35,8 @@
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
+            [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.effects :as effects]
@@ -333,7 +333,10 @@
 
     (open-in-editor/install!)
     (palette/install!)
-    (ai-co-pilot/install!)
+    ;; Spine MUST install before event-detail / time-travel — their
+    ;; legacy selection events shim writes through the spine slot,
+    ;; and the slot's reducer helpers live in spine.cljs.
+    (spine/install!)
     (app-db-diff/install!)
     (causality-graph/install!)
     (effects/install!)

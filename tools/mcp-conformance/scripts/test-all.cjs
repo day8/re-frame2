@@ -11,7 +11,6 @@
  *     && node test/end-to-end-pair2.cjs
  *     && node test/live-pair2-overflow.cjs
  *     && node test/end-to-end-story.cjs
- *     && node test/end-to-end-causa.cjs
  *
  * compressed into one quoted JSON string. Failure attribution required
  * reading the chain backwards from the exit code; a real failure in
@@ -40,8 +39,8 @@ const ROOT = path.resolve(HERE, '..');
 
 // One row per conformance test. Order matters: cheap unit tests first
 // so a typo in the exec-safety helpers fails before we spawn an MCP
-// server. SKIP-by-default tests (live-pair2-overflow, causa) live near
-// the end so a green run reads as "real conformance passed, two
+// server. SKIP-by-default tests (live-pair2-overflow) live near
+// the end so a green run reads as "real conformance passed, one
 // gracefully skipped".
 const TESTS = [
   {
@@ -63,10 +62,6 @@ const TESTS = [
   {
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],
-  },
-  {
-    name: 'causa-mcp end-to-end (SKIP — impl not landed)',
-    argv: ['test/end-to-end-causa.cjs'],
   },
 ];
 

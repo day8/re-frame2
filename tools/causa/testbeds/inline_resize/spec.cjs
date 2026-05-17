@@ -39,7 +39,7 @@
  *
  * Why a separate spec rather than amending rigorous/spec.cjs:
  *   - The rigorous spec is already thick (~500 lines covering shell
- *     visibility, time-travel, co-pilot, trace bus). The resize
+ *     visibility, time-travel, trace bus). The resize
  *     contract is a small, focused regression-target — co-locating
  *     it with rigorous would bury it. A dedicated 80-line spec lets
  *     a failure surface the contract by name (`causa-inline-resize`)

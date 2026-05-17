@@ -16,13 +16,11 @@
     [:palette/select-event ev-id]
     [:palette/select-frame fid]
     [:palette/inspect-handler kind id]
-    [:palette/copilot-toggle]
     [:palette/cycle-density]
     [:palette/clear-trace-buffer]
     [:palette/reset-suppressed-counters]
     [:palette/open-popout]
     [:palette/close]
-    [:palette/reopen-copilot-question text]
 
   `:rf.causa/palette-invoke` lowers them into the right Causa-side
   side-effect: most translate to a `[:rf.causa/<verb> ...]` dispatch;
@@ -206,10 +204,6 @@
                         :inspecting-handler [kind id])
              :fx base-fx})
 
-          :palette/copilot-toggle
-          {:db close-db
-           :fx (conj base-fx [:dispatch [:rf.causa/copilot-toggle]])}
-
           :palette/cycle-density
           ;; Phase 1: density toggle is wired through the existing
           ;; density-sub once the density-runtime bead lands. The
@@ -238,13 +232,6 @@
 
           :palette/close
           {:db close-db}
-
-          :palette/reopen-copilot-question
-          ;; Phase 1: drop the question text into the co-pilot
-          ;; input. The user reviews, edits if needed, and submits.
-          {:db close-db
-           :fx (conj base-fx
-                     [:dispatch [:rf.causa/copilot-set-input-text (first args)]])}
 
           ;; Unknown verb — close the palette and log to console so
           ;; the dev sees the gap. Never silently swallow.

@@ -48,12 +48,10 @@ The five regions:
    actions (Issues badge, epoch counter, command palette, help, close).
 2. **Sidebar** (192px) — panel navigation + density toggle.
 3. **Canvas** — the active panel's content.
-4. **Right rail** (when co-pilot open; 320px) — AI co-pilot panel.
-5. **Bottom rail** (40px) — time-travel scrubber + frame info + issues
+4. **Bottom rail** (40px) — time-travel scrubber + frame info + issues
    badge.
 
-Below 1200px viewport: sidebar collapses to icons (56px); co-pilot
-rail goes to 0 (overlays canvas when opened).
+Below 1200px viewport: sidebar collapses to icons (56px).
 
 Below 900px viewport: Causa takes 100% of viewport width.
 
@@ -77,9 +75,8 @@ Override either property anywhere up the cascade; the closest
 declaration wins as usual. The published spelling is also exported
 as `day8.re-frame2-causa.config/default-layout-host-css-var` /
 `default-layout-host-width` / `default-accent-css-var` /
-`default-accent` so tooling, docs generators, and the AI co-pilot
-snippet helper can refer to them without forking the string. Full
-contract + drag mechanics in
+`default-accent` so tooling and docs generators can refer to them
+without forking the string. Full contract + drag mechanics in
 [`011-Launch-Modes.md`](./011-Launch-Modes.md) §Layout host contract
 and §Brand-accent CSS variable.
 
@@ -92,30 +89,9 @@ On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
   display toggle.
 - **Active panel: Events**, showing the most-recent epoch's
   event-detail.
-- **AI co-pilot: collapsed** (per lock #8). A subtle activation cue
-  marks the rail entry — see below.
 - **Issues feed: collapsed**, with the count badge in the top strip.
 - **Frame picker: shows the active frame** (single-frame apps collapse
   to static label).
-
-## The AI co-pilot collapsed cue
-
-The co-pilot rail is **closed by default** (lock #8 — the marquee-pull
-of "open by default" was reversed; the principle of an unobtrusive
-debugger won out).
-
-The cue: in the top-strip's right group, a small `◇` glyph in
-co-pilot magenta pulses gently every 8 seconds (single 600ms expand
-on a fade-cycle). The glyph's tooltip on hover: "Ask Causa
-(`Ctrl+Shift+/`)."
-
-The pulse is once-every-8-seconds, not constant — animation
-communicates, not decorates (per §Motion below). The pulse stops
-entirely after the user has used the co-pilot once (Causa remembers
-across the session).
-
-When opened, the rail slides in from the right of the canvas at
-250ms ease-out; the rest of Causa's columns reflow.
 
 ## Redaction indicator
 
@@ -137,11 +113,10 @@ defined here.
 
 `[● REDACTED N]` — square brackets, U+25CF BLACK CIRCLE bullet, single
 ASCII space, the literal word `REDACTED` in upper case, single ASCII
-space, the integer count `N`. Rendered in co-pilot magenta
-(`#E879F9` per §Colour system; deliberately reused — magenta is the
-"hidden surface" hue across the chrome, see §The AI co-pilot
-collapsed cue), weight 600, in the Micro type token (11px) on the
-bottom rail and Caption token (12px) inline within panels.
+space, the integer count `N`. Rendered in magenta (`#E879F9` per
+§Colour system — the "hidden surface" hue across the chrome), weight
+600, in the Micro type token (11px) on the bottom rail and Caption
+token (12px) inline within panels.
 
 The count `N` MUST be rendered explicitly even when `N = 1`. The form
 `[● REDACTED 1]` is the canonical singular shape; a bare
@@ -246,7 +221,7 @@ shares the visual grammar but DIFFERS in affordance and copy:
 | Axis | Redacted (`:sensitive?`) | Elided (`:large?`) |
 |---|---|---|
 | Marker | `[● REDACTED N]` | `[● ELIDED N]` |
-| Hue | Co-pilot magenta `#E879F9` | Yellow `#FBBF24` (warning hue per §Colour system) |
+| Hue | Magenta `#E879F9` | Yellow `#FBBF24` (warning hue per §Colour system) |
 | Source | Privacy walker (drop) | Size walker (substitute with marker carrying `:digest` + `:bytes` + fetch handle) |
 | Click | Discloses structure; **no fetch** | Discloses structure; **offers fetch** (the marker's handle round-trips via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md)) |
 | Recoverable? | No — value is gone at the source | Yes — value is on-box, addressable by handle |
@@ -308,7 +283,6 @@ Three groups, divider-separated:
 │ ○ Schemas            ◌       │  ← dormant
 │ ○ Hydration          ◌       │
 │ ─                            │
-│ ○ Co-pilot           ◇       │  ← cue glyph
 │ ○ Settings                   │
 │ ▥ ▥▥ ▥▥▥                    │  ← density toggle
 └──────────────────────────────┘
@@ -325,7 +299,6 @@ Per item, right-aligned:
 | `●N` | Numeric unread count (3 issues, 5 schema violations). |
 | `●●●` | Multiplicity (3 machines currently running). |
 | `◌` | Dormant — no activity this session. |
-| `◇` | Cue glyph (co-pilot collapsed). |
 
 Badges fade in on first activity (200ms) and **never fade out** — the
 dot persists for the session as a "this panel has data" signal.
@@ -404,7 +377,7 @@ Accents:   violet  #7C5CFF  brand, current epoch
            yellow  #FBBF24  warnings, schema-replaced-with-default
            orange  #FB923C  long-task
            red     #F87171  errors, schema-violations, hydration-mismatches
-           magenta #E879F9  AI co-pilot highlight
+           magenta #E879F9  redaction highlight ("hidden surface" hue)
 
 Perf:      fast     #4ADE80  (<16ms)
            medium   #FBBF24  (16-50)
@@ -451,7 +424,7 @@ Sizes 14 / 16 / 20px (inline / sidebar / modal-header). 100ms hover
 fade to context accent; no size change on hover.
 
 Causa-specific custom glyphs: `◆` cascade root · `●` filled node ·
-`○` hollow node · `◉` selected node · `↺` rewind · `◇` co-pilot cue.
+`○` hollow node · `◉` selected node · `↺` rewind.
 
 ## Motion + animation
 
@@ -473,22 +446,17 @@ Specific motions:
 - Error pulse: single 600ms expand-fade red ring (no looping).
 - Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
   continuous animation in chrome, only on the machine chart).
-- Co-pilot streaming: typewriter ~25 chars/sec.
-- Co-pilot cue glyph: single 600ms expand-fade every 8 seconds until
-  first use, then stops.
-
 ### `prefers-reduced-motion`
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
 needs to settle. The error pulse becomes a static red ring for 1.5s;
-the machine pulse stops entirely; the co-pilot cue glyph stops
-pulsing (the glyph stays visible, statically).
+the machine pulse stops entirely.
 
 ## Keyboard
 
 Every panel is keyboard-reachable. The chrome has a strict tab order:
 top-strip → sidebar → canvas (focus enters the active panel) → bottom
-rail → co-pilot (when open). `Esc` always returns focus to the canvas.
+rail. `Esc` always returns focus to the canvas.
 
 ### Global shortcuts
 
@@ -498,13 +466,11 @@ rail → co-pilot (when open). `Esc` always returns focus to the canvas.
 | `?` | Keyboard cheat-sheet |
 | `,` | Settings |
 | `Esc` | Close modal / collapse popover / focus canvas |
-| `Ctrl+Shift+/` | Toggle co-pilot rail |
 | `Ctrl+F` | Find within active panel |
 
-Pre-alpha: only `Ctrl+Shift+C` and `Ctrl+Shift+/` are wired in
-`keybinding.cljs`. Pop-out lives at `(causa/popout!)`; the command
-palette is reachable through the top-strip control once that surface
-lands.
+Pre-alpha: only `Ctrl+Shift+C` is wired in `keybinding.cljs`. Pop-out
+lives at `(causa/popout!)`; the command palette is reachable through
+the top-strip control once that surface lands.
 
 ### Navigation
 
@@ -533,7 +499,6 @@ lands.
 | `r` | Routes |
 | `S` | Schemas |
 | `h` | Hydration |
-| `/` | Co-pilot (input focused) |
 | `,` | Settings |
 
 ### Event actions (when an event is focused)
@@ -681,17 +646,6 @@ panel may inline its own URI assembly.
   [`tools/story/spec/005-SOTA-Features.md` §"Open in editor" per variant](../../story/spec/005-SOTA-Features.md).
 - rf2-evgf5 — the chip implementation bead (Story + Causa).
 
-### Co-pilot
-
-| Key | Action |
-|---|---|
-| `/` (from chrome) | Focus co-pilot input |
-| `Enter` (input focused) | Submit |
-| `Shift+Enter` | New line |
-| `Ctrl+L` | Clear conversation |
-| `Ctrl+P` | Previous question |
-| `Ctrl+N` | Next question |
-
 ## Command palette
 
 The spine of expert workflows. Centred 560px modal, 50% height.
@@ -713,7 +667,6 @@ Matched together, recency-weighted, command-boosted:
 - Command verbs (Rewind / Re-dispatch / Snapshot / Filter / Pin /
   Pop-out / Switch frame / …)
 - Settings entries
-- Recent co-pilot questions
 
 Fuzzy match splits on camelCase / kebab-case / namespace boundaries.
 
@@ -741,9 +694,7 @@ Three modal surfaces float over the chrome:
 2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
    shortcut.
 3. **Settings** (`,`) — 640×480px modal: Theme · Density ·
-   Keybindings · Editor (per §Editor protocol matrix above) · AI
-   provider (includes co-pilot redaction toggles per
-   [`009-AI-CoPilot.md`](./009-AI-CoPilot.md) §Redaction defaults) ·
+   Keybindings · Editor (per §Editor protocol matrix above) ·
    Buffer depths · Frame defaults · Telemetry (always off; statement
    of why we don't ship any).
 
@@ -757,13 +708,9 @@ Three layers, no onboarding tour:
    (then never again).
 
 2. **Empty-state hints.** Each empty state shows a contextual
-   keyboard hint and, where appropriate, a sibling co-pilot
-   slash-command nudge. The keyboard hint is the canonical surface
-   ("No events yet. Press `Ctrl+Shift+C` again to close…"); the
-   co-pilot hint is the auxiliary, opt-in surface — see
-   §Empty-state hints below for the per-panel table. On first event
-   selection, a 4-second auto-dismiss popover suggests "Press `c`
-   for the causality graph."
+   keyboard hint ("No events yet. Press `Ctrl+Shift+C` again to
+   close…"). On first event selection, a 4-second auto-dismiss popover
+   suggests "Press `c` for the causality graph."
 
 3. **The command palette itself.** Typing `?` in the palette filters
    to commands and shows their shortcuts. The palette is the
@@ -774,78 +721,14 @@ We do **not** ship a tour. Causa is a tool, not an experience.
 ## Empty-state hints
 
 Each panel's empty state — when no data has landed yet, or when the
-relevant runtime feature isn't wired up — pairs the canonical
-keyboard hint with an optional sibling co-pilot slash-command hint.
-This is the discoverability nudge for the co-pilot: Lock 8 keeps the
-rail collapsed by default, so the empty-state is the first place a
-new user sees what the co-pilot can do.
-
-Inspired by Chrome DevTools' command-palette discovery surface and
-Gemini's auto-suggested prompts in empty states. The keyboard hint
-is the canonical answer for power users; the slash-command hint is
-the bridge for users who prefer natural-language interrogation.
-
-### Per-panel hints
-
-The empty-state copy lives in each panel's own spec — see the
-"Empty state" section in [`001-Causality-Graph.md`](./001-Causality-Graph.md),
+relevant runtime feature isn't wired up — surfaces a canonical
+keyboard hint. The empty-state copy lives in each panel's own spec —
+see the "Empty state" section in
+[`001-Causality-Graph.md`](./001-Causality-Graph.md),
 [`003-Machine-Inspector.md`](./003-Machine-Inspector.md),
 [`004-App-DB-Diff.md`](./004-App-DB-Diff.md),
 [`005-Schema-Timeline.md`](./005-Schema-Timeline.md), and
-[`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md). This
-table is the canonical mapping from each empty state to its
-co-pilot sibling hint:
-
-| Panel / state | Keyboard hint | Co-pilot hint (sibling) |
-|---|---|---|
-| Events — no events yet | "Press `[c]` for the causality graph." | "…or ask the co-pilot: `/why <epoch>`." |
-| Causality — no cascades yet | "Press `[` / `]` to walk history." | "…or ask: `/explain <epoch>`." |
-| App-db — no diffs yet | "Every dispatch lands here." | "…or ask: `/diff <epoch-a> <epoch-b>`." |
-| Machines — no machines registered | "→ Read about machine integration." | "…or ask: `/state <machine-id>` once one is registered." |
-| Schemas — no schemas registered | "→ Read about schema integration." | (none — no schemas means no data to query; co-pilot would have nothing to cite) |
-| Hydration — no SSR detected | "→ See Spec 011." | (none — Lock 4 / privacy posture: don't nudge into a feature the app may not opt into) |
-| Trace — empty buffer | "Click around your app." | "…or ask: `/find <pattern>` once events land." |
-| Co-pilot — first open | (already lists example questions inline) | (this *is* the co-pilot empty state — see [`009-AI-CoPilot.md`](./009-AI-CoPilot.md) §Empty state) |
-
-The keyboard hint is always primary; the co-pilot hint is appended
-as a sibling line beneath the keyboard hint. Where the co-pilot
-column is **(none)**, no sibling renders — the keyboard hint stands
-alone. A panel may also omit the co-pilot hint when the empty state
-exists because *the underlying feature isn't wired up* (no schemas
-registered, no SSR detected) — in those cases the co-pilot has no
-data to cite and the hint would be a hollow gesture.
-
-### Visual treatment
-
-The sibling hint renders below the keyboard hint in the same
-caption type (12px, `text-tertiary`) with a leading `◇` glyph in
-co-pilot magenta so the eye reads it as a co-pilot affordance:
-
-```
-   No events yet.
-   Click around your app — every dispatch will land here.
-
-   Press [c] for the causality graph.
-   ◇ …or ask the co-pilot: /why <epoch>
-```
-
-The `◇` glyph is the same one used in the sidebar's co-pilot row
-and the top-strip's collapsed cue (see §The AI co-pilot collapsed
-cue above) — visual continuity reinforces "this is how you reach
-the co-pilot."
-
-### Discoverability budget
-
-The sibling co-pilot hint **does not** open the co-pilot rail. The
-user must press `Ctrl+Shift+/` (or click the rail entry) to invoke
-the suggested command — same Lock 8 posture. The hint is a
-discoverability nudge, not a CTA.
-
-After the user has used the co-pilot once, the sibling hint
-continues to render (it's a slash-command teach, not a once-only
-onboarding). The cue glyph in the top strip stops pulsing (per §The
-AI co-pilot collapsed cue) but the in-panel hints persist as
-contextual prompts.
+[`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md).
 
 ### `prefers-reduced-motion`
 
@@ -857,7 +740,6 @@ Per-panel lazy loading via shadow-cljs's per-output-target slicing:
 
 - Core (UI shell + Events + App-db + Causality strip): <1.5 MB
   minified / <500 KB gzipped.
-- AI co-pilot panel: <400 KB extra, lazy-loaded on first open.
 - Machine inspector: <300 KB extra (includes `tools/machines-viz/`),
   lazy-loaded on first open.
 - Hydration debugger: <100 KB extra, lazy-loaded on first

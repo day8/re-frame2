@@ -12,40 +12,28 @@
  *     epoch artefact was not on the counter example's classpath; the
  *     Causa preload now `:require`s `re-frame.epoch` so the slider
  *     appears reactively on first host dispatch.
- *   - rf2-qvz85: typing `/` into the co-pilot input renders the
- *     slash popover. Pre-fix the input lived in a `defonce` plain
- *     atom (not a substrate-reactive primitive) so the rail never
- *     re-rendered on keystrokes; the input now routes through
- *     `:rf.causa/copilot-input-text` on Causa's app-db and the rail
- *     re-renders on every keystroke.
  *
  * Coverage over the bare-minimum smoke:
  *
  *   1. Default inline landing — Event Detail is the hero panel on
  *      page load when the app provides `[data-rf-causa-host]`
- *   2. Co-pilot rail affordances:
- *      - cue button opens the rail
- *      - typing `/` renders the slash popover (rf2-qvz85)
- *      - submit path renders a question + answer turn
- *      - close button collapses the rail
- *      - sidebar Co-pilot row routes to the panel-style view
- *   3. Time-travel scrubber populates after host dispatches (rf2-1barg)
+ *   2. Time-travel scrubber populates after host dispatches (rf2-1barg)
  *      - slider renders once epoch history is non-empty
  *      - epoch counter matches the slider's max+1
- *   4. Panel-specific empty states:
+ *   3. Panel-specific empty states:
  *      - Routes  => "No routes registered"
  *      - Schemas => "No schemas registered"
  *      - MCP     => "No activity"
- *   5. Trace-panel behaviour:
+ *   4. Trace-panel behaviour:
  *      - live row growth after host dispatch
  *      - filter activation narrows the ribbon
  *      - clear-filters widens it again
  *      - clicking a trace row pivots back to event detail
- *   6. Trace-bus lifecycle:
+ *   5. Trace-bus lifecycle:
  *      - redacted counter bump
  *      - clear-buffer! empties the trace panel
  *      - clear-buffer! drops the redacted indicator
- *   7. Shell visibility is CSS-only on the toggle (no re-mount)
+ *   6. Shell visibility is CSS-only on the toggle (no re-mount)
  */
 
 const { expectTextEquals, expectVisible } = require('../../../../examples/scripts/spec-helpers.cjs');
@@ -209,67 +197,9 @@ module.exports = {
     }
 
     // ----------------------------------------------------------------
-    // 2. Default panel and cue render.
+    // 2. Default panel render.
     // ----------------------------------------------------------------
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-cue"]'), 5000);
-
-    // ----------------------------------------------------------------
-    // 3. Co-pilot rail affordances and submit path.
-    // ----------------------------------------------------------------
-    await page.locator('[data-testid="rf-causa-copilot-cue"]').click();
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-rail"]'), 5000);
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-empty"]'), 5000);
-
-    const copilotInput = page.locator('[data-testid="rf-causa-copilot-input"]');
-
-    // rf2-qvz85 — typing `/` renders the slash popover with every
-    // slash command. Pre-fix the input lived in a `defonce` plain
-    // atom and the rail did not re-render on keystrokes — the
-    // popover never appeared. The fix routes the input through
-    // `:rf.causa/copilot-input-text` on Causa's app-db.
-    await copilotInput.fill('/');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-slash-popover"]'), 5000);
-    const slashRows = page.locator('[data-testid^="rf-causa-copilot-slash-"]');
-    // The popover element itself matches the prefix; each command adds
-    // a row. With 8 commands the locator yields 9 elements.
-    if ((await slashRows.count()) < 9) {
-      throw new Error(
-        `Expected at least 9 slash-popover rows (popover + 8 commands); got ${await slashRows.count()}.`,
-      );
-    }
-    // Narrow to a single command and assert the popover drops the
-    // non-matching rows. `await waitForCondition` to give the rail's
-    // re-render cycle time to settle — the slot is reactive but the
-    // browser still needs a paint.
-    await copilotInput.fill('/exp');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-slash-explain"]'), 5000);
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-slash-clear"]').count(),
-      (count) => count === 0,
-      '`/exp` to narrow the popover away from /clear',
-      5000,
-    );
-
-    // Now submit a free-form question and verify the conversation
-    // surface accepts it (question + streaming-answer turn).
-    await copilotInput.fill('Why did the counter change?');
-    await page.keyboard.press('Enter');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-turn-question"]'), 5000);
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-turn-answer"]'), 5000);
-
-    await page.locator('[data-testid="rf-causa-copilot-close"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-rail"]').count(),
-      (count) => count === 0,
-      'co-pilot rail to close',
-      5000,
-    );
-
-    await clickSidebar(page, 'copilot', 'rf-causa-copilot-panel');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-input"]'), 5000);
-    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-cue"]'), 5000);
 
     // ----------------------------------------------------------------
     // 4. Host events for later panel assertions.
@@ -495,9 +425,9 @@ module.exports = {
     await expectTextEquals(counterValue, '7', 5000);
     await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
     // Empty-state cascade list should be visible — selection clears on
-    // mount per the bare event-detail panel's reg-event-db, but the
-    // co-pilot turn earlier in the spec may have left a selection in
-    // place. Force a known-empty starting point.
+    // mount per the bare event-detail panel's reg-event-db. Force a
+    // known-empty starting point in case an earlier walk left a
+    // selection in place.
     {
       const lingeringBack = page.locator('[data-testid="rf-causa-event-detail-back"]');
       if ((await lingeringBack.count()) > 0) {
@@ -1606,7 +1536,6 @@ module.exports = {
     //   11a — Subscriptions   (rf2-29ipt)  matrix row 73
     //   11b — Routes          (rf2-3e3fn)  matrix row 75
     //   11c — MCP Server      (rf2-39a1l)  matrix row 82
-    //   11d — AI Co-pilot     (rf2-jm9oi)  matrix row 83
     //   11e — Causality Graph (rf2-gdqm1)  matrix row 71
     //         + deepened assertions for matrix rows 74/77/78/84.
     // ================================================================
@@ -2207,280 +2136,6 @@ module.exports = {
     );
     await expectVisible(
       page.locator('[data-testid="rf-causa-mcp-empty-no-activity"]'),
-      5000,
-    );
-
-    // Sidebar round-trip — assert event-detail mounts cleanly.
-    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
-    await expectVisible(page.locator('[data-testid="rf-causa-event-detail"]'), 5000);
-
-    // ----------------------------------------------------------------
-    // 11d. AI Co-pilot panel-style (rf2-jm9oi) — slash popover in
-    // canvas form + slash-command catalogue + submit lifecycle +
-    // /clear lifecycle + provider cycle + conversation persistence.
-    //
-    // Section 3 of this spec already pinned the RAIL form of the co-
-    // pilot (cue → rail → slash popover → submit → close) — that was
-    // the rf2-qvz85 + rf2-043uz regression-pin. This section deepens
-    // the PANEL-STYLE form (sidebar `:copilot` row → canvas
-    // `rf-causa-copilot-panel`) and the slash-command catalogue's
-    // visible-surface contract.
-    //
-    // The panel-style view is a DIFFERENT reg-view than the rail
-    // (`Panel` vs `ai-co-pilot-rail` in `ai-co-pilot.cljs`)
-    // and re-mounts the conversation + input row from the same leaf
-    // components. Asserting the slash popover here proves the leaf
-    // works through both mounting paths — guards against a single
-    // view accidentally winning the routing fix (rf2-043uz) while
-    // the other regresses.
-    //
-    // Asserts:
-    //
-    //   - sidebar pivot → copilot lands on `rf-causa-copilot-panel`
-    //   - always-rendered chrome — input + submit + close + provider-
-    //     picker buttons mount; empty conversation body shows
-    //     `rf-causa-copilot-empty` (canonical empty caption with the
-    //     example slash commands); `rf-causa-copilot-conversation`
-    //     absent
-    //   - **slash popover in the panel-style view** — typing `/` into
-    //     the canvas input renders `rf-causa-copilot-slash-popover`
-    //     with ALL 8 slash-command rows (`-slash-explain / -diff /
-    //     -find / -rewind / -state / -why / -whatif / -clear`); the
-    //     popover element itself matches the prefix locator so the
-    //     count is 9 (popover + 8 commands)
-    //   - **prefix filter narrows the popover** — typing `/wh` keeps
-    //     `-slash-why` and `-slash-whatif`; drops `-slash-clear` and
-    //     others (proves the helper's `starts-with?` filter runs
-    //     against the panel-style mounting path)
-    //   - **clicking a slash entry populates the input with its usage
-    //     template** — clicking `-slash-diff` dispatches `:rf.causa/
-    //     copilot-set-input-text "/diff <epoch-a> <epoch-b>"`; the
-    //     input's value reflects the canonical usage immediately
-    //   - **submit lifecycle via Enter** — typing a free-form
-    //     question + Enter dispatches `:rf.causa/copilot-submit-
-    //     question`; the conversation pivots to populated: question
-    //     + answer turns mount; `rf-causa-copilot-empty` unmounts;
-    //     `rf-causa-copilot-conversation` mounts; input clears
-    //   - **/clear lifecycle** — typing `/clear` + clicking the
-    //     submit button dispatches `:rf.causa/copilot-clear-
-    //     conversation`; the conversation unmounts; the empty body
-    //     returns; input clears (this is the same affordance the
-    //     rail form exposes, but exercised through the canvas
-    //     submit button rather than Enter)
-    //   - **provider-picker cycle** — clicking the provider button
-    //     fires `:rf.causa/copilot-cycle-provider`; the provider on
-    //     `:rf/causa`'s app-db steps through the canonical 5-cycle
-    //     (`:claude → :openai → :gemini → :local → :custom →
-    //     :claude`). The default is `:claude` (the sub returns it
-    //     when the db key is unset); after one click the value is
-    //     `:openai`. We assert 1 → :openai then 4 more clicks → back
-    //     to :claude.
-    //   - **conversation persistence across panel pivot** — submit
-    //     another question, pivot to event-detail, pivot back to
-    //     copilot; the question turn from the new submission is
-    //     still mounted (the conversation lives on `:rf/causa`'s
-    //     app-db, not in transient view state)
-    //   - sidebar round-trip back to event-detail mounts cleanly
-    //
-    // The full feature path enumerated by matrix row 83 (provider-
-    // success/failure stub + cited dispatch ids + redaction/elision
-    // counts + answer chip resolution + close/reopen persistence
-    // across non-trivial cited data) needs a deterministic provider
-    // stub wired through the rigorous compile graph. The walk pins
-    // the panel-style mount + slash catalogue + lifecycle + provider
-    // cycle + cross-panel persistence; matrix row 83 (AI Co-pilot)
-    // flips from `deferred (rf2-jm9oi)` to `covered`.
-    // ----------------------------------------------------------------
-    await clickSidebar(page, 'copilot', 'rf-causa-copilot-panel');
-    // Always-rendered chrome.
-    for (const chromeTestid of [
-      'rf-causa-copilot-input',
-      'rf-causa-copilot-submit',
-      'rf-causa-copilot-close',
-      'rf-causa-copilot-provider-picker',
-    ]) {
-      await expectVisible(page.locator(`[data-testid="${chromeTestid}"]`), 5000);
-    }
-    // After the rail's section-3 submit landed earlier in this spec
-    // the conversation already has a question + answer turn from
-    // `"Why did the counter change?"`. The empty body is therefore
-    // ABSENT in the panel-style mount; the conversation IS rendered.
-    // Clear it via `/clear` so the rest of this section reads off a
-    // known empty baseline.
-    const panelCopilotInput = page.locator('[data-testid="rf-causa-copilot-input"]');
-    await panelCopilotInput.fill('/clear');
-    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
-      (count) => count === 0,
-      'panel-style conversation to clear after /clear baseline reset',
-      5000,
-    );
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-empty"]'), 5000);
-
-    // Slash popover in the PANEL-STYLE view.
-    await panelCopilotInput.fill('/');
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-slash-popover"]'),
-      5000,
-    );
-    // 8 commands + the popover element itself match the prefix.
-    const panelSlashRows = page.locator('[data-testid^="rf-causa-copilot-slash-"]');
-    await waitForCondition(
-      async () => panelSlashRows.count(),
-      (count) => count >= 9,
-      'panel-style slash popover to render >= 9 elements (popover + 8 commands)',
-      5000,
-    );
-
-    // Prefix filter — `/wh` keeps only :why + :whatif.
-    await panelCopilotInput.fill('/wh');
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-slash-why"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-slash-whatif"]'),
-      5000,
-    );
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-slash-clear"]').count(),
-      (count) => count === 0,
-      '`/wh` to narrow the popover away from /clear in the panel-style view',
-      5000,
-    );
-
-    // Clicking a slash entry populates the input with its canonical
-    // usage template (the `/diff <epoch-a> <epoch-b>` shape from
-    // slash-commands).
-    await panelCopilotInput.fill('/');
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-slash-diff"]'),
-      5000,
-    );
-    await page.locator('[data-testid="rf-causa-copilot-slash-diff"]').click();
-    await waitForCondition(
-      async () => panelCopilotInput.inputValue(),
-      (val) => val === '/diff <epoch-a> <epoch-b>',
-      `input value to be '/diff <epoch-a> <epoch-b>' after slash-diff click`,
-      5000,
-    );
-
-    // Submit a free-form question via Enter. Conversation pivots
-    // populated; empty unmounts.
-    await panelCopilotInput.fill('What is happening?');
-    await page.keyboard.press('Enter');
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-turn-answer"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-conversation"]'),
-      5000,
-    );
-    if ((await page.locator('[data-testid="rf-causa-copilot-empty"]').count()) !== 0) {
-      throw new Error('Expected copilot-empty to unmount after submit landed a turn pair.');
-    }
-    // Input clears after submit (per copilot-events :rf.causa/copilot-
-    // submit-question handler).
-    await waitForCondition(
-      async () => panelCopilotInput.inputValue(),
-      (val) => val === '',
-      'copilot-input to clear after submit',
-      5000,
-    );
-
-    // /clear lifecycle via the submit BUTTON (the rail form in
-    // section 3 used Enter; here we exercise the button click).
-    await panelCopilotInput.fill('/clear');
-    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
-      (count) => count === 0,
-      'panel-style conversation to unmount after `/clear` submit (via button)',
-      5000,
-    );
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-empty"]'), 5000);
-
-    // Provider-picker cycle — the canonical 5-cycle :claude → :openai
-    // → :gemini → :local → :custom → :claude. The default is :claude
-    // (the sub returns it when the db slot is unset). One click →
-    // :openai. Four more clicks → back to :claude.
-    async function readProvider() {
-      return page.evaluate(() => {
-        const cljs = window.cljs.core;
-        const rf   = window.re_frame.core;
-        const kw   = (n) => cljs.keyword(n);
-        const db   = rf.get_frame_db(kw('rf/causa'));
-        const pv   = cljs.get(db, kw('copilot-provider'));
-        return pv === null || pv === undefined ? null : cljs.pr_str(pv);
-      });
-    }
-    const providerPicker = page.locator('[data-testid="rf-causa-copilot-provider-picker"]');
-    const providerBefore = await readProvider();
-    if (providerBefore !== null && providerBefore !== ':claude') {
-      // If a prior section flipped it (none does today), normalise to
-      // :claude so the cycle math below is deterministic. The sub
-      // returns :claude when the db slot is nil so the user-visible
-      // default lines up either way.
-    }
-    await providerPicker.click();
-    await waitForCondition(
-      readProvider,
-      (val) => val === ':openai',
-      `copilot-provider on :rf/causa app-db to read :openai after first picker click (was ${providerBefore})`,
-      5000,
-    );
-    // Four more clicks → :gemini → :local → :custom → :claude.
-    for (const expected of [':gemini', ':local', ':custom', ':claude']) {
-      await providerPicker.click();
-      await waitForCondition(
-        readProvider,
-        (val) => val === expected,
-        `copilot-provider to cycle to ${expected}`,
-        5000,
-      );
-    }
-
-    // Conversation persistence across panel pivot — submit a
-    // question, pivot to event-detail, pivot back; the new question
-    // turn still mounted (state lives on `:rf/causa`'s app-db).
-    //
-    // Use the submit BUTTON path (rather than Enter) — the input
-    // re-mounted into a new vDOM tree after the provider-cycle
-    // re-renders above and a global `page.keyboard.press('Enter')`
-    // does not reliably target the input's freshly-bound key handler
-    // across panel re-renders. The button's `:on-click` is bound to
-    // the same `submit` closure so the assertion is equivalent.
-    await panelCopilotInput.fill('Persistence probe?');
-    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
-      5000,
-    );
-    await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
-    await clickSidebar(page, 'copilot', 'rf-causa-copilot-panel');
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-conversation"]'),
-      5000,
-    );
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-copilot-turn-question"]'),
-      5000,
-    );
-
-    // Final cleanup — clear conversation so subsequent worktree
-    // re-runs of this spec read off an empty baseline.
-    await page.locator('[data-testid="rf-causa-copilot-input"]').fill('/clear');
-    await page.locator('[data-testid="rf-causa-copilot-submit"]').click();
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-conversation"]').count(),
-      (count) => count === 0,
-      'panel-style conversation to clear before final round-trip',
       5000,
     );
 
@@ -3157,8 +2812,7 @@ module.exports = {
     //     `:rf/default`'s app-db after exercising every panel pivot:
     //     no `:rf.causa/*` keys, no Causa-internal slots
     //     (`:selected-panel`, `:trace-buffer`, `:epoch-history`,
-    //     `:suppressed-counters`, `:copilot-*`, etc.) leak into the
-    //     host db
+    //     `:suppressed-counters`, etc.) leak into the host db
     //   - **registry-key namespacing** — per Spec 008 §Registry-key
     //     isolation via `:rf.causa/*` prefix, every Causa-registered
     //     event / sub / fx / cofx is under `:rf.causa/*` (or
@@ -3175,7 +2829,6 @@ module.exports = {
     // they share.
     // ----------------------------------------------------------------
     const PANEL_NAMESPACES = [
-      'day8.re-frame2-causa.panels.ai-co-pilot',
       'day8.re-frame2-causa.panels.app-db-diff',
       'day8.re-frame2-causa.panels.causality-graph',
       'day8.re-frame2-causa.panels.effects',
@@ -3256,7 +2909,6 @@ module.exports = {
       ['schemas',      'rf-causa-schema-violation-timeline'],
       ['hydration',    'rf-causa-hydration-debugger'],
       ['mcp-server',   'rf-causa-mcp-server'],
-      ['copilot',      'rf-causa-copilot-panel'],
     ];
     if (SIDEBAR_PANELS.length !== PANEL_NAMESPACES.length) {
       throw new Error(
@@ -3285,7 +2937,7 @@ module.exports = {
     // exactly `{:counter/value <int>}` after init; every Causa
     // dispatch (panel selection, trace sync, time-travel scrub,
     // routes overrides, machines overrides, hydration mismatch
-    // injection, copilot turns, …) must route through `:rf/causa`'s
+    // injection, …) must route through `:rf/causa`'s
     // frame, never the host's.
     const isolationVerify = await page.evaluate(() => {
       const cljs = window.cljs && window.cljs.core;
@@ -3313,17 +2965,12 @@ module.exports = {
       // prefix (the namespace contract per Spec 008 §Registry-key
       // isolation) and a small set of unqualified slots that Causa
       // uses on its own app-db (`:selected-panel`, `:trace-buffer`,
-      // `:epoch-history`, `:suppressed-counters`, `:copilot-*`,
-      // `:target-frame`).
+      // `:epoch-history`, `:suppressed-counters`, `:target-frame`).
       const causaInternalUnqualifiedSlots = [
         ':selected-panel',
         ':trace-buffer',
         ':epoch-history',
         ':suppressed-counters',
-        ':copilot-conversation',
-        ':copilot-input-text',
-        ':copilot-provider',
-        ':copilot-open?',
         ':target-frame',
       ];
       const leaks = hostKeys.filter((k) =>
@@ -4066,11 +3713,6 @@ module.exports = {
     // section deepens the cross-cutting shell/config surface with the
     // affordances NOT already covered:
     //
-    //   - **`Ctrl+Shift+/` co-pilot keybinding** — Phase 5 of
-    //     keybinding.cljs (rf2-rccf3) routes Ctrl+Shift+/ through
-    //     `:rf.causa/copilot-toggle` dispatched into `:rf/causa`.
-    //     Tier-1 §3 only pinned the rail's cue-glyph affordance;
-    //     this verifies the keyboard path
     //   - **`configure!` multi-key map + partial-update semantics**
     //     — `:editor` + `:project-root` + `:layout/host-selector` +
     //     `:launch/auto-open?` + `:trace/show-sensitive?` in one
@@ -4110,38 +3752,6 @@ module.exports = {
     // No new matrix row — deepens row 87 (Shell, Keybinding, Config,
     // Preload, Settings, and Production Elision).
     // ----------------------------------------------------------------
-
-    // 15a. Ctrl+Shift+/ — co-pilot toggle. The Tier-1 §3 walk used
-    // the cue glyph; this verifies the keyboard binding lands the
-    // same `:rf.causa/copilot-toggle` event. Pre-state: rail is
-    // closed (Tier-1 §3 closed it). The keypress opens; a second
-    // keypress closes.
-    //
-    // The keybinding.cljs handler runs `preventDefault` +
-    // `stopPropagation` so the browser's "find on page" affordance
-    // (Cmd+F variant) does not fire. Probe via the rail's
-    // `rf-causa-copilot-rail` testid.
-    if ((await page.locator('[data-testid="rf-causa-copilot-rail"]').count()) !== 0) {
-      // Defensive baseline reset — the rail should be closed after
-      // Tier-1 §3, but if a future re-ordering of sections leaves
-      // it open the assertion below would falsely pass.
-      await page.locator('[data-testid="rf-causa-copilot-close"]').click();
-      await waitForCondition(
-        async () => page.locator('[data-testid="rf-causa-copilot-rail"]').count(),
-        (count) => count === 0,
-        'baseline co-pilot rail closure before Ctrl+Shift+/ walk',
-        5000,
-      );
-    }
-    await page.keyboard.press('Control+Shift+/');
-    await expectVisible(page.locator('[data-testid="rf-causa-copilot-rail"]'), 5000);
-    await page.keyboard.press('Control+Shift+/');
-    await waitForCondition(
-      async () => page.locator('[data-testid="rf-causa-copilot-rail"]').count(),
-      (count) => count === 0,
-      'co-pilot rail to close on second Ctrl+Shift+/',
-      5000,
-    );
 
     // 15b. `configure!` multi-key map + partial-update semantics.
     // The whole probe + state restore happens inside one

@@ -1,7 +1,9 @@
 # Story — Assertions and Play
 
 > The seven canonical `:rf.assert/*` events; their record-don't-throw
-> semantics; play-sequence execution; the `force-fx-stub` decorator.
+> semantics; play-sequence execution; the assertion-side interaction
+> with `force-fx-stub` (the decorator itself lives in
+> [`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`).
 > The contract Stage 5 implements.
 
 ## Canonical assertion vocabulary
@@ -100,33 +102,31 @@ event:
    [`002-Runtime.md`](002-Runtime.md) §Error projection).
 
 The play-stepper UI affordance pauses between events, surfaces the
-intermediate `:assertions` list, and offers a re-dispatch hook.
+intermediate `:assertions` list, and offers a re-dispatch hook. The
+in-canvas chrome that exposes step / pause / rewind / step-back /
+breakpoint controls over this hook is specified in
+[`009-Test-Mode.md` §Play step-debugger](009-Test-Mode.md#play-step-debugger-rf2-ulw5m)
+(rf2-ulw5m).
 
-## `force-fx-stub` decorator
+## `force-fx-stub` interaction
 
-Per [`001-Authoring.md`](001-Authoring.md) §reg-decorator, the
-`:fx-override` decorator kind stubs an effect at frame creation:
+The `force-fx-stub` decorator is Story's universal effect-mocking
+primitive — one decorator covers HTTP, websockets, analytics,
+storage, navigation, geolocation, and anything else registered with
+`reg-fx`. The marketing-tier framing, the Storybook comparison, and
+the authoring contract live in
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`.
 
-```clojure
-(story/reg-decorator :force-fx-stub
-  {:doc  "Stub a registered fx with a static response."
-   :kind :fx-override
-   :fx-id    <fx-id>
-   :response <data>})
-```
-
-Variant usage:
-
-```clojure
-(story/reg-variant :story.auth.login-form/loading
-  {:decorators [[:force-fx-stub :http {:status :pending}]]
-   :events     [[:auth/initialise]
-                [:auth/login-pressed]]})
-```
-
-Effect mocking via decoration is **strictly stronger** than MSW
-because *any* fx is mockable, not only HTTP. Phase 1 §2.3 and Phase 2
-§5.1 #6 both confirm this is a re-frame2 differentiator.
+This document covers the assertion-side interaction. A stubbed fx
+still counts as **emitted** for the purposes of
+`:rf.assert/effect-emitted` (the fx-id flows through the dispatch
+pipeline; the stub intercepts the *handler*, not the emission). A
+variant that stubs `:http` and asserts
+`:rf.assert/effect-emitted :http` therefore passes both the stub and
+the assertion in a single play sequence. The variant's
+`:emitted-fx` slot records the emission per
+[`002-Runtime.md`](002-Runtime.md) §`:rf.assert/effect-emitted`
+under `force-fx-stub`.
 
 ## Test-runner integration
 

@@ -166,23 +166,14 @@ else
         mcp_conformance=true
         story_causa_browser=true
         ;;
-      tools/story-mcp/*|tools/causa-mcp/*)
+      tools/story-mcp/*)
         # rf2-os0c1 — MCP wrappers don't run in a browser; story-causa-browser
         # exercises the Story/Causa CLJS runtimes via Playwright and is
         # noise for an MCP-wrapper-only diff. tools_jvm + mcp_conformance
         # cover the actual JVM probes (jvm-tools-story-mcp / wire-vocab) and
         # node integration tests.
-        #
-        # rf2-8xzoe.35 — causa-mcp adds a sentinel string under
-        # tools/causa-mcp/src/day8/re_frame2_causa_mcp/server.cljs that
-        # the cljs-bundle-isolation job greps against the counter bundle
-        # to prove the Node-only MCP server never leaks into a browser
-        # build. Source-tree changes under tools/causa-mcp/ must fire
-        # that gate so a future regression that adds the forbidden
-        # :require from a core/* or adapter ns gets caught at PR time.
         tools_jvm=true
         mcp_conformance=true
-        bundle_isolation=true
         ;;
       tools/pair2-mcp/*|tools/mcp-base/*)
         # rf2-os0c1 — mcp-base is .cljc shared by every MCP server (rf2-vw4sq),

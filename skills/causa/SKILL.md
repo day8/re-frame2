@@ -58,10 +58,9 @@ Tool-Pair epoch history, the registrar query API) — it adds nothing the
 framework didn't already expose. The 16 panels are *presentation* of an
 already-structured runtime.
 
-A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP tools
-for AI agents — same architecture as `tools/pair2-mcp/`, different tool
-catalogue. This skill does not cover the MCP surface; see
-[`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../tools/causa-mcp/spec/004-Tools-Catalogue.md).
+For an AI agent surface against the running app, use `tools/pair2-mcp/`
+— the raw nREPL pair-programming companion. Causa is the human-facing
+panel; pair2-mcp is the AI-facing surface.
 
 ---
 
@@ -75,7 +74,7 @@ situation.
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-causa-host]` column in the app layout. Causa auto-opens on page load. |
 | Put Causa on a second monitor with the app full-screen | **Pop-out window** | `(causa/popout!)` from CLJS, or `window.day8.re_frame2_causa.popout_BANG_()` from devtools. |
 | Mount Causa from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(causa/init! opts)` after `rf/init!`. Idempotent. |
-| Have an AI agent inspect the runtime | **Causa-MCP** (separate artefact) | Configure `tools/causa-mcp/` in the agent host. Out of scope for this skill — see [`tools/causa-mcp/`](../../tools/causa-mcp/). |
+| Have an AI agent inspect the runtime | **pair2-mcp** | Configure `tools/pair2-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/pair2-mcp/`](../../tools/pair2-mcp/). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
@@ -84,15 +83,14 @@ resize, pop-out lifecycle), see [`reference/launch-modes.md`](reference/launch-m
 
 ### Wired hotkeys
 
-Only two hotkeys are wired in `keybinding.cljs` pre-alpha. Spec
+Only one hotkey is wired in `keybinding.cljs` pre-alpha. Spec
 [`007-UX-IA.md` §Keyboard](../../tools/causa/spec/007-UX-IA.md#keyboard)
-catalogues a richer global / navigation / panel-jump map, but only these
-two have a global keydown listener installed today:
+catalogues a richer global / navigation / panel-jump map, but only this
+one has a global keydown listener installed today:
 
 | Key | Action |
 |---|---|
 | `Ctrl+Shift+C` | Toggle the Causa panel (mount on first press; CSS show/hide after). |
-| `Ctrl+Shift+/` | Toggle the AI Co-Pilot rail. |
 
 The remaining keys catalogued in the spec (`?`, `,`, panel-jump
 mnemonics, scrubber controls, event-action shortcuts) require focus
@@ -104,9 +102,9 @@ on the launcher pill.
 
 ---
 
-## The 16 panels — what each surfaces
+## The 15 panels — what each surfaces
 
-The sidebar lists 16 panels in three groups (always-active, conditional,
+The sidebar lists 15 panels in three groups (always-active, conditional,
 dormant). When the user asks "where is X?", route to the panel whose
 purpose covers it. For more detail on each — group membership, dormant
 state, activity badges, deeper "open it when…" guidance — see
@@ -129,12 +127,10 @@ state, activity badges, deeper "open it when…" guidance — see
 | **Schemas** | One row per registered schema; coloured dot per failure with recovery-mode mapping. | "Has any schema violated this session?" / "When did `:user/profile` start failing?" |
 | **Hydration** *(dormant)* | Server-vs-client render-tree side-by-side with divergent node flagged and hash-bisector path highlighted. Dormant `◌` until the first `:rf.ssr/hydration-mismatch` trace lands. | "My SSR hydration is mismatching" — only visible when SSR runs. |
 | **MCP** | Live feed of MCP-server activity: tool calls in flight, recent results, per-origin colouring. | "What is my agent doing right now?" / "Did the MCP call land?" |
-| **Co-pilot** *(rail)* | Pull-only AI Q&A and slash commands over the live runtime. Collapsed by default; expand via `Ctrl+Shift+/`. Ephemeral (no persistence). | "Ask Causa why X happened." (Lock 8 — collapsed by default per `spec/007-UX-IA.md`.) |
 
-The hero on first open is **Event detail**. The Co-pilot rail is
-collapsed by default (Lock 8); the magenta `◇` cue glyph in the top
-strip pulses every 8 seconds until the user has invoked the co-pilot
-once.
+The hero on first open is **Event detail**. AI integration lives in
+the separate `tools/pair2-mcp/` jar — Causa itself is the human
+surface only.
 
 ---
 
@@ -160,9 +156,6 @@ short of improvising.
   [`tools/causa/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
   and the per-panel implementation specs. A `causa-implementor` sibling
   skill is **deferred to post-alpha** until the Causa surface stabilises.
-- **Causa-MCP tools.** Different artefact, different surface — see
-  [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../../tools/causa-mcp/spec/004-Tools-Catalogue.md).
-
 ---
 
 ## Style guidance

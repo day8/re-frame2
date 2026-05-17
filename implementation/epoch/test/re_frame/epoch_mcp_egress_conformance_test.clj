@@ -43,16 +43,17 @@
            never mutate the underlying ring, the schemas registry, or
            the elision registry.
 
-  Why this file, not under tools/causa-mcp/test/: causa-mcp's test runner
-  is shadow-cljs + Node (`npm test` -> `out/server-test.js`), and the
-  artefact does not statically depend on `re-frame.epoch` — the runtime
-  accessors get into the running app via the injected-runtime path
+  Why this file lives in implementation/epoch/test rather than under an
+  MCP-server test tree: MCP-server test runners are shadow-cljs + Node
+  (`npm test` -> `out/server-test.js`), and the artefacts do not
+  statically depend on `re-frame.epoch` — the runtime accessors get into
+  the running app via the injected-runtime path
   (`day8.re-frame2-causa.runtime`), not the MCP-server bundle. The
   framework's epoch artefact owns the projection emission site (Spec
   Security.md §Epoch privacy posture line 104); pinning conformance from
   the artefact side keeps the test on the JVM next to the contract owner.
   An MCP-side end-to-end test is the job of the live-server `test/end-
-  to-end-*.js` paths once causa-mcp's epoch tools ship."
+  to-end-*.js` paths if and when MCP-server epoch tools ship."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]

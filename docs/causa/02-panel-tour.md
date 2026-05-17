@@ -1,16 +1,16 @@
 # 2. Panel tour
 
-Sixteen panels. You'll use four of them daily, six of them weekly, and the rest the occasional Tuesday afternoon when something exotic breaks.
+Fourteen panels. You'll use four of them daily, six of them weekly, and the rest the occasional Tuesday afternoon when something exotic breaks.
 
 This chapter is the map. Each panel gets a one-paragraph "when you'd open this" answer; the chapters that follow take the four hero panels — Event detail, Time travel, Trace, Click-to-source — and unpack them depth-first.
 
-![Causa sidebar — sixteen panels, three bands](../images/causa/02-sidebar-panels.png)
 
-The sidebar groups panels into three bands:
+![Causa sidebar — fourteen panels, two bands](../images/causa/02-sidebar-panels.png)
+
+The sidebar groups panels into two bands:
 
 - **Always-active** (top) — Event detail, Causality, Time travel, App-DB, Subscriptions, Effects, Trace, Machines. These render whether you've configured anything or not.
-- **Conditional-with-activity** (middle) — Flows, Routes, Performance, Issues, Schemas, Hydration. These light up only when the app is using the relevant subsystem (the *Hydration* panel only appears when SSR hydration actually runs, etc.).
-- **AI surfaces** (bottom) — MCP, Co-pilot. Both opt-in; both pull-only by default.
+- **Conditional-with-activity** (bottom) — Flows, Routes, Performance, Issues, Schemas, Hydration. These light up only when the app is using the relevant subsystem (the *Hydration* panel only appears when SSR hydration actually runs, etc.).
 
 ## Event detail — the landing panel
 
@@ -100,16 +100,6 @@ The server-vs-client hydration debugger. Only visible when SSR hydration actuall
 
 See [chapter 7](07-hydration.md).
 
-## MCP
-
-A panel that exposes Causa's surfaces over the `causa-mcp` JSON-RPC server. You'd point an AI agent host at it for "drive Causa from a tool catalogue" workflows. See [chapter 11](11-mcp-server.md).
-
-## Co-pilot
-
-The pull-only AI rail. `Ctrl+Shift+/` toggles it. The agent runs against Causa's read surface — `epoch-history`, `(rf/sub-topology)`, the current trace stream — and answers questions in-context. No writes; no auto-action.
-
-See [chapter 10](10-ai-copilot.md).
-
 ---
 
 ## How the panels share state
@@ -118,6 +108,6 @@ Every panel reads the same store. Selecting an event in *Event detail* highlight
 
 The state is **one big sub-graph rooted at Causa's app-db** — a separate frame from your app's. That separation is what lets Causa survive `restore-epoch` on the host frame: the historical view is a projection over the rewound host, not a rewound Causa.
 
-You don't have to know any of this to use the tool. But it's how the panel composition is so cheap to extend — adding a seventeenth panel is "register one slot, render one view"; the substrate is already there.
+You don't have to know any of this to use the tool. But it's how the panel composition is so cheap to extend — adding a fifteenth panel is "register one slot, render one view"; the substrate is already there.
 
 Next: [time-travel scrubbing](03-time-travel.md) — the rail at the bottom of every panel.

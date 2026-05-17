@@ -365,7 +365,7 @@ Handlers (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`, `reg-sub`, `reg-fx`
     (assoc db :trace-buffer (conj (:trace-buffer db []) event))))
 ```
 
-The flag is the framework-level escape hatch for **trace-consuming integrations** whose own bookkeeping dispatches — emitted from inside a registered `trace-cb` — would otherwise re-enter the consumer through the trace-cb fan-out and form a cb-dispatch loop. Causa, Story, pair2-mcp, story-mcp, and causa-mcp all have the same risk shape; without the opt-out each consumer would need its own per-dispatch guard predicate (Causa carried one as `trace-bus/self-emitted?` between rf2-nk01x and rf2-qsjda). Promoting the gate to the framework lets any consumer mark a handler internal-only and trust the runtime to suppress the cascade.
+The flag is the framework-level escape hatch for **trace-consuming integrations** whose own bookkeeping dispatches — emitted from inside a registered `trace-cb` — would otherwise re-enter the consumer through the trace-cb fan-out and form a cb-dispatch loop. Causa, Story, pair2-mcp, and story-mcp all have the same risk shape; without the opt-out each consumer would need its own per-dispatch guard predicate (Causa carried one as `trace-bus/self-emitted?` between rf2-nk01x and rf2-qsjda). Promoting the gate to the framework lets any consumer mark a handler internal-only and trust the runtime to suppress the cascade.
 
 Semantics:
 

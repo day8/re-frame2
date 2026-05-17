@@ -791,6 +791,60 @@ async function assertNoPlayEmptyState(page) {
   await setMode(page, 'dev');
 }
 
+async function assertPlayStepDebugger(page) {
+  // rf2-ulw5m — drive the play step-debugger UI on the canonical loaded
+  // variant: assert Start renders the controls, Step advances the cursor,
+  // Step-back decrements it, Rewind resets to step 0, and Stop tears
+  // down the section back to the inactive placeholder.
+  await ensureCounterLoaded(page);
+  await setMode(page, 'test');
+
+  const section = page.locator('[data-test="story-stepper-section"]');
+  await expectVisible(section, 5000);
+  const inactiveHint = page.locator('[data-test="story-stepper-inactive"]');
+  await expectVisible(inactiveHint, 5000);
+
+  // Start the stepper — Start replaces the inactive hint with the
+  // controls strip + the step list.
+  await page.locator('[data-test="story-stepper-start"]').click();
+  await waitForValue(
+    () => section.getAttribute('data-active'),
+    (value) => value === 'true',
+    { timeoutMs: 5000, description: 'stepper becomes active after Start' },
+  );
+  await expectVisible(page.locator('[data-test="story-stepper-step-list"]'), 5000);
+
+  // Step forward once — progress label should reflect step 1 of N.
+  await page.locator('[data-test="story-stepper-step"]').click();
+  await waitForValue(
+    () => page.locator('[data-test="story-stepper-progress"]').innerText().catch(() => ''),
+    (text) => /step\s+1\s+of/i.test(text),
+    { timeoutMs: 5000, description: 'progress reads step 1 of N' },
+  );
+
+  // Step back returns to step 0 — progress label flips to "ready".
+  await page.locator('[data-test="story-stepper-step-back"]').click();
+  await waitForValue(
+    () => page.locator('[data-test="story-stepper-progress"]').innerText().catch(() => ''),
+    (text) => /ready/i.test(text),
+    { timeoutMs: 5000, description: 'progress reads ready · N steps after step-back' },
+  );
+
+  // Step forward + rewind — same end state but exercises the rewind path.
+  await page.locator('[data-test="story-stepper-step"]').click();
+  await page.locator('[data-test="story-stepper-rewind"]').click();
+  await waitForValue(
+    () => page.locator('[data-test="story-stepper-progress"]').innerText().catch(() => ''),
+    (text) => /ready/i.test(text),
+    { timeoutMs: 5000, description: 'progress reads ready · N steps after rewind' },
+  );
+
+  // Stop tears down — the inactive hint reappears.
+  await page.locator('[data-test="story-stepper-stop"]').click();
+  await expectVisible(inactiveHint, 5000);
+  await setMode(page, 'dev');
+}
+
 async function assertLoaderSuccess(page) {
   await assertMatrixVariant(page, '/loader-success', ':story.counter-matrix/loader-success', 12);
   await setMode(page, 'test');
@@ -1211,6 +1265,11 @@ const COVERAGE_MATRIX = [
       await assertTestPaneStatus(page, /3\s+passed/i, 'test mode pane passes');
       await assertNoPlayEmptyState(page);
     },
+  },
+  {
+    feature: 'Play step-debugger',
+    kind: 'probe',
+    probe: assertPlayStepDebugger,
   },
   { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetAndWatch },
   { feature: 'Test watch mode', kind: 'probe', probe: assertTestWidgetAndWatch },

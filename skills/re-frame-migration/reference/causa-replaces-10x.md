@@ -180,16 +180,19 @@ Mount the `.rf-causa-resize` element as a positioned child of `[data-rf-causa-ho
 
 ## Keybindings (what's actually wired)
 
-Two keybindings ship in `tools/causa/src/day8/re_frame2_causa/keybinding.cljs` today:
+One keybinding ships in `tools/causa/src/day8/re_frame2_causa/keybinding.cljs` today:
 
 | Action | Keys | Notes |
 |---|---|---|
 | Toggle the Causa panel (show / hide) | `Ctrl+Shift+C` | Toggles visibility of the mounted shell; does not unmount. |
-| Toggle the AI co-pilot rail | `Ctrl+Shift+/` | Routes through Causa's frame; rail state lives on `:rf/causa`. |
 
 **Cross-OS:** Causa uses `Ctrl` (not `Cmd`) on every host OS. macOS Safari sometimes maps `Cmd+Shift+C` to dev-tools' Inspect; the `Ctrl` modifier avoids that collision. macOS users who prefer `Cmd+Shift+C` can rebind in their browser's keyboard-shortcut UI.
 
 **Not currently wired as keybindings:** `Ctrl+Shift+P` (pop-out to second window) and `Ctrl+K` (command palette) appear in some docs and spec tables, but the keydown listener in `keybinding.cljs` does not currently handle them. Pop-out is reachable programmatically via `window.day8.re_frame2_causa.popout_BANG_()` (or `(causa/popout!)` from CLJS); the command palette is shell-internal. If the author asks specifically about either, point them at the programmatic surface and note the keybinding gap. Do not claim Causa supports a keybinding it doesn't.
+
+The earlier `Ctrl+Shift+/` co-pilot keybinding has been removed —
+the AI co-pilot rail no longer ships; AI integration lives in
+`tools/pair2-mcp/`.
 
 ---
 
@@ -207,7 +210,6 @@ Two keybindings ship in `tools/causa/src/day8/re_frame2_causa/keybinding.cljs` t
 | **(new in Causa)** Machine inspector | — | Stately-quality state-chart per registered machine. No 10x equivalent (machines are a v2 addition). |
 | **(new in Causa)** Schema-violation timeline | — | One row per registered schema; coloured dot per failure with recovery mode. Schemas are a v2 addition. |
 | **(new in Causa)** Hydration debugger | — | Server vs client render-tree side-by-side. Only visible when SSR hydration runs. SSR is a v2 addition. |
-| **(new in Causa)** AI co-pilot rail | — | Pull-only Q&A and slash commands. Collapsed by default; `Ctrl+Shift+/` to expand. Ephemeral. |
 | **(new in Causa)** Click-to-source | — | Every rendered DOM element carries `data-rf2-source-coord` in dev builds; clicking jumps to source in the editor. Requires the framework's source-coord stamping, which is dev-only. |
 
 What's intentionally different:
@@ -216,7 +218,7 @@ What's intentionally different:
 - **No persistence.** 10x persisted some panel state to localStorage; Causa keeps nothing across reloads. Configuration is preload-time only.
 - **In-app, not sidecar.** 10x was a sidecar panel that occupied a fixed portion of the viewport via body-padding. Causa is true-inline — the app reserves layout space the same way it reserves space for any other UI region.
 
-Full panel inventory: [`tools/causa/spec/000-Vision.md`](../../../tools/causa/spec/000-Vision.md). Per-panel reference: [`docs/causa/02-panel-tour.md`](../../../docs/causa/02-panel-tour.md) through [`docs/causa/11-mcp-server.md`](../../../docs/causa/11-mcp-server.md).
+Full panel inventory: [`tools/causa/spec/000-Vision.md`](../../../tools/causa/spec/000-Vision.md). Per-panel reference: [`docs/causa/02-panel-tour.md`](../../../docs/causa/02-panel-tour.md) onward.
 
 ---
 

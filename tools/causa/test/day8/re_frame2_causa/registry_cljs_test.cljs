@@ -93,19 +93,12 @@
   (and (keyword? id)
        (#{"rf.causa" "rf.causa.issues"} (namespace id))))
 
-(defn- copilot-event-id? [id]
-  (and (keyword? id)
-       (.startsWith (name id) "copilot-")))
-
 (defn- catalogued-causa-event-id? [id]
-  (and (causa-event-id? id)
-       (not (copilot-event-id? id))))
+  (causa-event-id? id))
 
 (def ^:private all-sub-names
   "Every :rf.causa/* sub registered by `register-causa-handlers!`. Sorted
-  for stable iteration in the smoke block. AI Co-Pilot subs live behind
-  a separate `install!` call so they are intentionally excluded — this
-  file's scope is registry.cljs only."
+  for stable iteration in the smoke block."
   [:rf.causa/active-route-slice
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
@@ -116,6 +109,8 @@
    :rf.causa/event-detail
    :rf.causa/flow-trace-events
    :rf.causa/flows-data
+   :rf.causa/focus
+   :rf.causa/focus-slot
    :rf.causa/focused-slice-path
    :rf.causa/fx-trace-events
    :rf.causa/hydration-debugger-data
@@ -134,7 +129,6 @@
    :rf.causa/pinned-slices
    :rf.causa/pinned-slices-store
    :rf.causa/palette-active-item
-   :rf.causa/palette-copilot-questions
    :rf.causa/palette-cursor
    :rf.causa/palette-index
    :rf.causa/palette-open?
@@ -208,7 +202,11 @@
    :rf.causa/copy-value-to-clipboard
    :rf.causa/dismiss-pin-overflow-toast
    :rf.causa/epoch-recorded
+   :rf.causa/focus-cascade
+   :rf.causa/focus-cascade-next
+   :rf.causa/focus-cascade-prev
    :rf.causa/focus-slice-path
+   :rf.causa/follow-head
    :rf.causa/hide-invalidation-chain
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
@@ -223,6 +221,7 @@
    :rf.causa/palette-toggle
    :rf.causa/pin-current
    :rf.causa/pin-slice
+   :rf.causa/preview-cascade
    :rf.causa/rename-pin
    :rf.causa/reorder-pinned-slices
    :rf.causa/reroot-tree-view
@@ -240,6 +239,7 @@
    :rf.causa/select-sub
    :rf.causa/select-violation
    :rf.causa/set-active-route-slice-override-for-test
+   :rf.causa/set-frame
    :rf.causa/set-machine-snapshots-override-for-test
    :rf.causa/set-mcp-since-seconds
    :rf.causa/set-performance-budget-ms
@@ -256,6 +256,7 @@
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    :rf.causa/time-travel-set-label-input
+   :rf.causa/toggle-live-pause
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
    :rf.causa/toggle-sub-filter
@@ -293,7 +294,7 @@
           (str "expected :event handler for " event-id)))))
 
 (deftest registry-installs-every-catalogued-event-and-no-dead-core-events
-  (testing "register-causa-handlers! installs the catalogued non-Co-Pilot Causa events"
+  (testing "register-causa-handlers! installs the catalogued Causa events"
     (registry/register-causa-handlers!)
     (let [actual (->> (registrar/registrations :event)
                       keys
@@ -316,8 +317,7 @@
             duplicates (into {}
                              (filter (fn [[_id n]] (> n 1)))
                              freqs)]
-        (is (= (set all-event-names)
-               (set (remove copilot-event-id? @registered))))
+        (is (= (set all-event-names) (set @registered)))
         (is (= {} duplicates)
             (str "duplicate event registrations: " duplicates))))))
 
@@ -329,19 +329,22 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 73 subs + 75 events + 5 fxs"
-    ;; 66 baseline + 7 palette (rf2-wm7z4):
-    ;;   palette-active-item / palette-copilot-questions /
-    ;;   palette-cursor / palette-index / palette-open? /
-    ;;   palette-query / palette-results
-    (is (= 73 (count all-sub-names)))
+  (testing "registry holds exactly 74 subs + 82 events + 5 fxs"
+    ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
+    ;;   palette-active-item / palette-cursor / palette-index /
+    ;;   palette-open? / palette-query / palette-results
+    ;; + 2 spine (rf2-adve5): :rf.causa/focus + :rf.causa/focus-slot
+    (is (= 74 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
     ;;   palette-close / palette-cursor-down / palette-cursor-set /
     ;;   palette-cursor-up / palette-invoke / palette-open /
     ;;   palette-set-query / palette-toggle
-    (is (= 75 (count all-event-names)))
+    ;; + 7 spine (rf2-adve5): focus-cascade + focus-cascade-prev +
+    ;;   focus-cascade-next + follow-head + toggle-live-pause +
+    ;;   set-frame + preview-cascade
+    (is (= 82 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

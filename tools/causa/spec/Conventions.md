@@ -8,7 +8,7 @@ artefact.
 
 When a panel is split into focused leaves under
 `tools/causa/src/day8/re_frame2_causa/panels/`, the split MUST follow the
-shape below. Four panels (`app_db_diff`, `ai_co_pilot`, `subscriptions`,
+shape below. Three panels (`app_db_diff`, `subscriptions`,
 `mcp_server`) shipped to this convention via the rf2-nb8if remediation
 PR; `time_travel` predates it and matches by independent design.
 
@@ -24,10 +24,7 @@ delegation" below).
 1. **Facade owns every public `reg-view`.** The panel's externally-named
    `reg-view` calls live in the facade namespace, never in a leaf. The
    facade is the one place a maintainer reads to discover which view
-   names a panel registers. (Counter-example before remediation:
-   `ai-co-pilot-views.cljs` contained three `reg-view` forms and the
-   facade re-bound them via `def view views/view`. That re-bind is now
-   gone.)
+   names a panel registers.
 
 2. **Leaves do not call `reg-view`.** Leaves expose plain Reagent
    functions (e.g. `(defn header [opts] [:header ...])`), pure helpers,
@@ -55,8 +52,7 @@ delegation" below).
 4. **Re-exports are minimal and intentional.** The facade re-exports:
    - `install!` (always, as the panel's installation entry point).
    - View vars that callers (typically `shell.cljs`) reference by name
-     (e.g. `app-db-diff/Panel`,
-     `ai-co-pilot/ai-co-pilot-rail`).
+     (e.g. `app-db-diff/Panel`).
 
    The facade does **NOT** re-export every leaf's surface. Leaves are
    internal organisation; their `install!` and helpers are reached via
@@ -68,9 +64,9 @@ delegation" below).
    For pure-data helper bulk re-exports — the `<panel>_helpers.cljc`
    case where multiple leaves' pure fns roll up into a single stable
    facade for the helpers test — see the existing
-   `subscriptions_helpers.cljc`, `ai_co_pilot_helpers.cljc`, and
-   `mcp_server_helpers.cljc` files. That's a separate concern (pure
-   helper aggregation) from the panel facade discussed here.
+   `subscriptions_helpers.cljc` and `mcp_server_helpers.cljc` files.
+   That's a separate concern (pure helper aggregation) from the
+   panel facade discussed here.
 
 ### View body delegation
 
@@ -99,8 +95,8 @@ The facade's `reg-view` body is either:
   keeps the leaf body executing within the facade reg-view wrapper's
   render — the wrapper IS the in-flight Reagent component, so
   `current-frame` reads `:rf/causa` from React context and the leaf's
-  subs/dispatches see the Causa frame. (rf2-043uz pinned this — the
-  AI Co-Pilot's slash popover never opened because the input-row
+  subs/dispatches see the Causa frame. (rf2-043uz pinned this — an
+  earlier slash-popover surface never opened because the input-row
   leaf's input-text subscribe was routed to `:rf/default` while the
   dispatch wrote to `:rf/causa`.)
 

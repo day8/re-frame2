@@ -47,6 +47,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
+            [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
@@ -486,13 +487,23 @@
          :selected-dispatch-frame selected-frame
          :selected-cascade     by-id})))
 
+  ;; Spine shim (rf2-adve5) — `:rf.causa/select-dispatch-id` is the
+  ;; legacy entry point used by causality / machine-inspector /
+  ;; issues-ribbon / performance / routes / schema-violation-timeline
+  ;; / trace / mcp-server. It now writes through the spine via the
+  ;; same reducer the spec-018 `:rf.causa/focus-cascade` event uses,
+  ;; so a click in any of those existing panels updates the
+  ;; `:rf.causa/focus` sub the next-generation Layer-2 event list
+  ;; will read. The reducer also continues writing the
+  ;; `:selected-dispatch-id` + `:selected-dispatch` legacy slots so
+  ;; this panel's own sub graph (and every consumer of those subs)
+  ;; keeps reading what it always has — the shim is transparent.
   (rf/reg-event-db :rf.causa/select-dispatch-id
     (fn [db [_ dispatch-id frame-id]]
-      (assoc db
-             :selected-dispatch-id dispatch-id
-             :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
-                                     frame-id (assoc :frame frame-id)))))
+      (spine/focus-cascade-reducer db dispatch-id frame-id)))
 
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
-      (dissoc db :selected-dispatch :selected-dispatch-id))))
+      (-> db
+          (dissoc :selected-dispatch :selected-dispatch-id)
+          (assoc-in [:focus :dispatch-id] nil)))))

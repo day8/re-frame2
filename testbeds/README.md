@@ -1,7 +1,7 @@
 # Testbeds — shared framework-behavior surfaces
 
 > **Type:** Test fixture (framework-behavior).
-> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Causa, Story, pair2-mcp, causa-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
+> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Causa, Story, pair2-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
 
 The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in **rf2-96nb3**. Top-level structure:
 

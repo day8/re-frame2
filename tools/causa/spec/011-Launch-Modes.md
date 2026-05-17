@@ -131,9 +131,9 @@ nothing in the page becomes unclickable.
 
 The property name and default are published as
 `day8.re-frame2-causa.config/default-layout-host-css-var` and
-`default-layout-host-width` so tooling, story-mode chrome, and the AI
-co-pilot's snippet helper can refer to them without forking the
-string. Causa MUST NOT introduce a runtime API that sets the property
+`default-layout-host-width` so tooling and story-mode chrome can
+refer to them without forking the string. Causa MUST NOT introduce
+a runtime API that sets the property
 from CLJS — the host's stylesheet is the single source of truth for
 sizing; introducing a CLJS setter would split that source.
 
@@ -212,8 +212,8 @@ any ancestor of the consumer rule:
 
 The property name and default are published as
 `day8.re-frame2-causa.config/default-accent-css-var` and
-`default-accent` so tooling, docs generators, and the AI co-pilot's
-snippet helper can refer to them without forking the string. As with
+`default-accent` so tooling and docs generators can refer to them
+without forking the string. As with
 `--rf-causa-inline-width`, Causa MUST NOT introduce a CLJS API that
 *sets* this property from the runtime — the host's stylesheet is the
 single source of truth.
@@ -265,7 +265,6 @@ Remove the `:preloads` entry, or:
 | Legacy overlay debug mode | `window.day8.re_frame2_causa.open_overlay_BANG_()` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
 | Pop out to second window | `window.day8.re_frame2_causa.popout_BANG_()` |
-| Open AI co-pilot rail | `Ctrl+Shift+/` |
 
 Per `rf2-sbfb7` the body-padding dock surface (`dock!` / `undock!`) and
 the imperative inline-panel surface (`mount-inline-panel!` /
@@ -655,10 +654,10 @@ register-epoch-cb! call resolve to a no-op.
 
 ### Mechanism
 
-The MCP server (`tools/causa-mcp/`, per [`010-MCP-Server.md`](./010-MCP-Server.md))
-is an stdio JSON-RPC server launched by the agent host (Claude Code,
-Cursor, etc.) as a subprocess. The server connects over nREPL to the
-running shadow-cljs build (which is connected to the user's browser).
+The MCP server (a future `tools/causa-mcp/` artefact) is an stdio
+JSON-RPC server launched by the agent host (Claude Code, Cursor, etc.)
+as a subprocess. The server connects over nREPL to the running
+shadow-cljs build (which is connected to the user's browser).
 
 The data path:
 
@@ -716,8 +715,7 @@ costs in the agent-host ecosystem) — not by a custom Causa protocol.
 Considered and rejected. Editor-embed surface is a category mistake:
 debuggers belong at workstations alongside the app, not inside the
 editor. Where editor integrations are useful (jump-to-source,
-re-dispatch-from-IDE), they go through MCP (per
-[`010-MCP-Server.md`](./010-MCP-Server.md)) — not through a
+re-dispatch-from-IDE), they go through MCP — not through a
 VS-Code-specific extension.
 
 ## Coexistence

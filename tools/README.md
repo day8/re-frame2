@@ -94,7 +94,7 @@ wired into the build, and consumers can use it today.
   [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP triplet (`pair2-mcp`, `story-mcp`, `causa-mcp`): seven
+  for the MCP servers (`pair2-mcp`, `story-mcp`): seven
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
@@ -106,9 +106,8 @@ wired into the build, and consumers can use it today.
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
 - **`tools/mcp-conformance/`** — End-to-end MCP-client conformance
-  harness for the re-frame2 MCP servers (`pair2-mcp`, `story-mcp`,
-  and — when its implementation lands — `causa-mcp`). Pure Node
-  test fixtures: drives each server through the official
+  harness for the re-frame2 MCP servers (`pair2-mcp`, `story-mcp`).
+  Pure Node test fixtures: drives each server through the official
   `@modelcontextprotocol/sdk` `Client` so SDK-strict schema
   regressions surface before a real consumer attaches. Also hosts
   the cross-MCP wire-vocabulary conformance fixtures
@@ -223,9 +222,9 @@ of the framework's spec.
 
 Where a contract surface is *shared across the tool tier* — typical
 example: the cross-MCP wire vocabulary, privacy filter, and token-
-budget cap pipeline shared by `pair2-mcp`, `story-mcp`, and (when it
-lands) `causa-mcp` — its **canonical home stays with the tool
-artefact** (`tools/mcp-base/spec/`) rather than being lifted into
+budget cap pipeline shared by `pair2-mcp` and `story-mcp` — its
+**canonical home stays with the tool artefact**
+(`tools/mcp-base/spec/`) rather than being lifted into
 the project-level `spec/`. This is the [`spec/README.md` §Canonical
 homes outside `/spec`](../spec/README.md#canonical-homes-outside-spec)
 rule (rf2-0hs5t.3 (a)), and the surface is indexed back to the
@@ -256,16 +255,6 @@ runtime implementation has landed on disk yet. They will graduate to
 "Shipped" once their `src/` tree gains substance; empty scaffolding is
 not created up-front.
 
-- **`tools/causa-mcp/`** — `day8/re-frame2-causa-mcp`. The MCP agent
-  surface for Causa — same architecture as `tools/pair2-mcp/`,
-  different tool catalogue (exposes Causa's panel surfaces — causality
-  graph queries, time-travel slice reads, machine-state snapshots,
-  schema-violation feeds — as MCP tools for AI agents). Separation
-  rationale per rf2-m6tu §6.1: the human-facing devtools panel and
-  agent-facing surface ship as distinct jars so the MCP server can be
-  loaded without dragging the entire DOM-heavy panel into the
-  classpath.
-
 - **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
   state-chart component for re-frame2 machines. Ships one component
   (`MachineChart`) plus a static read-only viewer page (decodes a
@@ -276,8 +265,8 @@ not created up-front.
   rf2-x50eu; see [`tools/machines-viz/spec/`](./machines-viz/spec/).
 
 - **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
-  A likely separate MCP surface for machine viz, mirroring the
-  causa / causa-mcp split. Confirmed separation pending the first cut.
+  A likely separate MCP surface for machine viz. Confirmed separation
+  pending the first cut.
 
 ## Distinction from `skills/`
 

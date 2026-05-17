@@ -1,11 +1,117 @@
 # Story — SOTA Features
 
-> The layout-debug overlay trio; a11y axe-core panel; per-variant QR
-> share; multi-substrate side-by-side rendering; the Causa epoch panel
-> embed contract (stub); the v1.1 deferrals (perf ribbon, design
-> tokens); production elision under `:advanced` (`:rf.story/enabled?`
-> sentinel pattern). The contract Stage 6 implements + the production
-> hygiene rules that apply across stages.
+> The `force-fx-stub` headline (one primitive replaces the
+> Storybook addon parade); the layout-debug overlay trio; a11y
+> axe-core panel; per-variant QR share; multi-substrate side-by-side
+> rendering; the Causa epoch panel embed contract (stub); the v1.1
+> deferrals (perf ribbon, design tokens); production elision under
+> `:advanced` (`:rf.story/enabled?` sentinel pattern). The contract
+> Stage 6 implements + the production hygiene rules that apply across
+> stages.
+
+## `force-fx-stub` — mock anything, not just the network
+
+**Don't mock just the network. Mock anything.**
+
+Storybook ships a separate addon for each thing you want to fake:
+HTTP via MSW (`msw-storybook-addon`, 2.3M weekly downloads),
+analytics via bespoke decorators or `msw`-extensions, websockets via
+yet another addon, storage via shim libraries, navigation via
+another. Each is a single-purpose plugin the user has to find,
+install, configure, and learn — and each one carves out its own
+mental model for "what does mocking look like for *this* concern?"
+
+Story has it in **one primitive**: any effect handler you registered
+with `reg-fx` can be stubbed in three lines of variant body.
+
+Set up a variant that fails the checkout HTTP call:
+
+```clojure
+(story/reg-variant :story.checkout/network-failure
+  {:extends :story.checkout/happy-path
+   :decorators [[:force-fx-stub :http/managed
+                 (constantly :rf.http/failed)]]})
+```
+
+Or fails analytics. Or websocket. Or geolocation. Or storage. Or
+navigation. Or anything else you `reg-fx`'d in your app:
+
+```clojure
+(story/reg-variant :story.checkout/analytics-down
+  {:extends :story.checkout/happy-path
+   :decorators [[:force-fx-stub :analytics/track
+                 (constantly nil)]]})
+
+(story/reg-variant :story.dashboard/ws-disconnected
+  {:extends :story.dashboard/happy-path
+   :decorators [[:force-fx-stub :ws/send
+                 (constantly :ws/closed)]]})
+
+(story/reg-variant :story.profile/geo-denied
+  {:extends :story.profile/happy-path
+   :decorators [[:force-fx-stub :geo/locate
+                 (constantly {:status :denied})]]})
+```
+
+Same primitive. Same three-line decorator. Same variant body shape.
+No new dependency per fx kind, no new mental model per addon.
+
+### Why this is an architectural win, not a feature
+
+This isn't a feature competition; it's an architectural win. The
+asymmetry is structural:
+
+- **Storybook** translates "mock the network" into "mock everything
+  you care about" via a parade of single-purpose addons because the
+  framework has no shared abstraction for "the side-effecting thing
+  this component triggers." Each integration (HTTP, ws, analytics,
+  geo, storage) reaches into the host app through a different seam,
+  so each one needs its own addon.
+- **re-frame2** already names that thing: it's an *effect*, every
+  effect has a handler registered via `reg-fx`, and every handler is
+  a function the runtime calls. Stubbing it is a one-liner because
+  the seam already exists.
+
+The lesson generalises across the spec: one well-chosen primitive
+beats a parade of single-purpose addons. Story leans into this
+wherever a Storybook integration is really "give me a seam I can
+hijack" — `force-fx-stub` is the headline example, but the same
+pattern shows up in `reg-decorator` (one mechanism, many concerns)
+and `reg-story-panel` (one extension point, many panels).
+
+### Authoring contract
+
+`force-fx-stub` is a built-in `:fx-override` decorator (per
+[`001-Authoring.md`](001-Authoring.md) §reg-decorator). The variant
+body cites it the same way it cites any other decorator:
+
+```clojure
+(story/reg-variant :story.auth.login-form/loading
+  {:decorators [[:force-fx-stub :http {:status :pending}]]
+   :events     [[:auth/initialise]
+                [:auth/login-pressed]]})
+```
+
+The decorator accepts an fx-id and a response value (or a function
+of the fx's argument, for variants that need to inspect the dispatch
+payload before responding). It applies at frame creation; the stub
+is per-frame and per-variant, so two variants of the same story can
+stub the same fx with different responses without cross-talk.
+
+For the full decorator surface — the `:fx-override` kind, the
+`:response` / `:fn` slots, the `:rf.assert/effect-emitted`
+interaction — see [`004-Assertions.md`](004-Assertions.md)
+§`force-fx-stub` interaction and [`002-Runtime.md`](002-Runtime.md)
+§Decorator composition.
+
+### Test-mode integration
+
+A `:test`-tagged variant that stubs an fx behaves exactly like one
+that doesn't. `run-variant` returns the same
+`{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` shape;
+the stubbed response participates in the variant's effective state
+the same way a real fx response would. Stories-as-tests pick up
+"the analytics pipeline is dead" coverage for free.
 
 ## v1 panels (must-ship)
 
@@ -571,7 +677,7 @@ phase-2 SOTA adds that are cheap.
 | 3. Play-style scripted interactions + `:rf.assert/*` vocabulary | Stages 2, 5 |
 | 4. External visual-regression integration via `snapshot-identity` hook | Stage 3 |
 | 5. Three-level args + auto-derived controls from Spec 010 schemas | Stages 2, 4 |
-| 6. MSW-shaped effect mocking via `force-fx-stub` decorator | Stage 2 |
+| 6. `force-fx-stub` — universal-fx mocking primitive (replaces the Storybook addon parade; see §`force-fx-stub`) | Stage 2 |
 | 7. Six-domino trace panel per variant via `register-trace-cb!` | Stage 6 |
 | 8. Causa epoch panel embedded as `reg-story-panel` | Stage 6 |
 | 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` | Stage 3 |

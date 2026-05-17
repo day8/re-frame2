@@ -533,11 +533,9 @@ arg (integer; `0` disables the cap for explicit escape).
 2026-05-13 (Mike). Locked at rf2-rvyzy PR #641 merge. The cap
 itself landed in [`Principles.md`](Principles.md#tight-token-budget-per-response)
 with MUST wording; this lock captures the comparative reasoning
-that the principle alone doesn't carry. Causa-MCP's parallel
-[Lock #9 — Wire-protocol budget posture](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-the-mechanism-cascade)
-(rf2-lwgg8) bakes the same five mechanisms into the Causa-MCP
-spec before its impl exists, deliberately aligned with the
-posture locked here.
+that the principle alone doesn't carry. A future causa-mcp will
+bake the same five mechanisms into its spec, deliberately aligned
+with the posture locked here.
 
 ### Trail-of-thought citations
 
@@ -549,10 +547,9 @@ posture locked here.
 - [`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](003-Tool-Catalogue.md)
   §The universal `max-tokens` arg — the per-tool surface for
   the override.
-- [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-the-mechanism-cascade)
-  Lock #9 — the aligned posture on the Causa-MCP side; the two
-  servers share the `:rf.mcp/overflow` / `:rf.mcp/summary` /
-  `:rf.mcp/dedup-table` reserved keys.
+- The `:rf.mcp/overflow` / `:rf.mcp/summary` / `:rf.mcp/dedup-table`
+  reserved keys are shared cross-server with sibling MCP servers
+  (story-mcp today; causa-mcp when its impl lands).
 - `ai/findings/wire-protocol-bigapp-20260513-1541.md` — the
   source investigation (local-only) that motivated baking the
   posture into spec instead of leaving it as in-flight impl

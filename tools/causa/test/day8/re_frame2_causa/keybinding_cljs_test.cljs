@@ -5,11 +5,11 @@
   Two contract surfaces under test:
 
   1. **Key predicates.** `causa-toggle-key?` (Ctrl+Shift+C) and
-     `copilot-toggle-key?` (Ctrl+Shift+/) are pure functions over a
+     `palette-toggle-key?` (Cmd/Ctrl+K) are pure functions over a
      KeyboardEvent's surface. They are private to the keybinding ns;
-     tests reach in via `#'` var access. Both predicates check the C / /
+     tests reach in via `#'` var access. Both predicates check their
      key via both `.key` and `.code` (the latter is the IME-active
-     fallback), and both reject extra modifiers (meta, alt) — important
+     fallback), and reject extra modifiers (meta, alt) — important
      so the macOS Cmd+Shift+C dev-tools shortcut never collides with
      Causa's toggle.
 
@@ -56,14 +56,16 @@
   [event]
   (#'keybinding/causa-toggle-key? event))
 
-(defn- copilot-toggle-key?
-  [event]
-  (#'keybinding/copilot-toggle-key? event))
-
 (defn- palette-toggle-key?
   "rf2-wm7z4 — the Cmd/Ctrl+K command-palette predicate."
   [event]
   (#'keybinding/palette-toggle-key? event))
+
+(defn- spine-key-id
+  "rf2-adve5 — the spine-binding predicate (Space / L / j / k / G).
+  Returns the spine event id or nil."
+  [event]
+  (#'keybinding/spine-key-id event))
 
 ;; ---- stub `js/document` --------------------------------------------------
 ;;
@@ -227,46 +229,7 @@
     (is (false? (causa-toggle-key?
                   (mk-event {:ctrl? true :shift? true}))))))
 
-;; ---- (2) copilot-toggle-key? truth table ---------------------------------
-
-(deftest copilot-toggle-key-matches-ctrl-shift-slash
-  (testing "Ctrl+Shift+/ — most layouts: Shift+/ produces `?`, the
-            predicate accepts both raw `/` and shifted `?` per source
-            docstring"
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:key "/" :ctrl? true :shift? true}))))
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:key "?" :ctrl? true :shift? true})))))
-  (testing "`code` fallback — `Slash`"
-    (is (true? (copilot-toggle-key?
-                 (mk-event {:code "Slash" :ctrl? true :shift? true}))))))
-
-(deftest copilot-toggle-key-rejects-missing-modifiers
-  (testing "no modifiers"
-    (is (false? (copilot-toggle-key? (mk-event {:key "?"})))))
-  (testing "Shift only — Ctrl missing (this is the plain `?` keypress,
-            which must not toggle the rail)"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "?" :shift? true}))))))
-
-(deftest copilot-toggle-key-rejects-extra-modifiers
-  (testing "meta blocks"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "/" :ctrl? true :shift? true :meta? true})))))
-  (testing "alt blocks"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "/" :ctrl? true :shift? true :alt? true}))))))
-
-(deftest copilot-toggle-key-rejects-wrong-key
-  (testing "Ctrl+Shift+C must not also trigger the co-pilot toggle"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:key "C" :code "KeyC"
-                             :ctrl? true :shift? true})))))
-  (testing "wrong `code`"
-    (is (false? (copilot-toggle-key?
-                  (mk-event {:code "KeyA" :ctrl? true :shift? true}))))))
-
-;; ---- (3) toggles are mutually exclusive ----------------------------------
+;; ---- (2) toggles are mutually exclusive ----------------------------------
 
 (deftest predicates-are-mutually-exclusive
   (testing "no synthetic event satisfies more than one predicate at once —
@@ -274,21 +237,17 @@
             `cond` and a multi-match case would silently route to the
             first arm and drop the others"
     (doseq [event [(mk-event {:key "C" :ctrl? true :shift? true})
-                   (mk-event {:key "/" :ctrl? true :shift? true})
-                   (mk-event {:key "?" :ctrl? true :shift? true})
                    (mk-event {:code "KeyC" :ctrl? true :shift? true})
-                   (mk-event {:code "Slash" :ctrl? true :shift? true})
                    (mk-event {:key "k" :ctrl? true})
                    (mk-event {:key "k" :meta? true})
                    (mk-event {:code "KeyK" :ctrl? true})]]
       (let [matches (cond-> 0
                       (causa-toggle-key? event)   inc
-                      (copilot-toggle-key? event) inc
                       (palette-toggle-key? event) inc)]
         (is (<= matches 1)
             (str "event " (js->clj event) " must match at most one predicate"))))))
 
-;; ---- (3b) palette-toggle-key? truth table (rf2-wm7z4) --------------------
+;; ---- (3) palette-toggle-key? truth table (rf2-wm7z4) ---------------------
 
 (deftest palette-toggle-key-matches-cmd-k-and-ctrl-k
   (testing "Ctrl+K — Windows / Linux convention"
@@ -404,3 +363,65 @@
           "without js/document the sentinel must NOT flip — otherwise
           a subsequent stub-driven attach! would falsely think it had
           already wired up"))))
+
+;; ---- (5) spine-key-id (rf2-adve5) ---------------------------------------
+;;
+;; Per spec/018 §3 + §6 the five spine bindings are Space, L, j, k, G.
+;; The predicate is *unmodified* — modifier-held variants must not
+;; match (so Cmd+L → focus address bar still works inside Causa). The
+;; mapping table:
+;;
+;;     Space   →  :rf.causa/toggle-live-pause
+;;     L       →  :rf.causa/follow-head      (snap-LIVE)
+;;     G       →  :rf.causa/follow-head      (Shift+G; vim 'Go to head')
+;;     j       →  :rf.causa/focus-cascade-prev
+;;     k       →  :rf.causa/focus-cascade-next
+
+(deftest spine-key-id-space-is-toggle-live-pause
+  (is (= :rf.causa/toggle-live-pause
+         (spine-key-id (mk-event {:key " "}))))
+  (is (= :rf.causa/toggle-live-pause
+         (spine-key-id (mk-event {:code "Space"})))))
+
+(deftest spine-key-id-l-is-follow-head
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:key "l"}))))
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:code "KeyL"})))))
+
+(deftest spine-key-id-shift-g-is-follow-head
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:key "G" :shift? true}))))
+  (is (= :rf.causa/follow-head
+         (spine-key-id (mk-event {:code "KeyG" :shift? true})))))
+
+(deftest spine-key-id-j-is-prev
+  (is (= :rf.causa/focus-cascade-prev
+         (spine-key-id (mk-event {:key "j"}))))
+  (is (= :rf.causa/focus-cascade-prev
+         (spine-key-id (mk-event {:code "KeyJ"})))))
+
+(deftest spine-key-id-k-is-next
+  (is (= :rf.causa/focus-cascade-next
+         (spine-key-id (mk-event {:key "k"}))))
+  (is (= :rf.causa/focus-cascade-next
+         (spine-key-id (mk-event {:code "KeyK"})))))
+
+(deftest spine-key-id-rejects-modifiers
+  (testing "Ctrl+L must not be hijacked (focus address bar)"
+    (is (nil? (spine-key-id (mk-event {:key "l" :ctrl? true})))))
+  (testing "Cmd+L likewise"
+    (is (nil? (spine-key-id (mk-event {:key "l" :meta? true})))))
+  (testing "Alt+j must not match"
+    (is (nil? (spine-key-id (mk-event {:key "j" :alt? true})))))
+  (testing "Shift+j must not match (capital J is not a spine key)"
+    (is (nil? (spine-key-id (mk-event {:key "j" :shift? true})))))
+  (testing "Lowercase g without Shift must not match (only Shift+G is)"
+    (is (nil? (spine-key-id (mk-event {:key "g"}))))))
+
+(deftest spine-key-id-rejects-unknown-keys
+  (testing "unrelated keys return nil"
+    (is (nil? (spine-key-id (mk-event {:key "x"}))))
+    (is (nil? (spine-key-id (mk-event {:key "Enter"}))))
+    (is (nil? (spine-key-id (mk-event {})))
+        "empty event → nil")))

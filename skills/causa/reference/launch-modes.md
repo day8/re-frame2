@@ -210,7 +210,6 @@ Ctrl+Shift to avoid Safari's Cmd+Shift+C Inspect collision on macOS:
 | Key | What it does |
 |---|---|
 | `Ctrl+Shift+C` | Toggle the Causa shell (mount on first press; CSS show/hide thereafter). |
-| `Ctrl+Shift+/` | Toggle the AI Co-Pilot rail. Dispatched into `:rf/causa` so open/closed state lives on Causa's app-db. |
 
 [`spec/007-UX-IA.md` §Keyboard](../../../tools/causa/spec/007-UX-IA.md#keyboard)
 catalogues additional shortcuts (`?`, `,`, `Ctrl+F`, `Esc`, `j`/`k`,

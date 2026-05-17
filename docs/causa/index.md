@@ -2,7 +2,7 @@
 
 **The cascade you can see.**
 
-Causa is the in-app devtools panel for re-frame2. It auto-opens in a right-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders sixteen panels over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows knows.
+Causa is the in-app devtools panel for re-frame2. It auto-opens in a right-side `[data-rf-causa-host]` layout column in your dev build, toggles with `Ctrl+Shift+C`, and renders fourteen panels over a single observation surface — the framework's own trace bus and epoch buffer. No bespoke recorder, no shadow runtime, no second substrate. The runtime knows what happened; Causa is what knows knows.
 
 Where the v1-era [`re-frame-10x`](https://github.com/day8/re-frame-10x) was a sidecar with its own recorder, Causa is a *renderer* of an already-structured surface. Same panels — events, subs, renders, fxs, app-db diff, time-travel — different substrate. The framework moved the observation contract into the runtime; Causa moved with it.
 
@@ -36,7 +36,7 @@ This is the loop the rest of the tutorial unpacks. Source coords on the wire. Su
 The chapters:
 
 - [1. Installation](01-installation.md) — get Causa running against your app in five minutes.
-- [2. Panel tour](02-panel-tour.md) — the sixteen panels, what each is for, when you'd open it.
+- [2. Panel tour](02-panel-tour.md) — the fourteen panels, what each is for, when you'd open it.
 - [3. Time-travel scrubbing](03-time-travel.md) — walk the epoch buffer; rewind; replay.
 - [4. Trace stream](04-trace-stream.md) — every fx, every sub, every render, filtered.
 - [5. Click-to-source](05-click-to-source.md) — the hero feature: any DOM element back to its line.
@@ -44,8 +44,6 @@ The chapters:
 - [7. Hydration debugger](07-hydration.md) — server vs client render diff.
 - [8. Machine inspector](08-machine-inspector.md) — Stately-grade state-chart per machine.
 - [9. App-DB diff](09-app-db-diff.md) — slice-centric diff per epoch.
-- [10. AI co-pilot rail](10-ai-copilot.md) — pull-only Q&A and slash commands.
-- [11. MCP-server panel](11-mcp-server.md) — Causa as an agent surface.
 
 ---
 
@@ -59,7 +57,7 @@ This is what *first-class tooling* means in re-frame2: not "we shipped a devtool
 
 The integration is *deep*, not bolt-on. The trace events aren't a sidecar log file — they're emitted inline from the pipeline that the runtime is already walking. The epoch records aren't a recording made by a plugin — they're the same records the runtime uses internally to drive `restore-epoch`. There's no second substrate, no shadow runtime, no "make sure devtools is installed first." When the framework knows something happened, the trace bus knows. When the trace bus knows, every attached tool knows.
 
-Causa is just the most *complete* listener — sixteen panels deep, lazily mounted, AI-co-pilot-rail-equipped. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
+Causa is just the most *complete* listener — fourteen panels deep, lazily mounted. Pair tools and the Story playground consume the same surfaces with different presentations. Your project's bespoke debug panel can too, in fifteen lines (we'll show it in [chapter 4](04-trace-stream.md)).
 
 ## What you get for free
 
@@ -130,7 +128,7 @@ The framework commits to stable data shapes and query APIs; tools own presentati
 - Causa itself — the in-app devtools panel, this tutorial's subject.
 - [`re-frame-pair2`](../skills/re-frame-pair2.md) — the AI pair-programming skill that attaches over nREPL.
 - [Story](../story/index.md) — the Storybook-class component playground.
-- The `story-mcp` JVM server and the `causa-mcp` Node server packaging the surface as MCP tools for AI agents.
+- The `story-mcp` JVM server packaging the Story surface as MCP tools for AI agents.
 - APM-shipper wiring — see [Guide 22 — Trace to Datadog](../guide/22-trace-to-datadog.md).
 
 Causa is the first of three Tool-Pair tools that share this substrate. Story sits alongside, with frame-per-variant isolation; the pair skill sits across, driving the running app through an editor's nREPL bridge. They never coordinate. They never need to.

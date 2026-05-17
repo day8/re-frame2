@@ -15,7 +15,6 @@
 
     {:source        keyword     ; :panel | :recent-event | :frame
                                 ; | :handler | :setting | :command
-                                ; | :copilot-question
      :id            anything    ; stable identifier within the source
      :label         string      ; what fuzzy matches against + renders
      :hint          string?     ; right-aligned hint (epoch N, file:line,
@@ -65,8 +64,7 @@
    :setting          20
    :recent-event     10
    :frame            5
-   :handler          2
-   :copilot-question 8})
+   :handler          2})
 
 (def ^:private icon-table
   {:command          "▸"
@@ -74,8 +72,7 @@
    :setting          "⚙"
    :recent-event     "⟳"
    :frame            "◆"
-   :handler          "ƒ"
-   :copilot-question "?"})
+   :handler          "ƒ"})
 
 ;; ---- source builders -----------------------------------------------------
 
@@ -186,18 +183,9 @@
                  :popout? true})))))
 
 (defn setting-items
-  "Static settings the palette can flip / open. Phase 1 ships the co-
-  pilot parity entries (toggle rail, mark first-used)."
+  "Static settings the palette can flip / open."
   []
   [{:source :setting
-    :id     :copilot-toggle
-    :label  "Toggle co-pilot rail"
-    :hint   "Ctrl+Shift+/"
-    :icon   (icon-table :setting)
-    :boost  (boost-table :setting)
-    :action [:palette/copilot-toggle]
-    :popout? false}
-   {:source :setting
     :id     :density-toggle
     :label  "Cycle display density"
     :hint   "compact / cosy / comfy"
@@ -244,30 +232,6 @@
     :action [:palette/close]
     :popout? false}])
 
-(defn copilot-question-items
-  "Indexed from a `[\"text1\" \"text2\" ...]` recency-ordered seq of
-  the last co-pilot questions. The seq's first entry is the most
-  recent question."
-  ([questions]
-   (copilot-question-items questions 10))
-  ([questions max-rows]
-   (->> questions
-        (take max-rows)
-        (map-indexed
-          (fn [i q]
-            {:source       :copilot-question
-             :id           [::copilot-q i q]
-             :label        (str "Re-ask co-pilot: " q)
-             :hint         (str "history · "
-                                (if (zero? i) "latest"
-                                    (str (inc i) " back")))
-             :icon         (icon-table :copilot-question)
-             :recency-rank i
-             :boost        (boost-table :copilot-question)
-             :action       [:palette/reopen-copilot-question q]
-             :popout?      false}))
-        vec)))
-
 ;; ---- aggregator ----------------------------------------------------------
 
 (defn build-index
@@ -280,25 +244,22 @@
     {:panels            [{:id kw :label str} ...]
      :trace-buffer      [trace ...]
      :frame-ids         (keyword?)
-     :handlers          [{:id :kind :doc :file :line} ...]
-     :copilot-questions [str ...]}
+     :handlers          [{:id :kind :doc :file :line} ...]}
 
   Missing keys default to empty inputs of that kind — partial drives
   (e.g. recency-rank dragons without a populated buffer) are
   tolerable for the empty-state surface."
   [inputs]
-  (let [{:keys [panels trace-buffer frame-ids handlers copilot-questions]
+  (let [{:keys [panels trace-buffer frame-ids handlers]
          :or   {panels             []
                 trace-buffer       []
                 frame-ids          []
-                handlers           []
-                copilot-questions  []}} inputs
+                handlers           []}} inputs
         all      (concat
                    (command-items)
                    (panel-items panels)
                    (setting-items)
                    (recent-event-items trace-buffer)
-                   (copilot-question-items copilot-questions)
                    (frame-items frame-ids)
                    (handler-items handlers))]
     (loop [seen   (transient #{})

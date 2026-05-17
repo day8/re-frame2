@@ -56,5 +56,3 @@ Three patterns the diff handles distinctively:
 - "This cascade rewrote half the tree, and I want to see exactly which half." — the framing case from the opener; the App-DB panel is what Event detail's mini-diff escalates into.
 - "I think a sub is stale, but `app-db` says the value's right." — pin both the slot and the sub's recompute marker; watch them tick together.
 - "I want a session-long watch on `:auth/state`." — pin it; the panel paints it on every epoch.
-
-Next: [the AI co-pilot rail](10-ai-copilot.md).
