@@ -48,6 +48,7 @@
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
             [day8.re-frame2-causa.panels.performance :as performance]
             [day8.re-frame2-causa.panels.routes :as routes]
@@ -458,6 +459,12 @@
     (hydration-debugger/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
+    ;; Managed-fx wire-boundary diff template (rf2-uyp86) — installs the
+    ;; `:rf.causa/managed-fx-for-focused-event` sub + the
+    ;; `:rf.causa/focus-event` cross-link event. The panel view itself
+    ;; mounts inline in event_detail.cljs under the six-domino cascade,
+    ;; so no L3 tab is added.
+    (managed-fx-subs/install!)
     (mcp-server/install!)
     (performance/install!)
     (routes/install!)

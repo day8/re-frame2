@@ -47,6 +47,8 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
+            [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
+            [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
@@ -334,25 +336,35 @@
 
 (defn- cascade-detail
   "The six-domino cascade for the selected dispatch-id. `cascade` is a
-  single cascade record per `re-frame.trace.projection/group-cascades`."
-  [{:keys [dispatch-id frame event handler fx effects subs renders other] :as _cascade}]
-  [:div {:data-testid "rf-causa-event-detail-cascade"
-         :data-dispatch-id (str dispatch-id)
-         :data-frame (str frame)
-         :style       {:padding "8px 0"}}
-   [:div {:style {:padding "0 12px 8px 12px"
-                  :font-family sans-stack
-                  :font-size   "12px"
-                  :color       (:text-tertiary tokens)}}
-    [:span "Cascade"]]
-   [:div {:style {:border-top (str "1px solid " (:border-subtle tokens))}}
-    [event-row event (trigger-handler-coord (or handler fx))]
-    (when handler [handler-row handler])
-    (when fx [fx-row fx])
-    [effects-row effects]
-    [subs-row subs]
-    [renders-row renders]
-    (other-row other)]])
+  single cascade record per `re-frame.trace.projection/group-cascades`.
+
+  When the cascade contains managed-fx invocations (per
+  `panels/managed-fx-helpers/cascade->managed-fx-records`), the
+  wire-boundary diff template (rf2-uyp86 / F-C2) mounts below the
+  six-domino window as an inline `<div>` per record. Cascades without
+  managed-fx invocations render unchanged."
+  [{:keys [dispatch-id frame event handler fx effects subs renders other] :as cascade}]
+  (let [managed-fx-records (managed-fx-h/cascade->managed-fx-records cascade)]
+    [:div {:data-testid "rf-causa-event-detail-cascade"
+           :data-dispatch-id (str dispatch-id)
+           :data-frame (str frame)
+           :data-managed-fx-count (str (count managed-fx-records))
+           :style       {:padding "8px 0"}}
+     [:div {:style {:padding "0 12px 8px 12px"
+                    :font-family sans-stack
+                    :font-size   "12px"
+                    :color       (:text-tertiary tokens)}}
+      [:span "Cascade"]]
+     [:div {:style {:border-top (str "1px solid " (:border-subtle tokens))}}
+      [event-row event (trigger-handler-coord (or handler fx))]
+      (when handler [handler-row handler])
+      (when fx [fx-row fx])
+      [effects-row effects]
+      [subs-row subs]
+      [renders-row renders]
+      (other-row other)]
+     (when (seq managed-fx-records)
+       (managed-fx/records-list managed-fx-records))]))
 
 ;; ---- public view --------------------------------------------------------
 
