@@ -102,7 +102,11 @@ event:
    [`002-Runtime.md`](002-Runtime.md) §Error projection).
 
 The play-stepper UI affordance pauses between events, surfaces the
-intermediate `:assertions` list, and offers a re-dispatch hook.
+intermediate `:assertions` list, and offers a re-dispatch hook. The
+in-canvas chrome that exposes step / pause / rewind / step-back /
+breakpoint controls over this hook is specified in
+[`009-Test-Mode.md` §Play step-debugger](009-Test-Mode.md#play-step-debugger-rf2-ulw5m)
+(rf2-ulw5m).
 
 ## `force-fx-stub` interaction
 
