@@ -716,9 +716,25 @@ User CHOSE to load them. First session is honest about what's filtered.
 
 Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:trace/show-sensitive? false`), Causa's chrome surfaces the count in the mode-pill hover tooltip + per-row redaction markers — NOT as an auto-filter chip. The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Causa does not auto-add filters on the user's behalf.
 
+### v1 ships: right-click → edit-popup (NOT silent append)
+
+This section's earlier wording — that the right-click context menu's "Always hide this event-type" item silently appends to the OUT bucket — is **superseded by v1's actually-landed behaviour** (rf2-ak4ms).
+
+**v1 ships:** the right-click → "Always hide this event-type" item **opens the edit popup pre-populated** with the event-id as the pattern + mode = OUT, source = `:context`. The user sees what's about to land in the OUT bucket and can fine-tune the pattern, widen the match scope, or cancel before commit. No `[Delete]` button (the pill doesn't exist yet); `[Apply]` confirms.
+
+Rationale: pre-alpha posture (per the masterpiece principle). Silent mutation of the filter set on a right-click is the kind of surprise the visible-confirm flow trades a click to avoid. The popup's three trigger sources — `:pill` (edit existing), `:add` (trailing `+`), `:context` (right-click) — share the same modal so the edit-popup is the single mutation site for the IN/OUT slot.
+
+### Pre-alpha matcher scope
+
+The popup's "Match scope" checkboxes — `event-id` / `event-args` / `source-coord` / `tags` — surface the visual contract for spec/018 §7 'Click-pill → edit popup'. **v1's matcher (`filters/matcher.cljc`) operates on `event-id` only**; the wider scopes are stored as data in the pill record and consumed when the matcher widens in a follow-on bead. The `event-id` scope is the default and always-on; widening it is the future rev.
+
 ### Filter persistence
 
-Ribbon pills persist via localStorage per host-app (under a Causa-namespaced key). The Settings popup §9 exposes the pill set + Recommended quick-add + factory-reset.
+Ribbon pills persist via localStorage per host-app under a Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"` (versioned so future schema changes can ignore stale payloads). Configurable via `(causa-config/configure! {:filters/storage-key "<key>"})` per [`015-Configuration.md`](015-Configuration.md) — hosts that run multiple Causa instances in the same browser session (Story testbeds) override so each instance keeps its own pill state.
+
+Host-supplied seed via `(causa-config/configure! {:filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Causa itself ships with `nil` seed (first-session honesty).
+
+The Settings popup §9 exposes the pill set + Recommended quick-add + factory-reset (the §9 Filters tab in v1 is a pointer into the ribbon pill UI — full per-pill management surface lives in the ribbon per spec §3; see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
 
 ### Error overrides
 
@@ -832,6 +848,26 @@ The browser feature gate that asserts I1 + I3 + I4 together is the canonical iso
 | **Popout** | `:popout/width <px>` (default 800) · `:popout/height <px>` (default 600) · `:popout/position <:right :left :centre>` (default `:right`) · "Open in popout now" button (= `o`) |
 | **Actions** | `[factory-reset!]` BIG RED BUTTON · "Reset to fresh-install state — clears filters, pins, watches, keybindings, theme. Buffer kept." Confirmation modal on click. Plus: "Reset filters only" / "Reset keybindings only" / "Clear pinned cascades" / "Clear pinned watches" finer-grained reset buttons. |
 
+### v1 ships
+
+**v1 ships four sections, NOT six** (rf2-9poxq): **General**,
+**Filters**, **Theme**, **Telemetry** — a top tab strip (not left-rail
+nav) drives which body section renders. Defaults: telemetry OFF
+(opt-in), auto-open-on-error OFF, panel-position `:right-rail`,
+theme `:dark`, text-size 13 px. Storage key
+`re-frame2.causa.settings.v1` (single nested map, one round-trip
+through `pr-str`). Full per-knob inventory + persistence rationale +
+auto-open-watcher semantics are in
+[`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup
+— v1 ships.
+
+The Keybindings, Buffer, Popout, and Actions sections (the bottom
+four rows of the table above) are the **full §9 catalogue intent**
+and remain the target for follow-on beads. v1's Filters tab is a
+discoverability pointer into the ribbon pill UI — not a full
+management surface — because that surface already lives in the
+ribbon and re-implementing it in two places would invite drift.
+
 ### "Show tool frames in picker" toggle
 
 - **Section:** View (NOT Filters — it's about what the picker shows, which is a view concern).
@@ -915,6 +951,12 @@ Every Settings popup field maps to a `(causa-config/configure! {…})` key. See 
 ### Layout direction (Q12 pick)
 
 Mixed LR (ancestors) + TB (descendants) single popover. ELK supports per-region direction. Implementation: layout the two regions separately, place above/below in the same SVG; first implementation will tell us if it reads well. If not, fall back to all-TB (a single tree with the focused node in the middle as a hinge).
+
+**v1 ships:** single-axis-at-a-time with a footer **LR ↔ TB toggle** (rf2-dqnuu). The popover renders TB (descendants-tree dominant; default) OR LR (ancestor-chain dominant) and persists the choice in `:rf.causa/causality-popover-layout` per session. The Q12 hybrid (per-region LR-ancestors + TB-descendants in one SVG) lands when ELK's per-region wiring is tackled in a follow-on bead. See [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Causality popover — v1 ships.
+
+### ELK lazy load + fallback
+
+The popover uses the same lazy ELK loader as the Machine Inspector chart per [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Layout engine. **v1 ships:** when ELK is unavailable (test rig, CSP block, offline) the popover drops into a `fallback-list` render — a flat `<ul>` listing the focused event + ancestors + descendants with `parent → child` edges. The cascade lineage stays readable; the visual graph affordance is the only thing lost. Footer surfaces a "Causality graph unavailable (ELK.js failed to load)" hint.
 
 ### Depth limits
 

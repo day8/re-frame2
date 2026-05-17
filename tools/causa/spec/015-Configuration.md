@@ -173,6 +173,69 @@ preload's adapter-ready probe sees the final launch posture before it
 would otherwise diagnose a missing host. The missing-host diagnostic is
 unchanged for the default path and for explicit opens.
 
+### `:settings`
+
+Bulk-replace the Settings popup state map (rf2-9poxq). Shape mirrors
+the `default-settings` block in `config.cljc`:
+
+```clojure
+{:general   {:text-size           13          ; px; slider range 10–18
+             :panel-position      :right-rail ; :right-rail | :popout | :fullscreen
+             :auto-open-on-error? false}
+ :theme     :dark                              ; :dark | :light
+ :telemetry {:opt-in?             false}}
+```
+
+| Value | Meaning |
+|---|---|
+| Map | Deep-merge over `default-settings` (per-section). Persists immediately to the localStorage key `re-frame2.causa.settings.v1` so the next page load reads the host-supplied posture. |
+| (absent) | Leave the live settings map untouched. |
+
+The popup's per-knob event surface (`:rf.causa/settings-update`) is
+the normal write path; this key is the bulk-set escape hatch for
+hosts that want to ship their own factory defaults (corporate fork
+with light theme, embedded host that prefers `:fullscreen` panel
+position, etc.).
+
+Default-defining shape, per-knob rationale and the localStorage key
+are normatively documented in
+[`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Settings popup
+— v1 ships. The `:editor` / `:project-root` / `:launch/auto-open?` /
+`:trace/show-sensitive?` keys above remain process-global atoms
+distinct from `:settings` (their semantics predate the popup; the
+popup-managed surface is the `{:settings <map>}` shape).
+
+### `:filters`
+
+Host-supplied seed pill set the registry hydrates `:active-filters`
+with on **first install** (when localStorage is empty). Per
+[`018-Event-Spine.md`](./018-Event-Spine.md) §7 'Empty defaults',
+Causa ships with no filters by default (first-session honesty beats
+first-session quietness). The seed is the escape hatch for hosts
+that have a reason to ship a starting posture — typically Story
+testbeds that need a known starting point for reproducibility.
+
+| Value | Meaning |
+|---|---|
+| `{:in [{:pattern <…>} …] :out [{:pattern <…>} …]}` | Seed the slot on first install only. The seed never clobbers a user's hand-tuned set — once localStorage carries any pill, the seed is ignored. |
+| `nil` (default) | No seed; registry defaults to `{:in [] :out []}`. |
+
+### `:filters/storage-key`
+
+The localStorage key the filter persistence layer reads / writes.
+
+| Value | Meaning |
+|---|---|
+| String | Use this key for round-trip. Hosts that run multiple Causa instances in the same browser session (e.g. Story testbeds) override so each instance keeps its own pill state. |
+| `nil` | Reset to default. |
+
+Default: `"re-frame2.causa.filters.v1"` (versioned so future schema
+changes can ignore stale payloads).
+
+When both `:filters` and `:filters/storage-key` are passed in one
+call, the storage key is set BEFORE the seed so a host that overrides
+both gets the seed persisted under the right key.
+
 ## App-db slots
 
 `configure!` is the host-visible surface; under the hood, Causa
@@ -228,12 +291,16 @@ The following keys are **reserved** for future `configure!` extension.
 Hosts MUST NOT use them for their own purposes; future Causa releases
 MAY assign them semantics.
 
-- `:theme`, `:density`, `:default-frame`, `:ai-provider`,
-  `:buffer-depths`, `:sidebar-mode`, `:launcher-pill`, `:keybindings`
-  — all currently owned by `(causa/init! opts)` and the persisted
-  Settings shape per [`API.md`](./API.md). A future consolidation MAY
-  migrate them through `configure!`; until then, set them via the
-  per-instance / per-localStorage paths.
+- `:density`, `:default-frame`, `:ai-provider`, `:buffer-depths`,
+  `:sidebar-mode`, `:launcher-pill`, `:keybindings` — all currently
+  owned by `(causa/init! opts)` and the persisted Settings shape per
+  [`API.md`](./API.md). A future consolidation MAY migrate them
+  through `configure!`; until then, set them via the per-instance /
+  per-localStorage paths.
+
+Note: `:theme` is **no longer reserved** — it now lives inside the
+`:settings` map (see above) and is reachable via the Settings popup's
+Theme tab or `(configure! {:settings {:theme :light}})`.
 
 ## Production posture
 

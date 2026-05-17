@@ -528,6 +528,60 @@ Every value display in every tab's L4 detail panel uses
 the Chrome console (formatters API); its output is not in-page hiccup.
 Hand-built renderer matching the aesthetic using Causa's theme tokens.
 
+### Renderer contract (v1 ships)
+
+The cljs-devtools-shaped surface (rf2-x9fzk):
+
+| Knob | Default | Purpose |
+|---|---|---|
+| `collapse-threshold` | `5` | Collections longer than this start collapsed; the user clicks `▶` to expand. Map literals ≤ 5 keys render flat; typical app-db slices don't dump every key on initial render. |
+| `string-inline-cap` | `64` | Strings longer than this tail-ellide in `inspect-inline`; the full value remains visible via the parent collection's expand affordance. |
+| `large-fetch-warn-threshold-bytes` | `100000` (100 KB) | Per [`018-Event-Spine.md`](./018-Event-Spine.md) §12 — `:rf/large` expansions above this size gate behind a confirm step so a stray click can't pour a multi-megabyte expansion into the detail panel. |
+
+**Colour palette** (mapped onto Causa's theme tokens so the renderer
+reads as native shell chrome): keywords violet (`:accent-violet`),
+strings green, numbers cyan, nil tertiary, booleans orange, symbols
+magenta, default `text-primary`. Punctuation + meta render in
+`text-tertiary` / `text-secondary` to recede.
+
+**Substrate-agnostic state.** Per the pure-hiccup contract
+([Conventions rf2-tijr](./Conventions.md)) the renderer never
+references Reagent / UIx / Helix. Per-node expand state lives in
+`:rf/causa` app-db under `[:data-inspector <node-key> …]` and is
+read/written via re-frame primitives:
+
+- `:rf.causa.data-inspector/expansion <node-key>` — sub for one node's
+  state.
+- `:rf.causa.data-inspector/toggle-expanded <node-key>` — flip.
+- `:rf.causa.data-inspector/request-large-confirm <node-key>` /
+  `:rf.causa.data-inspector/confirm-large <node-key>` — two-step
+  confirmation for `:rf/large` sentinels above the size threshold.
+
+Each L4 panel mount supplies a unique `node-key` prefix so two panels
+rendered side-by-side don't share expand state. See
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) for the
+catalogued ids.
+
+### Sentinel chips
+
+The renderer recognises three `spec/015-Data-Classification` sentinel
+shapes and emits bespoke chrome (per [`018-Event-Spine.md`](./018-Event-Spine.md)
+§12):
+
+- `:rf/redacted` (bare keyword) — magenta opaque chip
+  (`● redacted`); italic small-caps; **never** expandable, no reveal
+  affordance ever.
+- `{:rf/large {:bytes N :head "…"}}` — yellow chip
+  (`● large · N bytes · "head…"`); click reveals an inline expansion
+  showing the full `:head` preview. Sizes above
+  `large-fetch-warn-threshold-bytes` gate behind an inline confirm
+  prompt (textual "Expand N bytes? (>100000 threshold)" + Confirm
+  button) rather than a full modal — v1 ships the inline prompt so
+  the renderer doesn't drag in modal infrastructure.
+- `{:rf/redacted {:bytes N}}` — combined sensitive + large; magenta
+  with size shown for diagnostic; **never** expandable (sensitive
+  dominates content visibility).
+
 ## Data-classification rendering
 
 Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
