@@ -75,6 +75,7 @@
   `:rf.causa/machine-inspector-data` composite sub."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.chart.layout :as chart-layout]
+            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.panels.machine-inspector-cluster :as cluster]
@@ -312,11 +313,46 @@
            state-value  (if sim?
                           (:state sim-snapshot)
                           (:state override))
-           highlight-id (chart-layout/highlight-id state-value)]
+           highlight-id (chart-layout/highlight-id state-value)
+           ;; Phase 4 (rf2-m7co9): ELK.js layout with layered fallback.
+           ;;
+           ;; The layout direction defaults to :tb; per-machine override
+           ;; lives in the panel app-db slot for a follow-on bead.
+           ;;
+           ;; Kick the loader (idempotent — second call after success
+           ;; is a no-op fast-path). When the loader resolves and the
+           ;; cache is empty, kick a layout pass; the layout's `.then`
+           ;; writes the cache + dispatches the pulse event that re-
+           ;; renders this view via the subscribe-driven recompute.
+           direction    :tb
+           _            (elk-layout/ensure-elk!
+                          (fn [_inst]
+                            (when (elk-layout/elk-status)
+                              ;; If ELK is ready and the cache is empty
+                              ;; for this combination, populate it.
+                              (when (and (= :ready (elk-layout/elk-status))
+                                         (nil? (elk-layout/cached-layout
+                                                 definition direction)))
+                                (elk-layout/compute-layout!
+                                  definition direction
+                                  (fn [chart-layout]
+                                    (when chart-layout
+                                      (rf/dispatch
+                                        [:rf.causa/machine-chart-layout-pulse]
+                                        {:frame :rf/causa}))))))))
+           ;; When ELK is ready+cached → ELK. Otherwise → layered
+           ;; fallback. Both produce the same `{:nodes :edges :width
+           ;; :height :initial-id}` shape so the SVG renderer is
+           ;; layout-engine-agnostic.
+           positioned   (elk-layout/layout-or-fallback definition direction)
+           engine       (if (some? (elk-layout/cached-layout definition direction))
+                          "elk"
+                          "layered")]
        [:div {:data-testid "rf-causa-machine-inspector-chart"
               :data-machine-id (str (:machine-id props))
               :data-highlight-id (or highlight-id "")
               :data-sim-active (str sim?)
+              :data-layout-engine engine
               :style       {:margin "12px"
                             :padding "12px"
                             :background (:bg-1 tokens)
@@ -326,8 +362,8 @@
                                            (:border-subtle tokens)))
                             :border-radius "4px"
                             :overflow "auto"}}
-        (chart-svg/render-from-definition
-          definition
+        (chart-svg/render
+          positioned
           {:highlight-id   highlight-id
            :sim?           sim?
            :on-state-click (fn [path]
@@ -821,6 +857,21 @@
   (rf/reg-event-db :rf.causa/machine-state-clicked
     (fn [db [_ _payload]]
       db))
+
+  ;; ---- Phase 4 (rf2-m7co9) — ELK layout pulse ---------------------
+  ;;
+  ;; The ELK layout pass is asynchronous (returns a Promise). When it
+  ;; resolves, we need to nudge the subscribe-driven view to recompute
+  ;; so the cached ELK positions land on the next render. A no-op
+  ;; event handler tick on the panel's app-db is the simplest pulse —
+  ;; it bumps the reactive graph without changing any user-visible
+  ;; state. Mirrors the `:rf.causa/causality-popover-layout-pulse`
+  ;; pattern in the Causality popover's ELK loader.
+  (rf/reg-event-db :rf.causa/machine-chart-layout-pulse
+    (fn [db _event]
+      ;; Increment a counter so the app-db value actually changes —
+      ;; some substrates short-circuit identical-value writes.
+      (update db :machine-inspector/elk-pulse-tick (fnil inc 0))))
 
   ;; ---- Phase 3 (rf2-juon8) — UC2 Mode C forced-mode slot ----------
 

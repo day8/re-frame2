@@ -134,3 +134,58 @@
 (deftest sparkline-honours-custom-testid
   (let [svg (chart-svg/sparkline [1 2 3] {:testid "rf-cluster-rate-1"})]
     (is (= "rf-cluster-rate-1" (:data-testid (second svg))))))
+
+;; ---- compound containers (rf2-m7co9 Phase 4) -------------------------
+
+(def compound-machine
+  {:initial :unauth
+   :states  {:unauth        {:on {:login :authenticated}}
+             :authenticated {:initial :browsing
+                             :states  {:browsing {:on {:checkout :paying}}
+                                       :paying   {:on {:done :browsing}}}
+                             :on      {:logout :unauth}}}})
+
+(deftest compound-containers-bbox-around-children
+  (testing "compound-containers returns a translucent-box descriptor for
+            each compound parent, sized to the bounding box of its
+            descendant leaves plus padding"
+    (let [{:keys [nodes]} (layout/layout compound-machine)
+          containers       (chart-svg/compound-containers nodes)]
+      (is (= 1 (count containers))
+          "one compound parent (:authenticated) has children")
+      (let [c (first containers)
+            descendants (filter (fn [n] (= [:authenticated]
+                                           (when (> (count (:path n)) 1)
+                                             (subvec (:path n) 0 1))))
+                                nodes)
+            min-x (apply min (map :x descendants))
+            min-y (apply min (map :y descendants))]
+        ;; The container's top-left sits LEFT/ABOVE the descendants by
+        ;; the inset padding.
+        (is (< (:x c) min-x))
+        (is (< (:y c) min-y))))))
+
+(deftest compound-containers-rendered-in-svg
+  (testing "render-from-definition emits a compound container <g> with
+            the spec'd testid for each compound state"
+    (let [tree   (chart-svg/render-from-definition compound-machine)
+          group  (find-by-testid tree "rf-causa-chart-compounds")
+          inner  (find-all-by-testid-prefix tree "rf-causa-chart-compound-")]
+      (is (some? group)
+          "a top-level <g data-testid=\"rf-causa-chart-compounds\"> hosts
+           every compound rectangle")
+      (is (= 1 (count inner))
+          "exactly one compound-state rectangle (:authenticated)"))))
+
+(deftest compound-containers-empty-for-flat-machine
+  (testing "a flat machine (no compound states) produces no containers"
+    (let [tree   (chart-svg/render-from-definition small-machine)
+          inner  (find-all-by-testid-prefix tree "rf-causa-chart-compound-")]
+      (is (zero? (count inner))))))
+
+(deftest compound-container-honours-label
+  (testing "the compound container carries the parent state's label so
+            the visual grouping is self-explanatory"
+    (let [{:keys [nodes]} (layout/layout compound-machine)
+          [c]              (chart-svg/compound-containers nodes)]
+      (is (= "authenticated" (:label c))))))
