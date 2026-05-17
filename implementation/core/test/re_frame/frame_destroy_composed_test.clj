@@ -24,6 +24,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.state :as epoch-state]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -363,7 +364,7 @@
     (is (= [3 4] (get-in @flows/last-inputs [:composed/area :composed/leak-audit]))
         "precondition: flow last-inputs has a row for the frame")
 
-    (let [observed @(deref #'epoch/observed-frames-by-cb)]
+    (let [observed @(deref #'epoch-state/observed-frames-by-cb)]
       (is (contains? (get observed ::composed-observer) :composed/leak-audit)
           "precondition: epoch cb has the frame in its observed-frames set"))
     (is (pos? (count (rf/epoch-history :composed/leak-audit)))
@@ -399,7 +400,7 @@
         "post: flow last-inputs row dropped for the destroyed frame")
     (is (= [] (rf/epoch-history :composed/leak-audit))
         "post: epoch ring buffer returns the empty vector for the destroyed frame")
-    (let [observed @(deref #'epoch/observed-frames-by-cb)]
+    (let [observed @(deref #'epoch-state/observed-frames-by-cb)]
       (is (not (contains? (get observed ::composed-observer)
                           :composed/leak-audit))
           "post: epoch cb's observed-frames entry no longer includes the frame"))
