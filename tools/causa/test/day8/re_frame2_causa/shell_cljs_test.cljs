@@ -13,8 +13,9 @@
        one arm silently routes to the `unknown-panel` fallback. The
        arm count + each arm's mapping is asserted here.
 
-    2. The bottom-rail `[● REDACTED N]` indicator (rf2-azls9). The
-       `config/suppressed-counters` atom is well-tested in
+    2. The `[● REDACTED N]` indicator (rf2-azls9, relocated to the
+       top strip per rf2-adve5 — spec/018 removes the bottom rail).
+       The `config/suppressed-counters` atom is well-tested in
        `sensitive_trace_cljs_test.cljc`; the *render* gate
        `(pos? redacted-count)` and the pluralisation in the title
        attribute are asserted here. Includes the 1 → 2 transition.
@@ -467,9 +468,10 @@
 
 (deftest shell-view-mounts-the-three-regions
   (testing "the shell-view returns a tree containing the shell's
-            `data-testid` envelope plus the bottom-rail (no testid
-            — asserted by the REDACTED indicator's absence/presence
-            in companion tests) and the sidebar's 15 rows"
+            `data-testid` envelope, the top-strip (carries the
+            REDACTED indicator + mode pill per rf2-adve5 — the
+            bottom rail was removed per spec/018 §2), and the
+            sidebar's 15 rows"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
