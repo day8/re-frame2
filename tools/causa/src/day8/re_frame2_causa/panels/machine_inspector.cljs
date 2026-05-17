@@ -77,6 +77,8 @@
             [day8.re-frame2-causa.chart.layout :as chart-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
+            [day8.re-frame2-causa.panels.machine-inspector-cluster :as cluster]
+            [day8.re-frame2-causa.panels.machine-inspector-cluster-helpers :as ch]
             [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -464,12 +466,109 @@
   "Per spec/003-Machine-Inspector.md §UC2 Mode A/B/C — pick the mode
   based on live instance count. Pure fn for unit-testability; not
   marked private so the view-test suite can pin the classifier
-  directly without relying on `data-view-mode` round-trips."
+  directly without relying on `data-view-mode` round-trips.
+
+  This is the *auto* classification — Mode A when there are no live
+  instances (definition-only view), Mode B for a handful, Mode C when
+  the population outgrows the per-tab strip. The Mode C threshold here
+  is the back-compat conservative one (4+ instances); the panel's mode
+  resolver below honours the user's forced selection and falls back to
+  the cluster-helpers' `mode-c-suggested?` threshold (10 by default)
+  for the auto-switch hint surfaced via the mode tab strip."
   [instance-count]
   (cond
     (or (nil? instance-count) (zero? instance-count)) :mode-a
     (<= instance-count 3) :mode-b
     :else :mode-c))
+
+(defn resolve-mode
+  "Combine the auto-classification with the user's forced selection.
+  Pure fn for unit-testability.
+
+  `forced` is one of `:mode-a / :mode-b / :mode-c / nil`. Nil falls
+  back to `view-mode`. When a force is set but instance-count = 0 the
+  resolver still honours the user's pick so the cluster view remains
+  reachable in the empty-population case (useful for the test
+  override path + future spawn workflow)."
+  [instance-count forced]
+  (if (some? forced)
+    forced
+    (view-mode instance-count)))
+
+;; ---- mode tab strip (UC2 Mode A | B | C selector) ---------------------
+
+(defn- mode-tab-strip
+  "Three-tab strip across the header that lets the user force Mode A
+  (definition), Mode B (instance tabs), or Mode C (cluster view) per
+  spec/003-Machine-Inspector.md §UC2. Auto-classification still drives
+  the default; clicking a tab sets a forced mode that overrides the
+  auto pick. Clicking the active tab clears the force (back to auto)."
+  [resolved-mode forced-mode instance-count]
+  (let [tabs [{:id :mode-a :label "Definition"}
+              {:id :mode-b :label "Instances"}
+              {:id :mode-c :label "Cluster"}]
+        suggest-c? (ch/mode-c-suggested? instance-count)]
+    [:div {:data-testid "rf-causa-machine-inspector-mode-strip"
+           :data-resolved-mode (name resolved-mode)
+           :data-forced-mode (when forced-mode (name forced-mode))
+           :data-suggest-mode-c (str suggest-c?)
+           :style {:display "flex"
+                   :align-items "center"
+                   :gap "4px"
+                   :padding "6px 12px"
+                   :background (:bg-3 tokens)
+                   :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     [:span {:style {:color (:text-tertiary tokens)
+                     :font-family sans-stack
+                     :font-size "10px"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.5px"
+                     :margin-right "6px"}}
+      "View"]
+     (for [{:keys [id label]} tabs]
+       (let [active? (= id resolved-mode)
+             ;; Suggest Mode C visually when the population is large
+             ;; but the user hasn't already forced something.
+             suggest? (and (= id :mode-c) suggest-c? (not active?))]
+         ^{:key (name id)}
+         [:button
+          {:data-testid (str "rf-causa-machine-inspector-mode-tab-" (name id))
+           :data-active (str active?)
+           :on-click (fn [_]
+                       (rf/dispatch
+                         [:rf.causa/set-forced-machine-mode
+                          (if (and active? (= forced-mode id))
+                            nil  ;; clicking active forced tab → auto
+                            id)]
+                         {:frame :rf/causa}))
+           :style {:padding "3px 10px"
+                   :background (cond active?    (:bg-1 tokens)
+                                     suggest?   "rgba(67, 195, 208, 0.10)"
+                                     :else      "transparent")
+                   :border (str "1px solid "
+                                (cond active?  (:cyan tokens)
+                                      suggest? (:cyan tokens)
+                                      :else    (:border-subtle tokens)))
+                   :color (cond active?  (:cyan tokens)
+                                suggest? (:cyan tokens)
+                                :else    (:text-secondary tokens))
+                   :border-radius "10px"
+                   :font-family mono-stack
+                   :font-size "11px"
+                   :font-weight (if active? 600 400)
+                   :cursor "pointer"}}
+          label
+          (when suggest?
+            [:span {:style {:margin-left "4px" :font-size "9px"}}
+             "●"])]))
+     [:span {:style {:flex 1}}]
+     (when (and suggest-c? (not= :mode-c resolved-mode))
+       [:span {:data-testid "rf-causa-machine-inspector-mode-suggest"
+               :style {:color (:cyan tokens)
+                       :font-family sans-stack
+                       :font-size "10px"}}
+        (str instance-count
+             " instances — Cluster view recommended")])]))
 
 ;; ---- empty state --------------------------------------------------------
 
@@ -504,12 +603,17 @@
   []
   (let [{:keys [machines total selected selected-id chart-props transitions empty-kind]}
         @(rf/subscribe [:rf.causa/machine-inspector-data])
-        ;; Phase 1: instance-count is 1 when there's a registered snapshot,
-        ;; 0 otherwise. When the multi-instance spawn surface lands a
-        ;; follow-on bead replaces this with `count` over the spawned-
-        ;; instances vector.
-        instance-count (if (and selected (:state selected)) 1 0)
-        mode           (view-mode instance-count)
+        ;; Phase 3 (rf2-juon8): instance-count is the length of the
+        ;; per-machine instances vector. Production reads through the
+        ;; Phase-1 single-snapshot widening; test override surfaces a
+        ;; richer multi-instance projection so Mode C is exercisable
+        ;; before spawn lands upstream.
+        instances      @(rf/subscribe [:rf.causa/machine-instances])
+        instance-count (count (or instances []))
+        ;; The user's forced-mode override; nil = auto (defer to
+        ;; `view-mode`). Set via the mode tab strip below.
+        forced-mode    @(rf/subscribe [:rf.causa/forced-machine-mode])
+        mode           (resolve-mode instance-count forced-mode)
         ;; Phase 2 (rf2-v869p): pull sim state via the per-machine sub.
         ;; When active, the chart highlight + banner shift to sim mode
         ;; and the side rail mounts between the chart and the ribbon.
@@ -519,6 +623,7 @@
     [:section {:data-testid "rf-causa-machine-inspector"
                :data-view-mode (name mode)
                :data-instance-count instance-count
+               :data-forced-mode (when forced-mode (name forced-mode))
                :data-sim-active (str sim-active?)
                :style       {:height         "100%"
                              :display        "flex"
@@ -542,6 +647,7 @@
        [:div {:style {:flex 1 :display "flex" :flex-direction "column"
                       :overflow "hidden"}}
         [machine-picker machines selected-id]
+        [mode-tab-strip mode forced-mode instance-count]
         [instance-tabs (or selected {}) instance-count mode]
         [:div {:style {:flex 1 :overflow "auto"}}
          (placeholder-banner
@@ -551,6 +657,8 @@
             :definition     (:definition selected)
             :sim-active?    sim-active?})
          (placeholder-chart chart-props sim-snapshot)
+         (when (= :mode-c mode)
+           [cluster/ClusterView])
          (when sim-active?
            [sim/SimSideRail])]
         (transition-ribbon transitions)])]))
@@ -714,6 +822,27 @@
     (fn [db [_ _payload]]
       db))
 
+  ;; ---- Phase 3 (rf2-juon8) — UC2 Mode C forced-mode slot ----------
+
+  ;; The user's forced view-mode override; nil = auto-classify via
+  ;; `view-mode`. Set / cleared via `:rf.causa/set-forced-machine-mode`.
+  ;; The Mode tab strip in the header writes this slot; the panel
+  ;; reads it through `resolve-mode`. Stored under a `:mode-c/*`-style
+  ;; namespaced key for visual coherence with the rest of Mode C's
+  ;; app-db slots.
+  (rf/reg-sub :rf.causa/forced-machine-mode
+    (fn [db _query]
+      (get db :machine-inspector/forced-mode)))
+
+  (rf/reg-event-db :rf.causa/set-forced-machine-mode
+    (fn [db [_ mode]]
+      (if (or (nil? mode)
+              (contains? #{:mode-a :mode-b :mode-c} mode))
+        (if (nil? mode)
+          (dissoc db :machine-inspector/forced-mode)
+          (assoc db :machine-inspector/forced-mode mode))
+        db)))
+
   ;; ---- Phase 2 (rf2-v869p) — UC1 Sim sub-mode ---------------------
   ;;
   ;; The sim sub family lives in its own ns
@@ -721,4 +850,12 @@
   ;; focused on the live observation chrome. The sim install fn
   ;; registers `:rf.causa/sim-*` events + subs against the same
   ;; `:rf/causa` frame the panel reads.
-  (sim/install!))
+  (sim/install!)
+
+  ;; ---- Phase 3 (rf2-juon8) — UC2 Mode C cluster view --------------
+  ;;
+  ;; The cluster view + its sub/event family live in
+  ;; `panels/machine_inspector_cluster.cljs`. The install fn registers
+  ;; `:rf.causa/mode-c-*` events + subs against the same `:rf/causa`
+  ;; frame the panel reads.
+  (cluster/install!))

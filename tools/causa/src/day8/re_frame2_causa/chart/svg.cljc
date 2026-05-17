@@ -29,7 +29,8 @@
   layout in `layout.cljc` produces a readable chart for the
   4-12-state machines re-frame2 apps register today. Bigger
   topologies fall back to scrollable overflow."
-  (:require [day8.re-frame2-causa.chart.layout :as layout]
+  (:require [clojure.string :as str]
+            [day8.re-frame2-causa.chart.layout :as layout]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- visual constants ---------------------------------------------------
@@ -282,3 +283,80 @@
   ([definition] (render-from-definition definition {}))
   ([definition opts]
    (render (layout/layout definition) opts)))
+
+;; ---- sparkline primitive (rf2-juon8, Mode C) ---------------------------
+;;
+;; A tiny inline SVG sparkline for the cluster-row state-change rate
+;; indicator. Pure data → hiccup; JVM-runnable so the cluster-helpers
+;; tests can exercise the shape without a CLJS runtime.
+;;
+;; The glyph renders the sample vector (oldest-first) as a flat polyline,
+;; padded into the box. Empty / all-zero samples collapse to a centred
+;; baseline so the visual lane stays consistent across cluster rows.
+
+(defn sparkline
+  "Inline SVG glyph for `samples` — a vector of non-negative integers,
+  oldest-first. Used by the Mode C cluster view to show recent
+  state-change rate.
+
+  Options:
+
+    :width   (default 60)   — viewport width in px
+    :height  (default 16)   — viewport height in px
+    :stroke              — line colour (default `:cyan` token)
+    :testid              — overrides the root data-testid
+    :max-sample          — pin the y-axis ceiling (defaults to
+                            the data's `max`; useful when comparing
+                            multiple sparklines on the same scale)
+
+  Returns a hiccup `[:svg ...]` form. Pure fn."
+  ([samples] (sparkline samples {}))
+  ([samples {:keys [width height stroke testid max-sample]
+             :or   {width  60
+                    height 16
+                    stroke (:cyan tokens/tokens)
+                    testid "rf-causa-chart-sparkline"}}]
+   (let [n        (count samples)
+         max-v    (or max-sample
+                      (when (seq samples)
+                        (apply max samples))
+                      0)
+         pad-y    1
+         inner-h  (max 1 (- height (* 2 pad-y)))
+         baseline (- height pad-y)
+         ;; When n < 2 we can't draw a polyline; render an empty SVG
+         ;; with the baseline so callers still get a stable visual lane.
+         points   (when (>= n 2)
+                    (mapv (fn [i v]
+                            (let [x (if (= n 1)
+                                      (quot width 2)
+                                      (long (* (/ (double i) (double (- n 1)))
+                                               width)))
+                                  ratio (if (pos? max-v)
+                                          (/ (double v) (double max-v))
+                                          0.0)
+                                  y (long (- baseline
+                                             (* ratio inner-h)))]
+                              [x y]))
+                          (range n)
+                          samples))]
+     [:svg {:data-testid testid
+            :data-samples (pr-str samples)
+            :width  width
+            :height height
+            :viewBox (str "0 0 " width " " height)
+            :style {:display "inline-block"
+                    :vertical-align "middle"}}
+      ;; Baseline so the lane is visible even on empty / all-zero data.
+      [:line {:x1 0 :y1 baseline :x2 width :y2 baseline
+              :stroke (:border-subtle tokens/tokens)
+              :stroke-width 0.5}]
+      (when points
+        [:polyline {:fill "none"
+                    :stroke stroke
+                    :stroke-width 1.25
+                    :stroke-linecap "round"
+                    :stroke-linejoin "round"
+                    :points (str/join
+                              " "
+                              (map (fn [[x y]] (str x "," y)) points))}])])))
