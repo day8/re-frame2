@@ -1,24 +1,22 @@
 (ns re-frame.mcp-conformance.wire-vocab-test
   "Cross-MCP wire-vocabulary conformance (rf2-j2z7o).
 
-  Three MCP servers ship under `tools/`: pair2-mcp, story-mcp, and
-  causa-mcp (spec-only today). The first and the third share a
-  reserved cross-server **wire vocabulary** — namespaced map keys an
-  agent recognises identically across every server.
+  Two MCP servers ship under `tools/`: pair2-mcp and story-mcp.
+  pair2-mcp owns the reserved cross-server **wire vocabulary** —
+  namespaced map keys an agent recognises identically across every
+  server that adopts it. (causa-mcp was dropped in rf2-bu21t — causa
+  now ships as a Clojars-only library, not an MCP server.)
 
   Five top-level markers, plus the `:rf.elision/at` fetch-handle tag
   (embedded inside the `:rf.size/large-elided` body's `:handle` slot —
   not a standalone marker; pinned via the elision-marker body schema):
 
   - `:rf.mcp/overflow`      — token-budget overflow marker
-                              (causa-mcp Principles mechanism 1,
-                               pair2-mcp `tools.cljs` `overflow-payload`)
+                              (pair2-mcp `tools.cljs` `overflow-payload`)
   - `:rf.mcp/summary`       — tree-summary lazy-mode marker
-                              (causa-mcp Principles mechanism 4,
-                               pair2-mcp `tools.cljs` `tree-summary`)
+                              (pair2-mcp `tools.cljs` `tree-summary`)
   - `:rf.mcp/dedup-table`   — structural-dedup wrapper
-                              (causa-mcp Principles mechanism 5,
-                               pair2-mcp `tools.cljs` `dedup-value`)
+                              (pair2-mcp `tools.cljs` `dedup-value`)
   - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker
                               (pair2-mcp `tools.cljs`
                                `diff-encode-db-after`; cross-MCP
@@ -47,16 +45,16 @@
      here. Every fixture EDN representing a server's actual emission
      shape MUST validate against the canonical schema.
 
-  2. **Per-server fixture parity.** Each marker has a `pair2-mcp` and
-     `causa-mcp` fixture. Both validate against the same schema —
-     that's the cross-server conformance assertion. Divergent shapes
-     fail loud.
+  2. **Per-server fixture coverage.** Each marker has at least one
+     pair2-mcp fixture exercising the schema. When a future MCP
+     server adopts the marker, a parallel fixture asserts the shared
+     contract.
 
   3. **Source-text vocabulary pin.** A grep against each server's
-     source (pair2-mcp `src/`) and spec (causa-mcp `spec/`) asserts
-     the canonical literal appears AND no near-miss variant (e.g.
-     `:rf.mcp/overflows`, `:rf.mcp/dedup_table`, the underscore
-     form) appears. A rename in either server surfaces here.
+     source (pair2-mcp `src/`) asserts the canonical literal appears
+     AND no near-miss variant (e.g. `:rf.mcp/overflows`,
+     `:rf.mcp/dedup_table`, the underscore form) appears. A rename
+     in any server surfaces here.
 
   4. **Cross-server presence/absence.** The set of markers each
      server is contracted to emit is pinned. Adding a sixth marker
@@ -74,17 +72,7 @@
   values the server emits as response payloads. It does NOT need a
   live server: the schemas are normative, the fixtures are authored
   from each server's spec/source, and the grep step pins those
-  authored fixtures to the actual source/spec text.
-
-  ## causa-mcp impl gap
-
-  causa-mcp's implementation has not landed yet (its `tools/` entry
-  is `README.md` + `spec/`, no `src/`). The fixtures and the spec
-  grep step against `tools/causa-mcp/spec/Principles.md` +
-  `tools/causa-mcp/spec/004-Wire-Pipeline.md` cover the vocabulary
-  today; when impl lands, a follow-up bead extends this test to
-  grep `tools/causa-mcp/src/` and add live-emission fixtures if
-  their shape diverges from the spec snippets."
+  authored fixtures to the actual source/spec text."
   (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [malli.core      :as m]
@@ -126,43 +114,27 @@
    [:token-count :int]
    [:hint        [:or :string :keyword]]])
 
-(def CausaOverflowBody
-  "causa-mcp's `:rf.mcp/overflow` body shape (per
-  `tools/causa-mcp/spec/004-Wire-Pipeline.md` §\"1. Token budget cap\").
-  Every emit carries `:cap` + `:would-be` + `:hint` plus the `:limit
-  :reached` sentinel; `:continuation` is optional and only present when
-  the server can emit a resumable cursor."
-  [:map
-   {:closed false}
-   [:limit        [:enum :reached]]
-   [:cap          :int]
-   [:would-be     :int]
-   [:hint         [:or :string :keyword]]
-   [:continuation {:optional true}
-    [:map
-     [:cursor    {:optional true} [:or :string :nil]]
-     [:next-args {:optional true} [:maybe :map]]]]])
-
 (def OverflowBody
   "`{:rf.mcp/overflow {...}}` body — the token-budget overflow marker.
 
-  Per causa-mcp `004-Wire-Pipeline.md` §\"1. Token budget cap\" and
-  pair2-mcp `mcp-base/overflow.cljc/overflow-payload`. The cross-server
-  contract pins TWO shapes, NOT one open map:
+  Per pair2-mcp `mcp-base/overflow.cljc/overflow-payload`. The shape
+  pins required fields:
 
   - **pair2-mcp shape:** `:limit :reached` + `:cap-tokens` +
     `:token-count` + `:tool` + `:hint`. Hyphen-separated child names;
     `:cap-tokens` is the cap, `:token-count` is the over-budget count.
-  - **causa-mcp shape:** `:limit :reached` + `:cap` + `:would-be` +
-    `:hint` (+ optional `:continuation` `:cursor` / `:next-args`).
-    Same posture, server-local naming.
 
   An emit shaped as `{:rf.mcp/overflow {:limit :reached}}` alone is
-  NOT conformant — every required field on at least one of the two
-  shapes MUST be present. Cap renames (`cap-tokens` vs `cap_tokens`),
-  field renames (`hint` vs `next-step`), or empty bodies all trip the
-  schema. Per rf2-kn8cj (refactor-audit r2 of rf2-azk9c §F-VOCAB-2)."
-  [:or Pair2OverflowBody CausaOverflowBody])
+  NOT conformant — every required field MUST be present. Cap renames
+  (`cap-tokens` vs `cap_tokens`), field renames (`hint` vs `next-step`),
+  or empty bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2
+  of rf2-azk9c §F-VOCAB-2).
+
+  When a second MCP server (re-)adopts the cross-MCP overflow shape
+  with a different field name set, extend this as `[:or Pair2Body
+  OtherBody]` (the historical pattern from when causa-mcp was an MCP
+  server, dropped in rf2-bu21t)."
+  Pair2OverflowBody)
 
 (def Overflow
   "`{:rf.mcp/overflow OverflowBody}` — the wrapper shape."
@@ -171,17 +143,19 @@
 (def SummaryBody
   "`{:rf.mcp/summary {...}}` body — the lazy tree-summary marker.
 
-  Per causa-mcp Principles §\"4. Lazy summary\" and pair2-mcp
-  `tools.cljs/tree-summary`. `:type` ∈ {:map :vector :set :seq
-  :scalar}; map summaries carry `:keys` + `:count` + `:bytes`;
-  vector/set/seq summaries carry `:count` + `:bytes`; scalar
-  summaries carry `:value` + `:bytes`. Large maps add
+  Per pair2-mcp `tools.cljs/tree-summary`. `:type` ∈ {:map :vector
+  :set :seq :scalar}; map summaries carry `:keys` + `:count` +
+  `:bytes`; vector/set/seq summaries carry `:count` + `:bytes`;
+  scalar summaries carry `:value` + `:bytes`. Large maps add
   `:keys-truncated? true` when `:keys` is clamped to
   `summary-keys-cap` (pair2-mcp pins 64; the spec doesn't pin).
 
-  causa-mcp's Principles example uses `:counts` (a per-top-key
-  map) instead of `:count`. The schema permits both — but a single
-  marker MUST carry one or the other, not neither."
+  `:counts` (a per-top-key map) is permitted as an alternate
+  per-key shape: a single marker MUST carry `:count` or `:counts`,
+  not neither. (Originally introduced for causa-mcp's
+  `Principles.md` example; preserved as a permitted schema variant
+  after the rf2-bu21t drop, so a future MCP server reviving
+  per-key counts validates without a schema bump.)"
   [:map
    {:closed false}
    [:type [:enum :map :vector :set :seq :scalar]]
@@ -189,7 +163,7 @@
    [:keys             {:optional true} [:sequential :any]]     ;; maps only
    [:keys-truncated?  {:optional true} :boolean]               ;; maps only when clamped
    [:count            {:optional true} :int]                   ;; non-scalars
-   [:counts           {:optional true} [:map-of :any :int]]    ;; causa-mcp variant
+   [:counts           {:optional true} [:map-of :any :int]]    ;; per-key map variant
    [:value            {:optional true} :any]])                 ;; scalars
 
 (def Summary
@@ -200,10 +174,9 @@
   "`{:rf.mcp/dedup-table <flat-cache>}` — the structural-dedup wrapper.
 
   The body is the day8/de-dupe cache map: `{:de-dupe.cache/cache-0
-  <root> :de-dupe.cache/cache-N <subtree> ...}`. causa-mcp's
-  Principles example uses integer keys (`{1 {...} 2 {...}}`) for
-  illustration; pair2-mcp's actual cache uses the de-dupe library's
-  namespaced-keyword form. The schema permits either — the
+  <root> :de-dupe.cache/cache-N <subtree> ...}`. pair2-mcp's actual
+  cache uses the de-dupe library's namespaced-keyword form; integer-
+  keyed examples (`{1 {...} 2 {...}}`) are also permitted — the
   load-bearing claim is the top-level `:rf.mcp/dedup-table` marker
   key and that the value is a *map* (the agent host calls
   `de-dupe.core/expand` on it)."
@@ -264,8 +237,8 @@
   vocabulary, different cost saved.
 
   Single-server today (pair2-mcp); the `:rf.mcp/*` namespace reserves
-  it cross-MCP per Conventions §Reserved namespaces — when causa-mcp
-  grows a session cache it ships the same shape."
+  it cross-MCP per Conventions §Reserved namespaces — a future MCP
+  server adopting a session cache ships the same shape."
   [:map
    {:closed false}
    [:hash            [:or :int :string]]
@@ -300,11 +273,10 @@
   `:max-buffered-bytes` per rf2-ho4ve) or null when no overflow tripped
   this tick.
 
-  Pinned cross-server today as a pair2-mcp-only shape: causa-mcp ships
-  the same streaming pair (`subscribe`/`unsubscribe`) under NAMING.md
-  via `tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools/subscribe.cljs`.
-  causa-mcp's `subscribe` emit MUST satisfy this schema or extend it as
-  a `[:or ...]` (same posture as OverflowBody)."
+  Pinned cross-server today as a pair2-mcp-only shape; if a future
+  MCP server ships a `subscribe`/`unsubscribe` pair (per NAMING.md),
+  its emit MUST satisfy this schema or extend it as a `[:or ...]`
+  (same posture as OverflowBody)."
   [:map
    {:closed false}
    [:progressToken :any]                          ;; opaque per MCP spec
@@ -335,8 +307,8 @@
   slots (`:requested-id`, `:head-id`, `:tool`, `:hint`) are open
   per-server.
 
-  Single-server today (pair2-mcp); causa-mcp's spec reserves the same
-  reason value for its planned pagination surface."
+  Single-server today (pair2-mcp); the reason value is reserved
+  cross-MCP for any future pagination surface."
   [:map
    {:closed false}
    [:ok?    [:enum false]]
@@ -391,24 +363,23 @@
   `:servers` mentions the marker key literally."
   [{:key      :rf.mcp/overflow
     :schema   Overflow
-    :servers  #{:pair2-mcp :causa-mcp}                         ;; not :story-mcp
+    :servers  #{:pair2-mcp}                                    ;; not :story-mcp
     :fixtures {:pair2-mcp {:rf.mcp/overflow
                            {:limit       :reached
                             :token-count 12400
                             :cap-tokens  5000
                             :tool        "snapshot"
                             :hint        "Narrow scope: pass `path [:k1 :k2]` to slice ..."}}
-               :causa-mcp {:rf.mcp/overflow
-                           {:limit        :reached
-                            :cap          5000
-                            :would-be     12400
-                            :hint         :switch-mode
-                            :continuation {:cursor    "opaque-cursor-123"
-                                           :next-args {:mode :sample}}}}}}
+               :pair2-mcp-keyword-hint {:rf.mcp/overflow
+                                        {:limit       :reached
+                                         :token-count 12400
+                                         :cap-tokens  5000
+                                         :tool        "snapshot"
+                                         :hint        :narrow-scope}}}}
 
    {:key      :rf.mcp/summary
     :schema   Summary
-    :servers  #{:pair2-mcp :causa-mcp}
+    :servers  #{:pair2-mcp}
     :fixtures {:pair2-mcp-map     {:rf.mcp/summary
                                    {:type  :map
                                     :keys  [:user :cart :ui]
@@ -436,7 +407,11 @@
                                     :count            128
                                     :bytes            5000
                                     :keys-truncated?  true}}
-               :causa-mcp-map     {:rf.mcp/summary
+               ;; Per-key counts variant — schema permits :counts
+               ;; alongside :count; pinned with a pair2-shaped fixture
+               ;; so the alternate slot stays schema-validated even
+               ;; without a second server contributing one.
+               :pair2-mcp-counts  {:rf.mcp/summary
                                    {:type   :map
                                     :keys   [:cart :user :ui]
                                     :counts {:cart 47 :user 3 :ui 12}
@@ -444,22 +419,22 @@
 
    {:key      :rf.mcp/dedup-table
     :schema   DedupTable
-    :servers  #{:pair2-mcp :causa-mcp}
-    :fixtures {:pair2-mcp  {:rf.mcp/dedup-table
-                            {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
-                             :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
-               ;; causa-mcp's Principles uses integer-keyed example for
-               ;; brevity; both forms validate against the schema.
-               :causa-mcp  {:rf.mcp/dedup-table
-                            {1 {:event-id :foo :handler-id :bar}
-                             2 {:event-id :baz}}}}}
+    :servers  #{:pair2-mcp}
+    :fixtures {:pair2-mcp         {:rf.mcp/dedup-table
+                                   {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
+                                    :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
+               ;; Integer-keyed example variant — both forms validate
+               ;; against the schema; pinned to keep the alternate
+               ;; keying schema-validated even without a second server.
+               :pair2-mcp-integer {:rf.mcp/dedup-table
+                                   {1 {:event-id :foo :handler-id :bar}
+                                    2 {:event-id :baz}}}}}
 
    {:key      :rf.mcp/diff-from
     :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:patches :any]]
     ;; pair2-mcp specs / emits today. The schema and the marker are
     ;; reserved in the cross-MCP family per pair2-mcp Principles §
-    ;; \"Cross-MCP vocabulary\" — causa-mcp's spec mentions it via the
-    ;; same family but the example shape is pair2-mcp-owned.
+    ;; \"Cross-MCP vocabulary\".
     :servers  #{:pair2-mcp}
     :fixtures {:pair2-mcp {:rf.mcp/diff-from :db-before
                            :patches          [[[:cart :items] :assoc [{:sku "abc"}]]
@@ -467,13 +442,12 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; pair2-mcp emits today and
-    ;; causa-mcp's Principles cross-links the canonical shape from
-    ;; its §"Streaming over batch" trimmer. Two fixtures below
-    ;; represent two distinct emission shapes — schema/string vs
-    ;; schema/map-with-digest (the schema-driven nomination path is
-    ;; the only nomination path post Path-D / rf2-w3n5u).
-    :servers  #{:pair2-mcp :causa-mcp}
+    ;; Reserved by Conventions / spec; pair2-mcp emits today. Two
+    ;; fixtures below represent two distinct emission shapes —
+    ;; schema/string vs schema/map-with-digest (the schema-driven
+    ;; nomination path is the only nomination path post Path-D /
+    ;; rf2-w3n5u).
+    :servers  #{:pair2-mcp}
     :fixtures {:pair2-mcp-schema-string
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]
@@ -497,8 +471,7 @@
     ;; pair2-mcp emits today (rf2-3rt1f result-hash + rf2-36xod precheck
     ;; paths in `cache.cljs/cache-hit-payload`). The literal lives in
     ;; `mcp-base/vocab.cljc` as `cache-hit-key`, where every cross-MCP
-    ;; marker is canonicalised; causa-mcp's spec mentions the marker
-    ;; family but has no impl. Per rf2-i3ffz F-GAP-4.
+    ;; marker is canonicalised. Per rf2-i3ffz F-GAP-4.
     :servers  #{:pair2-mcp}
     :fixtures {:pair2-mcp-result-hash
                {:rf.mcp/cache-hit
@@ -517,9 +490,12 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture conformance — every authored fixture validates against the
-;; canonical schema for its marker. This is the primary cross-server
-;; assertion: pair2-mcp's and causa-mcp's fixture shapes BOTH conform
-;; to the same single schema.
+;; canonical schema for its marker. The primary conformance assertion:
+;; per-server fixture shapes all conform to the same single schema. With
+;; pair2-mcp as the sole live emitter today, per-marker fixture variants
+;; (e.g. `:counts` vs `:count`, integer vs namespaced-keyword keys) pin
+;; the schema's alternate shapes so a future second MCP server adopting
+;; them validates without surprise.
 ;; ---------------------------------------------------------------------------
 
 (deftest every-fixture-conforms-to-its-canonical-schema
@@ -532,10 +508,10 @@
                (me/humanize (m/explain schema fixture-value)))))))
 
 (deftest every-canonical-marker-has-at-least-two-fixtures
-  ;; Cross-server is at minimum a 2-fixture story (pair2 + causa, or
-  ;; pair2-A + pair2-B for shape variants like map-summary vs
-  ;; vector-summary). One fixture means \"only one server emits this\"
-  ;; — which we still allow when the :servers set is a singleton.
+  ;; Every marker MUST carry >=1 fixture; multi-server markers MUST
+  ;; carry >=2. Single-server today (all markers are pair2-mcp-only
+  ;; post rf2-bu21t), so the >=1 floor applies; the >=2 path stays
+  ;; live for any future MCP server adoption.
   (doseq [{:keys [key fixtures servers]} canonical-markers]
     (testing (str "marker " key " — fixture count")
       (let [n (count fixtures)]
@@ -552,14 +528,12 @@
   ;; `OverflowBody` schema marked every slot except `:limit` `{:optional
   ;; true}`, so an emit shaped as `{:rf.mcp/overflow {:limit :reached}}`
   ;; alone validated. That under-constrained the cross-server contract:
-  ;; an emit MUST carry either pair2-mcp's shape (`:cap-tokens` +
-  ;; `:token-count` + `:tool` + `:hint`) OR causa-mcp's shape (`:cap` +
-  ;; `:would-be` + `:hint` + optional `:continuation`). The schema now
-  ;; encodes both as a `[:or ...]` of required-field shapes; this gate
-  ;; pins the regression directly.
+  ;; an emit MUST carry pair2-mcp's shape (`:cap-tokens` + `:token-count`
+  ;; + `:tool` + `:hint`). The schema now requires every field; this
+  ;; gate pins the regression directly.
   (testing "empty body (only :limit :reached) fails validation"
     (is (not (m/validate Overflow {:rf.mcp/overflow {:limit :reached}}))
-        "Overflow schema must reject an emit with only :limit :reached — both pair2 and causa shapes require more fields."))
+        "Overflow schema must reject an emit with only :limit :reached — the pair2 shape requires more fields."))
   (testing "missing-required-pair2 fields fail validation"
     ;; pair2 shape lacks :token-count
     (is (not (m/validate Overflow
@@ -568,25 +542,7 @@
                            :tool       "snapshot"
                            :cap-tokens 5000
                            :hint       "..."}}))
-        "pair2-shape emit missing :token-count must fail"))
-  (testing "missing-required-causa fields fail validation"
-    ;; causa shape lacks :would-be
-    (is (not (m/validate Overflow
-                         {:rf.mcp/overflow
-                          {:limit :reached
-                           :cap   5000
-                           :hint  :switch-mode}}))
-        "causa-shape emit missing :would-be must fail"))
-  (testing "hybrid (cherry-picking fields across shapes) fails"
-    ;; Mixing pair2 :cap-tokens with causa :would-be — under-specified
-    ;; for both shapes; should not validate.
-    (is (not (m/validate Overflow
-                         {:rf.mcp/overflow
-                          {:limit      :reached
-                           :cap-tokens 5000
-                           :would-be   12400
-                           :hint       "..."}}))
-        "hybrid (cap-tokens + would-be) emit must fail")))
+        "pair2-shape emit missing :token-count must fail")))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in
@@ -632,11 +588,10 @@
   is the right invariant; emit-sites that import from vocab.cljc
   cannot drift independently of the canonical declaration.
 
-  causa-mcp has no `src/` today — the marker literals only appear in
-  its spec text. That's the doc-source gate's job; the emit-source set
-  is empty until impl lands."
+  story-mcp does not emit any cross-MCP markers today — its
+  `:servers` membership is empty in `canonical-markers`, so its
+  emit-source set is empty by construction."
   {:pair2-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
-   :causa-mcp []
    :story-mcp []})
 
 (def ^:private doc-source-files
@@ -647,9 +602,6 @@
   the emit broke."
   {:pair2-mcp ["tools/pair2-mcp/spec/Principles.md"
                "tools/pair2-mcp/spec/003-Tool-Catalogue.md"]
-   :causa-mcp ["tools/causa-mcp/spec/Principles.md"
-               "tools/causa-mcp/spec/004-Wire-Pipeline.md"
-               "tools/causa-mcp/spec/DESIGN-RATIONALE.md"]
    :story-mcp []})
 
 (def ^:private all-source-files
@@ -701,9 +653,9 @@
   ;;
   ;; story-mcp emits zero markers today — its servers entry is empty in
   ;; `canonical-markers/:servers`, so this loop never iterates over it.
-  ;; causa-mcp's emit-source set is empty until `tools/causa-mcp/src/`
-  ;; lands; the `is (seq emit-files)` assertion fires loud when it
-  ;; does, forcing the reviewer to extend `emit-source-files`.
+  ;; The doc-source fallback path (spec-text-only coverage for an MCP
+  ;; server whose impl hasn't landed) is retained for any future server
+  ;; adopted into the cross-MCP family before its `src/` ships.
   (doseq [{:keys [key servers]} canonical-markers
           server                servers]
     (testing (str "marker " key " literal in " server " emit-sources")
@@ -711,17 +663,14 @@
             emit-files (get emit-source-files server)
             doc-files  (get doc-source-files server)]
         ;; A server with zero emit-sources AND zero doc-sources is a
-        ;; gap — either impl-not-landed (causa-mcp before src/ lands;
-        ;; the `causa-mcp-impl-still-absent` deftest in the sibling
-        ;; namespaces covers that posture explicitly) or a missing
-        ;; catalogue entry the reviewer must add.
+        ;; gap — a missing catalogue entry the reviewer must add.
         (is (or (seq emit-files) (seq doc-files))
             (str "No emit-sources or doc-sources registered for "
                  server " — extend `emit-source-files` or "
                  "`doc-source-files`."))
         (cond
-          ;; pair2-mcp / impl-landed path: emit-sources MUST carry the
-          ;; literal as data after comment/string stripping.
+          ;; impl-landed path: emit-sources MUST carry the literal as
+          ;; data after comment/string stripping.
           (seq emit-files)
           (is (some (fn [rel]
                       (let [stripped (fx/strip-comments-and-strings
@@ -734,8 +683,8 @@
                    "If the canonical declaration moved, update "
                    "`emit-source-files`."))
 
-          ;; causa-mcp / impl-not-landed path: spec-text coverage only.
-          ;; Doc-sources are the looser pin — raw `str/includes?`.
+          ;; impl-not-landed path: spec-text coverage only. Doc-sources
+          ;; are the looser pin — raw `str/includes?`.
           :else
           (is (some (fn [rel]
                       (str/includes? (fx/read-source rel) literal))
@@ -1011,7 +960,6 @@
   in detail by `indicator_field_test.clj`; this gate just asserts the
   two literals appear in the canonical helper location."
   {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs"]
-   :causa-mcp []          ;; impl not landed; spec mentions don't count
    :story-mcp []})        ;; doesn't walk tree-typed payloads today
 
 (deftest envelope-slot-parity-in-pair2-mcp

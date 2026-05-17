@@ -56,7 +56,6 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:pair2-live-overflow-hermetic` | Hermetic live overflow — boots shadow-cljs against the `skills/re-frame-pair2/tests/fixture/` counter and runs the live path with a real over-budget eval. Catches cap-trigger threshold drift, marker shape regressions, and SDK strict-schema rejection. |
 | `npm run test:pair2-live-subscribe` | Live-runtime subscribe/unsubscribe conformance. Gated on `$SHADOW_CLJS_NREPL_PORT`. |
 | `npm run test:story` | End-to-end story-mcp MCP-client conformance. |
-| `npm run test:causa` | End-to-end causa-mcp conformance — placeholder (SKIP) until the server implementation lands. |
 | `npm run test:exec-safety` | Unit tests for the trusted-PATH-resolution and symlink-safe-unlink helpers shared with the hermetic orchestrator. |
 
 ### `tools/pair2-mcp/package.json` (run from `tools/pair2-mcp/`)
@@ -151,9 +150,9 @@ into the matrix as `skipping` entries — runner-minute-free, but
 they consume API quota, force branch-protection bookkeeping, and
 clutter the PR-checks UI. rf2-os0c1 split four such over-firing rules:
 `tools/template/*` no longer fires `tools_jvm` (template doesn't share
-runtime with the per-tool JVM probes); `tools/story-mcp/*` and
-`tools/causa-mcp/*` no longer fire `story_causa_browser` (MCP wrappers
-don't run in a browser); `tools/mcp-conformance/*` no longer fires
+runtime with the per-tool JVM probes); `tools/story-mcp/*` no longer
+fires `story_causa_browser` (MCP wrappers don't run in a browser);
+`tools/mcp-conformance/*` no longer fires
 `tools_jvm` (its wire-vocab JVM tests already run under
 `mcp-conformance-wire-vocab`, which is gated by `mcp_conformance`).
 
@@ -199,7 +198,7 @@ must re-run the matrix).
 | S9 | `testbeds/*` |   |   | ✓ |   |   |   | ✓ |   |   |   |   |   |   |
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
 | S11 | `tools/story/*`, `tools/causa/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
-| S12 | `tools/story-mcp/*`, `tools/causa-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
+| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
 | S13 | `tools/pair2-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
 | S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
 | S15 | `skills/re-frame-pair2/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
@@ -220,7 +219,7 @@ PR time; one row per output here so the table stays scannable).
 | `examples_browser` | `examples-browser` (Playwright, testbeds + examples) |
 | `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
-| `mcp_conformance` | MCP conformance ×5 (`mcp-conformance-{story,causa,pair2,wire-vocab,...}`) |
+| `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,pair2,wire-vocab,...}`) |
 | `mcp_live` | `mcp-conformance-pair2` (live + hermetic) |
 | `story_causa_browser` | `story-causa-browser` (feature gates, Playwright) |
 | `skills_structural` | `skills-structural` |
@@ -237,7 +236,6 @@ actually does today:
 |---|---|---|
 | Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the examples-browser job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
 | `tools/causa` JVM probe | `jvm-tools-causa` | Causa ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/causa/test` as a source path). |
-| `tools/causa-mcp` MCP conformance | `mcp-conformance-causa` | The causa-mcp server hasn't landed yet (`tools/causa-mcp` is spec-only). `npm run test:causa` (under `tools/mcp-conformance/`) exits 0 with a `SKIP` marker so the placeholder doesn't go stale. Replace `test/end-to-end-causa.cjs` wholesale when the impl lands. |
 | Pair2 live-overflow without nREPL | `mcp-conformance-pair2` — step `Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:pair2-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:pair2-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame-pair2/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
 
 Do not treat a skip-ok diagnostic as evidence that the underlying behaviour was

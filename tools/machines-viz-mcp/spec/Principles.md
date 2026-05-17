@@ -10,11 +10,9 @@ These are downstream of the framework's
 Machines-Viz [Principles](../../machines-viz/spec/Principles.md)
 (Machines-Viz-MCP is Machines-Viz's agent face — the upstream
 principles apply transitively), and of the sibling
-[Causa-MCP Principles](../../causa-mcp/spec/Principles.md) +
 [Pair2-MCP Principles](../../pair2-mcp/spec/Principles.md) (the
-two MCP servers whose architecture template this artefact
-inherits). The principles below are what **Machines-Viz-MCP adds**
-on top.
+MCP-server architecture template this artefact inherits). The
+principles below are what **Machines-Viz-MCP adds** on top.
 
 ## Tool consumes the framework; doesn't extend it
 
@@ -155,6 +153,5 @@ Story, downstream forwarders). Same convention pair2-mcp uses
 
 ## See also
 
-- [Causa-MCP Principles](../../causa-mcp/spec/Principles.md) — the closest sibling; the principles above mirror its shape.
-- [Pair2-MCP Principles](../../pair2-mcp/spec/Principles.md) — the original MCP-server template.
+- [Pair2-MCP Principles](../../pair2-mcp/spec/Principles.md) — the sibling MCP-server template; the principles above mirror its shape.
 - [Machines-Viz Principles](../../machines-viz/spec/Principles.md) — the upstream component's tie-breakers (bundle isolation, EDN-first wire, observation-only, embedding-host-agnostic, no session data in shares, read-only by default).

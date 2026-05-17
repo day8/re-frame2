@@ -22,8 +22,6 @@ The trust boundary is the MCP stdio channel. Every rule below gates
 **what crosses that channel by default**, and every opt-in escape
 hatch is **off by default** — a tool that omits the opts gets the
 safe posture. Cross-server slot names match
-[`tools/causa-mcp/spec/004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md)
-and
 [`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
 so an agent that learned the vocabulary on a sibling server
 recognises it here verbatim.
@@ -226,7 +224,6 @@ are MUST-level on the implementation pass.
 - [`spec/Conventions.md` §Cross-MCP indicator-field vocabulary](../../../spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters) — `:dropped-sensitive` / `:elided-large` slot reservation.
 - [`tools/machines-viz/spec/API.md` §Share-URL payload schema](../../machines-viz/spec/API.md#share-url-payload-schema) — the tightened upstream schema this server inherits.
 - [`tools/machines-viz/spec/Principles.md` §No session data in shares](../../machines-viz/spec/Principles.md) — the upstream exclusion policy.
-- [`tools/causa-mcp/spec/004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md) — sibling MCP server's wire pipeline; the wording above aligns deliberately so cross-server symmetry holds.
 - [`tools/mcp-base/src/re_frame/mcp_base/sensitive.cljc`](../../mcp-base/src/re_frame/mcp_base/sensitive.cljc) — the shared default-drop helper (`strip-sensitive`, `scrub-snapshot`).
 - [`tools/mcp-base/src/re_frame/mcp_base/elision.cljc`](../../mcp-base/src/re_frame/mcp_base/elision.cljc) — the shared indicator-count helper (`count-elided-markers`).
 - [`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/snapshot.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools/snapshot.cljs) — reference implementation for the eval-form composition.

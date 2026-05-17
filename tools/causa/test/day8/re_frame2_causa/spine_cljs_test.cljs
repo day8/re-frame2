@@ -1,0 +1,405 @@
+(ns day8.re-frame2-causa.spine-cljs-test
+  "Direct CLJS coverage for the spine substrate (rf2-adve5) — pure-
+  reducer + sub composition + the legacy-slot shim contract.
+
+  Per `tools/causa/spec/018-Event-Spine.md` §6 Spine binding the spine
+  sub `:rf.causa/focus` is the one axis every dependent surface reads
+  from. This file asserts:
+
+  1. The pure reducers (`focus-cascade-reducer`, `follow-head-reducer`,
+     `toggle-live-pause-reducer`, `set-frame-reducer`, `focus-step-
+     reducer`, `preview-cascade-reducer`) — JVM-runnable shape, no
+     re-frame machinery needed.
+  2. `compose-focus` derives `:head?` + the effective `:dispatch-id`
+     correctly across LIVE / RETRO / paused / evicted-cascade states.
+  3. The legacy shim — `:rf.causa/select-dispatch-id` writes through
+     to `:focus`, and `:rf.causa/focus-cascade` writes through to the
+     legacy `:selected-dispatch-id` slot. Existing panels continue to
+     read the legacy slot; new spine consumers read `:rf.causa/focus`.
+  4. The registered sub composes the slot + cascades via the standard
+     re-frame reactive path."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.preload :as preload]
+            [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.trace-bus :as trace-bus]))
+
+;; ---- fixtures -----------------------------------------------------------
+
+(defn- causa-init! []
+  (preload/reset-for-test!)
+  (registry/reset-for-test!)
+  (trace-bus/clear-buffer!))
+
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn causa-init!}))
+
+(defn- setup-causa-frame! []
+  (registry/register-causa-handlers!)
+  (frame/reg-frame :rf/causa {}))
+
+;; ---- cascade fixture ----------------------------------------------------
+
+(defn- cascade
+  "Build a minimal cascade shape — enough for the spine helpers'
+  by-id lookups + head detection. Per
+  `re-frame.trace.projection/group-cascades` cascades carry at least
+  `:dispatch-id` and `:frame`; tests of the spine module don't need
+  the full domino shape, just the identifier slots."
+  [dispatch-id frame-id]
+  {:dispatch-id dispatch-id
+   :frame       frame-id
+   :event       nil
+   :handler     nil
+   :fx          nil
+   :effects     []
+   :subs        []
+   :renders     []
+   :other       []})
+
+(def ^:private fixture-cascades
+  "Three-cascade fixture; oldest-first per group-cascades' contract.
+  c3 is the head."
+  [(cascade :c1 :rf/default)
+   (cascade :c2 :rf/default)
+   (cascade :c3 :rf/default)])
+
+;; -------------------------------------------------------------------------
+;; (1) Pure helpers — head / by-id / step
+;; -------------------------------------------------------------------------
+
+(deftest head-cascade-returns-last-entry
+  (is (= (last fixture-cascades) (spine/head-cascade fixture-cascades)))
+  (is (nil? (spine/head-cascade []))
+      "empty cascade vector → nil head"))
+
+(deftest head-dispatch-id-returns-last-id
+  (is (= :c3 (spine/head-dispatch-id fixture-cascades)))
+  (is (nil? (spine/head-dispatch-id []))))
+
+(deftest cascade-by-id-finds-existing
+  (is (= (nth fixture-cascades 1)
+         (spine/cascade-by-id fixture-cascades :c2)))
+  (is (nil? (spine/cascade-by-id fixture-cascades :nonexistent)))
+  (is (nil? (spine/cascade-by-id fixture-cascades nil))
+      "nil id → nil match"))
+
+(deftest step-dispatch-id-prev-stays-bounded
+  (testing "stepping prev from c2 → c1; from c1 → c1 (bounded)"
+    (is (= :c1 (spine/step-dispatch-id fixture-cascades :c2 -1)))
+    (is (= :c1 (spine/step-dispatch-id fixture-cascades :c1 -1)))))
+
+(deftest step-dispatch-id-next-stays-bounded
+  (testing "stepping next from c2 → c3; from c3 → c3 (bounded)"
+    (is (= :c3 (spine/step-dispatch-id fixture-cascades :c2 +1)))
+    (is (= :c3 (spine/step-dispatch-id fixture-cascades :c3 +1)))))
+
+(deftest step-from-nil-starts-at-head
+  (testing "nil current-id (no focus yet) → step from head"
+    (is (= :c2 (spine/step-dispatch-id fixture-cascades nil -1))
+        "prev from head → c2")
+    (is (= :c3 (spine/step-dispatch-id fixture-cascades nil +1))
+        "next from head → c3 (bounded at head)")))
+
+(deftest step-from-evicted-starts-at-head
+  (testing "an evicted current-id (not in cascades) → step from head"
+    (is (= :c2 (spine/step-dispatch-id fixture-cascades :gone -1))
+        "evicted id → step from head")))
+
+(deftest step-on-empty-cascade-vector-returns-nil
+  (is (nil? (spine/step-dispatch-id [] :c1 +1)))
+  (is (nil? (spine/step-dispatch-id [] nil -1))))
+
+;; -------------------------------------------------------------------------
+;; (2) compose-focus — :head? + effective :dispatch-id derivation
+;; -------------------------------------------------------------------------
+
+(deftest compose-focus-empty-slot-defaults-to-live-at-head
+  (testing "empty :focus slot with cascades → :live :dispatch-id at head"
+    (let [r (spine/compose-focus nil fixture-cascades)]
+      (is (= :c3 (:dispatch-id r))
+          "no slot → snap to head")
+      (is (= :live (:mode r)))
+      (is (true? (:head? r))))))
+
+(deftest compose-focus-live-with-stale-id-snaps-head
+  (testing ":live mode + stored id that no longer exists → snap to head"
+    (let [r (spine/compose-focus {:dispatch-id :gone :mode :live}
+                                 fixture-cascades)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (true? (:head? r))))))
+
+(deftest compose-focus-retro-preserves-stored-id
+  (testing ":retro mode preserves the stored id even if not the head"
+    (let [r (spine/compose-focus {:dispatch-id :c1 :mode :retro}
+                                 fixture-cascades)]
+      (is (= :c1 (:dispatch-id r)))
+      (is (= :retro (:mode r)))
+      (is (false? (:head? r))))))
+
+(deftest compose-focus-empty-cascades-snaps-nil
+  (testing "no cascades yet → nil :dispatch-id, :head? true (vacuously)"
+    (let [r (spine/compose-focus nil [])]
+      (is (nil? (:dispatch-id r)))
+      (is (true? (:head? r))))))
+
+(deftest compose-focus-derives-frame-from-cascade
+  (testing ":frame derives from the focused cascade — overrides any
+            stored slot frame so retro selections track the cascade
+            they pin to"
+    (let [r (spine/compose-focus {:dispatch-id :c2 :mode :retro
+                                  :frame :stale-frame}
+                                 fixture-cascades)]
+      (is (= :rf/default (:frame r))
+          "frame comes from the cascade record, not the stored slot"))))
+
+(deftest compose-focus-paused-flag-rides-through
+  (let [r (spine/compose-focus {:dispatch-id nil :mode :live :paused? true}
+                               fixture-cascades)]
+    (is (true? (:paused? r)))
+    (is (= :live (:mode r)))
+    (is (true? (:head? r)))))
+
+(deftest compose-focus-previewing-flag-rides-through
+  (let [r (spine/compose-focus {:dispatch-id :c2 :mode :retro
+                                :previewing? true}
+                               fixture-cascades)]
+    (is (true? (:previewing? r)))))
+
+;; -------------------------------------------------------------------------
+;; (3) focus-cascade-reducer — writes :focus + legacy shim
+;; -------------------------------------------------------------------------
+
+(deftest focus-cascade-reducer-writes-focus-slot
+  (let [db {}
+        r  (spine/focus-cascade-reducer db :c2 :rf/default)]
+    (is (= :c2 (get-in r [:focus :dispatch-id])))
+    (is (= :retro (get-in r [:focus :mode])))
+    (is (= :rf/default (get-in r [:focus :frame])))))
+
+(deftest focus-cascade-reducer-writes-legacy-shim
+  (testing "the legacy :selected-dispatch-id + :selected-dispatch slots
+            update in lockstep so existing event-detail / causality /
+            machine-inspector panels keep rendering"
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
+      (is (= :c2 (:selected-dispatch-id r)))
+      (is (= {:dispatch-id :c2 :frame :rf/default}
+             (:selected-dispatch r))))))
+
+(deftest focus-cascade-reducer-without-frame-omits-frame
+  (let [r (spine/focus-cascade-reducer {} :c2 nil)]
+    (is (= :c2 (get-in r [:focus :dispatch-id])))
+    (is (= :c2 (:selected-dispatch-id r)))
+    (is (= {:dispatch-id :c2} (:selected-dispatch r))
+        "no :frame key when frame-id was nil")))
+
+;; -------------------------------------------------------------------------
+;; (4) focus-step-reducer — prev/next stepping
+;; -------------------------------------------------------------------------
+
+(deftest focus-step-reducer-prev-flips-to-retro
+  (let [db {:focus {:dispatch-id :c3 :mode :live} :selected-dispatch-id :c3}
+        r  (spine/focus-step-reducer db fixture-cascades -1)]
+    (is (= :c2 (get-in r [:focus :dispatch-id])))
+    (is (= :retro (get-in r [:focus :mode])))
+    (is (= :c2 (:selected-dispatch-id r))
+        "legacy shim updated alongside")))
+
+(deftest focus-step-reducer-next-returns-to-head-as-live
+  (let [db {:focus {:dispatch-id :c2 :mode :retro} :selected-dispatch-id :c2}
+        r  (spine/focus-step-reducer db fixture-cascades +1)]
+    (is (= :c3 (get-in r [:focus :dispatch-id])))
+    (is (= :live (get-in r [:focus :mode]))
+        "stepping back to head implicitly re-engages LIVE")))
+
+(deftest focus-step-reducer-from-empty-slot-uses-legacy
+  (let [db {:selected-dispatch-id :c2}
+        r  (spine/focus-step-reducer db fixture-cascades -1)]
+    (is (= :c1 (get-in r [:focus :dispatch-id]))
+        "stepping reads current-id from legacy when :focus is empty")))
+
+;; -------------------------------------------------------------------------
+;; (5) follow-head-reducer
+;; -------------------------------------------------------------------------
+
+(deftest follow-head-reducer-snaps-to-live
+  (let [db {:focus {:dispatch-id :c1 :mode :retro :paused? true}
+            :selected-dispatch-id :c1
+            :selected-dispatch    {:dispatch-id :c1}}
+        r  (spine/follow-head-reducer db)]
+    (is (nil? (get-in r [:focus :dispatch-id]))
+        "follow-head clears :dispatch-id so compose-focus snaps to head")
+    (is (= :live (get-in r [:focus :mode])))
+    (is (false? (get-in r [:focus :paused?])))
+    (is (nil? (:selected-dispatch-id r))
+        "legacy slots cleared in lockstep")
+    (is (nil? (:selected-dispatch r)))))
+
+;; -------------------------------------------------------------------------
+;; (6) toggle-live-pause-reducer
+;; -------------------------------------------------------------------------
+
+(deftest toggle-live-pause-reducer-flips-paused
+  (let [db {:focus {:mode :live :paused? false}}
+        r  (spine/toggle-live-pause-reducer db)]
+    (is (true? (get-in r [:focus :paused?])))
+    (let [r2 (spine/toggle-live-pause-reducer r)]
+      (is (false? (get-in r2 [:focus :paused?]))
+          "second toggle reverses"))))
+
+(deftest toggle-live-pause-reducer-noop-in-retro
+  (testing "in :retro, toggle-live-pause is a no-op — Space has no
+            meaning when the user has pinned an older row"
+    (let [db {:focus {:mode :retro :paused? false} :selected-dispatch-id :c1}
+          r  (spine/toggle-live-pause-reducer db)]
+      (is (= db r) "db unchanged"))))
+
+;; -------------------------------------------------------------------------
+;; (7) set-frame-reducer + preview-cascade-reducer
+;; -------------------------------------------------------------------------
+
+(deftest set-frame-reducer-clears-dispatch-id
+  (let [db {:focus {:dispatch-id :c2 :frame :rf/default :mode :retro}}
+        r  (spine/set-frame-reducer db :app/dialog)]
+    (is (= :app/dialog (get-in r [:focus :frame])))
+    (is (nil? (get-in r [:focus :dispatch-id]))
+        "frame switch snaps to new frame's head")
+    (is (= :live (get-in r [:focus :mode])))))
+
+(deftest preview-cascade-reducer-sets-previewing-true
+  (let [db {}
+        r  (spine/preview-cascade-reducer db :c2)]
+    (is (true? (get-in r [:focus :previewing?])))
+    (is (= :c2 (get-in r [:focus :dispatch-id])))))
+
+(deftest preview-cascade-reducer-nil-clears-preview
+  (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
+        r  (spine/preview-cascade-reducer db nil)]
+    (is (false? (get-in r [:focus :previewing?])))
+    (is (= :c1 (get-in r [:focus :dispatch-id]))
+        "committed selection survives preview-clear")))
+
+;; -------------------------------------------------------------------------
+;; (8) Registered :rf.causa/focus sub — reactive composition
+;; -------------------------------------------------------------------------
+
+(defn- focus-sub []
+  (rf/with-frame :rf/causa
+    @(rf/subscribe [:rf.causa/focus])))
+
+(defn- seed-cascades! [cascades-vec]
+  ;; Build a minimal trace-buffer that re-projects to the desired
+  ;; cascade vector. Each cascade needs one trace event carrying the
+  ;; cascade's id so group-cascades' frame-index pairs the right
+  ;; events. The simplest shape: one :event/dispatched per cascade.
+  (let [events (map-indexed
+                 (fn [i {:keys [dispatch-id frame]}]
+                   {:id        (inc i)
+                    :op-type   :event
+                    :operation :event/dispatched
+                    :tags      {:dispatch-id dispatch-id
+                                :frame       frame
+                                :event       [(keyword "evt" (str (name dispatch-id)))]}})
+                 cascades-vec)]
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-trace-buffer (vec events)]))))
+
+(deftest focus-sub-returns-default-shape-on-empty-buffer
+  (setup-causa-frame!)
+  (let [r (focus-sub)]
+    (is (= :live (:mode r))
+        "empty buffer → :live (head-tracking)")
+    (is (nil? (:dispatch-id r)))
+    (is (true? (:head? r)))))
+
+(deftest focus-sub-snaps-to-head-on-empty-slot
+  (setup-causa-frame!)
+  (seed-cascades! fixture-cascades)
+  (let [r (focus-sub)]
+    (is (= :c3 (:dispatch-id r))
+        "empty :focus slot → :live → snap to head c3")
+    (is (true? (:head? r)))))
+
+(deftest focus-sub-preserves-retro-selection
+  (setup-causa-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default]))
+  (let [r (focus-sub)]
+    (is (= :c1 (:dispatch-id r)))
+    (is (= :retro (:mode r)))
+    (is (false? (:head? r)))))
+
+(deftest focus-sub-shimmed-by-legacy-select-dispatch-id
+  (testing "dispatching the legacy :rf.causa/select-dispatch-id writes
+            through to the spine — proves the shim runs in BOTH
+            directions (legacy event → spine sub)"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id :c2 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c2 (:dispatch-id r))
+          "spine focus tracks the legacy selection event")
+      (is (= :retro (:mode r))))))
+
+(deftest legacy-selected-dispatch-id-shimmed-by-focus-cascade
+  (testing "dispatching the new :rf.causa/focus-cascade writes
+            through to the legacy slot — existing event-detail panel
+            keeps reading :selected-dispatch-id unchanged"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c2 :rf/default]))
+    (let [legacy (rf/with-frame :rf/causa
+                   @(rf/subscribe [:rf.causa/selected-dispatch-id]))]
+      (is (= :c2 legacy)
+          "legacy sub rebinds because the focus-cascade event also
+           wrote the legacy slot"))))
+
+(deftest focus-sub-step-events-walk-cascades
+  (setup-causa-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/focus-cascade :c3 :rf/default])
+    (rf/dispatch-sync [:rf.causa/focus-cascade-prev]))
+  (let [r (focus-sub)]
+    (is (= :c2 (:dispatch-id r)) "prev steps from c3 to c2")
+    (is (= :retro (:mode r))))
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/focus-cascade-prev]))
+  (let [r (focus-sub)]
+    (is (= :c1 (:dispatch-id r)) "prev again → c1"))
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/focus-cascade-next])
+    (rf/dispatch-sync [:rf.causa/focus-cascade-next]))
+  (let [r (focus-sub)]
+    (is (= :c3 (:dispatch-id r)) "two nexts → back to head")
+    (is (= :live (:mode r))
+        "stepping back to head re-engages LIVE")))
+
+(deftest follow-head-event-resnaps-to-head
+  (setup-causa-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default])
+    (rf/dispatch-sync [:rf.causa/follow-head]))
+  (let [r (focus-sub)]
+    (is (= :c3 (:dispatch-id r)) "follow-head snaps back to head c3")
+    (is (= :live (:mode r)))
+    (is (true? (:head? r)))))
+
+(deftest toggle-live-pause-event-flips-paused
+  (setup-causa-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/toggle-live-pause]))
+  (let [r (focus-sub)]
+    (is (true? (:paused? r)))
+    (is (= :live (:mode r)))))

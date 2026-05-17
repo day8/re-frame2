@@ -161,13 +161,6 @@ MAPPINGS: list[Mapping] = [
             "unregister-variant",
         }),
     ),
-    Mapping(
-        name="causa-mcp <-> <tbd>",
-        server_src=(REPO_ROOT / "tools" / "causa-mcp" / "src" / "re_frame" / "causa_mcp" / "tools.cljc",),
-        host_prefix="causa",
-        skill_md=REPO_ROOT / "skills" / "causa" / "SKILL.md",
-        optional=True,  # spec-only artefact; src/ doesn't exist yet.
-    ),
 ]
 
 # Pre-existing drift the gate accepts as the shipped baseline. Entries are
