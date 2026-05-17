@@ -17,7 +17,15 @@
   1024)
 
 (defn format-edn
-  "Best-effort EDN-like format."
+  "Best-effort EDN-like format. Used by the App-DB Diff panel's
+  list-row labels (reserved-row, pinned-row, focus-result-row, slice
+  path heading) where row density rules per `tools/causa/spec/018-Event-Spine.md`
+  §5 — short labels stay one-line `pr-str` for scan-ability.
+
+  L4 detail-tab VALUE displays go through
+  `day8.re-frame2-causa.theme.data-inspector/inspect` (rf2-x9fzk) for
+  the cljs-devtools-shaped renderer; only short labels / paths come
+  through here."
   [v]
   (try
     (pr-str v)

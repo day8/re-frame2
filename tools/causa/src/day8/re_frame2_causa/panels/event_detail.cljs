@@ -50,7 +50,8 @@
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
+            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]
+            [day8.re-frame2-causa.theme.data-inspector :as inspector]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -140,7 +141,8 @@
   [event-vec handler-coord]
   [domino-row {:label "event" :tone :accent-violet}
    [:div
-    [:div {:style {:font-weight 600}} (format-edn event-vec)]
+    [:div {:style {:font-weight 600}}
+     (inspector/inspect event-vec "event-detail/event")]
     (when handler-coord
       [:div {:style {:font-family   mono-stack
                      :font-size     "11px"
@@ -196,7 +198,8 @@
       [:div {:style {:display     "flex"
                      :align-items "center"
                      :flex-wrap   "wrap"}}
-       [:span (format-edn (select-keys (:tags ev) [:phase :duration-ms]))]
+       [:span (inspector/inspect (select-keys (:tags ev) [:phase :duration-ms])
+                                 "event-detail/handler-tags")]
        (tier-dot duration-ms)]
       (coord-line ev)]]))
 
@@ -206,7 +209,7 @@
   [ev]
   [domino-row {:label "fx" :tone :cyan}
    [:div
-    [:div (format-edn (:tags ev))]
+    [:div (inspector/inspect (:tags ev) "event-detail/fx-tags")]
     (coord-line ev)]])
 
 (defn- effects-row
@@ -253,7 +256,8 @@
              ^{:key (:id ev)}
              [:div {:style {:padding "2px 0"
                             :color   (:text-primary tokens)}}
-              (format-edn (get-in ev [:tags :render-key]))])))])
+              (inspector/inspect (get-in ev [:tags :render-key])
+                                 (str "event-detail/render/" (:id ev)))])))])
 
 (defn- other-row
   "Spec 009 §`:op-type` vocabulary calls out non-domino traces (errors,
