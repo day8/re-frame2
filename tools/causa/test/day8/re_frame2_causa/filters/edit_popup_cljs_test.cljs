@@ -269,3 +269,66 @@
   (let [filters (frame-sub [:rf.causa/active-filters])]
     (is (= [{:pattern :mouse-move}] (:out filters)))
     (is (= [] (:in filters)))))
+
+;; -------------------------------------------------------------------------
+;; (8) Modal positioning (rf2-om6fa)
+;; -------------------------------------------------------------------------
+
+(declare expand-tree)
+
+(defn- expand-tree
+  [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)))
+    (expand-tree (apply (first tree) (rest tree)))
+
+    (vector? tree)
+    (mapv expand-tree tree)
+
+    (seq? tree)
+    (map expand-tree tree)
+
+    :else
+    tree))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (tree-seq (some-fn vector? seq?) seq (expand-tree tree))))
+
+(deftest backdrop-defaults-to-fixed-positioning
+  (testing "with no :rf.causa/modal-positioning slot set, the edit
+            popup backdrop renders position: fixed at the production
+            z-index"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    (rf/with-frame :rf/causa
+      (let [rendered (filters/Modal)
+            backdrop (find-by-testid rendered "rf-causa-edit-popup-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "fixed" (:position style)))
+        (is (= 2147483647 (:z-index style))
+            "production z-index unchanged — one above the palette")
+        (is (= "fixed"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+(deftest backdrop-honours-absolute-positioning
+  (testing "after `:rf.causa/set-modal-positioning :absolute` the
+            backdrop switches to position: absolute"
+    (causa-setup!)
+    (frame-dispatch [:rf.causa/open-edit-popup {:source :add :mode :in}])
+    (frame-dispatch [:rf.causa/set-modal-positioning :absolute])
+    (rf/with-frame :rf/causa
+      (let [rendered (filters/Modal)
+            backdrop (find-by-testid rendered "rf-causa-edit-popup-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "absolute" (:position style)))
+        (is (< (:z-index style) 1000)
+            "z-index drops to a sane in-cell value")
+        (is (= "absolute"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))

@@ -249,3 +249,41 @@
       (let [tree (popover/Popover)]
         (is (some? (find-by-testid tree "rf-causa-popover-empty"))
             "the empty-state surface renders inside the body slot")))))
+
+;; ---- Modal positioning (rf2-om6fa) -------------------------------------
+
+(deftest backdrop-defaults-to-fixed-positioning
+  (testing "with no :rf.causa/modal-positioning slot set, the
+            causality popover backdrop renders position: fixed at the
+            production z-index"
+    (setup!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/causality-popover-open]))
+    (rf/with-frame :rf/causa
+      (let [tree     (popover/Popover)
+            backdrop (find-by-testid tree "rf-causa-popover-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "fixed" (:position style)))
+        (is (= 2147483645 (:z-index style)))
+        (is (= "fixed"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+(deftest backdrop-honours-absolute-positioning
+  (testing "after `:rf.causa/set-modal-positioning :absolute` the
+            causality backdrop switches to position: absolute with a
+            sane in-cell z-index"
+    (setup!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/causality-popover-open])
+      (rf/dispatch-sync [:rf.causa/set-modal-positioning :absolute]))
+    (rf/with-frame :rf/causa
+      (let [tree     (popover/Popover)
+            backdrop (find-by-testid tree "rf-causa-popover-backdrop")
+            style    (:style (second backdrop))]
+        (is (some? backdrop))
+        (is (= "absolute" (:position style)))
+        (is (< (:z-index style) 1000)
+            "z-index drops to a sane in-cell value")
+        (is (= "absolute"
+               (:data-rf-causa-modal-positioning (second backdrop))))))))

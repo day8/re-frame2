@@ -152,6 +152,32 @@
       (fn [db _query]
         (get db :selected-tab :event)))
 
+    ;; ---- Modal positioning (rf2-om6fa) ----
+    ;;
+    ;; Every Causa modal (Settings popup, auto-filter edit popup,
+    ;; Causality popover, Share modal, Cancellation cascade popover)
+    ;; defaults to `position: fixed; inset: 0; z-index: 2_147_483_64x`
+    ;; — the right shape for production where the shell covers the
+    ;; host app. In a Story testbed where multiple shell instances
+    ;; render side-by-side in workspace cells, that geometry escapes
+    ;; the cell and paints over the whole Story shell ("popup kills
+    ;; window"). Story testbeds pass `:modal-positioning :absolute`
+    ;; on `shell-view` so each cell's modals stay inside the cell.
+    ;;
+    ;; The opt lands here in app-db so every modal can read it via
+    ;; one sub regardless of where in the tree it mounts (popovers
+    ;; opened from keybindings, modals opened from imperative
+    ;; dispatches, etc.). Default `:fixed` preserves production
+    ;; behaviour; `:absolute` is the testbed-scoped containment mode.
+    (rf/reg-sub :rf.causa/modal-positioning
+      (fn [db _query]
+        (get db :modal-positioning :fixed)))
+
+    (rf/reg-event-db :rf.causa/set-modal-positioning
+      {:rf.trace/no-emit? true}
+      (fn [db [_ positioning]]
+        (assoc db :modal-positioning (or positioning :fixed))))
+
     ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
     ;;
     ;; The ribbon's filter cluster reads `:rf.causa/active-filters` —

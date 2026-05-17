@@ -38,18 +38,25 @@
              :refer [tokens sans-stack mono-stack type-scale]]))
 
 ;; ---- styles --------------------------------------------------------------
+;;
+;; Backdrop honours `:rf.causa/modal-positioning` (rf2-om6fa).
+;; `:fixed` (production default) — full-viewport 15% dim per spec §10.
+;; `:absolute` (Story testbeds) — backdrop confined to the shell
+;; cell with a sane in-cell z-index so workspace cells don't paint
+;; over each other.
 
-(defn- backdrop-style []
-  {:position         "fixed"
-   :top              0
-   :left             0
-   :right            0
-   :bottom           0
-   :background       "rgba(0,0,0,0.15)"     ; spec §10 — 15% dim
-   :display          "flex"
-   :align-items      "center"
-   :justify-content  "center"
-   :z-index          2147483645})
+(defn- backdrop-style [positioning]
+  (let [absolute? (= positioning :absolute)]
+    {:position         (if absolute? "absolute" "fixed")
+     :top              0
+     :left             0
+     :right            0
+     :bottom           0
+     :background       "rgba(0,0,0,0.15)"     ; spec §10 — 15% dim
+     :display          "flex"
+     :align-items      "center"
+     :justify-content  "center"
+     :z-index          (if absolute? 99 2147483645)}))
 
 (defn- dialog-style []
   {:width            "640px"      ; spec §10 — default 640×480
@@ -166,13 +173,15 @@
   "The hiccup for the open popover. Caller has gated on
   `:rf.causa/causality-popover-open?` already."
   []
-  (let [payload @(rf/subscribe [:rf.causa/causality-popover-payload])
-        layout  @(rf/subscribe [:rf.causa/causality-popover-layout])]
+  (let [payload     @(rf/subscribe [:rf.causa/causality-popover-payload])
+        layout      @(rf/subscribe [:rf.causa/causality-popover-layout])
+        positioning @(rf/subscribe [:rf.causa/modal-positioning])]
     [:div {:data-testid "rf-causa-popover-backdrop"
+           :data-rf-causa-modal-positioning (name (or positioning :fixed))
            :on-click    #(rf/dispatch [:rf.causa/causality-popover-close])
            :on-key-down handle-popover-keydown
            :tab-index   -1
-           :style       (backdrop-style)}
+           :style       (backdrop-style positioning)}
      [:div {:data-testid "rf-causa-popover-dialog"
             :data-rf-causa-mode "popover"
             :on-click    #(.stopPropagation %)

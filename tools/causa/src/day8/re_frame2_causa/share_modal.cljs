@@ -25,19 +25,25 @@
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- view helpers -------------------------------------------------------
+;;
+;; Backdrop honours `:rf.causa/modal-positioning` (rf2-om6fa).
+;; `:fixed` (production default) — full-viewport overlay. `:absolute`
+;; (Story testbeds) — backdrop confined to the shell cell with a
+;; sane in-cell z-index.
 
-(defn- backdrop-style []
-  {:position        "fixed"
-   :top             0
-   :left            0
-   :right           0
-   :bottom          0
-   :background      "rgba(8, 9, 12, 0.65)"
-   :backdrop-filter "blur(2px)"
-   :display         "flex"
-   :align-items     "center"
-   :justify-content "center"
-   :z-index         2147483100})
+(defn- backdrop-style [positioning]
+  (let [absolute? (= positioning :absolute)]
+    {:position        (if absolute? "absolute" "fixed")
+     :top             0
+     :left            0
+     :right           0
+     :bottom          0
+     :background      "rgba(8, 9, 12, 0.65)"
+     :backdrop-filter "blur(2px)"
+     :display         "flex"
+     :align-items     "center"
+     :justify-content "center"
+     :z-index         (if absolute? 98 2147483100)}))
 
 (defn- dialog-style []
   {:background    (:bg-1 tokens)
@@ -249,8 +255,10 @@
   resolve through the React-context tier to `:rf/causa`."
   []
   (when @(rf/subscribe [:rf.causa/share-modal-open?])
-    [:div {:data-testid "rf-causa-share-modal-backdrop"
-           :on-click    #(rf/dispatch [:rf.causa/share-modal-close]
-                                      {:frame :rf/causa})
-           :style       (backdrop-style)}
-     (share-dialog)]))
+    (let [positioning @(rf/subscribe [:rf.causa/modal-positioning])]
+      [:div {:data-testid "rf-causa-share-modal-backdrop"
+             :data-rf-causa-modal-positioning (name (or positioning :fixed))
+             :on-click    #(rf/dispatch [:rf.causa/share-modal-close]
+                                        {:frame :rf/causa})
+             :style       (backdrop-style positioning)}
+       (share-dialog)])))

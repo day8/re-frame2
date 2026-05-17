@@ -87,26 +87,32 @@ function waitForReady(url, timeoutMs) {
     // The chrome workspace uses :layout :tabs (not :variants-grid)
     // so it isn't subject to the same shared-cell concern as the
     // grid workspaces; we walk it last as a round-trip target.
-    // The chrome-follow-on workspaces (rf2-mpn8m settings popup,
-    // rf2-kbrkx auto-filter edit-popup, rf2-pt1e1 causality popover)
-    // are deliberately excluded from this single-session walk. They
-    // mount the chrome shell which writes to `:rf/causa` AND opens
-    // a global modal whose backdrop covers the entire viewport. The
-    // modal state lives in the process-global `:rf/causa` frame, so
-    // it persists across workspace switches (Story tears down the
-    // variant tree but the frame state survives). The sibling
-    // `_smoke.cjs` covers these workspaces on FRESH pages where the
-    // shared-state caveat is harmless; the rf2-kgn0c IDeref-null
-    // regression that THIS smoke pins is orthogonal to modal state.
+    //
+    // Per rf2-om6fa: the chrome-follow-on workspaces (settings
+    // popup, auto-filter edit-popup, causality popover) used to be
+    // excluded from this walk because their modals mounted at
+    // `position: fixed; inset: 0` with max-int z-index, stacking
+    // N full-viewport backdrops over the Story shell. The
+    // `:modal-positioning :absolute` opt threaded through
+    // `chrome-shell` confines each cell's modals to the cell's
+    // positioning context with a sane in-cell z-index, so they
+    // can now ride the single-session walk without painting over
+    // each other. Modal open-state still lives in the process-
+    // global `:rf/causa` frame (per-frame scoping is a follow-on
+    // — see the bead trail) but the visual contract is now
+    // contained per cell.
     const walk = [
-      { name: 'Workspace.causa.event/all',    expectedAtLeast: 12 },
-      { name: 'Workspace.causa.app-db/all',   expectedAtLeast: 12 },
-      { name: 'Workspace.causa.views/all',    expectedAtLeast: 7  },
-      { name: 'Workspace.causa.trace/all',    expectedAtLeast: 10 },
-      { name: 'Workspace.causa.machines/all', expectedAtLeast: 6  },
-      { name: 'Workspace.causa.issues/all',   expectedAtLeast: 11 },
-      { name: 'Workspace.causa.event/all',    expectedAtLeast: 12 }, // round-trip
-      { name: 'Workspace.causa.app-db/all',   expectedAtLeast: 12 }, // round-trip
+      { name: 'Workspace.causa.event/all',           expectedAtLeast: 12 },
+      { name: 'Workspace.causa.app-db/all',          expectedAtLeast: 12 },
+      { name: 'Workspace.causa.views/all',           expectedAtLeast: 7  },
+      { name: 'Workspace.causa.trace/all',           expectedAtLeast: 10 },
+      { name: 'Workspace.causa.machines/all',        expectedAtLeast: 6  },
+      { name: 'Workspace.causa.issues/all',          expectedAtLeast: 11 },
+      { name: 'Workspace.causa.settings-popup/all',  expectedAtLeast: 4  },
+      { name: 'Workspace.causa.filters/all',         expectedAtLeast: 5  },
+      { name: 'Workspace.causa.causality-popover/all', expectedAtLeast: 4 },
+      { name: 'Workspace.causa.event/all',           expectedAtLeast: 12 }, // round-trip
+      { name: 'Workspace.causa.app-db/all',          expectedAtLeast: 12 }, // round-trip
     ];
 
     // Per rf2-sszlr: the rf2-kgn0c regression gate this smoke pins is

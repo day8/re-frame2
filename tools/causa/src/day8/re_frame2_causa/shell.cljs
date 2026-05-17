@@ -655,8 +655,46 @@
   provider (it's the mount root) so React-context inside `shell-view`'s
   body still resolves to the default — every subscribing child is its
   own reg-view component so the surrounding `:rf/causa` Provider
-  reaches them via React context."
-  [& [{:keys [mode] :or {mode :inline}}]]
+  reaches them via React context.
+
+  ## `:modal-positioning` opt (rf2-om6fa)
+
+  Default `:fixed` — modal backdrops use `position: fixed; inset: 0`
+  with max-int z-indexes so they cover the entire host viewport. The
+  right shape for production where the shell IS the global overlay.
+
+  Story testbeds that mount N shell cells side-by-side pass
+  `:modal-positioning :absolute` so each cell's modals stay confined
+  to the cell (backdrop becomes `position: absolute; inset: 0` with
+  a sane z-index of 100). The cell wrapper must establish a
+  positioning context (`position: relative`) for the absolute backdrop
+  to be contained — `:inline` mode already sets that on the shell's
+  outer `<div>`, so the contract is satisfied out of the box.
+
+  Note: with `:absolute` positioning the modals are visually contained
+  per-cell, but the open-state flags (`:rf.causa/<modal>-open?`)
+  still live in the process-global `:rf/causa` frame. Opening Settings
+  in one cell opens Settings in every cell that mounts the shell
+  against the same frame. Frame-scoping is the follow-on fix —
+  see the bead trail."
+  [& [{:keys [mode modal-positioning]
+       :or   {mode :inline modal-positioning :fixed}}]]
+  ;; Idempotent app-db write so every modal can read the positioning
+  ;; via the `:rf.causa/modal-positioning` sub. Guarded against
+  ;; re-dispatch by comparing the current slot to the prop — once the
+  ;; slot matches the prop, the `when` short-circuits and the render
+  ;; quiesces. `dispatch-sync` so the slot lands BEFORE the modal
+  ;; children mount and read the sub on this same render pass; without
+  ;; sync the first paint of a fresh shell would render every modal's
+  ;; backdrop at the default `:fixed` before the async router drains.
+  ;; Sub + dispatch route via `:rf/causa` so the read/write lands on
+  ;; Causa's app-db (`shell-view` itself sits OUTSIDE the
+  ;; `frame-provider` in the tree below — the React-context tier
+  ;; doesn't reach this call site, hence the explicit frame arg).
+  (let [current-positioning @(rf/subscribe :rf/causa [:rf.causa/modal-positioning])]
+    (when (not= current-positioning modal-positioning)
+      (rf/dispatch-sync [:rf.causa/set-modal-positioning modal-positioning]
+                        {:frame :rf/causa})))
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
           ;; Per rf2-zkfiz Q1-9 the spec-published mode axis is
@@ -665,6 +703,10 @@
           ;; was a duplicate axis and is gone — tests + testbeds read
           ;; the rf-causa-prefixed name everywhere.
           :data-rf-causa-mode (name mode)
+          ;; rf2-om6fa — the positioning attribute is published on the
+          ;; shell root for testbed assertions; the modals read the
+          ;; sub directly rather than via DOM lookup.
+          :data-rf-causa-modal-positioning (name modal-positioning)
           :style       (merge
                          {:width            "100%"
                           :height           "100%"
