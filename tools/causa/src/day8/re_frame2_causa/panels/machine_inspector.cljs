@@ -77,6 +77,7 @@
             [day8.re-frame2-causa.chart.layout :as chart-layout]
             [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
+            [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.panels.machine-inspector-cluster :as cluster]
             [day8.re-frame2-causa.panels.machine-inspector-cluster-helpers :as ch]
@@ -785,7 +786,13 @@
          (when (= :mode-c mode)
            [cluster/ClusterView])
          (when sim-active?
-           [sim/SimSideRail])]
+           [sim/SimSideRail])
+         ;; Cancellation-cascade visualiser (rf2-59e7k) — mounts in the
+         ;; Machines tab side-rail when the focused machine had a
+         ;; destroy-with-cancellation-reason in the trace window. The
+         ;; SidePanel reg-view short-circuits to nil otherwise, so the
+         ;; mount is dormant in the common case.
+         [cancellation-cascade/SidePanel]]
         (transition-ribbon transitions)])]))
 
 ;; ---- registration entry --------------------------------------------------

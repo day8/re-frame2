@@ -41,6 +41,7 @@
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.effects :as effects]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.flows :as flows]
@@ -445,6 +446,13 @@
     ;; chain reads top-down) but re-frame's lazy :<- resolution makes
     ;; the registration order incidental.
     (causality-popover/install!)
+    ;; Cancellation-cascade visualiser (rf2-59e7k) — installs the
+    ;; subs + events for the Machines tab side-panel + the trace-row
+    ;; popover. The view-side `reg-view`s are picked up at ns-load.
+    ;; Order: registers AFTER spine + cascades (composes against
+    ;; `:rf.causa/focus` + `:rf.causa/trace-buffer`); registry order is
+    ;; cosmetic since re-frame resolves `:<-` chains lazily.
+    (cancellation-cascade/install!)
     (effects/install!)
     (event-detail/install!)
     (flows/install!)
