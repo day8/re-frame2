@@ -755,7 +755,10 @@
            [right-panel]]
           ;; rf2-381i: first-time help overlay + persistent re-open chip.
           ;; The chip lives in a fixed-position slot so it floats above the
-          ;; right inspector pane regardless of which panels are visible.
+          ;; chrome regardless of which panels are visible. Per rf2-pxeko
+          ;; the slot is top-LEFT — the top-right corner is reserved for
+          ;; the Test-Codegen REC chip + recording-overlay banner; a
+          ;; floating `?` on the right occluded the REC affordance.
           [:div {:style (:help-slot styles)}
            [help/help-button]]
           [help/help-host]

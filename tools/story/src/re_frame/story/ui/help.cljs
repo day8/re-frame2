@@ -215,7 +215,7 @@
    [:ul {:style (:list styles)}
     [:li {:style (:list-item styles)}
      "Click the " [:span {:style (:kw styles)} "?"]
-     " in the top-right anytime."]]])
+     " in the top-left anytime."]]])
 
 (defn- on-key-down
   "Escape closes the overlay. Bound to a window listener while open."

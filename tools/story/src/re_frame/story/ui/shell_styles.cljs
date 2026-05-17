@@ -66,7 +66,15 @@
                 :background "#1e1e1e"
                 :border-bottom "1px solid #1e1e1e"
                 :margin-bottom "-1px"}
+   ;; rf2-pxeko — `?` help-button chip lives top-LEFT of the viewport.
+   ;; The top-RIGHT corner is reserved for the Test-Codegen REC chip
+   ;; (`recorder/rec-chip` in the toolbar) plus the recording-overlay
+   ;; banner (`recorder/recording-overlay` at top:44px right:12px); a
+   ;; floating `?` on the right occluded the REC affordance. Top-left
+   ;; sits over the toolbar's first axis-label only — no fixed-position
+   ;; conflict with the sidebar (which is part of the flex layout, not
+   ;; fixed-positioned) or any other chrome affordance.
    :help-slot {:position "fixed"
                :top      "8px"
-               :right    "12px"
+               :left     "12px"
                :z-index  1500}})
