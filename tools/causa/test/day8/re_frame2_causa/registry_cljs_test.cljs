@@ -162,6 +162,12 @@
    :rf.causa/selected-route-id
    :rf.causa/selected-violation-id
    :rf.causa/show-me-when-this-changed-result
+   ;; rf2-v869p Phase 2 — UC1 Sim sub-mode subs.
+   :rf.causa/sim-active?
+   :rf.causa/sim-available-transitions
+   :rf.causa/sim-by-machine
+   :rf.causa/sim-event-suggestions
+   :rf.causa/sim-state
    :rf.causa/suppressed-sensitive-count
    :rf.causa/target-frame
    :rf.causa/target-frame-db
@@ -257,6 +263,13 @@
    :rf.causa/set-schema-timeline-window
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
+   ;; rf2-v869p Phase 2 — UC1 Sim sub-mode events.
+   :rf.causa/sim-reset
+   :rf.causa/sim-set-pending-data
+   :rf.causa/sim-set-pending-event
+   :rf.causa/sim-start
+   :rf.causa/sim-step
+   :rf.causa/sim-stop
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    :rf.causa/time-travel-set-label-input
@@ -343,7 +356,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 76 subs + 85 events + 5 fxs"
+  (testing "registry holds exactly 83 subs + 93 events + 5 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -358,7 +371,11 @@
     ;;   views-group-by, views-component-filter, views-cluster-threshold,
     ;;   views-expanded-rows, views-expanded-clusters,
     ;;   views-focused-cascade-pair, views-data.
-    (is (= 78 (count all-sub-names)))
+    ;; + 5 sim sub-mode (rf2-v869p Phase 2):
+    ;;   :rf.causa/sim-by-machine / :rf.causa/sim-state /
+    ;;   :rf.causa/sim-active? / :rf.causa/sim-available-transitions /
+    ;;   :rf.causa/sim-event-suggestions
+    (is (= 83 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -379,7 +396,10 @@
     ;;   views-set-component-filter, views-set-group-by,
     ;;   views-set-heatmap?, views-toggle-cluster, views-toggle-heatmap,
     ;;   views-toggle-row.
-    (is (= 87 (count all-event-names)))
+    ;; + 6 sim sub-mode (rf2-v869p Phase 2):
+    ;;   :rf.causa/sim-start / sim-step / sim-reset / sim-stop /
+    ;;   sim-set-pending-event / sim-set-pending-data
+    (is (= 93 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
