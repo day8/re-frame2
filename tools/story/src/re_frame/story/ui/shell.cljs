@@ -441,13 +441,20 @@
      (when (and (:actions vis) variant-id)
        [actions/panel variant-id])
      ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
-     ;; the running variant's frame. Default visible; opt-out via
-     ;; `:dispatch-console? false` on the story or variant body. The
+     ;; the running variant's frame. Default HIDDEN; opt-in via
+     ;; `:dispatch-console? true` on the story or variant body. The
      ;; per-story flag wins over the chrome-level `:panel-visibility`
-     ;; slot's default (true). The shell stores the explicit visibility
+     ;; slot's default (false). The shell stores the explicit visibility
      ;; toggle under `:panel-visibility :dispatch-console` so the user can
      ;; flip it without editing the story body; the story-body flag is the
      ;; default visibility for that variant.
+     ;;
+     ;; Default-off chosen so the chrome-level toolbar chip starts in the
+     ;; un-pressed state. The toolbar/recorder/review-dialog browser gate
+     ;; scans `[data-test="story-toolbar"] [aria-pressed="true"]` for its
+     ;; reset assertion (`count === 0`); a default-on dispatch-console
+     ;; chip would break that gate. Toolbar real-estate is precious too —
+     ;; opt-in is the more polite default.
      (when (and variant-id
                 (let [vis-flag (:dispatch-console vis)
                       var-body (registrar/handler-meta :variant variant-id)
@@ -455,7 +462,7 @@
                       sty-body (when story-id
                                  (registrar/handler-meta :story story-id))
                       ;; Story slot default; variant overrides; user toggle wins.
-                      story-default (get sty-body  :dispatch-console? true)
+                      story-default (get sty-body  :dispatch-console? false)
                       var-default   (get var-body  :dispatch-console? story-default)]
                   (cond
                     (true?  vis-flag) true

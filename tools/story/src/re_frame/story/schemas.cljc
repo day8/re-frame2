@@ -274,9 +274,11 @@
   - `:platforms` — SSR opt-in.
   - `:variants` — the Form-B combined-form sugar; the macro desugars
     into N independent `reg-variant` calls.
-  - `:dispatch-console?` — Story-shell dispatch console panel opt-out.
-    Default true (panel shown). Set false to hide the panel for this
-    story / its variants (rf2-q9kv5).
+  - `:dispatch-console?` — Story-shell dispatch console panel opt-in.
+    Default false (panel hidden). Set true to surface the per-variant
+    dispatch console for this story / its variants (rf2-q9kv5). Toolbar
+    real-estate is precious; the chrome-level toolbar chip lets the user
+    flip the chrome-toggle without editing the story body.
   - `:causa` — per-story Causa preset (auto-open, tab focus, filter
     pre-population). See `CausaPreset` schema. The preset is read on
     variant mount and applied via `re-frame.story.causa-preset/

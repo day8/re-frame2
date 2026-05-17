@@ -47,9 +47,11 @@
 
   ## Per-story toggle
 
-  Default visible. Authors opt out via `:dispatch-console? false` on a
+  Default HIDDEN. Authors opt in via `:dispatch-console? true` on a
   story or variant body. The panel-host (`re-frame.story.ui.shell` →
-  `right-panel`) checks the resolved flag before rendering.
+  `right-panel`) checks the resolved flag before rendering. A chrome-
+  level toolbar chip (`[data-test=\"story-toolbar-dispatch-console\"]`)
+  lets the user flip the panel without editing the story body.
 
   ## Pure / impure split
 
