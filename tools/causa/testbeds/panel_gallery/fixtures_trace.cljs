@@ -1,6 +1,6 @@
-(ns panel-gallery.trace-fixtures
-  "Pure fixture builders for the Causa trace panel gallery (rf2-8r20i,
-  Phase 2).
+(ns panel-gallery.fixtures-trace
+  "Pure fixture builders for the Causa Trace tab gallery (rf2-sszlr —
+  rebuild for new 6-tab Causa shape).
 
   The trace panel reads its rows from `:rf.causa/trace-feed`, a
   composite over:
@@ -50,7 +50,7 @@
   "Build a single trace event with the canonical 9-axis tag surface."
   [{:keys [id time op-type operation source origin frame
            event-id handler-id dispatch-id severity event-vec
-           sub-id fx-id reason]
+           sub-id fx-id reason render-key]
     :or {time 1000}}]
   {:id        id
    :time      time
@@ -68,7 +68,8 @@
                 event-vec   (assoc :event event-vec)
                 sub-id      (assoc :sub-id sub-id)
                 fx-id       (assoc :fx-id fx-id)
-                reason      (assoc :reason reason))})
+                reason      (assoc :reason reason)
+                render-key  (assoc :render-key render-key))})
 
 ;; ---- buffer builders ----------------------------------------------------
 
@@ -267,3 +268,40 @@
           (assoc :rf.trace/trigger-handler
                  {:source-coord {:file (str "src/cart/handlers.cljs")
                                  :line (+ 10 i)}})))))
+
+(defn flows-buffer
+  "Buffer carrying re-frame **Flow** trace events
+  (`:rf.flow/*` operations) mixed with regular event emits — pins
+  the panel's rendering of the flow op-type alongside dominoes."
+  []
+  (vec
+    (concat
+      ;; Cascade rooted on a flow-triggering event.
+      [(ev {:id 1 :time 1000 :op-type :event :operation :event/dispatched
+            :source :ui :origin :app :frame :rf/default
+            :event-id :cart/add :dispatch-id 100
+            :event-vec [:cart/add :apple]})
+       (ev {:id 2 :time 1001 :op-type :event :operation :event
+            :source :ui :origin :app :frame :rf/default
+            :event-id :cart/add :handler-id :cart/add-h :dispatch-id 100})
+       (ev {:id 3 :time 1002 :op-type :fx :operation :rf.fx/handled
+            :source :ui :origin :app :frame :rf/default
+            :event-id :cart/add :dispatch-id 100 :fx-id :db})]
+      ;; Three flow-recomputed events — flow propagates downstream of
+      ;; the db write. Operation surface per Spec 009 §Flow trace.
+      [(ev {:id 4 :time 1003 :op-type :rf.flow/computed
+            :operation :rf.flow/computed
+            :source :flow :origin :app :frame :rf/default
+            :dispatch-id 100 :sub-id :cart/total})
+       (ev {:id 5 :time 1004 :op-type :rf.flow/computed
+            :operation :rf.flow/computed
+            :source :flow :origin :app :frame :rf/default
+            :dispatch-id 100 :sub-id :cart/item-count})
+       (ev {:id 6 :time 1005 :op-type :rf.flow/computed
+            :operation :rf.flow/computed
+            :source :flow :origin :app :frame :rf/default
+            :dispatch-id 100 :sub-id :cart/badge})
+       ;; Downstream render driven by the flow.
+       (ev {:id 7 :time 1006 :op-type :view :operation :view/render
+            :source :ui :origin :app :frame :rf/default :dispatch-id 100
+            :render-key [:cart/badge nil]})])))

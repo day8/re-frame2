@@ -1,165 +1,126 @@
 (ns panel-gallery.gallery-views
-  "Registered views referenced by Story variant `:component` slots in
-  the Causa panel gallery (rf2-1o7mp, rf2-5nvk2).
+  "Story coverage for the **Views tab** of the new 6-tab Causa chrome
+  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
-  Story canvas resolves `:component` to a registered re-frame view via
-  `(rf/view <id>)` (per `tools/story/src/re_frame/story/ui/canvas.cljs`).
-  The variant frame-provider has already wrapped the rendered tree
-  with `[frame-provider {:frame variant-id}]`, so any subscribe inside
-  the panel resolves to the variant frame's app-db.
+  The Views tab body is the `views/Panel` view (rf2-21ob3;
+  spec/012-Views.md). The panel reads its data from
+  `:rf.causa/views-data`, a composite over the spine's
+  `:rf.causa/focus` + the current frame's `:epoch-history`. Each
+  variant seeds the variant frame's `:epoch-history` via
+  `:rf.causa/sync-epoch-history`; the spine's default `:live` mode
+  auto-focuses on the head cascade so no explicit focus event is
+  required."
+  (:require [re-frame.story :as story]
+            [panel-gallery.fixtures-views :as fixtures]
+            [panel-gallery.panel-views :as panel-views]))
 
-  Each gallery component is a thin wrapper around a single Causa
-  panel's root view — it absorbs the Story-supplied args map and
-  renders the panel inside a card that sets a fixed-ish height so the
-  variants-grid layout stays visually uniform.
+(defn register-gallery-view! []
+  (panel-views/register!))
 
-  ## Facade-mount discipline (rf2-043uz)
-
-  Each gallery wrapper mounts the panel through its facade view —
-  `event-detail/Panel`, `app-db-diff/Panel`, `subscriptions/Panel`. All
-  three are registered via `reg-view`, so their `render-fn` is
-  wrapped with `:contextType frame-context` by
-  `re-frame.views/reg-view*`. The Reagent component-vector form
-  `[event-detail/Panel]` is therefore safe here — React
-  resolves the wrapped class's `:contextType`, the facade body reads
-  `current-frame` correctly, and inside the facade body the per-
-  panel discipline (function-call for plain-fn leaves, vector for
-  reg-view leaves) takes over.
-
-  The rf2-043uz lesson — function-call for leaves — applies INSIDE
-  facade bodies (`(views/subscriptions-panel)` not
-  `[views/subscriptions-panel]`); it does NOT apply at the gallery
-  wrapper boundary, where every panel root we mount is itself a
-  `reg-view` registration that carries `:contextType` through
-  React."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-causa.panels.event-detail :as event-detail]
-            ;; Subscriptions panel deleted with rf2-21ob3 — replaced by
-            ;; Views (spec/012-Views.md). Views gallery variants are
-            ;; separate follow-on work.
-            ;;
-            ;; Causality-graph panel deleted with rf2-dqnuu — Causality
-            ;; is now a popover (not a tab); see popover/causality.cljs.
-            ;; A popover-gallery variant is a separate follow-on bead.
-            [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
-            [day8.re-frame2-causa.panels.time-travel :as time-travel]
-            [day8.re-frame2-causa.panels.trace :as trace]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
-
-(def ^:private card-style
-  "Card chrome around an embedded panel — gives the variants-grid a
-  consistent visual shell with a labelled border so a reviewer can
-  spot the panel boundary."
-  {:height          "520px"
-   :width           "100%"
-   :display         "flex"
-   :flex-direction  "column"
-   :background      (:bg-1 tokens)
-   :border          (str "1px solid " (:border-default tokens))
-   :border-radius   "6px"
-   :overflow        "hidden"
-   :font-family     "system-ui, sans-serif"})
-
-(defn- event-detail-panel
-  "Embedded mount of the Causa event-detail panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/event-detail` and `:rf.causa/cascades` reads to the
-  variant frame's app-db, where the seed events have written the
-  `:trace-buffer` and `:selected-dispatch-id` slots."
-  [_args]
-  [:div {:style card-style
-         :data-testid "panel-gallery-event-detail-card"}
-   [event-detail/Panel]])
-
-(defn- app-db-diff-panel
-  "Embedded mount of the Causa app-db-diff panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/app-db-diff` reads to the variant frame's app-db, where
-  the seed events have written `:epoch-history`,
-  `:selected-epoch-id`, `:pinned-slices-store`, and
-  `:focused-slice-path`.
-
-  `app-db-diff/Panel` is a `reg-view` registration whose
-  body composes `app-db-diff-sections/*` plain fns via Reagent
-  vectors — the facade is itself the frame-aware render boundary."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-app-db-diff-card"}
-   [app-db-diff/Panel]])
-
-;; Subscriptions panel gallery wrapper deleted with rf2-21ob3 — the
-;; Subs panel is replaced by Views (spec/012-Views.md). Views gallery
-;; variants are separate follow-on work.
-
-(defn- time-travel-panel
-  "Embedded mount of the Causa time-travel panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/time-travel` reads to the variant frame's app-db, where
-  the seed events have written `:epoch-history`, `:selected-epoch-id`,
-  `:pin-store`, and `:label-input`.
-
-  `time-travel/Panel` is a `reg-view` registration whose
-  body composes inline hiccup + sub-views via plain function calls —
-  the facade is itself the frame-aware render boundary. The gallery
-  wrapper mounts it as a Reagent vector — safe because reg-view
-  threads `:contextType` through React."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-time-travel-card"}
-   [time-travel/Panel]])
-
-(defn- trace-panel
-  "Embedded mount of the Causa trace panel for one Story variant.
-  The variant-frame provider above this tree routes
-  `:rf.causa/trace-feed` reads to the variant frame's app-db, where
-  the seed events have written `:trace-buffer` and (optionally)
-  `:trace-filters`.
-
-  `trace/Panel` is a `reg-view` registration; the gallery
-  wrapper mounts it as a Reagent vector — safe because reg-view
-  threads `:contextType` through React."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-trace-card"}
-   [trace/Panel]])
-
-(defn- issues-ribbon-panel
-  "Embedded mount of the Causa issues-ribbon panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/issues-ribbon` reads to the variant frame's app-db,
-  where the seed events have written `:trace-buffer` and (optionally)
-  `:issues-active-severities` / `:issues-active-prefixes` /
-  `:issues-since-ms`.
-
-  `issues-ribbon/Panel` is a `reg-view` registration;
-  the gallery wrapper mounts it as a Reagent vector — safe because
-  reg-view threads `:contextType` through React."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-issues-ribbon-card"}
-   [issues-ribbon/Panel]])
-
-;; Causality-graph gallery wrapper deleted with rf2-dqnuu — the
-;; causality-graph panel is replaced by the c-key triggered popover
-;; (`popover/causality.cljs`). A gallery variant for the popover is a
-;; separate follow-on bead.
-
-(defn register!
-  "Register every gallery view-id referenced by a variant `:component`.
-  Uses `reg-view*` (the runtime-registration surface, per Spec 004)
-  because the gallery view-ids are explicit panel-keyed keywords
-  rather than auto-derived from a defn symbol — we want
-  `:panel-gallery.event-detail/Panel` not
-  `:panel-gallery.gallery-views/event-detail-panel`. Idempotent —
-  re-registering the same id replaces the handler; subsequent calls
-  are silent at the registry."
+(defn register-all!
+  "Register the Views tab Story surface. Idempotent under
+  `install-canonical-vocabulary!` resets so the namespace is
+  reloadable."
   []
-  (rf/reg-view* :panel-gallery.event-detail/Panel  event-detail-panel)
-  (rf/reg-view* :panel-gallery.app-db-diff/Panel   app-db-diff-panel)
-  ;; Subscriptions gallery registration removed with rf2-21ob3.
-  (rf/reg-view* :panel-gallery.time-travel/Panel   time-travel-panel)
-  (rf/reg-view* :panel-gallery.trace/Panel         trace-panel)
-  (rf/reg-view* :panel-gallery.issues-ribbon/Panel issues-ribbon-panel)
-  ;; Causality-graph registration deleted with rf2-dqnuu.
-  nil)
+  (story/install-canonical-vocabulary!)
+  (register-gallery-view!)
+
+  (story/reg-tag :feature/causa-views
+    {:axis :feature
+     :doc  "Causa Views tab — three-group (Mounted / Re-rendered /
+            Unmounted) classification + clustering + heatmap mode
+            per spec/012-Views.md."})
+
+  (story/reg-story :story.causa.views
+    {:doc        "Visual gallery of the Causa Views tab under varying
+                 render-set magnitude + shape. Each variant seeds
+                 its frame's :epoch-history via
+                 :rf.causa/sync-epoch-history; the panel composite
+                 reads the spine-focused cascade pair from the
+                 variant frame in isolation."
+     :component  :panel-gallery.views/Panel
+     :tags       #{:dev :feature/causa-views}
+     :substrates #{:reagent}})
+
+  ;; ----- 1. empty (no cascade) ---------------------------------------
+  (story/reg-variant :story.causa.views/empty
+    {:doc        "No epochs in history. Panel renders the no-cascade
+                 empty-state."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/empty-buffer)]]
+     :tags       #{:dev :state/empty}
+     :substrates #{:reagent}})
+
+  ;; ----- 2. sparse subs ---------------------------------------------
+  (story/reg-variant :story.causa.views/sparse-subs
+    {:doc        "Two epochs with two views each + a single sub-run.
+                 Pins the panel's sparse-resting render shape."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/sparse-subs-buffer)]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- 3. dense subs ----------------------------------------------
+  (story/reg-variant :story.causa.views/dense-subs
+    {:doc        "Mid-load: ~30 views + ~15 sub-runs in the focused
+                 cascade. Comfortable density that mirrors a busy
+                 list+detail page."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/dense-subs-buffer)]]
+     :tags       #{:dev :state/medium}
+     :substrates #{:reagent}})
+
+  ;; ----- 4. grid-explosion clustering -------------------------------
+  (story/reg-variant :story.causa.views/grid-explosion
+    {:doc        "One epoch whose render list contains 80 grid cells
+                 sharing the same `(view-id, triggered-by)` tuple.
+                 Pushes past the default cluster-threshold (50) so
+                 the panel collapses them into one aggregate row
+                 with `× N · total ms · avg µs` stats per spec
+                 §Grid-explosion clustering."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/grid-explosion-buffer)]]
+     :tags       #{:dev :state/large}
+     :substrates #{:reagent}})
+
+  ;; ----- 5. heatmap mode --------------------------------------------
+  (story/reg-variant :story.causa.views/heatmap
+    {:doc        "Two epochs with renders spanning multiple view-ids
+                 carrying a wide spread of :elapsed-ms. Variant
+                 toggles heatmap on so the segment bar (sorted by
+                 total-ms, < 1% folded into `<rest>`) is the
+                 dominant surface."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/heatmap-mode-buffer)]
+                  [:rf.causa/views-set-heatmap? true]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 6. three-group (mounted / re-rendered / unmounted) ---------
+  (story/reg-variant :story.causa.views/three-group
+    {:doc        "Two epochs designed to surface all three groups
+                 (Mounted / Re-rendered / Unmounted) populated
+                 simultaneously: prior had cart header + list +
+                 footer; current has header (re) + list (re) +
+                 promo (new, mounted), footer gone (unmounted)."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/three-group-buffer)]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 7. filter-applied (component-filter active) ----------------
+  (story/reg-variant :story.causa.views/filter-applied
+    {:doc        "Two epochs with renders across multiple view-ids;
+                 variant seeds the panel's component-filter to
+                 `:cart/list` so only those rows surface."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/filter-applied-buffer)]
+                  [:rf.causa/views-set-component-filter :cart/list]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- workspace ---------------------------------------------------
+  (story/reg-workspace :Workspace.causa.views/all
+    {:doc      "All seven Views tab variants in one auto-grid.
+                Scroll to see the panel's response across empty /
+                sparse / dense / grid-explosion / heatmap / three-
+                group / filter-applied."
+     :layout   :variants-grid
+     :story    :story.causa.views
+     :columns  2
+     :tags     #{:dev}}))
+
+(register-all!)

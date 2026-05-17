@@ -269,3 +269,124 @@
                      ;; perf-tier dot reflects the variant's intent.
                      (update 2 update :tags assoc :duration-ms duration))))
        vec))
+
+;; ---- specialised cascade builders --------------------------------------
+
+(defn exception-cascade-buffer
+  "Cascade whose handler threw — surfaces `:rf.error/handler-threw`
+  alongside the regular domino emits. The panel's `other-row` branch
+  renders the error row with severity dot + exception-message."
+  []
+  (let [dispatch-id 100
+        id-base     50
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
+      :tags (assoc tag :event [:checkout/submit {:order-id 42}])}
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-start)}
+     {:id (+ id-base 3) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 5)}
+     {:id (+ id-base 4) :op-type :error :operation :rf.error/handler-threw
+      :tags (assoc tag :event [:checkout/submit {:order-id 42}]
+                       :handler-id :checkout/submit-h
+                       :severity :error
+                       :reason "NullPointerException at checkout/submit-h:88"
+                       :exception-message "NullPointerException at checkout/submit-h:88")}]))
+
+(defn managed-http-cascade-buffer
+  "Cascade whose handler dispatched a managed HTTP fx — surfaces an
+  `:http/request` fx-row, an `:http/success` follow-up fx-row, and the
+  re-dispatched `:cart/loaded` cascade root. Exercises the cross-
+  cascade chain a managed-fx flow produces."
+  []
+  (let [tag1 {:dispatch-id 100}
+        tag2 {:dispatch-id 101}]
+    [;; Root cascade — :cart/refresh dispatches an :http/request fx.
+     {:id 51 :op-type :event :operation :event/dispatched
+      :tags (assoc tag1 :event [:cart/refresh])}
+     {:id 52 :op-type :event :operation :event
+      :tags (assoc tag1 :phase :run-start)}
+     {:id 53 :op-type :event :operation :event
+      :tags (assoc tag1 :phase :run-end :duration-ms 3)}
+     {:id 54 :op-type :event :operation :event/do-fx
+      :tags tag1}
+     {:id 55 :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag1 :fx-id :http/request
+                        :source :http :origin :app)}
+     {:id 56 :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag1 :fx-id :db)}
+     ;; Follow-up cascade — :cart/loaded re-dispatched by the http callback.
+     {:id 101 :op-type :event :operation :event/dispatched
+      :tags (assoc tag2 :event [:cart/loaded {:items 6 :total 24}])}
+     {:id 102 :op-type :event :operation :event
+      :tags (assoc tag2 :phase :run-start)}
+     {:id 103 :op-type :event :operation :event
+      :tags (assoc tag2 :phase :run-end :duration-ms 4)}
+     {:id 104 :op-type :event :operation :event/do-fx
+      :tags tag2}
+     {:id 105 :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag2 :fx-id :db)}
+     {:id 106 :op-type :view :operation :view/render
+      :tags (assoc tag2 :render-key [:cart/list nil])}]))
+
+(defn machine-triggering-cascade-buffer
+  "Cascade whose handler triggered a state-machine transition —
+  surfaces `:rf.machine/transition` rows alongside the domino emits.
+  Exercises the Machines tab's transition-history ribbon (newest
+  first; spec/003)."
+  []
+  (let [tag1 {:dispatch-id 100}
+        tag2 {:dispatch-id 101}]
+    [;; Root — :user/save triggers the :user/save machine to :saving.
+     {:id 51 :op-type :event :operation :event/dispatched
+      :tags (assoc tag1 :event [:user/save {:id 7 :name "Ada"}])}
+     {:id 52 :op-type :event :operation :event
+      :tags (assoc tag1 :phase :run-start)}
+     {:id 53 :op-type :event :operation :event
+      :tags (assoc tag1 :phase :run-end :duration-ms 6)}
+     {:id 54 :op-type :event :operation :event/do-fx
+      :tags tag1}
+     {:id 55 :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag1 :fx-id :db)}
+     {:id 56 :op-type :rf.machine/transition :operation :rf.machine/transition
+      :tags (assoc tag1 :machine-id :user/save :from :idle :to :saving
+                        :event [:user/save {:id 7}])}
+     ;; Follow-up — :user/save-success transitions :user/save to :saved.
+     {:id 101 :op-type :event :operation :event/dispatched
+      :tags (assoc tag2 :event [:user/save-success {:id 7}])}
+     {:id 102 :op-type :event :operation :event
+      :tags (assoc tag2 :phase :run-start)}
+     {:id 103 :op-type :event :operation :event
+      :tags (assoc tag2 :phase :run-end :duration-ms 2)}
+     {:id 104 :op-type :event :operation :event/do-fx
+      :tags tag2}
+     {:id 105 :op-type :rf.machine/transition :operation :rf.machine/transition
+      :tags (assoc tag2 :machine-id :user/save :from :saving :to :saved
+                        :event [:user/save-success {:id 7}])}
+     {:id 106 :op-type :rf.machine.microstep/transition
+      :operation :rf.machine.microstep/transition
+      :tags (assoc tag2 :machine-id :user/save :from :saved :to :idle
+                        :event [:user/save-success {:id 7}])}]))
+
+(defn very-deep-cascade-buffer
+  "Twelve sequential cascades — :auth/login chains through profile +
+  permissions + cache + audit + telemetry + ten more. Exercises the
+  event-list's overflow + scroll behaviour beyond the typical 8-row
+  default view."
+  []
+  (->> [[100 [:auth/login {:user :ada}]]
+        [101 [:auth/load-profile :ada]]
+        [102 [:profile/fetch-permissions :ada]]
+        [103 [:permissions/cache-load :ada]]
+        [104 [:audit/note-login :ada]]
+        [105 [:telemetry/note-session :ada]]
+        [106 [:flags/load-feature-flags :ada]]
+        [107 [:prefs/load-user-prefs :ada]]
+        [108 [:nav/resolve-initial-route]]
+        [109 [:cart/refresh]]
+        [110 [:inbox/load-counts :ada]]
+        [111 [:presence/announce :ada]]]
+       (map-indexed (fn [i [dispatch-id ev]]
+                      (cascade-evs dispatch-id ev (* (inc i) 50))))
+       (mapcat identity)
+       vec))
