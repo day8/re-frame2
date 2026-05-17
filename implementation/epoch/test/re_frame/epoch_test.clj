@@ -26,6 +26,9 @@
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.assembly :as assembly]
+            [re-frame.epoch.capture :as capture]
+            [re-frame.epoch.state :as state]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
@@ -55,7 +58,7 @@
   ;; opt-in to elision would otherwise persist. Per rf2-mrsck the
   ;; default :trace-events-keep is 5 (finite); fixtures restore the
   ;; default map verbatim.
-  (reset! @#'epoch/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -259,7 +262,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
 
-    (let [observed (deref #'epoch/observed-frames-by-cb)
+    (let [observed (deref #'state/observed-frames-by-cb)
           a        (atom 0)
           b        (atom 0)
           c        (atom 0)]
@@ -1620,7 +1623,7 @@
                      ;; frame's cascade buffer, so it must be skipped
                      ;; lest it accrete into the next cascade's record.
                      :rf.warning/epoch-redact-fn-exception}
-          actual   @#'epoch/skip-ops]
+          actual   @#'capture/skip-ops]
       (is (= expected actual)
           "skip-ops catalogue matches the documented set of
            out-of-cascade :rf.epoch/* + :rf.warning/* emits"))))
@@ -2012,7 +2015,7 @@
     ;; capture-event! buffers since the tag carries `:frame`. Reset
     ;; explicitly so the test starts from a known-empty buffer
     ;; rather than relying on the reg-frame side-effect.)
-    (let [buffers-atom @#'epoch/capture-buffers]
+    (let [buffers-atom @#'state/capture-buffers]
       (reset! buffers-atom {})
 
       (swap! buffers-atom assoc :test/main
@@ -2068,7 +2071,7 @@
                             :operation :event
                             :tags      {:frame :test/main
                                         :phase :run-start}}]
-          record          (#'epoch/build-record
+          record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
@@ -2098,7 +2101,7 @@
                                :phase    :run-start
                                :event-id :seed
                                :event    [:seed 1 2 3]}}]
-          record (#'epoch/build-record :test/main {} {:n 0} events)]
+          record (#'assembly/build-record :test/main {} {:n 0} events)]
       (is (= :seed (:event-id record))
           ":event-id is the resolved event keyword")
       (is (= [:seed 1 2 3] (:trigger-event record))
@@ -2125,7 +2128,7 @@
                               :operation :event
                               :tags      {:frame    :test/main
                                           :event-id :foo}}]
-          trigger           (#'epoch/find-trigger-event tag-less-fallback)]
+          trigger           (#'capture/find-trigger-event tag-less-fallback)]
       (is (= :foo (:event-id trigger))
           ":event-id is recovered from the fallback arm")
       (is (nil? (:event trigger))
@@ -2140,7 +2143,7 @@
                             :operation :event
                             :tags      {:frame    :test/main
                                         :event-id :foo}}]
-          record          (#'epoch/build-record
+          record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
@@ -2160,7 +2163,7 @@
                     :tags      {:frame    :test/main
                                 :event-id :foo
                                 :event    [:foo "bar" 42]}}]
-          trigger (#'epoch/find-trigger-event events)]
+          trigger (#'capture/find-trigger-event events)]
       (is (= :foo (:event-id trigger)))
       (is (= [:foo "bar" 42] (:event trigger))
           "the full event vector survives — payload is preserved"))))
@@ -2187,7 +2190,7 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
-    (let [observed-atom @#'epoch/observed-frames-by-cb
+    (let [observed-atom @#'state/observed-frames-by-cb
           swap-count    (atom 0)]
       (add-watch observed-atom ::swap-counter
                  (fn [_ _ _ _] (swap! swap-count inc)))
