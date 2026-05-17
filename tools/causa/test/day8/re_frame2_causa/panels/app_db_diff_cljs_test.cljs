@@ -506,9 +506,11 @@
             "empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))))))
 
-(deftest slice-stack-renders-when-diff-present
-  (testing "with history populated, the panel renders one slice mini-
-            panel per non-reserved diff triple"
+(deftest sections-render-when-diff-present
+  (testing "with history populated, the panel renders the sections-per-
+            cluster diff (rf2-gfxmk Phase 1). Replaces the prior
+            slice-mini-panel stack assertion — see the panel's docstring
+            for the rendering-model swap."
     (seed-causa! {:cart {:items [{:id 7}]}
                   :user "ada"}
                  [(mk-record :e-1 [:cart/add-item]
@@ -516,13 +518,17 @@
                              {:cart {:items [{:id 7}]} :user "ada"})])
     (rf/with-frame :rf/causa
       (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-slices"))
-            "slice container present")
+        (is (some? (find-by-testid tree "rf-causa-diff-sections"))
+            "sections container present")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-empty"))
             "empty-state absent")
-        ;; The slice mini-panel for [:cart :items] is present:
-        (is (some? (find-by-testid tree
-                                   "rf-causa-app-db-diff-slice-[:cart :items]")))))))
+        ;; The section block for [:cart :items] is present (the path
+        ;; lifts to :cart for the leaf-modification via singleton-
+        ;; promote-to-parent rule).
+        (is (or (some? (find-by-testid tree
+                                       "rf-causa-diff-section-[:cart :items]"))
+                (some? (find-by-testid tree
+                                       "rf-causa-diff-section-[:cart]"))))))))
 
 (deftest reserved-group-renders-when-rf-keys-present
   (testing "the [runtime] group surfaces :rf/* keys present in app-db"
@@ -579,42 +585,33 @@
                                    "rf-causa-app-db-diff-pinned-[:user :auth :status]"))
             "pinned row for the pinned path is present")))))
 
-(deftest clicking-pin-button-fires-pin-slice-event
-  (testing "the slice mini-panel's Pin button is wired to
-            :rf.causa/pin-slice for the slice's path"
+(deftest pin-slice-event-still-wired
+  (testing "the :rf.causa/pin-slice event remains registered and lands
+            the pin in the Causa frame. The Pin button UI moved off the
+            slice mini-panel under rf2-gfxmk Phase 1 (slices are now
+            rendered as sections-per-cluster); pin / show-me-when
+            affordances on the section header are a follow-on."
     (seed-causa! {:cart {:items [{:id 7}]}}
                  [(mk-record :e-1 [:cart/add]
                              {:cart {:items []}}
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/causa
-      (let [tree     (app-db-diff/Panel)
-            btn      (find-by-testid tree
-                                     "rf-causa-app-db-diff-pin-[:cart :items]")
-            on-click (:on-click (second btn))]
-        (is (fn? on-click) "Pin button has an on-click handler")
-        ;; Drive the same event through dispatch-sync to prove the
-        ;; registered event handler lands the pin in the Causa frame.
-        (rf/dispatch-sync [:rf.causa/pin-slice [:cart :items]])
-        (let [causa-db (frame/frame-app-db-value :rf/causa)]
-          (is (= [[:cart :items]]
-                 (get-in causa-db [:pinned-slices-store :rf/default]))
-              "pin landed in :rf/causa's :pinned-slices-store"))))))
+      (rf/dispatch-sync [:rf.causa/pin-slice [:cart :items]])
+      (let [causa-db (frame/frame-app-db-value :rf/causa)]
+        (is (= [[:cart :items]]
+               (get-in causa-db [:pinned-slices-store :rf/default]))
+            "pin landed in :rf/causa's :pinned-slices-store")))))
 
-(deftest clicking-show-when-button-fires-focus-event
-  (testing "the slice mini-panel's 'Show me when this changed' button is
-            wired to :rf.causa/focus-slice-path"
+(deftest focus-slice-path-event-still-wired
+  (testing "the :rf.causa/focus-slice-path event remains registered. UI
+            affordance moved off the slice mini-panel — same follow-on
+            as the pin button above."
     (seed-causa! {:cart {:items [{:id 7}]}}
                  [(mk-record :e-1 [:cart/add]
                              {:cart {:items []}}
                              {:cart {:items [{:id 7}]}})])
     (rf/with-frame :rf/causa
-      (let [tree (app-db-diff/Panel)
-            btn  (find-by-testid tree
-                                 "rf-causa-app-db-diff-show-when-[:cart :items]")
-            on-click (:on-click (second btn))]
-        (is (some? btn) "Show-when button present")
-        (is (fn? on-click))
-        (rf/dispatch-sync [:rf.causa/focus-slice-path [:cart :items]])
-        (let [causa-db (frame/frame-app-db-value :rf/causa)]
-          (is (= [:cart :items]
-                 (:focused-slice-path causa-db))))))))
+      (rf/dispatch-sync [:rf.causa/focus-slice-path [:cart :items]])
+      (let [causa-db (frame/frame-app-db-value :rf/causa)]
+        (is (= [:cart :items]
+               (:focused-slice-path causa-db)))))))

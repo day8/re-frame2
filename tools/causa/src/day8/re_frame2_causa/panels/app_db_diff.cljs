@@ -1,15 +1,24 @@
 (ns day8.re-frame2-causa.panels.app-db-diff
   "App-DB Diff panel shell.
 
-  The panel is slice-centric: it renders changed slices for the
-  selected epoch, pinned live slices, reserved runtime keys, or the
-  'Show me when this changed' result for a focused path.
+  The panel is sections-centric (rf2-gfxmk Phase 1): it renders the
+  structural-diff engine's section vector for the selected epoch,
+  pinned live slices, reserved runtime keys, or the 'Show me when this
+  changed' result for a focused path.
+
+  Prior to rf2-gfxmk the panel rendered one slice-mini-panel per
+  diff triple (stacked before/after cljs-devtools trees per slice).
+  The sections-per-cluster model replaces that: N path-headed sections,
+  each containing a local annotated subtree with in-place gutters,
+  smart-expand, and chip-collapsed `:same` siblings. See
+  `ai/findings/2026-05-18-difftastic-in-causa.md` §3.1 for the design.
 
   Canonical exemplar of the panel facade pattern documented in
   `tools/causa/spec/Conventions.md` — facade owns the public
   `reg-view`, leaves expose plain fns + `install!`, the facade's
   `install!` chains leaf installs and returns `nil`."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.diff.render :as diff-render]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
             [day8.re-frame2-causa.panels.app-db-diff-sections
              :as sections]
@@ -22,7 +31,7 @@
   []
   (let [{:keys [target-frame
                 history-empty?
-                changed-non-reserved
+                changed-sections
                 changed-reserved
                 pinned-slices
                 focused-path
@@ -45,8 +54,7 @@
       [:p {:style {:font-size "12px"
                    :color     (:text-tertiary tokens)
                    :margin    "4px 0 0 0"}}
-       "Slices that changed this epoch, plus any you have pinned. "
-       "Click a slice to focus its before/after."]]
+       "Structural diff for this epoch, grouped into path-headed sections."]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         focused-path
@@ -60,7 +68,7 @@
 
         :else
         [:div
-         (sections/changed-slices-stack changed-non-reserved)
+         (diff-render/render-sections changed-sections "app-db-diff")
          (sections/pinned-group pinned-slices)
          (sections/reserved-group changed-reserved)])]]))
 

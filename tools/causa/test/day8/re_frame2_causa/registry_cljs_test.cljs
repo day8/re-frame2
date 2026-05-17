@@ -187,9 +187,11 @@
    :rf.causa/schema-violations-window
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
+   :rf.causa/selected-epoch-annotated-tree
    :rf.causa/selected-epoch-diff
    :rf.causa/selected-epoch-id
    :rf.causa/selected-epoch-record
+   :rf.causa/selected-epoch-sections
    :rf.causa/selected-flow-id
    :rf.causa/selected-fx-id
    :rf.causa/selected-machine-id
@@ -516,7 +518,10 @@
     ;;   cancellation-cascade-expanded? +
     ;;   cancellation-cascade-for-focused-machine +
     ;;   cancellation-cascade-for-focused-event
-    (is (= 119 (count all-sub-names)))
+    ;; + 2 structural-diff engine (rf2-gfxmk Phase 1):
+    ;;   :rf.causa/selected-epoch-annotated-tree +
+    ;;   :rf.causa/selected-epoch-sections.
+    (is (= 121 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):

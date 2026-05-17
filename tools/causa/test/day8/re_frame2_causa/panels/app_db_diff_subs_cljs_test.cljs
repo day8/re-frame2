@@ -15,19 +15,25 @@
 (use-fixtures :each
   (test-support/reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (reset! subs/diff-cache {}))}))
+     :init-fn (fn []
+                (reset! subs/diff-cache {})
+                (reset! subs/annotated-tree-cache {}))}))
 
-(deftest leaf-install-registers-the-eight-subs
+(deftest leaf-install-registers-the-ten-subs
   (subs/install!)
   (is (some? (registrar/handler :sub :rf.causa/target-frame-db)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-record)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-diff)))
+  (is (some? (registrar/handler :sub :rf.causa/selected-epoch-annotated-tree)))
+  (is (some? (registrar/handler :sub :rf.causa/selected-epoch-sections)))
   (is (some? (registrar/handler :sub :rf.causa/pinned-slices-store)))
   (is (some? (registrar/handler :sub :rf.causa/pinned-slices)))
   (is (some? (registrar/handler :sub :rf.causa/focused-slice-path)))
   (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
   (is (some? (registrar/handler :sub :rf.causa/app-db-diff))))
 
-(deftest diff-cache-is-a-leaf-level-atom
+(deftest diff-caches-are-leaf-level-atoms
   (is (some? subs/diff-cache))
-  (is (map? @subs/diff-cache)))
+  (is (map? @subs/diff-cache))
+  (is (some? subs/annotated-tree-cache))
+  (is (map? @subs/annotated-tree-cache)))
