@@ -98,6 +98,7 @@
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.popover.causality :as causality-popover]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
+            [day8.re-frame2-causa.share-modal :as share-modal]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
@@ -722,4 +723,11 @@
     ;; ("Press [c] for the causality graph"). Same mount semantics as
     ;; the palette Modal: closed-state is one subscribe + when-gate,
     ;; so the dormant cost is negligible.
-    [causality-popover/Popover]]])
+    [causality-popover/Popover]
+    ;; Share modal (rf2-nqw0v Phase 5) — encodes the current Causa
+    ;; state (focused machine + mode + scrubber + tab) into a URL the
+    ;; user can paste anywhere. Same mount discipline as the other
+    ;; modals: shell-root mount so subscribes resolve through the
+    ;; `:rf/causa` frame-provider; closed-state cost is one subscribe
+    ;; + a when-gate.
+    [share-modal/Modal]]])

@@ -129,11 +129,17 @@
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
    :rf.causa/forced-machine-mode
+   ;; rf2-nqw0v Phase 5 — Machine Inspector per-instance arc + scrubber.
+   :rf.causa/machine-arc-data
+   :rf.causa/machine-arc-highlight-state
+   :rf.causa/machine-arc-hover
+   :rf.causa/machine-arc-trimmed
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
    :rf.causa/machine-instances
    :rf.causa/machine-instances-override
+   :rf.causa/machine-scrubber-position
    :rf.causa/machine-snapshots
    :rf.causa/machine-snapshots-override
    :rf.causa/mode-c-cluster-by
@@ -194,6 +200,11 @@
    :rf.causa/sim-by-machine
    :rf.causa/sim-event-suggestions
    :rf.causa/sim-state
+   ;; rf2-nqw0v Phase 5 — Share affordance subs.
+   :rf.causa/share-copy-status
+   :rf.causa/share-modal-open?
+   :rf.causa/share-state
+   :rf.causa/share-url
    :rf.causa/suppressed-sensitive-count
    :rf.causa/target-frame
    :rf.causa/target-frame-db
@@ -248,6 +259,7 @@
    :rf.causa/close-edit-popup
    :rf.causa/close-shell
    :rf.causa/copy-path-to-clipboard
+   :rf.causa/copy-share-url-to-clipboard
    :rf.causa/copy-value-to-clipboard
    :rf.causa/delete-edit-popup
    :rf.causa/dismiss-pin-overflow-toast
@@ -270,6 +282,7 @@
    :rf.causa/open-edit-popup
    :rf.causa/open-in-editor
    :rf.causa/open-settings
+   :rf.causa/open-share-url-in-new-tab
    :rf.causa/palette-close
    :rf.causa/palette-cursor-down
    :rf.causa/palette-cursor-set
@@ -289,6 +302,7 @@
    :rf.causa/reset-suppressed-counters
    :rf.causa/reset-to-epoch
    :rf.causa/reset-to-pinned
+   :rf.causa/restore-from-share-url
    :rf.causa/save-edit-popup
    :rf.causa/select-dispatch-id
    :rf.causa/select-epoch
@@ -313,8 +327,10 @@
    :rf.causa/set-registered-flows-override-for-test
    :rf.causa/set-registered-fxs-override-for-test
    :rf.causa/set-registered-machines-override-for-test
+   :rf.causa/set-arc-hover
    :rf.causa/set-registered-routes-override-for-test
    :rf.causa/set-schema-filter
+   :rf.causa/set-scrubber-position
    :rf.causa/set-schema-timeline-window
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
@@ -324,6 +340,10 @@
    :rf.causa/settings-select-tab
    :rf.causa/settings-toggle
    :rf.causa/settings-update
+   ;; rf2-nqw0v Phase 5 — Share affordance events.
+   :rf.causa/share-copy-status
+   :rf.causa/share-modal-close
+   :rf.causa/share-modal-open
    ;; rf2-v869p Phase 2 — UC1 Sim sub-mode events.
    :rf.causa/sim-reset
    :rf.causa/sim-set-pending-data
@@ -355,6 +375,8 @@
 
 (def ^:private all-fx-names
   [:rf.causa.fx/copy-to-clipboard
+   ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
+   :rf.causa.fx/open-in-new-tab
    :rf.causa.fx/reset-frame-db!
    :rf.causa.fx/restore-epoch
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
@@ -459,7 +481,12 @@
     ;;   mode-c-expanded + mode-c-selection + machine-instances +
     ;;   machine-instances-override + mode-c-clusters +
     ;;   mode-c-compare-table + forced-machine-mode.
-    (is (= 104 (count all-sub-names)))
+    ;; + 9 machine-inspector Phase 5 (rf2-nqw0v):
+    ;;   :rf.causa/machine-arc-data + machine-arc-trimmed +
+    ;;   machine-arc-highlight-state + machine-arc-hover +
+    ;;   machine-scrubber-position + share-modal-open? + share-state +
+    ;;   share-url + share-copy-status.
+    (is (= 113 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -502,13 +529,20 @@
     ;;   set-machine-instances-override-for-test.
     ;; + 1 machine-inspector Phase 4 (rf2-m7co9):
     ;;   :rf.causa/machine-chart-layout-pulse — ELK layout async pulse.
-    (is (= 126 (count all-event-names)))
+    ;; + 10 machine-inspector Phase 5 (rf2-nqw0v):
+    ;;   :rf.causa/set-scrubber-position + set-arc-hover +
+    ;;   share-modal-open + share-modal-close + share-copy-status +
+    ;;   copy-share-url-to-clipboard + open-share-url-in-new-tab +
+    ;;   restore-from-share-url (8 share/arc events) + the
+    ;;   arc-data implicit composite has no event of its own. The
+    ;;   correct count rises by 8 events; subs add another 9.
+    (is (= 134 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
     ;; rf2-wm7z4) + 1 auto-filter (`:rf.causa.filters/persist`,
     ;; rf2-ak4ms).
-    (is (= 6  (count all-fx-names)))))
+    (is (= 7  (count all-fx-names)))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"
