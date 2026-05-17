@@ -36,7 +36,9 @@
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
-            [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            ;; Subscriptions panel deleted with rf2-21ob3 — replaced by
+            ;; Views (spec/012-Views.md). Views gallery variants are
+            ;; separate follow-on work.
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.trace :as trace]
@@ -83,24 +85,9 @@
          :data-testid "panel-gallery-app-db-diff-card"}
    [app-db-diff/Panel]])
 
-(defn- subscriptions-panel
-  "Embedded mount of the Causa subscriptions panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/subscriptions-data` reads to the variant frame's app-db,
-  where the seed events have written `:sub-cache-override`,
-  `:sub-error-cache`, `:selected-sub`, and `:sub-filters`.
-
-  `subscriptions/Panel` is a `reg-view` whose body
-  invokes `(subscriptions-views/subscriptions-panel)` via plain
-  function call (rf2-043uz) — that internal call form keeps the
-  leaf's subscribes inside the facade reg-view wrapper's render so
-  frame-context resolves correctly. The gallery wrapper mounts the
-  facade view as a Reagent vector — safe here because reg-view
-  threads `:contextType` through React."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-subscriptions-card"}
-   [subscriptions/Panel]])
+;; Subscriptions panel gallery wrapper deleted with rf2-21ob3 — the
+;; Subs panel is replaced by Views (spec/012-Views.md). Views gallery
+;; variants are separate follow-on work.
 
 (defn- time-travel-panel
   "Embedded mount of the Causa time-travel panel for one Story
@@ -185,7 +172,7 @@
   []
   (rf/reg-view* :panel-gallery.event-detail/Panel  event-detail-panel)
   (rf/reg-view* :panel-gallery.app-db-diff/Panel   app-db-diff-panel)
-  (rf/reg-view* :panel-gallery.subscriptions/Panel subscriptions-panel)
+  ;; Subscriptions gallery registration removed with rf2-21ob3.
   (rf/reg-view* :panel-gallery.time-travel/Panel   time-travel-panel)
   (rf/reg-view* :panel-gallery.trace/Panel         trace-panel)
   (rf/reg-view* :panel-gallery.issues-ribbon/Panel issues-ribbon-panel)

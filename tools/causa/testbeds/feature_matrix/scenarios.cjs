@@ -19,12 +19,10 @@ const {
 const PANEL_HANDOFFS = [
   ['event', 'rf-causa-event-detail'],
   ['app-db', 'rf-causa-app-db-diff'],
-  // The views tab is a stub pending follow-on impl (see shell.cljs
-  // `views-tab-stub`); we verify the L4 detail-panel wrapper writes
-  // the views selector — `rf-causa-detail-panel-views`. The stub
-  // content's own `rf-causa-tab-views` testid collides with the tab
-  // button so we don't rely on it.
-  ['views', 'rf-causa-detail-panel-views'],
+  // The :views tab routes to the full Views panel per spec/012-Views.md
+  // (rf2-21ob3 replaced the legacy Subscriptions panel). The Views
+  // panel renders its canonical `rf-causa-views` root testid.
+  ['views', 'rf-causa-views'],
   ['trace', 'rf-causa-trace'],
   ['machines', 'rf-causa-machine-inspector'],
   ['issues', 'rf-causa-issues-ribbon'],

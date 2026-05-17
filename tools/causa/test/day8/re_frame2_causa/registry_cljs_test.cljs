@@ -161,22 +161,27 @@
    :rf.causa/selected-mismatch-id
    :rf.causa/selected-panel
    :rf.causa/selected-route-id
-   :rf.causa/selected-sub
    :rf.causa/selected-tab
    :rf.causa/selected-violation-id
    :rf.causa/show-me-when-this-changed-result
-   :rf.causa/sub-cache
-   :rf.causa/sub-chain-open?
-   :rf.causa/sub-error-cache
-   :rf.causa/sub-filters
-   :rf.causa/subscriptions-data
    :rf.causa/suppressed-sensitive-count
    :rf.causa/target-frame
    :rf.causa/target-frame-db
    :rf.causa/time-travel
    :rf.causa/trace-buffer
    :rf.causa/trace-feed
-   :rf.causa/trace-filters])
+   :rf.causa/trace-filters
+   ;; Views panel (rf2-21ob3) replaces the legacy Subscriptions panel
+   ;; — subs nest under the views that consumed them. See
+   ;; `tools/causa/spec/012-Views.md`.
+   :rf.causa/views-cluster-threshold
+   :rf.causa/views-component-filter
+   :rf.causa/views-data
+   :rf.causa/views-expanded-clusters
+   :rf.causa/views-expanded-rows
+   :rf.causa/views-focused-cascade-pair
+   :rf.causa/views-group-by
+   :rf.causa/views-heatmap?])
 
 (def ^:private all-event-names
   ;; Issues-ribbon panel-internal events (rf2-nmc1f) — nested under
@@ -198,7 +203,6 @@
    :rf.causa/clear-route-selection
    :rf.causa/clear-selected-dispatch-id
    :rf.causa/clear-selected-epoch
-   :rf.causa/clear-selected-sub
    :rf.causa/clear-slice-focus
    :rf.causa/clear-trace-buffer
    :rf.causa/clear-trace-filters
@@ -213,7 +217,6 @@
    :rf.causa/focus-cascade-prev
    :rf.causa/focus-slice-path
    :rf.causa/follow-head
-   :rf.causa/hide-invalidation-chain
    :rf.causa/machine-state-clicked
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
@@ -246,7 +249,6 @@
    :rf.causa/select-mismatch
    :rf.causa/select-panel
    :rf.causa/select-route
-   :rf.causa/select-sub
    :rf.causa/select-tab
    :rf.causa/select-violation
    :rf.causa/set-active-route-slice-override-for-test
@@ -261,19 +263,27 @@
    :rf.causa/set-registered-routes-override-for-test
    :rf.causa/set-schema-filter
    :rf.causa/set-schema-timeline-window
-   :rf.causa/set-sub-cache-override-for-test
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
-   :rf.causa/show-invalidation-chain
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    :rf.causa/time-travel-set-label-input
    :rf.causa/toggle-live-pause
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
-   :rf.causa/toggle-sub-filter
    :rf.causa/unpin
-   :rf.causa/unpin-slice])
+   :rf.causa/unpin-slice
+   ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
+   ;; panel events. See `tools/causa/spec/012-Views.md`.
+   :rf.causa/views-collapse-all-rows
+   :rf.causa/views-segment-click
+   :rf.causa/views-set-cluster-threshold
+   :rf.causa/views-set-component-filter
+   :rf.causa/views-set-group-by
+   :rf.causa/views-set-heatmap?
+   :rf.causa/views-toggle-cluster
+   :rf.causa/views-toggle-heatmap
+   :rf.causa/views-toggle-row])
 
 (def ^:private all-fx-names
   [:rf.causa.fx/copy-to-clipboard
@@ -341,7 +351,7 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 78 subs + 90 events + 5 fxs"
+  (testing "registry holds exactly 80 subs + 93 events + 5 fxs"
     ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
@@ -349,9 +359,16 @@
     ;; + 2 machine-inspector (rf2-2tkza Phase 1):
     ;;   :rf.causa/machine-definitions (production sub) +
     ;;   :rf.causa/machine-definitions-override (test-override sub).
+    ;; + 8 views − 6 subs (rf2-21ob3 — Subs panel retired; replaced
+    ;;   by Views per spec/012-Views.md). Subs slots dropped: sub-cache,
+    ;;   sub-error-cache, sub-filters, sub-chain-open?, selected-sub,
+    ;;   subscriptions-data. Views slots added: views-heatmap?,
+    ;;   views-group-by, views-component-filter, views-cluster-threshold,
+    ;;   views-expanded-rows, views-expanded-clusters,
+    ;;   views-focused-cascade-pair, views-data.
     ;; + 2 4-layer chrome (rf2-xy4yb): :rf.causa/active-filters +
     ;;   :rf.causa/selected-tab
-    (is (= 78 (count all-sub-names)))
+    (is (= 80 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -364,9 +381,17 @@
     ;; + 2 machine-inspector (rf2-2tkza Phase 1):
     ;;   :rf.causa/machine-state-clicked (chart click handler) +
     ;;   :rf.causa/set-machine-definitions-override-for-test
+    ;; + 9 views − 6 subs (rf2-21ob3). Subs events dropped: clear-
+    ;;   selected-sub, hide-invalidation-chain, select-sub,
+    ;;   set-sub-cache-override-for-test, show-invalidation-chain,
+    ;;   toggle-sub-filter. Views events added: views-collapse-all-rows,
+    ;;   views-segment-click, views-set-cluster-threshold,
+    ;;   views-set-component-filter, views-set-group-by,
+    ;;   views-set-heatmap?, views-toggle-cluster, views-toggle-heatmap,
+    ;;   views-toggle-row.
     ;; + 6 4-layer chrome (rf2-xy4yb): select-tab + add-filter +
     ;;   remove-filter + open-settings + popout + close-shell
-    (is (= 90 (count all-event-names)))
+    (is (= 93 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
@@ -661,17 +686,19 @@
     (rf/with-frame :rf/causa
       (is (false? @(rf/subscribe [:rf.causa/mcp-origin-filter-enabled?]))))))
 
-(deftest sub-sub-chain-open-defaults-false
-  (testing ":rf.causa/sub-chain-open? defaults to false (boolean)"
+(deftest sub-views-heatmap-defaults-false
+  (testing ":rf.causa/views-heatmap? defaults to false (rf2-21ob3 —
+            Views panel replaces the Subs panel's chain-open? slot)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/sub-chain-open?]))))))
+      (is (false? @(rf/subscribe [:rf.causa/views-heatmap?]))))))
 
-(deftest sub-sub-filters-default-empty-set
-  (testing ":rf.causa/sub-filters defaults to #{}"
+(deftest sub-views-group-by-defaults-component
+  (testing ":rf.causa/views-group-by defaults to :component (rf2-21ob3
+            — Views panel replaces the Subs panel's sub-filters slot)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= #{} @(rf/subscribe [:rf.causa/sub-filters]))))))
+      (is (= :component @(rf/subscribe [:rf.causa/views-group-by]))))))
 
 (deftest sub-performance-budget-defaults-to-helper-constant
   (testing ":rf.causa/performance-budget-ms defaults to the helper's default"
@@ -835,16 +862,20 @@
         (is (nil? (:schema-filter data)))
         (is (nil? (:selected-violation data)))))))
 
-(deftest sub-subscriptions-data-shape-empty
-  (testing ":rf.causa/subscriptions-data returns empty defaults"
+(deftest sub-views-data-shape-empty
+  (testing ":rf.causa/views-data returns empty defaults when no cascade
+            is focused (rf2-21ob3; replaces the legacy
+            :rf.causa/subscriptions-data shape per spec/012-Views.md)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-sub-cache-override-for-test {}])
-      (let [data @(rf/subscribe [:rf.causa/subscriptions-data])]
-        (is (= 0 (:total data)))
-        (is (= [] (:rows data)))
-        (is (= #{} (:active-filters data)))
-        (is (false? (:chain-open? data)))))))
+      (let [data @(rf/subscribe [:rf.causa/views-data])]
+        (is (contains? data :groups))
+        (is (= 0 (:mounted   (:totals data))))
+        (is (= 0 (:rendered  (:totals data))))
+        (is (= 0 (:unmounted (:totals data))))
+        (is (false? (:has-cascade? data)))
+        (is (false? (:heatmap? data)))
+        (is (= :component (:group-by data)))))))
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
@@ -967,26 +998,32 @@
       (rf/dispatch-sync [:rf.causa/reroot-tree-view []])
       (is (nil? @(rf/subscribe [:rf.causa/hydration-reroot-path]))))))
 
-(deftest event-toggle-sub-filter
-  (testing ":rf.causa/toggle-sub-filter adds + removes membership"
+(deftest event-views-toggle-row-adds-and-removes
+  (testing ":rf.causa/views-toggle-row toggles set membership
+            (rf2-21ob3 — Views panel inline-row expansion replaces
+            the Subs panel filter toggle)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-sub-filter :fresh])
-      (is (= #{:fresh} @(rf/subscribe [:rf.causa/sub-filters])))
-      (rf/dispatch-sync [:rf.causa/toggle-sub-filter :re-running])
-      (is (= #{:fresh :re-running} @(rf/subscribe [:rf.causa/sub-filters])))
-      (rf/dispatch-sync [:rf.causa/toggle-sub-filter :fresh])
-      (is (= #{:re-running} @(rf/subscribe [:rf.causa/sub-filters]))))))
+      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-a"])
+      (is (= #{"row-a"} @(rf/subscribe [:rf.causa/views-expanded-rows])))
+      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-b"])
+      (is (= #{"row-a" "row-b"} @(rf/subscribe [:rf.causa/views-expanded-rows])))
+      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-a"])
+      (is (= #{"row-b"} @(rf/subscribe [:rf.causa/views-expanded-rows]))))))
 
-(deftest event-show-and-hide-invalidation-chain
-  (testing ":rf.causa/show-invalidation-chain + hide round-trip"
+(deftest event-views-toggle-heatmap-round-trip
+  (testing ":rf.causa/views-toggle-heatmap flips the boolean; the
+            segment-click event sets the filter AND drops heatmap mode
+            in one step (per spec/012 §Heatmap segment interaction)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/show-invalidation-chain [:my-sub]])
-      (is (true? @(rf/subscribe [:rf.causa/sub-chain-open?])))
-      (is (= [:my-sub] @(rf/subscribe [:rf.causa/selected-sub])))
-      (rf/dispatch-sync [:rf.causa/hide-invalidation-chain])
-      (is (false? @(rf/subscribe [:rf.causa/sub-chain-open?]))))))
+      (rf/dispatch-sync [:rf.causa/views-toggle-heatmap])
+      (is (true? @(rf/subscribe [:rf.causa/views-heatmap?])))
+      (rf/dispatch-sync [:rf.causa/views-segment-click :my/view])
+      (is (= :my/view @(rf/subscribe [:rf.causa/views-component-filter])))
+      (is (false? @(rf/subscribe [:rf.causa/views-heatmap?])))
+      (rf/dispatch-sync [:rf.causa/views-set-component-filter nil])
+      (is (nil? @(rf/subscribe [:rf.causa/views-component-filter]))))))
 
 (deftest event-set-performance-budget-ms-normalises
   (testing ":rf.causa/set-performance-budget-ms accepts pos numbers; nil resets"
@@ -1144,11 +1181,9 @@
   (testing "every :set-*-override-for-test event sets a value AND clears on nil"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; sub-cache override
-      (rf/dispatch-sync [:rf.causa/set-sub-cache-override-for-test {:x 1}])
-      (is (= {:x 1} (:sub-cache-override (frame/frame-app-db-value :rf/causa))))
-      (rf/dispatch-sync [:rf.causa/set-sub-cache-override-for-test nil])
-      (is (nil? (:sub-cache-override (frame/frame-app-db-value :rf/causa))))
+      ;; (sub-cache override retired with the Subs panel under
+      ;; rf2-21ob3 — Views panel does not need a cache-override slot
+      ;; because the projection reads :rf.causa/epoch-history directly.)
       ;; registered-flows
       (rf/dispatch-sync [:rf.causa/set-registered-flows-override-for-test {:f 1}])
       (is (= {:f 1} (:registered-flows-override (frame/frame-app-db-value :rf/causa))))
@@ -1247,12 +1282,10 @@
 
 ;; ---- (7) override-aware reader semantics --------------------------------
 
-(deftest sub-sub-cache-honours-override
-  (testing ":rf.causa/sub-cache returns the override when set"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-sub-cache-override-for-test {[:q] :hit}])
-      (is (= {[:q] :hit} @(rf/subscribe [:rf.causa/sub-cache]))))))
+;; The legacy :rf.causa/sub-cache sub + :rf.causa/set-sub-cache-
+;; override-for-test event retired with the Subs panel under rf2-21ob3
+;; (Views panel reads :rf.causa/epoch-history directly per spec/012-
+;; Views.md §Data sources; no separate sub-cache surface).
 
 (deftest sub-registered-flows-honours-override
   (testing ":rf.causa/registered-flows returns the override when set"
@@ -1344,7 +1377,7 @@
                       :rf.causa/performance-data
                       :rf.causa/machine-inspector-data
                       :rf.causa/schema-violation-timeline
-                      :rf.causa/subscriptions-data]]
+                      :rf.causa/views-data]]
         (is (some? @(rf/subscribe [sub-id]))
             (str sub-id " must not throw on an empty frame"))))))
 

@@ -181,7 +181,7 @@ day8.re-frame2-causa.panels.event-detail/Panel
 day8.re-frame2-causa.panels.causality-graph/Panel
 day8.re-frame2-causa.panels.time-travel/Panel
 day8.re-frame2-causa.panels.app-db-diff/Panel
-day8.re-frame2-causa.panels.subscriptions/Panel
+day8.re-frame2-causa.panels.views/Panel
 day8.re-frame2-causa.panels.effects/Panel
 day8.re-frame2-causa.panels.trace/Panel
 day8.re-frame2-causa.panels.machine-inspector/Panel

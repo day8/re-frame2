@@ -91,6 +91,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
@@ -631,29 +632,6 @@
 
 ;; ---- L4 detail panel -----------------------------------------------------
 
-(defn- views-tab-stub
-  "Views tab content (stub). Per spec/018 §5 the Views tab shows
-  per-view rows (mounted / re-rendered / unmounted), nested subs +
-  return values, cluster-large-grids, isolation-scoped to the
-  selected frame. Full implementation lives behind a follow-on bead
-  (rf2-pending-views) — this stub mounts a single message so the
-  shape ships."
-  []
-  (let [focus @(rf/subscribe [:rf.causa/focus])]
-    [:div {:data-testid "rf-causa-tab-views"
-           :style {:padding   "16px"
-                   :font-family sans-stack
-                   :color     (:text-secondary tokens)
-                   :font-size (:body type-scale)}}
-     [:h3 {:style {:color (:text-primary tokens)
-                   :font-size (:display type-scale)
-                   :margin-top 0}}
-      "Views tab"]
-     [:p "Per-view mount / render / unmount rollups + nested subs land here."]
-     [:p {:style {:font-size (:caption type-scale)
-                  :color (:text-tertiary tokens)}}
-      "Focused dispatch: " [:code (pr-str (:dispatch-id focus))]]]))
-
 (defn- unknown-tab-stub
   [selected]
   [:div {:data-testid "rf-causa-tab-unknown"
@@ -683,7 +661,11 @@
      (case selected
        :event    [event-detail/Panel]
        :app-db   [app-db-diff/Panel]
-       :views    [views-tab-stub]
+       ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
+       ;; replaced the legacy Subscriptions panel with Views; the 4-
+       ;; layer chrome surfaces it as the L3 `:views` tab rather than a
+       ;; sidebar entry).
+       :views    [views/Panel]
        :trace    [trace/Panel]
        :machines [machine-inspector/Panel]
        :issues   [issues-ribbon/Panel]

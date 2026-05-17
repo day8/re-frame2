@@ -49,7 +49,7 @@
             [day8.re-frame2-causa.panels.performance :as performance]
             [day8.re-frame2-causa.panels.routes :as routes]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
-            [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
@@ -422,7 +422,7 @@
     (performance/install!)
     (routes/install!)
     (schema-violation-timeline/install!)
-    (subscriptions/install!)
+    (views/install!)
     (time-travel/install!)
     (trace/install!))
   nil)

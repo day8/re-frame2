@@ -82,7 +82,10 @@
             [day8.re-frame2-causa.panels.causality-graph-helpers :as cg]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.panels.performance-helpers :as perf]
-            [day8.re-frame2-causa.panels.subscriptions-helpers :as subs]
+            ;; Views panel (rf2-21ob3) replaces the legacy Subs panel —
+            ;; spec/012-Views.md. The per-row chain-walk is gone (subs
+            ;; nest under views instead of being a top-level surface).
+            [day8.re-frame2-causa.panels.views-helpers :as views]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
 
 ;; ---- spec-derived budget constants --------------------------------------
@@ -100,11 +103,19 @@
   200)
 
 (def chain-layer-cap
-  "Per spec/012-Subscriptions.md L366-367: 'Chain walk is O(depth) in
-  the sub graph, capped at 8 layers by default.' v1 helpers render
-  one level of inputs (per `subscriptions_helpers.cljc` ns doc); the
-  spec target is 8 layers."
+  "Per the legacy spec/012-Subscriptions.md L366-367: chain walk was
+  capped at 8 layers. The Subs panel retired under rf2-21ob3 (replaced
+  by Views per spec/012-Views.md); subs nest under views and the
+  invalidation-chain surface is not a v1 obligation. Retained as a
+  documentary constant so any future re-introduction of a chain-walk
+  helper can re-pin against the same number."
   8)
+
+(def cluster-threshold-default
+  "Per spec/012-Views.md §Grid-explosion clustering — `≥ 50` renders
+  sharing `(view-id, triggered-by)` collapse into one aggregate row.
+  Mirrored at `views_helpers.cljc/default-cluster-threshold`."
+  50)
 
 (def buffer-depth-default
   "Per `tools/causa/src/.../trace_bus.cljc` L47: Causa's ring is sized
@@ -446,126 +457,79 @@
           "pure-data projection — repeat-safe"))))
 
 ;; -------------------------------------------------------------------------
-;; (4) Subscription badge derivation — spec: O(visible rows), not O(total)
+;; (4) Views panel projection — spec/012-Views.md (rf2-21ob3)
 ;; -------------------------------------------------------------------------
+;;
+;; The Views panel replaces the legacy Subs panel: per spec §Performance
+;;
+;;   - Three-group projection is O(renders in cascade).
+;;   - Clustering is O(N log N).
+;;   - Heatmap is O(distinct components in cascade).
+;;
+;; The asserts below pin the three contracts against the helpers in
+;; `views_helpers.cljc` so a regression that re-introduces a quadratic
+;; pass over the cascade's render list trips a fail in CI.
 
-(deftest subs-badge-derivation-touches-rows-not-all-subs
-  (testing "spec/012 L362: badge derivation is O(visible rows). The
-            test asserts the contract by counting cache-entry reads —
-            the projection must NOT scan inputs-of-inputs to compute
-            a row's badge (each row reads its own entry plus the
-            just-settled sub-run record by O(1) lookup)."
-    (let [;; 1000 entries in the sub-cache; only one re-ran this epoch.
-          cache    (into {}
-                         (for [i (range 1000)]
-                           [[:sub/n i]
-                            {:value     i
-                             :ref-count 1
-                             :layer     1
-                             :input-subs []}]))
-          sub-runs [{:query-v [:sub/n 0] :recomputed? true}]
-          rows     (subs/project-rows cache sub-runs {})]
-      (is (= 1000 (count rows))
-          "every cache entry projects — visible-rows = cache size in v1")
-      ;; The one sub that re-ran gets :fresh; the rest stay :fresh by
-      ;; the spec's decision-table when no :invalidated? flag is set
-      ;; (per `compute-status` step 6 — stable cached value with a
-      ;; watcher renders as :fresh).
-      (is (= 1 (count (filter :recomputed? rows)))
-          "only the one sub-run record marks a row :recomputed?"))))
+(defn- mk-render
+  [view-id instance-token triggered-by elapsed-ms]
+  {:render-key   [view-id instance-token]
+   :triggered-by triggered-by
+   :elapsed-ms   elapsed-ms})
 
-(deftest subs-project-rows-scales-linearly
-  (testing "project-rows over 10× more entries costs ≤ 10× × slack"
-    (let [run    (fn [n]
-                   (let [cache (into {}
-                                     (for [i (range n)]
-                                       [[:sub/n i]
-                                        {:value i :ref-count 1
-                                         :layer 1 :input-subs []}]))]
-                     (timed (fn [] (subs/project-rows cache [] {})))))
+(deftest views-classify-renders-scales-linearly
+  (testing "classify-renders over 10× renders costs ≤ 10× × slack"
+    (let [run (fn [n]
+                (let [current (mapv #(mk-render :view/a % nil 0.5) (range n))]
+                  (timed (fn [] (views/classify-renders current [])))))
           [_ t1]  (run 100)
           [_ t10] (run 1000)
           r       (ratio t1 t10)]
       (is (<= r (* 10.0 scaling-slack))
-          (str "project-rows 10× input scaled " r "× "
-               "(slack " scaling-slack "× over linear) — badge derivation "
-               "is O(visible rows), not O(total subs squared)")))))
+          (str "classify-renders 10× input scaled " r "× — "
+               "three-group projection is O(renders in cascade)")))))
 
-(deftest subs-status-counts-linear
-  (testing "status-counts is `frequencies` — one pass over rows"
-    (let [rows (mapv (fn [i] {:status (case (mod i 5)
-                                        0 :error 1 :re-running
-                                        2 :invalidated 3 :fresh
-                                        4 :cached-no-watcher)})
-                    (range 5000))]
-      (is (= 5000 (apply + (vals (subs/status-counts rows))))))))
+(deftest views-cluster-renders-handles-grid-explosion
+  (testing "cluster-renders folds a 1000-grid into one cluster (per
+            spec §Grid-explosion clustering); aggregate row carries
+            the cluster's count + total-ms + avg-ms."
+    (let [grid (mapv #(mk-render :view/cell % :grid/cell-data 0.012)
+                    (range 1000))
+          clustered (views/cluster-renders grid)]
+      (is (= 1 (count clustered))
+          "above threshold, all 1000 renders cluster into ONE row")
+      (let [c (first clustered)]
+        (is (= :cluster (:kind c)))
+        (is (= 1000 (:count c)))
+        (is (> (:total-ms c) 0)
+            "aggregate total-ms > 0")))))
 
-(deftest subs-filter-by-status-linear
-  (testing "filter-by-status is one filter pass — linear over rows"
-    (let [rows (mapv (fn [i] {:status :fresh}) (range 5000))]
-      (is (= 5000 (count (subs/filter-by-status rows nil))))
-      (is (= 5000 (count (subs/filter-by-status rows #{})))
-          "empty filter set shows all per spec §Filtering and grouping")
-      (is (= 5000 (count (subs/filter-by-status rows #{:fresh})))))))
+(deftest views-cluster-threshold-default-matches-spec
+  (testing "default cluster threshold matches spec §Grid-explosion
+            clustering — `≥ 50` renders cluster"
+    (is (= cluster-threshold-default views/default-cluster-threshold))))
 
-;; -------------------------------------------------------------------------
-;; (5) Chain walk — spec: O(depth), capped at 8 layers
-;; -------------------------------------------------------------------------
+(deftest views-heatmap-segments-shape-bounded-by-components
+  (testing "heatmap segments are O(distinct components) — 1000 renders
+            over 5 view-ids collapse to 5 component segments (plus an
+            optional :rest segment)"
+    (let [renders (mapv (fn [i]
+                          (mk-render (keyword "view" (str "v" (mod i 5)))
+                                     i :sub/x 0.1))
+                        (range 1000))
+          segs    (views/heatmap-segments renders)]
+      (is (>= 5 (count (filter #(= :component (:kind %)) segs))))
+      (is (<= (count segs) 6)
+          "≤ 5 component segments + 1 optional :rest segment"))))
 
-(deftest subs-compute-chain-walks-one-level-per-v1
-  (testing "spec/012 L366-367: chain walk capped at 8 layers. The v1
-            helper (subscriptions_helpers ns doc L70-73) renders the
-            focused row + ONE level of inputs and links to App-DB
-            Diff for the deeper walk. This test pins v1 behaviour;
-            a follow-on bead that extends to the spec's 8-layer cap
-            will update this assertion."
-    (let [;; Build a chain :sub/a → :sub/b → :sub/c (3 layers deep).
-          cache    {[:sub/a] {:layer 3 :ref-count 1 :input-subs [[:sub/b]]}
-                    [:sub/b] {:layer 2 :ref-count 1 :input-subs [[:sub/c]]}
-                    [:sub/c] {:layer 1 :ref-count 1 :input-subs []}}
-          sub-runs [{:query-v [:sub/a] :recomputed? true}
-                    {:query-v [:sub/b] :recomputed? true}
-                    {:query-v [:sub/c] :recomputed? true}]
-          chain    (subs/compute-chain [:sub/a] cache sub-runs {} #{})]
-      (is (some? (:focused chain))
-          "focused row materialises")
-      (is (= 1 (count (:inputs chain)))
-          "v1 walks exactly one level of inputs (per ns doc)")
-      (is (= [:sub/b] (-> chain :inputs first :query-v))
-          "the one input is the direct parent layer"))))
-
-(deftest subs-compute-chain-handles-deep-chain-no-explosion
-  (testing "the chain walk does not stack-overflow / quadratically
-            allocate when the sub graph is 8+ layers deep. v1 only
-            walks one level, but the projection still inspects the
-            cache map; a deep cache must not slow the projection."
-    (let [n        20  ; well beyond chain-layer-cap
-          cache    (into {}
-                         (for [i (range 1 (inc n))]
-                           [[:sub/k i] {:layer i :ref-count 1
-                                        :input-subs (if (< i n)
-                                                      [[:sub/k (inc i)]] [])}]))
-          ;; Every layer marked :recomputed? so the inputs filter retains them.
-          sub-runs (mapv (fn [i] {:query-v [:sub/k i] :recomputed? true})
-                         (range 1 (inc n)))
-          chain    (subs/compute-chain [:sub/k 1] cache sub-runs {} #{})]
-      (is (some? (:focused chain)))
-      (is (= 1 (count (:inputs chain)))
-          "v1 still walks just one level even over a 20-layer cache"))))
-
-(deftest subs-compute-chain-missing-focused-is-marked
-  (testing "looking up a query-v not in the cache returns :missing? true
-            (no crash, no infinite loop) — chain-walk is total over input"
-    (let [chain (subs/compute-chain [:sub/absent] {} [] {} #{})]
-      (is (true? (:missing? chain)))
-      (is (nil?  (:focused chain)))
-      (is (= []  (:inputs chain))))))
-
-(deftest subs-chain-layer-cap-documented-in-spec
-  (testing "chain-layer-cap constant matches spec/012 L366: '8 layers'.
-            If the spec's documented cap changes, this test fails so
-            the constant is updated in lockstep."
-    (is (= 8 chain-layer-cap))))
+(deftest views-build-views-data-is-pure
+  (testing "build-views-data is pure — running it twice on the same
+            input produces equal output, so the panel can rely on
+            structural-equality short-circuit to skip work"
+    (let [renders (mapv #(mk-render :view/a % :sub/x 0.5) (range 50))
+          a       (views/build-views-data renders [] [] {})
+          b       (views/build-views-data renders [] [] {})]
+      (is (= a b)
+          "pure-data projection — repeat-safe"))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) Composite-sub topology — spec: panels read derived subs

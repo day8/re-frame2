@@ -52,6 +52,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -287,10 +288,11 @@
 
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
-  `shell/detail-panel`. The Views tab is intentionally stubbed —
-  exercised in a separate test below."
+  `shell/detail-panel`. The Views tab routes to the full Views panel
+  per spec/012-Views.md (rf2-21ob3) — Subs panel is retired."
   {:event    event-detail/Panel
    :app-db   app-db-diff/Panel
+   :views    views/Panel
    :trace    trace/Panel
    :machines machine-inspector/Panel
    :issues   issues-ribbon/Panel})
@@ -307,18 +309,6 @@
               (str "tab " tab-id " — detail returned a hiccup vector"))
           (is (= expected-fn (first child))
               (str "tab " tab-id " — first child is the expected Panel fn")))))))
-
-(deftest detail-panel-views-tab-is-stubbed
-  (testing "spec/018 §5 — the Views tab content is stubbed pending
-            follow-on impl; the stub renders under testid
-            `rf-causa-tab-views`"
-    (causa-setup!)
-    (select-tab! :views)
-    (rf/with-frame :rf/causa
-      (let [tree (shell/shell-view)]
-        (is (some? (find-by-testid tree "rf-causa-detail-panel-views")))
-        (is (some? (find-by-testid tree "rf-causa-tab-views"))
-            "the Views stub mounts under its own testid")))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) L2 event list — rows + selection
