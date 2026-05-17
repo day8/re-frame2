@@ -315,7 +315,7 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
   the canonical viewer is read-only end-to-end.
 
 Source: lifted from
-[Causa 003 §Read-only viewer](../../causa/spec/003-Machine-Inspector.md#read-only-viewer).
+[Causa 003 §Share affordance](../../causa/spec/003-Machine-Inspector.md#share-affordance).
 
 ## Share-URL encoding
 
