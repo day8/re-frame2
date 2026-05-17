@@ -241,8 +241,16 @@
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
          :data-variant (str variant-id)
-         :on-click    (fn [_] (state/swap-state!
-                                state/select-variant variant-id))}
+         ;; rf2-hscut — symmetric escape from workspace mode. Selecting a
+         ;; variant clears any previously-selected workspace so the
+         ;; canvas's ws-id short-circuit (`shell.cljs` `main-pane`) yields
+         ;; to the variant branch. Mirror of the workspace-row click
+         ;; below, which clears `:selected-variant`.
+         :on-click    (fn [_]
+                        (state/swap-state!
+                          (fn [s] (-> s
+                                      (state/select-variant variant-id)
+                                      (state/select-workspace nil)))))}
    (when testable? [status-dot status])
    [:span (str "/" (name variant-id))]
    [tag-badges tags]])
