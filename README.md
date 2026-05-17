@@ -203,7 +203,6 @@ testbeds/                      Shared framework-behavior testbed surfaces (consu
   long_flow_w_failure/         Multi-second flow with mid-flow failure injection
   drain_depth_trigger/         Recursive dispatch hitting the drain-depth ceiling
   non_trivial_app_db/          ~5-level nested app-db for diffing visualisation
-  sensitive_dispatcher/        :sensitive? events for redaction verification
   large_dispatcher/            Payloads above :rf.size/large-elided threshold
   known_bad_a11y/              Story variant with deliberate a11y violation
 implementation/                CLJS reference implementation — per-artefact subdirs

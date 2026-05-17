@@ -168,15 +168,11 @@
 
 (deftest event-emit-listener-fires-on-every-dispatch
   (testing "The always-on event-emit substrate fires one record per
-            processed event — EXCEPT for events whose handler-meta
-            carries `:sensitive? true`, which are dropped at the
-            boundary. `:auth/sign-in` is `:sensitive? true` so it
-            is dropped; the two `:user.avatar-pdf/*`
-            handlers are not sensitive so they deliver records.
-            Asserted alongside the elision tests so the demo's
-            listener install path is exercised end-to-end without
-            relying on the prod-mode runner (the production elision
-            pinning lives in `re-frame.event-emit-elision-prod-test`)."
+            processed event. The handler-meta `:sensitive?` annotation
+            has been removed, so substrate-level drop based on handler
+            sensitivity is gone — all three dispatches now deliver a
+            record. Per-path elision still applies inside the record's
+            `:event` slot."
     (let [seen (atom [])]
       (rf/register-event-emit-listener!
         ::test-recorder
@@ -185,11 +181,10 @@
                          {:email "u@example.com" :password "secret"}])
       (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 1024}])
       (rf/dispatch-sync [:user.avatar-pdf/clear])
-      (is (= 2 (count @seen))
-          "three dispatches → two records (:auth/sign-in dropped at the
-           boundary per handler-meta :sensitive? true)")
-      (is (= [:user.avatar-pdf/set :user.avatar-pdf/clear]
+      (is (= 3 (count @seen))
+          "three dispatches → three records (no handler-meta drop)")
+      (is (= [:auth/sign-in :user.avatar-pdf/set :user.avatar-pdf/clear]
              (mapv :event-id @seen))
-          "records arrive in dispatch order, sans the :sensitive? dispatch")
+          "records arrive in dispatch order")
       (is (every? #(= :ok (:outcome %)) @seen)
           "every delivered record settled cleanly"))))

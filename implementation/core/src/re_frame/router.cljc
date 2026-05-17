@@ -655,11 +655,9 @@
      ;; `:schema-sensitive?` strictly tracks the schema-declared
      ;; sensitive path overlap — it drives the scope-meta `:sensitive?`
      ;; stamp on every emitted trace event. User `with-redacted` does
-     ;; NOT stamp `:sensitive?`; that remains registration-meta's job
-     ;; per [Security.md §Behavioural MUSTs across the privacy
-     ;; surface](Security.md#behavioural-musts-across-the-privacy-
-     ;; surface) — the two composition sites are intentionally
-     ;; independent.
+     ;; NOT stamp `:sensitive?`; sensitivity is path-marked via the
+     ;; schema-slot meta (the handler-meta annotation has been
+     ;; removed).
      :schema-sensitive? (boolean (seq redaction-paths))}))
 
 (defn- run-chain
@@ -776,8 +774,12 @@
   (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive?]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)
+        ;; The schema-derived `:rf/sensitive?` key drives the scope's
+        ;; `:sensitive?` trace-event stamp (read by `handler-scope-from-
+        ;; meta`). Path-marked via app-schema slot meta; the handler-
+        ;; meta `:sensitive?` annotation has been removed.
         scope-meta (cond-> handler-meta
-                     schema-sensitive? (assoc :sensitive? true))]
+                     schema-sensitive? (assoc :rf/sensitive? true))]
     (trace/with-handler-scope
       (trace/handler-scope-from-meta :event event-id scope-meta)
       (let [start-ms  (interop/now-ms)
@@ -1219,27 +1221,18 @@
   on :tags too. Spec elision is automatic — trace/emit! short-circuits
   when interop/debug-enabled? is false at compile time.
 
-  Per rf2-isdwf: `:event/dispatched` fires at queue/enqueue time —
-  BEFORE the `*handler-scope*` binding's `:sensitive?` slot is
-  established (the binding wraps `process-event*`, which runs later
-  in the drain). Look up the target handler's registration metadata
-  directly and pass `:sensitive?` in the tags so `emit!` hoists it
-  to the top level. When the handler is missing the field is omitted
-  (consumers treat absent as false).
-
-  Per rf2-qsjda: same queue-time consideration applies for
-  `:rf.trace/no-emit?`. The `*handler-scope*` binding's `:no-emit?`
-  slot doesn't exist yet at enqueue time, so we read the flag
-  directly off the target handler's registration meta and
-  short-circuit the `:event/dispatched` emit when set. Without this,
-  a Causa-style bookkeeping handler would have its enqueue trace
-  delivered to listeners (re-entering the consumer's trace-cb)
-  before the handler-scope binding ever took effect."
+  Per rf2-qsjda: queue-time `:rf.trace/no-emit?` consideration. The
+  `*handler-scope*` binding's `:no-emit?` slot doesn't exist yet at
+  enqueue time, so we read the flag directly off the target handler's
+  registration meta and short-circuit the `:event/dispatched` emit
+  when set. Without this, a Causa-style bookkeeping handler would
+  have its enqueue trace delivered to listeners (re-entering the
+  consumer's trace-cb) before the handler-scope binding ever took
+  effect."
   [envelope sync?]
   (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
         handler-meta (when event-id (registrar/lookup :event event-id))
-        sensitive?   (privacy/sensitive?-from-meta handler-meta)
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
       (trace/emit! :event :event/dispatched
@@ -1248,8 +1241,6 @@
                             :origin   (:origin envelope)
                             :source   (:source envelope)
                             :sync?    sync?}
-                     sensitive?
-                     (assoc :sensitive? true)
                      (:dispatch-id envelope)
                      (assoc :dispatch-id (:dispatch-id envelope))
                      (:parent-dispatch-id envelope)

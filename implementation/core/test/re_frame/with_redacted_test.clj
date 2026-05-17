@@ -152,33 +152,11 @@
           db-changed (first (events-of evs :event/db-changed))]
       (is (= "scalar" (get-in db-changed [:tags :event 1]))))))
 
-;; ---- composition with handler-meta `:sensitive?` --------------------------
-
-(deftest composes-with-handler-meta-sensitive
-  (testing "the two privacy sites are orthogonal: `:sensitive? true` meta
-            stamps `:sensitive? true` on every emitted trace event;
-            `with-redacted` scrubs the payload slot. Both apply."
-    (rf/reg-event-fx :auth/cross-cutting
-      {:sensitive? true}
-      [(rf/with-redacted [[:password]])]
-      (fn [{:keys [db]} [_ payload]]
-        {:db (assoc db :payload payload)}))
-    (let [evs        (record-traces
-                       #(rf/dispatch-sync
-                          [:auth/cross-cutting {:username "ada"
-                                                :password "shh"}]))
-          run-start  (run-start-of evs)
-          db-changed (first (events-of evs :event/db-changed))]
-      ;; Both stampings present on the same event:
-      (is (true? (:sensitive? run-start))
-          "handler-meta `:sensitive?` stamps every event in the scope")
-      (is (= :rf/redacted (get-in run-start [:tags :event 1 :password]))
-          "with-redacted scrubs the payload slot on the same event")
-      (is (= "ada" (get-in run-start [:tags :event 1 :username]))
-          "non-declared keys still flow through")
-      ;; Other emit sites in the cascade carry both as well:
-      (is (true? (:sensitive? db-changed)))
-      (is (= :rf/redacted (get-in db-changed [:tags :event 1 :password]))))))
+;; ---- (removed) composition with handler-meta `:sensitive?` ---------------
+;;
+;; The handler-meta `:sensitive?` annotation has been removed. The trace-
+;; surface `:sensitive?` stamp is now driven only by the schema-derived
+;; overlap (see `composes-additively-with-schema-redaction` below).
 
 ;; ---- composition with schema-derived redaction (additive) -----------------
 

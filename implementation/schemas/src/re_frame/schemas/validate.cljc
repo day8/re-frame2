@@ -83,12 +83,11 @@
   collide with an app-defined value."
   :rf/redacted)
 
-(defn- meta-sensitive?
-  "True when the registration metadata (handler / cofx / sub / fx)
-  carries `:sensitive? true`. Per Spec 009 §`:sensitive?` registration
-  metadata key — the coarse, handler-level signal."
-  [m]
-  (true? (:sensitive? m)))
+;; NOTE: the handler-meta `:sensitive?` annotation has been removed.
+;; Sensitivity is now path-marked at the schema slot — `walk-schema?`
+;; consults `walker/schema-has-sensitive?` to drive the failure-trace
+;; redaction. Wrappers pass `false` for the `meta-sensitive?` parameter
+;; (kept positional for callsite stability).
 
 (defn- redact-tags
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
@@ -204,12 +203,12 @@
                      fx) — its `:spec` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return, fx args).
-    - `meta-sensitive?` boolean — the registration-meta `:sensitive?`
-                     flag (the coarse, handler-level signal). Wrappers
-                     pass `(meta-sensitive? meta)`. The schema-level
-                     `:sensitive?` walker check is deferred to the
-                     failure branch so the hot path doesn't pay for it
-                     on every pass.
+    - `meta-sensitive?` boolean — historical handler-meta sensitivity
+                     flag. Now always `false` from callers; the
+                     handler-meta `:sensitive?` annotation has been
+                     removed. Sensitivity is determined by the schema-
+                     level per-slot `:sensitive?` walker (consulted in
+                     the failure branch).
     - `walk-schema?` boolean — when true AND `meta-sensitive?` is
                      false AND the validator fails, consult the
                      schema's per-slot `:sensitive?` walker before
@@ -405,7 +404,7 @@
     (run-validation
       handler-meta
       event
-      (meta-sensitive? handler-meta)
+      false  ;; handler-meta `:sensitive?` removed; no per-slot walk for event vectors
       false  ;; event vectors aren't `:map`-shaped — no per-slot walk
       (fn [schema explanation]
         {:where      :event
@@ -433,7 +432,7 @@
     (run-validation
       sub-meta
       value
-      (meta-sensitive? sub-meta)
+      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         {:where      :sub-return
@@ -462,7 +461,7 @@
     (run-validation
       cofx-meta
       value
-      (meta-sensitive? cofx-meta)
+      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         {:where      :cofx
@@ -499,7 +498,7 @@
     (run-validation
       fx-meta
       args
-      (meta-sensitive? fx-meta)
+      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
       true   ;; consult schema's per-slot `:sensitive?` walker on fail
       (fn [schema explanation]
         (cond-> {:where      :fx-args

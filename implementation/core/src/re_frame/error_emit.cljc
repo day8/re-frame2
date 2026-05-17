@@ -40,20 +40,15 @@
   belt-and-braces gate alongside an explicit config flag. The substrate
   proper carries no gate.
 
-  When the failing event's registered handler-meta carries
-  `:sensitive? true`, the always-on error path ENFORCES privacy — it
-  does NOT merely warn. Both fan-out paths surface the event slot as
-  `:rf/redacted` rather than the raw event vector. The exception
-  object, event-id, frame, and recovery decision flow through
-  unchanged (operators need them for triage); the event payload —
-  which may carry credentials / PII — is scrubbed at the substrate
-  boundary."
+  NOTE: handler-meta `:sensitive?` is no longer consulted here.
+  Sensitive data marking is path-based per the upcoming data-
+  classification mechanism (separate spec doc; in progress) — the
+  per-path elision wire-walker is the load-bearing redaction surface
+  on this path."
   (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.frame          :as frame]
             [re-frame.late-bind      :as late-bind]
-            [re-frame.privacy        :as privacy]
-            [re-frame.registrar      :as registrar]
             [re-frame.source-coords  :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -101,22 +96,6 @@
           (policy error-event)
           (catch #?(:clj Throwable :cljs :default) _ nil))))))
 
-(defn- redact-tags-event
-  "Substitute `:tags :event` (and `:tags :emit-event` if present) in
-  `error-event` with `:rf/redacted`. Defensive: returns the input
-  unchanged when the shape doesn't match the documented form. The
-  structured error-event passed to the per-frame `:on-error` policy
-  fn surfaces the redacted event when the failing handler is
-  registered `:sensitive? true`."
-  [error-event]
-  (if (and (map? error-event) (map? (:tags error-event)))
-    (update error-event :tags
-            (fn [tags]
-              (cond-> tags
-                (contains? tags :event)      (assoc :event privacy/redacted-sentinel)
-                (contains? tags :emit-event) (assoc :emit-event privacy/redacted-sentinel))))
-    error-event))
-
 (defn dispatch-on-error!
   "Surface an `:rf.error/*` event through the two always-on error-emit
   fan-out paths. Always-on (NOT gated by `re-frame.interop/debug-
@@ -125,22 +104,19 @@
 
   Builds the tight error-record ONCE, runs
   `re-frame.elision/elide-wire-value` against `:event` with off-box
-  defaults (large → `:rf.size/large-elided`; sensitive →
-  `:rf/redacted`), then fans out along two independent paths
-  (listener registry, per-frame `:on-error` policy).
+  defaults (large → `:rf.size/large-elided`; per-path sensitive
+  declarations → `:rf/redacted`), then fans out along two independent
+  paths (listener registry, per-frame `:on-error` policy).
 
-  When the failing event's handler is registered `:sensitive? true`,
-  BOTH fan-out paths surface the event slot as `:rf/redacted` (in the
-  tight record's `:event` slot AND the structured error-event's
-  `:tags :event` slot). The exception, event-id, frame, and
-  elapsed-ms ride through unchanged so operators retain the triage
-  signal.
+  Sensitive-data redaction on this path is path-based: the per-frame
+  `:rf/elision` registry's `:sensitive-declarations` drive the wire-
+  walker's per-slot substitutions. Handler-meta `:sensitive?` is no
+  longer consulted (path-marked classification is the v2 mechanism;
+  separate spec doc; in progress).
 
   Called by `router.cljc` from the handler-exception path. Returns nil."
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
-  (let [handler-meta (when event-id (registrar/lookup :event event-id))
-        sensitive?   (privacy/sensitive?-from-meta handler-meta)
-        ;; Per rf2-3un2g §Always-on error-coord registry: source-coords
+  (let [;; Per rf2-3un2g §Always-on error-coord registry: source-coords
         ;; for the failing handler ride the always-on parallel registry
         ;; (NOT the public registry-meta — which is stripped of coord-
         ;; keys under CLJS `:advanced + goog.DEBUG=false`). The lookup
@@ -150,14 +126,10 @@
         ;; bypassed the macro path — that's fine; the slot is absent
         ;; from the record / tags rather than nil.
         source-coord (when event-id (source-coords/error-coords-for :event event-id))
-        ;; Redact the event slot at the substrate boundary when the
-        ;; failing handler is declared sensitive. Otherwise run the
-        ;; wire-walker as before (paths flagged `:sensitive?` /
-        ;; `:large?` via the per-frame `:rf/elision` registry still
-        ;; get their per-path substitutions).
-        elided-event (if sensitive?
-                       privacy/redacted-sentinel
-                       (elision/elide-wire-value event {:frame frame-id}))
+        ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
+        ;; via the per-frame `:rf/elision` registry get their per-path
+        ;; substitutions.
+        elided-event (elision/elide-wire-value event {:frame frame-id})
         record       (cond-> {:error      error-kw
                               :event      elided-event
                               :event-id   event-id
@@ -170,15 +142,12 @@
         ;; `:source-coord` slot (innermost-wins: caller-supplied
         ;; `:source-coord` already on `:tags` would survive
         ;; intentionally; we only `assoc-when-missing`).
-        policy-event (let [pe (if sensitive?
-                                (redact-tags-event error-event)
-                                error-event)]
-                       (if (and source-coord
-                                (map? pe)
-                                (map? (:tags pe))
-                                (not (contains? (:tags pe) :source-coord)))
-                         (update pe :tags assoc :source-coord source-coord)
-                         pe))]
+        policy-event (if (and source-coord
+                              (map? error-event)
+                              (map? (:tags error-event))
+                              (not (contains? (:tags error-event) :source-coord)))
+                       (update error-event :tags assoc :source-coord source-coord)
+                       error-event)]
     ((:fan-out registry) record)
     (fire-on-error-policy! frame-id policy-event))
   nil)

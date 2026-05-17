@@ -772,16 +772,9 @@
    :modules    {:main {:init-fn non-trivial-app-db.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
-  ;; rf2-kzcim Tier 3 — sensitive-dispatcher testbed (three handlers
-  ;; marked :sensitive? true in registration meta; each exercises a
-  ;; distinct boundary — event-emit drop, schema redaction, error-
-  ;; emit redact — per Spec 009 §Substrate-level enforcement).
-  :testbeds/sensitive-dispatcher
-  {:target     :browser
-   :output-dir "out/testbeds/sensitive-dispatcher"
-   :asset-path "."
-   :modules    {:main {:init-fn sensitive-dispatcher.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+  ;; (removed) rf2-kzcim sensitive-dispatcher testbed — the handler-meta
+  ;; :sensitive? annotation has been removed; path-marked classification
+  ;; supersedes it.
 
   ;; rf2-kzcim Tier 3 — large-dispatcher testbed (four handlers each
   ;; commit a value to a path whose wire elision is governed by a

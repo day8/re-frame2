@@ -10,10 +10,10 @@
   surface.
 
   This namespace is the orchestrating seam — the sensitivity resolver
-  (`request-sensitive?` / `handler-sensitive?`) and the trace-event
-  composers (`prepare-emit-tags` / `prepare-emit-failure` and the
-  redact-* / stamp-sensitive primitives they compose). The two leaf
-  surfaces it draws on live in sibling namespaces:
+  (`request-sensitive?`) and the trace-event composers (`prepare-emit-
+  tags` / `prepare-emit-failure` and the redact-* / stamp-sensitive
+  primitives they compose). The two leaf surfaces it draws on live in
+  sibling namespaces:
 
   - `re-frame.http-privacy-headers` — header denylist + `redact-headers`.
   - `re-frame.http-url` — query-param denylist + `redact-url` /
@@ -36,14 +36,14 @@
      `:sensitive?` flag. Same rationale as the header denylist: the
      param name itself is the signal.
 
-  3. **Per-call / per-handler `:sensitive?`** — the originating event
-     handler's `:sensitive?` registration metadata propagates to every
-     `:rf.http/*` trace event emitted within the cascade. A per-call
-     `:sensitive?` arg on the `:rf.http/managed` args map opts in for
-     a specific request when the handler itself is not sensitive (e.g.
-     a generic POST handler that is sensitive only when posting to
-     `/auth/login`). When the request is sensitive, **all** query
-     params are redacted (broader rule than the denylist).
+  3. **Per-call `:sensitive?`** — a per-call `:sensitive?` arg on the
+     `:rf.http/managed` args map opts in for a specific request (e.g.
+     a generic POST handler issuing a sensitive POST to `/auth/login`).
+     When the request is sensitive, **all** query params are redacted
+     (broader rule than the denylist). NOTE: the originating event
+     handler's `:sensitive?` registration metadata is no longer
+     consulted — handler-level sensitivity has been removed in favour
+     of path-marked / per-call classification.
 
   The runtime stamps `:sensitive? true` on the emitted trace event's
   `:tags` (and at the top level when the core runtime stamp lands per
@@ -62,8 +62,7 @@
   app-readable state — `declare-sensitive-*!` writes through), but no
   walker runs against them without the trace surface."
   (:require [re-frame.http-privacy-headers :as headers]
-            [re-frame.http-url :as url]
-            [re-frame.registrar :as registrar]))
+            [re-frame.http-url :as url]))
 
 (def redacted-sentinel
   "The framework-reserved redaction sentinel per Spec 009 §Privacy. Sits
@@ -174,42 +173,26 @@
   (cond-> tags
     sensitive? (assoc :sensitive? true)))
 
-;; ---- per-request / per-handler :sensitive? --------------------------------
-
-(defn handler-sensitive?
-  "Read the originating event handler's `:sensitive?` registration
-  metadata via `re-frame.registrar/handler-meta`.
-
-  Returns `true` iff the handler is declared sensitive. Tolerant of
-  every failure mode (id not found, metadata absent) — returns `false`
-  so the privacy machinery degrades gracefully when the originating
-  handler can't be resolved."
-  [origin-event]
-  (boolean
-    (try
-      (when (and origin-event (vector? origin-event) (seq origin-event))
-        (let [event-id (first origin-event)
-              meta     (registrar/handler-meta :event event-id)]
-          (true? (:sensitive? meta))))
-      (catch #?(:clj Throwable :cljs :default) _ false))))
+;; ---- per-request :sensitive? ----------------------------------------------
 
 (defn request-sensitive?
   "Compute the effective `:sensitive?` reading for a `:rf.http/managed`
-  request. Three sources, OR-reduced:
+  request. Two sources, OR-reduced:
 
   1. Per-call `:sensitive?` on the args map (`true` opts in for this
-     specific request, even when the handler is not declared sensitive).
+     specific request).
   2. Per-call `:sensitive?` under `:request` (sugar — callers reaching
      for `(rf.http/post ... {:request {:sensitive? true}})` get the
      same effect as the top-level form).
-  3. Handler-level `:sensitive?` registration metadata for the
-     originating event id.
 
-  Returns `true` if any source declares sensitivity; `false` otherwise."
-  [args-map origin-event]
+  Returns `true` if any source declares sensitivity; `false` otherwise.
+
+  NOTE: handler-level `:sensitive?` registration metadata is no longer
+  consulted. Sensitive data marking is path-based per the upcoming
+  data-classification mechanism (separate spec doc; in progress)."
+  [args-map _origin-event]
   (or (true? (:sensitive? args-map))
-      (true? (get-in args-map [:request :sensitive?]))
-      (handler-sensitive? origin-event)))
+      (true? (get-in args-map [:request :sensitive?]))))
 
 ;; ---- trace-event composers ------------------------------------------------
 

@@ -192,9 +192,9 @@
                 a secret (Spec 009 §Privacy)")))))))
 
 (deftest invalid-header-warning-redacts-on-sensitive-request
-  (testing "rf2-1jcpm — when the request is declared sensitive (handler
-  or per-call), ALL query-param values in the warning trace URL are
-  scrubbed (broader rule than the denylist)."
+  (testing "rf2-1jcpm — when the request is declared per-call :sensitive?,
+  ALL query-param values in the warning trace URL are scrubbed (broader
+  rule than the denylist)."
     (with-trace-capture
       (fn [captured]
         (let [_req (jvm-build-request

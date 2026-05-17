@@ -474,36 +474,17 @@ module.exports = {
       await expectTextEquals(b.locator('[data-test="count"]').first(), '100', 10000);
     });
 
-    await scenario(page, 'recorder-redacts-sensitive-events', async () => {
-      await clickVariant(page, '/recorder-redaction');
-      await waitForCanvas(page, ':story.counter-matrix/recorder-redaction');
-
-      const rec = page.locator('[data-test="story-toolbar-rec"]');
-      await rec.waitFor({ state: 'visible', timeout: 5000 });
-      await rec.click();
-      await expectVisible(page.locator('[data-test="story-recorder-overlay"]'), 5000);
-
-      await canvas(page, ':story.counter-matrix/recorder-redaction')
-        .locator('[data-test="story-recorder-sensitive-action"]')
-        .click();
-      await waitForValue(
-        () => page.locator('[data-test="story-recorder-overlay"]').innerText(),
-        (text) => /\d+\s+events?/.test(text) && !/0\s+events/.test(text),
-        { timeoutMs: 5000, description: 'recorder captured redacted sensitive event' },
-      );
-
-      await page.locator('[data-test="story-recorder-stop"]').click();
-      await expectVisible(page.locator('[data-test="story-recorder-dialog"]'), 5000);
-      const snippet = await page.locator('[data-test="story-recorder-snippet"]').innerText();
-      if (!snippet.includes('[:rf/redacted]')) {
-        throw new Error(`expected recorder snippet to contain [:rf/redacted], got ${snippet}`);
-      }
-      if (snippet.includes('browser-secret')) {
-        throw new Error(`recorder snippet leaked the sensitive password: ${snippet}`);
-      }
-      await page.locator('[data-test="story-recorder-close"]').click();
-      await sleep(0);
-    });
+    // 'recorder-redacts-sensitive-events' scenario removed per rf2-hjs2d:
+    // the reverse of rf2-pisq6 dropped the handler-meta `:sensitive?`
+    // annotation and the `:event/dispatched` queue-time emit no longer
+    // stamps `:sensitive?` from any source (the schema-overlap path stamps
+    // only AFTER handler-scope binding, which is established AFTER the
+    // queue-time emit fires). The recorder's redaction substrate is still
+    // present and gates on `(privacy/sensitive? ev)`, but there is no
+    // longer a mechanism that flips that bit on the `:event/dispatched`
+    // trace event the recorder listens for. The replacement classification
+    // surface (reg-marks) lands in a separate impl PR; the browser-side
+    // assertion will be rewritten there once a triggering mechanism exists.
 
     await scenario(page, 'a11y-known-good-and-known-bad-fixtures', async () => {
       await setMode(page, 'dev');

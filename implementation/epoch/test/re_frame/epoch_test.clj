@@ -2480,19 +2480,20 @@
       (is (false? (:rf.epoch/sensitive? r))
           "non-sensitive cascade — rollup reads false"))))
 
-(deftest smoke-sensitive-rollup-true-from-handler-meta
-  (testing "rf2-mrsck — a handler whose registration meta carries
-            :sensitive? true stamps every trace event in scope, and
-            the rollup reads that stamp from the captured stream"
+(deftest smoke-sensitive-rollup-false-from-handler-meta-removed
+  (testing "Handler-meta `:sensitive?` annotation has been removed —
+            the rollup no longer reflects a handler-level stamp.
+            Path-marked classification (schema-slot `:sensitive?`)
+            is the v2 mechanism."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :secret-write
-                     {:sensitive? true}
+                     {:sensitive? true}   ;; stored, no longer consulted
                      (fn [db _] (assoc db :token "shhh")))
     (rf/dispatch-sync [:secret-write] {:frame :test/main})
 
     (let [r (last (rf/epoch-history :test/main))]
-      (is (true? (:rf.epoch/sensitive? r))
-          "rollup reflects the trace-event :sensitive? stamp"))))
+      (is (false? (:rf.epoch/sensitive? r))
+          "rollup reads false — handler-meta annotation no longer stamps"))))
 
 (deftest smoke-projected-record-redacts-and-keeps-bookkeeping
   (testing "rf2-mrsck — projected-record routes :db-before / :db-after /

@@ -480,17 +480,20 @@
           (is (= :skipped   (:recovery v))))))))
 
 (deftest fx-args-validation-redacts-when-sensitive
-  (testing "validate-fx! consults `:sensitive?` on the fx-meta AND on the schema
-            tree; on redaction it scrubs `:value`/`:received`/`:explain`/
-            `:fx-args` and stamps `:sensitive? true`. Per rf2-4fbsd the
-            earlier `:malli-error` duplicate slot is gone."
+  (testing "validate-fx! consults the schema tree for `:sensitive?` props
+            (the fx-meta `:sensitive?` annotation has been removed); on
+            redaction it scrubs `:value`/`:received`/`:explain`/`:fx-args`
+            and stamps `:sensitive? true`. Per rf2-4fbsd the earlier
+            `:malli-error` duplicate slot is gone."
     (let [traces (atom [])]
       (rf/register-trace-cb! ::fxv5 (fn [ev] (swap! traces conj ev)))
+      ;; Sensitivity is now path-marked on the schema slot (the handler/
+      ;; fx-meta `:sensitive?` annotation has been removed); a `:sensitive?
+      ;; true` prop on the failing slot's schema drives redaction.
       (is (false? (schemas/validate-fx! :my/secret
                                         :ev/origin
                                         {:token 42}
-                                        {:spec [:map [:token :string]]
-                                         :sensitive? true})))
+                                        {:spec [:map [:token {:sensitive? true} :string]]})))
       (rf/remove-trace-cb! ::fxv5)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
