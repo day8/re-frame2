@@ -224,7 +224,7 @@ non-colliding app-db slices.
 
 If you are porting an existing re-frame app, see:
 
-- [`spec/MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/spec/MIGRATION.md)
+- [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)
   — the v1→v2 migration contract.
 - The [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration)
   skill — Claude Code workflow that walks the port mechanically and

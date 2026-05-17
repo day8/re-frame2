@@ -22,7 +22,7 @@
   `rdom/render` pay zero runtime cost — the import resolves; the throw
   is unreachable.
 
-  Migration: see spec/MIGRATION.md M-42 — legacy mount path. Use
+  Migration: see migration/from-re-frame-v1/README.md M-42 — legacy mount path. Use
   `reagent2.dom.client/{create-root, render, unmount}` instead.")
 
 ;; ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@
   [& _]
   (throw
     (ex-info
-      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."
+      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
       {:type     :rf.error/react-19-removed-surface
        :surface  'reagent2.dom/render
        :recovery :no-recovery})))
@@ -53,7 +53,7 @@
   [& _]
   (throw
     (ex-info
-      "reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."
+      "reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
       {:type     :rf.error/react-19-removed-surface
        :surface  'reagent2.dom/unmount-component-at-node
        :recovery :no-recovery})))

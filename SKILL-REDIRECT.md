@@ -43,7 +43,7 @@ Find your skill, scan the audience section for lines tagged with it.
 Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Examples.
 
 - **Definitive API reference** → https://day8.github.io/re-frame2/spec/API/ `[app]` `[setup]` `[impl]`
-- **Migration from re-frame v1** → https://day8.github.io/re-frame2/spec/MIGRATION/ `[app]` `[setup]` `[mig]`
+- **Migration from re-frame v1** → https://day8.github.io/re-frame2/migration/from-re-frame-v1/ `[app]` `[setup]` `[mig]`
 - **Narrative guide (overview)** → https://day8.github.io/re-frame2/guide/README/ `[setup]`
 - **Story tutorial** → https://day8.github.io/re-frame2/story/ `[app]`
 - **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples/reagent `[app]` `[setup]` `[impl]`

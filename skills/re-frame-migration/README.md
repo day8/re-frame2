@@ -14,12 +14,12 @@ This is the **migration** companion to the main [`re-frame2`](../re-frame2/) ski
 
 The six-phase migration workflow:
 
-1. **Orient** — read the project's dep file; identify the substrate; skim `spec/MIGRATION.md` for the rule index.
+1. **Orient** — read the project's dep file; identify the substrate; skim `migration/from-re-frame-v1/README.md` for the rule index.
 2. **Bump (M-0)** — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact. **Try a compile.** Most codebases require nothing more.
 3. **Sweep** — if Phase 2 surfaced failures, walk the M-rules in order. Apply Type A (mechanical) without asking; flag Type B (judgment-call) for the author.
 4. **Verify** — author runs their tests; iterate per surfaced failures.
 5. **Opt-in modernisations** (only if requested) — walk the O-rules.
-6. **Report** — produce the migration summary per `spec/MIGRATION.md` Part 2.
+6. **Report** — produce the migration summary per `migration/from-re-frame-v1/README.md` Part 2.
 
 ## What it deliberately does NOT cover
 
@@ -32,18 +32,18 @@ The six-phase migration workflow:
 
 ## How the skill works
 
-The skill is structured around `spec/MIGRATION.md` in this repo, which is the **authoritative breaking-change list** for re-frame v1.x → re-frame2. The skill:
+The skill is structured around `migration/from-re-frame-v1/README.md` in this repo, which is the **authoritative breaking-change list** for re-frame v1.x → re-frame2. The skill:
 
 - Routes the workflow (6 phases).
 - Sequences the rules (which to apply first, what depends on what).
 - Operationalises Type A vs Type B (mechanical vs judgment-call).
 - Produces the final migration summary.
 
-It does **not** duplicate `spec/MIGRATION.md` content. Each rule reference in the skill leaves cites an `M-N` or `O-N` rule id; the full rule text is read directly from MIGRATION.md.
+It does **not** duplicate `migration/from-re-frame-v1/README.md` content. Each rule reference in the skill leaves cites an `M-N` or `O-N` rule id; the full rule text is read directly from the migration corpus.
 
 ## Status
 
-Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real v1 codebase migration. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `spec/MIGRATION.md`, `docs/guide/18-from-re-frame-v1.md`, and `docs/the-mayor-method.md`'s paste-prompt pattern.
+Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real v1 codebase migration. The structure mirrors the `re-frame2-setup` skill in this same repo. The content is grounded against `migration/from-re-frame-v1/README.md`, `docs/guide/18-from-re-frame-v1.md`, and `docs/the-mayor-method.md`'s paste-prompt pattern.
 
 ## Layout
 
@@ -74,7 +74,7 @@ skills/re-frame-migration/
 
 ## Source of truth
 
-`spec/MIGRATION.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and MIGRATION.md disagree, MIGRATION.md wins.
+`migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, the corpus wins.
 
 ## Licence
 

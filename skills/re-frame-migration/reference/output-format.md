@@ -1,6 +1,6 @@
 # output-format
 
-The migration summary format. The shape from [`MIGRATION.md`](../../../spec/MIGRATION.md) Part 2 §"Output format for your report" is the source of truth; this leaf restates it with one filled-in example so the summary stays consistent across migrations.
+The migration summary format. The shape from [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 §"Output format for your report" is the source of truth; this leaf restates it with one filled-in example so the summary stays consistent across migrations.
 
 ## The format
 
@@ -28,7 +28,7 @@ Keep it **under 300 words** unless the migration was unusually complex.
 ## Discipline
 
 - **One summary per migration.** Even if the migration spanned multiple sessions, the summary is the single artefact the author reads at the end. Don't fragment.
-- **Cite rule ids.** Every change cites the M-N or O-N rule that authorised it. The author can grep [`MIGRATION.md`](../../../spec/MIGRATION.md) for each id if they want the rationale.
+- **Cite rule ids.** Every change cites the M-N or O-N rule that authorised it. The author can grep [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) for each id if they want the rationale.
 - **No new findings buried in narrative.** If you discover something during the migration that warrants reporting upstream (spec drift, missing M-rule, surprising behaviour), file a GitHub issue against `day8/re-frame2` — announce the cross-repo filing first, and pass the body via stdin/here-doc (see `skills/README.md` §Published-skill `allowed-tools` baseline). Reference the issue number in the summary; don't bury the finding inside prose. (`bd` is monorepo-internal and never invoked from a published skill.)
 - **Items flagged for human review are explicit.** A Type B rule the author **declined** to apply is just as important as one they applied. Both go in the summary.
 
@@ -111,6 +111,6 @@ If there are >10 items in *"Items flagged for human review"*, that's a sign the 
 ## What the summary is for
 
 - **The author reads it once and knows what the migration changed.** No need to read the diff to understand the shape.
-- **The author can audit.** Every change has a rule id; the rule id lets them go back to [`MIGRATION.md`](../../../spec/MIGRATION.md) and verify.
+- **The author can audit.** Every change has a rule id; the rule id lets them go back to [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) and verify.
 - **The author knows what's still on them.** "Items flagged for human review" is the contract — these are the things the agent declined to action, and they're owned by the author from this point.
 - **The summary goes into the project history.** Drop it as a commit message, a PR description, or a `MIGRATION-NOTES.md` in the project root — whatever the project's convention is. The migration agent doesn't decide where; the author does.

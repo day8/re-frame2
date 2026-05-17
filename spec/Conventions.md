@@ -46,7 +46,7 @@ Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>`
 
 ### v1 `:re-frame/*` namespace
 
-The v1 framework prefix `:re-frame/*` is **not** a runtime-resolved alias in v2. The runtime does not coerce `:re-frame/<x>` to `:rf/<x>`; direct authoring of `:re-frame/*` ids does not resolve. The v1→v2 path is the mechanical rewrite owned by the migration agent (per [MIGRATION §M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) — every `:re-frame/<x>` reference is rewritten to `:rf/<x>` (or to the per-rule replacement when the id names a v1 feature removed in v2) at migration time. Pre-alpha re-frame2 carries no in-flight v1 codebases that would benefit from a runtime coercion shim, so the prefix is not reserved here.
+The v1 framework prefix `:re-frame/*` is **not** a runtime-resolved alias in v2. The runtime does not coerce `:re-frame/<x>` to `:rf/<x>`; direct authoring of `:re-frame/*` ids does not resolve. The v1→v2 path is the mechanical rewrite owned by the migration agent (per [MIGRATION §M-20](../migration/from-re-frame-v1/README.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) — every `:re-frame/<x>` reference is rewritten to `:rf/<x>` (or to the per-rule replacement when the id names a v1 feature removed in v2) at migration time. Pre-alpha re-frame2 carries no in-flight v1 codebases that would benefit from a runtime coercion shim, so the prefix is not reserved here.
 
 ### `re-frame.alpha` is dissolved
 
@@ -57,7 +57,7 @@ The v1 `re-frame.alpha` namespace is **not part of v2** (rf2-7cb2 / rf2-s9dn). T
 
 The per-frame sub-cache uses a single disposal algorithm — deferred ref-counting with a configurable grace-period — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
 
-Migration entries: [MIGRATION §M-23](MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+Migration entries: [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 
 ### User-defined route ids
 
@@ -250,7 +250,7 @@ The **canonical** call-shape for an event vector — and for the parallel subscr
 
 Same shape for `subscribe`: `[:items-filtered {:status :pending :limit 20}]`.
 
-This is **best practice, not enforced**. The framework runtime accepts variadic vectors (`[<id> a b c]`) — the v1 multi-positional shape is tolerated for migration and caller convenience, and the linter nudges new code toward the map form (per [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). Boundary validators (`dispatch`, `dispatch-sync`, the pair-tool MCP dispatch surface) check `vector?` only; they do not reject variadic shape.
+This is **best practice, not enforced**. The framework runtime accepts variadic vectors (`[<id> a b c]`) — the v1 multi-positional shape is tolerated for migration and caller convenience, and the linter nudges new code toward the map form (per [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). Boundary validators (`dispatch`, `dispatch-sync`, the pair-tool MCP dispatch surface) check `vector?` only; they do not reject variadic shape.
 
 Why the canonical form is `[<id> <map>]`:
 
@@ -259,7 +259,7 @@ Why the canonical form is `[<id> <map>]`:
 - **Generator-amenable.** AI scaffolds (per [Construction-Prompts §CP-1](Construction-Prompts.md#cp-1-add-an-event-handler)) emit the map form; round-tripping through the spec preserves it.
 - **`unwrap` sugar.** The optional `unwrap` interceptor (per [API §Standard interceptors](API.md#standard-interceptors)) assumes this exact shape — handlers using it destructure the payload directly: `(fn [_ {:keys [...]}] ...)`.
 
-Cross-refs: [002 §Routing — canonical call shapes table](002-Frames.md#routing-the-dispatch-envelope), [Construction-Prompts §CP-1 — Call-shape convention](Construction-Prompts.md#cp-1-add-an-event-handler), [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in).
+Cross-refs: [002 §Routing — canonical call shapes table](002-Frames.md#routing-the-dispatch-envelope), [Construction-Prompts §CP-1 — Call-shape convention](Construction-Prompts.md#cp-1-add-an-event-handler), [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in).
 
 ## `:interceptors` is positional, not metadata (`reg-event-*`)
 
@@ -693,4 +693,4 @@ The convention applies wherever a port targets a host with the `goog.provide`-st
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.
 - [Principles.md](Principles.md) — the discipline principles that motivate these conventions.
 - [001-Registration.md](001-Registration.md) — registration metadata-map shape; what each `reg-*` accepts.
-- [MIGRATION.md](MIGRATION.md) — framework-keyword consolidation under `:rf/*` ([§M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) and the Type-A vs Type-B migration classification.
+- [MIGRATION.md](../migration/from-re-frame-v1/README.md) — framework-keyword consolidation under `:rf/*` ([§M-20](../migration/from-re-frame-v1/README.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) and the Type-A vs Type-B migration classification.

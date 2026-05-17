@@ -326,7 +326,7 @@
 
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
-;; Per spec/MIGRATION.md §M-8 and Spec-Schemas.md §:rf/effect-map,
+;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
 ;; the effect map is CLOSED: only :db and :fx live at the top level. A handler
 ;; returning a legacy v1 key (e.g. :dispatch / :dispatch-later / :dispatch-n /
 ;; :http at the top level) MUST raise a structured trace per Spec 009 §Error

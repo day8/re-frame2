@@ -341,7 +341,7 @@ User-facing event shape is a vector — `[:add-todo "milk"]` — id-first, polym
 | Single argument | `[:user-by-id 42]` | (same) |
 | Multi-argument | `[:user/login {:email e :password p}]` (single map payload) | `[:user/login e p]` (multi-positional; linter nudges) |
 
-The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe takes the same shape (`[:items-filtered {:status :pending :limit 20}]`). The full rationale is in [Principles §Name over place](Principles.md#name-over-place); the migration rule for v1 multi-positional code is [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). The v1 `unwrap` interceptor (which required this exact `[event-id payload-map]` shape) ships in v2 as opt-in handler-side sugar; v1 `trim-v` is dropped because its purpose was the multi-positional form v2 leaves behind.
+The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe takes the same shape (`[:items-filtered {:status :pending :limit 20}]`). The full rationale is in [Principles §Name over place](Principles.md#name-over-place); the migration rule for v1 multi-positional code is [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). The v1 `unwrap` interceptor (which required this exact `[event-id payload-map]` shape) ships in v2 as opt-in handler-side sugar; v1 `trim-v` is dropped because its purpose was the multi-positional form v2 leaves behind.
 
 *Internally*, every dispatch becomes a **dispatch envelope**:
 
@@ -361,7 +361,7 @@ The envelope is just a map. Any field can be set by:
 - **Frame-level config** — `reg-frame` keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
 - **Lexical injection** — `reg-view`-injected `dispatch` closures carry `:frame` from React context.
 
-The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. Event-vector metadata is not an opt-channel in v2; use the two-arg `(dispatch event opts)` form. (The one v1 metadata case — `^:flush-dom` — is rewritten to `:dispatch-later {:ms 0}`; see [MIGRATION.md §M-16](MIGRATION.md#m-16-flush-dom-event-vector-metadata-removed--replace-with-dispatch-later-ms-0).)
+The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. Event-vector metadata is not an opt-channel in v2; use the two-arg `(dispatch event opts)` form. (The one v1 metadata case — `^:flush-dom` — is rewritten to `:dispatch-later {:ms 0}`; see [MIGRATION.md §M-16](../migration/from-re-frame-v1/README.md#m-16-flush-dom-event-vector-metadata-removed--replace-with-dispatch-later-ms-0).)
 
 The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the same shape they always have (`db`+`event-vec` for `reg-event-db`, context map for `reg-event-fx`); the envelope is not exposed to user handlers.
 
@@ -546,7 +546,7 @@ The dynamic var (`*current-frame*`) is the primary mechanism for `bound-fn`, `wi
 
 ### Subscriptions composing across the signal graph
 
-`reg-sub` is the **only** sub-registration form in v2. The v1 `reg-sub-raw` escape hatch is not shipped (per [MIGRATION §M-18](MIGRATION.md)); the use cases it covered now have explicit answers in the architecture: non-app-db sources route through Pattern-AsyncEffect and registered fx, lifecycle-bearing reactive computations become state machines (per [005](005-StateMachines.md)), and bridging external reactive sources is the [006](006-ReactiveSubstrate.md) adapter contract's job.
+`reg-sub` is the **only** sub-registration form in v2. The v1 `reg-sub-raw` escape hatch is not shipped (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)); the use cases it covered now have explicit answers in the architecture: non-app-db sources route through Pattern-AsyncEffect and registered fx, lifecycle-bearing reactive computations become state machines (per [005](005-StateMachines.md)), and bridging external reactive sources is the [006](006-ReactiveSubstrate.md) adapter contract's job.
 
 Subs can compose via `:<-`. All composition stays within a single frame's sub-cache and `app-db`:
 
@@ -743,7 +743,7 @@ For async closures that fire after the body returns, capture the frame keyword e
 
 Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-dispatch-drain-semantics)), the cascade is already running synchronously, so `dispatch-sync` from inside a handler conveys no extra meaning over `dispatch`. Calling `dispatch-sync` inside an event handler's interceptor pipeline is **rejected**: the runtime emits `:rf.error/dispatch-sync-in-handler` (per [009 §Error contract](009-Instrumentation.md#error-contract)) and the call is dropped (default recovery `:no-recovery`).
 
-The shape that drains as part of the surrounding cascade is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](MIGRATION.md) for the migration rule.
+The shape that drains as part of the surrounding cascade is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](../migration/from-re-frame-v1/README.md) for the migration rule.
 
 #### Cross-frame `dispatch-sync` during a sibling drain warns but proceeds
 
@@ -755,7 +755,7 @@ The router/queue helpers preserved from v1 operate on a *specific* frame's route
 
 > **Every preserved low-level router helper takes an explicit `frame-id` argument. The zero-arg form targets `:rf/default`.**
 
-`make-restore-fn` is the v1 surface that survives this rule today: it captures a named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback. The single-arg form `(rf/make-restore-fn)` targets `:rf/default`; the explicit-frame form `(rf/make-restore-fn :todo)` targets a specific frame. (The v1 helpers `add-post-event-callback` / `remove-post-event-callback` / `purge-event-queue` are dropped in v2 — see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
+`make-restore-fn` is the v1 surface that survives this rule today: it captures a named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback. The single-arg form `(rf/make-restore-fn)` targets `:rf/default`; the explicit-frame form `(rf/make-restore-fn :todo)` targets a specific frame. (The v1 helpers `add-post-event-callback` / `remove-post-event-callback` / `purge-event-queue` are dropped in v2 — see [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
 **What `make-restore-fn` actually restores.** The captured snapshot is the frame's **value-shape**: `app-db` plus the frame-local registry tier (so a test that spawned dynamic actors during the cascade sees those registrations roll back when the closure runs). The **sub-cache** is *not* snapshotted — restoration clears it, and live subscriptions re-materialise lazily on next deref against the restored `app-db`. This matches the pre-deref behaviour of an unrestored frame: the cache is a derivative of `app-db`, not part of the frame's identity. Headless test code that asserts on subscription values after `(restore!)` should re-deref, not expect cached values from the pre-restore session. (The same constraint applies to substrate-agnostic disposal — see [§Open questions — Sub-cache disposal on frame destroy](#sub-cache-disposal-on-frame-destroy).)
 
@@ -802,7 +802,7 @@ On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's
 
 ### Render boundaries
 
-Under run-to-completion, a dispatched event runs synchronously *before* the originator returns; views do not render any intermediate state of the cascade. Render happens once, after the cascade settles. (Code that requires a render between two events in a cascade is incompatible with this contract — see [MIGRATION.md](MIGRATION.md).)
+Under run-to-completion, a dispatched event runs synchronously *before* the originator returns; views do not render any intermediate state of the cascade. Render happens once, after the cascade settles. (Code that requires a render between two events in a cascade is incompatible with this contract — see [MIGRATION.md](../migration/from-re-frame-v1/README.md).)
 
 `dispatch-sync` means "skip the router queue when called from outside any handler." Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync) above); the in-handler shape is `[[:dispatch event]]` under `:fx`.
 
@@ -1160,7 +1160,7 @@ Use cases:
 - **Tracing decorator** — emit fine-grained trace events scoped to a particular frame.
 - **Effect recorder** — capture but don't fire effects, for dry-run/documentation modes (often combined with `:fx-overrides` to also disable real firing).
 
-**Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](MIGRATION.md)). For cross-frame *observation* (audit logging, performance instrumentation, schema-validation-via-trace) use `register-trace-cb!` per [009-Instrumentation](009-Instrumentation.md). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor on each frame's `:interceptors` vector explicitly. Single-frame apps (only `:rf/default` in play) recover v1's global semantics by adding the interceptor to the default frame's `:interceptors`.
+**Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](../migration/from-re-frame-v1/README.md)). For cross-frame *observation* (audit logging, performance instrumentation, schema-validation-via-trace) use `register-trace-cb!` per [009-Instrumentation](009-Instrumentation.md). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor on each frame's `:interceptors` vector explicitly. Single-frame apps (only `:rf/default` in play) recover v1's global semantics by adding the interceptor to the default frame's `:interceptors`.
 
 ### Cascade propagation
 
@@ -1201,7 +1201,7 @@ Library authors **do not need to know about frames** if they only register handl
 - **re-frame-async-flow** schedules events via the standard `:dispatch` effect; frame propagation is automatic per the rule above.
 - **re-pressed**, **re-frame-http-fx**, etc. — same story, provided their fx implementations use the standard dispatch effect or capture a frame-bound dispatch fn via `(rf/dispatcher)`.
 
-Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/dispatcher)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as required rule M-51 in [MIGRATION.md](MIGRATION.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).
+Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/dispatcher)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as required rule M-51 in [MIGRATION.md](../migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).
 
 ## Tooling and agent-amenability
 
@@ -1238,7 +1238,7 @@ Stories/variants/workspaces consume foundation primitives this Spec defines (fra
 
 ## Migration
 
-See [MIGRATION.md](MIGRATION.md) for the migration rules. Single-frame apps need no changes; private-namespace access (`re-frame.db/app-db` etc.) breaks; everything else is additive opt-in.
+See [MIGRATION.md](../migration/from-re-frame-v1/README.md) for the migration rules. Single-frame apps need no changes; private-namespace access (`re-frame.db/app-db` etc.) breaks; everything else is additive opt-in.
 
 ## Open questions
 

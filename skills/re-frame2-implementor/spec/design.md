@@ -189,4 +189,4 @@ Anthropic's current best-practices doc says "consider using" gerund form. `re-fr
 
 ### OQ5 — Will the skill stale-detect against the spec corpus?
 
-The skill cites spec sections by URL. If the spec's section headings shift (a routine maintenance event), the skill's cross-references break. **Recommendation**: a periodic audit bead, like the one for `re-frame-migration` against `spec/MIGRATION.md`. **Status**: deferred to v0.2; not blocking v0.1.
+The skill cites spec sections by URL. If the spec's section headings shift (a routine maintenance event), the skill's cross-references break. **Recommendation**: a periodic audit bead, like the one for `re-frame-migration` against `migration/from-re-frame-v1/README.md`. **Status**: deferred to v0.2; not blocking v0.1.

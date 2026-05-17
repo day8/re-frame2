@@ -1,8 +1,8 @@
 # breaking-changes
 
-A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered by a rule?"* — you grep here, find the rule id, then load that rule's full text from [`MIGRATION.md`](../../../spec/MIGRATION.md).
+A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered by a rule?"* — you grep here, find the rule id, then load that rule's full text from [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
 
-**This leaf does not replace [`MIGRATION.md`](../../../spec/MIGRATION.md).** It points at it. The authoritative `What to look for` / `What to do` / `Why` per rule lives in MIGRATION.md. Every entry here gives just enough to identify the rule.
+**This leaf does not replace [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).** It points at it. The authoritative `What to look for` / `What to do` / `Why` per rule lives in MIGRATION.md. Every entry here gives just enough to identify the rule.
 
 ## Contents
 
@@ -115,7 +115,7 @@ Causa is a from-scratch reimplementation against re-frame2's trace bus and epoch
 
 ## What stays the same (do not change)
 
-[`MIGRATION.md`](../../../spec/MIGRATION.md) has a fully-enumerated *"What stays the same"* section near the end of Part 1. The headline non-changes:
+[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) has a fully-enumerated *"What stays the same"* section near the end of Part 1. The headline non-changes:
 
 - `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` direct invocation — same names, same call shapes.
 - Handler signatures `(fn [db [_ args]] ...)` and `(fn [{:keys [db]} event] ...)`.

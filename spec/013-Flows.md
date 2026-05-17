@@ -356,4 +356,4 @@ Flow evaluation failures MUST surface on the always-on production error-emit sub
 - [009-Instrumentation §Flow trace events](009-Instrumentation.md#flow-trace-events) — full taxonomy and payloads for the `:rf.flow/*` event vocabulary; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [009-Instrumentation §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key) — `:rf.flow/*` trace events inherit `:sensitive?` from the in-scope handler at drain time; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [Conventions](Conventions.md) — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` reserved fx-ids.
-- [MIGRATION §M-19](MIGRATION.md) — generic call-shape migration; `:inputs` is positional vector matching the v1 `on-changes` form.
+- [MIGRATION §M-19](../migration/from-re-frame-v1/README.md) — generic call-shape migration; `:inputs` is positional vector matching the v1 `on-changes` form.

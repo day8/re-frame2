@@ -134,7 +134,7 @@ The user runs tests / compiler / app; this skill does not.
 
 ## How re-frame2 differs from re-frame v1
 
-For v1-trained context: migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is [`MIGRATION.md`](../../spec/MIGRATION.md). Do not re-derive v1 mappings from training memory.
+For v1-trained context: migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is [`migration/from-re-frame-v1/README.md`](../../migration/from-re-frame-v1/README.md). Do not re-derive v1 mappings from training memory.
 
 ## Background reading (optional)
 

@@ -64,7 +64,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 **Common spec-gap traps.**
 
-- **Closed effect-map shape.** New top-level keys do NOT go in `:db` or `:fx` peer position — they go inside `:fx`. The v1→v2 migration walks this rule under M-8; your port enforces it from the start. Per [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) and the M-8 entry in [`spec/MIGRATION.md`](https://day8.github.io/re-frame2/spec/MIGRATION/).
+- **Closed effect-map shape.** New top-level keys do NOT go in `:db` or `:fx` peer position — they go inside `:fx`. The v1→v2 migration walks this rule under M-8; your port enforces it from the start. Per [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) and the M-8 entry in [`migration/from-re-frame-v1/README.md`](https://day8.github.io/re-frame2/migration/from-re-frame-v1/).
 - **Run-to-completion vs sync vs async fx.** Sync fx run inline; async fx schedule via host's promise/timeout and re-enter through `:dispatch` after the side effect completes. Async fx must NOT call back into the runtime during the current drain — that would violate run-to-completion.
 - **Sub cache invalidation.** The cache invalidates by value equality on inputs. Identity-only equality (`===` in JS without deep compare; `eq?` in Lisp; reference equality in Java) breaks the contract. Your persistent data structure choice (D4.2) must provide cheap value-equality.
 - **Frame revertibility.** The frame's full state — `app-db` plus any per-frame registry tier — must be revertible by value swap. This propagates the D4.2 (persistent data structures) requirement.

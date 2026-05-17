@@ -6,7 +6,7 @@ The design rationale and locked decisions for the `re-frame-migration` skill. A 
 
 ## 1. Goal
 
-Help a programmer migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 with the smallest correct diff. The skill is **guidance + workflow** layered on top of `spec/MIGRATION.md` (the authoritative breaking-change list). The skill does not duplicate MIGRATION.md; it structures the migration around it.
+Help a programmer migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 with the smallest correct diff. The skill is **guidance + workflow** layered on top of `migration/from-re-frame-v1/README.md` (the authoritative breaking-change list). The skill does not duplicate MIGRATION.md; it structures the migration around it.
 
 The skill's success criterion: the author runs the migration, ends up on `day8/re-frame2`, the project compiles and tests pass, and every Type B decision the author had to make is documented in the final report.
 
@@ -15,7 +15,7 @@ The skill's success criterion: the author runs the migration, ends up on `day8/r
 The same four pillars as the `re-frame2` skill, adapted to the migration domain:
 
 1. **Correctness** — recipes over explanations. The agent applies the M-rule it cites; it doesn't synthesise novel rewrites. **Q14 lock applies: NO verification module.** The agent doesn't run the author's tests; running tests is general software practice, not migration-specific.
-2. **Idiomaticness** — verified against `spec/MIGRATION.md` (which is itself verified against `implementation/**`). The skill is downstream of MIGRATION.md; if MIGRATION.md is authoritative, the skill is correct by construction.
+2. **Idiomaticness** — verified against `migration/from-re-frame-v1/README.md` (which is itself verified against `implementation/**`). The skill is downstream of MIGRATION.md; if MIGRATION.md is authoritative, the skill is correct by construction.
 3. **Context economy** — SKILL.md is a router; leaves are loaded on demand. The leaves point at MIGRATION.md for the per-rule full text; they don't quote it.
 4. **Assume training knowledge** — the agent knows what re-frame is, what a Maven coord is, what a Reagent root is, what a state machine is. The skill teaches the **v1→v2 binding**: which v1 surface becomes which v2 surface, when the rewrite is automatic vs. when it needs human judgment.
 
@@ -23,7 +23,7 @@ The same four pillars as the `re-frame2` skill, adapted to the migration domain:
 
 These are not up for re-litigation. A future authoring pass MUST preserve these unless explicitly unlocked by Mike.
 
-### L1 — `spec/MIGRATION.md` is the source of truth
+### L1 — `migration/from-re-frame-v1/README.md` is the source of truth
 
 The skill does **not** duplicate the rule content. Leaves point at MIGRATION.md by rule id (`M-N` / `O-N`). When the author asks "is `X` covered?", the leaf says which rule; the agent reads the full text from MIGRATION.md.
 
@@ -43,9 +43,9 @@ Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach t
 
 The "Done checklist" in SKILL.md lists the conditions for completion. The skill does not assert completion; it presents the checklist and the author confirms. This is consistent with L3.
 
-### L5 — Migration prompt = `spec/MIGRATION.md` Part 2
+### L5 — Migration prompt = `migration/from-re-frame-v1/README.md` Part 2
 
-Mike's bead surfaced an open question: "Where does the `setup and obviously the migration prompt` material actually live?" Answer: **`spec/MIGRATION.md` itself.** Part 2 of that doc is "Execution procedure ... written in second person to an AI agent performing the migration." It already is the migration prompt — the skill consumes it directly, and the paste-ready kickoff prompt in `reference/kickoff-prompt.md` is a thin wrapper that loads the skill and references MIGRATION.md.
+Mike's bead surfaced an open question: "Where does the `setup and obviously the migration prompt` material actually live?" Answer: **`migration/from-re-frame-v1/README.md` itself.** Part 2 of that doc is "Execution procedure ... written in second person to an AI agent performing the migration." It already is the migration prompt — the skill consumes it directly, and the paste-ready kickoff prompt in `reference/kickoff-prompt.md` is a thin wrapper that loads the skill and references MIGRATION.md.
 
 ### L6 — JVM interop is in scope
 
@@ -74,7 +74,7 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 - Re-frame v1.x CLJS codebases moving to re-frame2.
 - JVM-side test infrastructure (`.clj` runners, `re-frame.test` → `re-frame.test-support`).
 - Both Reagent v2 (default) and pre-existing UIx / Helix codebases (the substrate is detected, not migrated).
-- The full M-rule and O-rule surfaces in `spec/MIGRATION.md`.
+- The full M-rule and O-rule surfaces in `migration/from-re-frame-v1/README.md`.
 
 ### Out of scope
 
@@ -83,7 +83,7 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 - Live-runtime inspection of the running v2 app — that's `re-frame-pair2`.
 - Greenfield project bootstrap — that's `re-frame2-setup`.
 - Authoring opt-in modernisations except when the author explicitly asks.
-- Editing `spec/MIGRATION.md` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — see `skills/README.md` baseline.)
+- Editing `migration/from-re-frame-v1/README.md` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — see `skills/README.md` baseline.)
 
 ## 5. File structure (locked)
 
@@ -165,4 +165,4 @@ These remain open at authoring time:
 
 ### OQ3 — Where does the "migration prompt" material live?
 
-**Resolved (L5 above)**: it's `spec/MIGRATION.md` Part 2. The kickoff prompt in `reference/kickoff-prompt.md` wraps it.
+**Resolved (L5 above)**: it's `migration/from-re-frame-v1/README.md` Part 2. The kickoff prompt in `reference/kickoff-prompt.md` wraps it.

@@ -127,7 +127,7 @@
     ;; states; the after-*.edn fixtures (after-single-delay, after-hierarchy,
     ;; after-stale-detection, parallel-after-scoped-to-region) exercise the
     ;; canonical primitive. See [spec/005-StateMachines.md §Capability matrix]
-    ;; and [spec/MIGRATION.md §M-44].
+    ;; and [migration/from-re-frame-v1/README.md §M-44].
     :flow/basic
     :flow/topo
     :flow/dirty-check

@@ -70,6 +70,7 @@ DEFAULT_ROOTS = (
     "docs",
     "spec",
     "skills",
+    "migration",
 )
 
 # Tools live one tier deeper: tools/<tool-name>/spec/**/*.md.
@@ -86,9 +87,10 @@ EXCLUDE_DIR_NAMES = frozenset({
     "__pycache__",
 })
 
-# An auto-generated copy of spec/ that mkdocs build stages under docs/spec/.
-# .gitignored, but defensive in case a stale copy survives locally.
-EXCLUDE_DIR_REL = frozenset({Path("docs/spec")})
+# Auto-generated copies of spec/ + migration/ that mkdocs build stages
+# under docs/spec/ + docs/migration/. .gitignored, but defensive in case
+# a stale copy survives locally.
+EXCLUDE_DIR_REL = frozenset({Path("docs/spec"), Path("docs/migration")})
 
 # ATX heading regex — captures level (count of #) and trimmed title text.
 # Fenced code blocks are stripped before this is applied.  We capture every

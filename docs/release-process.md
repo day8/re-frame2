@@ -93,9 +93,9 @@ Before tagging:
 
 - [ ] All checks green on `main` (the `tests` workflow + any required reviews).
 - [ ] [`VERSION`](../VERSION) file updated to the target version. Single line, no trailing whitespace.
-- [ ] [`spec/MIGRATION.md`](../spec/MIGRATION.md) carries a fresh `M-NN` entry if the release contains a breaking change. (MIGRATION stays flat through 1.0; numbering is monotonic.)
+- [ ] [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md) carries a fresh `M-NN` entry if the release contains a breaking change. (The migration corpus stays flat through 1.0; numbering is monotonic.)
 - [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release. The GitHub Release body links to it, so it is the canonical narrative.
-- [ ] The tag's commit is the same commit that updates VERSION + MIGRATION + CHANGELOG (one release commit).
+- [ ] The tag's commit is the same commit that updates VERSION + the migration corpus + CHANGELOG (one release commit).
 - [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
 
 ## Recovery from a partial deploy
@@ -174,5 +174,5 @@ There is intentionally no per-artefact version override. Adding one would break 
 - [.github/workflows/test.yml](../.github/workflows/test.yml) — PR-time tests including lockstep drift detection.
 - [.github/scripts/verify-version-lockstep.sh](../.github/scripts/verify-version-lockstep.sh) — the lockstep contract script.
 - [spec/Conventions.md §Packaging conventions](../spec/Conventions.md#packaging-conventions) — artefact naming, the independence rule, the bundle-isolation argument.
-- [spec/MIGRATION.md](../spec/MIGRATION.md) — the migration prompt; flat through 1.0.
+- [migration/from-re-frame-v1/README.md](../migration/from-re-frame-v1/README.md) — the migration prompt; flat through 1.0.
 - [examples/reagent/realworld/README.md](../examples/reagent/realworld/README.md) — the canonical multi-artefact integration test.

@@ -10,9 +10,9 @@ copyright: Copyright &copy; 2014-2026 Michael Thompson
 
 # All published markdown lives under docs/ at build time. The narrative
 # guide already lives under docs/guide/. The normative spec lives at the
-# repo root in spec/ — `bb stage-docs` (or the docs.yml CI step) copies
-# spec/ into docs/spec/ before `mkdocs build` runs. The staged copies are
-# ignored by git (see .gitignore).
+# repo root in spec/ — the docs.yml CI step copies spec/ into docs/spec/
+# (and migration/ into docs/migration/) before `mkdocs build` runs. The
+# staged copies are ignored by git (see .gitignore).
 docs_dir: docs
 site_dir: site
 
@@ -134,6 +134,10 @@ nav:
 
   - API:
     - Reference: spec/API.md
+
+  - Migration:
+    - "From re-frame v1": migration/from-re-frame-v1/README.md
+    - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
 
 markdown_extensions:
   - meta

@@ -4,9 +4,9 @@
 
 ## What it does
 
-The `re-frame-migration` skill walks a six-phase migration: **orient** (read the dep file, skim the rule index), **bump M-0** (swap `re-frame/re-frame` → `day8/re-frame2` + a substrate adapter; stop and compile — most codebases need nothing more), **sweep for breakage** against the M-rules, **verify** (compile, tests, smoke), **optional opt-in modernisations** (only if the author asked), and **report** in the format `spec/MIGRATION.md` Part 2 specifies.
+The `re-frame-migration` skill walks a six-phase migration: **orient** (read the dep file, skim the rule index), **bump M-0** (swap `re-frame/re-frame` → `day8/re-frame2` + a substrate adapter; stop and compile — most codebases need nothing more), **sweep for breakage** against the M-rules, **verify** (compile, tests, smoke), **optional opt-in modernisations** (only if the author asked), and **report** in the format `migration/from-re-frame-v1/README.md` Part 2 specifies.
 
-The authoritative breaking-change list lives in [`spec/MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/spec/MIGRATION.md). The skill consumes it; it never duplicates or invents rules. **Type A** rewrites (mechanical, unambiguous, observably identical) are applied without asking. **Type B** rewrites (timing-sensitive, dynamic call sites, behaviour-changes-at-the-edge) are flagged with the relevant rule cited, and the skill waits for the author's decision before rewriting.
+The authoritative breaking-change list lives in [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md). The skill consumes it; it never duplicates or invents rules. **Type A** rewrites (mechanical, unambiguous, observably identical) are applied without asking. **Type B** rewrites (timing-sensitive, dynamic call sites, behaviour-changes-at-the-edge) are flagged with the relevant rule cited, and the skill waits for the author's decision before rewriting.
 
 JVM-side test runners are in scope — re-frame2 preserves `re-frame.interop` and JVM-side test runs. The smallest correct diff is the rule; no stylistic refactoring, no renames the author didn't ask for.
 
@@ -41,5 +41,5 @@ The kickoff prompt also names two common amendments — *"also modernise"* (walk
 - `SKILL.md`: [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md)
 - Kickoff prompt: [`skills/re-frame-migration/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/reference/kickoff-prompt.md)
 - Reference leaves: [`skills/re-frame-migration/reference/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration/reference) — `setup.md` (M-0 in operational detail), `breaking-changes.md` (one-page index of every rule by trigger surface), `sequencing.md`, `auto-call-site-rewrites.md` (Type A — per-call-site mechanical rewrites), `auto-cross-cutting.md` (Type A — cross-cutting renames / views / init / artefacts), `guided-handlers-state.md` (Type B — handler / view / db-seeding walkthroughs), `guided-interceptors-subs.md` (Type B — interceptor / sub / payload walkthroughs), `output-format.md` (the migration-report shape).
-- Authoritative rule corpus: [`spec/MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/spec/MIGRATION.md).
+- Authoritative rule corpus: [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Narrative companion: [Guide chapter 18 — From re-frame v1](../guide/18-from-re-frame-v1.md).

@@ -28,7 +28,7 @@ allowed-tools:
 
 Helps an author migrate a ClojureScript codebase from re-frame v1.x to re-frame2. When done, the project depends on `day8/re-frame2` + a substrate adapter, Type A rewrites have been applied, and every Type B call site has been surfaced with the relevant rule cited.
 
-The authoritative rule corpus — M-rules (required) and O-rules (opt-in modernisations) — lives in [`MIGRATION.md`](../../spec/MIGRATION.md). **Do not duplicate that content here.** Load `MIGRATION.md` when you start the migration and treat it as the source of truth.
+The authoritative rule corpus — M-rules (required) and O-rules (opt-in modernisations) — lives in [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md). **Do not duplicate that content here.** Load `MIGRATION.md` when you start the migration and treat it as the source of truth.
 
 ## When NOT to use
 
@@ -38,7 +38,7 @@ Exit this skill when the project compiles, tests pass, and Type B items have bee
 
 ## Cardinal rules
 
-1. **[`MIGRATION.md`](../../spec/MIGRATION.md) is the source of truth.** Every rewrite cites a rule id (`M-N` or `O-N`). If a call site doesn't match any rule, **stop and ask** — do not invent a rule.
+1. **[`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) is the source of truth.** Every rewrite cites a rule id (`M-N` or `O-N`). If a call site doesn't match any rule, **stop and ask** — do not invent a rule.
 2. **Type A is automatic; Type B is asked-first.** Type A is mechanical, unambiguous, observably identical — apply without prompting. Type B depends on intent — identify, explain the risk, wait for the author's decision.
 3. **Smallest correct diff.** Do not refactor for style; do not rename what the author didn't ask to rename; do not add features (frames, schemas, machines, `reg-view`) unless the author asked for the O-rules.
 4. **Apply rules in order.** Walk the rules top-to-bottom as listed in `MIGRATION.md`; M-0 (coord swap) is precondition for the rest.
@@ -48,13 +48,13 @@ Exit this skill when the project compiles, tests pass, and Type B items have bee
 8. **Do not invent migration rules.** Leave the unmatched alone and flag for human review.
 9. **Warn before a mass file rewrite.** Migration is destructive — Type A rewrites edit the author's source in place. **Before touching any file**, the skill announces the upcoming sweep: the rule it's about to apply (e.g. *"M-8 — fold top-level `:dispatch` keys into `:fx`"*), the count of files matched, and a one- or two-line example of the diff shape on a representative call site. Then pause for the author to Ctrl-C or acknowledge. The author should always have a real window to abort or scope-limit before the edits land. Per-call-site approval is not required (trust the explicit invoker); the gate is the sweep-level announcement, not per-file confirmation.
 10. **The author runs builds, tests, and smoke-tests — not the skill.** Compile / `npm test` / `clj -M:test` / `shadow-cljs watch` / browser smoke-tests are arbitrary-code execution against the author's machine and dependencies. The skill **prints the exact command** for the author to run and waits for them to paste the result. It never invokes those commands itself. This holds for both freshly cloned and long-standing repos — a v1 project may still pull a compromised transitive dep at compile time. Verification is the author's loop, not the skill's. (`Bash(rg *)` is in `allowed-tools` because rg is a read-only search; build/test commands are not.)
-11. **The migration corpus must be pinned.** [`MIGRATION.md`](../../spec/MIGRATION.md) is the contract for every rewrite. Load it from a **local checkout pinned to a specific `day8/re-frame2` commit or tag** — verify `git rev-parse HEAD` and `remote get-url origin` before reading. Do not fetch `MIGRATION.md` from GitHub at runtime; an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute. Record the pinned hash in the migration report (`reference/output-format.md`). Same rule for the VERSION pick — record the chosen v2 release in the report, never silently select "latest".
+11. **The migration corpus must be pinned.** [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) is the contract for every rewrite. Load it from a **local checkout pinned to a specific `day8/re-frame2` commit or tag** — verify `git rev-parse HEAD` and `remote get-url origin` before reading. Do not fetch `MIGRATION.md` from GitHub at runtime; an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute. Record the pinned hash in the migration report (`reference/output-format.md`). Same rule for the VERSION pick — record the chosen v2 release in the report, never silently select "latest".
 
 ## The migration workflow
 
 Six phases. Each links to a leaf for the detail; the SKILL.md carries only the workflow shape.
 
-**Phase 1 — Orient.** Read the project's dep file (`deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), then [`MIGRATION.md`](../../spec/MIGRATION.md) Part 1, then the project's test-suite shape. → [`reference/setup.md`](reference/setup.md) for the M-0 dep swap.
+**Phase 1 — Orient.** Read the project's dep file (`deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), then [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) Part 1, then the project's test-suite shape. → [`reference/setup.md`](reference/setup.md) for the M-0 dep swap.
 
 **Phase 2 — Bump the dep (M-0).** Swap `re-frame/re-frame` → `day8/re-frame2` + a substrate-adapter artefact (`day8/re-frame2-reagent` unless told otherwise), at the author-supplied `<v2-version>` (never auto-pick "latest"). Then ask the author to **compile** before applying any other rules — most codebases need no further changes. The skill prints the compile command for the project's build tool; the author runs it. → [`reference/setup.md`](reference/setup.md) for per-build-tool shapes and adapter picker.
 
@@ -116,4 +116,4 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 
 ---
 
-*Authoritative breaking-change list: [`MIGRATION.md`](../../spec/MIGRATION.md). v1 line: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*
+*Authoritative breaking-change list: [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md). v1 line: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*

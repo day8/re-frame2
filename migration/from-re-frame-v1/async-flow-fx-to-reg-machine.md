@@ -2,7 +2,7 @@
 
 > **Type B** (semantic rewrite, ask first). The agent identifies every flow and surfaces the proposed machine for operator approval at each call site. Mechanical translation handles the common cases (boot orchestration with `:seen?` / `:seen-all-of?` / `:seen-any-of?` predicates and `:halt?` termination); flows that lean on `:halt-fns?` with predicates closing over dynamic state, dynamic event-shape rules, or runtime-mutated rule sets escalate to a human.
 
-> **Cross-references.** Companion required-rule [M-21](../MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors) drops the core `on-changes` interceptor (the related v1 in-tree primitive whose use-case maps to `reg-flow`); this rule covers the **separate add-on lib** `day8.re-frame/async-flow-fx` (latest 0.4.0) whose use-case maps to `reg-machine`. Required-rule [M-28](../MIGRATION.md#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) catalogues the machines artefact that ships `reg-machine`; if the migration adopts this rule, the project gains a new dependency on `day8/re-frame2-machines`.
+> **Cross-references.** Companion required-rule [M-21](README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors) drops the core `on-changes` interceptor (the related v1 in-tree primitive whose use-case maps to `reg-flow`); this rule covers the **separate add-on lib** `day8.re-frame/async-flow-fx` (latest 0.4.0) whose use-case maps to `reg-machine`. Required-rule [M-28](README.md#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) catalogues the machines artefact that ships `reg-machine`; if the migration adopts this rule, the project gains a new dependency on `day8/re-frame2-machines`.
 
 ---
 
@@ -10,7 +10,7 @@
 
 `day8.re-frame/async-flow-fx` ([repo](https://github.com/day8/re-frame-async-flow-fx)) is a v1-era add-on lib that ships a single fx — `:async-flow` — implementing a rule-engine for orchestrating multi-step asynchronous boot / wizard / init sequences. The engine tracks events as they pass through the router, fires rules whose `:when` predicates have become true, and tears itself down when a rule with `:halt? true` fires.
 
-re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md](../005-StateMachines.md)): the boot sequence is modelled as an explicit FSM whose `:states` correspond to phases of the flow, whose `:on` maps consume the same HTTP-completion events the async-flow's `:when :events` watched for, and whose `:final?` states correspond to the async-flow's `:halt?` termination. The machine snapshot lives in `app-db` (per Spec 005), so it inherits revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility — none of which the v1 add-on offered.
+re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md)): the boot sequence is modelled as an explicit FSM whose `:states` correspond to phases of the flow, whose `:on` maps consume the same HTTP-completion events the async-flow's `:when :events` watched for, and whose `:final?` states correspond to the async-flow's `:halt?` termination. The machine snapshot lives in `app-db` (per Spec 005), so it inherits revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility — none of which the v1 add-on offered.
 
 ## Why the rewrite is opt-in
 
@@ -50,7 +50,7 @@ The rule engine and the FSM are structurally different — async-flow is *tempor
 | `:halt? true` (rule tears down the flow) | A `:final?` state (per Spec 005 §Final states) | The machine reaching `:final? true` triggers auto-destroy of the machine and its `[:rf/machines <id>]` snapshot. Symmetric with async-flow's deregister-and-cleanup. |
 | The implicit "deregister event handler when halted" | Auto-destroy on `:final?` per Spec 005 §Final states | Single-rule pre-cleanup is built into the machine's lifecycle; no user-side teardown code. |
 | Parallel-task tracking (one rule per sibling, all converging on a single "all done" rule) | `:invoke-all` per Spec 005 §Spawn-and-join | The async-flow idiom "kick off N HTTP requests, wait for all success events, then advance" is exactly `:invoke-all` with `:join :all` (per Spec 005 §Spawn-and-join via `:invoke-all`). The translation is the highest-payoff part of this rule: the hand-rolled bucket-tracking that async-flow encourages becomes one declarative `:invoke-all` slot, with the `:on-all-complete` / `:on-any-failed` semantics handled by the runtime. |
-| `:debug?` (per-flow console logging) | The standard trace stream (per [009](../009-Instrumentation.md)) | Machine state transitions fire `:rf.machine/transition` trace events that 10x / Causa / `register-trace-cb!`-consumers see for free. No per-machine debug flag needed. |
+| `:debug?` (per-flow console logging) | The standard trace stream (per [009](../../spec/009-Instrumentation.md)) | Machine state transitions fire `:rf.machine/transition` trace events that 10x / Causa / `register-trace-cb!`-consumers see for free. No per-machine debug flag needed. |
 
 ## Before / after — representative boot orchestration
 
@@ -175,7 +175,7 @@ The agent surfaces every `:halt-fns?` site and explains the three paths; the ope
 
 ### `:debug?`
 
-Drop. Machine trace events (`:rf.machine/transition`, `:rf.machine/event-received`, `:rf.machine/raised`, lifecycle events) flow through the standard trace surface per [009](../009-Instrumentation.md). 10x, Causa, and bespoke `register-trace-cb!` listeners see them without per-machine opt-in. If the user wanted console logging specifically, attach a `register-trace-cb!` filtered on `:operation #{:rf.machine/transition}` and the machine's id.
+Drop. Machine trace events (`:rf.machine/transition`, `:rf.machine/event-received`, `:rf.machine/raised`, lifecycle events) flow through the standard trace surface per [009](../../spec/009-Instrumentation.md). 10x, Causa, and bespoke `register-trace-cb!` listeners see them without per-machine opt-in. If the user wanted console logging specifically, attach a `register-trace-cb!` filtered on `:operation #{:rf.machine/transition}` and the machine's id.
 
 ## Explicit escalation cases — the agent surfaces and stops
 
@@ -199,7 +199,7 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 - **The migration agent does not auto-detect "the right machine shape" from the rule-set.** Determining whether N rules are best expressed as N states, as `:invoke-all` children, or as `:always` guards is a design call the operator owns. The agent presents the rule-set and the candidate translation; the operator approves, edits, or skips.
 
-- **Migrating fetcher events into child machines** (the `:user/fetcher` / `:site-prefs/fetcher` shapes in the worked example) is a separate rewrite per fetcher, surfaced as follow-on rules. The most common path uses the [`:rf.http/managed`](../014-HTTPRequests.md) fx wrapped in a small `reg-machine` per fetcher, but the wrapping is design work — escalate per call site.
+- **Migrating fetcher events into child machines** (the `:user/fetcher` / `:site-prefs/fetcher` shapes in the worked example) is a separate rewrite per fetcher, surfaced as follow-on rules. The most common path uses the [`:rf.http/managed`](../../spec/014-HTTPRequests.md) fx wrapped in a small `reg-machine` per fetcher, but the wrapping is design work — escalate per call site.
 
 - **Tooling that auto-detects async-flow-fx call sites** is filed as a separate follow-on bead. This rule is the spec text the migration agent reads; a future MCP tool can drive the per-call-site conversion against this spec.
 

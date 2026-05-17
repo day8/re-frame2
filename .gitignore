@@ -34,8 +34,10 @@ Thumbs.db
 
 # MkDocs build artefacts (rf2-h09k)
 /site/
-# spec/ is staged into docs/spec/ at build time; never commit the staged copy.
+# spec/ + migration/ are staged into docs/{spec,migration}/ at build time;
+# never commit the staged copies.
 /docs/spec/
+/docs/migration/
 # Python bytecode from mkdocs_hooks.py (rf2-qvlf) and scripts/ (rf2-sefq).
 /__pycache__/
 **/__pycache__/
