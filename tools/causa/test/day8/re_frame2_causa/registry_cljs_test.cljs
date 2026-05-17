@@ -100,6 +100,8 @@
   "Every :rf.causa/* sub registered by `register-causa-handlers!`. Sorted
   for stable iteration in the smoke block."
   [:rf.causa/active-filters
+   ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
+   :rf.causa/active-timers-for-focused-machine
    :rf.causa/active-route-slice
    :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
@@ -161,6 +163,8 @@
    :rf.causa/mcp-filters
    :rf.causa/mcp-origin-filter-enabled?
    :rf.causa/mcp-server
+   ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
+   :rf.causa/now-ms
    :rf.causa/performance-budget-ms
    :rf.causa/performance-data
    :rf.causa/pin-store
@@ -221,6 +225,8 @@
    :rf.causa/target-frame
    :rf.causa/target-frame-db
    :rf.causa/time-travel
+   ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
+   :rf.causa/timer-hover
    :rf.causa/trace-buffer
    :rf.causa/trace-feed
    :rf.causa/trace-filters
@@ -347,6 +353,8 @@
    :rf.causa/set-mcp-since-seconds
    :rf.causa/set-mode-c-cluster-by
    :rf.causa/set-mode-c-context-key
+   ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
+   :rf.causa/set-now-ms-override-for-test
    :rf.causa/set-performance-budget-ms
    :rf.causa/set-registered-flows-override-for-test
    :rf.causa/set-registered-fxs-override-for-test
@@ -378,6 +386,12 @@
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    :rf.causa/time-travel-set-label-input
+   ;; rf2-7hwwe — `:after` countdown rings event family. timer-tick
+   ;; is the rAF pulse; timer-hover writes the per-ring hovered slot
+   ;; (v1 surfaces the tooltip via native SVG <title>; the slot is
+   ;; plumbed for a follow-on rich-tooltip).
+   :rf.causa/timer-hover
+   :rf.causa/timer-tick
    :rf.causa/toggle-live-pause
    :rf.causa/toggle-mcp-op-type
    :rf.causa/toggle-mcp-origin-filter
@@ -518,10 +532,14 @@
     ;;   cancellation-cascade-expanded? +
     ;;   cancellation-cascade-for-focused-machine +
     ;;   cancellation-cascade-for-focused-event
+    ;; + 3 `:after` countdown rings (rf2-7hwwe):
+    ;;   :rf.causa/active-timers-for-focused-machine + :rf.causa/now-ms
+    ;;   + :rf.causa/timer-hover. The rings overlay rides the same
+    ;;   composite + scrubber wiring the arc does (no new scrubber sub).
     ;; + 2 structural-diff engine (rf2-gfxmk Phase 1):
     ;;   :rf.causa/selected-epoch-annotated-tree +
     ;;   :rf.causa/selected-epoch-sections.
-    (is (= 121 (count all-sub-names)))
+    (is (= 124 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -578,7 +596,12 @@
     ;;   cancellation-cascade-close + cancellation-cascade-toggle-expand +
     ;;   cancellation-cascade-set-expanded +
     ;;   :rf.causa/focus-trace-entry (row-click jump shim).
-    (is (= 140 (count all-event-names)))
+    ;; + 3 `:after` countdown rings (rf2-7hwwe):
+    ;;   :rf.causa/timer-tick (rAF pulse) + :rf.causa/timer-hover
+    ;;   (rich-tooltip lifecycle slot) +
+    ;;   :rf.causa/set-now-ms-override-for-test (deterministic timestamp
+    ;;   pin for the CLJS-side test surface).
+    (is (= 143 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

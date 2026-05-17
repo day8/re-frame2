@@ -189,3 +189,74 @@
     (let [{:keys [nodes]} (layout/layout compound-machine)
           [c]              (chart-svg/compound-containers nodes)]
       (is (= "authenticated" (:label c))))))
+
+;; ---- countdown-ring primitive (rf2-7hwwe) -------------------------------
+;;
+;; Pure-data tests for the SVG ring primitive. The view-side (rings
+;; overlay mounted on the chart) is tested in
+;; `panels/machine_after_rings_view_cljs_test.cljs`.
+
+(deftest countdown-ring-emits-base-shape
+  (let [tree (chart-svg/countdown-ring
+               {:cx 100 :cy 100 :r 30 :fraction 0.5 :color :amber})]
+    (is (vector? tree))
+    (is (= :g (first tree)))
+    (let [attrs (second tree)]
+      (is (= "amber"        (:data-color attrs)))
+      (is (= "false"        (:data-cancelled attrs)))
+      (is (= "0.5"          (:data-fraction attrs))))
+    (let [circles (filter (fn [n] (and (vector? n) (= :circle (first n))))
+                          (hiccup-seq tree))]
+      (is (>= (count circles) 2)
+          "underlay track + countdown sweep circles render"))))
+
+(deftest countdown-ring-fraction-drives-dasharray
+  (testing "fraction 1.0 → arc covers (most of) the circumference;
+            fraction 0.0 → arc covers nothing (full gap)"
+    (let [full   (chart-svg/countdown-ring
+                   {:cx 0 :cy 0 :r 10 :fraction 1.0 :color :green})
+          empty  (chart-svg/countdown-ring
+                   {:cx 0 :cy 0 :r 10 :fraction 0.0 :color :red})
+          sweeps (fn [tree]
+                   (->> (hiccup-seq tree)
+                        (filter (fn [n] (and (vector? n) (= :circle (first n)))))
+                        (filter (fn [n] (some? (:stroke-dasharray (second n)))))))
+          full-dash  (-> full sweeps first second :stroke-dasharray)
+          empty-dash (-> empty sweeps first second :stroke-dasharray)]
+      (is (string? full-dash))
+      (is (string? empty-dash))
+      (is (not= full-dash empty-dash)))))
+
+(deftest countdown-ring-cancelled-renders-cross-line
+  (let [tree (chart-svg/countdown-ring
+               {:cx 50 :cy 50 :r 20 :fraction 0.3 :color :gray
+                :cancelled? true})
+        lines (filter (fn [n] (and (vector? n) (= :line (first n))))
+                      (hiccup-seq tree))]
+    (is (= "true" (-> tree second :data-cancelled)))
+    (is (= 1 (count lines))
+        "the cancelled overlay draws exactly one diagonal cross line")))
+
+(deftest countdown-ring-tooltip-wraps-title
+  (let [tree (chart-svg/countdown-ring
+               {:cx 0 :cy 0 :r 10 :fraction 0.5 :color :amber
+                :tooltip ":idle · 1500ms remaining"})
+        titles (filter (fn [n] (and (vector? n) (= :title (first n))))
+                       (hiccup-seq tree))]
+    (is (= 1 (count titles)))
+    (is (re-find #"1500ms remaining" (last (first titles))))))
+
+(deftest countdown-ring-respects-custom-testid
+  (let [tree (chart-svg/countdown-ring
+               {:cx 0 :cy 0 :r 10 :fraction 1.0 :color :green
+                :testid "rf-test-custom"})]
+    (is (= "rf-test-custom" (-> tree second :data-testid)))))
+
+(deftest countdown-ring-nil-fraction-renders-full-track
+  (testing "nil fraction (degenerate / unresolvable duration) still
+            renders a stable shape — the colour mapping has already
+            been resolved upstream to :gray"
+    (let [tree (chart-svg/countdown-ring
+                 {:cx 0 :cy 0 :r 10 :fraction nil :color :gray})]
+      (is (vector? tree))
+      (is (nil? (-> tree second :data-fraction))))))
