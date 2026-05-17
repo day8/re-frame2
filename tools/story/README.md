@@ -25,6 +25,13 @@ playground:
 - The story tool **embeds re-frame-10x's epoch panel** as a registered story
   panel — time-travel via `restore-epoch` is a UI affordance, not a
   reimplementation.
+- The `:test` mode pane ships a **play step-debugger** — step / pause /
+  rewind / step-back / breakpoint controls over a variant's `:play`
+  sequence (see [`spec/009-Test-Mode.md` §Play step-debugger](spec/009-Test-Mode.md#play-step-debugger-rf2-ulw5m)).
+  Storybook's Interactions panel ships these for `play()` functions;
+  Story's parity surface drives the same controls over the
+  `:rf.assert/*`-bearing play vector, with the canvas re-rendering against
+  each step's app-db.
 
 The agent-facing MCP surface ships as a separate artefact at
 [`tools/story-mcp/`](../story-mcp/) (`day8/re-frame2-story-mcp`) so the story

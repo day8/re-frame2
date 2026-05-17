@@ -78,7 +78,12 @@ body.
 - **Test fixtures.** A `:test`-tagged variant *is* a complete component
   test; `(run-variant id)` returns
   `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` —
-  exactly what a `deftest` needs.
+  exactly what a `deftest` needs. The `:test` mode pane drives play
+  sequences interactively with a Storybook-class **play step-debugger**
+  (step / pause / rewind / step-back / breakpoint) — the canvas
+  re-renders against each step's app-db, so author and reviewer can
+  watch the variant evolve one event at a time (see
+  [`009-Test-Mode.md` §Play step-debugger](009-Test-Mode.md#play-step-debugger-rf2-ulw5m)).
 - **Documentation.** A `:docs`-tagged variant is included in the
   generated docs page for that story; story tool reads `:doc` +
   schemas to emit an auto-docs table.
