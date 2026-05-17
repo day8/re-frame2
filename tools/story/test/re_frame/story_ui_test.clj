@@ -73,6 +73,29 @@
       (is (= :Workspace.demo/y (:selected-workspace s2)))
       (is (= :story.a/x (:selected-variant s2))))))
 
+;; rf2-hscut — sidebar variant-row click composes select-variant with
+;; select-workspace nil so workspace mode is no longer a one-way door.
+;; The click handler is a private Reagent closure inside `sidebar.cljs`;
+;; we exercise the same pure composition the closure performs so the
+;; JVM corpus catches a regression without booting Reagent.
+(deftest variant-row-click-symmetric-clear-rf2-hscut
+  (testing "variant-row pipeline sets variant AND clears workspace"
+    (let [s  (-> state/default-shell-state
+                 (state/select-workspace :Workspace.nav/all))
+          s1 (-> s
+                 (state/select-variant :story.nav/v1)
+                 (state/select-workspace nil))]
+      (is (= :story.nav/v1 (:selected-variant s1)))
+      (is (nil? (:selected-workspace s1)))))
+  (testing "mirror — workspace-row pipeline sets workspace AND clears variant"
+    (let [s  (-> state/default-shell-state
+                 (state/select-variant :story.nav/v1))
+          s1 (-> s
+                 (state/select-workspace :Workspace.nav/all)
+                 (state/select-variant nil))]
+      (is (= :Workspace.nav/all (:selected-workspace s1)))
+      (is (nil? (:selected-variant s1))))))
+
 (deftest toggle-tag-filter-pure
   (testing "toggle-tag-filter adds and removes"
     (let [s  state/default-shell-state

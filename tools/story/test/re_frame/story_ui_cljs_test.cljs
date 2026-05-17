@@ -76,6 +76,35 @@
     (state/swap-state! state/select-variant :story.foo/bar)
     (is (= :story.foo/bar (:selected-variant (state/get-state))))))
 
+;; rf2-hscut — variant-row click clears the workspace slot so workspace
+;; mode is no longer a one-way door. `main-pane` in `shell.cljs` short-
+;; circuits on `:selected-workspace`, so a variant click that does NOT
+;; clear it is invisible from the canvas. This is the symmetric mirror
+;; of the workspace-row handler which clears `:selected-variant`.
+;;
+;; The click handler lives inline in the private `variant-row` reagent
+;; component (`sidebar.cljs`), so we exercise the same pure swap-state!
+;; composition the closure runs — that is the unit of behaviour the bug
+;; fix codifies.
+(deftest variant-click-clears-workspace-rf2-hscut
+  (testing "selecting a variant from the sidebar clears any selected workspace"
+    (state/swap-state! state/select-workspace :Workspace.nav/all)
+    (is (= :Workspace.nav/all (:selected-workspace (state/get-state))))
+    (state/swap-state!
+      (fn [s] (-> s
+                  (state/select-variant :story.nav/v1)
+                  (state/select-workspace nil))))
+    (is (= :story.nav/v1 (:selected-variant (state/get-state))))
+    (is (nil? (:selected-workspace (state/get-state)))))
+  (testing "mirror of workspace-row click — both row handlers are symmetric"
+    (state/swap-state! state/select-variant :story.nav/v1)
+    (state/swap-state!
+      (fn [s] (-> s
+                  (state/select-workspace :Workspace.nav/all)
+                  (state/select-variant nil))))
+    (is (= :Workspace.nav/all (:selected-workspace (state/get-state))))
+    (is (nil? (:selected-variant (state/get-state))))))
+
 (deftest toggle-tag-filter-flips
   (testing "toggle-tag-filter adds + removes a tag"
     (state/swap-state! state/toggle-tag-filter :dev)

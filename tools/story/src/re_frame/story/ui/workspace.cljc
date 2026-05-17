@@ -202,9 +202,10 @@
            errors         (:errors decorator-pack)]
        ;; Per rf2-9la06: stamp `data-test-variant` on each cell so
        ;; Playwright specs can disambiguate workspace cells from each
-       ;; other and from the canvas's variant when both are mounted
-       ;; (sidebar `:selected-variant` and `:selected-workspace` are
-       ;; independent slots; one doesn't clear the other on selection).
+       ;; other and from the canvas's variant when both are mounted.
+       ;; (Per rf2-hscut the sidebar variant/workspace clicks now clear
+       ;; each other's slot, but the `data-test-variant` stamp remains
+       ;; useful for snapshot/test scoping while a workspace is active.)
        [:div {:style (:cell styles)
               :data-test-variant (pr-str variant-id)}
         [:div {:style (:cell-title styles)}

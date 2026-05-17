@@ -379,11 +379,11 @@
          ;;
          ;; Per rf2-9la06: also stamp `data-test-variant` with the
          ;; active variant id so Playwright specs can scope selectors
-         ;; to the canvas of a specific variant — disambiguates the
-         ;; canvas from sibling workspace cells whose state may not yet
-         ;; have torn down (sidebar `:selected-variant` and
-         ;; `:selected-workspace` are independent slots; clicking a
-         ;; variant doesn't clear a previously-selected workspace).
+         ;; to the canvas of a specific variant.
+         ;; (Per rf2-hscut clicking a variant in the sidebar now clears
+         ;; `:selected-workspace`, so the canvas no longer competes with
+         ;; a stale workspace pane for the main slot. The stamp is
+         ;; retained for cross-route test scoping.)
         [:section (cond-> {:style      (:wrap styles)
                            :aria-label "Variant canvas"
                            :tab-index  "0"}
