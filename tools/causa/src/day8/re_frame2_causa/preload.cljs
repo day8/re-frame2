@@ -242,8 +242,20 @@
   ;; on a missing root; the events handler re-applies on every
   ;; subsequent update.
   (settings-effects/apply-all!)
-  ;; Auto-open-on-error watcher (rf2-9poxq) — installs the sub
-  ;; watcher against `:rf.causa/issues-ribbon`. Per-tick the watch
-  ;; fn short-circuits when the user has the toggle off.
-  (settings-effects/install-auto-open-watcher!)
+  ;; Auto-open-on-error watcher (rf2-9poxq) — NOT installed here.
+  ;; The watcher subscribes to `:rf.causa/issues-ribbon`, a sub that
+  ;; reads from `:rf/causa`'s app-db; but `:rf/causa` is
+  ;; lazy-registered by `mount/ensure-causa-frame!` on first open
+  ;; (see mount.cljs §Why here, not at preload time). Eagerly
+  ;; subscribing here returned nil and `(add-watch nil ...)` threw
+  ;; `No protocol method IWatchable.-add-watch defined for type
+  ;; null` in test runtimes that never opened Causa (Story
+  ;; testbeds). The install is now driven from two correctness-
+  ;; safe hooks:
+  ;;   1. `mount/ensure-causa-frame!` — when Causa first opens, if
+  ;;      the persisted setting is on, install (covers the user's
+  ;;      `:auto-open-on-error? true` round-trip across reloads).
+  ;;   2. `:rf.causa/settings-update` — on flip-on, install; on
+  ;;      flip-off, detach (covers the runtime toggle).
+  ;; Both paths are idempotent via the `auto-open-watcher` atom.
   (mount/auto-open-inline!))

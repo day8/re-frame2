@@ -189,6 +189,34 @@
     (is (false? (should-open? 0 1))
         "toggle off → never open, even on edge")))
 
+(deftest install-is-defensive-without-causa-frame
+  ;; rf2-9poxq follow-up: the Story testbed CI failures
+  ;; `No protocol method IWatchable.-add-watch defined for type null`
+  ;; came from `install-auto-open-watcher!` running at preload before
+  ;; `:rf/causa` was lazy-registered. `rf/subscribe` returned nil and
+  ;; `(add-watch nil ...)` threw. The install is now guarded; a call
+  ;; with no `:rf/causa` frame is a silent no-op.
+  (effects/detach-auto-open-watcher!)
+  (is (nil? (effects/install-auto-open-watcher!))
+      "install without `:rf/causa` frame is a silent no-op (no throw)"))
+
+(deftest update-event-toggles-watcher-install
+  (setup!)
+  ;; Flip on via the event — install should land (frame is present
+  ;; via `setup!`).
+  (effects/detach-auto-open-watcher!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/settings-update
+                       :general :auto-open-on-error? true]))
+  (is (true? (config/get-setting :general :auto-open-on-error?))
+      "config carries the new value")
+  ;; Flip off — detach should run, no throw.
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/settings-update
+                       :general :auto-open-on-error? false]))
+  (is (false? (config/get-setting :general :auto-open-on-error?))
+      "config carries the flipped value"))
+
 ;; ---- apply-all! ---------------------------------------------------------
 
 (deftest apply-all-restores-text-size-and-theme

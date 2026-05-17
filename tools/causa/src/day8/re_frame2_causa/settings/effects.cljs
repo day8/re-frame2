@@ -31,8 +31,13 @@
     up by `install-auto-open-watcher!`. When the issues-ribbon sub
     flips from empty → non-empty AND the toggle is on AND Causa is
     not already visible, dispatches `mount/open!`. The watcher is
-    installed once at preload time; per-tick the watcher
-    short-circuits cheaply when the toggle is off.
+    installed lazily from `mount/ensure-causa-frame!` (on first
+    Causa open, IFF the persisted toggle is on) and on flip-on
+    inside `:rf.causa/settings-update`. Detached on flip-off. Both
+    paths are idempotent; the install is a defensive no-op when
+    the `:rf/causa` frame isn't yet registered (a pre-mount call
+    would `(add-watch nil ...)` and throw under Story testbeds
+    that never open Causa).
 
   - **telemetry opt-in?** — no-op for v1. The setting still
     round-trips so when the telemetry endpoint lands the value is
@@ -63,6 +68,7 @@
   paths."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [day8.re-frame2-causa.config :as config]))
 
 ;; ---- mount late-bind helpers --------------------------------------------
@@ -196,8 +202,10 @@
 ;; existing `:rf.causa/issues-ribbon` sub (the same one the Issues
 ;; panel reads) and dispatch `mount/open!` on the first transition
 ;; from empty → non-empty IFF the toggle is on AND Causa is not
-;; already visible. The watcher is installed once at preload time;
-;; per-tick it short-circuits cheaply when the toggle is off.
+;; already visible. Two install triggers, both idempotent: (1)
+;; `mount/ensure-causa-frame!` on first Causa open when the persisted
+;; toggle is on, (2) `:rf.causa/settings-update` on toggle flip-on.
+;; Detached on flip-off.
 ;;
 ;; ## Why subscribe rather than register a trace-cb
 ;;
@@ -207,6 +215,18 @@
 ;; Issues panel renders, not the raw trace stream. A new severity
 ;; that the helpers classify differently (or a new filter axis)
 ;; rides through this watcher for free.
+;;
+;; ## Why not install at preload
+;;
+;; The watcher subscribes to a sub that reads from `:rf/causa`'s
+;; app-db; but `:rf/causa` is lazy-registered by
+;; `mount/ensure-causa-frame!` on first open (see mount.cljs §Why
+;; here, not at preload time). Subscribing into a non-existent frame
+;; returns nil, and `(add-watch nil ...)` throws under Story
+;; testbeds that never open Causa. The frame-presence guard below
+;; makes the install a defensive no-op pre-mount; the install
+;; retries from the two trigger paths above as soon as the gates
+;; align.
 
 (defonce ^:private auto-open-watcher
   ;; Holds the `add-watch` reaction object so re-installation is
@@ -230,23 +250,36 @@
   the issues feed lives). The reaction is held in a `defonce` atom
   so re-install on `:after-load` does not double-watch."
   []
+  ;; Defensive: the `:rf/causa` frame is lazy-registered by
+  ;; `mount.cljs/ensure-causa-frame!` on the first `open!` call (see
+  ;; mount.cljs §Why here, not at preload time). If we land here
+  ;; before that registration — e.g. preload runs in a Story testbed
+  ;; where the user never opens Causa — `rf/subscribe` returns nil
+  ;; and `(add-watch nil ...)` throws
+  ;; `No protocol method IWatchable.-add-watch defined for type null`.
+  ;; The frame guard makes pre-mount calls a silent no-op; the install
+  ;; is retried from `mount.cljs/ensure-causa-frame!` (when the user
+  ;; has previously persisted the toggle on) and from
+  ;; `:rf.causa/settings-update` on every toggle flip, so the watcher
+  ;; lands as soon as both gates are satisfied.
   (when (and (nil? @auto-open-watcher)
-             (exists? js/window))
-    (let [reaction (rf/with-frame :rf/causa
-                     (rf/subscribe [:rf.causa/issues-ribbon]))
-          watch-fn (fn [_k _r _old new-val]
-                     (let [n      (count (:issues new-val))
-                           prev   @last-issue-count
-                           toggle (config/get-setting
-                                    :general :auto-open-on-error?)]
-                       (reset! last-issue-count n)
-                       (when (and toggle
-                                  (pos? n)
-                                  (zero? prev)
-                                  (not (visible-shell?)))
-                         (call-mount-fn! "open_BANG_"))))]
-      (add-watch reaction ::auto-open-on-error watch-fn)
-      (reset! auto-open-watcher reaction)))
+             (exists? js/window)
+             (some? (frame/frame :rf/causa)))
+    (when-let [reaction (rf/with-frame :rf/causa
+                          (rf/subscribe [:rf.causa/issues-ribbon]))]
+      (let [watch-fn (fn [_k _r _old new-val]
+                       (let [n      (count (:issues new-val))
+                             prev   @last-issue-count
+                             toggle (config/get-setting
+                                      :general :auto-open-on-error?)]
+                         (reset! last-issue-count n)
+                         (when (and toggle
+                                    (pos? n)
+                                    (zero? prev)
+                                    (not (visible-shell?)))
+                           (call-mount-fn! "open_BANG_"))))]
+        (add-watch reaction ::auto-open-on-error watch-fn)
+        (reset! auto-open-watcher reaction))))
   nil)
 
 (defn detach-auto-open-watcher!

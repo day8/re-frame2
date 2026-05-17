@@ -99,6 +99,20 @@
         (and (= section :theme) (nil? key))
         (effects/apply-theme! value)
 
+        ;; Auto-open-on-error toggle — install the sub-watcher on
+        ;; flip-on, detach on flip-off. The install is also attempted
+        ;; from `mount/ensure-causa-frame!` so the persisted-true case
+        ;; lands as soon as the user opens Causa. Both paths are
+        ;; idempotent (the install no-ops when already wired, the
+        ;; detach no-ops when nothing is wired). See
+        ;; `settings/effects.cljs §install-auto-open-watcher!` for
+        ;; the frame-presence guard that makes a pre-mount call here
+        ;; a silent no-op (the watcher then lands on first open).
+        (and (= section :general) (= key :auto-open-on-error?))
+        (if value
+          (effects/install-auto-open-watcher!)
+          (effects/detach-auto-open-watcher!))
+
         :else nil)
       (if (and (= section :theme) (nil? key))
         (assoc-in db [:settings :theme] value)
