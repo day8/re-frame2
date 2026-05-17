@@ -167,9 +167,12 @@
 
 (defn active-panel
   "Return the panel id currently selected in Causa's sidebar — one of
-  `:event-detail` / `:causality-graph` / `:time-travel` / `:app-db-diff`
-  / etc. Defaults to `:event-detail` (the hero panel per
-  `spec/007-UX-IA.md` §The default landing view + §10 Lock 7).
+  `:event-detail` / `:time-travel` / `:app-db-diff` / etc. Defaults to
+  `:event-detail` (the hero panel per `spec/007-UX-IA.md` §The default
+  landing view + §10 Lock 7).
+
+  (Causality removed with rf2-dqnuu — it is now a c-key triggered
+  popover, not a sidebar tab; see `popover/causality.cljs`.)
 
   One-shot read; does NOT register the caller for reactive re-render.
   Reactive consumers subscribe to `:rf.causa/selected-panel` directly."

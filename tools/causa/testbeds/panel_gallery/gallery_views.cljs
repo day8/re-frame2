@@ -34,11 +34,14 @@
   React."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             ;; Subscriptions panel deleted with rf2-21ob3 — replaced by
             ;; Views (spec/012-Views.md). Views gallery variants are
             ;; separate follow-on work.
+            ;;
+            ;; Causality-graph panel deleted with rf2-dqnuu — Causality
+            ;; is now a popover (not a tab); see popover/causality.cljs.
+            ;; A popover-gallery variant is a separate follow-on bead.
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.trace :as trace]
@@ -137,28 +140,10 @@
          :data-testid "panel-gallery-issues-ribbon-card"}
    [issues-ribbon/Panel]])
 
-(defn- causality-graph-panel
-  "Embedded mount of the Causa causality-graph panel for one Story
-  variant. The variant-frame provider above this tree routes
-  `:rf.causa/causality-graph-data` reads to the variant frame's
-  app-db, where the seed events have written `:trace-buffer` and
-  (optionally) `:selected-dispatch-id`.
-
-  `causality-graph/Panel` is a `reg-view` registration;
-  the gallery wrapper mounts it as a Reagent vector — safe because
-  reg-view threads `:contextType` through React.
-
-  ## Note on cross-variant cache (rf2-rj40a)
-
-  Per `causality-graph.cljs` §graph-layout-cache the panel maintains
-  a `defonce`-backed cache keyed on `[cascades buffer]` identity.
-  Distinct variant frames produce distinct buffers, so each variant's
-  topology lands its own cache entry — the cache stays correct under
-  the gallery's multi-variant render."
-  [_args]
-  [:div {:style       card-style
-         :data-testid "panel-gallery-causality-graph-card"}
-   [causality-graph/Panel]])
+;; Causality-graph gallery wrapper deleted with rf2-dqnuu — the
+;; causality-graph panel is replaced by the c-key triggered popover
+;; (`popover/causality.cljs`). A gallery variant for the popover is a
+;; separate follow-on bead.
 
 (defn register!
   "Register every gallery view-id referenced by a variant `:component`.
@@ -176,5 +161,5 @@
   (rf/reg-view* :panel-gallery.time-travel/Panel   time-travel-panel)
   (rf/reg-view* :panel-gallery.trace/Panel         trace-panel)
   (rf/reg-view* :panel-gallery.issues-ribbon/Panel issues-ribbon-panel)
-  (rf/reg-view* :panel-gallery.causality-graph/Panel causality-graph-panel)
+  ;; Causality-graph registration deleted with rf2-dqnuu.
   nil)

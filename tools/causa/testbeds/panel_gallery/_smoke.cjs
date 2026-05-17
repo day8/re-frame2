@@ -118,12 +118,9 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-issues-ribbon-card',
         expectedAtLeast: 9,
       },
-      {
-        id:          'causality-graph',
-        workspaceRe: /Workspace\.causa\.causality-graph\/all/,
-        cardTestid:  'panel-gallery-causality-graph-card',
-        expectedAtLeast: 10,
-      },
+      // causality-graph entry removed with rf2-dqnuu — the panel was
+      // replaced by the c-key triggered popover (popover/causality.cljs);
+      // a popover-gallery variant is a follow-on bead.
     ];
 
     const results = [];

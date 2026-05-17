@@ -96,6 +96,7 @@
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
+            [day8.re-frame2-causa.popover.causality :as causality-popover]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
@@ -707,4 +708,11 @@
     ;; context wins focus). Modal short-circuits to nil when
     ;; `:rf.causa/edit-popup-open?` is false; closed-state cost is
     ;; one subscribe + when-gate.
-    [filters/Modal]]])
+    [filters/Modal]
+    ;; Causality popover (rf2-dqnuu) — c-key triggered overlay per
+    ;; spec/018-Event-Spine.md §10. Replaces the dropped Causality
+    ;; tab; the event-list cold-start hint already advertises it
+    ;; ("Press [c] for the causality graph"). Same mount semantics as
+    ;; the palette Modal: closed-state is one subscribe + when-gate,
+    ;; so the dormant cost is negligible.
+    [causality-popover/Popover]]])

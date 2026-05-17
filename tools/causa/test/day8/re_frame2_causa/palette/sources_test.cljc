@@ -14,9 +14,13 @@
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
+  ;; (Causality removed with rf2-dqnuu — popover, not a tab. We use
+  ;; :flows as the third entry so the "cl" collision test still has a
+  ;; partial-letter panel match that contests with command "Clear
+  ;; trace buffer".)
   [{:id :event-detail :label "Event detail"}
    {:id :trace        :label "Trace"}
-   {:id :causality    :label "Causality"}])
+   {:id :flows        :label "Flows"}])
 
 (def sample-trace-buffer
   ;; oldest → newest order; recency-rank 0 sits at the end
@@ -150,9 +154,9 @@
     (is (empty? results))))
 
 (deftest rank-prefers-commands-over-panels-on-collision
-  ;; "cl" matches "Clear trace buffer" (command) AND "Causality" (panel)
-  ;; in label fragments. Command boost (40) > panel boost (30), so the
-  ;; command should win when fuzzy scores are comparable.
+  ;; "cl" matches "Clear trace buffer" (command) and may fuzzy-match
+  ;; assorted panel labels. Command boost (40) > panel boost (30), so
+  ;; the command should win when fuzzy scores are comparable.
   (let [index   (sources/build-index {:panels sample-panels})
         results (sources/rank index "cl")
         top     (first results)]
