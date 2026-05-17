@@ -986,45 +986,46 @@ async function runSchemaViolation(page, state) {
     cofxHandlerSkipped: host.cofxCount === 0,
     fxArgsSkipped: !fxWasHandled && host.fxCount === 1,
   };
-  await clickSidebar(page, 'schemas', 'rf-causa-schema-violation-timeline');
-  await expectVisible(page.locator('[data-testid="rf-causa-schema-violation-timeline"]'), 5000);
-  const timelineProjection = await page.evaluate(() => {
-    function text(testId) {
-      const el = document.querySelector(`[data-testid="${testId}"]`);
-      return el ? (el.textContent || '').trim() : null;
-    }
-    const dots = Array.from(
-      document.querySelectorAll('circle[data-testid^="rf-causa-schema-timeline-row-"][data-testid*="-dot-"]'),
-    ).map((dot) => ({
-      testId: dot.getAttribute('data-testid'),
-      schemaKind: dot.getAttribute('data-schema-kind'),
-      recovery: dot.getAttribute('data-recovery'),
-      where: dot.getAttribute('data-where'),
-    }));
-    return {
-      rowCount: document.querySelectorAll('[data-testid^="rf-causa-schema-timeline-row-"]').length,
-      dotCount: dots.length,
-      dots,
-      noSchemas: text('rf-causa-schema-timeline-empty-no-schemas'),
-      noViolations: text('rf-causa-schema-timeline-empty-no-violations'),
-    };
-  });
-  state.schemaRecovery.timelineProjection = timelineProjection;
-  if (timelineProjection.rowCount === 0 || timelineProjection.dotCount < 4) {
-    failWithDetails('Schema timeline rendered rows without the expected recovery dots', {
-      expectedDotCount: 4,
-      expectedWheres,
-      observed: timelineProjection,
-      schemaEvents,
-    });
-  }
-  const missingTimelineWheres = expectedWheres.filter((where) =>
-    !timelineProjection.dots.some((dot) => dot.where === where));
-  if (missingTimelineWheres.length > 0) {
-    failWithDetails('Schema timeline dots did not preserve recovery surfaces', {
-      expectedWheres,
-      missingTimelineWheres,
-      observed: timelineProjection,
+  // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Per
+  // spec/018 §5 schema violations now surface in the Issues tab as
+  // `:rf.error/schema-validation-failure` rows (one per `:where`).
+  await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
+  await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
+  const issuesProjection = await waitForValue(
+    () => page.evaluate(() => {
+      const rows = Array.from(
+        document.querySelectorAll('[data-testid^="rf-causa-issues-row-"]'),
+      ).filter((el) => /^rf-causa-issues-row-\d+$/.test(el.getAttribute('data-testid') || ''));
+      const descriptions = rows.map((row) => {
+        const desc = row.querySelector('[data-testid$="-description"]');
+        return desc ? (desc.textContent || '').trim() : '';
+      });
+      return {
+        rowCount: rows.length,
+        descriptions,
+        schemaRowCount: descriptions.filter((d) =>
+          d.includes(':rf.error/schema-validation-failure')).length,
+      };
+    }),
+    (projection) => projection.schemaRowCount >= 4,
+    {
+      timeoutMs: 5000,
+      description: 'Issues feed rendered >= 4 schema-validation rows',
+    },
+  );
+  state.schemaRecovery.issuesProjection = issuesProjection;
+  // The Issues row's `:description` is built from
+  // `:operation + :tags[:path]` (issues-ribbon-helpers
+  // `short-description`); the `:where` keyword that distinguishes the
+  // four recovery surfaces lives on the raw trace event, not the row.
+  // The trace assertions above already verify all four `:where`
+  // surfaces fired; here we verify that every fired schema-violation
+  // trace round-trips into a visible Issues-tab row.
+  if (issuesProjection.schemaRowCount < schemaEvents.length) {
+    failWithDetails('Issues feed dropped one or more schema-violation traces', {
+      expectedRowCount: schemaEvents.length,
+      observedRowCount: issuesProjection.schemaRowCount,
+      observed: issuesProjection,
       schemaEvents,
     });
   }
@@ -1051,9 +1052,28 @@ async function runHttpToggle(page) {
     await waitForTraceMatch(page, new RegExp(outcome.replace('.', '\\.')), `${outcome} trace`);
   }
 
-  await clickSidebar(page, 'fx', 'rf-causa-fx');
-  await expectVisible(page.locator('[data-testid="rf-causa-fx-list"]'), 5000);
-  await clickSidebar(page, 'issues', 'rf-causa-issues-ribbon');
+  // Post rf2-xy4yb: the dedicated Effects (fx) panel was dropped.
+  // Per spec/018 §5 fx-handlers-ran now lands as an `fx` + `effects`
+  // domino row inside the cascade-detail of the Event tab. Pick the
+  // first cascade row and assert its rendered detail carries an fx
+  // row (the `:rf.fx/handled` emits for the dispatched `:go` event
+  // are projected into the `effects` block).
+  await clickTab(page, 'event', 'rf-causa-event-detail');
+  const firstCascade = await waitForValue(
+    () => page.locator('[data-testid^="rf-causa-cascade-row-"]').first().getAttribute('data-testid'),
+    (id) => typeof id === 'string' && id.length > 0,
+    { timeoutMs: 5000, description: 'first cascade row in event tab' },
+  );
+  await page.locator(`[data-testid="${firstCascade}"]`).click();
+  await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
+  const cascadeText = ((await page.locator('[data-testid="rf-causa-event-detail-cascade"]').textContent()) || '').toLowerCase();
+  if (!cascadeText.includes('effects') && !cascadeText.includes('fx')) {
+    failWithDetails('Event-tab cascade-detail did not surface the fx/effects domino rows', {
+      firstCascade,
+      cascadeText: cascadeText.slice(0, 800),
+    });
+  }
+  await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
 }
 
@@ -1109,7 +1129,7 @@ async function runMultiFrame(page, state) {
       count: events.filter((event) => parts.every((part) => event.includes(part))).length,
     })),
   };
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clickTab(page, 'trace', 'rf-causa-trace');
   await waitForValue(
     () => page.locator('[data-testid^="rf-causa-trace-row-"]').count(),
     (count) => count > 0,
@@ -1120,7 +1140,7 @@ async function runMultiFrame(page, state) {
     event: ':multi-frame.core/inc',
   });
   state.multiFrame.selectedTraceRow = selected;
-  await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+  await clickTab(page, 'event', 'rf-causa-event-detail');
   const eventDetailProjection = await waitForValue(
     () => page.evaluate(() => {
       const orphaned = document.querySelector('[data-testid="rf-causa-event-detail-orphaned"]');
@@ -1146,36 +1166,14 @@ async function runMultiFrame(page, state) {
       expectedEvent: ':multi-frame.core/inc',
     });
   }
-  await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
-  await expectVisible(page.locator('[data-testid="rf-causa-causality-graph"]'), 5000);
-  await setCausaTargetFrame(page, ':counter/b');
-  await clickSidebar(page, 'time-travel', 'rf-causa-time-travel');
-  await expectVisible(page.locator('[data-testid="rf-causa-time-travel"]'), 5000);
-  const timeTravelProjection = await waitForValue(
-    () => page.evaluate(() => {
-      const slider = document.querySelector('[data-testid="rf-causa-time-travel-slider"]');
-      const empty = document.querySelector('[data-testid="rf-causa-time-travel-empty"]');
-      const frameEl = document.querySelector('[data-testid="rf-causa-time-travel-target-frame"]');
-      return {
-        targetFrame: frameEl ? (frameEl.textContent || '').trim() : null,
-        sliderVisible: Boolean(slider && slider.getBoundingClientRect().width > 0),
-        sliderMax: slider ? Number(slider.getAttribute('max')) : null,
-        emptyText: empty ? (empty.textContent || '').trim() : null,
-      };
-    }),
-    (projection) => projection.targetFrame === ':counter/b' &&
-      (projection.sliderVisible || Boolean(projection.emptyText)),
-    { timeoutMs: 5000, description: 'time-travel target frame projection for :counter/b' },
-  );
-  state.multiFrame.timeTravelProjection = timeTravelProjection;
-  if (timeTravelProjection.sliderVisible &&
-      (!Number.isFinite(timeTravelProjection.sliderMax) || timeTravelProjection.sliderMax < 2)) {
-    failWithDetails('Expected multi-frame time-travel slider to expose at least two epochs', {
-      selected,
-      timeTravelProjection,
-      epochSummary,
-    });
-  }
+  // Post rf2-xy4yb: the dedicated Causality and Time-Travel panels
+  // were dropped. Per spec/018 §5 + §6 the Causality graph is
+  // promoted to an on-demand popover (planned: `c` key — not yet
+  // wired in shell/keybinding) and Time Travel folds into the Event
+  // tab + RETRO scrubbing on the L2 event list. Until the popover
+  // ships, this scenario covers multi-frame isolation through the
+  // trace + event-tab cascade evidence above; the dedicated
+  // causality / time-travel handoff steps are retired.
 }
 
 async function runDeepMachine(page) {
@@ -1287,15 +1285,36 @@ async function runLargeDispatcher(page, state) {
 
 async function runHydration(page) {
   await openCausa(page);
-  await clickSidebar(page, 'hydration', 'rf-causa-hydration-debugger');
-  await expectVisible(page.locator('[data-testid="rf-causa-hydration-mismatch-list"]'), 5000);
-  await expectVisible(page.locator('[data-testid="rf-causa-hydration-mismatch-detail"]'), 5000);
+  // Post rf2-xy4yb: the dedicated Hydration debugger panel was
+  // dropped. Per spec/018 §5 hydration mismatches now surface in the
+  // Issues tab as `:rf.ssr/*` rows (category-prefix "rf.ssr").
+  await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
+  await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
+  await waitForValue(
+    () => page.evaluate(() => {
+      const rows = Array.from(
+        document.querySelectorAll('[data-testid^="rf-causa-issues-row-"]'),
+      ).filter((el) => /^rf-causa-issues-row-\d+$/.test(el.getAttribute('data-testid') || ''));
+      return rows.some((row) => {
+        const cat = row.querySelector('[data-testid$="-category"]');
+        const desc = row.querySelector('[data-testid$="-description"]');
+        const catText = cat ? (cat.textContent || '').trim() : '';
+        const descText = desc ? (desc.textContent || '').trim() : '';
+        return catText.includes('rf.ssr') || descText.includes(':rf.ssr/');
+      });
+    }),
+    (found) => found === true,
+    {
+      timeoutMs: 5000,
+      description: 'Issues feed surfaces an :rf.ssr/* hydration mismatch row',
+    },
+  );
 }
 
 async function runTwentyEventLoad(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   await openCausa(page);
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
+  await clickTab(page, 'trace', 'rf-causa-trace');
   await clearTrace(page);
   const before = await readTraceCounts(page).catch(() => ({ rendered: 0, total: 0, text: 'empty' }));
   const start = Date.now();
@@ -1308,14 +1327,16 @@ async function runTwentyEventLoad(page, state) {
     { timeoutMs: 10000, description: 'trace count growth after 20 dispatches' },
   );
   const elapsedMs = Date.now() - start;
-  await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
+  await clickTab(page, 'event', 'rf-causa-event-detail');
   await waitForValue(
     () => page.locator('[data-testid^="rf-causa-cascade-row-"]').count(),
     (count) => count > 0,
     { timeoutMs: 5000, description: 'event-detail cascade rows after load' },
   );
-  await clickSidebar(page, 'causality', 'rf-causa-causality-graph');
-  await expectVisible(page.locator('[data-testid="rf-causa-causality-graph"]'), 5000);
+  // Post rf2-xy4yb: the Causality Graph panel was dropped (planned
+  // future popover via `c` key — not yet wired). The 20-event
+  // load-recheck still asserts trace + event-tab cascade growth,
+  // which exercises the spine + projection pipeline end-to-end.
   state.loadStats = {
     eventCountBefore: before.total,
     eventCountAfter: after.total,
@@ -1521,22 +1542,31 @@ const SCENARIOS = [
   {
     name: 'schema violation timeline',
     url: '/testbeds/schema-violation/',
-    panels: ['schemas', 'issues'],
-    coveredRows: ['Schemas / Schema Timeline', 'Issues Ribbon'],
+    // Post rf2-xy4yb: the dedicated Schemas panel was dropped.
+    // Schema violations are now surfaced as Issues-tab rows.
+    panels: ['issues'],
+    coveredRows: ['Issues Ribbon'],
     run: runSchemaViolation,
   },
   {
     name: 'managed http and effects rows',
     url: '/testbeds/http-toggle/',
-    panels: ['fx', 'issues', 'trace'],
-    coveredRows: ['Effects', 'Issues Ribbon', 'Trace', 'Performance'],
+    // Post rf2-xy4yb: the Effects panel was dropped — fx/effects rows
+    // are now inline dominoes inside the Event-tab cascade. Performance
+    // panel is gone too (Mike's call: use Chrome DevTools Performance).
+    panels: ['event', 'issues', 'trace'],
+    coveredRows: ['Event Detail', 'Issues Ribbon', 'Trace'],
     run: runHttpToggle,
   },
   {
     name: 'multi-frame isolation substrate',
     url: '/testbeds/multi-frame/',
-    panels: ['time-travel', 'trace'],
-    coveredRows: ['Causality Graph', 'Causality Strip and Event Log', 'Time Travel', 'Trace'],
+    // Post rf2-xy4yb: Causality Graph and Time Travel panels were
+    // dropped. Multi-frame isolation is now exercised via the Trace
+    // and Event tabs (cascade per frame); the Causality popover
+    // (planned via `c` key) lands in a follow-on bead.
+    panels: ['trace', 'event'],
+    coveredRows: ['Causality Strip and Event Log', 'Trace', 'Event Detail'],
     run: runMultiFrame,
   },
   {
@@ -1546,20 +1576,22 @@ const SCENARIOS = [
     coveredRows: ['Machines', 'Trace'],
     run: runDeepMachine,
   },
-  {
-    name: 'long flow failure substrate',
-    url: '/testbeds/long-flow-w-failure/',
-    panels: ['flows', 'issues'],
-    coveredRows: ['Flows', 'Issues Ribbon', 'Performance'],
-    run: runLongFlow,
-  },
-  {
-    name: 'drain-depth load failure substrate',
-    url: '/testbeds/drain-depth-trigger/',
-    panels: ['performance', 'trace', 'time-travel'],
-    coveredRows: ['Performance', 'Trace', 'Time Travel'],
-    run: runDrainDepth,
-  },
+  // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
+  //
+  // 'long flow failure substrate' — the dedicated Flows panel was
+  // dropped (spec/018 §5: Flows fold into the Views tab as derived
+  // state). The Views tab itself is a stub pending its full impl;
+  // re-instate this scenario once the Views tab projects per-flow
+  // rows. Surviving evidence (flow-failure trace events) is covered
+  // by `deterministic exceptions and issue/trace surfacing`.
+  //
+  // 'drain-depth load failure substrate' — the Performance panel was
+  // dropped per Mike's call; Chrome DevTools' Performance tab is the
+  // v2 replacement. The `:halted-depth` epoch record is still
+  // observable via the substrate's host-side `readEpochHistoryAsEdn`
+  // probe, but there is no Causa UI handoff to assert against.
+  // Scenario retired; runDrainDepth / runLongFlow stay in place for
+  // any future revival.
   {
     name: 'non-trivial app-db diff substrate',
     url: '/testbeds/non-trivial-app-db/',
@@ -1578,22 +1610,24 @@ const SCENARIOS = [
   {
     name: 'hydration mismatch debugger',
     url: '/testbeds/ssr-hydration-mismatch/',
-    panels: ['hydration'],
-    coveredRows: ['Hydration', 'Issues Ribbon'],
+    // Post rf2-xy4yb: the dedicated Hydration debugger panel was
+    // dropped. Hydration mismatches surface in the Issues tab.
+    panels: ['issues'],
+    coveredRows: ['Issues Ribbon'],
     run: runHydration,
   },
   {
     name: '20-event feature/load re-check',
     url: '/counter/',
-    panels: ['trace', 'event-detail', 'causality'],
+    // Post rf2-xy4yb: causality / time-travel / performance panels
+    // dropped. Load re-check exercises the surviving Trace + Event
+    // tabs under 20-dispatch load.
+    panels: ['trace', 'event'],
     load: true,
     coveredRows: [
       'Event Detail',
       'Causality Strip and Event Log',
-      'Causality Graph',
       'Trace',
-      'Time Travel',
-      'Performance',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runTwentyEventLoad,
