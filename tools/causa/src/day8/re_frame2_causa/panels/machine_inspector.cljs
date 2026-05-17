@@ -83,6 +83,7 @@
             [day8.re-frame2-causa.panels.machine-inspector-cluster-helpers :as ch]
             [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
             [day8.re-frame2-causa.panels.machine-inspector-arc :as arc]
+            [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-causa.panels.machine-inspector-scrubber :as scrubber]
             [day8.re-frame2-causa.share :as share]
             [day8.re-frame2-causa.theme.tokens
@@ -396,7 +397,15 @@
         ;; Phase 5: per-instance arc overlay. Hidden in sim mode (the
         ;; arc represents the LIVE trajectory; sim is a clone walk).
         (when (not sim?)
-          [arc/ArcOverlay positioned])]))))
+          [arc/ArcOverlay positioned])
+        ;; rf2-7hwwe: `:after` countdown rings — drawn AROUND every
+        ;; state-node that currently has an armed `:after` timer. Live
+        ;; mode animates from full → empty; retrospective freezes at
+        ;; the scrubber's anchor time. Hidden in sim mode for the same
+        ;; reason the arc is — sim is a clone walk, not the live
+        ;; trajectory whose timers the trace bus reflects.
+        (when (not sim?)
+          [after-rings/AfterRingsOverlay positioned])]))))
 
 ;; ---- transition history ribbon ------------------------------------------
 
@@ -1007,6 +1016,19 @@
   ;; panel reads. The arc-helper algebra is JVM-runnable and lives in
   ;; `machine_inspector_arc_helpers.cljc`.
   (arc/install!)
+
+  ;; ---- rf2-7hwwe — `:after` timer countdown rings ----------------
+  ;;
+  ;; The rings sub/event family lives in
+  ;; `panels/machine_after_rings.cljs`. The install fn registers
+  ;; `:rf.causa/active-timers-for-focused-machine` +
+  ;; `:rf.causa/timer-tick` + `:rf.causa/timer-hover` +
+  ;; `:rf.causa/now-ms` (+ the test-only override) against the same
+  ;; `:rf/causa` frame the panel reads. Pure projection lives in
+  ;; `machine_after_rings_helpers.cljc`. MUST install AFTER the arc
+  ;; install! above because the rings overlay consumes the scrubber-
+  ;; position sub the arc family registers.
+  (after-rings/install!)
 
   ;; ---- Phase 5 (rf2-nqw0v) — Share affordance --------------------
   ;;

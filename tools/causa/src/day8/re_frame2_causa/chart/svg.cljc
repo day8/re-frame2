@@ -418,6 +418,127 @@
 ;; padded into the box. Empty / all-zero samples collapse to a centred
 ;; baseline so the visual lane stays consistent across cluster rows.
 
+;; ---- countdown ring primitive (rf2-7hwwe) ------------------------------
+;;
+;; A partial-circle SVG glyph drawn AROUND a chart state-node when an
+;; `:after` timer is armed for that state. The ring sweeps from a full
+;; circle (just armed) to empty (about to fire); colour shifts from
+;; green (fresh) through amber (mid-cycle) to red (firing-soon).
+;;
+;; Implementation: SVG `<circle stroke-dasharray>` trick. A circle's
+;; circumference is `2πr`; setting `stroke-dasharray` to
+;; `[arc-len, (2πr - arc-len)]` produces a partial sweep. Rotating the
+;; circle -90° puts the sweep's origin at 12 o'clock (the conventional
+;; clock face).
+;;
+;; Pure data → hiccup; JVM-runnable so the rings-helpers tests can
+;; assert against the shape without a CLJS runtime.
+
+(def ^:private ring-color->token
+  "Semantic colour-tier keywords (from
+  `machine_after_rings_helpers.cljc/ring-color`) → tokens-table
+  keywords. Centralised here so the SVG primitive stays decoupled
+  from the helpers ns."
+  {:green :green
+   :amber :yellow
+   :red   :red
+   :gray  :text-tertiary})
+
+(defn countdown-ring
+  "Render a single `:after`-timer countdown ring around `(cx, cy)`
+  with radius `r`. Pure fn — produces hiccup.
+
+  Options:
+
+    :cx           — node centre x  (required)
+    :cy           — node centre y  (required)
+    :r            — ring radius    (required)
+    :fraction     — 0.0..1.0; portion of the ring to FILL (= the
+                    portion of countdown REMAINING). nil renders the
+                    ring as a faded full circle (degenerate cases:
+                    no resolvable duration, sub-vec mid-resolution).
+    :color        — semantic tier `:green / :amber / :red / :gray`
+                    (defaults to `:gray`).
+    :cancelled?   — when true the ring renders gray + a diagonal
+                    cross-line through it (the timer was cancelled
+                    by state exit or sub-resolution).
+    :stroke-width — defaults to 2.5 (chunky enough to read at chart-
+                    scale, thin enough to not obscure the node).
+    :testid       — overrides the root data-testid (used by the panel
+                    to stamp `(machine-id, state)` for hit-testing).
+    :tooltip      — when present, wraps a native SVG `<title>` so a
+                    hover shows browser-default chrome.
+
+  Returns a hiccup `[:g ...]` form. The outer `<g>` carries
+  `:pointer-events :all` and is sized to the bounding box of the
+  circle so the ring is hover-targetable across its full sweep.
+
+  ## Why a single SVG primitive (not three sub-components)
+
+  Both the live ring + the cancelled ring + the degenerate full-circle
+  ring share the same outer geometry — only the dasharray + stroke
+  colour + the cross-overlay change. Folding the three states into one
+  fn keeps the data → hiccup mapping trivial for tests."
+  [{:keys [cx cy r fraction color cancelled? stroke-width testid tooltip]
+    :or   {color        :gray
+           stroke-width 2.5}}]
+  (let [sw        stroke-width
+        circ      (* 2 Math/PI r)
+        ;; Clamp the fraction inside `[0, 1]`. Nil → full ring (the
+        ;; degenerate-data fallback already renders gray via colour).
+        f         (cond
+                    (nil? fraction)        1.0
+                    (< fraction 0.0)       0.0
+                    (> fraction 1.0)       1.0
+                    :else                  (double fraction))
+        arc-len   (* f circ)
+        gap-len   (- circ arc-len)
+        token-key (get ring-color->token color :text-tertiary)
+        stroke    (get tokens/tokens token-key)
+        opacity   (if cancelled? 0.4 0.85)]
+    [:g {:data-testid    (or testid "rf-causa-chart-countdown-ring")
+         :data-color     (name color)
+         :data-cancelled (str (boolean cancelled?))
+         :data-fraction  (when fraction (str fraction))
+         :pointer-events "all"}
+     ;; Underlay: a faint full circle so the user reads the "track"
+     ;; the ring sweeps along. Without it the partial ring looks like
+     ;; an arc fragment.
+     [:circle {:cx cx :cy cy :r r
+               :fill "none"
+               :stroke (:border-subtle tokens/tokens)
+               :stroke-width (* 0.6 sw)
+               :opacity 0.4
+               :pointer-events "none"}]
+     ;; The countdown sweep itself. Rotate -90° around (cx, cy) so
+     ;; the dasharray origin sits at 12 o'clock.
+     [:circle {:cx cx :cy cy :r r
+               :fill "none"
+               :stroke stroke
+               :stroke-width sw
+               :stroke-linecap "round"
+               :stroke-dasharray (str arc-len " " gap-len)
+               :stroke-dashoffset 0
+               :opacity opacity
+               :transform (str "rotate(-90 " cx " " cy ")")
+               :pointer-events "stroke"}]
+     ;; Cancelled-ring diagonal cross — a single line at 45° through
+     ;; the circle's bounding box. Renders ABOVE the ring so it reads
+     ;; as a kill-mark.
+     (when cancelled?
+       (let [diag (long (* 0.707 r))]   ;; r / sqrt(2)
+         [:line {:x1 (- cx diag) :y1 (- cy diag)
+                 :x2 (+ cx diag) :y2 (+ cy diag)
+                 :stroke (:red tokens/tokens)
+                 :stroke-width (* 0.8 sw)
+                 :stroke-linecap "round"
+                 :opacity 0.7
+                 :pointer-events "none"}]))
+     ;; Tooltip (native SVG `<title>`) — zero-cost accessible chrome
+     ;; that the browser surfaces on hover; no JS handlers required.
+     (when tooltip
+       [:title tooltip])]))
+
 (defn sparkline
   "Inline SVG glyph for `samples` — a vector of non-negative integers,
   oldest-first. Used by the Mode C cluster view to show recent
