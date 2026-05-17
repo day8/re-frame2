@@ -4,13 +4,14 @@ Sixteen panels. You'll use four of them daily, six of them weekly, and the rest 
 
 This chapter is the map. Each panel gets a one-paragraph "when you'd open this" answer; the chapters that follow take the four hero panels — Event detail, Time travel, Trace, Click-to-source — and unpack them depth-first.
 
-![Causa sidebar — sixteen panels, three bands](../images/causa/02-sidebar-panels.png)
+
+![Causa sidebar — fifteen panels, three bands](../images/causa/02-sidebar-panels.png)
 
 The sidebar groups panels into three bands:
 
 - **Always-active** (top) — Event detail, Causality, Time travel, App-DB, Subscriptions, Effects, Trace, Machines. These render whether you've configured anything or not.
 - **Conditional-with-activity** (middle) — Flows, Routes, Performance, Issues, Schemas, Hydration. These light up only when the app is using the relevant subsystem (the *Hydration* panel only appears when SSR hydration actually runs, etc.).
-- **AI surfaces** (bottom) — MCP, Co-pilot. Both opt-in; both pull-only by default.
+- **Agent surface** (bottom) — MCP. Opt-in; pull-only by default.
 
 ## Event detail — the landing panel
 
@@ -103,12 +104,6 @@ See [chapter 7](07-hydration.md).
 ## MCP
 
 A panel that exposes Causa's surfaces over the `causa-mcp` JSON-RPC server. You'd point an AI agent host at it for "drive Causa from a tool catalogue" workflows. See [chapter 11](11-mcp-server.md).
-
-## Co-pilot
-
-The pull-only AI rail. `Ctrl+Shift+/` toggles it. The agent runs against Causa's read surface — `epoch-history`, `(rf/sub-topology)`, the current trace stream — and answers questions in-context. No writes; no auto-action.
-
-See [chapter 10](10-ai-copilot.md).
 
 ---
 

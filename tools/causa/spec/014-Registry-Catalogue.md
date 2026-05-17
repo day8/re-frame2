@@ -44,9 +44,9 @@ Every registration is installed inside a `compare-and-set!` idempotency
 gate (`register-causa-handlers!`) so shadow-cljs `:after-load` reloads
 do NOT re-register. Tests MAY use `reset-for-test!` to drop the
 sentinel and drive multiple registration cycles. Production code MUST
-NOT call `reset-for-test!`. Per-panel `install!` helpers (e.g. the AI
-Co-Pilot's) run inside the same gate so panel-owned registrations
-inherit idempotency without re-doing the dance.
+NOT call `reset-for-test!`. Per-panel `install!` helpers run inside
+the same gate so panel-owned registrations inherit idempotency
+without re-doing the dance.
 
 ## Shared infrastructure
 
@@ -456,49 +456,6 @@ share-affordance and source-coord jumps live in `tools/machines-viz/`.
 | `:rf.causa/clear-machine-selection` | `[_]` | Clears selection. |
 | `:rf.causa/set-registered-machines-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.causa/set-machine-snapshots-override-for-test` | `[_ ov]` | Test-only override hook. |
-
-## AI Co-Pilot panel
-
-Spec: [`009-AI-CoPilot.md`](./009-AI-CoPilot.md). The Co-Pilot owns
-its own subs / events / fxs — chip parsing, slash commands,
-conversation buffer, provider streaming. The panel's `install!` is
-called from inside the central `register-causa-handlers!`
-idempotency gate so the Co-Pilot's registrations install once per
-process and reload-safely.
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.causa/copilot-open?` | Boolean — rail open/closed. Default `false` (collapsed) per Lock 8. |
-| `:rf.causa/copilot-conversation` | Vector of turns `{:role :question/:answer :text :streaming?}`. Per-session, in-memory only (Lock 12). |
-| `:rf.causa/copilot-provider` | `:claude :openai :gemini :local :custom`. Default `:claude`. |
-| `:rf.causa/copilot-cue-active?` | Boolean — `true` until first use; drives the pulse cue per spec §The AI co-pilot collapsed cue. |
-| `:rf.causa/copilot-redaction-settings` | Per-category redaction toggles; defaults are privacy-by-default per spec §Redaction defaults. |
-| `:rf.causa/copilot-streaming-token-count` | Integer — tokens streamed into the in-flight answer. |
-| `:rf.causa/copilot-input-text` | Current Co-Pilot input-box text (defaults to `""`). Read by the controlled textarea; written by `:rf.causa/copilot-set-input-text` per keystroke. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.causa/copilot-toggle` | `[_]` | Toggles open/closed; counts as first-use. |
-| `:rf.causa/copilot-mark-first-use` | `[_]` | Marks first-use without flipping open/closed (sidebar hover-stop affordance). |
-| `:rf.causa/copilot-set-provider` | `[_ provider]` | Sets the active provider. |
-| `:rf.causa/copilot-cycle-provider` | `[_]` | Round-robins through the 5 providers. |
-| `:rf.causa/copilot-set-redaction` | `[_ settings]` | Merges over defaults; full settings map at once. |
-| `:rf.causa/copilot-submit-question` | `[_ {:text :parsed}]` | `event-fx` — appends question, starts streaming-answer turn, routes payload via `:rf.causa.fx/llm-stream`. Per spec §Pull-only model this is the ONLY surface that initiates an outbound LLM call. |
-| `:rf.causa/copilot-stream-token` | `[_ token]` | Appends one streamed token to the in-flight answer. |
-| `:rf.causa/copilot-stream-end` | `[_]` | Marks the in-flight turn as no-longer streaming. |
-| `:rf.causa/copilot-clear-conversation` | `[_]` | Clears the buffer. Per spec §Ephemeral conversation, in-memory only. |
-| `:rf.causa/copilot-set-input-text` | `[_ text]` | `:rf.trace/no-emit? true`. Updates `:copilot-input-text` per keystroke without flooding the trace bus; `nil` normalises to `""`. |
-| `:rf.causa/copilot-chip-clicked` | `[_ {:chip-key :value}]` | `event-fx` — resolves the target server-side from the fixed `chip-targets` allowlist in `ai-co-pilot-helpers` and dispatches it with the chip's value as arg. Unknown chip-keys no-op. Per rf2-cm93v the handler accepts only `:chip-key` + `:value`; any caller-supplied `:target` slot is ignored. |
-
-### Effects
-
-| Fx | Args | Behaviour |
-|---|---|---|
-| `:rf.causa.fx/llm-stream` | `{:provider :text :parsed :redaction-settings}` | The provider streaming surface per spec §Provider abstraction. v1 ships a no-op stub; the follow-on bead wires the per-provider fetch + SSE stream parser. The contract — emit tokens via `:rf.causa/copilot-stream-token`, end via `:rf.causa/copilot-stream-end` — is the integration point. |
 
 ## Cross-references
 

@@ -16,11 +16,11 @@ Four groups, in `sidebar-items` order:
   Performance, Issues, Schemas.
 - **Dormant until first signal** — Hydration (wakes on the first
   `:rf.ssr/hydration-mismatch`).
-- **Auxiliary** — MCP, Co-pilot.
+- **Auxiliary** — MCP.
 
 Activity badges (right-aligned, fade in once, never fade out): `●` =
 recent activity · `●N` = unread count · `●●●` = multiplicity · `◌` =
-dormant · `◇` = Co-pilot cue glyph.
+dormant.
 
 ## Panel-by-panel
 
@@ -225,20 +225,5 @@ land?", "which tool ran most recently?"
 
 Spec: [`010-MCP-Server.md`](../../../tools/causa/spec/010-MCP-Server.md).
 
-### Co-pilot *(rail)*
-
-Pull-only AI Q&A and slash commands over the live runtime. Collapsed
-by default per Lock 8 — the unobtrusive-debugger principle won. Expand
-via `Ctrl+Shift+/` or click the magenta `◇` cue glyph in the top
-strip (which pulses every 8s until first use, then stops permanently).
-Ephemeral: no persistence across page reloads.
-
-**Open when:** you want natural-language interrogation; when slash-
-commands (`/why <epoch>`, `/explain <epoch>`,
-`/diff <epoch-a> <epoch-b>`, `/state <machine-id>`, `/find <pattern>`)
-are easier than navigating panels.
-
-Spec: [`009-AI-CoPilot.md`](../../../tools/causa/spec/009-AI-CoPilot.md).
-
 For the user-question → panel routing table, see
-[`SKILL.md` §The 16 panels](../SKILL.md).
+[`SKILL.md` §The 15 panels](../SKILL.md).

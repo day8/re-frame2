@@ -28,10 +28,6 @@
        the hydration composite reports `:has-mismatch? true` the
        `◌` marker drops; until then the entry is dormant.
 
-  Plus the top-strip's co-pilot collapsed-cue affordance
-  (spec/007-UX-IA.md §The AI co-pilot collapsed cue) — the magenta
-  cue glyph renders only when the rail is closed.
-
   ## Pure hiccup walk
 
   Same approach as `event_detail_cljs_test.cljs` and friends — we
@@ -50,7 +46,6 @@
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.panels.ai-co-pilot :as ai-co-pilot]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.effects :as effects]
@@ -79,7 +74,7 @@
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 
-;; ---- hiccup walker (mirrors ai_co_pilot_cljs_test.cljs) -----------------
+;; ---- hiccup walker ------------------------------------------------------
 
 (declare expand-tree)
 
@@ -174,7 +169,7 @@
 (def ^:private expected-panel-fn
   "Authoritative panel-id → view-fn mapping. Mirrors the `case` in
   shell.cljs's `canvas` so a typo in either place blows up here. The
-  16 keys cover every entry in `shell/sidebar-items`."
+  15 keys cover every entry in `shell/sidebar-items`."
   {:event-detail event-detail/Panel
    :time-travel  time-travel/Panel
    :app-db       app-db-diff/Panel
@@ -189,14 +184,13 @@
    :issues       issues-ribbon/Panel
    :schemas      svt/Panel
    :hydration    hydration-debugger/Panel
-   :mcp-server   mcp-server/Panel
-   :copilot      ai-co-pilot/Panel})
+   :mcp-server   mcp-server/Panel})
 
-(deftest expected-panel-map-covers-sixteen-entries
-  (testing "the expected panel map has the 16 entries the spec lists
+(deftest expected-panel-map-covers-fifteen-entries
+  (testing "the expected panel map has the 15 entries the spec lists
             so the per-arm tests below can't silently shrink"
-    (is (= 16 (count expected-panel-fn))
-        "16 sidebar entries -> 16 case arms in canvas")))
+    (is (= 15 (count expected-panel-fn))
+        "15 sidebar entries -> 15 case arms in canvas")))
 
 (defn- canvas-panel-child
   "The canvas wrapper is `[:div {...style...} <panel-or-unknown-hiccup>]`
@@ -431,10 +425,10 @@
             "active marker `◉` when the row is the selected panel")))))
 
 ;; -------------------------------------------------------------------------
-;; (4) Sidebar rendering & co-pilot cue affordance
+;; (4) Sidebar rendering
 ;; -------------------------------------------------------------------------
 
-(deftest sidebar-renders-all-sixteen-rows
+(deftest sidebar-renders-all-fifteen-rows
   (testing "the sidebar renders one row per sidebar-items entry —
             every panel-id surfaces with the
             `rf-causa-sidebar-item-<id>` testid"
@@ -442,8 +436,8 @@
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             rows (find-all-by-testid-prefix tree "rf-causa-sidebar-item-")]
-        (is (= 16 (count rows))
-            "16 sidebar rows render, one per sidebar-items entry")
+        (is (= 15 (count rows))
+            "15 sidebar rows render, one per sidebar-items entry")
         (doseq [panel-id (keys expected-panel-fn)]
           (is (some? (find-by-testid tree
                                      (str "rf-causa-sidebar-item-"
@@ -471,44 +465,16 @@
       (is (some #(= [:rf.causa/select-panel :trace] %) @dispatches)
           ":rf.causa/select-panel fired with :trace (the row's id)"))))
 
-(deftest copilot-cue-renders-when-rail-collapsed
-  (testing "spec/007-UX-IA.md §The AI co-pilot collapsed cue — the
-            magenta `◇` cue glyph in the top strip renders only
-            when the rail is collapsed. Default is collapsed."
-    (causa-setup!)
-    (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/copilot-open?]))
-          "rail starts collapsed — sanity check")
-      (let [tree (shell/shell-view)
-            cue  (find-by-testid tree "rf-causa-copilot-cue")]
-        (is (some? cue)
-            "cue glyph renders in the top strip while the rail is collapsed")))))
-
-(deftest copilot-cue-hidden-when-rail-open
-  (testing "the cue glyph disappears once the rail is open — clicking
-            the cue is the ONLY affordance for opening when collapsed,
-            so once open it would be redundant"
-    (causa-setup!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/copilot-toggle])
-      (is (true? @(rf/subscribe [:rf.causa/copilot-open?])))
-      (let [tree (shell/shell-view)]
-        (is (nil? (find-by-testid tree "rf-causa-copilot-cue"))
-            "cue glyph drops when the rail is open")
-        ;; And the rail itself now renders.
-        (is (some? (find-by-testid tree "rf-causa-copilot-rail"))
-            "the rail's hiccup appears when :rf.causa/copilot-open? is true")))))
-
 (deftest shell-view-mounts-the-three-regions
   (testing "the shell-view returns a tree containing the shell's
             `data-testid` envelope plus the bottom-rail (no testid
             — asserted by the REDACTED indicator's absence/presence
-            in companion tests) and the sidebar's 16 rows"
+            in companion tests) and the sidebar's 15 rows"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
         (is (some? (find-by-testid tree "rf-causa-shell"))
             "the shell's outer envelope is present")
-        (is (= 16 (count (find-all-by-testid-prefix tree
+        (is (= 15 (count (find-all-by-testid-prefix tree
                                                    "rf-causa-sidebar-item-")))
-            "sidebar's 16 rows are present")))))
+            "sidebar's 15 rows are present")))))

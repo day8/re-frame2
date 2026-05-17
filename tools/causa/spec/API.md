@@ -30,8 +30,8 @@ cycle re-runs without double-registration:
    when the `day8/re-frame2-epoch` artefact is absent).
 4. Installs the dev-only browser API on `window.day8.re_frame2_causa.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
-5. Attaches the global keydown listeners — `Ctrl+Shift+C` (toggle
-   shell) and `Ctrl+Shift+/` (AI co-pilot rail).
+5. Attaches the global keydown listener — `Ctrl+Shift+C` (toggle
+   shell).
 6. Auto-opens the shell **true-inline** into the host app's
    normal-flow layout host (`[data-rf-causa-host]` by default) once
    the substrate adapter is ready — per rf2-eehov, this is the
@@ -68,9 +68,8 @@ suppression knob, and legacy overlay / popout postures, see
 ### Published layout-host constants
 
 `day8.re-frame2-causa.config` publishes the layout-host wiring as
-named CLJS vars so tooling (story-mode chrome, docs generators, the
-AI co-pilot's snippet helper) can refer to the exact spelling
-without forking the string:
+named CLJS vars so tooling (story-mode chrome, docs generators) can
+refer to the exact spelling without forking the string:
 
 ```clojure
 day8.re-frame2-causa.config/default-layout-host-selector
@@ -193,7 +192,6 @@ day8.re-frame2-causa.panels.schema-violation-timeline/Panel
 day8.re-frame2-causa.panels.issues-ribbon/Panel
 day8.re-frame2-causa.panels.hydration-debugger/Panel
 day8.re-frame2-causa.panels.mcp-server/Panel
-day8.re-frame2-causa.panels.ai-co-pilot/Panel
 ```
 
 Each accepts the props map specified in
@@ -358,7 +356,6 @@ wires per-instance panel state). Shape (validated by Malli):
  :sidebar-mode  :grouped / :show-all
  :launcher-pill {:hidden? false}
  :keybindings   {:toggle ["Ctrl+Shift+C"]   ;; vector for multiple binds
-                 :co-pilot ["Ctrl+Shift+/"]
                  ...}}
 ```
 

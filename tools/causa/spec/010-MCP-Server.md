@@ -589,9 +589,9 @@ truth. Until then the value lives at
 - *Re-use the existing `#43C3D0` cyan* — collides with `:story` /
   `:test`; a programmer scrubbing a session with a story playing
   back would not be able to tell agent and story dispatches apart.
-- *Pick magenta `#E879F9` (the AI co-pilot highlight)* — reads as
-  highlight, not as origin; would compete with the co-pilot's own
-  affordance.
+- *Pick magenta `#E879F9` (the redaction-marker highlight)* — reads as
+  highlight, not as origin; would compete with the redaction marker's
+  own affordance.
 
 #### Decision (c) — Bidirectional Causa→agent surface: MUST NOT (v1)
 

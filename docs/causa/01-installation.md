@@ -91,12 +91,11 @@ The shell is a three-region layout (inside the Causa panel itself):
 
 ## Keybindings
 
-The shell wires two global keybindings pre-alpha:
+The shell wires one global keybinding pre-alpha:
 
 | Action | Keys |
 |---|---|
 | Open / close | `Ctrl+Shift+C` |
-| Toggle AI co-pilot rail | `Ctrl+Shift+/` |
 
 Pop-out and command-palette keys some early drafts named are not
 wired today. Pop out programmatically with `(causa/popout!)` (or

@@ -27,7 +27,6 @@ const PANEL_HANDOFFS = [
   ['schemas', 'rf-causa-schema-violation-timeline'],
   ['hydration', 'rf-causa-hydration-debugger'],
   ['mcp-server', 'rf-causa-mcp-server'],
-  ['copilot', 'rf-causa-copilot-panel'],
 ];
 
 const STAGED_SURFACES = [
@@ -1535,7 +1534,6 @@ const SCENARIOS = [
       'Flows',
       'Effects',
       'MCP Server',
-      'AI Co-pilot',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runShellFeatureSweep,

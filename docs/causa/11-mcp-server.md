@@ -20,7 +20,6 @@ With `causa-mcp` running, an external agent host calls a tool catalogue rather t
 Agent → list-panels → returns: ["event-detail", "time-travel", "trace", ...]
 Agent → read-epoch :epoch-id 42 → returns: {:event-id ... :db-after ... :sub-runs [...]}
 Agent → query-trace {:op-type :error :since-epoch 40} → returns: [...]
-Agent → ask-copilot "explain this cascade" → returns: prose
 ```
 
 Every shape is data; every call is logged on the wire. The agent never reaches into Causa's internal state — it consumes the same surfaces a human would consume via the UI. That's the contract that lets Causa, Story, and the pair tool coexist as parallel agent surfaces without coordinating internals.
@@ -60,7 +59,7 @@ This is the chapter that's most *spec-as-of-shipping*. The next pass through the
 
 That's the tour. You've seen:
 
-- The eleven panel walkthrough — Event detail, Time travel, Trace, Click-to-source, Schemas, Hydration, Machines, App-DB, AI co-pilot, MCP.
+- The panel walkthrough — Event detail, Time travel, Trace, Click-to-source, Schemas, Hydration, Machines, App-DB, MCP.
 - The single observation surface they all share.
 - The contracts the framework commits to — trace bus, epoch records, source coords, machine indices.
 - The escape hatches — pair tools for writes, the Performance API for production timing, the off-box trace pipeline for APM.
