@@ -1,13 +1,13 @@
 # Construction Prompts (AI Agent Templates)
 
 > **Type:** Construction Prompts
-> Per-kind AI-scaffolding templates for new code in the re-frame2 pattern. Sibling to [MIGRATION.md](MIGRATION.md) (which covers upgrades of existing code).
+> Per-kind AI-scaffolding templates for new code in the re-frame2 pattern. Sibling to [MIGRATION.md](../migration/from-re-frame-v1/README.md) (which covers upgrades of existing code).
 
 CP-10 (story / variant / workspace) is post-v1; its sketch lives in 007-Stories.md (CP-10 sketch) and the full template lands here when `re-frame.stories` ships.
 
 ## Purpose
 
-[MIGRATION.md](MIGRATION.md) is the AI prompt for *upgrading* old re-frame code. **Construction Prompts** is the AI prompt for *creating new* code in the re-frame2 pattern. Where MIGRATION rewrites existing shapes, Construction Prompts scaffolds shapes that don't yet exist.
+[MIGRATION.md](../migration/from-re-frame-v1/README.md) is the AI prompt for *upgrading* old re-frame code. **Construction Prompts** is the AI prompt for *creating new* code in the re-frame2 pattern. Where MIGRATION rewrites existing shapes, Construction Prompts scaffolds shapes that don't yet exist.
 
 This artefact is intended to be:
 
@@ -1030,7 +1030,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 - [Principles.md §Construction prompts as a deliverable](Principles.md#construction-prompts-as-a-deliverable) — why this artefact exists.
 - [000-Vision.md](000-Vision.md) — the goals and contract.
-- [MIGRATION.md](MIGRATION.md) — the sibling artefact for upgrades.
+- [MIGRATION.md](../migration/from-re-frame-v1/README.md) — the sibling artefact for upgrades.
 - [API.md](API.md) — signatures the prompts produce calls against.
 
 ## Worked examples (each prompt, in action)

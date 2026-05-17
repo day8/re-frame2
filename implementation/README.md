@@ -287,4 +287,4 @@ disambiguate names that look interchangeable at a glance.
 ## What's not in scope
 
 - The migration agent (re-frame v1 → v2). That's a separate
-  AI-driven task per `../spec/MIGRATION.md`.
+  AI-driven task per `../migration/from-re-frame-v1/README.md`.

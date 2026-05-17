@@ -4,9 +4,9 @@
 
 The canonical inputs the skill leans on. A re-authoring pass needs these to reproduce the leaves.
 
-## 1. Primary input — `spec/MIGRATION.md`
+## 1. Primary input — `migration/from-re-frame-v1/README.md`
 
-Path: `spec/MIGRATION.md` in the re-frame2 repo.
+Path: `migration/from-re-frame-v1/README.md` in the re-frame2 repo.
 
 **This is the source of truth.** Every M-rule and O-rule referenced in the skill's leaves comes from this doc. The skill's job is to **route**, **sequence**, and **operationalise** these rules — not to duplicate them.
 

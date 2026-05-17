@@ -68,7 +68,7 @@ The skill conforms to:
 
 These are deliberately out of the loop:
 
-- **`spec/MIGRATION.md`** — that's the migration skill's input. This skill is about new implementations, not v1→v2 migration.
+- **`migration/from-re-frame-v1/README.md`** — that's the migration skill's input. This skill is about new implementations, not v1→v2 migration.
 - **`spec/Construction-Prompts.md`** — that's the authoring-side `re-frame2` skill's input (the per-kind AI templates for application authors writing new code).
 - **`spec/Pattern-*.md`** — application patterns; not relevant to implementors.
 - **`docs/guide/**`** — narrative guide for application authors.

@@ -944,15 +944,15 @@ Per Stage 1 §2.3a + DECISION-7 Class B. Five symbols ship as throw-on-call. Eac
 
 ### §10.1 Migration messages
 
-The migration-message strings are fixed and visible in source. The doc URL is `https://github.com/day8/re-frame2/blob/main/MIGRATION.md` (Stage 4 confirms the URL is correct at branch-cut).
+The migration-message strings are fixed and visible in source. The doc URL is `https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md` (Stage 4 confirms the URL is correct at branch-cut).
 
 | Shim | Migration message |
 |---|---|
-| `reagent2.dom/render` | `"reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."` |
-| `reagent2.dom/unmount-component-at-node` | `"reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."` |
+| `reagent2.dom/render` | `"reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
+| `reagent2.dom/unmount-component-at-node` | `"reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
 | `reagent2.dom/force-update-all` | `"reagent.dom/force-update-all is removed (it iterated React 17 internals). If you have a legitimate use case, file an issue at https://github.com/day8/re-frame2/issues."` |
-| `reagent2.core/dom-node` | `"reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#dom-node-removal."` |
-| `reagent2.core/render` | `"reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."` |
+| `reagent2.core/dom-node` | `"reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal."` |
+| `reagent2.core/render` | `"reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
 
 ### §10.2 Implementation pattern
 
@@ -963,7 +963,7 @@ Each shim is a `defn` whose body throws an `ex-info` with the migration message.
   "REMOVED under React 19. See migration message."
   [& _]
   (throw
-    (ex-info "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."
+    (ex-info "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
       {:type :rf.error/react-19-removed-surface
        :symbol 'reagent2.dom/render
        :recovery :no-recovery})))

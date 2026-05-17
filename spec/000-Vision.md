@@ -23,7 +23,7 @@ The headline shape:
 - **Registration** carries rich metadata; every registered entity is queryable (Spec 001 / 010).
 - **Views** are pure functions of `(state, props) → render-tree`; the render-tree is serialisable data (Spec 004).
 - The **CLJS reference** makes concrete bindings (atom, Malli, Reagent, hiccup, ...) without committing the pattern to them.
-- Existing re-frame code keeps working subject to a small, well-defined set of mechanical migration rules (C1 below; [MIGRATION.md](MIGRATION.md)).
+- Existing re-frame code keeps working subject to a small, well-defined set of mechanical migration rules (C1 below; [MIGRATION.md](../migration/from-re-frame-v1/README.md)).
 
 ## Constraints and goals
 
@@ -187,7 +187,7 @@ A TypeScript reference would make different choices for each row (e.g., `useSync
 
 re-frame2 ships as **multiple Maven artefacts in three tiers**: a **core** artefact (`day8/re-frame2` — registry, drain, fx, dispatch, subscribe, frame-provider, trace); **per-feature** artefacts (`day8/re-frame2-<feature-id>` — machines, flows, routing, http, ssr, schemas, epoch); and **per-substrate** artefacts (`day8/re-frame2-<substrate>` — reagent, uix, helix). A user picks the artefacts their app needs; bundle isolation is structural — the wrong feature or the wrong substrate is *absent from the classpath*, not eliminated by a hopeful dead-code-elimination pass. Independence between artefacts is enforced: core does not transitively `:require` any per-feature or per-substrate ns. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) for the artefact tiers, the independence rule, the naming convention, and the bundle-isolation conformance check.
 
-The reference implementation also inherits an additional constraint not borne by the pattern: **a re-frame application must be upgradable by an agent following mechanical rules** — the contents of [MIGRATION.md](MIGRATION.md). This is C1 below.
+The reference implementation also inherits an additional constraint not borne by the pattern: **a re-frame application must be upgradable by an agent following mechanical rules** — the contents of [MIGRATION.md](../migration/from-re-frame-v1/README.md). This is C1 below.
 
 ## Hard constraints (on the reference implementation)
 
@@ -195,9 +195,9 @@ A constraint is binary: a design either satisfies it or fails the spec. Both app
 
 ### C1. Mechanical migration via AI agent
 
-The CLJS reference may make API changes that break existing re-frame code, but **every breaking change must be mechanically repairable by an AI agent following [MIGRATION.md](MIGRATION.md).** Users upgrade by running the migration agent against their codebase; the migration story is the contract, and design decisions are vetted by asking "could the agent rewrite this?" before they land.
+The CLJS reference may make API changes that break existing re-frame code, but **every breaking change must be mechanically repairable by an AI agent following [MIGRATION.md](../migration/from-re-frame-v1/README.md).** Users upgrade by running the migration agent against their codebase; the migration story is the contract, and design decisions are vetted by asking "could the agent rewrite this?" before they land.
 
-The detailed acceptability criteria for breaking changes (detectability, mechanical rewritability, behaviour preservation), the Type A vs. Type B classification, the upgrade-with-tests assumption, and the rule set itself live in [MIGRATION.md](MIGRATION.md). This Spec records only the constraint: **MIGRATION.md must remain executable**. The aim is still to *minimise* breakage — each additional rule is a footprint of disruption.
+The detailed acceptability criteria for breaking changes (detectability, mechanical rewritability, behaviour preservation), the Type A vs. Type B classification, the upgrade-with-tests assumption, and the rule set itself live in [MIGRATION.md](../migration/from-re-frame-v1/README.md). This Spec records only the constraint: **MIGRATION.md must remain executable**. The aim is still to *minimise* breakage — each additional rule is a footprint of disruption.
 
 ### C2. Cross-platform: JVM interop preserved
 
@@ -439,7 +439,7 @@ The downstream Specs own their respective contracts in full; 000 only records th
 - **Features (modularity) — [Construction-Prompts.md §CP-6](Construction-Prompts.md).** A feature is a coherent registry slice (events + subs + views + schemas + optional machine + `app-db` slice) addressable by a shared id-prefix. The pattern's mechanism is convention, not a registry kind: tooling enforces prefix discipline; the runtime needs no `:feature` registry kind because slices are auditable from `(rf/registrations …)` directly.
 - **Schemas — [010-Schemas.md](010-Schemas.md).** Malli in the CLJS reference; schemas register on every `reg-*` via `:spec` and on `app-db` paths via `reg-app-schema`. Validation runs in dev, elides in production. (Other-language hosts use their type system; see the host-profile matrix.)
 - **Tooling and agent surface — [002-Frames.md §The public registrar query API](002-Frames.md#the-public-registrar-query-api).** Public, queryable registrar (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `get-frame-db`, `snapshot-of`, `sub-topology`); per-frame trace stream feeding 10x and re-frame-pair; observable hot-reload notifications; machine-readable errors as maps with documented keys.
-- **Migration — [MIGRATION.md](MIGRATION.md).** The executable contract for the AI-driven upgrade path under [C1](#c1-mechanical-migration-via-ai-agent). M-rules, O-rules, classifications, agent verification steps. 000 records the principle; MIGRATION.md owns the rule set.
+- **Migration — [MIGRATION.md](../migration/from-re-frame-v1/README.md).** The executable contract for the AI-driven upgrade path under [C1](#c1-mechanical-migration-via-ai-agent). M-rules, O-rules, classifications, agent verification steps. 000 records the principle; MIGRATION.md owns the rule set.
 
 ## Scope and roadmap
 
@@ -473,7 +473,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 ### New / deferred
 
-- **Construction prompts** (artefact, not a Spec) — per-kind templates for AI-driven scaffolding. Sits alongside MIGRATION.md.
+- **Construction prompts** (artefact, not a Spec) — per-kind templates for AI-driven scaffolding. Sibling to the migration corpus at [`../migration/from-re-frame-v1/`](../migration/from-re-frame-v1/README.md).
 
 ### Goal #10 dispositions (real-SPA-concerns scope)
 
@@ -527,7 +527,7 @@ The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was a
 - Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: deferred ref-counting with a configurable grace-period (default 50ms); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
 - `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
 
-Migration entries land at [MIGRATION §M-23](MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+Migration entries land at [MIGRATION §M-23](../migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 
 ### Plain Reagent fns under non-default frames
 

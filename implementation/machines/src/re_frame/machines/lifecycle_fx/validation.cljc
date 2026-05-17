@@ -45,9 +45,9 @@
                            (str ":timeout-ms / :on-timeout on " slot-key
                                 " were dropped per rf2-3y3y. Use the parent "
                                 "state's :after slot for wall-clock guards. "
-                                "See MIGRATION.md §M-44 for the rewrite "
-                                "recipe.")
-                           :migration "MIGRATION.md §M-44"})))))))
+                                "See migration/from-re-frame-v1/README.md §M-44 "
+                                "for the rewrite recipe.")
+                           :migration "migration/from-re-frame-v1/README.md §M-44"})))))))
 
 (defn- validate-invoke-all!
   "Per Spec 005 §Spawn-and-join via `:invoke-all` (rf2-6vmw): walk the

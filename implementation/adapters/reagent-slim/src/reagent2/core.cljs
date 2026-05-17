@@ -174,7 +174,7 @@
 ;; site reaches it. Apps that import `reagent2.core/render` but never
 ;; call it pay zero runtime cost.
 ;;
-;; Migration: see spec/MIGRATION.md M-42 — legacy mount path /
+;; Migration: see migration/from-re-frame-v1/README.md M-42 — legacy mount path /
 ;; dom-node removal.
 ;; ---------------------------------------------------------------------------
 
@@ -186,7 +186,7 @@
   [& _]
   (throw
     (ex-info
-      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."
+      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."
       {:type     :rf.error/react-19-removed-surface
        :surface  'reagent2.core/render
        :recovery :no-recovery})))
@@ -201,7 +201,7 @@
   [& _]
   (throw
     (ex-info
-      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#dom-node-removal."
+      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal."
       {:type     :rf.error/react-19-removed-surface
        :surface  'reagent2.core/dom-node
        :recovery :no-recovery})))

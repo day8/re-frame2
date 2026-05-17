@@ -45,7 +45,7 @@ The canonical seven-step greenfield path:
 
 - Re-frame2's API surface (events, subs, machines, schemas, ...) — that's the main `re-frame2` skill.
 - Live REPL inspection of the running app — that's [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2).
-- Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/spec/MIGRATION.md).
+- Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
 - Anything beyond Reagent + shadow-cljs. UIx, Helix, and other build tools are noted only as "swap the adapter ns / pick a different build tool"; the canonical path is Reagent + shadow-cljs.
 

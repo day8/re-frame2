@@ -56,7 +56,7 @@
 
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
-;; Per spec/MIGRATION.md §M-8 and Spec-Schemas.md §:rf/effect-map,
+;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
 ;; the effect-map a reg-event-fx handler returns is a CLOSED shape: only :db
 ;; and :fx live at the top level. Legacy v1 top-level keys (:dispatch,
 ;; :dispatch-later, :dispatch-n, :http, etc.) must move into :fx as

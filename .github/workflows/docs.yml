@@ -27,6 +27,7 @@ on:
     paths:
       - 'docs/**'
       - 'spec/**'
+      - 'migration/**'
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
@@ -39,6 +40,7 @@ on:
     paths:
       - 'docs/**'
       - 'spec/**'
+      - 'migration/**'
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
@@ -91,14 +93,17 @@ jobs:
       - name: Validate doc links (targets + anchors)
         run: python scripts/check_doc_slugs.py --verbose
 
-      # Stage the spec/ tree under docs/spec/ so MkDocs (which requires
-      # docs_dir to be a child of the config file) can see it. The local
-      # equivalent is `cp -r spec docs/spec` before `mkdocs build`. The
-      # staged copy is .gitignored — never commit it.
-      - name: Stage spec/ into docs/spec/
+      # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
+      # requires docs_dir to be a child of the config file) can see them.
+      # The local equivalent is `cp -r spec docs/spec && cp -r migration
+      # docs/migration` before `mkdocs build`. The staged copies are
+      # .gitignored — never commit them.
+      - name: Stage spec/ + migration/ into docs/
         run: |
           rm -rf docs/spec
           cp -r spec docs/spec
+          rm -rf docs/migration
+          cp -r migration docs/migration
 
       - name: Build site
         run: mkdocs build

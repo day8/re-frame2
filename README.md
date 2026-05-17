@@ -101,7 +101,7 @@ This implementation includes all of the above, plus:
     - **UIx** — modern hooks-based React layer.
     - **Helix** — minimal React wrapper.
     - **Reagent-slim** — a re-frame2-optimised Reagent rewrite with a reduced API surface. React 19 native.
-  - **[Migration tooling](spec/MIGRATION.md)** — re-frame v1.x → re-frame2 shipped via the `re-frame-migration` Claude skill.
+  - **[Migration tooling](migration/from-re-frame-v1/README.md)** — re-frame v1.x → re-frame2 shipped via the `re-frame-migration` Claude skill.
 
 ## Status
 
@@ -280,7 +280,7 @@ re-frame2 is spec-first and AI-implementable. If you're an LLM landing here to i
 5. **Consolidated public API** — [spec/API.md](spec/API.md) — every shipped fn / macro / fx / cofx with signatures.
 6. **Spec-internal shapes** — [spec/Spec-Schemas.md](spec/Spec-Schemas.md) — Malli-shaped definitions of every internal map (effect-map, registration-metadata, hydration-payload, trace-event, machine snapshot, etc.).
 7. **AI-first audit** — [spec/AI-Audit.md](spec/AI-Audit.md) — every spec scored against the AI-first practical principles.
-8. **Migration prompt** — [spec/MIGRATION.md](spec/MIGRATION.md) — mechanical re-frame v1.x → re-frame2 rewrite rules.
+8. **Migration prompt** — [migration/from-re-frame-v1/README.md](migration/from-re-frame-v1/README.md) — mechanical re-frame v1.x → re-frame2 rewrite rules.
 9. **Implementor checklist** — [spec/Implementor-Checklist.md](spec/Implementor-Checklist.md) — porting to a new host; decision-ordered companion to the host-profile matrix.
 10. **Tool-Pair contract** — [spec/Tool-Pair.md](spec/Tool-Pair.md) — runtime surfaces that pair-shaped AI tools (re-frame-pair and equivalents) consume.
 

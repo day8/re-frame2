@@ -50,7 +50,7 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|
-| `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Macro for source-coord capture. See [MIGRATION §M-5](MIGRATION.md) for higher-order-use migration. |
+| `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Macro for source-coord capture. See [MIGRATION §M-5](../migration/from-re-frame-v1/README.md) for higher-order-use migration. |
 | `reg-event-fx` | M | `(reg-event-fx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Handler accepts `(fn [m] ...)` or `(fn [m event-vec] ...)`. |
 | `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | |
 | `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
@@ -332,7 +332,7 @@ Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-even
 
 ## Effect-map shape
 
-Closed: `:db` + `:fx` only. See [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map). Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` from v1 migrate via [MIGRATION.md §M-8](MIGRATION.md).
+Closed: `:db` + `:fx` only. See [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map). Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` from v1 migrate via [MIGRATION.md §M-8](../migration/from-re-frame-v1/README.md).
 
 | Key | Notes |
 |---|---|
@@ -570,7 +570,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 |---|---|---|---|---|---|
 | `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
 | `assert-state` | Fn | `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` opts | v1 | 008 | Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. |
-| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding (rf2-5uwl). Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](MIGRATION.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
+| `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding (rf2-5uwl). Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
 | `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
 | `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
 
@@ -578,7 +578,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Standard interceptors
 
-The v2 std-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principled line: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` or `(->interceptor :after f)` with no other logic. Five interceptors removed: `debug`, `trim-v`, `on-changes`, `enrich`, `after` (per [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)).
+The v2 std-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principled line: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` or `(->interceptor :after f)` with no other logic. Five interceptors removed: `debug`, `trim-v`, `on-changes`, `enrich`, `after` (per [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)).
 
 | API | M/Fn | Signature | Purpose |
 |---|---|---|---|
@@ -588,12 +588,12 @@ The v2 std-interceptor surface is **three specific helpers** plus the `->interce
 | `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
 | `->interceptor` | Fn | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. |
 
-Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)):
+Removed in v2 (see [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)):
 
 | Removed API | Replaced by |
 |---|---|
 | `debug` | Trace surface ([009](009-Instrumentation.md)) + 10x / re-frame-pair |
-| `trim-v` | Canonical map-payload call shape ([M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)) |
+| `trim-v` | Canonical map-payload call shape ([M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)) |
 | `on-changes` | Flows ([Spec 013](013-Flows.md)) |
 | `enrich` | Flows (derived state) / `:spec` (validation) / custom `->interceptor` (escape hatch) |
 | `after` | Registered fx (`:fx [[:my-fx ...]]`) for side-effects; custom `->interceptor` for context-shaped work; vendor from v1 if the helper is wanted as a local utility |
@@ -751,4 +751,4 @@ See [007-Stories.md](007-Stories.md).
 - [009-Instrumentation.md](009-Instrumentation.md) — trace event stream, listeners, error contract
 - [010-Schemas.md](010-Schemas.md) — Malli schemas
 - [014-HTTPRequests.md](014-HTTPRequests.md) — `:rf.http/managed` request fx (optional capability)
-- [MIGRATION.md](MIGRATION.md) — AI-driven migration spec
+- [MIGRATION.md](../migration/from-re-frame-v1/README.md) — AI-driven migration spec

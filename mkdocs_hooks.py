@@ -72,6 +72,12 @@ _GUIDE_DEEP_TO_SPEC = re.compile(r'\]\(\.\./\.\./\.\./spec/')
 # spec/ (one fewer ../).
 _DOCSROOT_TO_SPEC = re.compile(r'\]\(\.\./spec/')
 
+# Case 1b-mig: docs-root pages link to the migration corpus via
+# ../migration/ — correct for the source tree (migration/ at the repo
+# root). The staged tree puts it at docs/migration/, so from a docs-root
+# page the correct path is plain migration/ (one fewer ../).
+_DOCSROOT_TO_MIGRATION = re.compile(r'\]\(\.\./migration/')
+
 # Case 1c: spec/* pages link to docs/-root pages (e.g. release-process.md)
 # via ../docs/ — correct for the GitHub source tree (where docs/ lives at
 # the repo root, one level up from spec/). In the staged tree spec/X.md is
@@ -212,8 +218,11 @@ def on_page_markdown(markdown, page, config, files):
         # is staged at docs/spec/conformance/; MkDocs needs the explicit .md.
         markdown = _SPEC_CONFORMANCE_DIR.sub('](conformance/README.md)', markdown)
     elif '/' not in src:
-        # Docs-root page (e.g. release-process.md). Rewrite ../spec/ -> spec/.
+        # Docs-root page (e.g. release-process.md). Rewrite ../spec/ -> spec/
+        # and ../migration/ -> migration/ (both staged trees are siblings of
+        # this docs-root page in the staged docs_dir).
         markdown = _DOCSROOT_TO_SPEC.sub('](spec/', markdown)
+        markdown = _DOCSROOT_TO_MIGRATION.sub('](migration/', markdown)
 
     for pattern, replacement in _REWRITES:
         markdown = pattern.sub(replacement, markdown)

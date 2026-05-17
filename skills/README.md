@@ -39,9 +39,9 @@ re-frame2 ships **six** skills, grouped by the situation they cover:
 
 - **[`re-frame-migration/`](./re-frame-migration/)** — migrate an existing
   re-frame v1.x ClojureScript codebase to re-frame2. Drives the
-  six-phase migration workflow from [`spec/MIGRATION.md`](../spec/MIGRATION.md):
+  six-phase migration workflow from [`migration/from-re-frame-v1/README.md`](../migration/from-re-frame-v1/README.md):
   applies Type A (mechanical) M-rules without asking, flags Type B
-  (judgment-call) rewrites for the author. The MIGRATION.md rule corpus
+  (judgment-call) rewrites for the author. The migration corpus
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
 

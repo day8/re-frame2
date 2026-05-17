@@ -18,7 +18,7 @@ spec docs:
 |---|---|
 | `spec/Principles.md` | Framework philosophy; load-bearing for a curious reader |
 | `spec/000-Vision.md` | Human-readable philosophy track; the 'why re-frame2 exists' doc. Permitted but most chapters won't need it; ch.20 (spec portal) is its natural home. |
-| `spec/MIGRATION.md` | v1 → v2 migrants are a distinct audience; ch.18 is their on-ramp |
+| `migration/from-re-frame-v1/README.md` | v1 → v2 migrants are a distinct audience; ch.18 is their on-ramp |
 | `spec/Pattern-AsyncEffect.md` | Runnable convention; cross-cutting across ch.04 / ch.09 / ch.16 |
 | `spec/Pattern-RemoteData.md` | Runnable convention; cross-cutting across ch.02 / ch.08 / ch.10 |
 | `spec/Pattern-Forms.md` | Runnable convention; the 7-event lifecycle is reused |

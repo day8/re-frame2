@@ -6,13 +6,13 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame-migration` skill at `skills/re-frame-migration/`. The skill helps a programmer migrate a re-frame v1.x codebase to re-frame2. The skill is **guidance + workflow on top of `spec/MIGRATION.md`** — it does not duplicate the M-rule and O-rule content from MIGRATION.md, it routes / sequences / operationalises them.*
+> *I'm re-authoring the `re-frame-migration` skill at `skills/re-frame-migration/`. The skill helps a programmer migrate a re-frame v1.x codebase to re-frame2. The skill is **guidance + workflow on top of `migration/from-re-frame-v1/README.md`** — it does not duplicate the M-rule and O-rule content from MIGRATION.md, it routes / sequences / operationalises them.*
 >
 > *Read these first (in this order):*
 >
-> *1. `skills/re-frame-migration/spec/design.md` — the locked design decisions (L1 through L10). Q14 lock applies (NO verification module). Source of truth is `spec/MIGRATION.md`.*
+> *1. `skills/re-frame-migration/spec/design.md` — the locked design decisions (L1 through L10). Q14 lock applies (NO verification module). Source of truth is `migration/from-re-frame-v1/README.md`.*
 > *2. `skills/re-frame-migration/spec/inputs.md` — the canonical inputs the skill leans on.*
-> *3. `spec/MIGRATION.md` — the breaking-change spec the skill routes around. Part 1 has the rule corpus; Part 2 is the AI-agent execution procedure.*
+> *3. `migration/from-re-frame-v1/README.md` — the breaking-change spec the skill routes around. Part 1 has the rule corpus; Part 2 is the AI-agent execution procedure.*
 > *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/reference/**` — the voice / density / load-bearing-rules style to mirror.*
 > *5. `skills/re-frame2-setup/SKILL.md` + `skills/re-frame2-setup/{LICENSE,package.json,.claude-plugin/plugin.json}` — the closest structural analogue (per-build-tool detail, distribution metadata triad).*
 >
@@ -43,19 +43,19 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *Cardinal rules to bake in (these go in SKILL.md):*
 >
-> *1. `spec/MIGRATION.md` is the source of truth. The skill cites rule ids; it doesn't quote rule text.*
+> *1. `migration/from-re-frame-v1/README.md` is the source of truth. The skill cites rule ids; it doesn't quote rule text.*
 > *2. Type A is automatic, Type B is asked-first. Never silently apply a Type B rewrite.*
 > *3. Smallest correct diff. No stylistic refactoring; no opt-in modernisations unless explicitly requested.*
 > *4. Apply rules in order (M-0 first, then walk).*
 > *5. JVM interop is in scope; don't silently CLJS-only the project.*
 > *6. Single-import contract for user code: `(:require [re-frame.core :as rf])`.*
-> *7. If a rule is ambiguous, file a GitHub issue against `day8/re-frame2` — don't edit `spec/MIGRATION.md` inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
+> *7. If a rule is ambiguous, file a GitHub issue against `day8/re-frame2` — don't edit `migration/from-re-frame-v1/README.md` inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
 > *8. Don't invent migration rules.*
 >
 > *Locks to preserve verbatim:*
 >
 > *- **L3 — NO verification module.** No `reference/verify.md`; no "verify before claiming done" hard rule. The agent applies rules; the author runs tests.*
-> *- **L5 — `spec/MIGRATION.md` Part 2 IS the migration prompt.** The kickoff prompt in `reference/kickoff-prompt.md` wraps it; it doesn't replace it.*
+> *- **L5 — `migration/from-re-frame-v1/README.md` Part 2 IS the migration prompt.** The kickoff prompt in `reference/kickoff-prompt.md` wraps it; it doesn't replace it.*
 > *- **L7 — Reagent v2 is the default substrate target.** Substrate migration (O-13 / O-14) is never part of a v1→v2 migration.*
 > *- **L9 — Smallest correct diff.** Opt-in modernisations (O-rules) are never auto-applied as part of a routine migration.*
 > *- **L10 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
@@ -70,16 +70,16 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *- Don't commit `ai/` or `findings/` content.*
 > *- Don't claim AI authorship anywhere — commits and PR title/body read as Mike Thompson's work.*
 > *- Don't write any verification leaf or verify-before-done hard rule.*
-> *- Don't duplicate `spec/MIGRATION.md` content — reference it by rule id and link.*
+> *- Don't duplicate `migration/from-re-frame-v1/README.md` content — reference it by rule id and link.*
 >
-> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`spec/MIGRATION.md`, `docs/guide/08-from-re-frame-v1.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
+> *Open the PR with title `feat(skills): re-frame-migration — guided v1→v2 migration skill`. PR body lists: the skill structure, the file LoC table, the locks applied, the existing repo material folded in (`migration/from-re-frame-v1/README.md`, `docs/guide/08-from-re-frame-v1.md`, `docs/the-mayor-method.md`'s prompt pattern). Surface open questions OQ1/OQ2/OQ3 from `spec/design.md` in the PR body for Mike to action.*
 
 ## Notes on the reauthoring contract
 
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
 - The prompt assumes the session has read access to the repo. It does not assume any out-of-repo context.
 - The prompt does **not** ask the session to verify the resulting skill — the verification is Mike's responsibility (read the files, comment on the PR).
-- If `spec/MIGRATION.md` has changed significantly between authoring passes, the rule indices in `breaking-changes.md` may need an updated sweep. The reauthoring session walks MIGRATION.md afresh and rebuilds the index.
+- If `migration/from-re-frame-v1/README.md` has changed significantly between authoring passes, the rule indices in `breaking-changes.md` may need an updated sweep. The reauthoring session walks MIGRATION.md afresh and rebuilds the index.
 
 ## When to re-author
 

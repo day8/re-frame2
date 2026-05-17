@@ -109,7 +109,7 @@
     ;; states; the after-*.edn fixtures (after-single-delay, after-hierarchy,
     ;; after-stale-detection, parallel-after-scoped-to-region) exercise the
     ;; canonical primitive. See [spec/005-StateMachines.md §Capability matrix]
-    ;; and [spec/MIGRATION.md §M-44].
+    ;; and [migration/from-re-frame-v1/README.md §M-44].
     ;; Flow capabilities — per Spec 013. The flow-*.edn fixtures
     ;; (recompute-on-input-change, multi-input-topo, noop-on-value-equal-
     ;; input, toggle-via-fx, hot-reload-preserves-output) declare these.
