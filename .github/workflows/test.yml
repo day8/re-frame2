@@ -1348,7 +1348,7 @@ jobs:
             ${{ runner.os }}-clj-
 
       # tools/mcp-base ships as a `.cljc` library (rf2-vw4sq) shared
-      # across the MCP triplet (pair2-mcp, story-mcp, causa-mcp). The
+      # across the MCP servers (pair2-mcp, story-mcp). The
       # algorithmic content (sensitive-filter, diff-encode, args
       # parsers, overflow shape, vocab constants) is platform-agnostic
       # — a JVM round-trip is the cheapest PR-time gate. Pair2-mcp's
@@ -1745,34 +1745,6 @@ jobs:
       - name: Run story-mcp end-to-end MCP-client conformance
         run: npm run test:story
 
-  mcp-conformance-causa:
-    name: Diagnostic skip-ok MCP conformance tools/causa-mcp placeholder
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/mcp-conformance
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-
-      # The causa-mcp server implementation hasn't landed yet
-      # (tools/causa-mcp is spec-only). The script exits 0 with a SKIP
-      # marker so this gate stays green and the placeholder doesn't go
-      # stale. When the impl lands, replace test/end-to-end-causa.js's
-      # body wholesale (the file's header comment documents the
-      # expected shape).
-      - name: Install mcp-conformance deps
-        run: npm install
-
-      - name: Run causa-mcp end-to-end MCP-client conformance (SKIPPED)
-        run: npm run test:causa
-
   # ---------------------------------------------------------------------------
   # MCP conformance — JVM wire-vocab gates (rf2-rto1l).
   #
@@ -1782,7 +1754,7 @@ jobs:
   # `slot_name_test.clj` (tool-arg slot-name parity, rf2-zvv65) — pin
   # the cross-server vocabulary contracts that the artefact exists to
   # enforce. Pre-rf2-rto1l these tests had ZERO CI coverage: the
-  # sibling `mcp-conformance-{pair2,story,causa}` jobs run only the
+  # sibling `mcp-conformance-{pair2,story}` jobs run only the
   # Node-side `npm run test:...` scripts; no job ran `clojure -M:test`
   # from `wire-vocab/`. The contract gates fired only when Mike happened
   # to invoke them locally — every PR shipped without them.

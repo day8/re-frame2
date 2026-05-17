@@ -1,4 +1,4 @@
-# panels — the 16-panel tour
+# panels — the 14-panel tour
 
 Sources of truth: per-panel specs under
 [`tools/causa/spec/`](../../../tools/causa/spec/) (one `00N-*.md` per
@@ -8,7 +8,7 @@ for chrome and sidebar grammar. Sidebar order is set in `shell.cljs`
 
 ## Sidebar groups + badges
 
-Four groups, in `sidebar-items` order:
+Three groups, in `sidebar-items` order:
 
 - **Always-active** — Event detail, Time travel, App-db, Causality,
   Subscriptions, Effects, Trace.
@@ -16,7 +16,6 @@ Four groups, in `sidebar-items` order:
   Performance, Issues, Schemas.
 - **Dormant until first signal** — Hydration (wakes on the first
   `:rf.ssr/hydration-mismatch`).
-- **Auxiliary** — MCP.
 
 Activity badges (right-aligned, fade in once, never fade out): `●` =
 recent activity · `●N` = unread count · `●●●` = multiplicity · `◌` =
@@ -214,16 +213,5 @@ error). Otherwise the panel has nothing to show.
 
 Spec: [`006-Hydration-Debugger.md`](../../../tools/causa/spec/006-Hydration-Debugger.md).
 
-### MCP
-
-Live feed of MCP-server activity: tool calls in flight, recent
-results, per-origin colouring (`:causa-mcp`, `:pair2-mcp`,
-`:story-mcp`, etc.).
-
-**Open when:** "what is my agent doing right now?", "did the MCP call
-land?", "which tool ran most recently?"
-
-Spec: [`010-MCP-Server.md`](../../../tools/causa/spec/010-MCP-Server.md).
-
 For the user-question → panel routing table, see
-[`SKILL.md` §The 15 panels](../SKILL.md).
+[`SKILL.md` §The 14 panels](../SKILL.md).

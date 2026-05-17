@@ -124,9 +124,6 @@ A new shared primitive ships with:
 
 - [`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
   — pair2-mcp's principles, downstream consumer of these primitives.
-- [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-  (defers to [`004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md))
-  — causa-mcp's wire pipeline, the third consumer.
 - [`tools/mcp-conformance/wire-vocab/`](../../mcp-conformance/wire-vocab/)
   — the JVM-side cross-MCP conformance corpus that pins the marker
   SHAPE across every consumer.

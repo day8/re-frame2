@@ -89,7 +89,7 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
   - **[Security](https://day8.github.io/re-frame2/guide/23a-privacy-secrets/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here. There is also a spec-level [Security Contract](spec/Security.md).
   - **Large Things** — PDF blobs and other large things shouldn't accidentally get logged to Datadog. There are mechanisms for that too.
-  - **MCP triplet** — three Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/), [story-mcp](tools/story-mcp/), [causa-mcp](tools/causa-mcp/)) that expose the running app, the story playground, and the devtools surface to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
+  - **MCP servers** — two Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
 
 ## The Reference Implementation
 
@@ -241,11 +241,10 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                nREPL companion
   causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
-  causa-mcp/                   day8/re-frame2-causa-mcp — MCP agent surface for Causa (spec-only)
   machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer (spec-only)
   machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP agent surface for machines-viz
                                (spec-only)
-  mcp-base/                    Shared CLJC library for the MCP triplet (arg parsing, redaction,
+  mcp-base/                    Shared CLJC library for the MCP servers (arg parsing, redaction,
                                cap, overflow); bundle-isolated boundary helpers
   mcp-conformance/             Cross-server MCP conformance harness — gates wire-vocabulary parity
                                in CI

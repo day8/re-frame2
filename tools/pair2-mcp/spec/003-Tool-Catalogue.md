@@ -60,10 +60,8 @@ wrap (e.g. for ad-hoc reads when the agent host hasn't been
 taught to call `expand`).
 
 The marker key `:rf.mcp/dedup-table` matches the cross-MCP
-vocabulary declared in
-[causa-mcp `004-Wire-Pipeline.md` §5](../../causa-mcp/spec/004-Wire-Pipeline.md) —
-an agent that learned the slot on causa-mcp sees the same slot
-here.
+vocabulary — an agent that learned the slot on a sibling server
+sees the same slot here.
 
 ## Universal: size-elision on `:app-db` slots
 
@@ -1020,9 +1018,8 @@ bodies; only registration metadata crosses the wire.
 `:reason :subscription-info-failed` (with `:message`) on any other
 failure.
 
-The causa-mcp peer is `list-subscriptions` (see causa-mcp
-[`DESIGN-RATIONALE.md` §Lock #12](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-12--subscription-info-parity-list-subscriptions-is-the-eighteenth-tool))
-— same diagnostic shape, NAMING.md-conformant verb in causa-mcp's
+A future causa-mcp peer will ship `list-subscriptions` — same
+diagnostic shape, NAMING.md-conformant verb in causa-mcp's
 catalogue.
 
 ## get-pair2-instructions

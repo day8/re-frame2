@@ -88,6 +88,6 @@ Causa renders the synthetic epoch differently in the scrubber — a small star m
 Two cases where you'd reach for something else:
 
 1. **You want to debug the cascade *as it happens*, not after.** Time-travel rewinds; it doesn't pause. For pause-on-event behaviour, hot-swap the relevant handler with a `js/debugger` line via `re-frame-pair2` and replay the event.
-2. **You want to reproduce a bug a customer saw in production.** Time-travel works on the *current* runtime's epoch history. Customer sessions are off-box; you'd need their epoch record exported, then imported into a local frame via `reset-frame-db!`. That round-trip is the [Story](../story/index.md) playground's job — it can mount any `app-db` snapshot as a variant. (Causa's MCP server will eventually expose the import gesture directly; see [chapter 11](11-mcp-server.md).)
+2. **You want to reproduce a bug a customer saw in production.** Time-travel works on the *current* runtime's epoch history. Customer sessions are off-box; you'd need their epoch record exported, then imported into a local frame via `reset-frame-db!`. That round-trip is the [Story](../story/index.md) playground's job — it can mount any `app-db` snapshot as a variant.
 
 Next: [the trace stream](04-trace-stream.md) — the raw bus underneath everything you've seen so far.

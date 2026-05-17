@@ -16,8 +16,8 @@
 // Source: rf2-sems4. The split was originally three near-identical
 // ~40-LoC blocks of pure framing code; centralising the framing here
 // shrinks each test body to the workflow steps that actually differ.
-// Adding a fourth Node-side conformance test (causa-mcp impl, a third
-// pair2 variant) becomes ~30 LoC instead of ~110.
+// Adding another Node-side conformance test (a third pair2 variant)
+// becomes ~30 LoC instead of ~110.
 //
 // ## Contract
 //

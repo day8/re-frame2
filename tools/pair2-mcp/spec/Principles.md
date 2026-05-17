@@ -159,13 +159,12 @@ single oversized response burns the budget the agent needs
 for the next ten ops.
 
 The discipline rests on **eight normative mechanisms**.
-Mechanisms 1-6 align deliberately with
-[`tools/causa-mcp/spec/004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md)
-§Tight token budget per response so that an agent learning
-the slot on one server gets the same slot on the others;
-mechanisms 7-8 are pair2-mcp-specific (epoch-record diff
-encoding and streaming-subscribe budgets — both will likely
-absorb into causa-mcp's catalogue when its impl lands).
+Mechanisms 1-6 align deliberately with the cross-MCP wire
+pipeline so that an agent learning the slot on one server
+gets the same slot on the others; mechanisms 7-8 are
+pair2-mcp-specific (epoch-record diff encoding and
+streaming-subscribe budgets — both will likely absorb into a
+future causa-mcp's catalogue when its impl lands).
 Every catalogue entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) declares
 which mechanisms apply, with a **typical-token** hint
@@ -223,11 +222,10 @@ cross-reference.
 
 ### The wire-boundary cap (enforced, rf2-rvyzy)
 
-Mechanism 1 — the token-budget-cap peer of causa-mcp's
-[Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md).
-Cap, override slot, and overflow-marker reserved key are
-identical cross-server; the marker's internal slot shape
-differs (see callout below).
+Mechanism 1 — the token-budget-cap peer of the cross-MCP
+wire pipeline. Cap, override slot, and overflow-marker
+reserved key are identical cross-server; the marker's
+internal slot shape differs (see callout below).
 
 The cap is enforced in `tools.cljs` at the `invoke` boundary,
 applied as the final step after every per-tool function
@@ -260,8 +258,6 @@ internals.
   slot to the same in-process key, so a forwarder that learned
   one pairing on one server gets the same pairing on the
   others. Per
-  [causa-mcp Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md)
-  and
   [TOKEN-BUDGETS.md](../../mcp-conformance/TOKEN-BUDGETS.md).
 - **Overflow shape**: a tool that would exceed the cap MUST NOT
   silently truncate. Instead it MUST return a structured
@@ -283,10 +279,10 @@ internals.
   story-mcp, causa-mcp use the same key) so an agent that
   recognises it once recognises it everywhere.
 
-  *Differs from causa-mcp.* causa-mcp's
-  [Wire-Pipeline §1 Token budget cap](../../causa-mcp/spec/004-Wire-Pipeline.md)
-  documents the marker with slot names `:cap` / `:would-be` /
-  `:hint` / `:continuation`; pair2-mcp's implemented shape uses
+  *Differs from causa-mcp.* A future causa-mcp wire-pipeline
+  spec will document the overflow marker with slot names
+  `:cap` / `:would-be` / `:hint` / `:continuation`; pair2-mcp's
+  implemented shape uses
   `:limit :reached` plus `:token-count` / `:cap-tokens` /
   `:tool` / `:hint` (per rf2-rvyzy). The divergence is
   intentional — pair2-mcp's wrapper measures the *post-shrunk*
@@ -314,9 +310,8 @@ internals.
 
 ### Path slicing (rf2-tygdv, generalised in rf2-u2029)
 
-Mechanism 2 — the path-slicing peer of causa-mcp's
-[Wire-Pipeline §2 Path slicing](../../causa-mcp/spec/004-Wire-Pipeline.md).
-Argument name (`:path`), EDN encoding, default-summary
+Mechanism 2 — the path-slicing peer of the cross-MCP wire
+pipeline. Argument name (`:path`), EDN encoding, default-summary
 behaviour, and `:path-not-found` error are identical
 cross-server.
 
@@ -332,11 +327,9 @@ returns the addressed subtree subject to the remaining
 mechanisms (still budgeted, still summarised at the leaf if
 rich). Out-of-range paths return `:ok? false :reason :path-not-found`
 with the deepest valid prefix attached so the agent can
-re-aim. This is the same slicing convention causa-mcp adopts
-in
-[Wire-Pipeline §2 Path slicing](../../causa-mcp/spec/004-Wire-Pipeline.md);
-an agent that learned the slot on causa-mcp sees the same
-slot here.
+re-aim. This is the same slicing convention sibling MCP
+servers adopt; an agent that learned the slot on one server
+sees the same slot here.
 
 Concretely on pair2-mcp's catalogue: `snapshot` accepts a
 top-level `:path` arg (drilling into the chosen slice) and a
@@ -354,11 +347,9 @@ agent side.
 ### Per-tool budget discipline
 
 Covers mechanisms 3 (cursor pagination) and 4 (lazy summary)
-together — the per-tool-shape-discipline peers of causa-mcp's
-[Wire-Pipeline §3 Cursor pagination](../../causa-mcp/spec/004-Wire-Pipeline.md)
-and [§4 Lazy summary](../../causa-mcp/spec/004-Wire-Pipeline.md).
-`:cursor` / `:limit` slot names, `:mode :summary` default,
-and the `{:rf.mcp/summary {:type ... :keys ... :counts ...
+together — the per-tool-shape-discipline peers of the cross-MCP
+wire pipeline. `:cursor` / `:limit` slot names, `:mode :summary`
+default, and the `{:rf.mcp/summary {:type ... :keys ... :counts ...
 :bytes ...}}` shape are identical cross-server.
 
 In addition to the wire-cap (a backstop), tools are designed to
@@ -417,11 +408,10 @@ plan ahead.
 4. **The default mode / limit / dedup / elision values** for
    every applicable knob. No tool ships without these slots.
 
-The contract aligns with causa-mcp
-[Wire-Pipeline §catalogue-entry contract](../../causa-mcp/spec/004-Wire-Pipeline.md);
-the two catalogues use the same hint-slot vocabulary so an
-agent's per-tool budget projections work uniformly across both
-servers.
+The contract aligns with the cross-MCP wire-pipeline
+catalogue-entry contract; sibling catalogues use the same
+hint-slot vocabulary so an agent's per-tool budget projections
+work uniformly across servers.
 
 This is the load-bearing budget posture for pair2-mcp's
 agent-host workflow: keep the per-op cost predictable, push
@@ -525,13 +515,12 @@ prefix.
 
 ### Structural dedup (rf2-obpa9)
 
-Mechanism 5 — the structural-dedup peer of causa-mcp's
-[Wire-Pipeline §5 Structural dedup](../../causa-mcp/spec/004-Wire-Pipeline.md).
-The wire shape (`:rf.mcp/dedup-table` substitution table) is
-identical; the algorithm
+Mechanism 5 — the structural-dedup peer of the cross-MCP
+wire pipeline. The wire shape (`:rf.mcp/dedup-table`
+substitution table) is identical; the algorithm
 ([`day8/de-dupe`](https://github.com/day8/de-dupe)) is shared.
-An agent that learned the slot on causa-mcp sees the same slot
-here.
+An agent that learned the slot on a sibling server sees the
+same slot here.
 
 Persistent data structures share subtrees in memory; `pr-str`
 flattens the sharing and writes every shared node out in full.
@@ -566,11 +555,9 @@ cache entries inline), and the remaining entries are the
 extracted shared subtrees. The agent host reconstructs by
 calling `(de-dupe.core/expand cache-map)` — one library call,
 exact round-trip. The marker key
-(`:rf.mcp/dedup-table`) matches the cross-MCP vocabulary
-declared in
-[causa-mcp `004-Wire-Pipeline.md` §5 Structural dedup](../../causa-mcp/spec/004-Wire-Pipeline.md);
-an agent that learned the slot on causa-mcp sees the same slot
-here.
+(`:rf.mcp/dedup-table`) matches the cross-MCP vocabulary —
+an agent that learned the slot on a sibling server sees the
+same slot here.
 
 **Why `de-dupe-eq` (equality), not `de-dupe` (identity)**. Data
 arrives at the MCP server via bencode over nREPL; CLJS values
@@ -624,15 +611,14 @@ blob.
 
 ### Size-elision wire markers (rf2-urjnc)
 
-Mechanism 6 — the size-elision peer of causa-mcp's
-[Wire-Pipeline §6 Size elision (`:rf.size/large-elided` marker)](../../causa-mcp/spec/004-Wire-Pipeline.md).
-The marker shape (`{:rf.size/large-elided {:path ... :bytes ...
-:type ... :reason ... :hint ... :handle [:rf.elision/at ...]}}`)
-is reserved cross-server per
+Mechanism 6 — the size-elision peer of the cross-MCP wire
+pipeline. The marker shape (`{:rf.size/large-elided {:path ...
+:bytes ... :type ... :reason ... :hint ... :handle
+[:rf.elision/at ...]}}`) is reserved cross-server per
 [`spec/Conventions.md §Reserved namespaces`](../../../spec/Conventions.md#reserved-namespaces-framework-owned)
 and emitted by the same framework walker
-(`rf/elide-wire-value`) in both servers. An agent that learned
-the slot on causa-mcp sees the same slot here.
+(`rf/elide-wire-value`) in every server. An agent that learned
+the slot on a sibling server sees the same slot here.
 
 After diff-encoding
 (rf2-1wdzp) collapses each `:db-after` and dedup (rf2-obpa9)
@@ -723,9 +709,9 @@ privacy / dedup defaults: shrink first, opt out explicitly.
 `[:rf.elision/at <path>]` are reserved per
 [`Conventions §Reserved namespaces / app-db keys / fx-ids`](../../../spec/Conventions.md)
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md).
-The shape is shared across pair2-mcp, story-mcp, and causa-mcp
-— an agent that learned the slot on causa-mcp sees the same
-slot here. The `:rf.size/*` family sits alongside the
+The shape is shared across pair2-mcp, story-mcp, and a future
+causa-mcp — an agent that learned the slot on a sibling server
+sees the same slot here. The `:rf.size/*` family sits alongside the
 `:rf.mcp/*` family (per-tool wire-mechanism markers like
 `:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/diff-from`,
 `:rf.mcp/dedup-table`).
@@ -744,9 +730,8 @@ Mechanism 8 — pair2-mcp-specific, applied at the *upstream*
 edge — the runtime-side queue feeding the `subscribe` tool —
 rather than at the wire boundary itself.
 
-*Differs from causa-mcp.* causa-mcp's
-[Wire-Pipeline §Streaming over batch](../../causa-mcp/spec/004-Wire-Pipeline.md)
-documents `subscribe` as a per-notification cap with the
+*Differs from causa-mcp.* A future causa-mcp wire-pipeline spec
+will document `subscribe` as a per-notification cap with the
 upstream-queue model deferred to impl. pair2-mcp ships a
 runtime-side OR-combined event-count + byte budget today; when
 causa-mcp's streaming impl lands it will absorb the same

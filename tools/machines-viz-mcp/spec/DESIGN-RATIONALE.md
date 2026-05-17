@@ -10,8 +10,7 @@ schema relaxes).
 Inheritance from upstream
 [Machines-Viz DESIGN-RATIONALE](../../machines-viz/spec/DESIGN-RATIONALE.md)
 and sibling
-[Causa-MCP DESIGN-RATIONALE](../../causa-mcp/spec/DESIGN-RATIONALE.md)
-+ [Pair2-MCP DESIGN-RATIONALE](../../pair2-mcp/spec/) is cited
+[Pair2-MCP DESIGN-RATIONALE](../../pair2-mcp/spec/) is cited
 rather than duplicated. The principles below are what
 Machines-Viz-MCP adds on top.
 
@@ -224,6 +223,5 @@ load-bearing question, and a single tag answers it.
 
 ## See also
 
-- [Causa-MCP DESIGN-RATIONALE](../../causa-mcp/spec/DESIGN-RATIONALE.md) — twelve sibling locks; the architecture template several of the locks above inherit from.
-- [Pair2-MCP DESIGN-RATIONALE](../../pair2-mcp/spec/) — the original MCP-server lock set.
+- [Pair2-MCP DESIGN-RATIONALE](../../pair2-mcp/spec/) — the original MCP-server lock set; the architecture template several of the locks above inherit from.
 - [Machines-Viz DESIGN-RATIONALE](../../machines-viz/spec/DESIGN-RATIONALE.md) — the upstream component's locks (share-URL tightening is the most consequential here).

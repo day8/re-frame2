@@ -24,9 +24,10 @@
     loudly via `slurp`'s IOException if the path doesn't resolve;
     that's the right signal — a moved/removed file under conformance
     needs the test to surface it.
-  - **`known-servers`** — the canonical `#{:pair2-mcp :story-mcp
-    :causa-mcp}` triplet. A typo in any test's `:servers` set surfaces
-    against this.
+  - **`known-servers`** — the canonical `#{:pair2-mcp :story-mcp}`
+    pair. A typo in any test's `:servers` set surfaces against this.
+    (causa-mcp was dropped in rf2-bu21t — causa now ships as a
+    Clojars-only library, not an MCP server.)
 
   ## What this ns does NOT own
 
@@ -92,16 +93,18 @@
       (slurp (io/file repo-root rel-path)))))
 
 ;; ---------------------------------------------------------------------------
-;; Cross-server registry. The three MCP servers under the triplet's
-;; conformance regime. A typo in any test's `:servers` set surfaces
-;; here against this canonical set.
+;; Cross-server registry. The MCP servers under conformance. A typo in
+;; any test's `:servers` set surfaces here against this canonical set.
 ;; ---------------------------------------------------------------------------
 
 (def known-servers
-  "The canonical set of MCP servers under conformance. Adding a fourth
+  "The canonical set of MCP servers under conformance. Adding a new
   server means extending this set AND adding per-server source/spec
-  coverage to every relevant test catalogue."
-  #{:pair2-mcp :story-mcp :causa-mcp})
+  coverage to every relevant test catalogue.
+
+  causa-mcp was dropped in rf2-bu21t — `tools/causa-mcp/` is no longer
+  in the repo; causa now ships as a Clojars-only library."
+  #{:pair2-mcp :story-mcp})
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text helper. Conformance tests grep .cljs/.cljc/.md files for

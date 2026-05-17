@@ -56,20 +56,6 @@ test('targeted Story/Causa workflow runs the Story feature-load gate', () => {
   assert.match(workflow, /story-causa-browser:[\s\S]*npm run test:story-feature-load/);
 });
 
-// rf2-8xzoe.35 — causa-mcp source-tree changes must fire the
-// cljs-bundle-isolation job so the sentinel-based contract from
-// check-bundle-isolation.cjs catches a stray :require leaking the
-// Node-only MCP-server code into a browser bundle.
-test('causa-mcp source changes trigger bundle_isolation CI', () => {
-  const result = classify('tools/causa-mcp/src/day8/re_frame2_causa_mcp/server.cljs');
-  assert.equal(result.bundle_isolation, 'true');
-});
-
-test('causa-mcp test changes trigger bundle_isolation CI', () => {
-  const result = classify('tools/causa-mcp/test/day8/re_frame2_causa_mcp/server_test.cljs');
-  assert.equal(result.bundle_isolation, 'true');
-});
-
 let failed = 0;
 for (const { name, fn } of tests) {
   try {

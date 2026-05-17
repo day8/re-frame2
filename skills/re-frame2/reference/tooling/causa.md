@@ -53,7 +53,7 @@ Most apps use **inline (default)**. Reach for the others only when the trigger f
 | Want a second monitor for Causa | **Inline + pop-out** | Inline mount as above, then `(causa/popout!)` from CLJS or `window.day8.re_frame2_causa.popout_BANG_()` from a devtools console. Same JS realm via `window.opener`. |
 | Tool-only page that can't reserve right-column real estate (Story-only canvas, internal config UI) | **Suppress auto-open** | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!`. Causa stays installed; explicit `open!` still works and still warns on missing host. |
 | Want to embed a single Causa panel inside the app's own layout (e.g. an embedded epoch scrubber in a debug screen) | **Declarative embedding via Spec 008** | See `tools/causa/spec/008-Embedding-Contract.md` for the `Panel` component shape. Not for "I want the whole panel"; only for "I want one slice of Causa as an app component." |
-| Want an AI agent to read / time-travel Causa surfaces programmatically | **Causa-MCP** | Configure the `tools/causa-mcp/` server in the agent host (`re-frame2-causa-mcp`). The 18-tool catalogue at `tools/causa-mcp/spec/004-Tools-Catalogue.md` is the contract. UI may or may not be open in the browser. |
+| Want an AI agent to read / time-travel the running re-frame2 app programmatically | **pair2-mcp** | Configure the `tools/pair2-mcp/` server in the agent host (`re-frame-pair2-mcp`). Raw nREPL pair-programming companion. UI may or may not be open in the browser. |
 
 Cross-machine debugging and mobile launch are out of scope at v1.0 (see Spec 011 §Default summary, locks #5 and #9).
 
@@ -123,5 +123,4 @@ Causa's shell wraps in `[rf/frame-provider {:frame :rf/causa} ...]`. Every `subs
 - `tools/causa/spec/011-Launch-Modes.md` — normative launch-mode contract, full popout handling.
 - `tools/causa/spec/007-UX-IA.md` — five-region layout, keyboard map, density model.
 - `tools/causa/spec/008-Embedding-Contract.md` — the declarative `Panel` shape for embedding one panel inside the app.
-- `tools/causa-mcp/spec/004-Tools-Catalogue.md` — the 18-tool MCP catalogue.
 - `skills/re-frame-migration/reference/causa-replaces-10x.md` — the 10x → Causa migration view, including the keybinding-parity caveat.
