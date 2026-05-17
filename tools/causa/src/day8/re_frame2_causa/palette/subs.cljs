@@ -46,7 +46,7 @@
    {:id :time-travel  :label "Time travel"}
    {:id :app-db       :label "App-db"}
    {:id :causality    :label "Causality"}
-   {:id :subs         :label "Subscriptions"}
+   {:id :views        :label "Views"}
    {:id :fx           :label "Effects"}
    {:id :trace        :label "Trace"}
    {:id :machines     :label "Machines"}

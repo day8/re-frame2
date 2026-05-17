@@ -88,7 +88,7 @@ module.exports = {
     // present in the DOM — the sidebar is rendered eagerly even though
     // only the selected panel's canvas hydrates.
     const expectedSidebarIds = [
-      'event-detail', 'time-travel', 'app-db', 'causality', 'subs',
+      'event-detail', 'time-travel', 'app-db', 'causality', 'views',
       'fx', 'trace', 'machines', 'flows', 'routes', 'performance',
       'issues', 'schemas', 'hydration', 'mcp-server',
     ];

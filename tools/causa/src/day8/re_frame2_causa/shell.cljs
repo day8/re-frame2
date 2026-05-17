@@ -71,7 +71,7 @@
             [day8.re-frame2-causa.panels.performance :as performance]
             [day8.re-frame2-causa.panels.routes :as routes]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
-            [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.registry :as registry]
@@ -90,7 +90,7 @@
    {:id :time-travel  :label "Time travel"}
    {:id :app-db       :label "App-db"}
    {:id :causality    :label "Causality"}
-   {:id :subs         :label "Subscriptions"}
+   {:id :views        :label "Views"}
    ;; ── effects panel begin ──
    {:id :fx           :label "Effects"}
    ;; ── effects panel end ──
@@ -349,7 +349,7 @@
        :flows        [flows/Panel]
        :routes       [routes/Panel]
        :schemas      [schema-violation-timeline/Panel]
-       :subs         [subscriptions/Panel]
+       :views        [views/Panel]
        :machines     [machine-inspector/Panel]
        :hydration    [hydration-debugger/Panel]
        :issues       [issues-ribbon/Panel]
@@ -382,7 +382,7 @@
     :flows        [flows/Panel]
     :routes       [routes/Panel]
     :schemas      [schema-violation-timeline/Panel]
-    :subs         [subscriptions/Panel]
+    :views        [views/Panel]
     :machines     [machine-inspector/Panel]
     :hydration    [hydration-debugger/Panel]
     :issues       [issues-ribbon/Panel]
