@@ -74,6 +74,8 @@
   unit-test target. The view here is a thin renderer that reads the
   `:rf.causa/machine-inspector-data` composite sub."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.chart.layout :as chart-layout]
+            [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -128,35 +130,60 @@
 ;; ---- placeholder chart --------------------------------------------------
 
 (defn- placeholder-banner
-  "Banner above the prop-summary view of the selected machine.
+  "Header above the chart canvas. Per spec/003-Machine-Inspector.md
+  §Definition view this banner names the current selection and (when
+  no live instances exist) nudges Sim mode (deferred to a follow-on
+  bead — the toggle stub renders disabled with a tooltip).
 
-  At v1 the panel renders a text view of the machine's current state
-  and props; the visual state-chart rendering surface lives in
-  `tools/machines-viz/` and is not yet wired in. The view function
-  keeps the `placeholder-banner` name so tests pin it via testid; the
-  user-visible text simply labels what is shown."
-  []
+  The fn keeps its historical name (`placeholder-banner`) so existing
+  tests pin it via testid; the user-visible text reflects what is
+  now actually shown — the rendered chart with live highlighting."
+  [{:keys [machine-id state instance-count]}]
   [:div {:data-testid "rf-causa-machine-inspector-placeholder-banner"
          :style       {:padding "10px 12px"
                        :margin "10px 12px 0 12px"
-                       :border (str "1px dashed " (:accent-violet tokens))
+                       :display "flex"
+                       :align-items "center"
+                       :justify-content "space-between"
+                       :gap "12px"
+                       :border (str "1px solid " (:border-subtle tokens))
                        :border-radius "4px"
-                       :background "rgba(124, 92, 255, 0.08)"
+                       :background (:bg-1 tokens)
                        :color (:text-secondary tokens)
                        :font-family sans-stack
                        :font-size "11px"
                        :line-height 1.5}}
-   [:strong {:style {:color (:accent-violet tokens)
-                     :font-weight 600
-                     :font-size "11px"
-                     :text-transform "uppercase"
-                     :letter-spacing "0.5px"}}
-    "Current state"]
-   [:p {:style {:margin "4px 0 0 0"}}
-    "Text view of the selected machine — its id, frame, and live state snapshot."]])
+   [:div
+    [:strong {:style {:color (:accent-violet tokens)
+                      :font-weight 600
+                      :font-size "11px"
+                      :text-transform "uppercase"
+                      :letter-spacing "0.5px"}}
+     "Definition view"]
+    [:p {:style {:margin "4px 0 0 0"
+                 :color (:text-tertiary tokens)}}
+     (if (zero? (or instance-count 0))
+       (str (h/format-machine-id machine-id)
+            " — 0 live instances (toggle Sim ○ to walk topology — coming soon)")
+       (str (h/format-machine-id machine-id)
+            " — current state: "
+            (h/format-state state)))]]
+   ;; Sim toggle stub (rf2-2tkza Phase 2 will wire this)
+   [:span {:data-testid "rf-causa-machine-inspector-sim-toggle"
+           :title       "Sim mode coming soon — Phase 2 (rf2-2tkza)"
+           :style       {:color (:text-tertiary tokens)
+                         :font-family mono-stack
+                         :font-size "11px"
+                         :padding "2px 8px"
+                         :border (str "1px solid " (:border-subtle tokens))
+                         :border-radius "10px"
+                         :cursor "not-allowed"
+                         :opacity 0.6}}
+    "Sim ○"]])
 
 (defn- prop-row
-  "One labelled row inside the placeholder's prop summary."
+  "One labelled row inside the prop summary (used for the metadata
+  rail when no definition is introspectable)."
   [label value]
   [:div {:data-testid (str "rf-causa-machine-inspector-prop-" label)
          :style       {:display "flex"
@@ -176,47 +203,75 @@
                    :word-break "break-all"}}
     value]])
 
-(defn- placeholder-chart
-  "Renders the prop map a real MachineChart would consume. This is
-  the v1 surface — when machines-viz ships the placeholder becomes
-  `[viz/MachineChart props]`."
+(defn- chart-fallback
+  "Rendered when the panel has a selection but no machine-definition
+  to layout (e.g. an event-handler that lacks the introspection
+  metadata)."
   [props]
-  (if (nil? props)
+  [:div {:data-testid "rf-causa-machine-inspector-placeholder"
+         :style       {:padding "12px"
+                       :background (:bg-1 tokens)
+                       :border (str "1px solid " (:border-subtle tokens))
+                       :border-radius "4px"
+                       :margin "12px"}}
+   [prop-row "machine-id" (h/format-machine-id (:machine-id props))]
+   [prop-row "frame-id"   (h/format-machine-id (:frame-id props))]
+   (when-let [override (:current-state-override props)]
+     [prop-row "current-state-override"
+      (pr-str (select-keys override [:state :data]))])
+   [:div {:style {:margin-top "10px"
+                  :font-family sans-stack
+                  :font-size "11px"
+                  :color (:text-tertiary tokens)}}
+    "No introspectable definition available — chart cannot render."]])
+
+(defn- placeholder-chart
+  "Renders the live MachineChart (Causa-internal SVG primitive at
+  `day8.re-frame2-causa.chart.{layout,svg}`).
+
+  Phase 1 (rf2-2tkza): the chart reads the registered definition from
+  the composite sub's `:definition` slot, lays it out via the layered
+  primitive in `chart/layout.cljc`, and renders to hiccup SVG via
+  `chart/svg.cljc`. Live state highlighting reflects the snapshot's
+  `:state` slot. The fn keeps the historical name `placeholder-chart`
+  so existing tests pin it via testid; the user-visible surface is now
+  the real chart, not a prop summary."
+  [props]
+  (cond
+    (nil? props)
     [:div {:data-testid "rf-causa-machine-inspector-placeholder-empty"
            :style       {:padding "16px"
                          :color (:text-tertiary tokens)
                          :font-family sans-stack
                          :font-size "12px"}}
      "No machine selected — nothing to chart."]
-    [:div {:data-testid "rf-causa-machine-inspector-placeholder"
-           :style       {:padding "12px"
-                         :background (:bg-1 tokens)
-                         :border (str "1px solid " (:border-subtle tokens))
-                         :border-radius "4px"
-                         :margin "12px"}}
-     [prop-row "machine-id" (h/format-machine-id (:machine-id props))]
-     [prop-row "frame-id"   (h/format-machine-id (:frame-id props))]
-     (when-let [override (:current-state-override props)]
-       [prop-row "current-state-override"
-        (pr-str (select-keys override [:state :data]))])
-     [:div {:style {:margin-top "10px"
-                    :font-family sans-stack
-                    :font-size "10px"
-                    :color (:text-tertiary tokens)
-                    :text-transform "uppercase"
-                    :letter-spacing "0.5px"}}
-      "Defaults in effect:"]
-     [:ul {:style {:margin "4px 0 0 0"
-                   :padding "0 0 0 16px"
-                   :color (:text-secondary tokens)
-                   :font-family mono-stack
-                   :font-size "11px"
-                   :list-style "disc"}}
-      [:li ":read-only? false"]
-      [:li ":show-microsteps? true"]
-      [:li ":show-after-rings? true"]
-      [:li ":show-invoke-all? true"]
-      [:li ":auto-pan? false"]]]))
+
+    (nil? (:definition props))
+    (chart-fallback props)
+
+    :else
+    (let [definition  (:definition props)
+          override    (:current-state-override props)
+          state-value (:state override)
+          highlight-id (chart-layout/highlight-id state-value)]
+      [:div {:data-testid "rf-causa-machine-inspector-chart"
+             :data-machine-id (str (:machine-id props))
+             :data-highlight-id (or highlight-id "")
+             :style       {:margin "12px"
+                           :padding "12px"
+                           :background (:bg-1 tokens)
+                           :border (str "1px solid " (:border-subtle tokens))
+                           :border-radius "4px"
+                           :overflow "auto"}}
+       (chart-svg/render-from-definition
+         definition
+         {:highlight-id   highlight-id
+          :on-state-click (fn [path]
+                            (rf/dispatch
+                              [:rf.causa/machine-state-clicked
+                               {:machine-id (:machine-id props)
+                                :path       path}]
+                              {:frame :rf/causa}))})])))
 
 ;; ---- transition history ribbon ------------------------------------------
 
@@ -301,6 +356,59 @@
                ^{:key (:id row)}
                (transition-entry row))))]))
 
+;; ---- instance tabs (UC2 Mode B foundation) -----------------------------
+
+(defn- instance-tabs
+  "Renders the inline instance-tabs strip across the top of the
+  diagram per spec/003-Machine-Inspector.md §UC2 Mode B. Each tab
+  shows the instance id and its current state; clicking re-focuses.
+
+  Phase 1 scaffold (rf2-2tkza): re-frame2's snapshot surface today is
+  one snapshot per machine-id (`[:rf/machines <id>]`); explicit
+  multi-instance via `:rf.machine/spawn` lands in a follow-on bead.
+  The strip renders the single registered snapshot as the focused
+  instance so the Mode B chrome is in place when the upstream
+  multi-instance surface ships."
+  [{:keys [machine-id state]} instance-count mode]
+  (when (and (= mode :mode-b) (pos? instance-count))
+    [:div {:data-testid "rf-causa-machine-inspector-instance-tabs"
+           :data-mode (name mode)
+           :style {:display "flex"
+                   :align-items "center"
+                   :gap "8px"
+                   :padding "6px 12px"
+                   :background (:bg-3 tokens)
+                   :border-bottom (str "1px solid " (:border-subtle tokens))
+                   :font-family mono-stack
+                   :font-size "11px"
+                   :overflow-x "auto"
+                   :white-space "nowrap"}}
+     (for [idx (range instance-count)]
+       ^{:key idx}
+       [:span {:data-testid (str "rf-causa-machine-inspector-instance-tab-" idx)
+               :style {:padding "3px 10px"
+                       :background (if (zero? idx) (:bg-1 tokens) "transparent")
+                       :border (str "1px solid "
+                                    (if (zero? idx)
+                                      (:cyan tokens)
+                                      (:border-subtle tokens)))
+                       :border-radius "10px"
+                       :color (:text-primary tokens)
+                       :cursor "pointer"}}
+        (str "● " (h/format-machine-id machine-id)
+             "  " (h/format-state state))])]))
+
+(defn view-mode
+  "Per spec/003-Machine-Inspector.md §UC2 Mode A/B/C — pick the mode
+  based on live instance count. Pure fn for unit-testability; not
+  marked private so the view-test suite can pin the classifier
+  directly without relying on `data-view-mode` round-trips."
+  [instance-count]
+  (cond
+    (or (nil? instance-count) (zero? instance-count)) :mode-a
+    (<= instance-count 3) :mode-b
+    :else :mode-c))
+
 ;; ---- empty state --------------------------------------------------------
 
 (defn- empty-state
@@ -332,9 +440,17 @@
   state (no machines registered) or the picker + chart placeholder +
   transition-history ribbon."
   []
-  (let [{:keys [machines total selected-id chart-props transitions empty-kind]}
-        @(rf/subscribe [:rf.causa/machine-inspector-data])]
+  (let [{:keys [machines total selected selected-id chart-props transitions empty-kind]}
+        @(rf/subscribe [:rf.causa/machine-inspector-data])
+        ;; Phase 1: instance-count is 1 when there's a registered snapshot,
+        ;; 0 otherwise. When the multi-instance spawn surface lands a
+        ;; follow-on bead replaces this with `count` over the spawned-
+        ;; instances vector.
+        instance-count (if (and selected (:state selected)) 1 0)
+        mode           (view-mode instance-count)]
     [:section {:data-testid "rf-causa-machine-inspector"
+               :data-view-mode (name mode)
+               :data-instance-count instance-count
                :style       {:height         "100%"
                              :display        "flex"
                              :flex-direction "column"
@@ -357,8 +473,12 @@
        [:div {:style {:flex 1 :display "flex" :flex-direction "column"
                       :overflow "hidden"}}
         [machine-picker machines selected-id]
+        [instance-tabs (or selected {}) instance-count mode]
         [:div {:style {:flex 1 :overflow "auto"}}
-         (placeholder-banner)
+         (placeholder-banner
+           {:machine-id     (:machine-id selected)
+            :state          (:state selected)
+            :instance-count instance-count})
          (placeholder-chart chart-props)]
         (transition-ribbon transitions)])]))
 
@@ -446,6 +566,38 @@
         (dissoc db :machine-snapshots-override)
         (assoc db :machine-snapshots-override ov))))
 
+  ;; The registered-machine-definition map for every machine, keyed
+  ;; by machine-id (rf2-2tkza Phase 1). Production path reads through
+  ;; `(rf/machine-meta <id>)` for each registered id; the resulting
+  ;; map is what the chart primitive consumes to lay out the SVG. The
+  ;; per-id `try` is belt-and-braces — `machine-meta` is pure but a
+  ;; future API change shouldn't tear the whole composite.
+  (rf/reg-sub :rf.causa/machine-definitions-override
+    (fn [db _query]
+      (get db :machine-definitions-override)))
+
+  (rf/reg-sub :rf.causa/machine-definitions
+    :<- [:rf.causa/registered-machines]
+    :<- [:rf.causa/machine-definitions-override]
+    (fn [[machines override] _query]
+      (or override
+          (into {}
+                (keep (fn [id]
+                        (let [m (try (rf/machine-meta id)
+                                     (catch :default _ nil))]
+                          (when m [id m]))))
+                (or machines [])))))
+
+  ;; Test-only override for the definitions surface — mirrors the
+  ;; snapshot / registered-machines test hooks so JVM + node-test
+  ;; suites can drive the chart projection without booting a host
+  ;; with `rf/reg-machine` calls.
+  (rf/reg-event-db :rf.causa/set-machine-definitions-override-for-test
+    (fn [db [_ ov]]
+      (if (nil? ov)
+        (dissoc db :machine-definitions-override)
+        (assoc db :machine-definitions-override ov))))
+
   ;; The user's per-panel machine selection (drives the picker
   ;; focus). nil = default to first row.
   (rf/reg-sub :rf.causa/selected-machine-id
@@ -459,14 +611,15 @@
     :<- [:rf.causa/registered-machines]
     :<- [:rf.causa/machine-snapshots]
     :<- [:rf.causa/machine-snapshots-override]
+    :<- [:rf.causa/machine-definitions]
     :<- [:rf.causa/trace-buffer]
     :<- [:rf.causa/selected-machine-id]
     :<- [:rf.causa/target-frame]
-    (fn [[machines live-snapshots snapshots-override buffer selected-id target-frame]
+    (fn [[machines live-snapshots snapshots-override definitions buffer selected-id target-frame]
          _query]
       (let [snapshots (or snapshots-override live-snapshots {})]
         (h/project-data
-          machines snapshots buffer selected-id target-frame))))
+          machines snapshots definitions buffer selected-id target-frame))))
 
   ;; ---- Machine Inspector panel events ----------------------------
 
@@ -476,4 +629,14 @@
 
   (rf/reg-event-db :rf.causa/clear-machine-selection
     (fn [db _event]
-      (dissoc db :selected-machine-id))))
+      (dissoc db :selected-machine-id)))
+
+  ;; Source-coord jump trigger (rf2-2tkza Phase 1 scaffold). Clicking
+  ;; a state in the chart fires this event; Phase 2 (follow-on bead)
+  ;; wires it through to `:rf.causa/open-in-editor` once the
+  ;; `:rf.machine/source-coords {:state <path>}` slot stabilises in
+  ;; spec/005. v1 swallows the event so the click surface is testable
+  ;; without an editor-jump side effect leaking into smoke tests.
+  (rf/reg-event-db :rf.causa/machine-state-clicked
+    (fn [db [_ _payload]]
+      db)))

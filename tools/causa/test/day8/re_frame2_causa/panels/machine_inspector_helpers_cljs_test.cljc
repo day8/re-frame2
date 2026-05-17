@@ -93,6 +93,18 @@
         ids  (map :machine-id rows)]
     (is (= [:a/first :m/middle :z/last] ids))))
 
+(deftest project-machine-rows-3-arity-fills-definition
+  (testing "the 3-arity overload propagates the machine definition into
+            the row so the chart primitive can lay it out"
+    (let [defs {:auth/login {:initial :idle
+                             :states  {:idle    {:on {:start :authing}}
+                                       :authing {:on {:ok :done}}
+                                       :done    {:final? true}}}}
+          rows (h/project-machine-rows [:auth/login] {} defs)
+          row  (first rows)]
+      (is (= :auth/login (:machine-id row)))
+      (is (= (:auth/login defs) (:definition row))))))
+
 ;; ---- (4) pick-selected -------------------------------------------------
 
 (deftest pick-selected-returns-matching-row
@@ -140,6 +152,26 @@
     (is (= {:state :idle}
            (:current-state-override props))
         "data slot is omitted rather than nil")))
+
+(deftest chart-props-carries-definition-when-present
+  (testing "the chart-props payload threads the machine definition so
+            the chart primitive can lay it out without a second sub"
+    (let [def-map {:initial :idle
+                   :states  {:idle    {:on {:start :ready}}
+                             :ready   {:final? true}}}
+          props   (h/chart-props {:machine-id :auth/login
+                                  :state      :ready
+                                  :data       nil
+                                  :definition def-map}
+                                 :rf/default)]
+      (is (= def-map (:definition props))
+          "definition is passed through to the chart layer"))))
+
+(deftest chart-props-omits-definition-when-nil
+  (let [props (h/chart-props {:machine-id :auth/login :state :idle :data nil}
+                             :rf/default)]
+    (is (not (contains? props :definition))
+        "no :definition key when the row carries no definition")))
 
 ;; ---- (6) project-transitions -------------------------------------------
 

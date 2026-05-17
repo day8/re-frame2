@@ -117,6 +117,8 @@
    :rf.causa/hydration-reroot-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
+   :rf.causa/machine-definitions
+   :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
    :rf.causa/machine-snapshots
    :rf.causa/machine-snapshots-override
@@ -208,6 +210,7 @@
    :rf.causa/focus-slice-path
    :rf.causa/follow-head
    :rf.causa/hide-invalidation-chain
+   :rf.causa/machine-state-clicked
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
    :rf.causa/open-in-editor
@@ -240,6 +243,7 @@
    :rf.causa/select-violation
    :rf.causa/set-active-route-slice-override-for-test
    :rf.causa/set-frame
+   :rf.causa/set-machine-definitions-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
    :rf.causa/set-mcp-since-seconds
    :rf.causa/set-performance-budget-ms
@@ -334,7 +338,10 @@
     ;;   palette-active-item / palette-cursor / palette-index /
     ;;   palette-open? / palette-query / palette-results
     ;; + 2 spine (rf2-adve5): :rf.causa/focus + :rf.causa/focus-slot
-    (is (= 74 (count all-sub-names)))
+    ;; + 2 machine-inspector (rf2-2tkza Phase 1):
+    ;;   :rf.causa/machine-definitions (production sub) +
+    ;;   :rf.causa/machine-definitions-override (test-override sub).
+    (is (= 76 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -344,7 +351,10 @@
     ;; + 7 spine (rf2-adve5): focus-cascade + focus-cascade-prev +
     ;;   focus-cascade-next + follow-head + toggle-live-pause +
     ;;   set-frame + preview-cascade
-    (is (= 82 (count all-event-names)))
+    ;; + 2 machine-inspector (rf2-2tkza Phase 1):
+    ;;   :rf.causa/machine-state-clicked (chart click handler) +
+    ;;   :rf.causa/set-machine-definitions-override-for-test
+    (is (= 84 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
