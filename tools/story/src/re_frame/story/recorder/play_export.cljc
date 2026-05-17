@@ -22,16 +22,21 @@
 
   ## What gets translated
 
-  The recorder's existing model (`{:events [...vector-of-event-vecs]
-  :variant-id ... :started-ms ...}`) carries event vectors only —
-  no per-event timestamps and no DOM events. So the v1 translation
-  is the **dispatch-only path**:
+  Per rf2-d5u89 the recorder now captures BOTH dispatched events
+  (off the trace bus) AND DOM interactions (off the canvas root
+  via `re-frame.story.recorder.dom-capture`). Each captured entry
+  rides on the recorder's `:entries` slot as one of four shapes;
+  the translator maps them to `:play-script` steps:
 
-  | Recorded shape                              | Translated step              |
+  | Recorded entry kind                         | Translated step              |
   |---------------------------------------------|------------------------------|
-  | `[:counter/inc]`                            | `[:dispatch [:counter/inc]]` |
-  | `[:rf.assert/path-equals [:n] 3]`           | `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]` |
-  | `[:rf/redacted]` (sensitive event)          | dropped + `;; redacted` annotation |
+  | `{:kind :event/dispatch :event ev :t ms}`   | `[:dispatch ev]`             |
+  | `{:kind :event/dispatch :event <:rf.assert/*> :t ms}` | `[:dispatch-sync ev]` |
+  | `{:kind :event/dispatch :event [:rf/redacted] :t ms}` | dropped |
+  | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
+  | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
+  | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
+  | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
   Assertion events ride the `:dispatch-sync` rail because Spec 004 §3
@@ -41,9 +46,13 @@
   next state transition. The pure runner accepts either tag for any
   event; this is a translation convention, not a runtime requirement.
 
-  DOM events (`:click` / `:type`) and timing-based steps (`:wait`)
-  are NOT generated — the current recorder model doesn't capture
-  them. Filed as follow-on rf2-recorder-dom (TODO).
+  ## Legacy entry shape (pre-rf2-d5u89)
+
+  Callers that pass a bare `events` vector (the old `:events` slot)
+  still work — the translator coerces each bare event vector into
+  an `:event/dispatch` entry with `:t 0`. This keeps the JVM tests
+  from rf2-x9zsr (which exercise `recording->play-script` with a
+  bare vector) running unchanged.
 
   ## Auto-assert
 
@@ -77,6 +86,15 @@
   passing `:max-auto-assertions` explicitly or by trimming the output
   by hand."
   5)
+
+(def ^:const default-wait-threshold-ms
+  "Minimum gap between consecutive entries (in ms) that warrants a
+  `[:wait Δt]` step in the generated script. Sub-threshold gaps fold
+  out — the runner already sequences synchronously between dispatches
+  + DOM actions, and inserting a `:wait 4` step would just add noise.
+  Default 50ms — fast enough to preserve human-pace pauses
+  (~100ms+), slow enough to ignore intra-typing-burst micro-gaps."
+  50)
 
 (def ^:const redacted-event-id
   "The framework sentinel id the recorder uses to replace sensitive
@@ -118,6 +136,131 @@
     [:dispatch event]
 
     :else nil))
+
+;; ---------------------------------------------------------------------------
+;; Pure: entry-shape translation (rf2-d5u89)
+;;
+;; Each `:entries` entry is one of four shapes (see recorder.cljc
+;; §dom-event-kinds + §rf2-d5u89). `entry->step` maps the rich shape
+;; to a runner step OR nil (the caller filters).
+;; ---------------------------------------------------------------------------
+
+(defn entry->step
+  "Translate one rich `:entries` map into a `:play-script` step. Pure
+  data → data. Returns nil for entries the runner doesn't model
+  (redacted placeholders, malformed shapes).
+
+  Entry shapes:
+    {:kind :event/dispatch :event <vec> :t ms}
+    {:kind :dom/click      :selector <str> :t ms}
+    {:kind :dom/type       :selector <str> :text <str> :t ms}
+    {:kind :dom/submit     :selector <str> :t ms}
+
+  The `:dom/submit` entry is best-effort mapped to a `:click`
+  step against the form selector — the runner doesn't model form
+  submission directly, and a `:click` on the form (or the form's
+  submit button when reachable from a later selector hardening
+  pass) is the closest available step. See module doc."
+  [entry]
+  (case (and (map? entry) (:kind entry))
+    :event/dispatch
+    (event->step (:event entry))
+
+    :dom/click
+    (when-let [sel (:selector entry)]
+      [:click sel])
+
+    :dom/type
+    (when-let [sel (:selector entry)]
+      [:type sel (or (:text entry) "")])
+
+    :dom/submit
+    (when-let [sel (:selector entry)]
+      ;; Best-effort — see docstring.
+      [:click sel])
+
+    nil))
+
+(defn- coerce-entry
+  "Normalise an arbitrary `events`-vector member to an `:entries`-shape
+  map. Pure data → data; tolerates the legacy bare-event-vector
+  shape (`[:my/event ...]`) by lifting it into
+  `{:kind :event/dispatch :event <vec> :t 0}`."
+  [x]
+  (cond
+    (and (map? x) (contains? x :kind))
+    x
+
+    (vector? x)
+    {:kind :event/dispatch :event x :t 0}
+
+    :else nil))
+
+(defn- bare-events->entries
+  "Coerce a legacy bare-events vector to the new `:entries` shape so
+  the translator's wait-insertion + entry walker work uniformly."
+  [events]
+  (->> (or events [])
+       (mapv coerce-entry)
+       (filterv some?)))
+
+;; ---------------------------------------------------------------------------
+;; Pure: wait-step insertion (rf2-d5u89)
+;;
+;; Walk the entries in order, compare consecutive `:t` stamps, and
+;; inject a `[:wait Δt]` step whenever the gap exceeds the
+;; threshold. The output preserves the entry's own translated step
+;; immediately after the wait.
+;; ---------------------------------------------------------------------------
+
+(defn- wait-step
+  "Return `[:wait Δt]` when `delta-ms` warrants one (>= threshold and
+  positive), else nil."
+  [delta-ms threshold]
+  (when (and (number? delta-ms)
+             (number? threshold)
+             (>= delta-ms threshold))
+    [:wait (long delta-ms)]))
+
+(defn entries->steps
+  "Walk `entries` in order, translate each to a step (filtering nils),
+  and insert `[:wait Δt]` steps between consecutive entries whose
+  `:t` gap meets `wait-threshold-ms`. Pure data → data.
+
+  Options:
+    :wait-threshold-ms  default `default-wait-threshold-ms` (50ms).
+                        Pass 0 to emit a wait between every pair of
+                        timestamped entries; pass a very large value
+                        (or `Long/MAX_VALUE`) to disable waits."
+  ([entries] (entries->steps entries {}))
+  ([entries {:keys [wait-threshold-ms]
+             :or   {wait-threshold-ms default-wait-threshold-ms}}]
+   (loop [remaining (seq entries)
+          last-t    nil
+          out       (transient [])]
+     (if (empty? remaining)
+       (persistent! out)
+       (let [entry  (first remaining)
+             step   (entry->step entry)
+             this-t (:t entry)]
+         (cond
+           ;; Skip entries that don't yield a step (e.g. redacted).
+           ;; Leave `last-t` pointing at the most recent TRANSLATED
+           ;; step's timestamp so the next emitted step's wait gap
+           ;; measures the gap to the last visible step rather than
+           ;; the dropped intermediate.
+           (nil? step)
+           (recur (rest remaining) last-t out)
+
+           :else
+           (let [gap (when (and (some? last-t) (some? this-t))
+                       (- this-t last-t))
+                 w   (wait-step gap wait-threshold-ms)
+                 out (if w (conj! out w) out)
+                 out (conj! out step)]
+             (recur (rest remaining)
+                    (or this-t last-t)
+                    out))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: auto-assert derivation
@@ -185,23 +328,31 @@
 
   Inputs:
 
-    `events`  — vector of recorded event vectors (the `:events` slot
-                of the recorder state).
+    `events`  — either the legacy vector of recorded event vectors
+                (the `:events` slot of the recorder state) OR the
+                rich `:entries` vector of per-entry maps (rf2-d5u89).
+                Mixed input is tolerated — each member is coerced
+                via `coerce-entry`. The bare-event-vector branch
+                stamps `:t 0` on every entry, so no `:wait` steps
+                are emitted (back-compat for v1 callers).
     `opts`:
-      :name             optional — `:name` field for the play-script.
-      :auto-assert?     bool, default false — when true, derive
-                        trailing `[:assert-db ...]` steps from
-                        `:final-db` (and `:seed-db` if supplied).
-      :final-db         map — the app-db snapshot at recording-end.
-                        Required when `:auto-assert?` is true.
-      :seed-db          optional — the app-db at recording-start.
-                        When supplied, only paths whose value changed
-                        produce assertions.
+      :name              optional — `:name` field for the play-script.
+      :auto-assert?      bool, default false — when true, derive
+                         trailing `[:assert-db ...]` steps from
+                         `:final-db` (and `:seed-db` if supplied).
+      :final-db          map — the app-db snapshot at recording-end.
+                         Required when `:auto-assert?` is true.
+      :seed-db           optional — the app-db at recording-start.
+                         When supplied, only paths whose value changed
+                         produce assertions.
       :max-auto-assertions  cap on the auto-assert block (default 5).
-      :auto-run?        bool — `:auto-run?` field on the play-script
-                        map. Defaults to true (matches the runner's
-                        default-auto-run? — on-mount replay is the
-                        Storybook-equivalent behaviour).
+      :auto-run?         bool — `:auto-run?` field on the play-script
+                         map. Defaults to true (matches the runner's
+                         default-auto-run? — on-mount replay is the
+                         Storybook-equivalent behaviour).
+      :wait-threshold-ms  ms threshold above which the translator
+                         inserts a `[:wait Δt]` step between entries.
+                         Default `default-wait-threshold-ms` (50ms).
 
   Returns a map: `{:script [...steps] :auto-run? bool :name str?}`.
   The script is pre-coerced via `runner/coerce-script` so it round-
@@ -212,13 +363,15 @@
   the auto-assert block can stand alone)."
   ([events]
    (recording->play-script events {}))
-  ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions auto-run?]
+  ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
+                   auto-run? wait-threshold-ms]
             :or   {auto-assert?         false
                    auto-run?            true
-                   max-auto-assertions  default-max-auto-assertions}}]
-   (let [dispatch-steps (->> (or events [])
-                             (mapv event->step)
-                             (filterv some?))
+                   max-auto-assertions  default-max-auto-assertions
+                   wait-threshold-ms    default-wait-threshold-ms}}]
+   (let [entries        (bare-events->entries events)
+         dispatch-steps (entries->steps entries
+                                        {:wait-threshold-ms wait-threshold-ms})
          assert-steps   (if auto-assert?
                           (auto-assert-steps final-db
                                              {:seed-db             seed-db

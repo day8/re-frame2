@@ -65,6 +65,7 @@
             [reagent.core :as r]
             [re-frame.story.config                       :as config]
             [re-frame.story.recorder                     :as recorder]
+            [re-frame.story.recorder.dom-capture         :as recorder-dom]
             [re-frame.story.review-dialog                :as review-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
             [re-frame.story.ui.state                     :as state]))
@@ -317,11 +318,16 @@
 (defn- open-dialog!
   "Open the save-as-variant dialog against `source-variant-id` with
   the captured `events` snapshot. `now-ms` defaults to the current
-  wall-clock; tests pass an explicit stamp."
+  wall-clock; tests pass an explicit stamp. Per rf2-d5u89 the
+  captured `:entries` are snapshotted alongside `:events` so the
+  export dialog drives the `:play-script` translator with the rich
+  DOM-event + timing record."
   ([source-variant-id events]
-   (open-dialog! source-variant-id events (.now js/Date)))
+   (open-dialog! source-variant-id events (recorder/recorded-entries) (.now js/Date)))
   ([source-variant-id events now-ms]
-   (swap! ui-dialog recorder/open-dialog source-variant-id events now-ms)))
+   (open-dialog! source-variant-id events (recorder/recorded-entries) now-ms))
+  ([source-variant-id events entries now-ms]
+   (swap! ui-dialog recorder/open-dialog source-variant-id events entries now-ms)))
 
 (defn- close-dialog! []
   (swap! ui-dialog recorder/close-dialog))
@@ -359,10 +365,19 @@
         on-click   (fn [_]
                      (cond
                        (and (not rec?) target)
-                       (recorder/start-recording! target)
+                       (do
+                         ;; rf2-d5u89: re-attach DOM-capture listeners to
+                         ;; the current canvas root. The shell's mount-
+                         ;; time install handles the common case, but mode
+                         ;; switches (Docs / Test → Canvas) re-mount the
+                         ;; canvas DOM and we want capture wired to the
+                         ;; live node before recording starts. Idempotent.
+                         (recorder-dom/install!)
+                         (recorder/start-recording! target))
 
                        rec?
-                       (let [{:keys [variant-id events]} (recorder/stop-recording!)]
+                       (let [_     (recorder-dom/flush-type-buffer!)
+                             {:keys [variant-id events]} (recorder/stop-recording!)]
                          (when (seq events)
                            (open-dialog! variant-id events)))))]
     [:button
@@ -561,13 +576,26 @@
                 :on-click  (fn [_] (insert!))}
                "insert"]]]))]])))
 
+;; rf2-d5u89: Reagent-mirror of the DOM-capture enabled flag so the
+;; overlay chip re-renders when the user toggles capture. The flag
+;; lives in the dom-capture ns; here we just mirror it.
+
+(defonce ui-dom-capture-enabled? (r/atom (recorder-dom/enabled?)))
+
+(defn- toggle-dom-capture! []
+  (let [new-val (not @ui-dom-capture-enabled?)]
+    (recorder-dom/set-enabled! new-val)
+    (reset! ui-dom-capture-enabled? new-val)))
+
 (defn recording-overlay
   "Fixed-position banner that floats at the top-right of the shell
   while a recording is in flight. Surfaces the target variant + the
   running event count + a `+ assert` button for mid-recording
-  assertion insertion (rf2-39u9e)."
+  assertion insertion (rf2-39u9e). Per rf2-d5u89 the overlay also
+  exposes a `DOM` toggle for opting in/out of DOM-event capture."
   []
-  (let [{:keys [recording? variant-id events]} @ui-state]
+  (let [{:keys [recording? variant-id events]} @ui-state
+        dom-on? @ui-dom-capture-enabled?]
     (when recording?
       [:div
        {:style       (:overlay styles)
@@ -581,6 +609,18 @@
        [:span {:style {:color "#9a9a9a"}}
         (str (count events) " event" (when (not= 1 (count events)) "s"))]
        [:button
+        {:style       (if dom-on?
+                        (assoc (:assert-btn styles) :background "#0e639c")
+                        (assoc (:btn-muted styles)  :opacity     "0.6"))
+         :data-test   "story-recorder-toggle-dom"
+         :data-enabled (if dom-on? "true" "false")
+         :title       (if dom-on?
+                        "DOM-event capture ON — click + type are recorded. Click to disable."
+                        "DOM-event capture OFF — only dispatched events are recorded. Click to enable.")
+         :aria-pressed (if dom-on? "true" "false")
+         :on-click    (fn [_] (toggle-dom-capture!))}
+        (if dom-on? "DOM on" "DOM off")]
+       [:button
         {:style     (:assert-btn styles)
          :data-test "story-recorder-add-assertion"
          :title     "Insert a :rf.assert/* assertion into the captured :play body"
@@ -590,6 +630,10 @@
         {:style    (:btn-muted styles)
          :data-test "story-recorder-stop"
          :on-click (fn [_]
+                     ;; rf2-d5u89: drain pending typed-input buffer
+                     ;; before sealing the recording so the final
+                     ;; :dom/type entry lands in the script.
+                     (recorder-dom/flush-type-buffer!)
                      (let [{:keys [variant-id events]} (recorder/stop-recording!)]
                        (when (seq events)
                          (open-dialog! variant-id events))))}
@@ -611,8 +655,8 @@
   snapshot was taken at `open-dialog!` time so a subsequent
   `start-recording!` cannot mutate the visible snippet (rf2-8x9nb)."
   []
-  (let [dialog                          @ui-dialog
-        {:keys [events source-id]}      dialog]
+  (let [dialog                                  @ui-dialog
+        {:keys [events entries source-id]}      dialog]
     (when (:open? dialog)
       (let [draft-id (:draft-id dialog)
             snippet  (recorder/gen-play-snippet
@@ -640,6 +684,7 @@
            :on-export         (fn []
                                 (export-dialog/open-from-recorder-dialog!
                                   {:events    events
+                                   :entries   entries
                                    :source-id source-id}))
            :on-close          close-dialog!
            :data-test-prefix  "story-recorder"})))))

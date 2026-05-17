@@ -344,6 +344,28 @@
     (into [assertion-id]
           (map (fn [{:keys [key]}] (get payload key)) fields))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-d5u89 — timestamp + entry helpers (used by both append /
+;; append-assertion / append-dom). Defined here so the forward
+;; references resolve cleanly.
+;; ---------------------------------------------------------------------------
+
+(defn- now-ms* []
+  #?(:clj  (System/currentTimeMillis)
+     :cljs (.now js/Date)))
+
+(defn timestamp-since-start
+  "Return `:t` (ms since `state`'s `:started-ms`) for `now-ms`. Pure
+  data → number. Returns nil when `state` has no `:started-ms`."
+  [state now-ms]
+  (when-let [started (:started-ms state)]
+    (max 0 (- now-ms started))))
+
+(defn- conj-entry
+  "Append `entry` onto the state's `:entries` slot. Pure data → data."
+  [state entry]
+  (update state :entries (fnil conj []) entry))
+
 (defn append-assertion
   "Pure: append an `:rf.assert/*` event to the captured `:events` of
   the recorder `state`. Bypasses `recordable-event?`'s filter — the
@@ -352,23 +374,39 @@
   event if no recording is in flight) and against malformed inputs
   (must be a vector with an `:rf.assert/*` keyword head).
 
+  Per rf2-d5u89 the assertion also lands in the parallel `:entries`
+  stream as an `:event/dispatch` entry tagged with the current
+  timestamp, so the `:play-script` translator (which consumes
+  `:entries`) sees the inserted assertion alongside the captured
+  dispatches and DOM events in temporal order.
+
   Returns the new state."
-  [state event]
-  (cond-> state
-    (and (:recording? state)
-         (vector? event)
-         (pred/assertion-event? event))
-    (update :events (fnil conj []) (vec event))))
+  ([state event]
+   (append-assertion state event (now-ms*)))
+  ([state event now-ms]
+   (cond-> state
+     (and (:recording? state)
+          (vector? event)
+          (pred/assertion-event? event))
+     (-> (update :events (fnil conj []) (vec event))
+         (conj-entry {:kind  :event/dispatch
+                      :event (vec event)
+                      :t     (timestamp-since-start state now-ms)})))))
 
 (def initial-state
   "The recorder's idle state shape. `:recording?` flips true while a
-  capture is in flight; `:events` accumulates the captured vectors in
-  declared order (oldest first, ready to drop straight into `:play`);
-  `:variant-id` records which frame the capture targets; `:started-ms`
-  is the wall-clock start time for elapsed-time display."
+  capture is in flight; `:events` accumulates the captured event
+  vectors in declared order (oldest first, ready to drop straight
+  into `:play`); `:entries` (rf2-d5u89) accumulates the richer
+  per-entry maps (`:event/dispatch` + `:dom/click` / `:dom/type` /
+  `:dom/submit`) with per-event timestamps — consumed by the
+  `:play-script` translator; `:variant-id` records which frame the
+  capture targets; `:started-ms` is the wall-clock start time for
+  elapsed-time display."
   {:recording? false
    :variant-id nil
    :events     []
+   :entries    []
    :started-ms nil})
 
 (defonce
@@ -393,9 +431,17 @@
   (:variant-id @state))
 
 (defn recorded-events
-  "Return the vector of captured event vectors (oldest first)."
+  "Return the vector of captured event vectors (oldest first). Back-
+  compat surface — feeds the legacy `:play` snippet codegen."
   []
   (:events @state))
+
+(defn recorded-entries
+  "Return the vector of captured rich entries (oldest first) — the
+  `:event/dispatch` + `:dom/*` per-entry maps with per-entry `:t`
+  timestamps the `:play-script` translator consumes."
+  []
+  (:entries @state))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure transition fns — make the state machine JVM-testable.
@@ -408,17 +454,122 @@
   {:recording? true
    :variant-id variant-id
    :events     []
+   :entries    []
    :started-ms now-ms})
+
+;; ---------------------------------------------------------------------------
+;; rf2-d5u89 — per-event timestamps + DOM-event entries
+;;
+;; The legacy recorder model carried `:events` (a vector of event
+;; vectors) — sufficient for the v1 `:play` slot which dispatches
+;; them on mount, but blind to TIMING and DOM INTERACTION which the
+;; rich `:play-script` DSL needs to emit `:click` / `:type` / `:wait`
+;; steps.
+;;
+;; The model now carries a parallel `:entries` vector keyed on the
+;; same index as `:events`. Each entry is one of:
+;;
+;;   {:kind :event/dispatch :event <vec> :t <ms>}
+;;   {:kind :dom/click      :selector <str> :t <ms>}
+;;   {:kind :dom/type       :selector <str> :text <str> :t <ms>}
+;;   {:kind :dom/submit     :selector <str> :t <ms>}
+;;
+;; `:events` stays canonical for the legacy `:play` snippet codegen
+;; (gen-play-snippet) — back-compat is non-negotiable. `:entries` is
+;; the new richer surface the `:play-script` translator consumes.
+;;
+;; `:t` is ms since `:started-ms`; pure helpers accept a `now-ms`
+;; argument for deterministic testing. (Helper fns `now-ms*`,
+;; `timestamp-since-start`, `conj-entry` defined earlier in the
+;; pure transitions section.)
+;; ---------------------------------------------------------------------------
 
 (defn append
   "Pure: append `event` to the recorder state's `:events` slot iff the
   state is recording and the event is recordable. Returns the new
-  state. Idempotent against bad inputs."
-  [state event]
+  state. Idempotent against bad inputs.
+
+  Per rf2-d5u89 the call ALSO appends a parallel `:entries` entry
+  `{:kind :event/dispatch :event <vec> :t <ms>}` so the
+  `:play-script` translator sees the timing alongside the event.
+  `:events` (bare event vectors) stays as-is for back-compat with
+  the legacy `:play` snippet codegen.
+
+  Two-arg form (`(append state event now-ms)`) lets callers pin
+  the timestamp for deterministic tests."
+  ([state event]
+   (append state event (now-ms*)))
+  ([state event now-ms]
+   (cond-> state
+     (and (:recording? state)
+          (recordable-event? event))
+     (-> (update :events (fnil conj []) (vec event))
+         (conj-entry {:kind  :event/dispatch
+                      :event (vec event)
+                      :t     (timestamp-since-start state now-ms)})))))
+
+;; ---------------------------------------------------------------------------
+;; DOM-event capture (rf2-d5u89)
+;;
+;; The DOM-capture layer (`re-frame.story.recorder.dom-capture`,
+;; CLJS-only) emits one of three entry kinds per observed interaction:
+;;
+;;   [:dom/click  selector  t]
+;;   [:dom/type   selector  text  t]
+;;   [:dom/submit selector  t]
+;;
+;; The recorder's `record-dom-event!` accepts these vector shapes and
+;; appends them onto `:entries`. Strictly DOM kinds; ordinary
+;; `[:dispatch ...]` events ride `record-event!`.
+;;
+;; The pure `append-dom` transition is JVM-testable; the
+;; `record-dom-event!` impure entry-point is the per-process atom
+;; writer the listener invokes.
+;; ---------------------------------------------------------------------------
+
+(def ^:const dom-event-kinds
+  "The DOM-event kinds the recorder appends onto `:entries`."
+  #{:dom/click :dom/type :dom/submit})
+
+(defn dom-event?
+  "True iff `entry` is a recorder DOM-event vector — `[:dom/click ...]`
+  / `[:dom/type ...]` / `[:dom/submit ...]` — well-formed enough to
+  append."
+  [entry]
+  (and (vector? entry)
+       (pos? (count entry))
+       (contains? dom-event-kinds (first entry))))
+
+(defn- dom-entry
+  "Translate a DOM-event vector `entry` into the recorder's `:entries`
+  map shape. Returns nil for unknown kinds."
+  [entry]
+  (when (dom-event? entry)
+    (case (first entry)
+      :dom/click   {:kind     :dom/click
+                    :selector (nth entry 1 nil)
+                    :t        (nth entry 2 nil)}
+      :dom/type    {:kind     :dom/type
+                    :selector (nth entry 1 nil)
+                    :text     (nth entry 2 nil)
+                    :t        (nth entry 3 nil)}
+      :dom/submit  {:kind     :dom/submit
+                    :selector (nth entry 1 nil)
+                    :t        (nth entry 2 nil)})))
+
+(defn append-dom
+  "Pure: append a DOM-event `entry` onto the recorder state's
+  `:entries` slot iff the state is recording. Returns the new state.
+  Idempotent against malformed inputs.
+
+  `entry` is one of the three shapes:
+    `[:dom/click selector t]`
+    `[:dom/type selector text t]`
+    `[:dom/submit selector t]`"
+  [state entry]
   (cond-> state
-    (and (:recording? state)
-         (recordable-event? event))
-    (update :events (fnil conj []) (vec event))))
+    (and (:recording? state) (dom-event? entry))
+    (conj-entry (dom-entry entry))))
 
 (defn stop
   "Pure: return the recorder state for a stopped recording. Preserves
@@ -469,14 +620,25 @@
 
   The snapshot is stored on the dialog state itself — NOT read live
   off the recorder atom — so a fresh `start-recording!` after the
-  dialog opens does not mutate the dialog's snippet (rf2-8x9nb)."
-  [_state variant-id events now-ms]
-  (let [base (review-dialog/open review-dialog/initial-state
-                                 variant-id
-                                 {:events (vec events)}
-                                 now-ms
-                                 default-id-prefix)]
-    (assoc base :events (vec events))))
+  dialog opens does not mutate the dialog's snippet (rf2-8x9nb).
+
+  Per rf2-d5u89 the 5-arity variant also accepts `entries` (the
+  rich `:entries` slot) so the export dialog can drive the
+  `:play-script` translator with the full DOM+timing record. The
+  4-arity variant defaults `entries` to nil — back-compat for
+  call sites that haven't been updated."
+  ([state variant-id events now-ms]
+   (open-dialog state variant-id events nil now-ms))
+  ([_state variant-id events entries now-ms]
+   (let [base (review-dialog/open review-dialog/initial-state
+                                  variant-id
+                                  {:events  (vec events)
+                                   :entries (vec (or entries []))}
+                                  now-ms
+                                  default-id-prefix)]
+     (-> base
+         (assoc :events  (vec events))
+         (assoc :entries (vec (or entries [])))))))
 
 (defn close-dialog
   "Pure: return the dialog's idle state. Aliased to
@@ -537,6 +699,24 @@
   [event]
   (when config/enabled?
     (swap! state append event))
+  nil)
+
+(defn record-dom-event!
+  "Append a DOM-event entry to the recorder's `:entries` slot iff a
+  recording is in flight (rf2-d5u89). Called by the DOM-capture
+  layer (`re-frame.story.recorder.dom-capture`) for every observed
+  click / typed-input / form-submit on the canvas root.
+
+  `entry` is one of:
+    `[:dom/click  selector t]`
+    `[:dom/type   selector text t]`
+    `[:dom/submit selector t]`
+
+  Idempotent against malformed inputs (filtered by `dom-event?`).
+  No-op under production elision."
+  [entry]
+  (when config/enabled?
+    (swap! state append-dom entry))
   nil)
 
 (defn insert-assertion!

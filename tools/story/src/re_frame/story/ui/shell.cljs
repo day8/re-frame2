@@ -59,6 +59,7 @@
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.play-status :as play-status]
+            [re-frame.story.recorder.dom-capture :as recorder-dom]
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.recorder-export-dialog :as recorder-export-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
@@ -633,6 +634,19 @@
          ;; it installed is free; we only need to make sure it
          ;; exists before the user clicks REC.
          (recorder-ui/install-trace-listener!)
+         ;; rf2-d5u89: install the recorder's DOM-capture listeners
+         ;; on the canvas root so :click / :input / :change / :submit
+         ;; events translate into [:dom/click ...] / [:dom/type ...]
+         ;; / [:dom/submit ...] entries on the recorder's :entries
+         ;; stream. Delegate to a one-tick `setTimeout` so the React
+         ;; tree has committed the `[data-test=\"story-canvas-frame\"]`
+         ;; root before the install tries to find it. The listener
+         ;; short-circuits when no recording is in flight, so the
+         ;; install is free even when REC is idle.
+         (js/setTimeout
+           (fn []
+             (recorder-dom/install!))
+           0)
          ;; rf2-one3t: install the save-as-variant dialog-open callback
          ;; against the pure ns so `save-variant/save-current-as-variant!`
          ;; can drive the modal without coupling the .cljc helper to
@@ -653,6 +667,9 @@
        (stop-hot-reload-poll!)
        (remove-selection-watcher!)
        (recorder-ui/remove-trace-listener!)
+       ;; rf2-d5u89: tear down DOM-capture listeners alongside the
+       ;; trace listener so we don't leak listeners across re-mounts.
+       (recorder-dom/remove!)
        (teardown-all-listeners!))
      :reagent-render
      (fn []

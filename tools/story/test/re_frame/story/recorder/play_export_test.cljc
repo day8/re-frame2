@@ -243,3 +243,229 @@
                     :final-db     {:n 1 :who "alice"}})]
       (is (= [] (runner/validate-script (:script spec)))
           "no malformed steps"))))
+
+;; ===========================================================================
+;; rf2-d5u89 — :entries shape + DOM-events + wait-step insertion
+;; ===========================================================================
+
+;; ---- entry->step ---------------------------------------------------------
+
+(deftest entry-step-dispatch
+  (testing ":event/dispatch entry of an ordinary event → [:dispatch ev]"
+    (is (= [:dispatch [:counter/inc]]
+           (export/entry->step
+             {:kind :event/dispatch :event [:counter/inc] :t 0})))))
+
+(deftest entry-step-assertion-rides-dispatch-sync
+  (testing ":event/dispatch entry of an assertion event → [:dispatch-sync ev]"
+    (is (= [:dispatch-sync [:rf.assert/path-equals [:n] 1]]
+           (export/entry->step
+             {:kind :event/dispatch
+              :event [:rf.assert/path-equals [:n] 1]
+              :t 0})))))
+
+(deftest entry-step-dom-click
+  (testing ":dom/click entry → [:click selector]"
+    (is (= [:click "[data-test=\"submit\"]"]
+           (export/entry->step
+             {:kind :dom/click :selector "[data-test=\"submit\"]" :t 250})))))
+
+(deftest entry-step-dom-type
+  (testing ":dom/type entry → [:type selector text]"
+    (is (= [:type "[id=\"name\"]" "alice"]
+           (export/entry->step
+             {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 300})))
+    (is (= [:type "[id=\"x\"]" ""]
+           (export/entry->step
+             {:kind :dom/type :selector "[id=\"x\"]" :t 0}))
+        "missing :text defaults to empty string")))
+
+(deftest entry-step-dom-submit-maps-to-click
+  (testing ":dom/submit entry → best-effort [:click form-selector]"
+    (is (= [:click "[id=\"login-form\"]"]
+           (export/entry->step
+             {:kind :dom/submit :selector "[id=\"login-form\"]" :t 0})))))
+
+(deftest entry-step-redacted-dispatch-drops
+  (testing ":event/dispatch of a [:rf/redacted] placeholder yields nil"
+    (is (nil? (export/entry->step
+                {:kind :event/dispatch :event [:rf/redacted] :t 0})))))
+
+(deftest entry-step-unknown-kind-yields-nil
+  (testing "unknown entry kinds yield nil"
+    (is (nil? (export/entry->step {:kind :unknown :selector "x" :t 0})))
+    (is (nil? (export/entry->step nil)))
+    (is (nil? (export/entry->step {})))))
+
+(deftest entry-step-missing-selector-yields-nil
+  (testing "DOM-entry without a selector yields nil"
+    (is (nil? (export/entry->step {:kind :dom/click :t 0})))
+    (is (nil? (export/entry->step {:kind :dom/type :text "x" :t 0})))
+    (is (nil? (export/entry->step {:kind :dom/submit :t 0})))))
+
+;; ---- entries->steps + wait insertion -------------------------------------
+
+(deftest entries-translate-in-order
+  (testing "entries translate to steps in declared order"
+    (is (= [[:dispatch [:counter/inc]]
+            [:click "[data-test=\"x\"]"]
+            [:type "[id=\"name\"]" "alice"]]
+           (export/entries->steps
+             [{:kind :event/dispatch :event [:counter/inc] :t 0}
+              {:kind :dom/click :selector "[data-test=\"x\"]" :t 10}
+              {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 20}])))))
+
+(deftest wait-step-inserted-when-gap-exceeds-threshold
+  (testing "consecutive entries > threshold ms apart get a [:wait Δt] between them"
+    (is (= [[:click "[data-test=\"a\"]"]
+            [:wait 100]
+            [:click "[data-test=\"b\"]"]]
+           (export/entries->steps
+             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
+              {:kind :dom/click :selector "[data-test=\"b\"]" :t 100}])))))
+
+(deftest no-wait-when-gap-below-threshold
+  (testing "sub-threshold gaps fold out (no :wait noise)"
+    (is (= [[:click "[data-test=\"a\"]"]
+            [:click "[data-test=\"b\"]"]]
+           (export/entries->steps
+             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
+              {:kind :dom/click :selector "[data-test=\"b\"]" :t 25}])))))
+
+(deftest wait-threshold-override
+  (testing "the :wait-threshold-ms opt tunes the gap detector"
+    (is (= [[:click "[data-test=\"a\"]"]
+            [:wait 30]
+            [:click "[data-test=\"b\"]"]]
+           (export/entries->steps
+             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
+              {:kind :dom/click :selector "[data-test=\"b\"]" :t 30}]
+             {:wait-threshold-ms 10})))))
+
+(deftest large-wait-threshold-disables-waits
+  (testing "an effectively-infinite threshold suppresses every wait"
+    (is (= [[:click "[data-test=\"a\"]"]
+            [:click "[data-test=\"b\"]"]]
+           (export/entries->steps
+             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
+              {:kind :dom/click :selector "[data-test=\"b\"]" :t 5000}]
+             {:wait-threshold-ms 999999})))))
+
+(deftest mixed-events-and-dom-translate-together
+  (testing "dispatched events + DOM events + waits compose"
+    (is (= [[:dispatch [:counter/inc]]
+            [:wait 100]
+            [:click "[data-test=\"submit\"]"]
+            [:type "[id=\"name\"]" "alice"]]
+           (export/entries->steps
+             [{:kind :event/dispatch :event [:counter/inc] :t 0}
+              {:kind :dom/click :selector "[data-test=\"submit\"]" :t 100}
+              {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 120}])))))
+
+(deftest redacted-entries-do-not-leave-orphan-waits
+  (testing "a dropped (redacted) entry doesn't insert a wait for itself,
+            but later entries still compare against the most recent
+            translated step's timestamp"
+    (is (= [[:dispatch [:counter/inc]]
+            [:wait 200]
+            [:dispatch [:counter/dec]]]
+           (export/entries->steps
+             [{:kind :event/dispatch :event [:counter/inc]   :t 0}
+              {:kind :event/dispatch :event [:rf/redacted]   :t 100}
+              {:kind :event/dispatch :event [:counter/dec]   :t 200}])))))
+
+;; ---- recording->play-script with the rich :entries shape -----------------
+
+(deftest recording-from-entries
+  (testing "passing rich :entries vectors produces a full-fidelity script"
+    (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
+                   {:kind :dom/click :selector "[data-test=\"b\"]" :t 200}
+                   {:kind :dom/type  :selector "[id=\"x\"]" :text "hi" :t 220}]
+          spec    (export/recording->play-script entries)]
+      (is (= [[:dispatch [:counter/inc]]
+              [:wait 200]
+              [:click "[data-test=\"b\"]"]
+              [:type "[id=\"x\"]" "hi"]]
+             (:script spec))
+          "200ms gap → wait; 20ms gap → no wait"))))
+
+(deftest recording-from-entries-respects-wait-threshold-opt
+  (testing ":wait-threshold-ms opt threads through recording->play-script"
+    (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
+                   {:kind :event/dispatch :event [:counter/dec] :t 75}]
+          spec    (export/recording->play-script entries {:wait-threshold-ms 100})]
+      (is (= [[:dispatch [:counter/inc]]
+              [:dispatch [:counter/dec]]]
+             (:script spec))
+          "75ms gap < 100ms threshold — no :wait inserted"))))
+
+(deftest legacy-bare-events-still-translate-without-waits
+  (testing "callers that still pass bare event-vectors get the old behaviour
+            (no :wait steps emitted — all entries stamped :t 0)"
+    (let [spec (export/recording->play-script
+                 [[:counter/inc] [:counter/inc] [:counter/dec]])]
+      (is (= [[:dispatch [:counter/inc]]
+              [:dispatch [:counter/inc]]
+              [:dispatch [:counter/dec]]]
+             (:script spec))))))
+
+(deftest mixed-bare-and-entry-input
+  (testing "an input vector mixing bare event vectors and rich entries
+            still coerces cleanly"
+    (let [spec (export/recording->play-script
+                 [[:counter/inc]
+                  {:kind :dom/click :selector "[data-test=\"b\"]" :t 100}])]
+      (is (= [[:dispatch [:counter/inc]]
+              [:wait 100]
+              [:click "[data-test=\"b\"]"]]
+             (:script spec))))))
+
+(deftest exported-rich-script-survives-runner-parse-spec
+  (testing "rich-entries-derived script passes runner/parse-spec + validate-script clean"
+    (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
+                   {:kind :dom/click :selector "[data-test=\"b\"]" :t 80}
+                   {:kind :dom/type  :selector "[id=\"x\"]" :text "hi" :t 200}]
+          spec    (export/recording->play-script entries {:name "round trip"})
+          parsed  (runner/parse-spec spec)]
+      (is (= (:script spec) (:script parsed))
+          "runner parses identically — no normalisation drift")
+      (is (every? runner/known-step? (:script parsed))
+          "every emitted step is a known runner step")
+      (is (every? runner/step-arity-ok? (:script parsed))
+          "every emitted step has a legal arity")
+      (is (= [] (runner/validate-script (:script parsed)))
+          "no malformed steps"))))
+
+(deftest dom-submit-survives-runner-validation
+  (testing "the :dom/submit best-effort translation produces a valid :click step"
+    (let [entries [{:kind :dom/submit :selector "[id=\"login-form\"]" :t 0}]
+          spec    (export/recording->play-script entries)]
+      (is (= [[:click "[id=\"login-form\"]"]] (:script spec)))
+      (is (= [] (runner/validate-script (:script spec)))))))
+
+;; ---- round-trip: 4-step recording → export → runner-parse → assert -------
+
+(deftest four-step-round-trip
+  (testing "a 4-step interaction (click → type → click → dispatch) survives
+            the full export + parse pipeline"
+    (let [entries [{:kind :dom/click :selector "[data-test=\"open\"]"  :t 0}
+                   {:kind :dom/type  :selector "[id=\"name\"]" :text "alice" :t 200}
+                   {:kind :dom/click :selector "[data-test=\"save\"]"  :t 600}
+                   {:kind :event/dispatch :event [:counter/inc] :t 1100}]
+          spec    (export/recording->play-script entries {:name "round trip"})
+          parsed  (runner/parse-spec spec)]
+      ;; Translation contract — every event lifts and waits insert.
+      (is (= [[:click "[data-test=\"open\"]"]
+              [:wait 200]
+              [:type "[id=\"name\"]" "alice"]
+              [:wait 400]
+              [:click "[data-test=\"save\"]"]
+              [:wait 500]
+              [:dispatch [:counter/inc]]]
+             (:script spec))
+          "all four entries translate; waits insert on each >50ms gap")
+      ;; Runner contract — every emitted step is well-formed.
+      (is (every? runner/known-step? (:script spec)))
+      (is (every? runner/step-arity-ok? (:script spec)))
+      (is (= [] (runner/validate-script (:script spec))))
+      (is (= "round trip" (:name parsed))))))

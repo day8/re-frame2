@@ -66,7 +66,8 @@
   state` carries plus the export-specific options."
   {:open?               false
    :source-id           nil   ; the recorded variant-id (rides into :extends)
-   :events              []    ; captured events snapshot
+   :events              []    ; captured events snapshot (legacy)
+   :entries             []    ; rich :entries snapshot (rf2-d5u89)
    :variant-id          nil   ; the new variant id (user-editable)
    :name                ""    ; optional :name field on the play-script
    :auto-assert?        true
@@ -84,19 +85,24 @@
   "Open the export dialog. `opts`:
 
     :source-id        — the recorded variant-id (rides into `:extends`).
-    :events           — captured events snapshot.
+    :events           — captured events snapshot (legacy bare-vectors).
+    :entries          — rich :entries snapshot (rf2-d5u89). When
+                        non-empty, the translator consumes this in
+                        preference to `:events` so DOM-events + per-
+                        event timestamps flow through to the script.
     :variant-id       — default new-variant id (user-editable inline).
     :final-db         — optional app-db snapshot at recording-end;
                         consumed by the auto-assert option.
 
   Idempotent — opening twice replaces the in-flight state."
-  [{:keys [source-id events variant-id final-db]}]
+  [{:keys [source-id events entries variant-id final-db]}]
   (when config/enabled?
     (reset! ui-dialog
             (assoc initial-state
                    :open?      true
                    :source-id  source-id
                    :events     (vec (or events []))
+                   :entries    (vec (or entries []))
                    :variant-id (or variant-id
                                    (when (qualified-keyword? source-id)
                                      (keyword (namespace source-id)
@@ -122,15 +128,19 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- build-export-from-dialog
-  [{:keys [events source-id variant-id name auto-assert? final-db]}]
-  (export-events/build-export
-    events
-    (cond-> {:variant-id variant-id
-             :extends    source-id
-             :auto-run?  true}
-      (and (string? name) (seq name)) (assoc :name name)
-      auto-assert?                     (assoc :auto-assert? true
-                                              :final-db     final-db))))
+  [{:keys [events entries source-id variant-id name auto-assert? final-db]}]
+  ;; Prefer the rich :entries snapshot when it carries anything —
+  ;; that's where DOM-events + per-event timestamps live (rf2-d5u89).
+  ;; Fall back to the legacy :events vector for back-compat.
+  (let [src (if (seq entries) entries events)]
+    (export-events/build-export
+      src
+      (cond-> {:variant-id variant-id
+               :extends    source-id
+               :auto-run?  true}
+        (and (string? name) (seq name)) (assoc :name name)
+        auto-assert?                     (assoc :auto-assert? true
+                                                :final-db     final-db)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Replay
@@ -368,11 +378,15 @@
 (defn open-from-recorder-dialog!
   "Open the export dialog using the recorder save-dialog's captured
   snapshot. Reads the live frame db at click time so the auto-assert
-  option can derive assertions from real data."
-  [{:keys [events source-id]}]
+  option can derive assertions from real data. Per rf2-d5u89 the
+  caller threads the recorder's `:entries` (rich DOM-event + timing
+  record) alongside `:events` so the translator emits `:click` /
+  `:type` / `:wait` steps when DOM-events were captured."
+  [{:keys [events entries source-id]}]
   (when config/enabled?
     (open-dialog!
       {:source-id source-id
        :events    events
+       :entries   entries
        :final-db  (when source-id
                     (export-events/snapshot-frame-db source-id))})))
