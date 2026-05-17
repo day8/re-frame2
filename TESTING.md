@@ -1,13 +1,46 @@
 # Testing policy
 
-re-frame2 has 4 types of tests:
+## The challenge
+
+re-frame2 has many kinds of tests, and they have very different costs. Fast ones (CLJS unit, JVM unit, lockstep drift) take seconds. Expensive ones (full browser matrix, MCP live conformance, template emitted-app smoke) take many minutes — sometimes a small multiple of that when several stack.
+
+Running everything everywhere makes PRs slow and the dev loop painful. Skipping the expensive ones at the wrong time lets regressions through to release. **The whole point of this document is the system we use to manage that tradeoff.**
+
+## Kinds of tests
+
+| Kind | Cost | What it proves |
+|---|---|---|
+| **CLJS unit** (`test:cljs`, node-test build) | fast | Per-namespace CLJS logic across `implementation/*` + `tools/*`. |
+| **JVM unit** (per-artefact `clojure -M:test`) | fast | CLJC logic + pure helpers (machines, schemas, routing, flows, http, ssr, …); the JVM probes for the React adapters double as classpath/deps wiring checks. |
+| **Lockstep + drift checks** (drift, skill/MCP) | fast | Per-version drift between coordinated artefacts + skill / MCP-server schema. |
+| **JS harness self-tests** (`test:script-policy`, `test:script-helpers`) | fast | The Node-side CI plumbing that runs everything else. |
+| **Browser unit** (`test:browser`, Playwright + headless Chromium) | medium | CLJS behaviour under a real DOM (Reagent / UIx / Helix render paths, event bindings, lifecycle). |
+| **Bundle isolation** (`test:bundle-isolation`, `test:reagent-slim:bundle-isolation`, `test:schemas-bundle`) | medium | Production bundles do not leak `tools/*` symbols; adapter-specific isolation invariants (UIx/Helix Reagent-free; Reagent-Slim without stock-Reagent impl). |
+| **Production-elision** (`test:elision`, `test:browser-prod-elision`, `test:browser-schemas-boundary-prod`) | medium | Non-negotiable production invariants: dev-time sentinels elided in release builds; schemas boundary warn-once contract. |
+| **MCP conformance — wire** (`tools/mcp-conformance` suite) | medium | MCP servers honour the strict `CallToolResultSchema`; trusted-PATH + symlink-safe-unlink helpers. |
+| **MCP conformance — live** (`test:pair2-live-overflow-hermetic`, `test:pair2-live-subscribe`) | expensive | Real pair2-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
+| **Example smoke** (`test:examples`, `test:examples:realworld`) | expensive | Whole-example browser smoke for the runnable examples (cart, counter variants, RealWorld). |
+| **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. |
+| **Causa feature gates** (`test:causa-feature-gate`) | expensive | Causa panel-gallery feature matrix (4-layer chrome, tab navigation, modal/popover behaviour). |
+| **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
+| **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
+
+## How we manage the cost
+
+The cost-management shape is simple:
+
+- **Cheap tests** run on every PR + every checkin. No conditional gating.
+- **Expensive tests** run only when they're needed — gated by a **changed-surface classifier** on PR CI, by **full sweeps** on nightly/manual workflows, and by **release gates** before tagging.
+- **Per-tier scenarios** package these into named workflows so contributors know which gate they're in.
+
+The classifier maps "what files changed" → "which expensive jobs fire on this PR." The full matrix runs nightly + on release candidates regardless of the diff. Skipping the wrong gate at the wrong time is the failure mode the system exists to prevent — the **Placement decision dimensions** section below is the frame for deciding where a new test belongs.
+
+## The 4 tier scenarios (outputs of the management approach above)
 
 1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific command for files touched. Run the always-on PR spine locally, then add the narrow changed surface: JVM artefact, browser, bundle, tool, template, or skill structural tests.
 2. **PR CI** — `.github/workflows/test.yml`. Always runs lockstep drift, skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, and docs link validation for docs PRs. Expensive jobs run only when conservative path filters say the owning surface changed.
 3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/examples/bundle matrix, Story/Causa gates, template emitted-app smoke, and live MCP conformance — kept off the PR critical path.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive workflow. The core pre-release gate; release is cut only after the scheduled/manual expensive suite is green on the release candidate.
-
-The goal: fast, high-signal PR feedback without dropping the expensive browser, bundle, tool, template, and live-MCP coverage needed before release.
 
 ## Local commands
 
