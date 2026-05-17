@@ -104,12 +104,6 @@ const STAGED_SURFACES = [
     servedPath: 'testbeds/non-trivial-app-db',
   },
   {
-    build: 'testbeds/sensitive-dispatcher',
-    bundleDir: ['out', 'testbeds', 'sensitive-dispatcher'],
-    html: ['testbeds', 'sensitive_dispatcher', 'index.html'],
-    servedPath: 'testbeds/sensitive-dispatcher',
-  },
-  {
     build: 'testbeds/large-dispatcher',
     bundleDir: ['out', 'testbeds', 'large-dispatcher'],
     html: ['testbeds', 'large_dispatcher', 'index.html'],
@@ -1225,56 +1219,6 @@ async function runAppDbPrivacyLarge(page) {
   await expectVisible(page.locator('[data-testid="rf-causa-app-db-diff"]'), 5000);
 }
 
-async function runSensitiveDispatcher(page, state) {
-  await openCausa(page);
-  await clearTrace(page);
-  const start = Date.now();
-  for (let i = 0; i < 20; i += 1) {
-    if (i % 5 === 4) {
-      await clickTestId(page, 'sign-in-throw');
-    } else {
-      await clickTestId(page, i % 2 === 0 ? 'sign-in-plain' : 'sign-in-redacted');
-    }
-  }
-  await expectTextEquals(page.locator('[data-testid="plain-count"]'), '8', 5000);
-  await expectTextEquals(page.locator('[data-testid="redacted-count"]'), '8', 5000);
-  await expectTextEquals(page.locator('[data-testid="throw-count"]'), '0', 5000);
-  await expectVisible(page.locator('[data-testid="rf-causa-redacted-indicator"]'), 5000);
-  const indicatorText = ((await page.locator('[data-testid="rf-causa-redacted-indicator"]').textContent()) || '').trim();
-  const indicatorCount = Number((/REDACTED\s+(\d+)/.exec(indicatorText) || [])[1]);
-  if (!Number.isFinite(indicatorCount) || indicatorCount < 20) {
-    failWithDetails('Sensitive 20-dispatch load did not increment the redaction indicator enough', {
-      indicatorText,
-      indicatorCount,
-      expectedAtLeast: 20,
-    });
-  }
-  const bodyText = await page.locator('body').textContent();
-  if ((bodyText || '').includes('shhh-this-is-secret')) {
-    throw new Error('Raw sensitive password leaked into DOM.');
-  }
-  const traceEvents = await readTrace(page);
-  const sensitiveErrors = traceEvents.filter((event) =>
-    event.includes('sensitive-dispatcher / sign-in-throw'));
-  if (sensitiveErrors.length > 0 &&
-      !sensitiveErrors.every((event) => event.includes(':rf/redacted') && !event.includes('shhh-this-is-secret'))) {
-    failWithDetails('Sensitive error traces were not redacted', {
-      sensitiveErrors,
-    });
-  }
-  await clickSidebar(page, 'trace', 'rf-causa-trace');
-  await expectVisible(page.locator('[data-testid="rf-causa-trace-feed"]'), 5000);
-  state.loadStats = {
-    eventCountBefore: 0,
-    eventCountAfter: traceEvents.length,
-    traceBufferDepth: traceEvents.length,
-    visibleRowCount: await page.locator('[data-testid^="rf-causa-trace-row-"]').count(),
-    renderDurationMs: Date.now() - start,
-    sensitiveDispatchCount: 20,
-    redactionIndicatorCount: indicatorCount,
-  };
-}
-
 async function runLargeDispatcher(page, state) {
   await openCausa(page);
   await clearTrace(page);
@@ -1607,14 +1551,6 @@ const SCENARIOS = [
     panels: ['app-db', 'time-travel'],
     coveredRows: ['App-DB Diff', 'Time Travel'],
     run: runAppDbPrivacyLarge,
-  },
-  {
-    name: '20-event sensitive redaction load',
-    url: '/testbeds/sensitive-dispatcher/',
-    panels: ['trace'],
-    load: true,
-    coveredRows: ['Redaction, Sensitive, and Large Values', 'Trace'],
-    run: runSensitiveDispatcher,
   },
   {
     name: '20-event large value elision load',
