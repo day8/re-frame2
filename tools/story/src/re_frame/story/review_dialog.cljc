@@ -397,6 +397,13 @@
                               'discard' button renders left of
                               'copy'. Recorder uses (discards the
                               captured events); save-variant does not.
+     - `:on-export`         — optional `(fn [])` — when provided, an
+                              extra `[Export as :play-script]` button
+                              renders left of 'copy'. The recorder's
+                              save-dialog wires this through to the
+                              play-script export dialog (rf2-x9zsr);
+                              save-variant does not (no recording to
+                              export).
      - `:on-close`          — `(fn [])` invoked on backdrop-click + on
                               the 'close' button.
      - `:data-test-prefix`  — string prefix for all `:data-test`
@@ -405,7 +412,7 @@
                               `\"story-save-variant\"`)."
      [dialog-state
       {:keys [title hint snippet placeholder-id placeholder-input
-              on-edit-id on-copy on-discard on-close data-test-prefix]}]
+              on-edit-id on-copy on-discard on-export on-close data-test-prefix]}]
      (when (:open? dialog-state)
        (let [draft-id     (:draft-id dialog-state)
              effective-id (or draft-id placeholder-id)
@@ -437,6 +444,13 @@
                 :data-test (dtest "discard")
                 :on-click  (fn [_] (on-discard))}
                "discard"])
+            (when on-export
+              [:button
+               {:style     (:btn-muted styles)
+                :data-test (dtest "export")
+                :title     "Export the recording as a :play-script (rich DSL)"
+                :on-click  (fn [_] (on-export))}
+               "export as :play-script"])
             [:button
              {:style     (:btn styles)
               :data-test (dtest "copy")

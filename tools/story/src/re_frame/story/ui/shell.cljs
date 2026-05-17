@@ -60,6 +60,7 @@
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as recorder-ui]
+            [re-frame.story.ui.recorder-export-dialog :as recorder-export-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.share :as share]
@@ -692,6 +693,11 @@
           [recorder-ui/recording-overlay]
           [recorder-ui/assertion-picker]
           [recorder-ui/save-dialog]
+          ;; rf2-x9zsr — Test Codegen :play-script export dialog. Opens
+          ;; off the recorder save-dialog's [export as :play-script]
+          ;; button; stacks above via a higher z-index. Lives in its own
+          ;; ratom so dismiss / reopen doesn't disturb the parent dialog.
+          [recorder-export-ui/export-dialog]
           ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
           ;; alongside the recorder's save dialog — both float above the
           ;; three-pane layout via fixed positioning; both surface the

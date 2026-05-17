@@ -63,10 +63,11 @@
   (:require [cljs.reader]
             [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.config         :as config]
-            [re-frame.story.recorder       :as recorder]
-            [re-frame.story.review-dialog  :as review-dialog]
-            [re-frame.story.ui.state       :as state]))
+            [re-frame.story.config                       :as config]
+            [re-frame.story.recorder                     :as recorder]
+            [re-frame.story.review-dialog                :as review-dialog]
+            [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
+            [re-frame.story.ui.state                     :as state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reagent mirror of the recorder state
@@ -632,5 +633,13 @@
            :on-edit-id        set-draft-id!
            :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
            :on-discard        (fn [] (recorder/clear!) (close-dialog!))
+           ;; rf2-x9zsr — open the :play-script export dialog with the
+           ;; captured snapshot. We DON'T close the parent dialog
+           ;; (user may want to copy the :play form too); the export
+           ;; dialog stacks on top via a higher z-index.
+           :on-export         (fn []
+                                (export-dialog/open-from-recorder-dialog!
+                                  {:events    events
+                                   :source-id source-id}))
            :on-close          close-dialog!
            :data-test-prefix  "story-recorder"})))))
