@@ -28,9 +28,10 @@ Do **not** load this leaf to learn what Causa is — load `tools/causa/README.md
 ```
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
@@ -62,10 +63,10 @@ The recommended host snippet reads one CSS custom property — `--rf-causa-inlin
 
 ```css
 /* Global default — every page */
-:root { --rf-causa-inline-width: 560px; }
+:root { --rf-causa-inline-width: 720px; }
 
 /* Per-route override (e.g. a debugging route that wants more room) */
-.debug-route { --rf-causa-inline-width: 720px; }
+.debug-route { --rf-causa-inline-width: 960px; }
 
 /* Per-user override via a developer stylesheet */
 [data-rf-causa-host] { --rf-causa-inline-width: 380px; }
@@ -73,9 +74,13 @@ The recommended host snippet reads one CSS custom property — `--rf-causa-inlin
 
 Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`, …). The recommended `min-width: 320px` floor prevents the panel from collapsing past readability; remove it if you want unbounded shrink.
 
-The variable is published as `day8.re-frame2-causa.config/default-layout-host-css-var` and the 420px default as `default-layout-host-width` so tooling can refer to them without forking the string. **Causa MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
+The variable is published as `day8.re-frame2-causa.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width` (bumped 420 → 560 under `rf2-9ovfb`) so tooling can refer to them without forking the string. **Causa MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
 
 The recommended host snippet also enables a browser-native drag handle (`resize: horizontal` + `overflow: auto`). The variable seeds the initial width; a user drag overrides it for the page lifetime. Both mechanisms write the same `flex-basis` slot — no parallel sizing channel.
+
+## Brand-accent CSS variable (`--rf-causa-accent`)
+
+Per `rf2-9ovfb`, the same recommended snippet publishes a second CSS custom property — `--rf-causa-accent` — on `:root` carrying Causa's brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s `:accent-violet`). Host stylesheets can read `var(--rf-causa-accent)` anywhere to colour their own dev chrome (resize handles, dock separators, story chips) so it harmonises with Causa without forking the hex. Override on `:root` for a tinted brand variant. Published as `default-accent-css-var` + `default-accent` on the same `config` ns. Same single-source-of-truth rule applies — Causa never sets it from CLJS.
 
 ## Mount lifecycle (defonce, single-shell, hot-reload-safe)
 

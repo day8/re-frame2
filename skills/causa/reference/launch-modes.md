@@ -81,10 +81,11 @@ right):
 ```
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) */
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
@@ -112,8 +113,8 @@ both JS-free:
    width or override per route/per build via the cascade. One
    declaration, no listeners.
    ```css
-   :root { --rf-causa-inline-width: 560px; }       /* global default */
-   .debug-route { --rf-causa-inline-width: 720px; } /* per route */
+   :root { --rf-causa-inline-width: 720px; }        /* global default */
+   .debug-route { --rf-causa-inline-width: 960px; } /* per route */
    ```
 2. **Browser-native drag** — `resize: horizontal` + `overflow: auto`
    gives the host a drag handle in its bottom-right corner. The user

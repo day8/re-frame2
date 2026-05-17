@@ -61,6 +61,28 @@ Below 600px viewport (phones): **Causa refuses to mount** (per lock
 #5). The DOM root creates but the visible UI is a single message
 explaining desktop-only.
 
+### Inline host CSS variables
+
+The default true-inline host (`[data-rf-causa-host]`) is sized and
+themed via two host-readable CSS custom properties. Causa never reads
+or writes these from CLJS — the host's stylesheet is the single
+source of truth.
+
+| Property | Default | Purpose |
+|---|---|---|
+| `--rf-causa-inline-width` | `560px` | `flex-basis` of the inline host. Default bumped 420 → 560 under rf2-9ovfb (Pitch8 field feedback: event vectors with map payloads wrap awkwardly at 420; 560 reads much better for the Event Detail panel). |
+| `--rf-causa-accent` | `#7C5CFF` | Causa's brand violet (matches `:accent-violet` below). Published on `:root` in the recommended host snippet so host stylesheets can colour their own dev chrome (resize handles, dock separators, story chips) to harmonise with Causa without forking the hex (rf2-9ovfb). |
+
+Override either property anywhere up the cascade; the closest
+declaration wins as usual. The published spelling is also exported
+as `day8.re-frame2-causa.config/default-layout-host-css-var` /
+`default-layout-host-width` / `default-accent-css-var` /
+`default-accent` so tooling, docs generators, and the AI co-pilot
+snippet helper can refer to them without forking the string. Full
+contract + drag mechanics in
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) §Layout host contract
+and §Brand-accent CSS variable.
+
 ## The default landing view
 
 On page load after `rf/init!`, when `[data-rf-causa-host]` exists:

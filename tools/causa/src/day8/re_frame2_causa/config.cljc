@@ -43,7 +43,7 @@
 ;; overlay/body-padding dock modes, the recommended host rule reads
 ;; one CSS custom property — Causa documents the property name and
 ;; default; the host's CSS uses it via `var(--rf-causa-inline-width,
-;; 420px)`. Overriding the property anywhere up the cascade (`:root`,
+;; 560px)`. Overriding the property anywhere up the cascade (`:root`,
 ;; an ancestor, the host itself, or a user stylesheet) resizes the
 ;; panel. App content to the right (`#app { flex: 1; min-width: 0 }`)
 ;; remains in normal flow — no hit-test occlusion, no overlay.
@@ -58,7 +58,7 @@
   resize the inline Causa panel by overriding this property in their
   own stylesheet:
 
-      :root { --rf-causa-inline-width: 560px; }
+      :root { --rf-causa-inline-width: 720px; }
 
   Causa never reads this property — sizing is owned by the host's
   layout rule (per spec/011-Launch-Modes.md §Layout host contract).
@@ -69,27 +69,70 @@
 
 (def default-layout-host-width
   "Default value Causa recommends for `--rf-causa-inline-width` when the
-  host does not override it. Matches the historical fixed-pixel default
-  from the pre-rf2-um813 testbed snippets so existing pages render
-  identically after adopting the variable."
-  "420px")
+  host does not override it. Bumped from 420px → 560px per rf2-9ovfb
+  (Pitch8 field feedback: event vectors with map payloads wrap awkwardly
+  at 420px; 560px reads much better for the Event Detail panel)."
+  "560px")
+
+(def default-accent-css-var
+  "Name of the CSS custom property carrying Causa's brand-accent
+  colour (the violet `#7C5CFF` from `theme/tokens.cljc` /
+  `spec/007-UX-IA.md` §Colour system / `:accent-violet`). Published
+  per rf2-9ovfb so:
+
+    - Host application stylesheets can colour their own dev chrome
+      to match Causa (e.g. a resize-handle inset shadow, a dock-
+      mode separator, a Story chip pill) without forking the hex.
+
+          .my-resize-handle { box-shadow: inset 0 0 0 1px var(--rf-causa-accent); }
+
+    - Consumers that prefer the colour with translucency can layer
+      a manual alpha:
+
+          background: rgb(from var(--rf-causa-accent) r g b / 0.35);
+
+      (or pre-CSS-4: `rgba(124, 92, 255, 0.35)` — equivalent to the
+      published hex at 35% alpha, the value Pitch8 eyeballed for
+      resize-drag accents).
+
+  Causa publishes the property on `:root` in the recommended host
+  snippet so the lookup resolves anywhere in the cascade. The host
+  can override it (e.g. for a tinted brand variant) by setting
+  the property on `:root` or any ancestor of the consumer rule.
+
+  Constant exists so tooling (docs generators, the AI co-pilot's
+  snippet helper, Code Connect templates) can refer to the exact
+  spelling without forking the string."
+  "--rf-causa-accent")
+
+(def default-accent
+  "Default value Causa publishes for `--rf-causa-accent` — the
+  violet `#7C5CFF` from `theme/tokens.cljc` (`:accent-violet`).
+  Matches the brand accent catalogued in `spec/007-UX-IA.md`
+  §Colour system."
+  "#7C5CFF")
 
 (def default-layout-host-snippet
   ;; DOM order is `<main>` first, host `<aside>` second — flex flow
   ;; lays the aside on the right of the app column (per spec/011-
   ;; Launch-Modes.md §Layout host contract, rf2-e07yk). CSS uses
-  ;; `var(--rf-causa-inline-width, 420px)` so a host that pastes the
+  ;; `var(--rf-causa-inline-width, 560px)` so a host that pastes the
   ;; snippet verbatim gets:
-  ;;   - identical default geometry (420px flex-basis, 320px floor)
+  ;;   - default geometry (560px flex-basis per rf2-9ovfb, 320px floor)
   ;;   - a single one-line override path:
-  ;;       :root { --rf-causa-inline-width: 560px; }
+  ;;       :root { --rf-causa-inline-width: 720px; }
   ;;   - a user-draggable resize handle via the browser-native
   ;;     `resize: horizontal` + `overflow: auto` on the host
   ;;   - app content to the left stays in normal flex flow
   ;;     (no overlay, no body padding).
+  ;;   - `--rf-causa-accent` published on `:root` (rf2-9ovfb) so
+  ;;     host stylesheets can colour their own dev chrome (resize
+  ;;     handles, dock separators, story chips) to match Causa
+  ;;     without forking the hex. Override on `:root` for a tinted
+  ;;     brand variant.
   ;;
   ;; `box-sizing: border-box` is required so the documented width
-  ;; (the `var(--rf-causa-inline-width, 420px)` value) is the actual
+  ;; (the `var(--rf-causa-inline-width, 560px)` value) is the actual
   ;; rendered width INCLUDING the 1px `border-left` separator. Without
   ;; it, the host renders one pixel wider than the documented value —
   ;; an off-by-one that surfaces in any pixel-exact contract (see
@@ -100,10 +143,11 @@
 </div>
 
 <style>
+  :root { --rf-causa-accent: #7C5CFF; }
   body { margin: 0; }
   .app-shell { display: flex; min-height: 100vh; }
   [data-rf-causa-host] {
-    flex: 0 0 var(--rf-causa-inline-width, 420px);
+    flex: 0 0 var(--rf-causa-inline-width, 560px);
     min-width: 320px;
     box-sizing: border-box;
     border-left: 1px solid #2a2a2a;

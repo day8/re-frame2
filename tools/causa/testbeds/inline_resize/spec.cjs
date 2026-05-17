@@ -5,7 +5,7 @@
  * tools/causa/spec/011-Launch-Modes.md §Resizing the inline host:
  *
  *   - The host's `[data-rf-causa-host]` rule reads
- *     `flex-basis: var(--rf-causa-inline-width, 420px)`.
+ *     `flex-basis: var(--rf-causa-inline-width, 560px)`.
  *   - Overriding the CSS custom property anywhere up the cascade
  *     resizes the inline panel, with no JS, no overlay, no body
  *     padding, and no fork of the host rule.
@@ -15,16 +15,17 @@
  *
  * The spec drives the existing /counter/ example (whose index.html
  * was updated under rf2-um813 to use `var(--rf-causa-inline-width,
- * 420px)` in its host rule). Three contracts are exercised:
+ * 560px)` in its host rule; default bumped 420→560 under rf2-9ovfb).
+ * Three contracts are exercised:
  *
  *   1. **Default geometry pinned.** Without an override, the host
- *      renders at the documented default width (420px) — exact
+ *      renders at the documented default width (560px) — exact
  *      bounding-rect width, not a tolerance — so a regression that
  *      silently drops the fallback in the `var(...)` is loud.
  *
  *   2. **Cascade override takes effect.** Injecting
- *      `:root { --rf-causa-inline-width: 600px; }` resizes the host
- *      to 600px on the very next layout pass. We assert the
+ *      `:root { --rf-causa-inline-width: 720px; }` resizes the host
+ *      to 720px on the very next layout pass. We assert the
  *      bounding-rect width and that the left edge of the host moved
  *      leftward exactly as much as the width grew (the host is pinned
  *      to the shell's right edge, so growing the host extends its left
@@ -52,18 +53,21 @@
 const { expectTextEquals, expectVisible } =
   require('../../../../examples/scripts/spec-helpers.cjs');
 
-// The historical default the recommended host rule uses as the
-// `var(...)`'s fallback. Matches
-// `day8.re-frame2-causa.config/default-layout-host-width`.
-const DEFAULT_HOST_WIDTH_PX = 420;
+// The default the recommended host rule uses as the `var(...)`'s
+// fallback. Matches
+// `day8.re-frame2-causa.config/default-layout-host-width`. Bumped
+// from 420 → 560 under rf2-9ovfb (event vectors with map payloads
+// wrap awkwardly at 420; 560 reads much better for the Event Detail
+// panel).
+const DEFAULT_HOST_WIDTH_PX = 560;
 
 // The deliberate override the spec injects. Chosen to be (a) larger
 // than the default, so the right-edge delta is positive and visible;
 // (b) different enough that a stale snapshot reading the default
 // would fail loudly; (c) compatible with the standard headless
-// viewport (Chromium defaults to 1280×720, so 600 still leaves room
-// for `#app` to render its controls).
-const OVERRIDE_HOST_WIDTH_PX = 600;
+// viewport (Chromium defaults to 1280×720, so 720 still leaves
+// ~560px for `#app` to render its controls).
+const OVERRIDE_HOST_WIDTH_PX = 720;
 
 async function readHostGeometry(page) {
   return page.evaluate(() => {

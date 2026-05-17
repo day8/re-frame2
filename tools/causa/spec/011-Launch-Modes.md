@@ -50,10 +50,11 @@ is the supported host-resize knob — see §Resizing the inline host
 below):
 
 ```css
+:root { --rf-causa-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — see below */
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;              /* the 1px border-left lives inside
                                           the documented width — without
@@ -87,11 +88,11 @@ host rule or falling back to overlay / body-padding dock modes.
 The contract is **JS-free** and **host-owned**: Causa itself does not
 read the property; the host's stylesheet does. The host's
 `[data-rf-causa-host]` rule uses the variable with a default fallback
-identical to the historical fixed-pixel default (420px):
+that matches Causa's recommended default (560px per rf2-9ovfb):
 
 ```css
 [data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 420px);
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
@@ -105,10 +106,10 @@ declaration wins as usual:
 
 ```css
 /* Global default — every page in the app */
-:root { --rf-causa-inline-width: 560px; }
+:root { --rf-causa-inline-width: 720px; }
 
 /* Per-route override (e.g. a debugging route that wants more room) */
-.debug-route { --rf-causa-inline-width: 720px; }
+.debug-route { --rf-causa-inline-width: 960px; }
 
 /* Per-user override via a developer stylesheet */
 [data-rf-causa-host] { --rf-causa-inline-width: 380px; }
@@ -147,7 +148,7 @@ same `flex-basis` slot:
    stylesheet sets the *initial* width and any cascade-level
    overrides (per-route, per-user, per-build). One declaration, no
    pointer events, no runtime cost. This is the path for "the team
-   agreed Causa should default to 560px on the debug route."
+   agreed Causa should default to 720px on the debug route."
 2. **Browser-native drag** (user-controlled, ad-hoc sizing) — the
    `resize: horizontal` + `overflow: auto` pair on
    `[data-rf-causa-host]`. The browser paints a drag-handle in the
@@ -179,6 +180,43 @@ Causa MUST fail loudly but safely: `console.error` with the selector
 and snippet above, plus the same diagnostic exposed through
 `window.day8.re_frame2_causa.status()`. It MUST NOT use `alert()` and
 MUST NOT block host app startup.
+
+### Brand-accent CSS variable
+
+Per `rf2-9ovfb`, the recommended host snippet publishes a second CSS
+custom property — `--rf-causa-accent` — set on `:root` to Causa's
+brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s
+`:accent-violet` and `spec/007-UX-IA.md` §Colour system). Host
+applications can read this variable from anywhere in their own
+stylesheet to colour dev chrome that should harmonise with Causa:
+
+```css
+/* example: a resize-handle inset ring that matches Causa */
+.my-resize-handle:active {
+  box-shadow: inset 0 0 0 1px var(--rf-causa-accent);
+}
+
+/* example: a Story chip pill tinted with the brand accent at 35% */
+.my-story-chip {
+  background: rgb(from var(--rf-causa-accent) r g b / 0.35);
+}
+```
+
+Hosts that want a tinted brand variant (e.g. an experimental theme,
+or a colour-blind-friendly fork) override the property on `:root` or
+any ancestor of the consumer rule:
+
+```css
+:root { --rf-causa-accent: #5570FF; }  /* swap violet → indigo */
+```
+
+The property name and default are published as
+`day8.re-frame2-causa.config/default-accent-css-var` and
+`default-accent` so tooling, docs generators, and the AI co-pilot's
+snippet helper can refer to them without forking the string. As with
+`--rf-causa-inline-width`, Causa MUST NOT introduce a CLJS API that
+*sets* this property from the runtime — the host's stylesheet is the
+single source of truth.
 
 ### Install
 
