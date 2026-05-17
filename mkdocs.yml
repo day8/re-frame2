@@ -138,6 +138,8 @@ nav:
   - Migration:
     - "From re-frame v1": migration/from-re-frame-v1/README.md
     - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
+    - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
+    - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
 
 markdown_extensions:
   - meta
