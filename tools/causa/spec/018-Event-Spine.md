@@ -709,7 +709,7 @@ The single-axis selection that every layer reads from.
 | `:rf.causa/focus-cascade-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.causa/filtered-cascades`; flips `:mode → :retro` if not already at head |
 | `:rf.causa/follow-head` | `⏭` button · `L` key · click mode pill when RETRO | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.causa/toggle-live-pause` | `Space` key · click mode pill when LIVE | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
-| `:rf.causa/set-frame <frame-id>` | Frame picker selection | Writes `:frame` slot; clears `:dispatch-id` to head of new frame |
+| `:rf.causa/set-frame <frame-id>` | Frame picker selection | Writes `:frame` slot; clears `:dispatch-id` to head of new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the same write ALSO re-seeds `:rf.causa/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.causa/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.causa/preview-cascade <id>` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id <id>` transiently; reverts on hover-out without click |
 
 ### Per-layer rebind table
@@ -953,6 +953,41 @@ The browser feature gate that asserts I1 + I3 + I4 together is the canonical iso
 **Gate name:** `tools/causa/test/day8/re_frame2_causa/isolation_test.cljs` (new file). Runs under `npm run test:browser`. **Failure blocks merge.**
 
 **Lint I2:** unit test asserting the dev-time lint predicate throws on a deliberately-misconfigured Causa-namespaced sub feeding a host-data render path; passes on the actual Causa registry. Lives in `tools/causa/test/day8/re_frame2_causa/sub_graph_lint_test.cljs` (new file). Runs under `npm run test:cljs`.
+
+### Multi-frame panel-focus invariant (P) — v1 ships
+
+The four invariants above (I1–I4) keep Causa-internal renders OUT of
+inspected-host-frame panels. The complementary invariant — panels
+follow the picker INTO whichever inspected frame the user picks —
+landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
++ rf2-ug1r6 + rf2-thodq):
+
+| Slot | Owner | What `:rf.causa/set-frame` does |
+|---|---|---|
+| `:focus :frame` | spine | Set to picked frame-id; clears `:dispatch-id` to head of new frame. |
+| `:rf.causa/target-frame` | per-frame projection axis | Re-seeded to picked frame-id. This is the legacy axis the App-db diff + Views composites compose against; pre-fix the picker only wrote the spine's `:focus :frame` and the composites stayed bound to whichever frame was last targeted (commonly `:rf/default`). |
+| `:rf.causa/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db diff's `:selected-epoch-diff` / `:sections` / `:annotated-tree` and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
+
+**Invariant P (Panel follows focus):** every per-frame panel
+composite (App-db diff, Views, Machines, Issues, Trace) MUST refresh
+its data axis on every `:rf.causa/set-frame` write within the same
+dispatch. No panel may persist a frame-binding that survives a picker
+selection. The picker is the single seam that re-routes every
+per-frame surface.
+
+The composite seam `:rf.causa/observed-frame` reads
+`(:frame focus)` first (the spine slot the picker writes; also
+derived by `compose-focus` from the focused cascade) and falls back
+to `:rf.causa/target-frame` so click-on-row picker-less navigation
+also rebinds. Both writes happen in the same `:rf.causa/set-frame`
+reducer so the App-db diff renders the diff body for the picked frame
+on the next render-frame, and the Views panel's `:has-cascade?`
+guard does not flip to `false` between picks.
+
+Test gates: `spine_cljs_test.cljs` pins the `:target-frame` +
+`:epoch-history` writes on both arities of the reducer; the
+`app_db_diff_cljs_test.cljs` + `views_subs_cljs_test.cljs` regression
+suites pin the panel render bodies post-reseed.
 
 ---
 
