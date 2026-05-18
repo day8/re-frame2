@@ -19,8 +19,12 @@
                 (reset! subs/diff-cache {})
                 (reset! subs/annotated-tree-cache {}))}))
 
-(deftest leaf-install-registers-the-ten-subs
+(deftest leaf-install-registers-the-eleven-subs
   (subs/install!)
+  ;; rf2-fvplw — `:rf.causa/observed-frame` is the picker/focus-aware
+  ;; seam that replaces the legacy `:rf.causa/target-frame` read inside
+  ;; `:rf.causa/target-frame-db` + the composite.
+  (is (some? (registrar/handler :sub :rf.causa/observed-frame)))
   (is (some? (registrar/handler :sub :rf.causa/target-frame-db)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-record)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-diff)))

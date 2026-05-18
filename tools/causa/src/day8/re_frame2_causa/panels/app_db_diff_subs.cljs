@@ -52,8 +52,23 @@
 (defn install!
   "Install the App-DB Diff subscriptions."
   []
-  (rf/reg-sub :rf.causa/target-frame-db
+  ;; rf2-fvplw — panel-observed frame follows the spine `:rf.causa/focus`.
+  ;; The frame-picker writes `[:focus :frame]` via `:rf.causa/set-frame`,
+  ;; and `compose-focus` also derives `:frame` from the focused cascade.
+  ;; Without this seam the App-db panel previously read only the legacy
+  ;; `:target-frame` slot (which `:rf.causa/set-frame` does NOT touch),
+  ;; so it stayed hardcoded to `:rf/default` no matter what the user
+  ;; picked. The legacy slot survives as the fallback when no focus has
+  ;; resolved a frame yet (cold start, no focusable cascades) — keeps
+  ;; the boot-time empty-state useful.
+  (rf/reg-sub :rf.causa/observed-frame
+    :<- [:rf.causa/focus]
     :<- [:rf.causa/target-frame]
+    (fn [[focus target] _query]
+      (or (:frame focus) target)))
+
+  (rf/reg-sub :rf.causa/target-frame-db
+    :<- [:rf.causa/observed-frame]
     :<- [:rf.causa/epoch-history]
     (fn [[target _epoch-history] _query]
       (rf/get-frame-db target)))
@@ -156,8 +171,13 @@
         (h/epochs-touching-path history focused-path)
         [])))
 
+  ;; rf2-fvplw — `:target-frame` in the composite output is the
+  ;; *observed* frame (picker-selected / focused-cascade frame), not
+  ;; the legacy `:target-frame` slot. The empty-state body uses this
+  ;; value, so the user always sees the frame their focus is on rather
+  ;; than the hardcoded `:rf/default`.
   (rf/reg-sub :rf.causa/app-db-diff
-    :<- [:rf.causa/target-frame]
+    :<- [:rf.causa/observed-frame]
     :<- [:rf.causa/target-frame-db]
     :<- [:rf.causa/selected-epoch-diff]
     :<- [:rf.causa/selected-epoch-sections]
