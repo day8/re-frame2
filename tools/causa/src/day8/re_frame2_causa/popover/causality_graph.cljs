@@ -28,7 +28,17 @@
 
   The view is pure hiccup per rf2-tijr — the substrate's `rf/render`
   walks the tree. The reactive surface is one subscribe to
-  `:rf.causa/causality-popover-payload` + one to `-layout`."
+  `:rf.causa/causality-popover-payload` + one to `-layout`.
+
+  ## Why dispatches carry `{:frame :rf/causa}` (rf2-w8lxg)
+
+  Same root cause as the popover facade — `:on-click` handlers on the
+  SVG nodes + fallback-list rows fire AFTER React has popped
+  `_currentValue` for the `frame-context` back to `:rf/default`. At
+  click time the 3-tier frame resolution chain falls through to
+  `:rf/default`'s router, the dispatch lands on the wrong frame, and
+  the spine-rebind / popover-close pair silently no-op. Every
+  dispatch from a deferred handler passes `{:frame :rf/causa}`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.popover.causality-graph-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
@@ -216,8 +226,12 @@
                      ;; sees as an app-db write through the popover's
                      ;; toggle-layout-noop slot — or rather, we re-use
                      ;; the existing layout slot's nil → same write to
-                     ;; pulse the reactive graph.
-                     (rf/dispatch [:rf.causa/causality-popover-layout-pulse]))))
+                     ;; pulse the reactive graph. `{:frame :rf/causa}`
+                     ;; explicit (rf2-w8lxg) — this Promise `.then`
+                     ;; resolves AFTER render so the React-context tier
+                     ;; would otherwise route the pulse to `:rf/default`.
+                     (rf/dispatch [:rf.causa/causality-popover-layout-pulse]
+                                  {:frame :rf/causa}))))
           (.catch (fn [_e]
                     ;; Treat layout failure as a transient — the
                     ;; fallback render is still active. The next
@@ -252,8 +266,10 @@
                   (str (subs s 0 (max 0 (dec n))) "…")))]
     [:g {:data-testid (str "rf-causa-popover-node-" dispatch-id)
          :on-click    (fn []
-                        (rf/dispatch [:rf.causa/focus-cascade dispatch-id])
-                        (rf/dispatch [:rf.causa/causality-popover-close]))
+                        (rf/dispatch [:rf.causa/focus-cascade dispatch-id]
+                                     {:frame :rf/causa})
+                        (rf/dispatch [:rf.causa/causality-popover-close]
+                                     {:frame :rf/causa}))
          :style       {:cursor "pointer"}}
      [:rect {:x            x
              :y            y
@@ -348,8 +364,10 @@
                    (catch :default _ (str event)))]
     [:li {:data-testid (str "rf-causa-popover-list-row-" dispatch-id)
           :on-click    (fn []
-                         (rf/dispatch [:rf.causa/focus-cascade dispatch-id])
-                         (rf/dispatch [:rf.causa/causality-popover-close]))
+                         (rf/dispatch [:rf.causa/focus-cascade dispatch-id]
+                                      {:frame :rf/causa})
+                         (rf/dispatch [:rf.causa/causality-popover-close]
+                                      {:frame :rf/causa}))
           :style       {:padding         "6px 12px"
                         :cursor          "pointer"
                         :display         "flex"

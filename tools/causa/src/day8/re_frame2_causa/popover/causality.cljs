@@ -29,7 +29,33 @@
   Per spec §10 §Layout direction the v1 ships TB as the default
   (descendants tree dominates the visual weight). The footer carries
   a toggle button that flips between LR and TB. The chosen direction
-  persists per session in Causa's app-db at `:causality-popover-layout`."
+  persists per session in Causa's app-db at `:causality-popover-layout`.
+
+  ## Why every dispatch carries `{:frame :rf/causa}` (rf2-w8lxg)
+
+  Subscribes resolve through the React-context tier at RENDER time —
+  React's `_currentValue` for the `frame-context` is set to `:rf/causa`
+  while the body of the `frame-provider`'s children is rendering, so
+  `(rf/subscribe …)` from inside the popover picks up the right frame
+  with no explicit opt.
+
+  Dispatches from `:on-click` / `:on-key-down` fire LATER — after
+  render commits and React has POPPED `_currentValue` back to the
+  context's default (`:rf/default`). At click time the 3-tier frame
+  resolution chain (dynamic var → React-context tier → `:rf/default`)
+  falls all the way through, the dispatch lands on `:rf/default`'s
+  router, and the `:rf.causa/causality-popover-*` handler reduces
+  `:rf/default`'s db — leaving Causa's `:causality-popover-*` slots
+  untouched. Symptom: backdrop click, ✕ button, Esc, LR/TB toggle
+  all silently no-op. Sister fix to rf2-smvvz (Settings popup, PR
+  #1465).
+
+  The fix is mechanical: every `rf/dispatch` from a deferred handler
+  carries `{:frame :rf/causa}` so the envelope's `:frame` is set at
+  call time and never depends on the click-time React-context read.
+  The dispatches in `causality_graph.cljs` (node click / list-row
+  click → focus-cascade + popover-close) carry the same opt for the
+  same reason."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.popover.causality-events :as events]
             [day8.re-frame2-causa.popover.causality-subs   :as subs]
@@ -133,7 +159,8 @@
   (when (= "Escape" (.-key e))
     (.preventDefault e)
     (.stopPropagation e)
-    (rf/dispatch [:rf.causa/causality-popover-close])))
+    (rf/dispatch [:rf.causa/causality-popover-close]
+                 {:frame :rf/causa})))
 
 ;; ---- view ----------------------------------------------------------------
 
@@ -160,12 +187,14 @@
     "Layout:"]
    [:button {:data-testid "rf-causa-popover-layout-lr"
              :on-click    #(when (not= :lr layout)
-                             (rf/dispatch [:rf.causa/causality-popover-toggle-layout]))
+                             (rf/dispatch [:rf.causa/causality-popover-toggle-layout]
+                                          {:frame :rf/causa}))
              :style       (toggle-button-style (= :lr layout))}
     "LR"]
    [:button {:data-testid "rf-causa-popover-layout-tb"
              :on-click    #(when (not= :tb layout)
-                             (rf/dispatch [:rf.causa/causality-popover-toggle-layout]))
+                             (rf/dispatch [:rf.causa/causality-popover-toggle-layout]
+                                          {:frame :rf/causa}))
              :style       (toggle-button-style (= :tb layout))}
     "TB"]])
 
@@ -178,7 +207,8 @@
         positioning @(rf/subscribe [:rf.causa/modal-positioning])]
     [:div {:data-testid "rf-causa-popover-backdrop"
            :data-rf-causa-modal-positioning (name (or positioning :fixed))
-           :on-click    #(rf/dispatch [:rf.causa/causality-popover-close])
+           :on-click    #(rf/dispatch [:rf.causa/causality-popover-close]
+                                      {:frame :rf/causa})
            :on-key-down handle-popover-keydown
            :tab-index   -1
            :style       (backdrop-style positioning)}
@@ -194,7 +224,8 @@
                :style {:color (:text-primary tokens)}}
         (header-title payload)]
        [:button {:data-testid "rf-causa-popover-close"
-                 :on-click    #(rf/dispatch [:rf.causa/causality-popover-close])
+                 :on-click    #(rf/dispatch [:rf.causa/causality-popover-close]
+                                            {:frame :rf/causa})
                  :style       (close-button-style)}
         "×"]]
       ;; Body
