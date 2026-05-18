@@ -511,7 +511,7 @@
                  :font-size "13px"}}
    (cond
      (nil? (:current (:focus data)))
-     [:p "Select an event in the list to inspect its views."]
+     [:p "No event focused."]
 
      :else
      [:p "No views rendered this cascade."])])
@@ -545,11 +545,7 @@
         (:heatmap? data)
         [:div {:style {:padding "12px 16px"}}
          (heatmap-bar (:segments (:heatmap data))
-                      (:total-ms (:heatmap data)))
-         [:p {:style {:margin "8px 0 0 0" :font-size "11px"
-                      :color (:text-tertiary tokens)}}
-          "Click a segment to filter the three groups and exit heatmap "
-          "mode. Hover for label."]]
+                      (:total-ms (:heatmap data)))]
 
         (zero? (+ (count (:mounted groups))
                   (count (:rendered groups))

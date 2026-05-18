@@ -515,9 +515,7 @@
       (str (count clusters) " cluster"
            (when (not= 1 (count clusters)) "s")
            " · " (reduce + 0 (map :count clusters)) " instance"
-           (when (not= 1 (reduce + 0 (map :count clusters))) "s")
-           " · "
-           "Shift+click to compare")]
+           (when (not= 1 (reduce + 0 (map :count clusters))) "s"))]
      (if (empty? clusters)
        [:div {:data-testid "rf-causa-mode-c-empty"
               :style {:padding "12px"

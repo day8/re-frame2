@@ -391,8 +391,7 @@
                          :color   (:text-secondary tokens)
                          :font-family sans-stack
                          :font-size "13px"}}
-     "No focused event — click a row in the event list to see its
-      causal graph."]
+     "No focused event."]
     (let [{:keys [ancestors focused descendants]} payload
           desc-nodes (:nodes descendants)
           all (concat ancestors [focused] desc-nodes)]

@@ -90,7 +90,7 @@
                                 [:rf.causa/open-edit-popup
                                  {:source :pill :mode mode :idx idx :pill pill}]
                                 {:frame :rf/causa})
-               :title        "Click to edit"
+               :title        "Edit"
                :style {:background  "transparent"
                        :border      "none"
                        :color       tone
