@@ -10,12 +10,12 @@ re-frame2 surfaces it consumes, so the spec, implementation, and tooling
 travel together.
 
 The docs-site landing page mirrors this index at
-[`docs/skills/index.md`](../docs/skills/index.md) — same six skills, same
+[`docs/skills/index.md`](../docs/skills/index.md) — same seven skills, same
 picking-the-right-one decision flow, hosted on the mkdocs site.
 
 ## Current skills
 
-re-frame2 ships **six** skills, grouped by the situation they cover:
+re-frame2 ships **seven** skills, grouped by the situation they cover:
 
 ### Authoring on the CLJS reference
 
@@ -44,6 +44,15 @@ re-frame2 ships **six** skills, grouped by the situation they cover:
   (judgment-call) rewrites for the author. The migration corpus
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
+
+- **[`re-frame2-improver/`](./re-frame2-improver/)** — critique-mode for
+  **existing** re-frame2 ClojureScript code. Reviews a body of source
+  files (or a user-supplied snippet) against a small catalogue of
+  re-frame2 anti-patterns, surfaces concrete findings cross-linked to
+  canonical idioms under `skills/re-frame2/patterns/`, and may propose
+  inline fixes via `Edit`. Activates only on explicit pull ("review my
+  re-frame2 code", "any anti-patterns?", "audit against best
+  practices"); a body of re-frame2 source must be in scope.
 
 ### Implementing the framework
 
@@ -81,6 +90,8 @@ re-frame2 ships **six** skills, grouped by the situation they cover:
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration
   report is signed off, switch to `re-frame2`.
 - **Writing new code in an existing v2 project?** → `re-frame2`.
+- **Critiquing existing v2 code on explicit pull (anti-pattern audit,
+  "any improvements?")?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language
   or substrate?** → `re-frame2-implementor`.
 - **Debugging or pairing with a running v2 app?** → `re-frame-pair2`.
@@ -90,8 +101,8 @@ re-frame2 ships **six** skills, grouped by the situation they cover:
 ## Skill routing — single source
 
 Each per-skill `SKILL.md` formerly carried its own "When NOT to use this
-skill" table mapping the other five skills' triggers to a route. Those
-30+ cross-referenced cells drift in lockstep. **This section is the
+skill" table mapping the other six skills' triggers to a route. Those
+40+ cross-referenced cells drift in lockstep. **This section is the
 single source of truth**; per-skill `SKILL.md` files point here instead
 of duplicating.
 
