@@ -355,6 +355,8 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
 
 The cache is held inside the frame container (per [002 §What lives in a frame](002-Frames.md#what-lives-in-a-frame)). Two frames running the same `(rf/subscribe [:cart/total])` compute against their own `app-db`s and cache against their own caches; isolation is automatic.
 
+The canonical demo of this rule is the **parallel-frames** testbed at [`tools/causa/testbeds/parallel_frames/`](../tools/causa/testbeds/parallel_frames/) — one app mounted in two `frame-provider`-rooted subtrees (`:above` and `:below`) on one page. Same view source, same registered handlers and subs, two fully isolated reactive contexts that diverge as the user interacts with each independently. There is no cross-frame sub, no cross-frame data routing, no "route data home" pattern — each frame is its own world.
+
 ### Lookup algorithm
 
 ```
