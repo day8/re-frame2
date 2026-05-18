@@ -151,3 +151,8 @@
        (story/configure! {:project-root nil})
        (is (nil? (causa-preset/propagate-project-root!))
            "no propagation when Story's project-root is nil"))))
+
+;; CLJS-only tests for the keybinding-disable bridge (rf2-q7who.1)
+;; live in `re-frame.story.causa-preset-cljs-test` — separate file so
+;; the `:node-test` build's `cljs-test$` ns-regexp picks them up (the
+;; .cljc file's namespace name does not).

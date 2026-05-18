@@ -196,6 +196,59 @@
            (safe-call! "config/configure!" configure! {:project-root root})
            root)))))
 
+;; ---- :launch.keybinding/enabled? bridge (rf2-q7who.1) -------------------
+;;
+;; Causa standalone attaches a window-level capture-phase `keydown`
+;; listener that handles `Ctrl+Shift+C` (shell toggle), `Cmd/Ctrl+K`
+;; (command palette), and the unmodified spine bindings. Story's own
+;; chrome registers its OWN `Cmd/Ctrl+K` command palette — with
+;; Causa's listener attached at the capture phase, Story's palette
+;; binding would never fire because Causa's handler calls
+;; `stopPropagation()` on every key it consumes.
+;;
+;; The fix: when Story drives Causa as RHS (the always-on RHS panel,
+;; rf2-sgdd3), set `:launch.keybinding/enabled? false` on Causa's
+;; config slot so Causa's `keybinding/attach!` short-circuits. Story's
+;; Cmd/Ctrl+K reaches its own command palette; Causa is still
+;; mountable / dispatchable / inspectable via every other surface
+;; (Story owns the open-Causa affordance for the RHS).
+;;
+;; Symmetric to `propagate-project-root!` above — the Story side
+;; bridges a value into Causa's config slot rather than asking every
+;; testbed to call `causa-config/configure!` directly. Standalone
+;; Causa (no Story) is unaffected — only Story-driven mounts disable
+;; the listener.
+;;
+;; Per rf2-4eyik (the sibling bead that shipped the config slot):
+;; "Hosts MUST set this BEFORE the Causa preload runs". Setting it
+;; from `ensure-causa-mounted!` means the slot lands at variant-
+;; selection time, after the preload's `keybinding/attach!` has
+;; already fired with the default `true`. The Causa-side bead is
+;; the slot owner; preload-time sequencing (e.g. a Story preload that
+;; sets the slot before Causa's preload runs) is the follow-on shape
+;; for live runtime collision removal. This wire-up is the in-source
+;; declaration of intent — every embed surface that drives Causa
+;; through `ensure-causa-mounted!` sets the slot, so downstream
+;; load-order fixes have a single canonical site to honour.
+
+#?(:cljs
+   (defn disable-keybinding!
+     "Set Causa's `:launch.keybinding/enabled?` config slot to `false`
+     via `day8.re-frame2-causa.config/configure!`. Returns `true` when
+     the call landed, or `nil` when Causa's `configure!` is not on the
+     classpath (preload absent).
+
+     Called by `ensure-causa-mounted!` so Story-driven Causa-as-RHS
+     mounts never have Causa swallow the host's global keybindings
+     (typically `Cmd/Ctrl+K` for Story's command palette). Per
+     rf2-q7who.1 (rf2-4eyik sibling on the Causa side). Idempotent —
+     writing `false` over an existing `false` is a plain reset!."
+     []
+     (when (and config/enabled? (causa-config-available?))
+       (when-let [configure! (resolve-fn 'day8.re-frame2-causa.config/configure!)]
+         (safe-call! "config/configure!" configure! {:launch.keybinding/enabled? false})
+         true))))
+
 #?(:cljs
    (defn ensure-causa-mounted!
      "Always-on entry point used by the Story shell (rf2-sgdd3) to drive
@@ -212,10 +265,16 @@
      rf2-r1uod: also propagates Story's configured `:project-root`
      into Causa's config slot so the Causa-as-RHS source-coord chips
      resolve absolute on-disk paths. The propagator is no-op-safe when
-     Story has no `:project-root` configured."
+     Story has no `:project-root` configured.
+
+     rf2-q7who.1: also disables Causa's global keybinding listener via
+     `:launch.keybinding/enabled? false` so Story's own Cmd/Ctrl+K
+     command palette is not swallowed by Causa's capture-phase
+     listener. The slot is idempotent on every variant edge."
      []
      (when (and config/enabled? (causa-available?))
        (propagate-project-root!)
+       (disable-keybinding!)
        (apply-open!))))
 
 #?(:cljs
