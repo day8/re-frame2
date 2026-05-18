@@ -8,13 +8,14 @@
   `:rf.causa/settings-open?` is false; closed-state cost is one
   subscribe + a `when`.
 
-  ## Sections (this bead — rf2-9poxq)
+  ## Sections (rf2-9poxq + rf2-jh9ws)
 
-  General | Filters | Theme | Telemetry — a top tab strip drives
-  which body section renders. The full spec/018 §9 catalogue
-  (Keybindings, Buffer, Popout, Actions) is deferred to follow-on
-  beads; this bead ships the four sections enumerated in the bead's
-  contract.
+  General | Filters | Theme — a top tab strip drives which body
+  section renders. The full spec/018 §9 catalogue (Keybindings,
+  Buffer, Popout, Actions) is deferred to follow-on beads. The
+  Telemetry tab was removed (rf2-jh9ws) — Causa ships no telemetry
+  endpoint and the v1 toggle was a broken affordance; per the text
+  audit (rf2-yn86j) the chrome must not pretend.
 
   ## Modal layer
 

@@ -526,10 +526,10 @@
 ;; ---- settings popup defaults + persistence (rf2-9poxq) ------------------
 ;;
 ;; The Settings popup modal (`settings/popup.cljs`) reads + writes a
-;; settings map carrying user preferences for general / theme /
-;; telemetry knobs. Defaults are catalogued here; the live values
-;; round-trip through localStorage under the key below so they survive
-;; reload (CLJS only — the JVM target reads/writes the in-memory atom).
+;; settings map carrying user preferences for general / theme knobs.
+;; Defaults are catalogued here; the live values round-trip through
+;; localStorage under the key below so they survive reload (CLJS only
+;; — the JVM target reads/writes the in-memory atom).
 ;;
 ;; ## Why a single nested map
 ;;
@@ -540,9 +540,8 @@
 ;; subscription contract) folds onto `get-in` / `assoc-in` over the
 ;; same shape.
 ;;
-;; ## Locked decisions (rf2-9poxq R3)
+;; ## Locked decisions (rf2-9poxq R3, rf2-jh9ws)
 ;;
-;; - telemetry default OFF (opt-in)
 ;; - auto-open-on-error default OFF (the user is in their app, not
 ;;   asking for Causa to interrupt them)
 ;; - panel-position default `:right-rail` (matches the existing
@@ -553,6 +552,16 @@
 ;;   :body` — the popup's slider is the one knob that scales every
 ;;   subsequent inline-style reads via the published CSS custom
 ;;   property `--rf-causa-text-size`).
+;;
+;; ## Migration (rf2-jh9ws)
+;;
+;; Settings persisted with `:telemetry` key from prior sessions
+;; should NOT break. `load-settings-from-storage!` deep-merges over
+;; `default-settings` per-known-section, so any legacy `:telemetry`
+;; key in the persisted payload is silently dropped (the merge target
+;; no longer carries the slot). Same for `update-setting!` —
+;; `valid-section-key?` rejects unknown `[section key]` paths so a
+;; rogue `[:telemetry :opt-in?]` write is a no-op + a tap>.
 
 (def settings-storage-key
   "localStorage key the settings round-trip uses. Versioned so a future
@@ -568,8 +577,7 @@
   {:general   {:text-size           13              ; px — slider range 10–18
                :panel-position      :right-rail     ; :right-rail | :popout | :fullscreen
                :auto-open-on-error? false}
-   :theme     :dark                                  ; :dark | :light
-   :telemetry {:opt-in? false}})
+   :theme     :dark})                                ; :dark | :light
 
 (defonce
   ^{:doc "Atom holding the live settings map. Seeded with
@@ -681,7 +689,13 @@
      deep-merge over the in-memory defaults. Idempotent — safe to call
      more than once. Failures (no window, no localStorage, malformed
      payload) degrade silently to the defaults the atom already holds.
-     Called from the preload's side-effect block on CLJS startup."
+     Called from the preload's side-effect block on CLJS startup.
+
+     Per rf2-jh9ws: legacy `:telemetry` keys (from sessions prior to
+     the Telemetry section's removal) are silently dropped — the
+     per-section merge below only knows about known slots, so any
+     unknown top-level key in the persisted payload falls on the
+     floor without throwing."
      []
      (try
        (when-let [raw (storage-get settings-storage-key)]
@@ -691,8 +705,7 @@
                      (-> default-settings
                          (update :general merge (:general parsed))
                          (assoc  :theme  (or (:theme parsed)
-                                             (:theme default-settings)))
-                         (update :telemetry merge (:telemetry parsed)))))))
+                                             (:theme default-settings))))))))
        (catch :default _ nil))
      nil))
 
@@ -881,14 +894,16 @@
   ;; NB: `settings` here is the destructured bulk-config map; the
   ;; in-namespace defonce atom is reached via the fully-qualified
   ;; symbol (`day8.re-frame2-causa.config/settings`) to disambiguate.
+  ;; rf2-jh9ws: legacy `:telemetry` keys in the bulk-config map are
+  ;; silently dropped — the per-section merge here only knows about
+  ;; known slots.
   (when (contains? opts :settings)
     (when (map? settings)
       (reset! day8.re-frame2-causa.config/settings
               (-> default-settings
                   (update :general merge (:general settings))
                   (assoc  :theme  (or (:theme settings)
-                                      (:theme default-settings)))
-                  (update :telemetry merge (:telemetry settings))))
+                                      (:theme default-settings)))))
       #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed

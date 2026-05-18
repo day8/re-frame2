@@ -37,8 +37,7 @@
     (is (= :right-rail
               (config/get-setting :general :panel-position)))
     (is (= false  (config/get-setting :general :auto-open-on-error?)))
-    (is (= :dark  (config/get-setting :theme nil)))
-    (is (= false  (config/get-setting :telemetry :opt-in?)))))
+    (is (= :dark  (config/get-setting :theme nil)))))
 
 ;; ---- per-setting round-trip --------------------------------------------
 
@@ -75,12 +74,24 @@
   (config/load-settings-from-storage!)
   (is (= :light (config/get-setting :theme nil))))
 
-(deftest telemetry-opt-in-round-trips
-  (config/update-setting! :telemetry :opt-in? true)
-  (is (true? (config/get-setting :telemetry :opt-in?)))
+(deftest legacy-telemetry-key-is-silently-dropped
+  ;; rf2-jh9ws: settings persisted from prior sessions with a
+  ;; `:telemetry` key (the section was removed because no telemetry
+  ;; endpoint exists) must not break load. The per-section merge in
+  ;; `load-settings-from-storage!` only knows the surviving slots, so
+  ;; the legacy key falls on the floor without throwing.
+  (#'config/storage-set! config/settings-storage-key
+                         (pr-str {:general   {:text-size 15}
+                                  :theme     :light
+                                  :telemetry {:opt-in? true}}))
   (reset! config/settings config/default-settings)
   (config/load-settings-from-storage!)
-  (is (true? (config/get-setting :telemetry :opt-in?))))
+  (is (= 15 (config/get-setting :general :text-size))
+      "known slots load cleanly")
+  (is (= :light (config/get-setting :theme nil))
+      "known slots load cleanly")
+  (is (nil? (:telemetry @config/settings))
+      "legacy :telemetry key is silently dropped"))
 
 ;; ---- reset ------------------------------------------------------------
 
@@ -111,6 +122,9 @@
 ;; ---- bulk configure! :settings ----------------------------------------
 
 (deftest configure-settings-bulk-replaces
+  ;; rf2-jh9ws: legacy `:telemetry` key in the bulk-config map is
+  ;; silently dropped — known slots round-trip; unknown slots fall
+  ;; on the floor.
   (config/configure! {:settings {:general   {:text-size 15
                                              :panel-position :fullscreen
                                              :auto-open-on-error? true}
@@ -120,7 +134,8 @@
   (is (= :fullscreen (config/get-setting :general :panel-position)))
   (is (true? (config/get-setting :general :auto-open-on-error?)))
   (is (= :light (config/get-setting :theme nil)))
-  (is (true? (config/get-setting :telemetry :opt-in?)))
+  (is (nil? (:telemetry @config/settings))
+      "legacy :telemetry key dropped by per-section merge")
   (is (some? (storage-payload))
       "bulk configure round-trips to localStorage"))
 
@@ -130,5 +145,4 @@
   ;; Other general slots keep their defaults
   (is (= :right-rail (config/get-setting :general :panel-position)))
   (is (= false (config/get-setting :general :auto-open-on-error?)))
-  (is (= :dark (config/get-setting :theme nil)))
-  (is (= false (config/get-setting :telemetry :opt-in?))))
+  (is (= :dark (config/get-setting :theme nil))))

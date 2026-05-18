@@ -149,14 +149,18 @@
 ;; ---- tab strip ----------------------------------------------------------
 
 (def ^:private tabs
-  "Ordered tab list. Per the bead's contract the modal carries four
-  sections (General | Filters | Theme | Telemetry). Tab id matches
-  the `:rf.causa/settings-update` `section` for sections that map
-  1:1 to a settings slot."
+  "Ordered tab list. The modal carries three sections
+  (General | Filters | Theme). Tab id matches the
+  `:rf.causa/settings-update` `section` for sections that map 1:1
+  to a settings slot.
+
+  Telemetry was removed (rf2-jh9ws): Causa ships no telemetry
+  endpoint, and the toggle in v1 was a broken affordance — silent
+  by default, no broken claims (per text-audit rf2-yn86j). When
+  telemetry actually ships, the tab returns with real wiring."
   [{:id :general   :label "General"}
    {:id :filters   :label "Filters"}
-   {:id :theme     :label "Theme"}
-   {:id :telemetry :label "Telemetry"}])
+   {:id :theme     :label "Theme"}])
 
 (defn- tab-button [{:keys [id label]} active?]
   [:button {:data-testid (str "rf-causa-settings-tab-" (name id))
@@ -299,36 +303,6 @@
        "Light / dark only for v1. Accent picker arrives in a later "
        "release."]]]))
 
-;; ---- section: Telemetry -------------------------------------------------
-
-(defn- telemetry-section []
-  (let [opt-in? @(rf/subscribe [:rf.causa/setting :telemetry :opt-in?])]
-    [:div {:data-testid "rf-causa-settings-section-telemetry"}
-     [:h2 {:style (section-heading-style)} "Telemetry"]
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-causa-settings-telemetry-opt-in"
-                :type        "checkbox"
-                :checked     (boolean opt-in?)
-                :on-change   #(rf/dispatch
-                                [:rf.causa/settings-update
-                                 :telemetry :opt-in?
-                                 (boolean (.. % -target -checked))])}]
-       "Send anonymous usage telemetry to help improve Causa"]
-      [:p {:style (hint-style)}
-       "Off by default. When on, Causa sends panel-open counts and "
-       "feature-use frequency to the project. No event payloads, no "
-       "app-db contents — see "
-       [:a {:href   "https://github.com/day8/re-frame2/blob/main/tools/causa/spec/Conventions.md"
-            :target "_blank"
-            :rel    "noreferrer"
-            :style  {:color (:cyan tokens) :text-decoration "underline"}}
-        "the privacy doc"]
-       " for the exact list."]]]))
-
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-keydown
@@ -383,5 +357,4 @@
          :general   (general-section)
          :filters   (filters-section)
          :theme     (theme-section)
-         :telemetry (telemetry-section)
          (general-section))]]]))

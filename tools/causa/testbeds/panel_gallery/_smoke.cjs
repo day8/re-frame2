@@ -132,15 +132,17 @@ function waitForReady(url, timeoutMs) {
         cardTestid:  'panel-gallery-chrome-card',
         expectedAtLeast: 10,
       },
-      // Settings popup workspace (rf2-mpn8m) — 4 variants. Each
-      // cell mounts the chrome + opens the Settings popup on a
-      // different tab (General / Filters / Theme / Telemetry).
-      // Same shared :rf/causa caveat as the chrome workspace.
+      // Settings popup workspace (rf2-mpn8m, rf2-jh9ws) — 3
+      // variants. Each cell mounts the chrome + opens the Settings
+      // popup on a different tab (General / Filters / Theme). The
+      // Telemetry tab was removed (rf2-jh9ws) because no telemetry
+      // endpoint exists — chrome must not pretend. Same shared
+      // :rf/causa caveat as the chrome workspace.
       {
         id:          'settings-popup',
         workspaceRe: /Workspace\.causa\.settings-popup\/all/,
         cardTestid:  'panel-gallery-chrome-card',
-        expectedAtLeast: 4,
+        expectedAtLeast: 3,
       },
       // Auto-filter pill + edit-popup workspace (rf2-kbrkx) — 5
       // variants. Each cell mounts the chrome and either seeds

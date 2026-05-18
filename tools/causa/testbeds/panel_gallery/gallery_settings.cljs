@@ -44,8 +44,10 @@
 
   (story/reg-tag :feature/causa-settings-popup
     {:axis :feature
-     :doc  "Causa Settings popup modal — 4-tab strip (General /
-            Filters / Theme / Telemetry) per spec/018-Event-Spine §9."})
+     :doc  "Causa Settings popup modal — 3-tab strip (General /
+            Filters / Theme) per spec/018-Event-Spine §9. Telemetry
+            tab removed per rf2-jh9ws (no endpoint exists; chrome
+            must not pretend)."})
 
   (story/reg-story :story.causa.settings-popup
     {:doc        "Visual gallery of the Causa Settings popup modal.
@@ -112,22 +114,8 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4. Telemetry tab — opt-in checkbox checked.
-  (story/reg-variant :story.causa.settings-popup/telemetry-opt-in
-    {:doc        "Settings popup open on Telemetry tab with the
-                 anonymous-usage opt-in checkbox checked. v1
-                 ships the toggle round-tripped only (no live
-                 telemetry side-effect) — the popup contract is
-                 the user-facing surface."
-     :events     [[:panel-gallery.chrome/seed!
-                   {:trace-buffer (fixtures/n-cascades 3)
-                    :selected-tab :event
-                    :after-seeds
-                    [[:rf.causa/settings-update :telemetry :opt-in? true]
-                     [:rf.causa/settings-open]
-                     [:rf.causa/settings-select-tab :telemetry]]}]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
+  ;; (Telemetry tab removed per rf2-jh9ws — no endpoint exists,
+  ;; chrome must not pretend; section + variant deleted.)
 
   ;; ----- workspace ---------------------------------------------------
   ;;
@@ -136,7 +124,7 @@
   ;; The last variant to seed wins the shared interior; canvas-mode
   ;; (sidebar pick) is where per-variant fidelity is fully observable.
   (story/reg-workspace :Workspace.causa.settings-popup/all
-    {:doc      "All four Settings popup variants. The chrome
+    {:doc      "All three Settings popup variants. The chrome
                 internally wraps :rf/causa via a hardcoded frame-
                 provider, so workspace cells share interior state —
                 see canvas-mode (sidebar pick) for per-variant
