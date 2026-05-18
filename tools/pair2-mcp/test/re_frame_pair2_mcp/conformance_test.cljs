@@ -139,7 +139,9 @@
   resolve so a fixture's `:fixture/eval-form-must-contain` slot can
   pin the SHAPE of the form sent over nREPL — used by the rf2-c2dtu
   raw-state fixtures to verify the gate forces
-  `:rf.size/include-sensitive? false` server-side."
+  `:rf.size/include-sensitive? false` server-side (the walker-option
+  namespaced keyword, NOT the wire-key — the wire-key is the
+  unqualified `:include-sensitive` post-rf2-ihq4d)."
   [eval-script forms-seen body-fn]
   (let [orig nrepl/cljs-eval-value
         stub (fn
@@ -536,15 +538,18 @@
      :edn-submap {:ok? true :tool "get-pair2-instructions"}}}
 
    ;; ---------- rf2-c2dtu raw-state boot-gate -----------------------------
-   ;; The default-OFF gate forces `:include-sensitive? false` AND
+   ;; The default-OFF gate forces `:include-sensitive false` AND
    ;; `:elision true` on every snapshot / get-path / subscribe call,
    ;; regardless of the per-call arg. The gate-ON path defers to the
-   ;; caller's args (pre-rf2-c2dtu posture).
+   ;; caller's args (pre-rf2-c2dtu posture). The wire-key drops the
+   ;; trailing `?` post-rf2-ihq4d; the namespaced walker-option keyword
+   ;; `:rf.size/include-sensitive?` retains it (internal framework key,
+   ;; not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
-    :fixture/doc   "Gate OFF + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/doc   "Gate OFF + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? false."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
-    :fixture/args  {:frames "all" :include-sensitive? true}
+    :fixture/args  {:frames "all" :include-sensitive true}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
@@ -556,10 +561,10 @@
     {:isError? false}}
 
    {:fixture/id    :raw-state/snapshot-opt-in-honours-arg
-    :fixture/doc   "Gate ON + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/doc   "Gate ON + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? true."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? true
-    :fixture/args  {:frames "all" :include-sensitive? true}
+    :fixture/args  {:frames "all" :include-sensitive true}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
@@ -598,10 +603,10 @@
     {:isError? false}}
 
    {:fixture/id    :raw-state/get-path-gated-default-forces-redact
-    :fixture/doc   "get-path: gate OFF + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/doc   "get-path: gate OFF + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? false."
     :fixture/tool  "get-path"
     :fixture/allow-raw-state? false
-    :fixture/args  {:path "[:user :token]" :include-sensitive? true}
+    :fixture/args  {:path "[:user :token]" :include-sensitive true}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
      [:default                    {:ok? true :exists? true :path [:user :token]
@@ -613,10 +618,10 @@
     {:isError? false}}
 
    {:fixture/id    :raw-state/get-path-opt-in-honours-arg
-    :fixture/doc   "get-path: gate ON + caller passes :include-sensitive? true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/doc   "get-path: gate ON + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? true."
     :fixture/tool  "get-path"
     :fixture/allow-raw-state? true
-    :fixture/args  {:path "[:user :token]" :include-sensitive? true}
+    :fixture/args  {:path "[:user :token]" :include-sensitive true}
     :fixture/eval-script
     [["__re_frame_pair2_runtime"  true]
      [:default                    {:ok? true :exists? true :path [:user :token]

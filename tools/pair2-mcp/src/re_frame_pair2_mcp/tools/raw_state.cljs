@@ -3,7 +3,7 @@
 
   Pair2-mcp's direct-read surfaces (`snapshot`, `get-path`, `subscribe`
   on `:epoch`) can return verbatim slices of a live app's state. The
-  framework's per-call privacy table already defaults `:include-sensitive?`
+  framework's per-call privacy table already defaults `:include-sensitive`
   to `false` and `:elision` to `true`, but a caller can still opt in
   to raw state by passing the args explicitly — and the preload runtime's
   `app-db-reset!` emits both before- and after-states through `tap>`
@@ -12,7 +12,7 @@
   The boot-gate closes both holes. When `--allow-raw-state` is OFF (the
   published-build default), pair2-mcp:
 
-  1. FORCES `:include-sensitive? false` on every snapshot / get-path /
+  1. FORCES `:include-sensitive false` on every snapshot / get-path /
      subscribe call, regardless of what the caller passed. The
      `force-redact?` predicate is the single arbiter.
   2. FORCES `:elision true` on every snapshot / get-path call,
@@ -51,16 +51,16 @@
   @allow-raw-state?)
 
 (defn force-redact?
-  "When the boot gate is OFF, per-call `:include-sensitive? true` must
+  "When the boot gate is OFF, per-call `:include-sensitive true` must
   not be honoured — return `true` so callers force the walker's
   `:rf.size/include-sensitive?` to `false`. When the boot gate is ON
   (operator opted in at server launch), the per-call arg wins; return
   `false`.
 
   Used by the snapshot / get-path / subscribe tool bodies to wrap the
-  `parse-bool-arg :include-sensitive?` value:
+  `parse-bool-arg :include-sensitive` value:
 
-      (let [incl? (args/parse-bool-arg raw-args :include-sensitive?)
+      (let [incl? (args/parse-bool-arg raw-args :include-sensitive)
             incl? (if (raw-state/force-redact?) false incl?)]
         ...)"
   []

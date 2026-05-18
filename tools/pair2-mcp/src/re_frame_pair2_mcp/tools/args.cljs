@@ -47,7 +47,13 @@
 ;;   :elision            true   — size-elision wins shrink-by-default
 ;;   :cache              false  — per-call cache is opt-in until agent
 ;;                                hosts have been taught the marker
-;;   :include-sensitive? false  — spec/009 MUST default-suppress
+;;   :include-sensitive  false  — spec/009 MUST default-suppress.
+;;                                Wire-key drops the trailing `?` per
+;;                                rf2-y710n + rf2-ihq4d: Anthropic's
+;;                                tool-input-schema regex
+;;                                `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`.
+;;                                The predicate FUNCTION name retains `?`
+;;                                (idiom on predicates, not on data keys).
 ;;
 ;; Callers reach in via `parse-bool-arg`
 ;; (`(args/parse-bool-arg raw-args :dedup)`). The dispatcher and per-
@@ -56,10 +62,10 @@
 
 (def bool-args
   "Cross-tool boolean MCP args + their default postures (rf2-c4fmh)."
-  {:dedup              {:default true}
-   :elision            {:default true}
-   :cache              {:default false}
-   :include-sensitive? {:default false}})
+  {:dedup             {:default true}
+   :elision           {:default true}
+   :cache             {:default false}
+   :include-sensitive {:default false}})
 
 (defn parse-bool-arg
   "Resolve a boolean MCP arg by name. Returns the per-arg default from

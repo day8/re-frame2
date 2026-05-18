@@ -34,7 +34,7 @@
         ;; still fires. `force-elision?` is the single arbiter.
         elision?  (or (args/parse-bool-arg raw-args :elision)
                       (raw-state/force-elision?))
-        ;; rf2-vflrg — `:include-sensitive?` threads into the walker's
+        ;; rf2-vflrg — `:include-sensitive` threads into the walker's
         ;; `:rf.size/include-sensitive?` opt. Off-box default per
         ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
         ;; get-path`: declared-sensitive slots redact unless the caller
@@ -42,11 +42,11 @@
         ;; (rf2-c4fmh) gates the default at `false`.
         ;;
         ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
-        ;; the per-call `:include-sensitive? true` arg is dropped before
+        ;; the per-call `:include-sensitive true` arg is dropped before
         ;; reaching the walker.
         incl?     (if (raw-state/force-redact?)
                     false
-                    (args/parse-bool-arg raw-args :include-sensitive?))]
+                    (args/parse-bool-arg raw-args :include-sensitive))]
     (cond
       (nil? path)
       (js/Promise.resolve

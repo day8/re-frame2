@@ -8,11 +8,13 @@
   event inside such a registration's handler scope; an event with no
   such stamp (or `:sensitive? false`) is fine to forward.
 
-  Opt-in escape hatch: an MCP arg of `:include-sensitive? true` (on
+  Opt-in escape hatch: an MCP arg of `:include-sensitive true` (on
   any read/stream tool that surfaces trace-like data) removes the
   filter for that call. The default is off — apps that want sensitive
   cascades visible to the pair tool configure the policy explicitly.
-  The arg is parsed by the shared
+  The wire-key drops the trailing `?` per rf2-y710n + rf2-ihq4d —
+  Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects
+  the predicate `?`. The arg is parsed by the shared
   `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh)."
   (:require [re-frame.mcp-base.sensitive :as base-sensitive]))
 

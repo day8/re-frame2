@@ -24,13 +24,13 @@
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
         ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces both
-        ;; `:include-sensitive?` to false AND `:elision` to true when
+        ;; `:include-sensitive` to false AND `:elision` to true when
         ;; OFF (the default). The per-call args are still parsed (so the
         ;; response envelope reports the effective post-gate value), but
         ;; the gate wins.
         incl?       (if (raw-state/force-redact?)
                       false
-                      (args/parse-bool-arg raw-args :include-sensitive?))
+                      (args/parse-bool-arg raw-args :include-sensitive))
         path        (args/parse-path-arg (wire/arg raw-args :path))
         mode        (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         ;; Global lazy-summary mode (rf2-u2029): `:summary` (default)
@@ -60,7 +60,7 @@
         ;; for sub-cache and get-path` contract: BOTH the `:app-db` and
         ;; `:sub-cache` direct-read surfaces MUST honour
         ;; `:rf.size/include-sensitive?` (default false ⇒ sensitive
-        ;; slots redact). The `include-sensitive?` MCP arg threads into
+        ;; slots redact). The `include-sensitive` MCP arg threads into
         ;; the walker's opt of the same shape via
         ;; `elision-opts-edn`'s two-arity form. Off-box defaults apply.
         ;;

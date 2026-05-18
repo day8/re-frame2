@@ -111,14 +111,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest spec-009-default-posture-is-suppress
-  (testing "the default (include-sensitive? omitted ⇒ false) suppresses"
+  (testing "the default (include-sensitive omitted ⇒ false) suppresses"
     (let [sensitive-batch [{:operation :event/dispatched
                             :tags      {:event-id :auth/sign-in}
                             :sensitive? true}]
           [kept dropped] (sensitive/strip-sensitive sensitive-batch false)]
       (is (= [] kept) "sensitive event must NOT reach the agent surface by default")
       (is (= 1 dropped))))
-  (testing "include-sensitive? true is the documented opt-in"
+  (testing "include-sensitive true is the documented opt-in"
     (let [sensitive-batch [{:operation :event/dispatched
                             :tags      {:event-id :auth/sign-in}
                             :sensitive? true}]
@@ -280,7 +280,7 @@
     (is (= 2 dropped))))
 
 (deftest strip-sensitive-include-opt-in-keeps-epoch-with-sensitive-constituent
-  ;; `:include-sensitive? true` is the documented escape hatch — even
+  ;; `:include-sensitive true` is the documented escape hatch — even
   ;; epochs carrying sensitive constituents pass through unchanged.
   (let [epochs [{:epoch-id 1 :trace-events [{:operation :run-end :sensitive? true}]}
                 {:epoch-id 2 :sensitive? true}]

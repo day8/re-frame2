@@ -14,11 +14,17 @@
 
   ## Cross-server convention
 
-  The opt-in arg name (`:include-sensitive?`) is the fixed, cross-
+  The opt-in arg name (`:include-sensitive`) is the fixed, cross-
   server vocabulary an agent learns once. Every MCP tool that surfaces
   trace-like data MUST accept this arg, default it to false, and feed
   it to `strip-sensitive` (and any analogous walker that recurses
-  through snapshot slices).
+  through snapshot slices). The wire-key omits the trailing `?` per
+  Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` —
+  predicate-style `?` is rejected there. The predicate FUNCTION name
+  `include-sensitive?` retains its `?` (the idiom belongs on the
+  predicate, not on a data key whose wire form disallows it).
+  story-mcp ships the renamed wire-key (rf2-y710n); pair2-mcp still
+  carries `:include-sensitive?` pending rf2-ihq4d.
 
   ## Why this ns is zero-dep
 

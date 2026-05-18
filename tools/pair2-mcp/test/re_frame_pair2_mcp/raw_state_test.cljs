@@ -28,7 +28,7 @@
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/allow-raw-state-enabled?)))
   (is (true?  (raw-state/force-redact?))
-      "Gate OFF ⇒ force-redact? true so :include-sensitive? collapses to false")
+      "Gate OFF ⇒ force-redact? true so :include-sensitive collapses to false")
   (is (true?  (raw-state/force-elision?))
       "Gate OFF ⇒ force-elision? true so :elision collapses to true"))
 
@@ -41,7 +41,7 @@
   (raw-state/set-allow-raw-state! true)
   (is (true?  (raw-state/allow-raw-state-enabled?)))
   (is (false? (raw-state/force-redact?))
-      "Gate ON ⇒ caller's :include-sensitive? arg wins")
+      "Gate ON ⇒ caller's :include-sensitive arg wins")
   (is (false? (raw-state/force-elision?))
       "Gate ON ⇒ caller's :elision arg wins")
   ;; Restore for downstream tests.

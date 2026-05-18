@@ -79,7 +79,7 @@ The server auto-discovers the nREPL port from (in order):
 | Flag                  | Default | What it does                                                                         |
 |-----------------------|---------|--------------------------------------------------------------------------------------|
 | `--allow-eval`        | OFF     | Enable the `eval-cljs` tool. Default-OFF gate (rf2-cxx5s); see "eval-cljs gate" below. |
-| `--allow-raw-state`   | OFF     | Honour caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu); see "raw-state gate" below. |
+| `--allow-raw-state`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu); see "raw-state gate" below. |
 
 #### eval-cljs gate (rf2-cxx5s)
 
@@ -111,7 +111,7 @@ app's state. Spec 009 §Privacy mandates default-suppression: sensitive
 slots redact and large slots elide before any payload crosses the
 LLM-facing wire. Published builds ship with the gate **OFF**:
 
-- A caller's `:include-sensitive? true` is overridden to `false`.
+- A caller's `:include-sensitive true` is overridden to `false`.
 - A caller's `:elision false` is overridden to `true`.
 - The preload runtime's `app-db-reset!` taps default-elide both
   `:previous` and `:next` payloads through `re-frame.core/elide-wire-value`
@@ -130,7 +130,7 @@ Operators who need raw state for offline debug opt in at server launch:
 }
 ```
 
-With the flag, the per-call args win again — `:include-sensitive? true`
+With the flag, the per-call args win again — `:include-sensitive true`
 and `:elision false` ride through to the walker unchanged. Same
 architecture as `--allow-eval` (rf2-zyoj2) and story-mcp's in-flight
 `--allow-sensitive-reads` (rf2-uaymx).

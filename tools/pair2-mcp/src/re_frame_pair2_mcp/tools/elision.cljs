@@ -37,16 +37,19 @@
   Boolean opt-out. Default `true`. The arg is parsed by the shared
   `re-frame-pair2-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
 
-  ## `:include-sensitive?` MCP arg (rf2-vflrg)
+  ## `:include-sensitive` MCP arg (rf2-vflrg)
 
-  The same `:include-sensitive?` flag that gates trace / epoch
+  The same `:include-sensitive` flag that gates trace / epoch
   forwarding (spec/009 §Privacy) also gates whether the walker treats
   declared-sensitive slots as pass-through (`:rf.size/include-sensitive?
   true`) or substitutes them with the `:rf/redacted` sentinel
   (`:rf.size/include-sensitive? false`, the default). Off-box default
   per Tool-Pair §`Direct-read privacy posture for sub-cache and
   get-path`: sensitive slots are dropped unless the caller opts in
-  explicitly."
+  explicitly. The MCP wire-key drops the trailing `?` per rf2-y710n +
+  rf2-ihq4d (Anthropic's tool-input-schema regex rejects `?`); the
+  walker-option keyword `:rf.size/include-sensitive?` is a namespaced
+  framework key (not on the wire) and retains the predicate `?`."
   (:require [re-frame.mcp-base.vocab :as base-vocab]))
 
 (defn elision-opts-edn

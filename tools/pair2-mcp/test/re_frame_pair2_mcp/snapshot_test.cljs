@@ -68,7 +68,7 @@
 ;;
 ;; Eval-form composition for the snapshot tool (now walking BOTH `:app-db`
 ;; and `:sub-cache` through `re-frame.core/elide-wire-value`, threading
-;; `:include-sensitive?` into the walker's opt) is pinned in
+;; `:include-sensitive` into the walker's opt) is pinned in
 ;; `re-frame-pair2-mcp.elision-test` via the production `build-snapshot-form`
 ;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and
 ;; `snapshot-form-threads-include-sensitive`.

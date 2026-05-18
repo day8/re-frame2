@@ -244,9 +244,16 @@
 (defn- near-miss-variants
   "Generate near-miss spellings of a slot keyword. Conservative — we
   only generate variants likely to appear from a refactor mistake
-  (snake_case, dropped predicate `?`, dropped namespace). The list is
-  curated so a docstring or unrelated symbol can't trip a false
-  positive."
+  (snake_case, dropped/added predicate `?`, dropped namespace). The
+  list is curated so a docstring or unrelated symbol can't trip a
+  false positive.
+
+  The `?`-suffix variant (rf2-ihq4d): for a slot whose canonical form
+  has NO trailing `?` (e.g. the wire-key `:include-sensitive` per
+  rf2-y710n), an added `?` is exactly the bug pattern that bricked
+  pair2-mcp's tool surface — Anthropic's tool-input-schema regex
+  `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. Adding `:include-sensitive?`
+  back into any wire-surface source today trips this near-miss check."
   [slot]
   (let [nm       (name slot)
         nm-no-q  (str/replace nm #"\?$" "")           ; strip predicate `?`
@@ -256,9 +263,17 @@
       (str/includes? nm "-")
       (conj (str ":" nm-snake))
 
-      ;; dropped predicate `?` (e.g. :include-sensitive)
+      ;; dropped predicate `?` (e.g. :include-sensitive) — fires when
+      ;; the canonical form ends in `?`.
       (str/ends-with? nm "?")
       (conj (str ":" nm-no-q))
+
+      ;; added predicate `?` (rf2-ihq4d) — fires when the canonical
+      ;; form does NOT end in `?`. Pins the rf2-y710n decision: the
+      ;; wire-key must NEVER carry `?` because Anthropic's regex
+      ;; rejects it.
+      (not (str/ends-with? nm "?"))
+      (conj (str ":" nm "?"))
 
       ;; quoted-string form sometimes appears in JSON shapes; we don't
       ;; want to forbid descriptor docstrings from mentioning the slot,
@@ -281,13 +296,26 @@
                  " failed role-schema validation. Role: " role))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 2 — source-text pin. The canonical slot literal appears in at
-;; least one of each server's named source files.
+;; Gate 2 — source-text pin. The canonical slot literal appears as a
+;; FULL KEYWORD TOKEN in at least one of each server's named source
+;; files.
+;;
+;; Why full-token, not `str/includes?` (rf2-ihq4d): `str/includes?`
+;; treats canonical literals as substrings. `:include-sensitive` is a
+;; prefix of `:include-sensitive?`, so an `str/includes?` check passes
+;; even when a server's wire-key still carries the trailing `?` —
+;; exactly the rf2-y710n bug that the rf2-ihq4d worker surfaced as
+;; latent in pair2-mcp at the time of #1494. The full-token regex
+;; (via `fx/variant-regex`, the same keyword-extender-aware pattern
+;; the near-miss gate uses) pins the literal as a complete keyword:
+;; matched only when not immediately followed by a keyword-extender
+;; character. Adding `:include-sensitive?` to any wire-surface today
+;; trips this gate.
 ;; ---------------------------------------------------------------------------
 
 (defn- slot-literal
   "Render a slot keyword as the literal string that MUST appear in
-  source — printed as `:name?` with `clojure.core/pr-str`."
+  source — printed as `:name` with `clojure.core/pr-str`."
   [slot]
   (pr-str slot))
 
@@ -296,17 +324,19 @@
           server                         servers]
     (testing (str "slot " slot " literal in " server " sources")
       (let [literal (slot-literal slot)
+            pat     (fx/variant-regex literal)
             files   (get sources server)]
         (is (seq files)
             (str "No source files registered for server " server
                  " under slot " slot
                  " — extend `canonical-slots` :sources map."))
         (is (some (fn [rel]
-                    (str/includes? (fx/read-source rel) literal))
+                    (re-find pat (fx/read-source rel)))
                   files)
             (str "Slot literal " literal " missing from " server
                  " sources: " files
-                 ".\nIf the slot moved to a new file, extend the "
+                 " (full-token match — substring tolerance dropped per rf2-ihq4d)."
+                 "\nIf the slot moved to a new file, extend the "
                  ":sources entry for " server "."))))))
 
 ;; ---------------------------------------------------------------------------
