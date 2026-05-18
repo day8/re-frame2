@@ -25,7 +25,30 @@
   cursor, Enter invokes, Ctrl+Enter (or Cmd+Enter on mac) invokes
   in a pop-out, ESC closes. The shell-level Cmd/Ctrl+K listener
   handles open; ESC inside the input also closes so the user does
-  not need to drop modifier hands."
+  not need to drop modifier hands.
+
+  ## Why every dispatch carries `{:frame :rf/causa}` (rf2-w8lxg)
+
+  Subscribes resolve through the React-context tier at RENDER time —
+  React's `_currentValue` for the `frame-context` is set to `:rf/causa`
+  while the body of the `frame-provider`'s children is rendering, so
+  `(rf/subscribe …)` from inside the palette picks up the right frame
+  with no explicit opt.
+
+  Dispatches from `:on-click` / `:on-change` / `:on-key-down` /
+  `:on-mouse-enter` fire LATER — after render commits and React has
+  POPPED `_currentValue` back to the context's default (`:rf/default`).
+  At click time the 3-tier frame resolution chain (dynamic var →
+  React-context tier → `:rf/default`) falls all the way through, the
+  dispatch lands on `:rf/default`'s router, and the `:rf.causa/palette-*`
+  handler reduces `:rf/default`'s db — leaving Causa's `:palette-*`
+  slots untouched. Symptom: palette appears frozen — arrow keys,
+  Enter, click on a row, ESC, backdrop click all no-op. Sister fix
+  to rf2-smvvz (Settings popup, PR #1465).
+
+  The fix is mechanical: every `rf/dispatch` from a deferred handler
+  carries `{:frame :rf/causa}` so the envelope's `:frame` is set at
+  call time and never depends on the click-time React-context read."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.palette.sources :as sources]
             [day8.re-frame2-causa.theme.tokens
@@ -171,8 +194,10 @@
         :data-active  (str active?)
         :on-click     #(rf/dispatch
                          [:rf.causa/palette-invoke item
-                          (boolean (or (.-ctrlKey %) (.-metaKey %)))])
-        :on-mouse-enter #(rf/dispatch [:rf.causa/palette-cursor-set idx])
+                          (boolean (or (.-ctrlKey %) (.-metaKey %)))]
+                         {:frame :rf/causa})
+        :on-mouse-enter #(rf/dispatch [:rf.causa/palette-cursor-set idx]
+                                      {:frame :rf/causa})
         :style        (row-style active?)}
    [:span {:style (icon-style source)} icon]
    [:span {:style {:flex             1
@@ -201,19 +226,25 @@
     (case k
       "ArrowDown" (do (.preventDefault e)
                       (rf/dispatch
-                        [:rf.causa/palette-cursor-down (dec count)]))
+                        [:rf.causa/palette-cursor-down (dec count)]
+                        {:frame :rf/causa}))
       "ArrowUp"   (do (.preventDefault e)
-                      (rf/dispatch [:rf.causa/palette-cursor-up]))
+                      (rf/dispatch [:rf.causa/palette-cursor-up]
+                                   {:frame :rf/causa}))
       "Enter"     (when active
                     (.preventDefault e)
                     (rf/dispatch
-                      [:rf.causa/palette-invoke active (boolean ctrl?)]))
+                      [:rf.causa/palette-invoke active (boolean ctrl?)]
+                      {:frame :rf/causa}))
       "Escape"    (do (.preventDefault e)
-                      (rf/dispatch [:rf.causa/palette-close]))
+                      (rf/dispatch [:rf.causa/palette-close]
+                                   {:frame :rf/causa}))
       "Home"      (do (.preventDefault e)
-                      (rf/dispatch [:rf.causa/palette-cursor-set 0]))
+                      (rf/dispatch [:rf.causa/palette-cursor-set 0]
+                                   {:frame :rf/causa}))
       "End"       (do (.preventDefault e)
-                      (rf/dispatch [:rf.causa/palette-cursor-set (dec count)]))
+                      (rf/dispatch [:rf.causa/palette-cursor-set (dec count)]
+                                   {:frame :rf/causa}))
       nil)))
 
 ;; ---- main view ---------------------------------------------------------
@@ -227,7 +258,8 @@
         results @(rf/subscribe [:rf.causa/palette-results])
         cursor  @(rf/subscribe [:rf.causa/palette-cursor])]
     [:div {:data-testid "rf-causa-palette-backdrop"
-           :on-click    #(rf/dispatch [:rf.causa/palette-close])
+           :on-click    #(rf/dispatch [:rf.causa/palette-close]
+                                      {:frame :rf/causa})
            :style       (backdrop-style)}
      [:div {:data-testid "rf-causa-palette-dialog"
             :data-rf-causa-mode "palette"
@@ -242,7 +274,8 @@
                 :placeholder  "Search panels, events, frames, commands…"
                 :on-change    #(rf/dispatch
                                  [:rf.causa/palette-set-query
-                                  (.. % -target -value)])
+                                  (.. % -target -value)]
+                                 {:frame :rf/causa})
                 :on-key-down  #(handle-input-keydown % results)
                 :style        (input-style)}]
        [:span {:data-testid "rf-causa-palette-result-count"
