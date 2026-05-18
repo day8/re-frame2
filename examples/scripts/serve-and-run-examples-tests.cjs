@@ -141,6 +141,17 @@ const EXAMPLES = [
       },
     ],
   },
+  // Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
+  // isolation demo. One app, mounted in TWO frames (:above + :below)
+  // on ONE page with zero cross-frame coupling. Each frame is a
+  // fully isolated reactive context; the exercise is observing the
+  // two diverge as the user interacts with each independently.
+  // No static endpoint — the mock HTTP fx is in-process.
+  {
+    build: 'examples/parallel-frames',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'parallel_frames', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'parallel-frames'),
+  },
   {
     build: 'examples/temperature',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'temperature', 'temperature.html'),
