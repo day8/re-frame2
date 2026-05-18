@@ -790,7 +790,13 @@
               "focus never goes nil with a non-empty buffer"))))))
 
 ;; -------------------------------------------------------------------------
-;; (4b) Row density + inline event-vector rendering — rf2-htik0 Bug 2 + 3
+;; (4b) Row density + minimal default-row rendering — rf2-htik0 Bug 2 +
+;;      Round-3 rf2-cmtkw (replaces rf2-htik0 Bug 3 inline event-vector).
+;;
+;; Round-3 rf2-cmtkw — the default L2 row body is one line: gutter +
+;; bare event-id + ⚠/🌐/🤖 badge cluster. Args + sequence number +
+;; frame + source coordinate + handler duration appear in the row's
+;; :title hover tooltip and in the L4 Event detail tab on click.
 ;; -------------------------------------------------------------------------
 
 (deftest event-row-density-tight
@@ -820,91 +826,121 @@
         (is (= "200px" (:height style))
             "list container is ~8 rows × 22px + gaps + padding")))))
 
-(deftest event-row-renders-real-event-vector
-  (testing "rf2-htik0 Bug 3 — each L2 row shows the dispatched event
-            vector inline (`[:cart/add-item {:item-id \"apple\"}]`),
-            not just the event-id."
+(deftest event-row-renders-event-id-only
+  (testing "Round-3 rf2-cmtkw — the default L2 row body renders ONLY
+            the bare event-id keyword. Args / payload are NOT inline
+            in the default row (they move to hover tooltip + the L4
+            Event detail tab)."
     (causa-setup!)
     (trace-bus/collect-trace!
       (dispatch-trace-ev 1 [:cart/add-item {:item-id "apple" :qty 2}]))
     (rf/with-frame :rf/causa
-      (let [tree (shell/shell-view)
-            row  (find-by-testid tree "rf-causa-event-row-1")
-            vec-node (find-by-testid tree "rf-causa-row-event-vector")
-            text (text-nodes vec-node)]
+      (let [tree    (shell/shell-view)
+            row     (find-by-testid tree "rf-causa-event-row-1")
+            id-node (find-by-testid tree "rf-causa-row-event-id")
+            text    (text-nodes id-node)]
         (is (some? row) "row renders")
-        (is (some? vec-node) "row carries the event-vector slot")
+        (is (some? id-node) "row carries the event-id slot")
         (is (re-find #":cart/add-item" text)
             "event-id surfaces in the row text")
-        (is (re-find #":item-id" text)
-            "payload key surfaces in the row text")
-        (is (re-find #"apple" text)
-            "payload value surfaces in the row text")))))
+        (is (not (re-find #":item-id" text))
+            "payload key does NOT surface in the default row")
+        (is (not (re-find #"apple" text))
+            "payload value does NOT surface in the default row")
+        (is (not (re-find #"\{" text))
+            "no `{...}` map serialisation in the default row")
+        (is (not (re-find #"\[" text))
+            "no vector brackets in the default row — bare keyword only")
+        (is (not (re-find #"\]" text))
+            "no vector brackets in the default row — bare keyword only")
+        ;; The dropped fields surface in the row's :title tooltip
+        ;; instead — Round-3 rf2-cmtkw.
+        (let [title (:title (second row))]
+          (is (string? title) ":title attribute set for hover tooltip")
+          (is (re-find #":cart/add-item" title)
+              "tooltip carries the event-id")
+          (is (re-find #":item-id" title)
+              "tooltip carries the full event vector (with args)")
+          (is (re-find #"#1" title)
+              "tooltip carries the sequence number (#<dispatch-id>)")
+          (is (re-find #"Click → open Event detail" title)
+              "tooltip surfaces the click-through hint"))))))
 
-(deftest event-row-empty-payload-renders-as-bare-vector
-  (testing "rf2-htik0 Bug 3 — events with no payload render as
-            `[:counter/inc]` — no `{}` placeholder."
+(deftest event-row-no-row-event-vector-slot
+  (testing "Round-3 rf2-cmtkw — the previous `rf-causa-row-event-vector`
+            slot is gone. The default row body slot is now
+            `rf-causa-row-event-id` and renders only the bare keyword."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 1 [:counter/inc]))
     (rf/with-frame :rf/causa
-      (let [tree (shell/shell-view)
-            vec-node (find-by-testid tree "rf-causa-row-event-vector")
-            text (text-nodes vec-node)]
-        (is (some? vec-node))
-        (is (re-find #":counter/inc" text)
-            "event-id renders")
-        (is (not (re-find #"\{" text))
-            "no `{}` placeholder for empty payload")
-        (is (not (re-find #"\}" text))
-            "no `{}` placeholder for empty payload")))))
+      (let [tree (shell/shell-view)]
+        (is (nil? (find-by-testid tree "rf-causa-row-event-vector"))
+            "legacy event-vector slot is absent")
+        (is (some? (find-by-testid tree "rf-causa-row-event-id"))
+            "new event-id slot is present")))))
 
-(deftest event-row-long-payload-truncates
-  (testing "rf2-htik0 Bug 3 — long event vectors collapse to head + `…]`
-            so the row stays single-line."
-    (causa-setup!)
-    (let [big-vec [:something/big {:a "alpha-beta-gamma-delta"
-                                   :b "epsilon-zeta-eta-theta"
-                                   :c "iota-kappa-lambda-mu"
-                                   :d "nu-xi-omicron-pi"}]]
-      (trace-bus/collect-trace! (dispatch-trace-ev 1 big-vec))
-      (rf/with-frame :rf/causa
-        (let [tree (shell/shell-view)
-              vec-node (find-by-testid tree "rf-causa-row-event-vector")
-              text (text-nodes vec-node)]
-          (is (some? vec-node))
-          (is (re-find #":something/big" text)
-              "head (event-id) preserved through truncation")
-          (is (re-find #"…\]$" text)
-              "trailing `…]` marks the truncation"))))))
-
-(deftest truncate-event-vector-helper
-  (testing "rf2-htik0 Bug 3 — pure truncator preserves short strings
-            and clips long ones with `…]` suffix"
-    (is (= "[:x]" (shell/truncate-event-vector "[:x]" 80))
-        "below cap → pass-through")
-    (is (= "[:x 1]" (shell/truncate-event-vector "[:x 1]" 80))
-        "below cap → pass-through")
-    (let [long-str (apply str "[:x " (repeat 100 "y"))
-          out      (shell/truncate-event-vector long-str 20)]
-      (is (= 20 (count out)) "output respects cap")
-      (is (re-find #"…\]$" out) "suffix is `…]`")
-      (is (re-find #"^\[:x" out) "head preserved"))))
-
-(deftest render-event-vector-inline-empty-payload
-  (testing "rf2-htik0 Bug 3 — render-event-vector-inline of a 1-element
-            vector returns hiccup containing just the event-id, no `{}`."
-    (let [hiccup (shell/render-event-vector-inline [:counter/inc])
+(deftest render-event-id-only-empty-payload
+  (testing "Round-3 rf2-cmtkw — render-event-id-only of a 1-element
+            event vector returns hiccup containing just the event-id
+            keyword."
+    (let [hiccup (shell/render-event-id-only [:counter/inc])
           text   (text-nodes hiccup)]
       (is (re-find #":counter/inc" text))
-      (is (not (re-find #"\{" text)))
-      (is (not (re-find #"\}" text))))))
+      (is (not (re-find #"\[" text)) "no surrounding brackets")
+      (is (not (re-find #"\]" text)) "no surrounding brackets"))))
 
-(deftest render-event-vector-inline-nil-cascade
-  (testing "rf2-htik0 Bug 3 — render-event-vector-inline of non-vector
+(deftest render-event-id-only-with-payload
+  (testing "Round-3 rf2-cmtkw — render-event-id-only of an event
+            vector with args returns hiccup containing ONLY the
+            event-id keyword — args are dropped from the default row."
+    (let [hiccup (shell/render-event-id-only [:cart/add-item {:qty 2}])
+          text   (text-nodes hiccup)]
+      (is (re-find #":cart/add-item" text))
+      (is (not (re-find #":qty" text)) "args dropped")
+      (is (not (re-find #"\{" text)) "no map serialisation")
+      (is (not (re-find #"\}" text)) "no map serialisation")
+      (is (not (re-find #"\[" text)) "no vector brackets")
+      (is (not (re-find #"\]" text)) "no vector brackets"))))
+
+(deftest render-event-id-only-nil-cascade
+  (testing "Round-3 rf2-cmtkw — render-event-id-only of non-vector
             input returns the `<no event>` fallback chip."
-    (let [hiccup (shell/render-event-vector-inline nil)
+    (let [hiccup (shell/render-event-id-only nil)
           text   (text-nodes hiccup)]
       (is (re-find #"no event" text)))))
+
+(deftest row-tooltip-text-carries-dropped-fields
+  (testing "Round-3 rf2-cmtkw — the row's :title tooltip carries
+            every field dropped from the minimal default row: full
+            event vector with args, sequence number (`#<dispatch-id>`),
+            frame id, source coordinate, handler duration."
+    (let [cascade {:dispatch-id 42
+                   :frame       :app/main
+                   :event       [:cart/add-item {:item-id "apple"}]
+                   :dispatched  {:rf.trace/call-site {:file "src/cart.cljs"
+                                                      :line 17
+                                                      :column 3}}
+                   :handler     {:elapsed-ms 4}}
+          tip     (shell/row-tooltip-text cascade)]
+      (is (string? tip))
+      (is (re-find #":cart/add-item" tip) "carries the event id")
+      (is (re-find #":item-id" tip)       "carries the full event vector args")
+      (is (re-find #"#42" tip)            "carries the sequence number")
+      (is (re-find #":app/main" tip)      "carries the frame id")
+      (is (re-find #"src/cart.cljs:17:3" tip)
+          "carries the source coordinate")
+      (is (re-find #"4ms" tip)            "carries the handler duration")
+      (is (re-find #"Click → open Event detail" tip)
+          "carries the click-through hint"))))
+
+(deftest row-tooltip-text-nil-safe
+  (testing "Round-3 rf2-cmtkw — row-tooltip-text safely degrades when
+            cascade slots are missing. Always renders at least the
+            click-through hint so the tooltip is never empty."
+    (let [tip (shell/row-tooltip-text {})]
+      (is (string? tip))
+      (is (re-find #"Click → open Event detail" tip)
+          "click-through hint always present"))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) REDACTED indicator (preserved from pre-refactor — relocated to L1)
