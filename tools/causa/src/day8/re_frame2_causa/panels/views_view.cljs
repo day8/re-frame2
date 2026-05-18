@@ -46,6 +46,14 @@
             ;; for the click-expand hero in the inline drilldown.
             [day8.re-frame2-causa.panels.views-sub-diff :as sub-diff]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
+            ;; rf2-i39w2 Phase 3 — hiccup-diff micro-engine + renderer.
+            ;; Lit up in the Re-rendered row drilldown when the render
+            ;; entry carries `:hiccup-before` + `:hiccup-after`. The
+            ;; render-tracker capture for these slots is a follow-on
+            ;; (P17 wave); the drilldown is forward-compatible — when
+            ;; the slots appear, the diff renders without further code.
+            [day8.re-frame2-causa.diff.hiccup :as hd]
+            [day8.re-frame2-causa.diff.hiccup-render :as hd-render]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -217,6 +225,41 @@
   (let [wanted (set (keep :sub-id invalidated-by))]
     (filterv (fn [rec] (contains? wanted (:sub-id rec))) records)))
 
+(defn- hiccup-diff-block
+  "rf2-i39w2 Phase 3 — render the view-hiccup diff drilldown when the
+  render entry carries `:hiccup-before` + `:hiccup-after`. Reads the
+  `:rf.causa/diff-opts` sub for the opt-in `:highlight-fn-ref-changes?`
+  toggle. The render-tracker capture for these slots is a follow-on
+  (P17 wave); until then this block returns nil and the drilldown
+  shows only the raw render entry. Forward-compatible — when the
+  slots appear, the diff lights up without further code."
+  [r]
+  (when (and (contains? r :hiccup-before)
+             (contains? r :hiccup-after))
+    (let [opts  @(rf/subscribe [:rf.causa/diff-opts])
+          before (:hiccup-before r)
+          after  (:hiccup-after r)
+          node  (hd/diff-hiccup-node before after opts)]
+      [:div {:data-testid "rf-causa-views-row-hiccup-diff"
+             :style {:margin-top "4px"
+                     :padding    "6px 8px"
+                     :background (:bg-2 tokens)
+                     :border-left (str "3px solid " (:accent-violet tokens))
+                     :border-radius "2px"
+                     :font-family mono-stack
+                     :font-size "12px"}}
+       [:div {:style {:color (:text-tertiary tokens)
+                      :font-family sans-stack
+                      :font-size "11px"
+                      :margin-bottom "4px"}}
+        (if (hd/changed? node)
+          "View hiccup diff"
+          "Hiccup unchanged (wasted re-render — view returned identical hiccup)")]
+       (when (hd/changed? node)
+         (hd-render/render-root
+           node
+           (str "views/" (pr-str (:render-key r)))))])))
+
 (defn- expanded-block
   "Inline expansion content per spec §Per-component drilldown — single-
   column block placed BELOW the row. v1 ships the structural
@@ -231,7 +274,14 @@
   `:rf.causa/views-sub-diff-for-focused-event`; rendering goes
   through the Phase 1 sections-per-cluster engine
   (`day8.re-frame2-causa.diff.render/render-sections`) via the
-  thin `views-sub-diff/drilldown` wrapper."
+  thin `views-sub-diff/drilldown` wrapper.
+
+  ## View hiccup diff (rf2-i39w2 Phase 3)
+
+  `hiccup-diff-block` renders below the raw entry when the render-
+  tracker captures `:hiccup-before` + `:hiccup-after` on the entry.
+  Forward-compatible — the block returns nil until that capture
+  lands."
   [item]
   (let [r (:render item)
         invalidated-by (:invalidated-by item)
@@ -258,7 +308,8 @@
       ;; click through to the render-key, triggered-by, elapsed-ms.
       ;; Props-diff renders as a structured tree the moment the runtime
       ;; emits per-render `:props-before` / `:props-after` slots.
-      (inspector/inspect r (str "views/" (pr-str (:render-key r))))]
+      (inspector/inspect r (str "views/" (pr-str (:render-key r))))
+      (hiccup-diff-block r)]
      (when (seq invalidated-by)
        [:div [:strong "Subs consumed"]
         (invalidated-by-list invalidated-by)])

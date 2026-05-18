@@ -121,6 +121,8 @@
    :rf.causa/causality-popover-open?
    :rf.causa/causality-popover-layout
    :rf.causa/causality-popover-payload
+   ;; rf2-i39w2 Phase 3 — hiccup-diff micro-engine opt-in toggle.
+   :rf.causa/diff-opts
    :rf.causa/edit-popup-draft
    :rf.causa/edit-popup-open?
    :rf.causa/edit-popup-trigger
@@ -551,7 +553,11 @@
     ;;   :rf.causa/modal-positioning — Story-aware modal positioning opt.
     ;; + 1 sub-output structural-diff composite (rf2-xjhhp Phase 2):
     ;;   :rf.causa/views-sub-diff-for-focused-event.
-    (is (= 126 (count all-sub-names)))
+    ;; + 1 hiccup-diff opts (rf2-i39w2 Phase 3 of rf2-abts7):
+    ;;   :rf.causa/diff-opts — wraps the Settings → Diff section's
+    ;;   `:highlight-fn-ref-changes?` slot in the shape the hiccup-diff
+    ;;   engine's `classify-prop` consumes.
+    (is (= 127 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):

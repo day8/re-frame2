@@ -564,12 +564,24 @@
   "Default settings map — the shape `configure! :settings` / the
   `settings/popup` modal / the `:rf.causa/setting` sub all read
   against. See the comment block above for the rationale on each
-  default."
+  default.
+
+  ## :diff section (rf2-i39w2 — hiccup-diff micro-engine, Phase 3 of
+  rf2-abts7)
+
+  `:highlight-fn-ref-changes?` — opt-in toggle for the hiccup-diff
+  engine's fn-ref classification (`ai/findings/2026-05-18-difftastic-
+  in-causa.md` §4.5). Default `false`: function-valued props with
+  identity-different references render as `:same` so idiomatic fresh-
+  per-render closures don't drown the actual hiccup diff. Flip to
+  `true` when diagnosing memoization issues — child re-renders because
+  the parent passes a new fn every time."
   {:general   {:text-size           13              ; px — slider range 10–18
                :panel-position      :right-rail     ; :right-rail | :popout | :fullscreen
                :auto-open-on-error? false}
    :theme     :dark                                  ; :dark | :light
-   :telemetry {:opt-in? false}})
+   :telemetry {:opt-in? false}
+   :diff      {:highlight-fn-ref-changes? false}})
 
 (defonce
   ^{:doc "Atom holding the live settings map. Seeded with
@@ -692,7 +704,8 @@
                          (update :general merge (:general parsed))
                          (assoc  :theme  (or (:theme parsed)
                                              (:theme default-settings)))
-                         (update :telemetry merge (:telemetry parsed)))))))
+                         (update :telemetry merge (:telemetry parsed))
+                         (update :diff      merge (:diff parsed)))))))
        (catch :default _ nil))
      nil))
 
@@ -888,7 +901,8 @@
                   (update :general merge (:general settings))
                   (assoc  :theme  (or (:theme settings)
                                       (:theme default-settings)))
-                  (update :telemetry merge (:telemetry settings))))
+                  (update :telemetry merge (:telemetry settings))
+                  (update :diff      merge (:diff settings))))
       #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed
