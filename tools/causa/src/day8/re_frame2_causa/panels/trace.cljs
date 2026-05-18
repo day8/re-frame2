@@ -42,8 +42,8 @@
 
   Per the bead's contract:
 
-    :no-events   → 'No events observed in this session.' Once the
-                   trace bus starts flowing this clears immediately.
+    :no-events   → 'No events.' Once the trace bus starts flowing
+                   this clears immediately.
     :no-matches  → events exist but the active filters hide them
                    all. 'No events match current filters' + Clear.
 

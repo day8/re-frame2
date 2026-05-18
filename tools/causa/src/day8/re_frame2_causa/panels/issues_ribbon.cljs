@@ -34,8 +34,7 @@
 
   Per the bead's contract:
 
-    :no-issues  → 'No issues observed in this session.' with the
-                  '✓ All clear' badge — the desired state.
+    :no-issues  → '✓ All clear' badge — the desired state.
     :no-matches → issues exist but the active filters hide them
                   all. Carries a 'Clear filters' affordance.
 
