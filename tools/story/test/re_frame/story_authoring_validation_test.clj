@@ -111,6 +111,63 @@
         (is (= :rf.error/story-panel-shape (:rf.error (ex-data e))))))))
 
 ;; ===========================================================================
+;; rf2-tl7zk — :plays multi-play schema contract
+;; ===========================================================================
+
+(deftest reg-variant-plays-accepts-named-list
+  (testing ":plays with valid named entries is accepted"
+    (story/reg-variant :story.multi/named
+      {:events []
+       :plays  [{:name "happy path"
+                 :script [[:dispatch [:foo]]]}
+                {:name "error path"
+                 :script [[:dispatch [:bar]]]}]})
+    (let [body (story/handler-meta :variant :story.multi/named)]
+      (is (= 2 (count (:plays body)))))))
+
+(deftest reg-variant-plays-empty-rejected
+  (testing ":plays must contain at least one entry"
+    (try
+      (story/reg-variant :story.multi/empty
+        {:events []
+         :plays  []})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+
+(deftest reg-variant-plays-without-name-rejected
+  (testing "each :plays entry must carry a :name"
+    (try
+      (story/reg-variant :story.multi/no-name
+        {:events []
+         :plays  [{:script [[:dispatch [:foo]]]}]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+
+(deftest reg-variant-plays-duplicate-names-rejected
+  (testing ":plays entries must have unique :name values"
+    (try
+      (story/reg-variant :story.multi/dup
+        {:events []
+         :plays  [{:name "p" :script [[:dispatch [:a]]]}
+                  {:name "p" :script [[:dispatch [:b]]]}]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+
+(deftest reg-variant-play-script-and-plays-mutually-exclusive
+  (testing "a variant may not declare BOTH :play-script and :plays"
+    (try
+      (story/reg-variant :story.multi/both
+        {:events      []
+         :play-script [[:dispatch [:legacy]]]
+         :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error (ex-data e))))))))
+
+;; ===========================================================================
 ;; UNKNOWN-TAG CONTRACT — tag-vocab cross-check error carries the offending set
 ;; ===========================================================================
 

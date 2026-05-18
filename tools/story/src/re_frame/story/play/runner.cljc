@@ -199,6 +199,109 @@
     (cond-> {:script script :auto-run? auto-run?}
       nm (assoc :name nm))))
 
+;; ---- :plays multi-play resolution (rf2-tl7zk) ----------------------------
+
+(defn- parse-named-play
+  "Normalise ONE `:plays` entry. Auto-run defaults differ for the first
+  vs subsequent plays — the first entry mirrors the single-play default
+  (auto-run? true) so deep-linking to a multi-play variant 'just works';
+  subsequent entries default to false so the page doesn't run every
+  scenario back-to-back on mount."
+  [first? entry]
+  (let [script    (coerce-script (get entry :script []))
+        auto-run? (if (contains? entry :auto-run?)
+                    (boolean (:auto-run? entry))
+                    first?)
+        nm        (when-let [n (:name entry)] (str n))]
+    (cond-> {:script script :auto-run? auto-run?}
+      nm (assoc :name nm))))
+
+(defn parse-plays
+  "Normalise a `:plays` vector into a vector of `{:script :auto-run?
+  :name}` maps. Pure data → data.
+
+  Each entry is run through the same coercion as `parse-spec` so bare
+  event vectors lift to `[:dispatch ...]`, and `:auto-run?` defaults to
+  true for the FIRST entry / false for the rest (matching the
+  single-play `:play-script` deep-link behaviour). Authors override
+  the per-play default by setting `:auto-run?` explicitly."
+  [plays]
+  (let [v (cond
+            (nil?    plays) []
+            (vector? plays) plays
+            :else           [])]
+    (->> v
+         (map-indexed (fn [idx entry] (parse-named-play (zero? idx) entry)))
+         vec)))
+
+(defn variant-body->plays
+  "Resolve a variant body's play surface into a CANONICAL vector of
+  parsed plays. Pure data → data.
+
+  Resolution order (mutual-exclusion handled at the schema layer; this
+  fn is tolerant in case the schema gate is elided):
+
+  - Both `:plays` and `:play-script` present → prefer `:plays` (the
+    runtime warning is emitted by the runner-events ns at resolve time).
+  - `:plays` present → return parsed plays.
+  - `:play-script` present → wrap in a single-entry vector. The wrapped
+    entry inherits the script's `:name` (or nil), and `:auto-run?` from
+    `parse-spec`.
+  - Neither → empty vector.
+
+  Every returned entry carries `{:script :auto-run? :name}` (the same
+  shape as `parse-spec`). An entry's `:name` is nil only for the
+  single-script wrap-up of `:play-script` when the script body omits
+  `:name`."
+  [variant-body]
+  (cond
+    (and (some? variant-body) (contains? variant-body :plays))
+    (parse-plays (:plays variant-body))
+
+    (and (some? variant-body) (contains? variant-body :play-script))
+    [(parse-spec (:play-script variant-body))]
+
+    :else
+    []))
+
+(defn play-key
+  "Stable key for ONE play within a variant. The empty / single-script
+  shape uses `nil` (the legacy `:play-script` slot has no per-play
+  identifier). Multi-play entries use the play's `:name` string.
+
+  Used by the runner-events ns to key per-(variant, play) run-state
+  and by the UI's chip dropdown / CI runner to identify a play
+  unambiguously."
+  [play]
+  (when play (:name play)))
+
+(defn find-play
+  "Return the play at `play-key` (a name string) in `plays`, or nil.
+  `play-key` of nil matches the single-entry case (the legacy
+  `:play-script` wrap)."
+  [plays play-key]
+  (when (seq plays)
+    (if (nil? play-key)
+      (first plays)
+      (some (fn [p] (when (= play-key (:name p)) p)) plays))))
+
+(defn default-play-key
+  "Return the default play key for `plays`. For multi-play this is the
+  name of the first play (the toolbar starts focused there); for the
+  single-play case this is `nil`."
+  [plays]
+  (when (seq plays)
+    (let [first-name (:name (first plays))]
+      ;; Single-script :play-script wrap leaves :name nil → keep nil.
+      ;; Multi-play entries always carry a :name (enforced by schema).
+      first-name)))
+
+(defn multi?
+  "True iff `plays` carries more than one entry — i.e. the variant
+  declared `:plays` with N >= 2 (or the schema gate was bypassed)."
+  [plays]
+  (boolean (and (vector? plays) (> (count plays) 1))))
+
 ;; ---- run-state state machine ---------------------------------------------
 
 (def ^:const status-idle    :idle)

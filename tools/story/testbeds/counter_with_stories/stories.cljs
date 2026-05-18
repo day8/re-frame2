@@ -601,6 +601,31 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  ;; rf2-tl7zk multi-play fixture — three named plays on one variant.
+  ;; The first play (happy-path) auto-runs on mount per the per-position
+  ;; default; the other two run on demand (manual trigger via the
+  ;; toolbar dropdown OR the CI runner's `runPlay` hook). One play
+  ;; deliberately fails to keep the failure path under CI coverage.
+  (story/reg-variant :story.counter-play-script/multi
+    {:doc        "rf2-tl7zk CI fixture — multi-play variant with three
+                 named plays. The CI runner enumerates each play as its
+                 own row (per-play pass/fail) and matches the per-play
+                 expected status using `failing` / `expected-fail` name
+                 markers."
+     :args       {:label "Multi-play"}
+     :events     []
+     :plays      [{:name      "happy-path"
+                   :script    [[:dispatch-sync [:counter/initialise 5]]
+                               [:assert-db [:count] 5]]}
+                  {:name      "edge-case-zero"
+                   :script    [[:dispatch-sync [:counter/initialise 0]]
+                               [:assert-db [:count] 0]]}
+                  {:name      "deliberately-failing"
+                   :script    [[:dispatch-sync [:counter/initialise 2]]
+                               [:assert-db [:count] 99]]}]
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two workspaces, one per layout the v1 ships
   ;;

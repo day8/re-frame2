@@ -288,3 +288,204 @@
              results (:results final)]
          (is (= :fail (:status final)))
          (is (every? (fn [r] (or (:skipped? r) (true? (:passed? r)))) results))))))
+
+;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+
+#?(:clj
+   (defn- run-play-blocking
+     "Drive a specific play via `run-play!` and block until terminal."
+     ([variant-id play-key] (run-play-blocking variant-id play-key 5000))
+     ([variant-id play-key timeout-ms]
+      (let [done (atom nil)]
+        (re/run-play! variant-id play-key (fn [s] (reset! done s)))
+        (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+          (loop []
+            (cond
+              @done @done
+              (> (System/currentTimeMillis) deadline)
+              (throw (ex-info "run-play-blocking timeout"
+                              {:variant-id variant-id
+                               :play-key   play-key}))
+              :else (do (Thread/sleep 5) (recur)))))))))
+
+#?(:clj
+   (deftest variant-plays-resolves-plays-vector
+     (testing "variant-plays returns a vector of parsed plays"
+       (rf/reg-event-db :rt/inc
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/two
+         {:events []
+          :plays  [{:name "happy"
+                    :auto-run? false
+                    :script    [[:dispatch-sync [:rt/inc]]
+                                [:assert-db [:n] 1]]}
+                   {:name "error"
+                    :auto-run? false
+                    :script    [[:dispatch-sync [:rt/inc]]
+                                [:assert-db [:n] 99]]}]})
+       (let [plays (re/variant-plays :story.multi/two)]
+         (is (= 2 (count plays)))
+         (is (= ["happy" "error"] (mapv :name plays)))
+         ;; First play's auto-run? was explicitly false here, so no
+         ;; positional default applies.
+         (is (every? false? (map :auto-run? plays)))))))
+
+#?(:clj
+   (deftest variant-plays-wraps-legacy-play-script
+     (testing "variant-plays wraps a legacy :play-script body in a one-entry vector"
+       (story/reg-variant :story.multi/legacy
+         {:events []
+          :play-script {:name "lone" :script [[:dispatch [:a]]]}})
+       (let [plays (re/variant-plays :story.multi/legacy)]
+         (is (= 1 (count plays)))
+         (is (= "lone" (:name (first plays))))))))
+
+#?(:clj
+   (deftest run-play-keys-state-per-play
+     (testing "running each play stores state under [variant-id play-key]"
+       (rf/reg-event-db :rt/inc
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/keyed
+         {:events []
+          :plays  [{:name "first"  :auto-run? false
+                    :script [[:dispatch-sync [:rt/inc]]
+                             [:assert-db [:n] 1]]}
+                   {:name "second" :auto-run? false
+                    :script [[:dispatch-sync [:rt/inc]]
+                             [:assert-db [:n] 2]]}]})
+       (async/deref-blocking (story/run-variant :story.multi/keyed) 5000)
+       (let [first-state  (run-play-blocking :story.multi/keyed "first")
+             second-state (run-play-blocking :story.multi/keyed "second")]
+         (is (= :pass (:status first-state)))
+         (is (= :pass (:status second-state)))
+         ;; Per-play state preserved.
+         (is (= :pass (:status (re/current-state-for-play :story.multi/keyed "first"))))
+         (is (= :pass (:status (re/current-state-for-play :story.multi/keyed "second"))))
+         ;; The latest run-state slot tracks the most recent run.
+         (let [latest (re/current-state :story.multi/keyed)]
+           (is (= :pass (:status latest)))
+           (is (= "second" (:play-key latest))))))))
+
+#?(:clj
+   (deftest run-play-sets-active-play
+     (testing "run-play! also sets the active-play key the toolbar reads"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/active
+         {:events []
+          :plays  [{:name "alpha" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]]}
+                   {:name "beta"  :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]]}]})
+       (async/deref-blocking (story/run-variant :story.multi/active) 5000)
+       (run-play-blocking :story.multi/active "beta")
+       (is (= "beta" (re/active-play-key :story.multi/active))))))
+
+#?(:clj
+   (deftest select-play-without-running
+     (testing "select-play! changes the active key but does not run"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/select
+         {:events []
+          :plays  [{:name "one" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]]}
+                   {:name "two" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]]}]})
+       (async/deref-blocking (story/run-variant :story.multi/select) 5000)
+       (re/select-play! :story.multi/select "two")
+       (is (= "two" (re/active-play-key :story.multi/select)))
+       ;; No run-state slot was populated by select-play! alone.
+       (is (nil? (re/current-state-for-play :story.multi/select "two"))))))
+
+#?(:clj
+   (deftest run-all-plays-sequences-runs
+     (testing "run-all-plays! drives every play and resolves with per-play results"
+       (rf/reg-event-db :rt/touch
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/all
+         {:events []
+          :plays  [{:name "a" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]
+                             [:assert-db [:n] 1]]}
+                   {:name "b" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]
+                             [:assert-db [:n] 2]]}
+                   {:name "c" :auto-run? false
+                    :script [[:dispatch-sync [:rt/touch]]
+                             [:assert-db [:n] 3]]}]})
+       (async/deref-blocking (story/run-variant :story.multi/all) 5000)
+       (let [done    (atom nil)
+             _       (re/run-all-plays! :story.multi/all
+                                        (fn [final] (reset! done final)))
+             deadline (+ (System/currentTimeMillis) 5000)]
+         (loop []
+           (cond
+             (some? @done) nil
+             (> (System/currentTimeMillis) deadline)
+             (throw (ex-info "run-all-plays timeout" {}))
+             :else (do (Thread/sleep 5) (recur))))
+         (let [results @done]
+           (is (= 3 (count results)))
+           (is (every? #(= :pass (:status %)) results))
+           (is (= ["a" "b" "c"] (mapv :play-key results))))))))
+
+#?(:clj
+   (deftest auto-run-multi-runs-only-opted-in-plays
+     (testing "auto-run! runs only plays whose :auto-run? is true (per-position defaults)"
+       (rf/reg-event-db :rt/inc
+         (fn [db _] (update db :n (fnil inc 0))))
+       (story/reg-variant :story.multi/auto
+         {:events []
+          :plays  [{:name "first-default-true"
+                    ;; :auto-run? omitted → first defaults to true
+                    :script [[:dispatch-sync [:rt/inc]]
+                             [:assert-db [:n] 1]]}
+                   {:name "second-default-false"
+                    :script [[:dispatch-sync [:rt/inc]]
+                             [:assert-db [:n] 99]]}
+                   {:name "third-opted-in"
+                    :auto-run? true
+                    :script [[:dispatch-sync [:rt/inc]]]}]})
+       (async/deref-blocking (story/run-variant :story.multi/auto) 5000)
+       (let [done (atom nil)]
+         ;; Multi-play auto-run sequences the opted-in plays + resolves
+         ;; the done-cb ONCE with the per-play terminal-state vector.
+         (re/auto-run! :story.multi/auto (fn [final] (reset! done final)))
+         (let [deadline (+ (System/currentTimeMillis) 5000)]
+           (loop []
+             (cond
+               (some? @done) nil
+               (> (System/currentTimeMillis) deadline)
+               (throw (ex-info "auto-run multi timeout" {:done @done}))
+               :else (do (Thread/sleep 5) (recur)))))
+         (let [results @done]
+           (is (= 2 (count results))
+               "first + third auto-ran; second did not")
+           (is (= ["first-default-true" "third-opted-in"]
+                  (mapv :play-key results))))
+         ;; second play was NOT auto-run — its state slot stays empty.
+         (is (nil? (re/current-state-for-play :story.multi/auto
+                                              "second-default-false")))))))
+
+#?(:clj
+   (deftest mutual-exclusion-warning-emits-once
+     (testing "variants declaring BOTH :play-script and :plays warn ONCE per variant"
+       ;; Bypass schema validation by writing directly into the side-table.
+       (require '[re-frame.story.registrar :as registrar])
+       (let [registrar (resolve 're-frame.story.registrar/kind->id->body)]
+         (swap! @registrar assoc-in
+                [:variant :story.multi/both]
+                {:play-script [[:dispatch [:legacy]]]
+                 :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
+         ;; First read warns; the call returns the :plays-derived plays vector.
+         (let [out1 (with-out-str
+                      (binding [*err* *out*]
+                        (re/variant-plays :story.multi/both)))
+               out2 (with-out-str
+                      (binding [*err* *out*]
+                        (re/variant-plays :story.multi/both)))]
+           (is (re-find #":play-script.*:plays" out1)
+               "first read prints the both-slots warning")
+           (is (empty? out2)
+               "subsequent reads stay silent — warning is one-shot per variant"))))))

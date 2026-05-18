@@ -105,3 +105,35 @@
           summ   (runner/fail-summary failed)]
       (is (= 1 (:count summ)))
       (is (= 1 (:idx (:first summ)))))))
+
+;; ---- multi-play helpers (rf2-tl7zk) -------------------------------------
+
+#?(:cljs
+   (deftest chip-label-multi-idle
+     (testing "nil state with a play name renders 'Play <name> | IDLE'"
+       (is (= "Play happy path | IDLE"
+              (ps/chip-label-multi nil "happy path"))))))
+
+#?(:cljs
+   (deftest chip-label-multi-no-name-uses-default
+     (testing "no play name falls back to (default)"
+       (is (= "Play (default) | IDLE"
+              (ps/chip-label-multi nil nil))))))
+
+#?(:cljs
+   (deftest chip-label-multi-running
+     (testing "running state shows progress alongside the play name"
+       (let [s (-> (runner/parse-spec {:script [[:wait 1] [:wait 2]]})
+                   runner/initial-state
+                   (assoc :status :running :step-idx 1))]
+         (is (= "Play error path | RUNNING (step 2/2)"
+                (ps/chip-label-multi s "error path")))))))
+
+#?(:cljs
+   (deftest dropdown-row-status-shapes
+     (testing "dropdown-row-status renders short status badges"
+       (is (= "IDLE" (ps/dropdown-row-status nil)))
+       (is (= "IDLE" (ps/dropdown-row-status {:status :idle})))
+       (is (= "RUN"  (ps/dropdown-row-status {:status :running})))
+       (is (= "PASS" (ps/dropdown-row-status {:status :pass})))
+       (is (= "FAIL" (ps/dropdown-row-status {:status :fail}))))))

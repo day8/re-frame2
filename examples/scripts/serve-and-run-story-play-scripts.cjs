@@ -1,32 +1,41 @@
 #!/usr/bin/env node
 /*
- * Story `:play-script` CI-as-test runner (rf2-3qcxk).
+ * Story `:play-script` CI-as-test runner (rf2-3qcxk + rf2-tl7zk).
  *
  * Compiles the counter-with-stories Story testbed, serves it, opens
  * the Story shell in Playwright, enumerates every registered variant
- * whose body carries a non-empty `:play-script` (via the
- * `window.__rf2_story_ci` global installed by
+ * whose body carries a non-empty `:play-script` or `:plays` slot (via
+ * the `window.__rf2_story_ci` global installed by
  * `re-frame.story.play.ci-runner/install-ci-hooks!`), navigates the
- * shell to each variant, waits for the auto-run's terminal status
- * chip (`:pass` / `:fail`), and prints a per-variant report.
+ * shell to each variant, waits for each play's terminal status
+ * (`:pass` / `:fail`), and prints a per-play report.
+ *
+ * rf2-tl7zk multi-play
+ * --------------------
+ * The runner consumes `ciContext().rows` — one row per PLAY. A variant
+ * declaring `:plays` of size N produces N rows; a single-script
+ * `:play-script` variant produces ONE row. The runner navigates once
+ * per variant, then triggers each non-auto-run play via the CI hook's
+ * `runPlay(variantId, playKey)` entry-point. Per-play terminal state
+ * is read via `readPlayRunState(variantId, playKey)`.
  *
  * EXPECTED-FAIL contract
  * ----------------------
- * Authoring a deliberately-failing variant is the normal way to gate
- * Story's failure path under CI. The runner reads the expected status
- * from the per-variant body via the CI hook's `ciContext()` and
- * inverts the assertion accordingly:
+ * Authoring a deliberately-failing variant / play is the normal way
+ * to gate Story's failure path under CI. The runner reads the expected
+ * status from the variant id AND the play key — either token can mark
+ * the row as expected-fail:
  *
- *   - any variant id whose name contains `failing` / `expected-fail`
+ *   - any variant id or play-key containing `failing` / `expected-fail`
  *     is treated as expected-fail; the runner asserts `:fail`
  *   - everything else asserts `:pass`
  *
- * The two seeded fixtures in the testbed:
- *   :story.counter-play-script/passing   → expects :pass
- *   :story.counter-play-script/failing   → expects :fail
+ * The seeded fixtures in the testbed:
+ *   :story.counter-play-script/passing            → expects :pass
+ *   :story.counter-play-script/failing            → expects :fail
  *
- * Exit code: 0 if every variant matched its expected status; 1 if
- * any variant deviated.
+ * Exit code: 0 if every play matched its expected status; 1 if any
+ * play deviated.
  */
 
 'use strict';
@@ -117,17 +126,23 @@ function stageTestbedHtml() {
 }
 
 /**
- * Classify the expected terminal status for a variant id. Authors mark
- * a fixture as expected-fail by including `failing` or `expected-fail`
- * in the variant name; everything else defaults to expected-pass.
+ * Classify the expected terminal status for a (variant-id, play-key)
+ * pair. Authors mark a fixture as expected-fail by including `failing`
+ * or `expected-fail` in the variant id OR the play's :name; everything
+ * else defaults to expected-pass.
  *
  * Symmetric with re-frame.story.play.ci-runner/play-script-summary:
- * the classification is over the variant id, not body content, so the
+ * the classification is over identifiers (not body content), so the
  * runner can pre-compute the verdict before the Story shell boots.
+ *
+ * rf2-tl7zk: accepts an optional `playKey` so multi-play rows can
+ * mark a specific play as expected-fail without forcing the entire
+ * variant id to carry the marker.
  */
-function expectedStatusFor(variantId) {
-  const name = String(variantId).toLowerCase();
-  if (/(?:failing|expected[-_]fail)/.test(name)) return 'fail';
+function expectedStatusFor(variantId, playKey) {
+  const re = /(?:failing|expected[-_]fail)/;
+  if (re.test(String(variantId).toLowerCase())) return 'fail';
+  if (playKey && re.test(String(playKey).toLowerCase())) return 'fail';
   return 'pass';
 }
 
@@ -178,6 +193,24 @@ async function readRunStateOnce(page, variantId) {
   }, variantIdToKw(variantId));
 }
 
+/**
+ * rf2-tl7zk: per-play state read for multi-play rows.
+ */
+async function readPlayRunStateOnce(page, variantId, playKey) {
+  return page.evaluate(
+    ({ vid, pk }) => {
+      const ci = window.__rf2_story_ci;
+      if (!ci || typeof ci.readPlayRunState !== 'function') return null;
+      try {
+        return ci.readPlayRunState(vid, pk || '');
+      } catch (e) {
+        return { error: String(e && e.message ? e.message : e) };
+      }
+    },
+    { vid: variantIdToKw(variantId), pk: playKey || '' },
+  );
+}
+
 async function waitForTerminalState(page, variantId) {
   const deadline = Date.now() + TERMINAL_TIMEOUT_MS;
   let last = null;
@@ -189,6 +222,42 @@ async function waitForTerminalState(page, variantId) {
     await new Promise((r) => setTimeout(r, 100));
   }
   return last;
+}
+
+/**
+ * rf2-tl7zk: wait for the per-(variantId, playKey) terminal state.
+ */
+async function waitForPlayTerminalState(page, variantId, playKey) {
+  const deadline = Date.now() + TERMINAL_TIMEOUT_MS;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await readPlayRunStateOnce(page, variantId, playKey);
+    if (last && (last.status === 'pass' || last.status === 'fail')) {
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return last;
+}
+
+/**
+ * rf2-tl7zk: trigger a specific play to run. The CI hook's `runPlay`
+ * picks the spec off the variant body and drives the runner.
+ */
+async function triggerPlay(page, variantId, playKey) {
+  return page.evaluate(
+    ({ vid, pk }) => {
+      const ci = window.__rf2_story_ci;
+      if (!ci || typeof ci.runPlay !== 'function') return false;
+      try {
+        ci.runPlay(vid, pk || '');
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    { vid: variantIdToKw(variantId), pk: playKey || '' },
+  );
 }
 
 async function discoverVariants(page) {
@@ -238,7 +307,10 @@ function summariseResults(results) {
   for (const r of results) {
     const tag = r.matched ? 'OK  ' : 'MISS';
     const actual = (r.runState && r.runState.status) || 'no-state';
-    lines.push(`${tag} ${r.variantId}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`);
+    const playLabel = r.playKey ? `[${r.playKey}]` : '';
+    lines.push(
+      `${tag} ${r.variantId}${playLabel}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`,
+    );
     if (!r.matched) {
       const fails = (r.runState && r.runState.results) || [];
       for (const stepR of fails) {
@@ -250,9 +322,23 @@ function summariseResults(results) {
   }
   lines.push('');
   lines.push(
-    `Ran ${results.length} :play-script variants. ${failures.length} unexpected outcomes.`,
+    `Ran ${results.length} :play-script row(s). ${failures.length} unexpected outcomes.`,
   );
   return { lines: lines.join('\n'), failures };
+}
+
+/**
+ * rf2-tl7zk: group ci-rows by variant id so we navigate ONCE per
+ * variant and then drive each row's play locally.
+ */
+function groupRowsByVariant(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const vid = row['variant-id'];
+    if (!grouped.has(vid)) grouped.set(vid, []);
+    grouped.get(vid).push(row);
+  }
+  return grouped;
 }
 
 async function runAllVariants(browser, baseUrl) {
@@ -273,42 +359,75 @@ async function runAllVariants(browser, baseUrl) {
       throw new Error(`variant discovery failed: ${discovery.error || JSON.stringify(discovery)}`);
     }
     const variants = discovery.variants;
-    log(`Discovered ${variants.length} variant(s) with :play-script`);
+    // rf2-tl7zk: prefer the per-play `rows` enumeration; fall back to
+    // the legacy per-variant shape when the CI hook is older.
+    const rows =
+      discovery.context && Array.isArray(discovery.context.rows)
+        ? discovery.context.rows
+        : variants.map((vid) => ({ 'variant-id': vid, 'play-key': null, name: null }));
+    log(
+      `Discovered ${variants.length} variant(s) with :play-script / :plays — ${rows.length} play row(s) total`,
+    );
     if (VERBOSE) {
-      for (const s of (discovery.context && discovery.context.summaries) || []) {
-        log(`  - ${s['variant-id']}  steps=${s['script-len']}  name=${s.name || '(unnamed)'}`);
+      for (const r of rows) {
+        log(
+          `  - ${r['variant-id']}  play=${r['play-key'] || '(default)'}  steps=${r['script-len']}  auto=${r['auto-run?']}`,
+        );
       }
     }
-    if (variants.length === 0) {
-      // No fixtures with :play-script — exit clean. The npm gate
-      // is fail-loud only on UNEXPECTED outcomes; zero variants
-      // means no signal either way.
-      log('No :play-script variants registered. Nothing to assert.');
+    if (rows.length === 0) {
+      // No fixtures with :play-script / :plays — exit clean. The npm gate
+      // is fail-loud only on UNEXPECTED outcomes; zero rows means no
+      // signal either way.
+      log('No :play-script / :plays rows registered. Nothing to assert.');
       return 0;
     }
 
     const results = [];
-    for (const vid of variants) {
-      const expected = expectedStatusFor(vid);
+    const grouped = groupRowsByVariant(rows);
+    for (const [vid, variantRows] of grouped.entries()) {
+      let navOk = true;
       try {
         await navigateToVariant(page, baseUrl, vid);
       } catch (err) {
+        navOk = false;
+        for (const row of variantRows) {
+          results.push({
+            variantId: vid,
+            playKey: row['play-key'],
+            expected: expectedStatusFor(vid, row['play-key']),
+            matched: false,
+            runState: { status: 'navigate-error', message: err.message },
+          });
+        }
+      }
+      if (!navOk) continue;
+
+      // For each play row on this variant: if it auto-ran, just wait
+      // for the terminal state; otherwise, trigger it then wait.
+      for (const row of variantRows) {
+        const playKey = row['play-key'];
+        const expected = expectedStatusFor(vid, playKey);
+
+        if (!row['auto-run?']) {
+          // Manual play — trigger it explicitly. The CI hook routes
+          // through runner-events/run-play! which sets the active
+          // play + drives the runner; we read per-play state below.
+          await triggerPlay(page, vid, playKey);
+        }
+
+        const runState = playKey
+          ? await waitForPlayTerminalState(page, vid, playKey)
+          : await waitForTerminalState(page, vid);
+        const actual = (runState && runState.status) || null;
         results.push({
           variantId: vid,
+          playKey,
           expected,
-          matched: false,
-          runState: { status: 'navigate-error', message: err.message },
+          matched: actual === expected,
+          runState,
         });
-        continue;
       }
-      const runState = await waitForTerminalState(page, vid);
-      const actual = (runState && runState.status) || null;
-      results.push({
-        variantId: vid,
-        expected,
-        matched: actual === expected,
-        runState,
-      });
     }
 
     const { lines, failures } = summariseResults(results);

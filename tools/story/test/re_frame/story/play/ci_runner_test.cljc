@@ -179,3 +179,91 @@
 
 (deftest project-state-nil-yields-nil
   (is (nil? (ci/project-state nil))))
+
+;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+
+(deftest has-plays?-recognises-non-empty-plays
+  (is (false? (ci/has-plays? {})))
+  (is (false? (ci/has-plays? {:plays []})))
+  (is (true?  (ci/has-plays? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
+
+(deftest has-any-play?-or-of-both
+  (is (false? (ci/has-any-play? {})))
+  (is (true?  (ci/has-any-play? {:play-script [[:dispatch [:a]]]})))
+  (is (true?  (ci/has-any-play? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
+
+(deftest discovery-includes-plays-variants
+  (testing "variants-with-play-scripts picks up :plays-carrying bodies"
+    (let [regs {:story.a/single  {:play-script [[:dispatch [:a]]]}
+                :story.b/multi   {:plays [{:name "p1" :script [[:dispatch [:b1]]]}
+                                          {:name "p2" :script [[:dispatch [:b2]]]}]}
+                :story.c/none    {:events []}}]
+      (is (= [:story.a/single :story.b/multi]
+             (ci/variants-with-play-scripts regs))))))
+
+(deftest ci-rows-enumerates-plays-per-variant
+  (testing "ci-rows produces one row per play; single-script variants produce one row"
+    (let [regs {:story.a/single
+                {:play-script {:name "single-named"
+                               :script [[:dispatch [:a]]]}}
+
+                :story.b/multi
+                {:plays [{:name "happy" :script [[:dispatch [:b1]]]}
+                         {:name "error" :script [[:dispatch [:b2]]]
+                          :auto-run? true}]}
+
+                :story.c/no-play {:events []}}
+          rows (ci/ci-rows regs)]
+      (is (= 3 (count rows))
+          "single + multi(2) = 3 rows total")
+      (is (= [[:story.a/single "single-named"]
+              [:story.b/multi  "happy"]
+              [:story.b/multi  "error"]]
+             (mapv (fn [r] [(:variant-id r) (:play-key r)]) rows))
+          "rows preserve declaration order within a variant")
+      (let [error-row (last rows)]
+        (is (= "error" (:play-key error-row)))
+        (is (true? (:auto-run? error-row))
+            "row carries the per-play auto-run? flag")))))
+
+(deftest ci-rows-handles-bare-play-script
+  (testing "a bare :play-script (no :name) yields a row with :play-key nil"
+    (let [regs {:story.x/bare {:play-script [[:dispatch [:a]]]}}
+          rows (ci/ci-rows regs)]
+      (is (= 1 (count rows)))
+      (is (nil? (:play-key (first rows))))
+      (is (= 1   (:script-len (first rows))))
+      (is (true? (:auto-run? (first rows)))
+          "bare scripts default :auto-run? to true (legacy contract)"))))
+
+(deftest ci-context-includes-rows
+  (testing "ci-context exposes the per-play rows alongside :variants + :summaries"
+    (swap! registrar/kind->id->body assoc-in
+           [:variant :story.ctx/multi]
+           {:plays [{:name "a" :script [[:dispatch [:foo]]]}
+                    {:name "b" :script [[:dispatch [:bar]]]}]})
+    (swap! registrar/kind->id->body assoc-in
+           [:variant :story.ctx/single]
+           {:play-script {:name "lone" :script [[:dispatch [:baz]]]}})
+    (let [ctx (ci/ci-context)]
+      (is (= [:story.ctx/multi :story.ctx/single] (:variants ctx)))
+      ;; summaries are per-VARIANT (multi-play uses its first play).
+      (is (= 2 (count (:summaries ctx))))
+      ;; rows are per-PLAY — multi(2) + single(1) = 3 rows.
+      (is (= 3 (count (:rows ctx))))
+      (is (= [[:story.ctx/multi  "a"]
+              [:story.ctx/multi  "b"]
+              [:story.ctx/single "lone"]]
+             (mapv (fn [r] [(:variant-id r) (:play-key r)]) (:rows ctx)))))))
+
+(deftest summary-from-plays-uses-first-play
+  (testing "play-script-summary on a :plays variant reports the first play"
+    (swap! registrar/kind->id->body assoc-in
+           [:variant :story.s/multi]
+           {:plays [{:name "first-play"  :script [[:dispatch [:a]] [:wait 0]]}
+                    {:name "second-play" :script [[:dispatch [:b]]]}]})
+    (let [s (ci/play-script-summary :story.s/multi)]
+      (is (= :story.s/multi   (:variant-id s)))
+      (is (= "first-play"     (:name s)))
+      (is (= 2                (:script-len s)))
+      (is (true?              (:auto-run? s))))))
