@@ -578,15 +578,41 @@
   603) and §Drain-loop pseudocode (lines 916, 961-963). Reserved-fx
   bodies for `:dispatch` and `:dispatch-later` read the envelope to
   propagate inheritable keys onto the child dispatch per §Cascade
-  propagation."
+  propagation.
+
+  The 7-arity additionally accepts the originating handler's full
+  effects map (the closed `{:db ... :fx ...}` shape, per Spec 002
+  §The binary fx-handler signature). It is used only to stamp shape
+  info onto the terminating `:event/do-fx` trace marker's `:tags`
+  (rf2-twt7m Change 2): `:fx` (the vector returned) and
+  `:db-present?` (boolean, true iff the handler returned a `:db`
+  slot). The map itself is NOT threaded into per-fx invocations —
+  fx handlers already receive the effects shape they need via per-
+  fx args. Callers without an effects map (e.g. machine-exit fx
+  walks) use a lower arity; the trace marker degrades gracefully
+  (no `:fx` / `:db-present?` slots on the emit)."
   ([frame-id fx-vec active-platform]
-   (do-fx frame-id fx-vec active-platform {} nil nil))
+   (do-fx frame-id fx-vec active-platform {} nil nil nil))
   ([frame-id fx-vec active-platform overrides]
-   (do-fx frame-id fx-vec active-platform overrides nil nil))
+   (do-fx frame-id fx-vec active-platform overrides nil nil nil))
   ([frame-id fx-vec active-platform overrides origin-event]
-   (do-fx frame-id fx-vec active-platform overrides origin-event nil))
+   (do-fx frame-id fx-vec active-platform overrides origin-event nil nil))
   ([frame-id fx-vec active-platform overrides origin-event parent-envelope]
+   (do-fx frame-id fx-vec active-platform overrides origin-event parent-envelope nil))
+  ([frame-id fx-vec active-platform overrides origin-event parent-envelope effects]
    (doseq [pair fx-vec]
      (when (and (vector? pair) (seq pair))
        (handle-one-fx frame-id pair active-platform overrides origin-event parent-envelope)))
-   (trace/emit! :event :event/do-fx {:frame frame-id})))
+   ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto the
+   ;; `:event/do-fx` marker's `:tags` when the caller supplied the
+   ;; effects map. The full `:db` VALUE is NOT stamped — slice
+   ;; changes already ride the App-db diff trace
+   ;; (`:event/db-changed`), and the value can be huge. Presence +
+   ;; shape is what consumers (Event lens, Causa) need to align
+   ;; cascade rows with handler returns. The tag-map is the third
+   ;; arg to `trace/emit!`; `trace/emit!` itself is DCE-gated, so
+   ;; prod builds elide both the construction and the emit.
+   (trace/emit! :event :event/do-fx
+                (cond-> {:frame frame-id}
+                  (some? effects) (assoc :fx          (:fx effects)
+                                         :db-present? (contains? effects :db))))))

@@ -382,7 +382,7 @@ The framework emits trace events from these call sites:
 
 - `events.cljc` — `:warning :rf.warning/interceptors-in-metadata-map`; `:rf.error/effect-map-shape`; `:rf.error/effect-handler-bad-return` (per rf2-k3bj).
 - `subs.cljc` — `:sub/create`, `:sub/run`; `:rf.error/no-such-sub` and `:rf.error/sub-exception` for failure paths.
-- `fx.cljc` — `:event/do-fx` per drain step, `:rf.fx/handled` per dispatched fx, `:fx/override-applied`, `:warning :rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`, plus `:rf.machine/spawned` and `:rf.machine/destroyed`.
+- `fx.cljc` — `:event/do-fx` per drain step (per rf2-twt7m the emit's `:tags` additionally carries `:fx` (the vector the handler returned) and `:db-present?` (boolean — was the handler's return-map's `:db` slot supplied?) so consumers can align cascade rows with handler returns without re-reading the interceptor context; the `:db` VALUE is intentionally NOT stamped — slice changes already ride `:event/db-changed`. Both slots sit under `:tags` alongside `:frame`, consistent with the payload-shaped tag convention), `:rf.fx/handled` per dispatched fx, `:fx/override-applied`, `:warning :rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`, plus `:rf.machine/spawned` and `:rf.machine/destroyed`.
 - `cofx.cljc` — `:rf.error/no-such-cofx` (emitted by `inject-cofx` when the cofx-id has no registered handler), `:warning :rf.cofx/skipped-on-platform` (emitted when a registered cofx's `:platforms` excludes the active platform; mirrors `:rf.fx/skipped-on-platform` per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)).
 - `router.cljc` — `:event :event` (`:run-start` and `:run-end` phases), `:event :event/dispatched`, `:event :event/db-changed`, `:rf.error/handler-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:warning :rf.warning/dispatch-from-async-callback-fell-through-to-default` (emitted alongside `:rf.error/no-such-handler` when a dispatch landed on `:rf/default` purely because the resolution chain fell through and the handler is missing; per rf2-o8m0), `:rf.error/dispatch-sync-in-handler`, `:rf.error/frame-destroyed`, `:rf.error/flow-eval-exception`, `:rf.frame/drain-interrupted` (lifecycle event emitted when the drain loop detects a destroyed frame mid-cycle; per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning)).
 - `frame.cljc` — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.machine.lifecycle/destroyed`.
@@ -791,7 +791,7 @@ Every handler-execution boundary the runtime crosses (the router's `process-even
 | Slot | Carries | Per |
 |---|---|---|
 | `:trigger-handler` | Registration coord of the in-scope handler — `{:kind :id :source-coord {...}}` or nil when no source-coord is stamped. Hoisted as the top-level `:rf.trace/trigger-handler` field on every emit. | rf2-3nn8 (error path) / rf2-lf84g (success path) |
-| `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`) — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on error emits only. | rf2-ts1a |
+| `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`) — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on every emit (success and error). | rf2-ts1a (error-path landing) / rf2-twt7m (widened to success path) |
 | `:dispatch-id` | Cascade-wide correlation id — allocated once on entry to the drain (`router.cljc`'s `process-event!`) and merged into `:tags :dispatch-id` of every event emitted inside the cascade. | rf2-g6ih4 |
 | `:sensitive?` | Boolean. True when the router computed a schema-derived sensitive-path overlap for the in-scope handler (the handler-meta annotation has been removed — rf2-hjs2d). Emitted events get a top-level `:sensitive? true` stamp; absent reads as false (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). | rf2-isdwf |
 | `:no-emit?` | Boolean. True when the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. `emit!` / `emit-error!` short-circuit (no envelope allocation, no listener fan-out) when bound true. | rf2-qsjda |
@@ -827,7 +827,7 @@ Slot values are nil when unbound. Consumers reading a slot off an event MUST tre
 | Slot | Hoisted as | When | Notes |
 |---|---|---|---|
 | `:trigger-handler` | top-level `:rf.trace/trigger-handler` | every emit (success and error) when bound | Omitted entirely when unbound (no placeholder data). Per [§`:rf.trace/trigger-handler`](#rftracetrigger-handler--naming-the-in-scope-handler). |
-| `:call-site` | top-level `:rf.trace/call-site` | **error emits only** when bound | Success-path emits drop the slot — call-site rides error traces only, where jump-to-source matters. Per [§`:rf.trace/call-site`](#rftracecall-site--naming-the-invocation-line-rf2-ts1a). |
+| `:call-site` | top-level `:rf.trace/call-site` | every emit (success and error) when bound | Per rf2-twt7m the hoist widened from error-only to all emits — the Event lens and any consumer rendering jump-to-source on success-path events (`:event/dispatched`, `:event/do-fx`, `:rf.fx/handled`) needs the dispatch-site coord on the cascade entry, not just on errors. Omitted entirely when unbound. Per [§`:rf.trace/call-site`](#rftracecall-site--naming-the-invocation-line-rf2-ts1a). |
 | `:dispatch-id` | `:tags :dispatch-id` | every emit when bound and `:tags` does not already supply one | Caller-supplied `:tags :dispatch-id` wins. Per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id). |
 | `:sensitive?` | top-level `:sensitive? true` | every emit when scope is sensitive and `:tags :sensitive?` does not supply its own reading | Caller-supplied `:tags :sensitive?` wins (queue-time `:event/dispatched` computes its own reading before scope is bound). Absent reads as false. Per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
 | `:no-emit?` | **not hoisted** | — | Acts as a short-circuit signal: `emit!` / `emit-error!` skip envelope construction and listener fan-out entirely when bound true. The slot never appears on any emitted event. Per [§Trace-emission opt-out](#trace-emission-opt-out-rftraceno-emit-event-meta). |
@@ -949,7 +949,30 @@ Coverage:
 
 Production elision (Q3=B): **dev-only**. Each macro expands to `(if interop/debug-enabled? <stamping-branch> <no-stamping-branch>)`; under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to false and the entire stamping branch DCE's — the literal `{:rf.trace/call-site {...}}` map vanishes from the bundle. Apps using `goog.DEBUG=true` builds (or any JVM build) get the field; the default `:advanced` + `goog.DEBUG=false` production build does not — the elision-probe (per [§Production builds](#production-builds-zero-overhead-zero-code)) asserts the `"rf.trace/call-site"` string fragment is absent from the production bundle. The trace surface itself is still gated; this is an additional compile-time gate that strips the call-site machinery even when the trace surface is kept live.
 
-The mechanism is "compile-time map + handler-scope bind + emit-error read." The macro produces a literal map at compile time; the runtime publishes it on the `:call-site` slot of `re-frame.trace/*handler-scope*` around the underlying `*`-fn call (or threads the value through the dispatch envelope so `process-event!` binds it for the handler chain, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time)); `emit-error!` reads the slot and hoists it onto the emitted event when bound. No new namespace or registry; consumer access is `(:rf.trace/call-site event)`.
+The mechanism is "compile-time map + handler-scope bind + emit read." The macro produces a literal map at compile time; the runtime publishes it on the `:call-site` slot of `re-frame.trace/*handler-scope*` around the underlying `*`-fn call (or threads the value through the dispatch envelope so `process-event!` binds it for the handler chain, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time)); `build-event` reads the slot and hoists it onto every emitted event (success and error) when bound. The queue-time `:event/dispatched` emit additionally wraps its `trace/emit!` in a `with-call-site` binding sourced from the envelope's `:call-site` slot, so the enqueue trace carries the dispatch-site coord even though `process-event!`'s cascade-wide binding hasn't fired yet. No new namespace or registry; consumer access is `(:rf.trace/call-site event)`.
+
+Per rf2-twt7m the hoist widened from error-only to every emit (success and error). The Event lens redesign (rf2-zh2qc) and any consumer rendering jump-to-source on success-path events (`:event/dispatched`, `:event/do-fx`, `:rf.fx/handled`, `:event/db-changed`, `:sub/run`, `:rf.machine/transition`) needs the dispatch-site coord on the cascade entry, not just on errors. The semantics match the trigger-handler widening (rf2-lf84g): better one consistent rule than two paths to remember.
+
+#### `:rf/default?` — framework-auto-wrapped interceptor flag (rf2-twt7m)
+
+`reg-event-db` / `reg-event-fx` / `reg-event-ctx` each wrap the user's handler into a kind-appropriate interceptor (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`) before appending it to the user-supplied `:interceptors` chain. The wrapper appears in `(rf/handler-meta :event id) :interceptors` alongside the user's own interceptors; consumer tools (Causa, the Event lens, IDE inspectors) frequently want to surface ONLY the user's chain — the framework auto-wrapper is implementation detail, not user-authored configuration worth showing.
+
+Per rf2-twt7m the auto-wrapper carries `:rf/default? true` on its interceptor map. Self-describing — tools filter without a hardcoded id allowlist:
+
+```clojure
+(->> (rf/handler-meta :event :my/event)
+     :interceptors
+     (remove :rf/default?))                ;; → only the user's interceptors
+```
+
+Shape and reservation:
+
+- The flag is a top-level boolean on the interceptor map (the same map the chain stores).
+- `:rf/default?` is owned by the framework under the `:rf/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+- User-supplied interceptors MUST NOT set `:rf/default?` true — the slot identifies framework-injected entries only.
+- Absent (or `false`) means "user-authored." Tools that branch on the flag treat absent and `false` identically (nil-safe access).
+
+Production elision: the flag rides on a registry-meta surface (`handler-meta`) — not on a trace event — so the trace-surface DCE gate does not apply. The flag is one keyword + one boolean per registered event, lives in process memory only, and is consumed by dev tooling that itself does not ship to production (the framework's own dispatch path does not branch on it).
 
 ### Error namespace convention — five prefix shapes
 
