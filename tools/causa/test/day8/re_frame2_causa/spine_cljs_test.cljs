@@ -743,3 +743,109 @@
       (is (= :c3 (:dispatch-id r))
           "nil slot-id + non-empty buffer + :retro → snap to head")
       (is (true? (:head? r))))))
+
+;; -------------------------------------------------------------------------
+;; (12) Click on head stays LIVE (rf2-xzzih)
+;;
+;; Phase A (rf2-s0s5x / PR #1452) made any L2 click flip mode → :retro.
+;; But clicking the latest event (head) shouldn't pin the user to RETRO —
+;; they're still at head, so new arrivals should continue to auto-advance.
+;; The fix: the click-handler reducer is now head-aware. Mike's quote:
+;; "If I'm on the last event (the most recent one) and another event
+;; comes in, I should change to that new event. Ie. I'm live."
+;; -------------------------------------------------------------------------
+
+(deftest focusable-head-id-skips-ungrouped
+  (testing "focusable-head-id returns the latest focusable cascade —
+            not the literal last entry if that's the :ungrouped bucket"
+    (is (= :c3 (spine/focusable-head-id fixture-cascades)))
+    (is (= :c2 (spine/focusable-head-id
+                 fixture-cascades-with-ungrouped))
+        ":ungrouped sorts last (first-id sentinel) but focusable head
+         is the latest real cascade — :c2 not :ungrouped")
+    (is (nil? (spine/focusable-head-id [])))
+    (is (nil? (spine/focusable-head-id
+                [{:dispatch-id :ungrouped :frame nil}])))))
+
+(deftest focus-cascade-reducer-5-arg-head-stays-live
+  (testing "rf2-xzzih — when dispatch-id == head-id the reducer picks
+            :live so subsequent arrivals auto-advance"
+    (let [r (spine/focus-cascade-reducer {} :c3 :rf/default :e3 :c3)]
+      (is (= :c3 (get-in r [:focus :dispatch-id])))
+      (is (= :live (get-in r [:focus :mode]))
+          "head click → :live (auto-follow continues)")
+      (is (= :c3 (:selected-dispatch-id r)))
+      (is (= :e3 (get-in r [:focus :epoch-id]))))))
+
+(deftest focus-cascade-reducer-5-arg-non-head-pins-retro
+  (testing "rf2-xzzih — clicking a non-head cascade still pins to :retro"
+    (let [r (spine/focus-cascade-reducer {} :c1 :rf/default :e1 :c3)]
+      (is (= :c1 (get-in r [:focus :dispatch-id])))
+      (is (= :retro (get-in r [:focus :mode]))
+          "non-head click → :retro (auto-follow suspended)"))))
+
+(deftest focus-cascade-reducer-nil-head-id-defaults-retro
+  (testing "rf2-xzzih — the 4-arg back-compat path (no head-id supplied)
+            preserves the pre-fix :retro default. Keeps existing
+            callers' contract intact."
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default :e2 nil)]
+      (is (= :retro (get-in r [:focus :mode]))))
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default :e2)]
+      (is (= :retro (get-in r [:focus :mode]))
+          "4-arg arity defaults to retro"))
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
+      (is (= :retro (get-in r [:focus :mode]))
+          "3-arg arity defaults to retro"))))
+
+(deftest focus-cascade-event-clicking-head-stays-live
+  (testing "rf2-xzzih end-to-end — dispatching :rf.causa/focus-cascade
+            on the head cascade keeps spine in :live so a subsequent
+            arrival auto-advances the focus"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c3 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (= :live (:mode r))
+          "head click → mode stays :live")
+      (is (true? (:head? r))))
+    ;; A new cascade arrives — focus must auto-advance to the new head.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (let [r (focus-sub)]
+      (is (= :c4 (:dispatch-id r))
+          "new arrival auto-advances because mode stayed :live")
+      (is (= :live (:mode r)))
+      (is (true? (:head? r))))))
+
+(deftest focus-cascade-event-clicking-non-head-pins-retro
+  (testing "rf2-xzzih — clicking a non-head cascade pins :retro and
+            blocks auto-advance through subsequent arrivals"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c1 (:dispatch-id r)))
+      (is (= :retro (:mode r)) "non-head click → :retro"))
+    ;; New cascade arrives — :retro must NOT auto-advance.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (let [r (focus-sub)]
+      (is (= :c1 (:dispatch-id r))
+          ":retro pins focus through arrivals")
+      (is (= :retro (:mode r))))))
+
+(deftest legacy-select-dispatch-id-clicking-head-stays-live
+  (testing "rf2-xzzih — the legacy `:rf.causa/select-dispatch-id`
+            event (the spine-shim entry used by causality / machine
+            / cancellation panels) shares the head-aware mode pick
+            so clicks from those panels onto the head cascade also
+            keep :live"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id :c3 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (= :live (:mode r))
+          "legacy click on head → :live (parity with focus-cascade event)"))))
