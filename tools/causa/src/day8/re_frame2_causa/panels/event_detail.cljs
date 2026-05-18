@@ -305,21 +305,16 @@
 (defn- cascade-list
   "Empty-state list of cascades for the user to click into. Until the
   actions panel lands (rf2-5yriz) this is the primary way to select a
-  dispatch-id."
+  dispatch-id.
+
+  Silent-by-default (rf2-b9f6z) — no prose; the panel reflects the L2
+  event-list focus like every other panel. When the buffer has
+  cascades, the list itself is the only affordance; when the buffer is
+  empty, the container renders empty."
   [cascades]
   [:div {:data-testid "rf-causa-event-detail-empty"
          :style       {:padding "16px"}}
-   [:p {:style {:font-family sans-stack
-                :font-size   "13px"
-                :color       (:text-secondary tokens)
-                :margin      "0 0 12px 0"}}
-    "Click a cascade below to inspect its dispatch."]
-   (if (empty? cascades)
-     [:p {:style {:font-family sans-stack
-                  :font-size   "13px"
-                  :color       (:text-tertiary tokens)
-                  :margin      0}}
-      "No cascades yet. Trigger a dispatch in the host app to populate."]
+   (when (seq cascades)
      (overflow/capped-list
        cascades
        {:panel-id "event-detail"
@@ -401,12 +396,7 @@
                     :font-weight 600
                     :margin      0
                     :color       (:text-primary tokens)}}
-       "Event detail"]
-      [:p {:style {:font-size "12px"
-                   :color     (:text-tertiary tokens)
-                   :margin    "4px 0 0 0"}}
-       "Pick a dispatch from the cascade list to see its handler, "
-       "effects, subscriptions, and source coord."]]
+       "Event detail"]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         (and selected-dispatch-id selected-cascade)
