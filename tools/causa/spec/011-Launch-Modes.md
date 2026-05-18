@@ -175,6 +175,32 @@ pointer-capture beyond what the browser primitive provides, it MUST
 write to `--rf-causa-inline-width` (preserving cascade semantics);
 it MUST NOT introduce a parallel sizing channel.
 
+### Inline-style cascade contract
+
+Where a future pointer-capture implementation does write to
+`--rf-causa-inline-width` from JS, the **write surface is constrained**.
+Causa MUST NOT assert default values as inline styles on `<html>` (or
+on the layout host element). Inline declarations beat author-normal
+selectors in the CSS cascade — a default written inline would silently
+shadow any `:root { --rf-causa-inline-width: ... }` the embedding app
+has declared, breaking the host's right to override per §Resizing the
+inline host above.
+
+The inline-style write is reserved for **explicit user resize
+gestures**. On boot, and on any "reset to default" path, the
+implementation MUST `removeProperty` (or equivalent clear) on
+`<html>` rather than `setProperty` a default — so the author-normal
+cascade remains the source of truth for defaults, and the inline
+slot is occupied only when (and for as long as) the user has expressed
+an explicit size.
+
+> Cascade trap that motivated this rule: an early resize-handle
+> implementation (rf2-x8h9y) pinned the 560px default inline on
+> `<html>` at boot. Test fixtures and host stylesheets that set the
+> variable via `:root` were silently shadowed, producing reproducible
+> Playwright failures that took hours to root-cause (rf2-6fqr5 /
+> PR #1472). The rule above is the fix in spec form.
+
 If the selector cannot be found after the substrate adapter is ready,
 Causa MUST fail loudly but safely: `console.error` with the selector
 and snippet above, plus the same diagnostic exposed through
