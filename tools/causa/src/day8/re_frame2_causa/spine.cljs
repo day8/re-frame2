@@ -49,6 +49,28 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 
+(defn focusable-cascades
+  "Per rf2-fzbrw — the spine's invariant is 'one focused event at a
+  time'. The `:ungrouped` bucket produced by `projection/group-cascades`
+  for registry-time emits / frame lifecycle outside a drain / REPL
+  evals carries no event vector and is therefore NOT a valid focus
+  target: pinning to it leaves every event-detail / app-db / views
+  panel with no cascade to render, which degrades into the unwanted
+  'all subs / all handlers' aggregate look.
+
+  Strip the bucket before any spine walk so:
+    - the head/tail boundary predicates align with what the user sees
+      in the L2 event list (which already filters via
+      `shell/cascade-has-event?`);
+    - stepping past a real event cannot land focus on `:ungrouped`;
+    - `compose-focus` cannot resolve an effective dispatch-id to
+      `:ungrouped` for a stored slot that was already pointing there.
+
+  Pure data; JVM-runnable; idempotent (re-filtering a cleaned vector
+  is a no-op)."
+  [cascades]
+  (filterv #(not= :ungrouped (:dispatch-id %)) cascades))
+
 (defn head-cascade
   "The latest cascade in the projected list — the cascade whose
   `:dispatch-id` is the spine's 'head'. Returns nil when the list is
@@ -160,44 +182,65 @@
   `:paused?` suspends the auto-track — when paused, the focus stays
   on the stored slot-id so the user can inspect a cascade without
   losing it as new traffic arrives. Resuming (`follow-head` /
-  `toggle-live-pause`) snaps back to head."
+  `toggle-live-pause`) snaps back to head.
+
+  ## No-aggregate-state invariant (rf2-fzbrw)
+
+  The spine walks `focusable-cascades` (the `:ungrouped` bucket is
+  stripped) — so the head/tail boundary and any retro-pin operation
+  resolves against the user-visible cascade list. The composer
+  additionally snaps to head whenever the stored slot is nil OR
+  points at `:ungrouped` OR points at an evicted cascade. Combined
+  with the LIVE auto-follow above this makes 'buffer non-empty +
+  effective :dispatch-id nil' structurally unreachable — the L4
+  panels never have to handle the 'no cascade' degraded render."
   [focus cascades]
-  (let [head-id    (head-dispatch-id cascades)
+  (let [focusable  (focusable-cascades cascades)
+        head-id    (head-dispatch-id focusable)
         slot-id    (:dispatch-id focus)
         slot-frame (:frame focus)
         paused?    (boolean (:paused? focus))
+        ;; rf2-fzbrw — a slot pointing at nil OR the :ungrouped bucket
+        ;; is NOT a valid focus pin. (Evicted ids are still a valid
+        ;; pin: the event-detail panel surfaces its orphaned-state
+        ;; copy off them, so we don't conflate "evicted" with "never
+        ;; valid".)
+        slot-pinnable? (and slot-id (not= :ungrouped slot-id))
         mode       (or (:mode focus)
                        (if (or (nil? slot-id) (= slot-id head-id))
                          :live
                          :retro))
         eff-id  (cond
-                  ;; Live + unpaused — track head, regardless of slot-id.
-                  ;; This is the rf2-s0s5x Phase A change: previously the
-                  ;; stored slot-id won here, so once `focus-step-reducer`
-                  ;; landed on head the slot pinned to that id and never
-                  ;; auto-advanced as newer cascades arrived. Pre-alpha
-                  ;; the LIVE pill's contract is unambiguous — head IS
-                  ;; the focus.
+                  ;; rf2-fzbrw — slot is nil / :ungrouped while a
+                  ;; focusable buffer exists. Snap to head regardless
+                  ;; of mode so the unreachable "focus nil + buffer
+                  ;; non-empty" state stays unreachable. (Evicted retro
+                  ;; ids flow through to the :else branch so the
+                  ;; orphaned-state UX survives.)
+                  (and (some? head-id) (not slot-pinnable?))
+                  head-id
+                  ;; Live + unpaused — track head, regardless of
+                  ;; slot-id (rf2-s0s5x Phase A). Previously the
+                  ;; stored slot-id won here, so once
+                  ;; focus-step-reducer landed on the then-head the
+                  ;; slot pinned to that id and never auto-advanced
+                  ;; as newer cascades arrived. The LIVE pill's
+                  ;; contract is unambiguous — head IS the focus.
                   (and (= :live mode) (not paused?))
                   head-id
-                  ;; Live but paused — slot-id wins (frozen inspection);
-                  ;; if the stored id has been evicted from the buffer,
-                  ;; snap to head so the inspector doesn't dangle on a
-                  ;; nonexistent cascade.
+                  ;; Live + paused — slot-id wins (frozen inspection);
+                  ;; if the stored id has been evicted from the
+                  ;; buffer, snap to head so the inspector doesn't
+                  ;; dangle on a nonexistent cascade.
                   (and (= :live mode) paused?)
-                  (if (cascade-by-id cascades slot-id slot-frame) slot-id head-id)
-                  ;; Retro — slot-id wins UNCONDITIONALLY (even when
-                  ;; evicted). The event-detail panel's orphaned-state
-                  ;; branch surfaces "this id is no longer in the
-                  ;; buffer" copy off the evicted slot-id; auto-snapping
-                  ;; to head in retro would hide that signal. Empty
-                  ;; slot-id (initial state) does snap to head per §4
-                  ;; Defaults.
-                  (nil? slot-id)
-                  head-id
+                  (if (cascade-by-id focusable slot-id slot-frame)
+                    slot-id
+                    head-id)
+                  ;; Retro — slot-id wins. Evicted ids preserve the
+                  ;; orphaned-state surface in the event-detail panel.
                   :else
                   slot-id)
-        cascade (cascade-by-id cascades eff-id slot-frame)]
+        cascade (cascade-by-id focusable eff-id slot-frame)]
     {:dispatch-id eff-id
      :epoch-id    (:epoch-id focus)
      :frame       (or (:frame cascade) (:frame focus))
@@ -259,6 +302,15 @@
   pressing `j` (prev) from LIVE steps back one from the CURRENT head
   rather than from a stale stored id.
 
+  Per rf2-fzbrw the walk runs over `focusable-cascades` so the
+  `:ungrouped` bucket (registry-time emits / lifecycle / REPL evals)
+  is never a step target — pinning to it would degrade the L4 panels
+  into the unwanted 'all subs / all handlers' aggregate look. When
+  the buffer carries no focusable cascades, OR the step would land on
+  the current focus (already at a boundary), the reducer returns `db`
+  unchanged — a true no-op so `[<]` on the first event (or `[>]` on
+  the latest event) cannot clear or shuffle focus.
+
   The 3-arg arity (back-compat for callers that don't have the epoch
   buffer handy) treats `epoch-history` as empty so `:epoch-id`
   resolves to nil. Production callers in `install!` go through the
@@ -266,25 +318,38 @@
   ([db cascades delta]
    (focus-step-reducer db cascades [] delta))
   ([db cascades epoch-history delta]
-   (let [current-id (:dispatch-id (compose-focus (get db :focus) cascades))
-         new-id     (step-dispatch-id cascades current-id delta)
-         head-id    (head-dispatch-id cascades)
-         new-mode   (if (= new-id head-id) :live :retro)
-         cascade    (cascade-by-id cascades new-id)
-         frame-id   (:frame cascade)
-         epoch-id   (epoch-id-for-cascade epoch-history new-id)]
-     (cond-> db
-       true     (update :focus (fnil assoc {})
-                        :dispatch-id new-id
-                        :epoch-id    epoch-id
-                        :mode new-mode
-                        :previewing? false
-                        :paused? false)
-       frame-id (assoc-in [:focus :frame] frame-id)
-       true     (assoc :selected-dispatch-id new-id
-                       :selected-epoch-id    epoch-id
-                       :selected-dispatch    (cond-> {:dispatch-id new-id}
-                                               frame-id (assoc :frame frame-id)))))))
+   (let [focusable  (focusable-cascades cascades)
+         ;; rf2-s0s5x Phase A: resolve current-id through the same
+         ;; composer the spine sub uses, so in LIVE mode `j` steps
+         ;; back from the CURRENT head rather than from a stale
+         ;; stored id.
+         current-id (:dispatch-id (compose-focus (get db :focus) cascades))
+         new-id     (step-dispatch-id focusable current-id delta)
+         head-id    (head-dispatch-id focusable)]
+     (if (or (nil? new-id)
+             ;; rf2-fzbrw — boundary no-op. Stepping past either edge
+             ;; resolved to the same id we already hold; return db
+             ;; unchanged so the ribbon's `:disabled` contract is
+             ;; honoured at the reducer layer too. A keyboard j/k at
+             ;; the edge has no observable effect.
+             (and (some? current-id) (= new-id current-id)))
+       db
+       (let [new-mode (if (= new-id head-id) :live :retro)
+             cascade  (cascade-by-id focusable new-id)
+             frame-id (:frame cascade)
+             epoch-id (epoch-id-for-cascade epoch-history new-id)]
+         (cond-> db
+           true     (update :focus (fnil assoc {})
+                            :dispatch-id new-id
+                            :epoch-id    epoch-id
+                            :mode new-mode
+                            :previewing? false
+                            :paused? false)
+           frame-id (assoc-in [:focus :frame] frame-id)
+           true     (assoc :selected-dispatch-id new-id
+                           :selected-epoch-id    epoch-id
+                           :selected-dispatch    (cond-> {:dispatch-id new-id}
+                                                   frame-id (assoc :frame frame-id)))))))))
 
 (defn follow-head-reducer
   "Pure reducer for `:rf.causa/follow-head`. Snaps the spine to LIVE,

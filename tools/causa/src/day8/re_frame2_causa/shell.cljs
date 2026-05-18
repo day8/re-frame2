@@ -342,20 +342,29 @@
                    :border-radius  "4px"
                    :font-family    sans-stack
                    :font-size      (:body type-scale)}
-        dim       {:color (:text-tertiary tokens) :cursor "default"}]
+        ;; Per rf2-fzbrw the visual + a11y signal must match the
+        ;; functional signal: `cursor: not-allowed` so the mouse
+        ;; pointer telegraphs the no-op, plus `aria-disabled` for
+        ;; screen readers (the native `:disabled` attribute already
+        ;; blocks click events at the DOM layer).
+        dim       {:color (:text-tertiary tokens) :cursor "not-allowed"}]
     [:div {:data-testid "rf-causa-ribbon-nav"
            :style {:display "flex" :align-items "center" :gap "4px"}}
-     [:button {:data-testid "rf-causa-nav-prev"
-               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa})
-               :disabled    (boolean at-tail?)
-               :title       "Step to previous event (j)"
-               :style       (merge btn-style (when at-tail? dim))}
+     [:button {:data-testid   "rf-causa-nav-prev"
+               :on-click      (when-not at-tail?
+                                #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa}))
+               :disabled      (boolean at-tail?)
+               :aria-disabled (boolean at-tail?)
+               :title         "Step to previous event (j)"
+               :style         (merge btn-style (when at-tail? dim))}
       "◀"]
-     [:button {:data-testid "rf-causa-nav-next"
-               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa})
-               :disabled    (boolean at-head?)
-               :title       "Step to next event (k)"
-               :style       (merge btn-style (when at-head? dim))}
+     [:button {:data-testid   "rf-causa-nav-next"
+               :on-click      (when-not at-head?
+                                #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa}))
+               :disabled      (boolean at-head?)
+               :aria-disabled (boolean at-head?)
+               :title         "Step to next event (k)"
+               :style         (merge btn-style (when at-head? dim))}
       "▶"]
      [:button {:data-testid "rf-causa-nav-head"
                :on-click    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
@@ -512,7 +521,18 @@
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])
         focused-id      (:dispatch-id focus)
-        ids             (mapv :dispatch-id cascades)
+        ;; Per rf2-fzbrw: the boundary predicates must align with the
+        ;; user-visible event list. The L2 list filters `:ungrouped`
+        ;; (registry-time emits / lifecycle / REPL evals) via
+        ;; `cascade-has-event?`; if the ribbon walked the raw cascade
+        ;; vector instead, a buffer containing one real event PLUS the
+        ;; `:ungrouped` bucket would compute `at-tail?` against
+        ;; `:ungrouped` (= false) and leave `[<]` ENABLED on what the
+        ;; user sees as the first (only) event — clicking it would
+        ;; pin focus to the `:ungrouped` bucket and degrade the L4
+        ;; panels into an aggregate-across-all-events render.
+        event-cascades  (filterv cascade-has-event? cascades)
+        ids             (mapv :dispatch-id event-cascades)
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
                             (nil? focused-id))

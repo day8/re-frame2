@@ -638,3 +638,108 @@
           r  (spine/follow-head-reducer db)]
       (is (nil? (get-in r [:focus :epoch-id])))
       (is (nil? (:selected-epoch-id r))))))
+
+;; -------------------------------------------------------------------------
+;; (11) rf2-fzbrw — no aggregate-all-events state
+;;
+;; The spine's invariant is 'one focused event at a time'. Two specific
+;; reachable states would otherwise break that invariant:
+;;
+;;   (i)  Stepping prev from the first event lands focus on the
+;;        `:ungrouped` bucket (registry-time emits / lifecycle / REPL
+;;        evals) — the L4 panels reading the focused cascade then have
+;;        no event to render and degrade into an aggregate look.
+;;   (ii) The composed `:rf.causa/focus` sub returns
+;;        `:dispatch-id nil` while the buffer carries real events —
+;;        same downstream effect.
+;;
+;; The fix has three layers; this section covers the spine ones (B
+;; and C in the bead's fix sketch).
+;; -------------------------------------------------------------------------
+
+(def ^:private fixture-cascades-with-ungrouped
+  "Two real cascades + the `:ungrouped` bucket the projection emits
+  for events that carry no `:dispatch-id` tag. The bucket sorts to
+  the head by `first-id`'s `MAX_SAFE_INTEGER` sentinel; for the spine
+  walk we treat the bucket as not present, so the walkable head is
+  still the latest real cascade (`:c2` here)."
+  [(cascade :c1 :rf/default)
+   (cascade :c2 :rf/default)
+   (cascade :ungrouped nil)])
+
+(deftest focusable-cascades-drops-ungrouped-bucket
+  (testing "rf2-fzbrw — :ungrouped is filtered out of the spine walk
+            (it carries no event vector → not a valid focus target)"
+    (is (= 2 (count (spine/focusable-cascades
+                      fixture-cascades-with-ungrouped))))
+    (is (every? #(not= :ungrouped (:dispatch-id %))
+                (spine/focusable-cascades
+                  fixture-cascades-with-ungrouped)))
+    (is (= fixture-cascades
+           (spine/focusable-cascades fixture-cascades))
+        "no :ungrouped → no-op")))
+
+(deftest focus-step-reducer-prev-on-first-event-is-no-op
+  (testing "rf2-fzbrw — [<] on the first (oldest) real event returns db
+            unchanged. The boundary is a true no-op so focus cannot
+            shuffle into the :ungrouped bucket or any other aggregate
+            state."
+    (let [db {:focus {:dispatch-id :c1 :mode :retro}
+              :selected-dispatch-id :c1}
+          r  (spine/focus-step-reducer db
+                                       fixture-cascades-with-ungrouped
+                                       -1)]
+      (is (= db r) "db unchanged — boundary no-op"))))
+
+(deftest focus-step-reducer-next-on-head-is-no-op
+  (testing "rf2-fzbrw — [>] on the head (newest real event) returns db
+            unchanged. Symmetric counterpart of the [<] boundary."
+    (let [db {:focus {:dispatch-id :c2 :mode :live}
+              :selected-dispatch-id :c2}
+          r  (spine/focus-step-reducer db
+                                       fixture-cascades-with-ungrouped
+                                       +1)]
+      (is (= db r) "db unchanged at head"))))
+
+(deftest focus-step-reducer-prev-from-real-skips-ungrouped
+  (testing "rf2-fzbrw — stepping prev from the only real-event focus
+            never lands on :ungrouped. With a single real cascade plus
+            the bucket, [<] at the only real event is a no-op."
+    (let [cascades [(cascade :ungrouped nil)
+                    (cascade :only-real :rf/default)]
+          db       {:focus {:dispatch-id :only-real :mode :live}
+                    :selected-dispatch-id :only-real}
+          r        (spine/focus-step-reducer db cascades -1)]
+      (is (= db r)
+          "single real event → [<] is a no-op, not a slide into :ungrouped"))))
+
+(deftest focus-step-reducer-empty-focusable-buffer-is-no-op
+  (testing "buffer carries only the :ungrouped bucket (no real events
+            yet) → stepping is a no-op; the reducer cannot manufacture
+            a focusable cascade out of nothing."
+    (let [cascades [(cascade :ungrouped nil)]
+          db       {}
+          r        (spine/focus-step-reducer db cascades -1)]
+      (is (= db r)))))
+
+(deftest compose-focus-snaps-to-head-when-slot-id-is-ungrouped
+  (testing "rf2-fzbrw — even in :retro, a stored slot pointing at
+            :ungrouped (or a no-longer-present cascade) snaps to head.
+            The spine MUST NOT surface nil :dispatch-id while focusable
+            cascades exist."
+    (let [r (spine/compose-focus {:dispatch-id :ungrouped :mode :retro}
+                                 fixture-cascades-with-ungrouped)]
+      (is (= :c2 (:dispatch-id r))
+          "stored :ungrouped → effective head (:c2)")
+      (is (true? (:head? r))))))
+
+(deftest compose-focus-snaps-to-head-when-slot-id-nil-in-retro
+  (testing "rf2-fzbrw — even in :retro mode, nil slot-id with a
+            non-empty focusable buffer snaps to head. The unreachable
+            state 'buffer non-empty + focus nil' is structurally
+            blocked at the compose layer."
+    (let [r (spine/compose-focus {:dispatch-id nil :mode :retro}
+                                 fixture-cascades)]
+      (is (= :c3 (:dispatch-id r))
+          "nil slot-id + non-empty buffer + :retro → snap to head")
+      (is (true? (:head? r))))))
