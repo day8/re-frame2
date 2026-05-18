@@ -144,9 +144,15 @@
 
 (def include-sensitive-opt
   "The framework opt that controls whether sensitive payloads emit
-  the marker. Surfaced by MCP servers as the `:include-sensitive?`
-  arg (the same name as the high-level filter — see
-  `re-frame.mcp-base.sensitive`)."
+  the marker. Surfaced by MCP servers as the `:include-sensitive`
+  arg (story-mcp; pair2-mcp still uses `:include-sensitive?` — see
+  rf2-ihq4d). Per the Anthropic tool-input-schema regex
+  `^[a-zA-Z0-9_.-]{1,64}$`, wire-keys MUST omit the trailing `?`.
+  The walker option keyword (this one, `:rf.size/include-sensitive?`)
+  is a NAMESPACED framework key — internal, not a wire-key — so it
+  retains the predicate `?`. The predicate FUNCTION name
+  `include-sensitive?` (see `re-frame.mcp-base.sensitive`) likewise
+  retains `?` — the idiom belongs on predicates."
   :rf.size/include-sensitive?)
 
 (def include-digests-opt
