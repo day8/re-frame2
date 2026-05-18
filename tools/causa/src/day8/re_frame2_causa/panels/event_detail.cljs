@@ -611,7 +611,9 @@
   ;; keeps reading what it always has — the shim is transparent.
   (rf/reg-event-db :rf.causa/select-dispatch-id
     (fn [db [_ dispatch-id frame-id]]
-      (spine/focus-cascade-reducer db dispatch-id frame-id)))
+      (let [history (get db :epoch-history [])
+            epoch-id (spine/epoch-id-for-cascade history dispatch-id)]
+        (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id))))
 
   ;; Programmatic clear of the focused cascade. Resets the spine focus
   ;; back to LIVE (head-tracking) per the rf2-s0s5x Phase A semantics —
@@ -620,8 +622,9 @@
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
       (-> db
-          (dissoc :selected-dispatch :selected-dispatch-id)
+          (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)
           (update :focus (fnil assoc {})
                   :dispatch-id nil
-                  :mode :live
+                  :epoch-id    nil
+                  :mode        :live
                   :previewing? false)))))

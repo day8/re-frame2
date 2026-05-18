@@ -44,6 +44,7 @@
   future spine-aware list updates the legacy slots."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -106,6 +107,34 @@
                             (max 0)
                             (min (dec n)))]
         (:dispatch-id (nth cascades new-idx))))))
+
+(defn epoch-id-for-cascade
+  "Return the `:epoch-id` of the epoch record in `epoch-history` whose
+  settling cascade is `dispatch-id`, or nil when no match is found
+  (the cascade is mid-build, was evicted from the ring, or the focus
+  pins `:ungrouped`).
+
+  Per spec/018 §6 Spine events the spine sub `:rf.causa/focus` carries
+  both `:dispatch-id` (cascade root, opaque router counter) and
+  `:epoch-id` (per-frame settling counter, primary key into the epoch
+  ring buffer). The two are semantically the same identity — a
+  cascade settles into exactly one epoch record — but they're
+  separate counter spaces, so the linkage is a per-cascade lookup
+  against the buffer.
+
+  The lookup leans on the existing `common/dispatch-id-of-epoch`
+  helper, which walks an epoch record's `:trace-events` for the first
+  `:dispatch-id` tag. Synthetic test epochs that omit `:trace-events`
+  but carry a literal `:dispatch-id` slot are matched directly so
+  fixture rigs that pre-date the spec/018 spine wiring continue to
+  resolve. Pure data; JVM-runnable."
+  [epoch-history dispatch-id]
+  (when (and dispatch-id (seq epoch-history))
+    (some (fn [record]
+            (when (or (= dispatch-id (common/dispatch-id-of-epoch record))
+                      (= dispatch-id (:dispatch-id record)))
+              (:epoch-id record)))
+          epoch-history)))
 
 (defn compose-focus
   "Derive the public `:rf.causa/focus` map from a stored `:focus` slot
@@ -182,66 +211,97 @@
 
 (defn focus-cascade-reducer
   "Pure reducer for the `:rf.causa/focus-cascade <id>` event. Writes
-  `:dispatch-id` into the `:focus` slot, flips to `:retro` mode, and
-  shims the legacy `:selected-dispatch-id` / `:selected-dispatch`
-  slots so the existing event-detail / causality / machine-inspector
-  panels keep rendering without per-panel change."
-  [db dispatch-id frame-id]
-  (cond-> db
-    true       (update :focus (fnil assoc {})
-                       :dispatch-id dispatch-id
-                       :mode :retro
-                       :previewing? false)
-    frame-id   (assoc-in [:focus :frame] frame-id)
-    ;; Legacy shim — panels reading these slots stay live.
-    true       (assoc :selected-dispatch-id dispatch-id
-                      :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
-                                              frame-id (assoc :frame frame-id)))))
+  `:dispatch-id` into the `:focus` slot, flips to `:retro` mode,
+  stamps `:epoch-id` (the cascade's settling epoch primary key per
+  spec/018 §6 Spine events), and shims the legacy
+  `:selected-dispatch-id` / `:selected-dispatch` / `:selected-epoch-
+  id` slots so the existing event-detail / causality / machine-
+  inspector / app-db / time-travel panels keep rendering without per-
+  panel change.
+
+  Per spec/018 §6 the spine sub `:rf.causa/focus` carries `:epoch-id`
+  as a first-class slot; consumers (Views' focused-cascade-pair sub,
+  App-db's selected-epoch-* sub chain) pivot on it. The 4-arg arity
+  takes a resolved `epoch-id`; event handlers resolve it from the
+  Causa `:epoch-history` slot via `epoch-id-for-cascade` before
+  calling. The 3-arg arity (back-compat for callers that don't have
+  the buffer handy) leaves `:epoch-id` nil — the focus sub still
+  rebinds on `:dispatch-id`, but the epoch-keyed surfaces will not
+  pivot until a 4-arg call lands."
+  ([db dispatch-id frame-id]
+   (focus-cascade-reducer db dispatch-id frame-id nil))
+  ([db dispatch-id frame-id epoch-id]
+   (cond-> db
+     true       (update :focus (fnil assoc {})
+                        :dispatch-id dispatch-id
+                        :epoch-id    epoch-id
+                        :mode :retro
+                        :previewing? false)
+     frame-id   (assoc-in [:focus :frame] frame-id)
+     ;; Legacy shim — panels reading these slots stay live.
+     true       (assoc :selected-dispatch-id dispatch-id
+                       :selected-epoch-id    epoch-id
+                       :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
+                                               frame-id (assoc :frame frame-id))))))
 
 (defn focus-step-reducer
   "Pure reducer for `:rf.causa/focus-cascade-prev` / `-next`. Steps
   the `:dispatch-id` through the cascade vector by `delta` (-1 or
-  +1), updates the legacy shim slot, and flips mode based on the
-  step's outcome — stepping back from head → :retro; stepping
-  forward back to head → :live (the user has scrubbed home).
+  +1), resolves the cascade's settling `:epoch-id` from
+  `epoch-history` (per spec/018 §6 Spine events), updates the legacy
+  shim slots, and flips mode based on the step's outcome — stepping
+  back from head → :retro; stepping forward back to head → :live (the
+  user has scrubbed home).
 
   Per rf2-s0s5x Phase A — `compose-focus` now treats `:live` mode as
   always tracking head, so the stored slot-id can lag the actual
   focused cascade. Compute `current-id` through the same composer so
   pressing `j` (prev) from LIVE steps back one from the CURRENT head
-  rather than from a stale stored id."
-  [db cascades delta]
-  (let [current-id (:dispatch-id (compose-focus (get db :focus) cascades))
-        new-id     (step-dispatch-id cascades current-id delta)
-        head-id    (head-dispatch-id cascades)
-        new-mode   (if (= new-id head-id) :live :retro)
-        cascade    (cascade-by-id cascades new-id)
-        frame-id   (:frame cascade)]
-    (cond-> db
-      true     (update :focus (fnil assoc {})
-                       :dispatch-id new-id
-                       :mode new-mode
-                       :previewing? false
-                       :paused? false)
-      frame-id (assoc-in [:focus :frame] frame-id)
-      true     (assoc :selected-dispatch-id new-id
-                      :selected-dispatch    (cond-> {:dispatch-id new-id}
-                                              frame-id (assoc :frame frame-id))))))
+  rather than from a stale stored id.
+
+  The 3-arg arity (back-compat for callers that don't have the epoch
+  buffer handy) treats `epoch-history` as empty so `:epoch-id`
+  resolves to nil. Production callers in `install!` go through the
+  4-arg arity."
+  ([db cascades delta]
+   (focus-step-reducer db cascades [] delta))
+  ([db cascades epoch-history delta]
+   (let [current-id (:dispatch-id (compose-focus (get db :focus) cascades))
+         new-id     (step-dispatch-id cascades current-id delta)
+         head-id    (head-dispatch-id cascades)
+         new-mode   (if (= new-id head-id) :live :retro)
+         cascade    (cascade-by-id cascades new-id)
+         frame-id   (:frame cascade)
+         epoch-id   (epoch-id-for-cascade epoch-history new-id)]
+     (cond-> db
+       true     (update :focus (fnil assoc {})
+                        :dispatch-id new-id
+                        :epoch-id    epoch-id
+                        :mode new-mode
+                        :previewing? false
+                        :paused? false)
+       frame-id (assoc-in [:focus :frame] frame-id)
+       true     (assoc :selected-dispatch-id new-id
+                       :selected-epoch-id    epoch-id
+                       :selected-dispatch    (cond-> {:dispatch-id new-id}
+                                               frame-id (assoc :frame frame-id)))))))
 
 (defn follow-head-reducer
   "Pure reducer for `:rf.causa/follow-head`. Snaps the spine to LIVE,
   clears the pinned id (`:dispatch-id nil` means 'track head'), and
   clears `:paused?` so the LIVE buffer flow resumes. Also clears the
-  legacy `:selected-dispatch-id` so the event-detail panel returns to
-  the cascade-list landing view."
+  legacy `:selected-dispatch-id` / `:selected-epoch-id` slots in
+  lockstep so the event-detail / app-db / time-travel panels return
+  to their LIVE-tracking landing views."
   [db]
   (-> db
       (update :focus (fnil assoc {})
               :dispatch-id nil
+              :epoch-id    nil
               :mode :live
               :paused? false
               :previewing? false)
-      (dissoc :selected-dispatch :selected-dispatch-id)))
+      (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)))
 
 (defn toggle-live-pause-reducer
   "Pure reducer for `:rf.causa/toggle-live-pause`. Toggles `:paused?`
@@ -290,6 +350,14 @@
   (let [buffer (or (get db :trace-buffer) (trace-bus/buffer))]
     (projection/group-cascades buffer)))
 
+(defn- db->epoch-history
+  "Read the Causa app-db's `:epoch-history` slot — the per-frame
+  epoch ring buffer (per `tools/causa/spec/018-Event-Spine.md` §5.2)
+  used to resolve `:dispatch-id → :epoch-id` for spine focus events.
+  Empty vector when the slot is absent (cold start, pre-mount)."
+  [db]
+  (get db :epoch-history []))
+
 (defn install!
   "Idempotent install — register the `:rf.causa/focus` sub + its
   driving events. Called from `registry.cljs`'s
@@ -317,15 +385,16 @@
 
   (rf/reg-event-db :rf.causa/focus-cascade
     (fn [db [_ dispatch-id frame-id]]
-      (focus-cascade-reducer db dispatch-id frame-id)))
+      (let [epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+        (focus-cascade-reducer db dispatch-id frame-id epoch-id))))
 
   (rf/reg-event-db :rf.causa/focus-cascade-prev
     (fn [db _event]
-      (focus-step-reducer db (db->cascades db) -1)))
+      (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1)))
 
   (rf/reg-event-db :rf.causa/focus-cascade-next
     (fn [db _event]
-      (focus-step-reducer db (db->cascades db) +1)))
+      (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1)))
 
   (rf/reg-event-db :rf.causa/follow-head
     (fn [db _event]
