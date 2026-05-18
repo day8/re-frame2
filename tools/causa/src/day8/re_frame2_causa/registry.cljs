@@ -34,6 +34,7 @@
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
+            [day8.re-frame2-causa.epoch :as epoch]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
@@ -44,31 +45,23 @@
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
-            [day8.re-frame2-causa.panels.effects :as effects]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
-            [day8.re-frame2-causa.panels.flows :as flows]
-            [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
-            [day8.re-frame2-causa.panels.mcp-server :as mcp-server]
-            [day8.re-frame2-causa.panels.performance :as performance]
-            [day8.re-frame2-causa.panels.routes :as routes]
-            [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.views :as views]
-            [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
 
 ;; ---- defaults (re-exported for back-compat callers) ---------------------
 ;;
-;; The Vars themselves live in `day8.re-frame2-causa.defaults` so the
-;; per-panel `install!` fns can read them without forming a
-;; registry→panel→registry cycle. Re-exported here so the shell + the
-;; existing test surface keep reading `registry/default-panel-id` /
-;; `registry/default-target-frame` — same source of truth.
+;; The Var itself lives in `day8.re-frame2-causa.defaults` so the
+;; per-panel `install!` fns can read it without forming a
+;; registry→panel→registry cycle. Re-exported here so the existing
+;; test surface keeps reading `registry/default-target-frame` — same
+;; source of truth. (`default-panel-id` was dropped with rf2-qy0nu —
+;; the legacy `:rf.causa/selected-panel` slot is no longer read.)
 
-(def default-panel-id defaults/default-panel-id)
 (def default-target-frame defaults/default-target-frame)
 
 ;; ---- idempotency sentinel ------------------------------------------------
@@ -133,15 +126,6 @@
     (rf/reg-sub :rf.causa/suppressed-sensitive-count
       (fn [db _query]
         (reduce + 0 (vals (get db :suppressed-counters {})))))
-
-    ;; Currently-active panel — drives the canvas's switch logic in
-    ;; shell.cljs. Default is the hero panel per §10 Lock 7. The 4-
-    ;; layer chrome refactor (rf2-xy4yb) routes via `:rf.causa/selected-
-    ;; tab` instead; this sub stays for back-compat with any tests /
-    ;; consumers that still address the legacy sidebar slot.
-    (rf/reg-sub :rf.causa/selected-panel
-      (fn [db _query]
-        (get db :selected-panel defaults/default-panel-id)))
 
     ;; ---- 4-layer chrome — selected tab (rf2-xy4yb / spec/018) ----
     ;;
@@ -281,12 +265,6 @@
       (fn [buffer _query]
         (let [cascades (projection/group-cascades buffer)]
           (into [] (remove trace-bus/causa-internal-cascade?) cascades))))
-
-    ;; Cross-panel sidebar selection. Legacy slot kept alive for tests
-    ;; that still address the pre-refactor sidebar contract.
-    (rf/reg-event-db :rf.causa/select-panel
-      (fn [db [_ panel-id]]
-        (assoc db :selected-panel panel-id)))
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
@@ -520,6 +498,14 @@
     ;; per-panel installs so the registration order matches the
     ;; per-panel pattern.
 
+    ;; Cross-cutting epoch primitives (rf2-qy0nu — extracted from the
+    ;; deleted Time Travel panel). MUST install before app-db-diff +
+    ;; views + machine-inspector — their composites :<- onto
+    ;; `:rf.causa/epoch-history` / `:rf.causa/target-frame` /
+    ;; `:rf.causa/selected-epoch-id`. Registration order is cosmetic
+    ;; (re-frame resolves :<- lazily), but the top-down dependency read
+    ;; is clearer.
+    (epoch/install!)
     (open-in-editor/install!)
     (palette/install!)
     (settings-popup/install!)
@@ -550,10 +536,7 @@
     ;; `:rf.causa/focus` + `:rf.causa/trace-buffer`); registry order is
     ;; cosmetic since re-frame resolves `:<-` chains lazily.
     (cancellation-cascade/install!)
-    (effects/install!)
     (event-detail/install!)
-    (flows/install!)
-    (hydration-debugger/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
     ;; Managed-fx wire-boundary diff template (rf2-uyp86) — installs the
@@ -562,12 +545,7 @@
     ;; mounts inline in event_detail.cljs under the six-domino cascade,
     ;; so no L3 tab is added.
     (managed-fx-subs/install!)
-    (mcp-server/install!)
-    (performance/install!)
-    (routes/install!)
-    (schema-violation-timeline/install!)
     (views/install!)
-    (time-travel/install!)
     (trace/install!))
   nil)
 

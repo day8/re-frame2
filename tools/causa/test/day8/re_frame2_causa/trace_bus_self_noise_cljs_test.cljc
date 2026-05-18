@@ -207,7 +207,6 @@
     (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/focus-cascade)))
     (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/select-tab)))
     (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/open-settings)))
-    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/select-panel)))
     (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/sync-trace-buffer)))
     (testing "user-app events stay false"
       (is (false? (trace-bus/causa-internal-event-id? :cart/add-item)))

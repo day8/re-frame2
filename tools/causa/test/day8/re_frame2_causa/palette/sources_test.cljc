@@ -14,13 +14,15 @@
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
-  ;; (Causality removed with rf2-dqnuu — popover, not a tab. We use
-  ;; :flows as the third entry so the "cl" collision test still has a
-  ;; partial-letter panel match that contests with command "Clear
-  ;; trace buffer".)
-  [{:id :event-detail :label "Event detail"}
-   {:id :trace        :label "Trace"}
-   {:id :flows        :label "Flows"}])
+  ;; rf2-qy0nu — palette-panels now mirrors the 6 L3 tab ids. We use
+  ;; `:event` first (so the panel-items-shape test pins the first row's
+  ;; action) and include `:trace` for the cross-source collision tests.
+  ;; A third entry rounds out the panel-items-shape `(count items) = 3`
+  ;; assertion without colliding with the "cl" → command-boost test
+  ;; below; "Machines" shares no prefix with "Clear trace buffer".
+  [{:id :event    :label "Event"}
+   {:id :trace    :label "Trace"}
+   {:id :machines :label "Machines"}])
 
 (def sample-trace-buffer
   ;; oldest → newest order; recency-rank 0 sits at the end
@@ -48,7 +50,7 @@
     (is (every? #(vector? (:action %)) items))
     (is (every? #(false? (:popout? %)) items)
         "panels are not popoutable in Phase 1")
-    (is (= [:palette/select-panel :event-detail]
+    (is (= [:palette/select-panel :event]
            (-> items first :action)))))
 
 (deftest recent-event-items-skips-non-event-ops

@@ -7,6 +7,21 @@ or human reader handed only the Causa spec MUST be able to reconstruct
 the registry's surface from this catalogue alone, without reading
 `tools/causa/src/day8/re_frame2_causa/registry.cljs`.
 
+> **rf2-qy0nu drift notice (2026-05-18).** The 8-dead-panel sweep
+> deleted `mcp-server`, `hydration-debugger`, `performance`, `routes`,
+> `schema-violation-timeline`, `effects`, `flows`, and `time-travel`
+> from the source tree. Their per-panel sections below (and several
+> cross-panel entries that lived inside those panels' install! fns —
+> e.g. the entire Time-travel scrubber subsection) are now stale. The
+> registry's authoritative shape lives in `registry.cljs` +
+> `tools/causa/test/day8/re_frame2_causa/registry_cljs_test.cljs`'s
+> `all-sub-names` / `all-event-names` / `all-fx-names` enumerations,
+> which the test suite asserts every registration matches exactly.
+> Rewriting this catalogue against the surviving surface is tracked
+> separately; until then, treat any §Time-travel / §MCP server /
+> §Routes / §Schemas / §Hydration / §Effects / §Flows / §Performance
+> subsection as historical reference, not normative spec.
+
 The thesis: per [`spec/Conventions.md` §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes)
 and [`008-Embedding-Contract.md` §Registry-key isolation via `:rf.causa/*` prefix](./008-Embedding-Contract.md#registry-key-isolation-via-rfcausa-prefix),
 Causa namespaces every registrar id under `:rf.causa/*` to keep
@@ -23,7 +38,7 @@ this doc enumerates what sits inside it.
 
 Causa MUST NOT register a handler under any non-`:rf.causa*/` keyword.
 A host registering `:user/login` and Causa registering
-`:rf.causa/select-panel` cannot stamp on each other; the prefix is the
+`:rf.causa/select-tab` cannot stamp on each other; the prefix is the
 collision-avoidance contract enforced by code review and the registry
 namespace docstring.
 
@@ -63,8 +78,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.causa/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.causa/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.causa/epoch-recorded` dispatch. |
 | `:rf.causa/target-frame-db` | `:rf.causa/target-frame`, `:rf.causa/epoch-history` | The host frame's current `app-db` value (via `rf/get-frame-db`). | Every settled epoch on the target frame. |
-| `:rf.causa/selected-panel` | `db` | Currently-active panel keyword (defaults to the hero panel per [`007-UX-IA.md`](./007-UX-IA.md) §10 Lock 7 — `:event-detail`). | On `:rf.causa/select-panel` dispatch. |
-| `:rf.causa/cascades` | `:rf.causa/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.causa/event-detail`, `:rf.causa/causality-graph-data`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.causa/trace-buffer` recompute. |
+| `:rf.causa/cascades` | `:rf.causa/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.causa/event-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.causa/trace-buffer` recompute. |
 
 ### Events
 
@@ -73,7 +87,6 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.causa/epoch-recorded` | `[_ frame-id]` | `{:db ...}` | Pumped from the epoch-cb registered in `preload.cljs` on every settled epoch. Re-reads `rf/epoch-history` to keep the cached snapshot consistent. No-ops when `frame-id` ≠ the current target. |
 | `:rf.causa/note-sensitive-suppressed` | `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — bumps `[:suppressed-counters (or frame-id :global)]` in Causa's app-db. Dispatched from `trace-bus/collect-trace!` (CLJS) when the privacy gate drops a `:sensitive? true` event. Drives the `:rf.causa/suppressed-sensitive-count` sub reactively. |
 | `:rf.causa/reset-suppressed-counters` | `[_]` or `[_ frame-id]` | `{:db ...}` | rf2-0vxdn — clears all buckets (no arg) or just the named bucket. Dispatched from `trace-bus/clear-buffer!` (CLJS) — clearing the trace ring buffer also drops the `[● REDACTED N]` indicator state. |
-| `:rf.causa/select-panel` | `[_ panel-id]` | `{:db ...}` | Drives the canvas switch logic in `shell.cljs`. Default per [`007-UX-IA.md`](./007-UX-IA.md) §10 Lock 7 is `:event-detail`. |
 | `:rf.causa/note-trace-event` | `[_ event]` | `{:db ...}` | Carries `{:rf.trace/no-emit? true}` per rf2-qsjda — the dispatch must not itself emit a trace event (the trace-cb appends straight onto the buffer slot in arrival order via `mirror-into-causa!`). Pumped from `trace-bus/collect-trace!` to keep Causa's app-db `:trace-buffer` in lockstep with the process-global ring. |
 | `:rf.causa/clear-trace-buffer` | `[_]` | `{:db ...}` | `:rf.trace/no-emit? true`. Drops the `:trace-buffer` slot. Dispatched from `trace-bus/clear-buffer!` (CLJS) when the user clears the ring. Same loop-avoidance rationale as `:rf.causa/note-trace-event`. |
 | `:rf.causa/sync-trace-buffer` | `[_ buffer]` | `{:db ...}` | `:rf.trace/no-emit? true`. Replaces the `:trace-buffer` slot with the supplied buffer vector. Dispatched from the depth-shrink path so the mirror reflects post-shrink contents. |

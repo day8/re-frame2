@@ -23,7 +23,7 @@
     - The full smoke surface: that every registered name resolves to
       a handler after `register-causa-handlers!` runs.
     - Cross-panel composite subs (per-panel tests don't exercise
-      `:rf.causa/selected-panel`'s sidebar contract end-to-end).
+      `:rf.causa/cascades`-driven projections end-to-end).
 
   ## Trade-off: smoke + high-value, not 1-per-registration
 
@@ -102,8 +102,6 @@
   [:rf.causa/active-filters
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.causa/active-timers-for-focused-machine
-   :rf.causa/active-route-slice
-   :rf.causa/active-route-slice-override
    :rf.causa/app-db-diff
    :rf.causa/cascades
    ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
@@ -126,18 +124,12 @@
    :rf.causa/edit-popup-draft
    :rf.causa/edit-popup-open?
    :rf.causa/edit-popup-trigger
-   :rf.causa/effects-data
    :rf.causa/epoch-history
    :rf.causa/event-detail
    :rf.causa/filtered-cascades
-   :rf.causa/flow-trace-events
-   :rf.causa/flows-data
    :rf.causa/focus
    :rf.causa/focus-slot
    :rf.causa/focused-slice-path
-   :rf.causa/fx-trace-events
-   :rf.causa/hydration-debugger-data
-   :rf.causa/hydration-reroot-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
    :rf.causa/forced-machine-mode
@@ -162,14 +154,8 @@
    :rf.causa/mode-c-context-key
    :rf.causa/mode-c-expanded
    :rf.causa/mode-c-selection
-   :rf.causa/mcp-filters
-   :rf.causa/mcp-origin-filter-enabled?
-   :rf.causa/mcp-server
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
    :rf.causa/now-ms
-   :rf.causa/performance-budget-ms
-   :rf.causa/performance-data
-   :rf.causa/pin-store
    :rf.causa/pinned-slices
    :rf.causa/pinned-slices-store
    :rf.causa/palette-active-item
@@ -178,19 +164,7 @@
    :rf.causa/palette-open?
    :rf.causa/palette-query
    :rf.causa/palette-results
-   :rf.causa/pinned-snapshots
-   :rf.causa/registered-flows
-   :rf.causa/registered-fxs
    :rf.causa/registered-machines
-   :rf.causa/registered-routes
-   :rf.causa/registered-schemas
-   :rf.causa/route-history-events
-   :rf.causa/routes-data
-   :rf.causa/schema-filter
-   :rf.causa/schema-timeline-prev-rows
-   :rf.causa/schema-timeline-window
-   :rf.causa/schema-violation-timeline
-   :rf.causa/schema-violations-window
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -198,18 +172,12 @@
    :rf.causa/selected-epoch-id
    :rf.causa/selected-epoch-record
    :rf.causa/selected-epoch-sections
-   :rf.causa/selected-flow-id
-   :rf.causa/selected-fx-id
    :rf.causa/selected-machine-id
-   :rf.causa/selected-mismatch-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/modal-positioning
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.causa/panel-width-px
-   :rf.causa/selected-panel
-   :rf.causa/selected-route-id
    :rf.causa/selected-tab
-   :rf.causa/selected-violation-id
    ;; rf2-9poxq — Settings popup subs.
    :rf.causa/setting
    :rf.causa/settings
@@ -230,7 +198,6 @@
    :rf.causa/suppressed-sensitive-count
    :rf.causa/target-frame
    :rf.causa/target-frame-db
-   :rf.causa/time-travel
    ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
    :rf.causa/timer-hover
    :rf.causa/trace-buffer
@@ -263,7 +230,6 @@
    :rf.causa.issues/toggle-prefix
    :rf.causa.issues/toggle-severity
    :rf.causa/add-filter
-   :rf.causa/bump-restore-epoch-tick
    ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
    ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
    :rf.causa/cancellation-cascade-close
@@ -277,26 +243,18 @@
    :rf.causa/causality-popover-open
    :rf.causa/causality-popover-toggle
    :rf.causa/causality-popover-toggle-layout
-   :rf.causa/clear-flow-selection
-   :rf.causa/clear-fx-selection
    :rf.causa/clear-machine-selection
-   :rf.causa/clear-mcp-filters
-   :rf.causa/clear-mismatch-selection
    :rf.causa/clear-mode-c-selection
-   :rf.causa/clear-route-selection
    :rf.causa/clear-selected-dispatch-id
-   :rf.causa/clear-selected-epoch
    :rf.causa/clear-slice-focus
    :rf.causa/clear-trace-buffer
    :rf.causa/clear-trace-filters
-   :rf.causa/clear-violation-selection
    :rf.causa/close-edit-popup
    :rf.causa/close-shell
    :rf.causa/copy-path-to-clipboard
    :rf.causa/copy-share-url-to-clipboard
    :rf.causa/copy-value-to-clipboard
    :rf.causa/delete-edit-popup
-   :rf.causa/dismiss-pin-overflow-toast
    :rf.causa/edit-popup-set-mode
    :rf.causa/edit-popup-set-pattern
    :rf.causa/edit-popup-toggle-scope
@@ -331,37 +289,24 @@
    :rf.causa/palette-open
    :rf.causa/palette-set-query
    :rf.causa/palette-toggle
-   :rf.causa/pin-current
    :rf.causa/pin-slice
    :rf.causa/preview-cascade
    :rf.causa/remove-filter
-   :rf.causa/rename-pin
    :rf.causa/reorder-pinned-slices
-   :rf.causa/reroot-tree-view
    ;; rf2-x8h9y — resize-handle double-click reset.
    :rf.causa/reset-panel-width
    :rf.causa/reset-suppressed-counters
-   :rf.causa/reset-to-epoch
-   :rf.causa/reset-to-pinned
    :rf.causa/restore-from-share-url
    :rf.causa/save-edit-popup
    :rf.causa/select-dispatch-id
    :rf.causa/select-epoch
-   :rf.causa/select-flow-id
-   :rf.causa/select-fx-id
    :rf.causa/select-machine-id
-   :rf.causa/select-mismatch
-   :rf.causa/select-panel
-   :rf.causa/select-route
    :rf.causa/select-tab
-   :rf.causa/select-violation
-   :rf.causa/set-active-route-slice-override-for-test
    :rf.causa/set-forced-machine-mode
    :rf.causa/set-frame
    :rf.causa/set-machine-definitions-override-for-test
    :rf.causa/set-machine-instances-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
-   :rf.causa/set-mcp-since-seconds
    :rf.causa/set-mode-c-cluster-by
    :rf.causa/set-mode-c-context-key
    ;; rf2-om6fa — Story-aware modal positioning opt.
@@ -370,18 +315,12 @@
    :rf.causa/set-panel-width-px
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
    :rf.causa/set-now-ms-override-for-test
-   :rf.causa/set-performance-budget-ms
-   :rf.causa/set-registered-flows-override-for-test
-   :rf.causa/set-registered-fxs-override-for-test
    :rf.causa/set-registered-machines-override-for-test
    :rf.causa/set-arc-hover
    ;; rf2-a9cke — focused-event lens test overrides (Machine Inspector).
    :rf.causa/set-epoch-history-for-test
    :rf.causa/set-focus-epoch-id-for-test
-   :rf.causa/set-registered-routes-override-for-test
-   :rf.causa/set-schema-filter
    :rf.causa/set-scrubber-position
-   :rf.causa/set-schema-timeline-window
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
    ;; rf2-9poxq — Settings popup events.
@@ -403,7 +342,6 @@
    :rf.causa/sim-stop
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
-   :rf.causa/time-travel-set-label-input
    ;; rf2-7hwwe — `:after` countdown rings event family. timer-tick
    ;; is the rAF pulse; timer-hover writes the per-ring hovered slot
    ;; (v1 surfaces the tooltip via native SVG <title>; the slot is
@@ -411,11 +349,8 @@
    :rf.causa/timer-hover
    :rf.causa/timer-tick
    :rf.causa/toggle-live-pause
-   :rf.causa/toggle-mcp-op-type
-   :rf.causa/toggle-mcp-origin-filter
    :rf.causa/toggle-mode-c-cluster-expanded
    :rf.causa/toggle-mode-c-selection
-   :rf.causa/unpin
    :rf.causa/unpin-slice
    ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
    ;; panel events. See `tools/causa/spec/012-Views.md`.
@@ -433,8 +368,6 @@
   [:rf.causa.fx/copy-to-clipboard
    ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
    :rf.causa.fx/open-in-new-tab
-   :rf.causa.fx/reset-frame-db!
-   :rf.causa.fx/restore-epoch
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
    ;; filter-specific prefix because the localStorage write is bound
    ;; to the filter-mutating events (add-filter / remove-filter /
@@ -503,163 +436,27 @@
           (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-counts-match-bead
-  (testing "registry holds exactly 125 subs + 144 events + 7 fxs"
-    ;; 66 baseline + 6 palette (rf2-wm7z4, post-co-pilot-removal rf2-s3vx5):
-    ;;   palette-active-item / palette-cursor / palette-index /
-    ;;   palette-open? / palette-query / palette-results
-    ;; + 2 spine (rf2-adve5): :rf.causa/focus + :rf.causa/focus-slot
-    ;; + 2 machine-inspector (rf2-2tkza Phase 1):
-    ;;   :rf.causa/machine-definitions (production sub) +
-    ;;   :rf.causa/machine-definitions-override (test-override sub).
-    ;; + 8 views − 6 subs (rf2-21ob3 — Subs panel retired; replaced
-    ;;   by Views per spec/012-Views.md). Subs slots dropped: sub-cache,
-    ;;   sub-error-cache, sub-filters, sub-chain-open?, selected-sub,
-    ;;   subscriptions-data. Views slots added: views-heatmap?,
-    ;;   views-group-by, views-component-filter, views-cluster-threshold,
-    ;;   views-expanded-rows, views-expanded-clusters,
-    ;;   views-focused-cascade-pair, views-data.
-    ;; + 2 4-layer chrome (rf2-xy4yb): :rf.causa/active-filters +
-    ;;   :rf.causa/selected-tab
-    ;; + 5 sim sub-mode (rf2-v869p Phase 2):
-    ;;   :rf.causa/sim-by-machine / :rf.causa/sim-state /
-    ;;   :rf.causa/sim-active? / :rf.causa/sim-available-transitions /
-    ;;   :rf.causa/sim-event-suggestions
-    ;; + 4 auto-filter (rf2-ak4ms): :rf.causa/filtered-cascades +
-    ;;   :rf.causa/edit-popup-open? + :rf.causa/edit-popup-trigger +
-    ;;   :rf.causa/edit-popup-draft
-    ;; + 3 popover (rf2-dqnuu) − 1 deleted panel sub:
-    ;;   :rf.causa/causality-popover-open? + -layout + -payload added;
-    ;;   :rf.causa/causality-graph-data deleted with the panel. Net +2.
-    ;; + 4 settings (rf2-9poxq): settings-open? / settings-active-tab /
-    ;;   setting / settings
-    ;; + 9 machine-inspector Mode C (rf2-juon8 Phase 3):
-    ;;   :rf.causa/mode-c-cluster-by + mode-c-context-key +
-    ;;   mode-c-expanded + mode-c-selection + machine-instances +
-    ;;   machine-instances-override + mode-c-clusters +
-    ;;   mode-c-compare-table + forced-machine-mode.
-    ;; + 9 machine-inspector Phase 5 (rf2-nqw0v):
-    ;;   :rf.causa/machine-arc-data + machine-arc-trimmed +
-    ;;   machine-arc-highlight-state + machine-arc-hover +
-    ;;   machine-scrubber-position + share-modal-open? + share-state +
-    ;;   share-url + share-copy-status.
-    ;; + 1 managed-fx wire-boundary diff (rf2-uyp86):
-    ;;   :rf.causa/managed-fx-for-focused-event composite sub.
-    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
-    ;;   :rf.causa/cancellation-cascade-popover-open? +
-    ;;   cancellation-cascade-popover-focus +
-    ;;   cancellation-cascade-expanded? +
-    ;;   cancellation-cascade-for-focused-machine +
-    ;;   cancellation-cascade-for-focused-event
-    ;; + 3 `:after` countdown rings (rf2-7hwwe):
-    ;;   :rf.causa/active-timers-for-focused-machine + :rf.causa/now-ms
-    ;;   + :rf.causa/timer-hover. The rings overlay rides the same
-    ;;   composite + scrubber wiring the arc does (no new scrubber sub).
-    ;; + 2 structural-diff engine (rf2-gfxmk Phase 1):
-    ;;   :rf.causa/selected-epoch-annotated-tree +
-    ;;   :rf.causa/selected-epoch-sections.
-    ;; + 1 modal positioning (rf2-om6fa):
-    ;;   :rf.causa/modal-positioning — Story-aware modal positioning opt.
-    ;; + 1 sub-output structural-diff composite (rf2-xjhhp Phase 2):
-    ;;   :rf.causa/views-sub-diff-for-focused-event.
-    ;; + 1 hiccup-diff opts (rf2-i39w2 Phase 3 of rf2-abts7):
-    ;;   :rf.causa/diff-opts — wraps the Settings → Diff section's
-    ;;   `:highlight-fn-ref-changes?` slot in the shape the hiccup-diff
-    ;;   engine's `classify-prop` consumes.
-    ;; + 1 resize handle (rf2-x8h9y):
-    ;;   :rf.causa/panel-width-px — drag-to-resize panel width slot.
-    (is (= 128 (count all-sub-names)))
-    ;; Includes panel-local Causa events and internal mirror/tick events
-    ;; that still occupy the public registrar namespace.
-    ;; 67 baseline + 8 palette (rf2-wm7z4):
-    ;;   palette-close / palette-cursor-down / palette-cursor-set /
-    ;;   palette-cursor-up / palette-invoke / palette-open /
-    ;;   palette-set-query / palette-toggle
-    ;; + 7 spine (rf2-adve5): focus-cascade + focus-cascade-prev +
-    ;;   focus-cascade-next + follow-head + toggle-live-pause +
-    ;;   set-frame + preview-cascade
-    ;; + 2 machine-inspector (rf2-2tkza Phase 1):
-    ;;   :rf.causa/machine-state-clicked (chart click handler) +
-    ;;   :rf.causa/set-machine-definitions-override-for-test
-    ;; + 9 views − 6 subs (rf2-21ob3). Subs events dropped: clear-
-    ;;   selected-sub, hide-invalidation-chain, select-sub,
-    ;;   set-sub-cache-override-for-test, show-invalidation-chain,
-    ;;   toggle-sub-filter. Views events added: views-collapse-all-rows,
-    ;;   views-segment-click, views-set-cluster-threshold,
-    ;;   views-set-component-filter, views-set-group-by,
-    ;;   views-set-heatmap?, views-toggle-cluster, views-toggle-heatmap,
-    ;;   views-toggle-row.
-    ;; + 5 4-layer chrome (rf2-xy4yb): select-tab + add-filter +
-    ;;   remove-filter + open-settings + close-shell
-    ;;   (popout dropped per rf2-u3qm1 — the ribbon `⛶` button + its
-    ;;   stub `:rf.causa/popout` event were broken-claim chrome; pop-
-    ;;   out is programmatic-only via `(causa/popout!)` until the
-    ;;   second-window UX lands).
-    ;; + 6 sim sub-mode (rf2-v869p Phase 2):
-    ;;   :rf.causa/sim-start / sim-step / sim-reset / sim-stop /
-    ;;   sim-set-pending-event / sim-set-pending-data
-    ;; + 9 auto-filter (rf2-ak4ms): open-edit-popup + close-edit-popup +
-    ;;   edit-popup-set-mode + edit-popup-set-pattern +
-    ;;   edit-popup-toggle-scope + save-edit-popup + delete-edit-popup +
-    ;;   hide-event-type + hydrate-filters
-    ;; + 5 popover (rf2-dqnuu):
-    ;;   causality-popover-open / -close / -toggle / -toggle-layout /
-    ;;   -layout-pulse. The popover replaces the dropped Causality
-    ;;   tab — see spec/018-Event-Spine.md §10.
-    ;; + 5 settings (rf2-9poxq): settings-open / settings-close /
-    ;;   settings-toggle / settings-select-tab / settings-update
-    ;; + 7 machine-inspector Mode C (rf2-juon8 Phase 3):
-    ;;   :rf.causa/set-mode-c-cluster-by + set-mode-c-context-key +
-    ;;   toggle-mode-c-cluster-expanded + toggle-mode-c-selection +
-    ;;   clear-mode-c-selection + set-forced-machine-mode +
-    ;;   set-machine-instances-override-for-test.
-    ;; + 1 machine-inspector Phase 4 (rf2-m7co9):
-    ;;   :rf.causa/machine-chart-layout-pulse — ELK layout async pulse.
-    ;; + 10 machine-inspector Phase 5 (rf2-nqw0v):
-    ;;   :rf.causa/set-scrubber-position + set-arc-hover +
-    ;;   share-modal-open + share-modal-close + share-copy-status +
-    ;;   copy-share-url-to-clipboard + open-share-url-in-new-tab +
-    ;;   restore-from-share-url (8 share/arc events) + the
-    ;;   arc-data implicit composite has no event of its own. The
-    ;;   correct count rises by 8 events; subs add another 9.
-    ;; + 1 managed-fx cross-link (rf2-uyp86):
-    ;;   :rf.causa/focus-event — HANDLER DISPATCHED row pivots the spine.
-    ;; + 5 cancellation-cascade visualiser (rf2-59e7k):
-    ;;   :rf.causa/cancellation-cascade-open +
-    ;;   cancellation-cascade-close + cancellation-cascade-toggle-expand +
-    ;;   cancellation-cascade-set-expanded +
-    ;;   :rf.causa/focus-trace-entry (row-click jump shim).
-    ;; + 3 `:after` countdown rings (rf2-7hwwe):
-    ;;   :rf.causa/timer-tick (rAF pulse) + :rf.causa/timer-hover
-    ;;   (rich-tooltip lifecycle slot) +
-    ;;   :rf.causa/set-now-ms-override-for-test (deterministic timestamp
-    ;;   pin for the CLJS-side test surface).
-    ;; + 1 modal positioning (rf2-om6fa):
-    ;;   :rf.causa/set-modal-positioning — Story-aware shell-view opt.
-    ;; + 2 resize handle (rf2-x8h9y):
-    ;;   :rf.causa/set-panel-width-px (drag live update) +
-    ;;   :rf.causa/reset-panel-width (double-click reset).
-    ;; + 2 rf2-a9cke focused-event lens test overrides:
-    ;;   :rf.causa/set-epoch-history-for-test (writes the epoch-history
-    ;;   slot the lens walks) + :rf.causa/set-focus-epoch-id-for-test
-    ;;   (pins the spine focus's :epoch-id to a known cascade).
-    (is (= 147 (count all-event-names)))
-    ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
-    ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
-    ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
-    ;; rf2-wm7z4) + 1 auto-filter (`:rf.causa.filters/persist`,
-    ;; rf2-ak4ms).
-    (is (= 7  (count all-fx-names)))))
+  (testing "registry holds the expected snapshot of subs + events + fxs"
+    ;; Counts are snapshot-pinned to detect accidental registration
+    ;; drift; bump them deliberately whenever a registered :rf.causa/*
+    ;; sub/event/fx is added or removed. The per-feature breakdown
+    ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
+    ;; deleted with the panels themselves — every line referenced a
+    ;; surface that no longer exists.
+    (is (= 95  (count all-sub-names)))
+    (is (= 115 (count all-event-names)))
+    (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"
     (registry/register-causa-handlers!)
-    (let [h1 (registrar/handler :sub :rf.causa/selected-panel)
-          e1 (registrar/handler :event :rf.causa/select-panel)
-          f1 (registrar/handler :fx :rf.causa.fx/restore-epoch)]
+    (let [h1 (registrar/handler :sub :rf.causa/target-frame)
+          e1 (registrar/handler :event :rf.causa/select-tab)
+          f1 (registrar/handler :fx :rf.causa.fx/copy-to-clipboard)]
       (registry/register-causa-handlers!)
-      (is (identical? h1 (registrar/handler :sub :rf.causa/selected-panel)))
-      (is (identical? e1 (registrar/handler :event :rf.causa/select-panel)))
-      (is (identical? f1 (registrar/handler :fx :rf.causa.fx/restore-epoch))))))
+      (is (identical? h1 (registrar/handler :sub :rf.causa/target-frame)))
+      (is (identical? e1 (registrar/handler :event :rf.causa/select-tab)))
+      (is (identical? f1 (registrar/handler :fx :rf.causa.fx/copy-to-clipboard))))))
 
 (deftest registers-every-canonical-rf-causa-sub
   ;; Holistic subscribe-side smoke. The handler-resolution smokes above
@@ -968,13 +765,6 @@
       (is (= 0 @(rf/subscribe [:rf.causa/suppressed-sensitive-count]))
           "reset event drops every bucket"))))
 
-(deftest sub-selected-panel-defaults-to-event-detail
-  (testing ":rf.causa/selected-panel falls back to the hero panel"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= registry/default-panel-id
-             @(rf/subscribe [:rf.causa/selected-panel]))))))
-
 (deftest sub-target-frame-defaults-to-rf-default
   (testing ":rf.causa/target-frame defaults to :rf/default"
     (setup-causa-frame!)
@@ -987,18 +777,6 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (is (= [] @(rf/subscribe [:rf.causa/epoch-history]))))))
-
-(deftest sub-pin-store-defaults-empty
-  (testing ":rf.causa/pin-store defaults to {}"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= {} @(rf/subscribe [:rf.causa/pin-store]))))))
-
-(deftest sub-pinned-snapshots-defaults-empty
-  (testing ":rf.causa/pinned-snapshots returns [] for the default target"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= [] @(rf/subscribe [:rf.causa/pinned-snapshots]))))))
 
 (deftest sub-pinned-slices-store-defaults-empty
   (testing ":rf.causa/pinned-slices-store defaults to {}"
@@ -1021,12 +799,6 @@
     (rf/with-frame :rf/causa
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
-(deftest sub-mcp-origin-filter-defaults-false
-  (testing ":rf.causa/mcp-origin-filter-enabled? defaults to false"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/mcp-origin-filter-enabled?]))))))
-
 (deftest sub-views-heatmap-defaults-false
   (testing ":rf.causa/views-heatmap? defaults to false (rf2-21ob3 —
             Views panel replaces the Subs panel's chain-open? slot)"
@@ -1041,14 +813,6 @@
     (rf/with-frame :rf/causa
       (is (= :component @(rf/subscribe [:rf.causa/views-group-by]))))))
 
-(deftest sub-performance-budget-defaults-to-helper-constant
-  (testing ":rf.causa/performance-budget-ms defaults to the helper's default"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [v @(rf/subscribe [:rf.causa/performance-budget-ms])]
-        (is (number? v))
-        (is (pos? v))))))
-
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
 (deftest sub-event-detail-shape-on-empty-buffer
@@ -1062,18 +826,6 @@
         (is (= [] (:cascades data)))
         (is (nil? (:selected-dispatch-id data)))
         (is (nil? (:selected-cascade data)))))))
-
-(deftest sub-time-travel-shape-on-empty-frame
-  (testing ":rf.causa/time-travel returns sane defaults on a fresh frame"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/time-travel])]
-        (is (= :rf/default (:target-frame data)))
-        (is (= [] (:history data)))
-        (is (= [] (:pins data)))
-        (is (= [] (:chip-states data)))
-        (is (nil? (:selected-epoch-id data)))
-        (is (false? (:cap-reached? data)))))))
 
 (deftest sub-app-db-diff-shape-on-empty-history
   (testing ":rf.causa/app-db-diff returns history-empty? true with no epochs"
@@ -1114,46 +866,6 @@
     (rf/with-frame :rf/causa
       (is (= :tb @(rf/subscribe [:rf.causa/causality-popover-layout]))))))
 
-(deftest sub-hydration-debugger-data-shape-no-mismatch
-  (testing ":rf.causa/hydration-debugger-data dormant on an empty buffer"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/hydration-debugger-data])]
-        (is (false? (:has-mismatch? data)))
-        (is (= :rf/default (:target-frame data)))
-        (is (nil? (:selected-mismatch-id data)))))))
-
-(deftest sub-effects-data-shape-with-override
-  (testing ":rf.causa/effects-data folds the override into rows"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-fxs-override-for-test
-                         {:rf.fx/dispatch {} :rf.fx/http {}}])
-      (let [data @(rf/subscribe [:rf.causa/effects-data])]
-        (is (= 2 (:total data)))
-        (is (= 2 (count (:rows data))))
-        (is (nil? (:selected-fx-id data)))))))
-
-(deftest sub-flows-data-shape-with-override
-  (testing ":rf.causa/flows-data folds the override into rows"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-flows-override-for-test
-                         {:flow-a {:path [:a]} :flow-b {:path [:b]}}])
-      (let [data @(rf/subscribe [:rf.causa/flows-data])]
-        (is (= 2 (:total data)))
-        (is (= 2 (count (:rows data))))))))
-
-(deftest sub-routes-data-shape-with-override
-  (testing ":rf.causa/routes-data folds registered-routes override into a feed"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync
-        [:rf.causa/set-registered-routes-override-for-test
-         {:home {:path "/"} :about {:path "/about"}}])
-      (let [data @(rf/subscribe [:rf.causa/routes-data])]
-        (is (contains? data :rows))
-        (is (= 2 (:total data)))))))
 
 (deftest sub-issues-ribbon-shape-on-empty-buffer
   (testing ":rf.causa/issues-ribbon returns :no-issues empty-kind initially"
@@ -1174,24 +886,6 @@
         (is (= 0 (:rendered data)))
         (is (false? (:any-filter? data)))))))
 
-(deftest sub-mcp-server-shape-on-empty-buffer
-  (testing ":rf.causa/mcp-server projects the empty agent-feed"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/mcp-server])]
-        (is (contains? data :rows))
-        (is (= 0 (:total data)))
-        (is (= 0 (:rendered data)))))))
-
-(deftest sub-performance-data-shape-on-empty-buffer
-  (testing ":rf.causa/performance-data is :empty? on a fresh buffer"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/performance-data])]
-        (is (contains? data :rows))
-        (is (= 0 (:total data)))
-        (is (true? (:empty? data)))))))
-
 (deftest sub-machine-inspector-data-shape-empty
   (testing ":rf.causa/machine-inspector-data returns :no-machines kind when
             the registered-machines override is forced to []"
@@ -1207,16 +901,6 @@
         (is (contains? data :machines))
         (is (= 0 (:total data)))
         (is (= :no-machines (:empty-kind data)))))))
-
-(deftest sub-schema-violation-timeline-shape-empty
-  (testing ":rf.causa/schema-violation-timeline returns 0 / empty defaults"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/schema-violation-timeline])]
-        (is (= 0 (:total-violations data)))
-        (is (= 0 (:rendered-violations data)))
-        (is (nil? (:schema-filter data)))
-        (is (nil? (:selected-violation data)))))))
 
 (deftest sub-views-data-shape-empty
   (testing ":rf.causa/views-data returns empty defaults when no cascade
@@ -1235,16 +919,6 @@
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
-(deftest event-select-panel-writes-to-causa-frame
-  (testing ":rf.causa/select-panel stores under :selected-panel"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; :trace is an arbitrary still-live panel id (Causality removed
-      ;; with rf2-dqnuu — popover, not a tab).
-      (rf/dispatch-sync [:rf.causa/select-panel :trace])
-      (is (= :trace
-             @(rf/subscribe [:rf.causa/selected-panel]))))))
-
 (deftest event-select-dispatch-id-and-clear
   (testing ":rf.causa/select-dispatch-id + clear round-trip"
     (setup-causa-frame!)
@@ -1260,7 +934,10 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-epoch :e-7])
       (is (= :e-7 @(rf/subscribe [:rf.causa/selected-epoch-id])))
-      (rf/dispatch-sync [:rf.causa/clear-selected-epoch])
+      ;; nil resets the slot — equivalent to the dropped explicit
+      ;; `:rf.causa/clear-selected-epoch` event (deleted with rf2-qy0nu
+      ;; alongside the Time Travel panel).
+      (rf/dispatch-sync [:rf.causa/select-epoch nil])
       (is (nil? @(rf/subscribe [:rf.causa/selected-epoch-id]))))))
 
 (deftest event-toggle-issues-severity-roundtrip
@@ -1317,45 +994,6 @@
       (rf/dispatch-sync [:rf.causa/clear-trace-filters])
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
-(deftest event-toggle-mcp-op-type-set-membership
-  (testing ":rf.causa/toggle-mcp-op-type adds + removes membership in a set"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/toggle-mcp-op-type :event])
-      (is (= #{:event}
-             (:op-types @(rf/subscribe [:rf.causa/mcp-filters]))))
-      (rf/dispatch-sync [:rf.causa/toggle-mcp-op-type :event])
-      (is (= #{}
-             (:op-types @(rf/subscribe [:rf.causa/mcp-filters])))))))
-
-(deftest event-toggle-mcp-origin-filter-flips
-  (testing ":rf.causa/toggle-mcp-origin-filter flips the boolean"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/mcp-origin-filter-enabled?])))
-      (rf/dispatch-sync [:rf.causa/toggle-mcp-origin-filter])
-      (is (true? @(rf/subscribe [:rf.causa/mcp-origin-filter-enabled?])))
-      (rf/dispatch-sync [:rf.causa/toggle-mcp-origin-filter])
-      (is (false? @(rf/subscribe [:rf.causa/mcp-origin-filter-enabled?]))))))
-
-(deftest event-select-mismatch-drops-reroot
-  (testing ":rf.causa/select-mismatch sets id and drops any reroot path"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/reroot-tree-view [:a :b]])
-      (rf/dispatch-sync [:rf.causa/select-mismatch :m-1])
-      (is (= :m-1 @(rf/subscribe [:rf.causa/selected-mismatch-id])))
-      (is (nil? @(rf/subscribe [:rf.causa/hydration-reroot-path]))))))
-
-(deftest event-reroot-tree-view-empty-clears
-  (testing ":rf.causa/reroot-tree-view with empty path clears the slot"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/reroot-tree-view [:a :b]])
-      (is (= [:a :b] @(rf/subscribe [:rf.causa/hydration-reroot-path])))
-      (rf/dispatch-sync [:rf.causa/reroot-tree-view []])
-      (is (nil? @(rf/subscribe [:rf.causa/hydration-reroot-path]))))))
-
 (deftest event-views-toggle-row-adds-and-removes
   (testing ":rf.causa/views-toggle-row toggles set membership
             (rf2-21ob3 — Views panel inline-row expansion replaces
@@ -1382,59 +1020,6 @@
       (is (false? @(rf/subscribe [:rf.causa/views-heatmap?])))
       (rf/dispatch-sync [:rf.causa/views-set-component-filter nil])
       (is (nil? @(rf/subscribe [:rf.causa/views-component-filter]))))))
-
-(deftest event-set-performance-budget-ms-normalises
-  (testing ":rf.causa/set-performance-budget-ms accepts pos numbers; nil resets"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-performance-budget-ms 100])
-      (is (= 100 @(rf/subscribe [:rf.causa/performance-budget-ms])))
-      (rf/dispatch-sync [:rf.causa/set-performance-budget-ms nil])
-      (let [v @(rf/subscribe [:rf.causa/performance-budget-ms])]
-        (is (number? v))
-        (is (not= 100 v)))
-      ;; non-positive also resets
-      (rf/dispatch-sync [:rf.causa/set-performance-budget-ms 100])
-      (rf/dispatch-sync [:rf.causa/set-performance-budget-ms -5])
-      (let [v @(rf/subscribe [:rf.causa/performance-budget-ms])]
-        (is (not= 100 v))))))
-
-(deftest event-set-schema-timeline-window-validates
-  (testing ":rf.causa/set-schema-timeline-window rejects malformed windows"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; valid window stores
-      (rf/dispatch-sync [:rf.causa/set-schema-timeline-window
-                         {:t0 0 :t1 1000}])
-      (is (= {:t0 0 :t1 1000}
-             @(rf/subscribe [:rf.causa/schema-timeline-window])))
-      ;; nil clears (sub falls back to default)
-      (rf/dispatch-sync [:rf.causa/set-schema-timeline-window nil])
-      ;; sub returns default-window (not nil)
-      (is (map? @(rf/subscribe [:rf.causa/schema-timeline-window])))
-      ;; invalid (t0 >= t1) is discarded
-      (rf/dispatch-sync [:rf.causa/set-schema-timeline-window
-                         {:t0 1000 :t1 0}])
-      (is (not= {:t0 1000 :t1 0}
-                @(rf/subscribe [:rf.causa/schema-timeline-window]))))))
-
-(deftest event-set-schema-filter-nil-clears
-  (testing ":rf.causa/set-schema-filter — value sets; nil clears"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-schema-filter :user/email])
-      (is (= :user/email @(rf/subscribe [:rf.causa/schema-filter])))
-      (rf/dispatch-sync [:rf.causa/set-schema-filter nil])
-      (is (nil? @(rf/subscribe [:rf.causa/schema-filter]))))))
-
-(deftest event-select-violation-nil-clears
-  (testing ":rf.causa/select-violation — value sets; nil clears"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-violation :v-1])
-      (is (= :v-1 @(rf/subscribe [:rf.causa/selected-violation-id])))
-      (rf/dispatch-sync [:rf.causa/select-violation nil])
-      (is (nil? @(rf/subscribe [:rf.causa/selected-violation-id]))))))
 
 (deftest event-pin-slice-and-unpin-slice
   (testing ":rf.causa/pin-slice + unpin-slice update :pinned-slices-store"
@@ -1464,46 +1049,6 @@
       (is (= :traffic-light @(rf/subscribe [:rf.causa/selected-machine-id])))
       (rf/dispatch-sync [:rf.causa/clear-machine-selection])
       (is (nil? @(rf/subscribe [:rf.causa/selected-machine-id]))))))
-
-(deftest event-select-flow-id-and-clear
-  (testing ":rf.causa/select-flow-id + clear round-trip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-flow-id :total-price])
-      (is (= :total-price @(rf/subscribe [:rf.causa/selected-flow-id])))
-      (rf/dispatch-sync [:rf.causa/clear-flow-selection])
-      (is (nil? @(rf/subscribe [:rf.causa/selected-flow-id]))))))
-
-(deftest event-select-fx-id-and-clear
-  (testing ":rf.causa/select-fx-id + clear round-trip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-fx-id :rf.fx/dispatch])
-      (is (= :rf.fx/dispatch @(rf/subscribe [:rf.causa/selected-fx-id])))
-      (rf/dispatch-sync [:rf.causa/clear-fx-selection])
-      (is (nil? @(rf/subscribe [:rf.causa/selected-fx-id]))))))
-
-(deftest event-select-route-and-clear
-  (testing ":rf.causa/select-route + clear round-trip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-route :home])
-      (is (= :home @(rf/subscribe [:rf.causa/selected-route-id])))
-      (rf/dispatch-sync [:rf.causa/clear-route-selection])
-      (is (nil? @(rf/subscribe [:rf.causa/selected-route-id]))))))
-
-(deftest event-dismiss-pin-overflow-toast
-  (testing ":rf.causa/dismiss-pin-overflow-toast clears the toast slot"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; Seed the toast slot via :select-panel's sibling write path —
-      ;; the event-db handlers are the only public route, so we use
-      ;; the registry-installed `pin-current` shape indirectly by
-      ;; asserting that the explicit dismiss clears whatever is there.
-      ;; We can't easily seed it without an epoch artefact wired; instead
-      ;; assert the handler is a clean dissoc by inspecting frame state.
-      (rf/dispatch-sync [:rf.causa/dismiss-pin-overflow-toast])
-      (is (nil? (:pin-overflow-toast (frame/frame-app-db-value :rf/causa)))))))
 
 (deftest event-open-in-editor-routes-through-editor-fx
   (testing "rf2-g5q8d — `:rf.causa/open-in-editor` is now a reg-event-fx
@@ -1539,29 +1084,13 @@
   (testing "every :set-*-override-for-test event sets a value AND clears on nil"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; (sub-cache override retired with the Subs panel under
-      ;; rf2-21ob3 — Views panel does not need a cache-override slot
-      ;; because the projection reads :rf.causa/epoch-history directly.)
-      ;; registered-flows
-      (rf/dispatch-sync [:rf.causa/set-registered-flows-override-for-test {:f 1}])
-      (is (= {:f 1} (:registered-flows-override (frame/frame-app-db-value :rf/causa))))
-      (rf/dispatch-sync [:rf.causa/set-registered-flows-override-for-test nil])
-      (is (nil? (:registered-flows-override (frame/frame-app-db-value :rf/causa))))
-      ;; registered-fxs
-      (rf/dispatch-sync [:rf.causa/set-registered-fxs-override-for-test {:fx 1}])
-      (is (= {:fx 1} (:registered-fxs-override (frame/frame-app-db-value :rf/causa))))
-      (rf/dispatch-sync [:rf.causa/set-registered-fxs-override-for-test nil])
-      (is (nil? (:registered-fxs-override (frame/frame-app-db-value :rf/causa))))
-      ;; registered-machines
+      ;; rf2-qy0nu — only the Machine Inspector's registered-machines
+      ;; override survives the dead-panel sweep. The flows / fxs /
+      ;; routes overrides were retired with their panels.
       (rf/dispatch-sync [:rf.causa/set-registered-machines-override-for-test [:m]])
       (is (= [:m] (:registered-machines-override (frame/frame-app-db-value :rf/causa))))
       (rf/dispatch-sync [:rf.causa/set-registered-machines-override-for-test nil])
-      (is (nil? (:registered-machines-override (frame/frame-app-db-value :rf/causa))))
-      ;; registered-routes
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test {:r 1}])
-      (is (= {:r 1} (:registered-routes-override (frame/frame-app-db-value :rf/causa))))
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test nil])
-      (is (nil? (:registered-routes-override (frame/frame-app-db-value :rf/causa)))))))
+      (is (nil? (:registered-machines-override (frame/frame-app-db-value :rf/causa)))))))
 
 ;; ---- (6) reg-fx contracts -----------------------------------------------
 ;;
@@ -1574,34 +1103,8 @@
 
 (defn- install-capture-fx! []
   (reset! captured-fx [])
-  (rf/reg-fx :rf.causa.fx/restore-epoch
-    (fn [_ctx args] (swap! captured-fx conj [:rf.causa.fx/restore-epoch args])))
-  (rf/reg-fx :rf.causa.fx/reset-frame-db!
-    (fn [_ctx args] (swap! captured-fx conj [:rf.causa.fx/reset-frame-db! args])))
   (rf/reg-fx :rf.causa.fx/copy-to-clipboard
     (fn [_ctx args] (swap! captured-fx conj [:rf.causa.fx/copy-to-clipboard args]))))
-
-(deftest fx-reset-to-epoch-routes-via-restore-epoch
-  (testing ":rf.causa/reset-to-epoch fires :rf.causa.fx/restore-epoch with the
-            target-frame + epoch-id (no other fxs)"
-    (setup-causa-frame!)
-    (install-capture-fx!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/reset-to-epoch :e-1]))
-    (is (= 1 (count @captured-fx)))
-    (let [[fx-id args] (first @captured-fx)]
-      (is (= :rf.causa.fx/restore-epoch fx-id))
-      (is (= :rf/default (:frame-id args)))
-      (is (= :e-1 (:epoch-id args))))))
-
-(deftest fx-reset-to-pinned-is-noop-without-pin
-  (testing ":rf.causa/reset-to-pinned does NOT fire any fx when no pin matches"
-    (setup-causa-frame!)
-    (install-capture-fx!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/reset-to-pinned :e-missing]))
-    (is (= 0 (count @captured-fx))
-        "no pin under the target-frame → handler returns nil → no fx routes")))
 
 (deftest fx-copy-value-to-clipboard-fires-with-pr-str
   (testing ":rf.causa/copy-value-to-clipboard routes through the clipboard fx"
@@ -1645,24 +1148,6 @@
 ;; (Views panel reads :rf.causa/epoch-history directly per spec/012-
 ;; Views.md §Data sources; no separate sub-cache surface).
 
-(deftest sub-registered-flows-honours-override
-  (testing ":rf.causa/registered-flows returns the override when set"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-flows-override-for-test
-                         {:flow-a :info}])
-      (is (= {:flow-a :info}
-             @(rf/subscribe [:rf.causa/registered-flows]))))))
-
-(deftest sub-registered-fxs-honours-override
-  (testing ":rf.causa/registered-fxs returns the override when set"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-fxs-override-for-test
-                         {:fx-a :info}])
-      (is (= {:fx-a :info}
-             @(rf/subscribe [:rf.causa/registered-fxs]))))))
-
 (deftest sub-registered-machines-honours-override
   (testing ":rf.causa/registered-machines returns the override when set"
     (setup-causa-frame!)
@@ -1672,44 +1157,24 @@
       (is (= [:m-1 :m-2]
              @(rf/subscribe [:rf.causa/registered-machines]))))))
 
-(deftest sub-registered-routes-honours-override
-  (testing ":rf.causa/registered-routes returns the override when set"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test
-                         {:home :info}])
-      (is (= {:home :info}
-             @(rf/subscribe [:rf.causa/registered-routes]))))))
-
-(deftest sub-active-route-slice-override-is-separate-from-live
-  (testing ":rf.causa/active-route-slice-override is a separate sub from the
-            live :rf.causa/active-route-slice (the routes-data composite
-            falls back through both)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (nil? @(rf/subscribe [:rf.causa/active-route-slice-override])))
-      (rf/dispatch-sync [:rf.causa/set-active-route-slice-override-for-test
-                         {:id :home}])
-      (is (= {:id :home}
-             @(rf/subscribe [:rf.causa/active-route-slice-override]))))))
-
 ;; ---- (8) frame isolation (rf2-tijr Option C) ----------------------------
 
 (deftest events-write-to-causa-frame-not-default
   (testing "every :rf.causa/* event-db handler writes to :rf/causa, never :rf/default"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      ;; :trace is an arbitrary live panel id (Causality removed with
-      ;; rf2-dqnuu — popover, not a tab).
-      (rf/dispatch-sync [:rf.causa/select-panel :trace])
+      ;; :event is an arbitrary live L3 tab id (rf2-xy4yb — the 4-layer
+      ;; shell switches via `:rf.causa/selected-tab`, not the legacy
+      ;; `:selected-panel` slot deleted with rf2-qy0nu).
+      (rf/dispatch-sync [:rf.causa/select-tab :event])
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 1])
       (rf/dispatch-sync [:rf.causa/select-epoch :e]))
     (let [causa-db   (frame/frame-app-db-value :rf/causa)
           default-db (frame/frame-app-db-value :rf/default)]
-      (is (= :trace (:selected-panel causa-db)))
+      (is (= :event (:selected-tab causa-db)))
       (is (= 1 (:selected-dispatch-id causa-db)))
       (is (= :e (:selected-epoch-id causa-db)))
-      (is (nil? (:selected-panel default-db)))
+      (is (nil? (:selected-tab default-db)))
       (is (nil? (:selected-dispatch-id default-db)))
       (is (nil? (:selected-epoch-id default-db))))))
 
@@ -1724,21 +1189,13 @@
       ;; The contract is that the registry's composites tolerate empty
       ;; inputs; per-panel tests cover the populated cases.
       (doseq [sub-id [:rf.causa/event-detail
-                      :rf.causa/time-travel
                       :rf.causa/app-db-diff
                       ;; :rf.causa/causality-graph-data removed with rf2-dqnuu;
                       ;; the popover's payload sub stands in for the smoke.
                       :rf.causa/causality-popover-payload
-                      :rf.causa/hydration-debugger-data
-                      :rf.causa/effects-data
-                      :rf.causa/flows-data
-                      :rf.causa/routes-data
                       :rf.causa/issues-ribbon
                       :rf.causa/trace-feed
-                      :rf.causa/mcp-server
-                      :rf.causa/performance-data
                       :rf.causa/machine-inspector-data
-                      :rf.causa/schema-violation-timeline
                       :rf.causa/views-data
                       ;; rf2-xjhhp Phase 2 — sub-output structural diff
                       ;; composite. Empty-frame contract: returns

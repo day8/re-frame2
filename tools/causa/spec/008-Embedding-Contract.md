@@ -209,7 +209,7 @@ The registrar is **process-global** — frames isolate state but share
 the registrar's `{kind id}` keyspace. Causa avoids collisions by
 namespacing every event-id, sub-id, fx-id, and cofx-id under
 `:rf.causa/*`. A host registering `:user/login` and Causa registering
-`:rf.causa/select-panel` cannot stamp on each other; the prefix is the
+`:rf.causa/select-tab` cannot stamp on each other; the prefix is the
 contract.
 
 The convention is enforced by code review and by the registry

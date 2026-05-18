@@ -73,8 +73,11 @@
              (conj [:dispatch [[:rf.causa/select-dispatch-id
                                 dispatch-id frame]
                                {:frame :rf/causa}]])
+             ;; Flip the visible tab to Event so the row jump lands
+             ;; in event-detail. The legacy `:rf.causa/select-panel`
+             ;; slot is no longer read by the 4-layer shell (rf2-qy0nu).
              dispatch-id
-             (conj [:dispatch [[:rf.causa/select-panel :event-detail]
+             (conj [:dispatch [[:rf.causa/select-tab :event]
                                {:frame :rf/causa}]])
              ;; Also close the popover when a row jump fires — the
              ;; user has navigated away.

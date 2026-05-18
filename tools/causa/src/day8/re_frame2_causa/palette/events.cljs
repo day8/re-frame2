@@ -171,17 +171,22 @@
                                (conj [:rf.causa.palette.fx/popout {}]))]
         (case verb
           :palette/select-panel
+          ;; Panel ids in `palette-panels` are the 6 L3 tab ids per
+          ;; spec/018 §5 (rf2-qy0nu trimmed the 14-id legacy list).
+          ;; Dispatch into `:rf.causa/select-tab` so the visible tab
+          ;; flips; the legacy `:rf.causa/select-panel` slot is no
+          ;; longer read by the 4-layer shell.
           {:db close-db
-           :fx (conj base-fx [:dispatch [:rf.causa/select-panel (first args)]])}
+           :fx (conj base-fx [:dispatch [:rf.causa/select-tab (first args)]])}
 
           :palette/select-event
           ;; Future: route to event-detail with the event pre-
-          ;; selected. Phase 1 routes to the event-detail panel; the
-          ;; detail panel reads `:rf.causa/selected-event-id` for the
-          ;; specific event focus (event-detail panel handles the
-          ;; missing-id gracefully — see panels/event_detail.cljs).
+          ;; selected. Phase 1 routes to the Event tab; the event-detail
+          ;; panel reads `:rf.causa/selected-event-id` for the specific
+          ;; event focus (event-detail panel handles the missing-id
+          ;; gracefully — see panels/event_detail.cljs).
           {:db (assoc close-db
-                      :selected-panel :event-detail
+                      :selected-tab :event
                       :selected-event-id (first args))
            :fx base-fx}
 
@@ -200,7 +205,7 @@
           ;; palette completes its part of the contract.
           (let [[kind id] args]
             {:db (assoc close-db
-                        :selected-panel :event-detail
+                        :selected-tab :event
                         :inspecting-handler [kind id])
              :fx base-fx})
 

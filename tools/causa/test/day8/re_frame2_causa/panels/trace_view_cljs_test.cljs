@@ -383,9 +383,11 @@
 
 ;; ---- (6) row interactions -----------------------------------------------
 
-(deftest row-click-pivots-to-event-detail-when-dispatch-id-present
+(deftest row-click-pivots-to-event-tab-when-dispatch-id-present
   (testing "clicking a row whose event carries a :dispatch-id dispatches
-            :rf.causa/select-dispatch-id + :rf.causa/select-panel"
+            :rf.causa/select-dispatch-id + :rf.causa/select-tab :event
+            (rf2-qy0nu — the legacy :select-panel slot is no longer
+            read by the 4-layer shell)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 7 :op-type :event :operation :event/dispatched
@@ -402,8 +404,8 @@
             (when handler (handler))))
         (is (some #(= [:rf.causa/select-dispatch-id 42 :rf/default] %) @dispatches)
             "select-dispatch-id fired with the row's dispatch-id and frame")
-        (is (some #(= [:rf.causa/select-panel :event-detail] %) @dispatches)
-            "select-panel fired to pivot")))))
+        (is (some #(= [:rf.causa/select-tab :event] %) @dispatches)
+            "select-tab fired to flip the visible tab")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;

@@ -399,10 +399,11 @@
 
 ;; ---- (9) row interactions ------------------------------------------------
 
-(deftest row-click-pivots-to-event-detail-when-dispatch-id-present
+(deftest row-click-pivots-to-event-tab-when-dispatch-id-present
   (testing "clicking an issue row dispatches :rf.causa/select-dispatch-id
-            and :rf.causa/select-panel — same cross-panel pivot as the
-            other ribbons"
+            and :rf.causa/select-tab :event — same cross-panel pivot as
+            the other ribbons (rf2-qy0nu — the legacy :select-panel
+            slot is no longer read by the 4-layer shell)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-issue {:id 4 :op-type :error
@@ -420,8 +421,8 @@
             (when handler (handler))))
         (is (some #(= [:rf.causa/select-dispatch-id 99] %) @dispatches)
             "select-dispatch-id fired with the issue's dispatch-id")
-        (is (some #(= [:rf.causa/select-panel :event-detail] %) @dispatches)
-            "select-panel fired to pivot")))))
+        (is (some #(= [:rf.causa/select-tab :event] %) @dispatches)
+            "select-tab fired to flip the visible tab")))))
 
 (deftest source-coord-click-fires-open-in-editor
   (testing "clicking the source-coord chip fires :rf.causa/open-in-editor;

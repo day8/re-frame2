@@ -122,7 +122,10 @@
 
 ;; ---- invoke ------------------------------------------------------------
 
-(deftest invoke-select-panel-dispatches-and-closes
+(deftest invoke-select-panel-flips-tab-and-closes
+  ;; rf2-qy0nu — palette-panels ids are L3 tab ids; the lowering
+  ;; dispatches `:rf.causa/select-tab` so the visible tab flips. The
+  ;; legacy `:rf.causa/select-panel` slot is no longer read.
   (setup!)
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/palette-open])
@@ -133,10 +136,13 @@
         :label  "Open Trace panel"
         :action [:palette/select-panel :trace]}
        false]))
-  (is (= :trace (:selected-panel (causa-db))))
+  (is (= :trace (:selected-tab (causa-db))))
   (is (false? (boolean (:palette-open? (causa-db))))))
 
-(deftest invoke-select-event-routes-to-event-detail
+(deftest invoke-select-event-routes-to-event-tab
+  ;; rf2-qy0nu — :palette/select-event now writes :selected-tab :event
+  ;; (the L3 tab id that mounts event-detail/Panel) instead of the
+  ;; dead `:selected-panel :event-detail` slot.
   (setup!)
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/palette-open])
@@ -148,7 +154,7 @@
         :action [:palette/select-event [:foo/bar]]
         :popout? true}
        false]))
-  (is (= :event-detail (:selected-panel (causa-db))))
+  (is (= :event (:selected-tab (causa-db))))
   (is (= [:foo/bar]    (:selected-event-id (causa-db))))
   (is (false? (boolean (:palette-open? (causa-db))))))
 
