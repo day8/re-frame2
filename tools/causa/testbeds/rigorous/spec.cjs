@@ -440,12 +440,25 @@ module.exports = {
     // mount per the bare event-detail panel's reg-event-db. Force a
     // known-empty starting point in case an earlier walk left a
     // selection in place.
-    {
-      const lingeringBack = page.locator('[data-testid="rf-causa-event-detail-back"]');
-      if ((await lingeringBack.count()) > 0) {
-        await lingeringBack.first().click();
-      }
-    }
+    //
+    // rf2-lv9bc: the panel-internal '← Events' back-link was dropped
+    // (pre-4-layer-chrome leftover). Clear selection programmatically
+    // by dispatching `:rf.causa/clear-selected-dispatch-id` on the
+    // :rf/causa frame — same handler the deleted button fired.
+    await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/clear-selected-dispatch-id'),
+        ], true),
+        frameOpts,
+      );
+    });
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
     const cascadeRows = page.locator('[data-testid^="rf-causa-cascade-row-"]');
     await waitForCondition(
@@ -472,13 +485,28 @@ module.exports = {
       `cascade-detail data-dispatch-id=${clickedDispatchId}`,
       5000,
     );
-    // Click ← Events — back to the list. The detail goes away and
-    // the empty-state list reappears.
-    await page.locator('[data-testid="rf-causa-event-detail-back"]').click();
+    // Clear selection — under rf2-lv9bc the panel's '← Events' back-
+    // link was dropped (pre-4-layer-chrome leftover); fire the same
+    // handler the button used to fire so the detail unmounts and the
+    // empty-state list reappears.
+    await page.evaluate(() => {
+      const cljs = window.cljs.core;
+      const rf   = window.re_frame.core;
+      const kw   = (n) => cljs.keyword(n);
+      const frameOpts = cljs.PersistentArrayMap.fromArray(
+        [kw('frame'), kw('rf/causa')], true, false,
+      );
+      rf.dispatch_sync_STAR_(
+        cljs.PersistentVector.fromArray([
+          kw('rf.causa/clear-selected-dispatch-id'),
+        ], true),
+        frameOpts,
+      );
+    });
     await waitForCondition(
       async () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
       (count) => count === 0,
-      'cascade-detail to unmount after ← Events',
+      'cascade-detail to unmount after :rf.causa/clear-selected-dispatch-id',
       5000,
     );
     await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
@@ -3837,13 +3865,25 @@ module.exports = {
       await clickSidebar(page, 'event-detail', 'rf-causa-event-detail');
       // Force list-mode so the cascade-row inventory below reads a
       // populated list (cascade-detail mounts hide the list).
-      {
-        const lingeringBack = page.locator('[data-testid="rf-causa-event-detail-back"]');
-        if ((await lingeringBack.count()) > 0) {
-          await lingeringBack.first().click();
-          await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
-        }
-      }
+      //
+      // rf2-lv9bc: the panel-internal '← Events' back-link was dropped
+      // (pre-4-layer-chrome leftover). Clear selection programmatically
+      // by dispatching the underlying handler.
+      await page.evaluate(() => {
+        const cljs = window.cljs.core;
+        const rf   = window.re_frame.core;
+        const kw   = (n) => cljs.keyword(n);
+        const frameOpts = cljs.PersistentArrayMap.fromArray(
+          [kw('frame'), kw('rf/causa')], true, false,
+        );
+        rf.dispatch_sync_STAR_(
+          cljs.PersistentVector.fromArray([
+            kw('rf.causa/clear-selected-dispatch-id'),
+          ], true),
+          frameOpts,
+        );
+      });
+      await expectVisible(page.locator('[data-testid="rf-causa-event-detail-empty"]'), 5000);
 
       // Capture the host counter's pre-stress baseline.
       const counterValueLocator = page.locator('#app [data-testid="counter-value"]');
