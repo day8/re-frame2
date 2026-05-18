@@ -9,8 +9,11 @@
     against the variant's frame.
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
   - `:assert-db` path value → read from `rf/get-frame-db` and compare.
-  - `:assert-db` path :pred fn-sym → resolve the predicate via the
-    framework registrar (`re-frame.story.predicates`) and invoke.
+  - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
+    handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
+    is resolved at run time via `requiring-resolve` (JVM) or a
+    best-effort `goog.global` walk (CLJS — fragile under advanced
+    compilation, see rf2-inbad).
   - `:click` / `:type` / `:assert-dom` → delegate to
     `re-frame.story.play.dom` (no-op on JVM / no-DOM).
 
@@ -280,10 +283,15 @@
   munged dotted names (works for fns reachable from a global ns
   like `js/cljs.user.my_pred`). Returns nil on miss.
 
-  CLJS resolution is best-effort — advanced-compiled fns have their
-  namespace mangled, so author fns referenced via `:pred` should be
-  defined `^:export`'d or under `js/window.<...>` for cross-target
-  parity. JVM tests cover the common case end-to-end."
+  CLJS symbol resolution is BEST-EFFORT and FRAGILE under advanced
+  compilation — the closure compiler mangles author namespace names,
+  so the munged-dotted-name walk won't find them. The advanced-safe
+  authoring path is to pass the predicate as a FN DIRECTLY in the
+  `:assert-db [path] :pred <fn>` step; the runner short-circuits the
+  resolver in that case (see `exec-assert-db!`).
+
+  rf2-inbad: this fn remains for the symbol-form escape hatch (JVM
+  tests + :dev CLJS) but is NOT the primary authoring path."
   [sym]
   (when sym
     (try
@@ -305,9 +313,20 @@
                    :else       (recur (aget obj (first ks)) (rest ks))))))))
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
+(defn- pred-label
+  "Human-readable label for a `:pred` ref — the symbol literal when
+  the author handed a symbol, the marker `<fn>` when they handed a
+  fn directly. Used in failure messages so authors can spot which
+  predicate failed without leaking compiler-munged identifiers."
+  [ref]
+  (cond
+    (symbol? ref) (str ref)
+    (fn? ref)     "<fn>"
+    :else         (pr-str ref)))
+
 (defn- exec-assert-db!
   [frame-id idx step]
-  (let [{:keys [path mode expected pred-sym]} (runner/step-assert-db step)
+  (let [{:keys [path mode expected pred-ref pred-fn?]} (runner/step-assert-db step)
         db (read-frame-db frame-id)]
     (case mode
       :equals
@@ -322,26 +341,32 @@
                                             ", got " (pr-str actual))})))
 
       :pred
-      (let [pred-fn (resolve-predicate pred-sym)
+      ;; rf2-inbad: prefer the fn-direct path (advanced-CLJS-safe). Fall
+      ;; back to symbol resolution for the JVM / :dev CLJS escape hatch.
+      (let [pred-fn (if pred-fn? pred-ref (resolve-predicate pred-ref))
+            label   (pred-label pred-ref)
             actual  (get-in db path)]
         (cond
           (nil? pred-fn)
           (runner/step-fail idx step
                             {:message (str "assert-db :pred — could not resolve "
-                                           pred-sym " in the predicates registry")})
+                                           label
+                                           " (symbol resolution is fragile under"
+                                           " advanced CLJS; pass the predicate as a"
+                                           " fn directly to avoid this)")})
 
           :else
           (try
             (if (pred-fn actual)
               (runner/step-pass idx step)
               (runner/step-fail idx step
-                                {:expected (str "predicate " pred-sym " returns truthy")
+                                {:expected (str "predicate " label " returns truthy")
                                  :actual   actual
                                  :message  (str "assert-db " (pr-str path)
-                                                " — predicate " pred-sym " returned false")}))
+                                                " — predicate " label " returned false")}))
             (catch #?(:clj Throwable :cljs :default) e
               (runner/step-fail idx step
-                                {:message (str "assert-db :pred " pred-sym " threw — "
+                                {:message (str "assert-db :pred " label " threw — "
                                                #?(:clj (.getMessage ^Throwable e)
                                                   :cljs (str e)))}))))))))
 

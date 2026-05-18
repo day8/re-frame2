@@ -137,11 +137,15 @@
 
 ;; ---- (2) Mode C activation threshold ------------------------------------
 
-(deftest resolve-mode-honours-auto-classification
-  (testing "with no forced override, resolve-mode == view-mode"
-    (is (= :mode-a (machine-inspector/resolve-mode 0   nil)))
-    (is (= :mode-b (machine-inspector/resolve-mode 1   nil)))
-    (is (= :mode-c (machine-inspector/resolve-mode 100 nil)))))
+(deftest resolve-mode-defaults-to-focused-event-lens
+  (testing "per rf2-a9cke the panel default is the focused-event lens —
+            with no forced override, resolve-mode returns :focused-event
+            regardless of instance count. The picker-driven Mode A/B/C
+            classifier remains available via `view-mode` for callers
+            that want to hint at the auto pick."
+    (is (= :focused-event (machine-inspector/resolve-mode 0   nil)))
+    (is (= :focused-event (machine-inspector/resolve-mode 1   nil)))
+    (is (= :focused-event (machine-inspector/resolve-mode 100 nil)))))
 
 (deftest resolve-mode-honours-user-force
   (testing "with a forced override, resolve-mode returns it directly"

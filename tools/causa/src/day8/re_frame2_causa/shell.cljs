@@ -342,20 +342,29 @@
                    :border-radius  "4px"
                    :font-family    sans-stack
                    :font-size      (:body type-scale)}
-        dim       {:color (:text-tertiary tokens) :cursor "default"}]
+        ;; Per rf2-fzbrw the visual + a11y signal must match the
+        ;; functional signal: `cursor: not-allowed` so the mouse
+        ;; pointer telegraphs the no-op, plus `aria-disabled` for
+        ;; screen readers (the native `:disabled` attribute already
+        ;; blocks click events at the DOM layer).
+        dim       {:color (:text-tertiary tokens) :cursor "not-allowed"}]
     [:div {:data-testid "rf-causa-ribbon-nav"
            :style {:display "flex" :align-items "center" :gap "4px"}}
-     [:button {:data-testid "rf-causa-nav-prev"
-               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa})
-               :disabled    (boolean at-tail?)
-               :title       "Step to previous event (j)"
-               :style       (merge btn-style (when at-tail? dim))}
+     [:button {:data-testid   "rf-causa-nav-prev"
+               :on-click      (when-not at-tail?
+                                #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa}))
+               :disabled      (boolean at-tail?)
+               :aria-disabled (boolean at-tail?)
+               :title         "Step to previous event (j)"
+               :style         (merge btn-style (when at-tail? dim))}
       "◀"]
-     [:button {:data-testid "rf-causa-nav-next"
-               :on-click    #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa})
-               :disabled    (boolean at-head?)
-               :title       "Step to next event (k)"
-               :style       (merge btn-style (when at-head? dim))}
+     [:button {:data-testid   "rf-causa-nav-next"
+               :on-click      (when-not at-head?
+                                #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa}))
+               :disabled      (boolean at-head?)
+               :aria-disabled (boolean at-head?)
+               :title         "Step to next event (k)"
+               :style         (merge btn-style (when at-head? dim))}
       "▶"]
      [:button {:data-testid "rf-causa-nav-head"
                :on-click    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
@@ -512,7 +521,18 @@
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])
         focused-id      (:dispatch-id focus)
-        ids             (mapv :dispatch-id cascades)
+        ;; Per rf2-fzbrw: the boundary predicates must align with the
+        ;; user-visible event list. The L2 list filters `:ungrouped`
+        ;; (registry-time emits / lifecycle / REPL evals) via
+        ;; `cascade-has-event?`; if the ribbon walked the raw cascade
+        ;; vector instead, a buffer containing one real event PLUS the
+        ;; `:ungrouped` bucket would compute `at-tail?` against
+        ;; `:ungrouped` (= false) and leave `[<]` ENABLED on what the
+        ;; user sees as the first (only) event — clicking it would
+        ;; pin focus to the `:ungrouped` bucket and degrade the L4
+        ;; panels into an aggregate-across-all-events render.
+        event-cascades  (filterv cascade-has-event? cascades)
+        ids             (mapv :dispatch-id event-cascades)
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
                             (nil? focused-id))
@@ -540,6 +560,118 @@
 
 ;; ---- L2 event list -------------------------------------------------------
 
+;; ---- L2 scrollbar styling (rf2-ieg6d Bug 2) ------------------------------
+;;
+;; The default browser scrollbar is chunky (16-17px) and stylistically loud
+;; — wrong rhythm for an info-dense devtools panel. Firefox accepts the
+;; standardised `scrollbar-width` / `scrollbar-color` inline (set on the
+;; container's `:style`). WebKit/Blink still ship the legacy `::-webkit-
+;; scrollbar` pseudo-elements which can ONLY be reached via a real CSS
+;; stylesheet (no React inline-style equivalent), so we inject a one-shot
+;; `<style>` tag scoped to `[data-testid="rf-causa-event-list"]` at
+;; namespace load. The scope keeps the slim chrome confined to the L2
+;; list — no global page-level webkit-scrollbar override (would conflict
+;; with host-app stylesheets).
+;;
+;; `defonce` + idempotent DOM probe keeps shadow-cljs `:after-load` from
+;; double-injecting; the guard skips the side-effect entirely under node-
+;; test where `js/document` does not exist.
+
+(def ^:private scrollbar-style-id
+  "rf-causa-event-list-scrollbar")
+
+(def ^:private scrollbar-css
+  "Webkit/Blink slim-scrollbar rules scoped to the L2 event-list container.
+  Mirror of the inline Firefox `scrollbar-width`/`-color` props so all
+  browsers land on the same visual rhythm.
+
+  Colours echo `(:border-subtle tokens)` / `(:text-tertiary tokens)` —
+  hardcoded as hex/rgba here because the rule lives in a string outside
+  the hiccup tree where the tokens map isn't directly available."
+  (str "[data-testid=\"rf-causa-event-list\"]::-webkit-scrollbar"
+       " { width: 6px; height: 6px; }"
+       "[data-testid=\"rf-causa-event-list\"]::-webkit-scrollbar-track"
+       " { background: transparent; }"
+       "[data-testid=\"rf-causa-event-list\"]::-webkit-scrollbar-thumb"
+       " { background: rgba(107, 112, 128, 0.4); border-radius: 3px; }"
+       "[data-testid=\"rf-causa-event-list\"]::-webkit-scrollbar-thumb:hover"
+       " { background: rgba(107, 112, 128, 0.7); }"))
+
+(defonce ^:private scrollbar-style-injected?
+  ;; defonce so shadow-cljs `:after-load` doesn't re-inject; the `<style>`
+  ;; node itself is identified by `id` so even a fresh load reusing this
+  ;; symbol would not double-inject.
+  (atom false))
+
+(defn- inject-scrollbar-style!
+  "Idempotent one-shot injection of the slim-scrollbar CSS into
+  `<head>`. No-op when `js/document` is absent (node-test) or the
+  style node is already present."
+  []
+  (when (and (not @scrollbar-style-injected?)
+             (exists? js/document)
+             (.-head js/document)
+             (.-createElement js/document))
+    (let [existing (when (.-getElementById js/document)
+                     (.getElementById js/document scrollbar-style-id))]
+      (when-not existing
+        (let [node (.createElement js/document "style")]
+          (set! (.-id node) scrollbar-style-id)
+          (.appendChild node (.createTextNode js/document scrollbar-css))
+          (.appendChild (.-head js/document) node))))
+    (reset! scrollbar-style-injected? true)))
+
+;; ---- L2 auto-scroll on focus change (rf2-ieg6d Bug 1) --------------------
+;;
+;; When a new event arrives + mode=:live + focus auto-advances to head,
+;; the focused row may render below the L2 list's visible window. The
+;; LIVE pill says "tracking head" but the user can't see the head row
+;; — defeats the LIVE UX. Fix: a `:ref` callback on the focused row
+;; that calls `scrollIntoView` when (a) we just landed on a new id and
+;; (b) the spine is in :live mode at head (the auto-tracking branch).
+;;
+;; RETRO clicks already place the focused row where the user clicked
+;; (it's already visible — they just clicked it), so we deliberately
+;; skip scroll-into-view in RETRO to avoid stealing the cursor.
+
+(defonce ^:private last-scrolled-focus-id
+  ;; Closure atom keyed by focused dispatch-id. The ref callback fires
+  ;; once per attached DOM element; we scroll only when the id changes
+  ;; relative to this atom (otherwise React's normal re-renders would
+  ;; re-trigger scroll on every parent rerender).
+  (atom ::never))
+
+(defn- scroll-focused-row-into-view!
+  "Imperative scroll. Called from the focused row's `:ref` callback
+  when a new focus id lands in LIVE+head. Guarded against test
+  environments where the DOM element is a hand-rolled stub without
+  `.scrollIntoView`."
+  [^js el]
+  (when (and el (.-scrollIntoView el))
+    (.scrollIntoView el #js {:behavior "auto" :block "nearest"})))
+
+(defn- focused-row-ref
+  "Build the `:ref` callback for a row that is BOTH focused AND in the
+  auto-tracking branch (LIVE + head). Returns nil when not in the
+  auto-tracking branch — non-nil rows always get a ref attachment
+  cycle on first mount, which would otherwise scroll on every initial
+  RETRO render too.
+
+  The callback compares `id` against `last-scrolled-focus-id` and
+  scrolls + updates the atom only on transition. nil-element calls
+  (React's unmount signal) reset the atom so a re-mount of the same
+  id will scroll again (covers the toggle-off/on case)."
+  [id auto-track?]
+  (when auto-track?
+    (fn [el]
+      (cond
+        (nil? el)
+        (reset! last-scrolled-focus-id ::never)
+
+        (not= id @last-scrolled-focus-id)
+        (do (reset! last-scrolled-focus-id id)
+            (scroll-focused-row-into-view! el))))))
+
 (defn- event-row
   "One row in the L2 event list. Single line per spec/018 §4 Row
   anatomy. Gutter glyph + event-id + right-anchored badge cluster +
@@ -554,7 +686,7 @@
   multi-item menu lands behind a follow-on bead); preventing the
   browser context menu keeps the affordance discoverable on first
   right-click."
-  [{:keys [cascade focused-id]}]
+  [{:keys [cascade focused-id auto-track?]}]
   (let [id        (:dispatch-id cascade)
         focused?  (= id focused-id)
         glyph     (gutter-glyph cascade focused-id)
@@ -569,36 +701,41 @@
         bg        (if focused? (:bg-active tokens) "transparent")
         border    (if focused?
                     (str "1px solid " (:cyan tokens))
-                    "1px solid transparent")]
+                    "1px solid transparent")
+        ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
+        ;; auto-tracking branch carries a ref. RETRO and non-focused rows
+        ;; get nil (no DOM-side scroll work, no per-render cost).
+        ref-fn    (when focused? (focused-row-ref id auto-track?))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Causa is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
     ;; the same vertical budget the old 8 rows used.
-    [:li {:data-testid (str "rf-causa-event-row-" (str id))
-          :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
-                                     {:frame :rf/causa})
-          :on-context-menu (fn [^js e]
-                             (when ev-id
-                               (.preventDefault e)
-                               (rf/dispatch
-                                 [:rf.causa/hide-event-type ev-id]
-                                 {:frame :rf/causa})))
-          :style {:display       "flex"
-                  :align-items   "center"
-                  :gap           "6px"
-                  :padding       "1px 6px"
-                  :height        "22px"
-                  :line-height   "20px"
-                  :cursor        "pointer"
-                  :background    bg
-                  :border        border
-                  :border-radius "2px"
-                  :font-family   mono-stack
-                  :font-size     (:mono-body type-scale)
-                  :color         (:text-primary tokens)
-                  :white-space   "nowrap"
-                  :overflow      "hidden"
-                  :text-overflow "ellipsis"}}
+    [:li (cond-> {:data-testid (str "rf-causa-event-row-" (str id))
+                  :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
+                                             {:frame :rf/causa})
+                  :on-context-menu (fn [^js e]
+                                     (when ev-id
+                                       (.preventDefault e)
+                                       (rf/dispatch
+                                         [:rf.causa/hide-event-type ev-id]
+                                         {:frame :rf/causa})))
+                  :style {:display       "flex"
+                          :align-items   "center"
+                          :gap           "6px"
+                          :padding       "1px 6px"
+                          :height        "22px"
+                          :line-height   "20px"
+                          :cursor        "pointer"
+                          :background    bg
+                          :border        border
+                          :border-radius "2px"
+                          :font-family   mono-stack
+                          :font-size     (:mono-body type-scale)
+                          :color         (:text-primary tokens)
+                          :white-space   "nowrap"
+                          :overflow      "hidden"
+                          :text-overflow "ellipsis"}}
+           ref-fn (assoc :ref ref-fn))
      [:span {:style {:width "14px" :color glyph-col :flex-shrink 0
                      :text-align "center"}}
       glyph]
@@ -645,11 +782,33 @@
   projection's internal bucket into the user-facing event timeline.
   Other panels (Causality Graph, Performance, etc.) keep reading
   `:rf.causa/cascades` directly so the bucket remains available where
-  it is meaningful."
+  it is meaningful.
+
+  Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
+  scrolls it into view when (a) focus has just moved to a new id AND
+  (b) the spine is in LIVE+head mode (i.e. the auto-tracking branch
+  from `spine/compose-focus`). RETRO clicks place the row where the
+  user clicked, so the scroll-into-view is suppressed there to avoid
+  stealing the cursor. Per rf2-ieg6d Bug 2 the container carries
+  Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
+  rules ship via a one-shot `<style>` injection (see
+  `inject-scrollbar-style!`)."
   []
+  ;; rf2-ieg6d Bug 2 — idempotent stylesheet injection. Lives in the
+  ;; reg-view body so it runs on first paint of the L2 list (which is
+  ;; mounted by the shell-view); defonce + DOM guards keep it a
+  ;; no-op everywhere it matters.
+  (inject-scrollbar-style!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
         focus          @(rf/subscribe [:rf.causa/focus])
         focused-id     (:dispatch-id focus)
+        ;; LIVE+head+not-paused = the auto-tracking branch from
+        ;; spine/compose-focus. Only here do we want scroll-into-view
+        ;; to fire on focus change; RETRO + paused-LIVE leave the
+        ;; user's scroll position alone.
+        auto-track?    (and (= :live (:mode focus))
+                            (:head? focus)
+                            (not (:paused? focus)))
         event-cascades (filterv cascade-has-event? cascades)]
     [:div {:data-testid "rf-causa-event-list"
            :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
@@ -659,7 +818,13 @@
                    :background    (:bg-2 tokens)
                    :border-bottom (str "1px solid " (:border-subtle tokens))
                    :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
-                   :padding       "4px"}}
+                   :padding       "4px"
+                   ;; rf2-ieg6d Bug 2 — Firefox standardised props for the
+                   ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
+                   ;; via the `inject-scrollbar-style!` <style> tag above —
+                   ;; pseudo-elements can't be set via React inline-style.
+                   :scrollbar-width "thin"
+                   :scrollbar-color "rgba(107, 112, 128, 0.4) transparent"}}
      (if (empty? event-cascades)
        [:div {:data-testid "rf-causa-event-list-empty"
               :style {:padding   "16px"
@@ -672,7 +837,9 @@
                            :gap "2px"}}]
              (for [cascade event-cascades]
                ^{:key (str (:dispatch-id cascade))}
-               [event-row {:cascade cascade :focused-id focused-id}])))]))
+               [event-row {:cascade     cascade
+                           :focused-id  focused-id
+                           :auto-track? auto-track?}])))]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 

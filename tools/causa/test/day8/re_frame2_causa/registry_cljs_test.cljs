@@ -375,6 +375,9 @@
    :rf.causa/set-registered-fxs-override-for-test
    :rf.causa/set-registered-machines-override-for-test
    :rf.causa/set-arc-hover
+   ;; rf2-a9cke — focused-event lens test overrides (Machine Inspector).
+   :rf.causa/set-epoch-history-for-test
+   :rf.causa/set-focus-epoch-id-for-test
    :rf.causa/set-registered-routes-override-for-test
    :rf.causa/set-schema-filter
    :rf.causa/set-scrubber-position
@@ -635,7 +638,11 @@
     ;; + 2 resize handle (rf2-x8h9y):
     ;;   :rf.causa/set-panel-width-px (drag live update) +
     ;;   :rf.causa/reset-panel-width (double-click reset).
-    (is (= 145 (count all-event-names)))
+    ;; + 2 rf2-a9cke focused-event lens test overrides:
+    ;;   :rf.causa/set-epoch-history-for-test (writes the epoch-history
+    ;;   slot the lens walks) + :rf.causa/set-focus-epoch-id-for-test
+    ;;   (pins the spine focus's :epoch-id to a known cascade).
+    (is (= 147 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
@@ -849,6 +856,95 @@
               "oldest entries evicted; newest retained in oldest-first order")))
       (finally
         (trace-bus/set-buffer-depth! 1000)))))
+
+;; ---- :rf.causa/cascades — causa-internal filter (rf2-g1pt8) ------------
+
+(defn- mk-cascade
+  "Build a minimal cascade record for the data-layer filter test —
+  matches the shape `re-frame.trace.projection/group-cascades`
+  returns (`:dispatch-id` + `:event` vector)."
+  [dispatch-id event-vec]
+  {:dispatch-id dispatch-id
+   :event       event-vec
+   :other       []})
+
+(defn- seed-buffer-with-dispatched-events!
+  "Push synthetic `:event/dispatched` trace events into Causa's trace
+  buffer so `group-cascades` produces one cascade per event. Each
+  trace event needs `:operation :event/dispatched`, `:op-type :event`,
+  a unique `:dispatch-id` (cascade-grouping key), and the event vector
+  under `:tags :event`."
+  [events]
+  (doseq [{:keys [dispatch-id event-vec]} events]
+    (trace-bus/collect-trace!
+      {:operation   :event/dispatched
+       :op-type     :event
+       :id          dispatch-id
+       :time        (* dispatch-id 1000)
+       :tags        {:dispatch-id dispatch-id
+                     :event       event-vec
+                     :event-id    (first event-vec)
+                     :frame       :rf/default}})))
+
+(deftest sub-cascades-filters-causa-internal-events
+  (testing "per rf2-g1pt8 — `:rf.causa/cascades` hard-filters cascades
+            whose event-id is in the `rf.causa` namespace at the
+            data-layer so every downstream consumer (filtered-cascades,
+            L2 event list, spine, popovers, all tabs) inherits the
+            filter automatically. Synthetic dispatched-event mix: 2
+            user-app + 3 Causa-internal → sub returns only the 2
+            user-app cascades."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-buffer-with-dispatched-events!
+        [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
+         {:dispatch-id 2 :event-vec [:rf.causa/focus-cascade 99]}
+         {:dispatch-id 3 :event-vec [:checkout/start]}
+         {:dispatch-id 4 :event-vec [:rf.causa/select-tab :event]}
+         {:dispatch-id 5 :event-vec [:rf.causa/open-settings]}])
+      (let [cascades @(rf/subscribe [:rf.causa/cascades])
+            event-ids (mapv #(first (:event %)) cascades)]
+        (is (= 2 (count cascades))
+            "the 3 :rf.causa/* cascades are filtered; the 2 user-app cascades survive")
+        (is (= [:cart/add-item :checkout/start] event-ids)
+            "the surviving cascades carry the user-app event-ids in oldest-first order")
+        (is (every? (complement trace-bus/causa-internal-cascade?) cascades)
+            "no Causa-internal cascade leaks past the data-layer filter")))))
+
+(deftest sub-cascades-filter-also-applies-to-filtered-cascades
+  (testing "per rf2-g1pt8 — because `:rf.causa/filtered-cascades`
+            composes against `:rf.causa/cascades`, the data-layer
+            filter propagates automatically. Synthetic Causa-internal
+            cascades are gone before the auto-filter facade even sees
+            them, so the L2 list (which subscribes to filtered-
+            cascades) shows only user-app rows."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-buffer-with-dispatched-events!
+        [{:dispatch-id 1 :event-vec [:cart/add-item]}
+         {:dispatch-id 2 :event-vec [:rf.causa/select-tab :machines]}
+         {:dispatch-id 3 :event-vec [:checkout/start]}])
+      (let [filtered @(rf/subscribe [:rf.causa/filtered-cascades])
+            event-ids (mapv #(first (:event %)) filtered)]
+        (is (= [:cart/add-item :checkout/start] event-ids)
+            "the :rf.causa/select-tab cascade is filtered out at the data-layer")))))
+
+(deftest sub-cascades-pure-user-app-pass-through
+  (testing "per rf2-g1pt8 — a buffer with only user-app cascades is
+            untouched by the data-layer filter (count + ordering
+            preserved). Symmetry guard: the filter is narrow, not a
+            blanket rejection."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-buffer-with-dispatched-events!
+        [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
+         {:dispatch-id 2 :event-vec [:cart/remove-item {:item-id "apple"}]}
+         {:dispatch-id 3 :event-vec [:checkout/start]}])
+      (let [cascades @(rf/subscribe [:rf.causa/cascades])]
+        (is (= 3 (count cascades))
+            "user-app-only buffer is untouched by the filter")
+        (is (= [:cart/add-item :cart/remove-item :checkout/start]
+               (mapv #(first (:event %)) cascades)))))))
 
 (deftest sub-suppressed-sensitive-count-reads-app-db
   (testing ":rf.causa/suppressed-sensitive-count reads from Causa's
