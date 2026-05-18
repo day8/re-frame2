@@ -1,0 +1,19 @@
+{
+  "name": "re-frame2-pair-mcp-pilot",
+  "version": "0.0.0-pilot",
+  "private": true,
+  "description": "Pilot: prove CLJS+shadow-cljs->Node toolchain for the re-frame2-pair MCP server.",
+  "scripts": {
+    "build": "shadow-cljs compile pilot",
+    "watch": "shadow-cljs watch pilot",
+    "test": "shadow-cljs compile pilot-test && node out/pilot-test.js",
+    "start": "node out/pilot.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "bencode": "~2.0.3"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.4.10"
+  }
+}

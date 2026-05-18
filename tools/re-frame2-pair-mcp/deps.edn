@@ -1,0 +1,91 @@
+;; @day8/re-frame2-pair-mcp — MCP (Model Context Protocol) server for
+;; re-frame2-pair (rf2-drd9 parent epic; this file added by rf2-druw to
+;; normalise tools/ shape).
+;;
+;; ## Why this artefact's deps.edn is shaped differently to its siblings
+;;
+;; The other tools/ artefacts (tools/template/, tools/story/,
+;; tools/story-mcp/) ship as JVM Maven jars to Clojars and carry a
+;; :clein/build alias for that release path. This artefact is the
+;; exception: re-frame2-pair-mcp ships as a Node binary on npm —
+;; ClojureScript is compiled to a single self-contained `out/server.js`
+;; via shadow-cljs and published as `@day8/re-frame2-pair-mcp`. There
+;; is no Clojars publish path and no JVM-side consumer. End users
+;; install Node only; the compiled JS has no Clojure dependency.
+;;
+;; Why a deps.edn nonetheless?
+;;   1. Repo uniformity. Per tools/README.md "each tool gets its own
+;;      subdirectory, structured like the per-adapter jars". A
+;;      deps.edn declares the artefact-as-such and gives any future
+;;      JVM-side surface a home to land in without retro-fitting.
+;;   2. shadow-cljs deps resolution. shadow-cljs reads :paths +
+;;      :dependencies from this file when present, keeping the source
+;;      of truth in one place rather than split between deps.edn and
+;;      shadow-cljs.edn's own :dependencies vector.
+;;   3. Tooling discoverability. clj-kondo, cljfmt, IDEs and similar
+;;      surface tools all expect deps.edn at the artefact root; its
+;;      absence is friction that the rest of tools/ doesn't suffer.
+;;
+;; ## Bundle isolation
+;;
+;; Per tools/README.md the dependency arrow flows tool → implementation
+;; (and never the reverse). This artefact carries a thin `:local/root`
+;; dep on `implementation/core` (rf2-cibp8) so the wire-pipeline's
+;; source-URI decorator can `:require` the pure-data
+;; `re-frame.source-coords.editor-uri` ns. Nothing else from
+;; implementation/core is consumed by the server bundle — the require
+;; graph is shallow (editor-uri → clojure.string only). The runtime
+;; injection (`runtime.cljs`) still ships from the re-frame2-pair skill, not
+;; from here.
+;;
+;; ## Tests
+;;
+;; The canonical test entry-point is `npm test` (which invokes
+;; `shadow-cljs compile server-test && node out/server-test.js`).
+;; The `:test` alias here is a thin shim for habit / IDE consistency:
+;; `clojure -M:test` still routes through shadow-cljs because the
+;; sources are .cljs and need a CLJS compiler.
+;; `:paths` includes "test" so shadow-cljs's `:server-test` build sees
+;; the unit-test namespaces when classpath resolution goes through this
+;; file (rf2-obpa9 flipped shadow-cljs.edn to `:deps true`). The
+;; production `:server` build doesn't pull test code — shadow-cljs only
+;; compiles what its entry-point graph requires.
+{:paths ["src" "test"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}
+         applied-science/js-interop {:mvn/version "0.4.2"}
+         thheller/shadow-cljs      {:mvn/version "3.4.10"}
+
+         ;; Shared MCP primitives across the triplet (re-frame2-pair-mcp,
+         ;; story-mcp, causa-mcp): wire vocabulary, the spec/009
+         ;; default-suppress filter, the path-keyed diff-encode, and
+         ;; the overflow-marker shape. Per rf2-vw4sq.
+         day8/re-frame2-mcp-base  {:local/root "../mcp-base"}
+
+         ;; implementation/core (rf2-cibp8) — pulled in for the pure-
+         ;; data `re-frame.source-coords.editor-uri` ns the wire-
+         ;; pipeline's source-URI decorator composes over. The require
+         ;; graph from editor-uri is shallow (clojure.string only); no
+         ;; Reagent / re-frame runtime classes land in the node bundle.
+         day8/re-frame2           {:local/root "../../implementation/core"}
+
+         ;; day8/de-dupe — structural dedup of persistent data structures
+         ;; (rf2-obpa9). The library substitutes repeated subtrees with
+         ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
+         ;; flat cache map round-trips back through `expand`. Applied at
+         ;; the MCP wire boundary BEFORE the wire-cap check (rf2-rvyzy)
+         ;; so dedup gets to shrink first. Git-coord pinned to the
+         ;; latest master commit because the library has no recent
+         ;; Clojars release that matches the alive 2026 codebase
+         ;; (project.clj declares 0.2.2 but the master HEAD is past it).
+         day8/de-dupe              {:git/url "https://github.com/day8/de-dupe.git"
+                                    :git/sha "a2be701ddf42d94218116eda9e9ca822cef035bc"}
+         ;; rf2-try1x — silent-on-success reporter. Lives on the
+         ;; production classpath so shadow-cljs's `:server-test` build
+         ;; picks up `re-frame.test-quiet.shadow-node`. The artefact is
+         ;; test-only and never published.
+         day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :main-opts   ["-m" "shadow.cljs.devtools.cli" "compile" "server-test"]}}}

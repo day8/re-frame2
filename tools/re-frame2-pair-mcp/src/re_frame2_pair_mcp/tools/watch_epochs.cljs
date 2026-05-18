@@ -1,0 +1,115 @@
+(ns re-frame2-pair-mcp.tools.watch-epochs
+  "Tool: watch-epochs — pull-mode polling with predicate filter.
+
+  The bash version streams via repeated `emit`s on stdout. MCP tools
+  aren't streaming — we return one bundle of matches per call. Callers
+  that want a tight loop call us repeatedly with the same `since-id`.
+
+  Cursor pagination (rf2-kbqq3): a single poll's matches vector is
+  bounded by `:limit` (default 50). When more matches remain in the
+  current ring, `:next-cursor` rides the response — the agent calls
+  back with the cursor to consume the remainder. The cursor is the
+  opaque sibling of the `:since-id` arg; both can be used, but
+  `:cursor` takes precedence (it carries sticky pred/frame state).
+
+  Post-eval shrink pipeline lives in
+  `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
+  builds the eval form, awaits the runtime response, and routes the
+  matches vector through `run-wire-pipeline` with `:kind :epoch-vector`."
+  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.wire :as wire]
+            [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.cursor :as cursor]
+            [re-frame2-pair-mcp.tools.dedup :as dedup]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+
+(defn watch-epochs-tool [conn raw-args]
+  (let [build-id  (wire/arg-build raw-args)
+        frame     (wire/arg-keyword raw-args :frame)
+        since-id  (wire/arg raw-args :since-id)
+        ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
+        ;; `:include-sensitive false` when OFF (the default).
+        incl?     (if (raw-state/force-redact?)
+                    false
+                    (args/parse-bool-arg raw-args :include-sensitive))
+        mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
+        dedup?    (args/parse-bool-arg raw-args :dedup)
+        limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
+        pred-map  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
+        cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
+    (if (= cursor-in ::cursor/malformed)
+      (js/Promise.resolve
+        (cursor/cursor-stale-result "watch-epochs" {:requested-id nil}))
+      (let [;; Cursor's :after-id overrides bare :since-id when both
+            ;; are supplied. Both shapes share semantics; cursor wins
+            ;; so the agent's continuation flow stays consistent.
+            effective-after (or (:after-id cursor-in) since-id)
+            sticky-frame    (or (:frame cursor-in) frame)
+            epochs-since-call (if sticky-frame
+                                (ef/rt-call 'epochs-since effective-after sticky-frame)
+                                (ef/rt-call 'epochs-since effective-after))
+            matches-form (str "(filterv #"
+                              (ef/emit (ef/rt-call 'epoch-matches?
+                                                   (or pred-map {})
+                                                   (ef/rt-raw "%")))
+                              " (:epochs r))")
+            form (ef/emit
+                   (ef/rt-let
+                     ['r       epochs-since-call
+                      'matches (ef/rt-raw matches-form)
+                      'page    (ef/rt-raw (str "(vec (take " limit " matches))"))
+                      'next-id (ef/rt-raw
+                                 "(when (< (count page) (count matches)) (:epoch-id (last page)))")]
+                     (ef/rt-raw
+                       (str "{:matches page"
+                            " :id-aged-out? (:id-aged-out? r)"
+                            " :requested-id (:requested-id r)"
+                            " :head-id (:head-id r)"
+                            " :next-id next-id"
+                            " :remaining (max 0 (- (count matches) (count page)))}"))))]
+        (-> (probe/ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then
+              (fn [v]
+                (let [v          (if (map? v) v {})
+                      aged-out?  (:id-aged-out? v)]
+                  (if (and aged-out? (some? effective-after))
+                    (cursor/cursor-stale-result "watch-epochs"
+                                                {:requested-id (or (:requested-id v) effective-after)
+                                                 :head-id      (:head-id v)})
+                    (let [matches (vec (:matches v))
+                          {:keys [value indicators]}
+                          (wp/run-wire-pipeline matches
+                                                {:kind   :epoch-vector
+                                                 :incl?  incl?
+                                                 :mode   mode
+                                                 :dedup? dedup?})
+                          {:keys [dropped elided count]} indicators
+                          next-id     (:next-id v)
+                          next-cursor (cursor/encode-cursor
+                                        (when next-id
+                                          {:v        1
+                                           :after-id next-id
+                                           :ms       nil
+                                           :until-ms nil
+                                           :frame    sticky-frame}))
+                          remaining   (or (:remaining v) 0)
+                          base        (cond-> {:ok?          true
+                                               :head-id      (:head-id v)
+                                               :id-aged-out? (boolean aged-out?)}
+                                        (:requested-id v) (assoc :requested-id (:requested-id v)))]
+                      (wire/ok-text (wire/with-indicators
+                                      (assoc base
+                                             :matches             value
+                                             :limit               limit
+                                             :count               count
+                                             :epochs-mode         mode
+                                             :dedup               dedup?
+                                             :has-more?           (some? next-cursor)
+                                             :estimated-remaining remaining
+                                             :next-cursor         next-cursor)
+                                      {:dropped dropped :elided elided})))))))
+            (.catch (fn [err] (probe/err->result :watch-failed err))))))))

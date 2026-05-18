@@ -1,0 +1,33 @@
+# findings/
+
+This directory accumulates design-investigation prose for re-frame2-pair-mcp.
+
+Findings differ from DESIGN-RATIONALE: rationale entries are
+*locked decisions* with question / options / pick / why. Findings
+are *session-trail working notes* that surfaced patterns, surprises,
+or implementation discoveries — not all of which produce locks.
+
+## What goes here
+
+- Toolchain-pilot session notes (e.g., the bencode position-vs-bytes
+  diagnosis, the shadow-cljs CommonJS interop investigation, the
+  stdio-roundtrip smoke harness).
+- Audit findings cross-cutting re-frame2-pair-mcp (per-tool spec audits,
+  performance investigations, dependency-surface reviews).
+- Cross-tool design lineage (e.g., comparisons with the bash-shim
+  chain's per-op latency profile that informed the persistent-socket
+  pick).
+
+## What doesn't go here
+
+- Locked decisions — those live in `DESIGN-RATIONALE.md`.
+- Per-tool op contracts — those live in `003-Tool-Catalogue.md`.
+- User-facing reference — that lives in `API.md`.
+- Principles — those live in `Principles.md`.
+
+## Current state
+
+The pilot work that produced re-frame2-pair-mcp's load-bearing decisions was
+captured inline in PR #423's description (the merged toolchain
+pilot), not in a separate findings doc. Subsequent investigations
+that warrant prose-preservation land here.
