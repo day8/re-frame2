@@ -188,6 +188,85 @@
     (when (vector? ev)
       (first ev))))
 
+(def event-vector-inline-cap
+  "Max character count for the L2 row's inline event-vector rendering
+  (rf2-htik0). Cascades that pr-str longer than this collapse to
+  `<head>…]` so the row stays single-line. Click the row → the L4
+  Event tab shows the full vector (no truncation there).
+
+  ~80 chars is enough for `[:cart/add-item {:item-id \"apple\" :qty 2}]`
+  plus a touch of slack for typical event-handler signatures, and
+  short enough to keep the L2 list scannable in a stack of rows."
+  80)
+
+(defn truncate-event-vector
+  "Truncate a pr-str'd event vector to `cap` chars with `…]` suffix
+  when over the cap. Pure string utility — caller already has the
+  pr-str result.
+
+  Always preserves the trailing `]` so the rendered form still reads
+  as a vector at a glance (e.g. `[:foo/bar {:a 1 :b 2 :c…]`)."
+  [s cap]
+  (if (<= (count s) cap)
+    s
+    (str (subs s 0 (max 0 (- cap 2))) "…]")))
+
+(defn render-event-vector-inline
+  "Render an event vector as `[event-id payload…]` hiccup for the L2
+  event-list row (rf2-htik0).
+
+  - Empty payload (1-element vector) renders as `[:counter/inc]` — no
+    map, no `{}` placeholder.
+  - Non-empty payload pr-str's the full vector then truncates to
+    `event-vector-inline-cap` with `…]` suffix so the row stays
+    single-line.
+  - `event-id` (the first element) gets the keyword accent colour so
+    it pops out of the row; the rest renders in the row's default
+    text colour.
+
+  Returns hiccup (a `[:span … ]` tree). When the cascade carries no
+  event vector, falls back to a `<no event>` chip in the secondary
+  text colour so unrouted cascades stay visible."
+  [event-vec]
+  (cond
+    (not (vector? event-vec))
+    [:span {:style {:color (:text-secondary tokens)
+                    :font-style "italic"}}
+     "<no event>"]
+
+    (= 1 (count event-vec))
+    [:span {:style {:display "inline-flex" :align-items "baseline"}}
+     [:span {:style {:color (:text-tertiary tokens)}} "["]
+     [:span {:style {:color (:accent-violet tokens)}}
+      (pr-str (first event-vec))]
+     [:span {:style {:color (:text-tertiary tokens)}} "]"]]
+
+    :else
+    (let [event-id   (first event-vec)
+          id-str     (pr-str event-id)
+          full-str   (pr-str event-vec)
+          truncated  (truncate-event-vector full-str event-vector-inline-cap)
+          ;; Strip the leading `[id-str ` from the truncated body so we
+          ;; can colour the event-id separately. When truncation chopped
+          ;; into the id (shouldn't happen with cap >> typical id), fall
+          ;; back to rendering the whole truncated string in default colour.
+          id-prefix  (str "[" id-str " ")
+          tail       (when (and (> (count truncated) (count id-prefix))
+                                (= id-prefix (subs truncated 0 (count id-prefix))))
+                       (subs truncated (count id-prefix)))]
+      (if tail
+        [:span {:style {:display "inline-flex" :align-items "baseline"
+                        :overflow "hidden" :text-overflow "ellipsis"}}
+         [:span {:style {:color (:text-tertiary tokens)}} "["]
+         [:span {:style {:color (:accent-violet tokens)}} id-str]
+         [:span {:style {:color (:text-primary tokens)
+                         :margin-left "4px"}}
+          tail]]
+        ;; Defensive fallback — render the whole truncated string in one
+        ;; span so a pathological event-id (with embedded space?) still
+        ;; surfaces something useful.
+        [:span {:style {:color (:text-primary tokens)}} truncated]))))
+
 (defn gutter-glyph
   "Pick the gutter glyph per spec/018 §4 Row anatomy. The selected row
   gets `◉`; an errored row gets `x`; a wholly-redacted row gets `▥`;
@@ -228,8 +307,19 @@
   "Nav cluster — `◀ ▶ ⏭` per spec/018 §3. Buttons dispatch
   `:rf.causa/focus-cascade-prev` / `-next` / `:rf.causa/follow-head`.
 
-  `at-head?` / `at-tail?` come from the spine sub so the buttons can
-  disable themselves at the boundary."
+  `at-head?` (focus = most recent event) and `at-tail?` (focus = first
+  event in buffer) come from the spine sub so the buttons can disable
+  themselves at the boundary:
+
+  - `◀` (back / prev) — disabled when `at-tail?` (no older event to
+    step to).
+  - `▶` (forward / next) — disabled when `at-head?` (already at the
+    most recent event).
+  - `⏭` (live / fast-forward) — never disabled; pressing it always
+    snaps focus to head + resumes LIVE.
+
+  (rf2-htik0 P1 — earlier wiring had the head/tail boundaries flipped
+  so the disabled glyph dimmed the wrong button.)"
   [{:keys [at-head? at-tail?]}]
   (let [btn-style {:background     "transparent"
                    :border         (str "1px solid " (:border-default tokens))
@@ -244,15 +334,15 @@
            :style {:display "flex" :align-items "center" :gap "4px"}}
      [:button {:data-testid "rf-causa-nav-prev"
                :on-click    #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa})
-               :disabled    (boolean at-head?)
+               :disabled    (boolean at-tail?)
                :title       "Step to previous event (j)"
-               :style       (merge btn-style (when at-head? dim))}
+               :style       (merge btn-style (when at-tail? dim))}
       "◀"]
      [:button {:data-testid "rf-causa-nav-next"
                :on-click    #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa})
-               :disabled    (boolean at-tail?)
+               :disabled    (boolean at-head?)
                :title       "Step to next event (k)"
-               :style       (merge btn-style (when at-tail? dim))}
+               :style       (merge btn-style (when at-head? dim))}
       "▶"]
      [:button {:data-testid "rf-causa-nav-head"
                :on-click    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
@@ -457,6 +547,7 @@
         glyph     (gutter-glyph cascade focused-id)
         badges    (row-badges cascade)
         ev-id     (event-id-of-cascade cascade)
+        event-vec (:event cascade)
         glyph-col (cond
                     focused?                                (:cyan tokens)
                     (= "x" glyph)                           (:red tokens)
@@ -466,6 +557,10 @@
         border    (if focused?
                     (str "1px solid " (:cyan tokens))
                     "1px solid transparent")]
+    ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
+    ;; the row from the earlier 28px / "4px 8px" spec-baseline. Causa is
+    ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
+    ;; the same vertical budget the old 8 rows used.
     [:li {:data-testid (str "rf-causa-event-row-" (str id))
           :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
                                      {:frame :rf/causa})
@@ -477,9 +572,10 @@
                                  {:frame :rf/causa})))
           :style {:display       "flex"
                   :align-items   "center"
-                  :gap           "8px"
-                  :padding       "4px 8px"
-                  :height        "28px"
+                  :gap           "6px"
+                  :padding       "1px 6px"
+                  :height        "22px"
+                  :line-height   "20px"
                   :cursor        "pointer"
                   :background    bg
                   :border        border
@@ -490,13 +586,17 @@
                   :white-space   "nowrap"
                   :overflow      "hidden"
                   :text-overflow "ellipsis"}}
-     [:span {:style {:width "16px" :color glyph-col :flex-shrink 0
+     [:span {:style {:width "14px" :color glyph-col :flex-shrink 0
                      :text-align "center"}}
       glyph]
-     [:span {:style {:flex "1 1 auto" :overflow "hidden"
+     ;; Bug 3 (rf2-htik0): render the real event vector inline —
+     ;; `[:cart/add-item {:item-id "apple"}]`, NOT just `:cart/add-item`.
+     ;; Truncates at ~80 chars with `…]` suffix to keep the row single-line.
+     [:span {:data-testid "rf-causa-row-event-vector"
+             :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
-                     :color (:accent-violet tokens)}}
-      (str (or ev-id "<no event>"))]
+                     :min-width "0"}}
+      (render-event-vector-inline event-vec)]
      (when (seq badges)
        [:span {:data-testid "rf-causa-row-badges"
                :style {:display "flex" :gap "4px" :flex-shrink 0
@@ -507,7 +607,14 @@
 
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
-  latest-on-bottom, 8 visible at default 28px row height ≈ 224px.
+  latest-on-bottom, ~8 visible at the tightened 22px row height
+  (rf2-htik0 Bug 2 — was 28px row × 224px container; Causa is
+  info-dense and the earlier rhythm wasted vertical canvas).
+
+  Container height: 8 rows × 22px + 7 × 2px gap + 8px outer padding
+  ≈ 200px. `min-height` drops to 48px (2 rows + chrome) so the
+  native vertical-resize handle can still squeeze the list down to
+  the L2/L3 drag spec minimum.
 
   Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.causa/filtered-
   cascades` (NOT raw `:rf.causa/cascades`) so the L1 ribbon's IN/OUT
@@ -522,8 +629,8 @@
         focus      @(rf/subscribe [:rf.causa/focus])
         focused-id (:dispatch-id focus)]
     [:div {:data-testid "rf-causa-event-list"
-           :style {:height        "224px"   ; 8 rows × 28px
-                   :min-height    "56px"    ; 2 rows minimum per spec
+           :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
+                   :min-height    "48px"    ; 2 rows minimum
                    :overflow-y    "auto"
                    :overflow-x    "hidden"
                    :background    (:bg-2 tokens)

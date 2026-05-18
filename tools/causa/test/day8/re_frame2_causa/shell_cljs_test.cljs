@@ -387,6 +387,204 @@
           ":rf.causa/focus-cascade fired with the cascade's dispatch-id"))))
 
 ;; -------------------------------------------------------------------------
+;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
+;; -------------------------------------------------------------------------
+;;
+;; The nav cluster's ◀ / ▶ buttons disable themselves at the boundaries
+;; of the cascade list so the user can see at-a-glance whether stepping
+;; further is meaningful. The ⏭ live button is always enabled (pressing
+;; it always advances focus to head + resumes LIVE; idempotent at head).
+;;
+;; `at-head?` = focus is on the most recent (latest) cascade ⟹ ▶ disabled.
+;; `at-tail?` = focus is on the oldest cascade in the buffer ⟹ ◀ disabled.
+
+(defn- nav-prev-disabled? [tree]
+  (boolean (:disabled (second (find-by-testid tree "rf-causa-nav-prev")))))
+
+(defn- nav-next-disabled? [tree]
+  (boolean (:disabled (second (find-by-testid tree "rf-causa-nav-next")))))
+
+(defn- nav-head-disabled? [tree]
+  (boolean (:disabled (second (find-by-testid tree "rf-causa-nav-head")))))
+
+(deftest ribbon-nav-buttons-disabled-on-cold-start
+  (testing "empty cascade list → no boundary to walk. Both prev and
+            next disable; live button stays enabled (idempotent snap
+            to head)."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (nav-prev-disabled? tree) "◀ disabled when no events")
+        (is (nav-next-disabled? tree) "▶ disabled when no events")
+        (is (not (nav-head-disabled? tree)) "⏭ always enabled")))))
+
+(deftest ribbon-nav-buttons-at-head-disable-forward
+  (testing "rf2-htik0 Bug 1 — focus on the most recent event ⟹
+            ▶ disabled, ◀ enabled (older events exist), ⏭ enabled."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    ;; Fresh focus auto-snaps to head (id 2). Sanity-check + assert.
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            focus @(rf/subscribe [:rf.causa/focus])]
+        (is (= 2 (:dispatch-id focus)) "focus snapped to head (id 2)")
+        (is (nav-next-disabled? tree)
+            "▶ DISABLED at head — no newer event to step to")
+        (is (not (nav-prev-disabled? tree))
+            "◀ ENABLED at head — id 1 is older and reachable")
+        (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
+
+(deftest ribbon-nav-buttons-at-tail-disable-back
+  (testing "rf2-htik0 Bug 1 — focus on the oldest event in the buffer
+            ⟹ ◀ disabled, ▶ enabled (newer events exist), ⏭ enabled."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (nav-prev-disabled? tree)
+            "◀ DISABLED at tail — no older event to step back to")
+        (is (not (nav-next-disabled? tree))
+            "▶ ENABLED at tail — id 2 is newer and reachable")
+        (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
+
+(deftest ribbon-nav-buttons-mid-list-both-enabled
+  (testing "focus on a middle event ⟹ both ◀ and ▶ enabled."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:middle/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 3 [:newer/event]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 2]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (not (nav-prev-disabled? tree))
+            "◀ ENABLED — older event (1) reachable")
+        (is (not (nav-next-disabled? tree))
+            "▶ ENABLED — newer event (3) reachable")
+        (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
+
+;; -------------------------------------------------------------------------
+;; (4b) Row density + inline event-vector rendering — rf2-htik0 Bug 2 + 3
+;; -------------------------------------------------------------------------
+
+(deftest event-row-density-tight
+  (testing "rf2-htik0 Bug 2 — row height tightens to 22px so Causa's
+            info-dense L2 list reclaims vertical canvas. Padding stays
+            generous enough to keep the row clickable."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            row  (find-by-testid tree "rf-causa-event-row-1")
+            style (:style (second row))]
+        (is (some? row) "row renders")
+        (is (= "22px" (:height style))
+            "row height is the tightened 22px (was 28px)")
+        (is (= "1px 6px" (:padding style))
+            "row padding is the tightened 1px 6px (was 4px 8px)")))))
+
+(deftest event-list-container-height-matches-tight-rows
+  (testing "rf2-htik0 Bug 2 — container height stays at ~8 rows of the
+            new 22px row × 2px gap + padding (≈200px, was 224px)."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree  (shell/shell-view)
+            list  (find-by-testid tree "rf-causa-event-list")
+            style (:style (second list))]
+        (is (= "200px" (:height style))
+            "list container is ~8 rows × 22px + gaps + padding")))))
+
+(deftest event-row-renders-real-event-vector
+  (testing "rf2-htik0 Bug 3 — each L2 row shows the dispatched event
+            vector inline (`[:cart/add-item {:item-id \"apple\"}]`),
+            not just the event-id."
+    (causa-setup!)
+    (trace-bus/collect-trace!
+      (dispatch-trace-ev 1 [:cart/add-item {:item-id "apple" :qty 2}]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            row  (find-by-testid tree "rf-causa-event-row-1")
+            vec-node (find-by-testid tree "rf-causa-row-event-vector")
+            text (text-nodes vec-node)]
+        (is (some? row) "row renders")
+        (is (some? vec-node) "row carries the event-vector slot")
+        (is (re-find #":cart/add-item" text)
+            "event-id surfaces in the row text")
+        (is (re-find #":item-id" text)
+            "payload key surfaces in the row text")
+        (is (re-find #"apple" text)
+            "payload value surfaces in the row text")))))
+
+(deftest event-row-empty-payload-renders-as-bare-vector
+  (testing "rf2-htik0 Bug 3 — events with no payload render as
+            `[:counter/inc]` — no `{}` placeholder."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:counter/inc]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            vec-node (find-by-testid tree "rf-causa-row-event-vector")
+            text (text-nodes vec-node)]
+        (is (some? vec-node))
+        (is (re-find #":counter/inc" text)
+            "event-id renders")
+        (is (not (re-find #"\{" text))
+            "no `{}` placeholder for empty payload")
+        (is (not (re-find #"\}" text))
+            "no `{}` placeholder for empty payload")))))
+
+(deftest event-row-long-payload-truncates
+  (testing "rf2-htik0 Bug 3 — long event vectors collapse to head + `…]`
+            so the row stays single-line."
+    (causa-setup!)
+    (let [big-vec [:something/big {:a "alpha-beta-gamma-delta"
+                                   :b "epsilon-zeta-eta-theta"
+                                   :c "iota-kappa-lambda-mu"
+                                   :d "nu-xi-omicron-pi"}]]
+      (trace-bus/collect-trace! (dispatch-trace-ev 1 big-vec))
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              vec-node (find-by-testid tree "rf-causa-row-event-vector")
+              text (text-nodes vec-node)]
+          (is (some? vec-node))
+          (is (re-find #":something/big" text)
+              "head (event-id) preserved through truncation")
+          (is (re-find #"…\]$" text)
+              "trailing `…]` marks the truncation"))))))
+
+(deftest truncate-event-vector-helper
+  (testing "rf2-htik0 Bug 3 — pure truncator preserves short strings
+            and clips long ones with `…]` suffix"
+    (is (= "[:x]" (shell/truncate-event-vector "[:x]" 80))
+        "below cap → pass-through")
+    (is (= "[:x 1]" (shell/truncate-event-vector "[:x 1]" 80))
+        "below cap → pass-through")
+    (let [long-str (apply str "[:x " (repeat 100 "y"))
+          out      (shell/truncate-event-vector long-str 20)]
+      (is (= 20 (count out)) "output respects cap")
+      (is (re-find #"…\]$" out) "suffix is `…]`")
+      (is (re-find #"^\[:x" out) "head preserved"))))
+
+(deftest render-event-vector-inline-empty-payload
+  (testing "rf2-htik0 Bug 3 — render-event-vector-inline of a 1-element
+            vector returns hiccup containing just the event-id, no `{}`."
+    (let [hiccup (shell/render-event-vector-inline [:counter/inc])
+          text   (text-nodes hiccup)]
+      (is (re-find #":counter/inc" text))
+      (is (not (re-find #"\{" text)))
+      (is (not (re-find #"\}" text))))))
+
+(deftest render-event-vector-inline-nil-cascade
+  (testing "rf2-htik0 Bug 3 — render-event-vector-inline of non-vector
+            input returns the `<no event>` fallback chip."
+    (let [hiccup (shell/render-event-vector-inline nil)
+          text   (text-nodes hiccup)]
+      (is (re-find #"no event" text)))))
+
+;; -------------------------------------------------------------------------
 ;; (5) REDACTED indicator (preserved from pre-refactor — relocated to L1)
 ;; -------------------------------------------------------------------------
 
