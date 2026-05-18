@@ -88,17 +88,22 @@ right-side host to the app layout (DOM order: `<main>` first, host
 #app { flex: 1; min-width: 0; }
 ```
 
-Two complementary resize mechanisms ship together — both
-browser-native, both JS-free:
+Three complementary resize mechanisms ship together:
 
 - **CSS variable** (host-owned). Override `--rf-causa-inline-width`
   anywhere up the cascade (e.g.
   `:root { --rf-causa-inline-width: 720px; }`) to set the initial
   width.
-- **Browser-native drag** (user-controlled). `resize: horizontal` +
+- **Browser-native drag** (host-CSS fallback). `resize: horizontal` +
   `overflow: auto` give the host a drag-handle in the bottom corner;
   the variable seeds the initial size, a drag overrides it for the
   page lifetime.
+- **Causa drag handle** (user-controlled, persisted). Drag the panel's
+  outer edge (left edge when docked `:right-rail`) to resize. Width
+  clamps to `[320px, 90vw]` and persists across reloads via
+  `configure! :settings :general :panel-width-px`. Double-click the
+  handle to reset to default. See
+  [`spec/007-UX-IA.md` §Resize affordance](./spec/007-UX-IA.md#resize-affordance).
 
 If the host is missing, Causa logs an actionable `console.error` and
 exposes the same state through `window.day8.re_frame2_causa.status()`.

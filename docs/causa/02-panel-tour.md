@@ -102,6 +102,12 @@ See [chapter 7](07-hydration.md).
 
 ---
 
+## Resizing Causa
+
+Drag the left edge of the Causa panel to resize horizontally. Width persists across reloads (per-Causa-instance, stored in localStorage). Double-click the handle to reset to default width.
+
+For full-screen inspection, change `Settings → General → Panel position` to `fullscreen`. For an out-of-window view, change it to `popout` — the browser's window controls then govern size.
+
 ## How the panels share state
 
 Every panel reads the same store. Selecting an event in *Event detail* highlights the corresponding row in *Trace* and pins the *App-DB* diff to that epoch. Dragging the time-travel scrubber retargets every panel at the historical epoch. Clicking a sub in *Subscriptions* opens its source in your editor (next chapter), pins it in *App-DB*, and highlights its incoming edge in the static sub-graph.

@@ -181,9 +181,18 @@ the `default-settings` block in `config.cljc`:
 ```clojure
 {:general   {:text-size           13          ; px; slider range 10–18
              :panel-position      :right-rail ; :right-rail | :popout | :fullscreen
+             :panel-width-px      480         ; number; clamped [320, 0.9 × viewport-width-px]
              :auto-open-on-error? false}
  :theme     :dark}                             ; :dark | :light
 ```
+
+The `:panel-width-px` slot (rf2-x8h9y) drives the
+`:right-rail` panel's horizontal width. The Causa drag handle (per
+[`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance))
+writes through to this slot on drag-end; the slot persists via the
+existing `re-frame2.causa.settings.v1` localStorage key so width survives
+reloads. Default `480`. Ignored in `:popout` (window owns size) and
+`:fullscreen` (viewport owns size) positions.
 
 > Note (rf2-jh9ws): a `:telemetry` slot shipped briefly with the
 > initial popup landing (rf2-9poxq) but was removed — Causa
