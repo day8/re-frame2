@@ -74,8 +74,8 @@
 ;; start and the assertion handlers consult at evaluation time.
 ;;
 ;; This is NOT a new framework registry — it's a Story-internal atom
-;; (analogous to `re-frame.story.ui.trace/buffers`) that the runtime
-;; populates from the standard trace bus.
+;; (analogous to `re-frame.story.ui.trace-buffer/buffers`) that the
+;; runtime populates from the standard trace bus.
 ;;
 ;; Shape:
 ;;   {frame-id {:warnings    [trace-event ...]

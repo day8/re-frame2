@@ -81,7 +81,7 @@
                        [re-frame.story.args       :as args]
                        [re-frame.story.config     :as config]
                        [re-frame.story.registrar  :as story-registrar]
-                       [re-frame.story.ui.trace   :as trace]
+                       [re-frame.story.ui.trace-buffer :as trace-buffer]
                        [re-frame.registrar        :as framework-registrar]])))
 
 ;; ---- pure: classify a trace event ---------------------------------------
@@ -462,9 +462,9 @@
      ;; Form-2 — capture the trace buffer atom on the outer closure
      ;; so the per-render fn observes the same source-of-truth across
      ;; the component's lifecycle.
-     (let [_buf (trace/ensure-buffer! variant-id)]
+     (let [_buf (trace-buffer/ensure-buffer! variant-id)]
        (fn [variant-id]
-         (let [buf            (trace/ensure-buffer! variant-id)
+         (let [buf            (trace-buffer/ensure-buffer! variant-id)
                events         @buf
                trace-rows     (project-failures events)
                schema         (resolve-component-schema variant-id)

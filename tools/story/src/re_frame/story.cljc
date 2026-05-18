@@ -478,10 +478,11 @@
 
   `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
   true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
-  `false` — Story's trace, actions, recorder, and play-assertion
-  listeners drop sensitive events and the UI surfaces a `[● REDACTED]`
-  hint. Set to `true` while debugging redaction policy to see the raw
-  cascade.
+  `false` — Story's per-variant trace-buffer listener (consumed by
+  the schema-validation panel), the recorder, and the play-assertion
+  listeners drop sensitive events and surface a `[● REDACTED]` hint
+  where they render. Set to `true` while debugging redaction policy
+  to see the raw cascade.
 
   Unrecognised keys are accepted (for forward compat) but ignored."
   [{:keys [global-args editor project-root]
@@ -782,7 +783,12 @@
      The shell is a Reagent component tree composed of:
      - a sidebar (story tree + tag filter + workspace list)
      - the main pane (selected variant's canvas or selected workspace)
-     - a right panel (controls, time-travel scrubber, six-domino trace)
+     - a right panel — Causa embedded as the primary inspector,
+       plus controls, dispatch console, and play status / viewport
+       / background chrome chips (rf2-sgdd3 — the Story-side
+       scrubber / trace / actions panels were retired; Causa's L1
+       ribbon + L2 event list + Trace tab + Event-tab cascade view
+       cover what they did)
 
      Per IMPL-SPEC §4 v1 supports one mounted shell at a time; calling
      `mount-shell!` while a shell is already mounted tears down the

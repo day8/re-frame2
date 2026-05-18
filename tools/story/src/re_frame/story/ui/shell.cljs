@@ -4,12 +4,25 @@
   Three-pane layout:
 
       ┌──────────┬──────────────────────────┬────────────┐
-      │ sidebar  │ canvas / workspace       │ controls   │
+      │ sidebar  │ canvas / workspace       │ Causa      │
       │          │                          │ ─────────  │
-      │ stories  │ (selected variant or     │ scrubber   │
+      │ stories  │ (selected variant or     │ controls   │
       │ tags     │  workspace renders here) │ ─────────  │
-      │ ws       │                          │ trace      │
+      │ ws       │                          │ disp-cons. │
+      │          │                          │ ─────────  │
+      │          │                          │ status     │
       └──────────┴──────────────────────────┴────────────┘
+
+  Per rf2-sgdd3 the RHS hosts Causa as the primary inspector. The
+  Story-shipped scrubber / trace / actions panels were retired —
+  Causa's L1 ribbon (◀ ▶ ⏭ + L2 event list) replaces the scrubber;
+  the Trace tab replaces the trace panel; the Event-tab cascade view
+  + filtered Trace replace the actions panel. The 3 surviving Story
+  panels are kept because they're Story-unique:
+
+  - Dispatch Console — free-form dispatch into the variant frame
+  - Controls         — per-variant arg controls
+  - Status / viewport / backgrounds — play status banner + framing chips
 
   ## Public surface
 
@@ -48,7 +61,6 @@
             [re-frame.story.registrar :as registrar]
             [re-frame.story.runtime :as runtime]
             [re-frame.trace :as rf-trace]
-            [re-frame.story.ui.actions :as actions]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.command-palette.view :as command-palette]
@@ -64,7 +76,6 @@
             [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.recorder-export-dialog :as recorder-export-ui]
             [re-frame.story.ui.save-variant :as save-variant-ui]
-            [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.shell.rails :as rails]
             [re-frame.story.ui.url-state :as url-state]
@@ -73,7 +84,7 @@
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.toolbar :as toolbar]
-            [re-frame.story.ui.trace :as trace]
+            [re-frame.story.ui.trace-buffer :as trace-buffer]
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
             [re-frame.story.ui.workspace :as workspace]
             [re-frame.story.backgrounds :as backgrounds]
@@ -284,34 +295,30 @@
 (defonce ^:private listened-variants (atom #{}))
 
 (defn- ensure-listeners-for-variant!
-  "Wire trace + epoch listeners for `variant-id` if not already wired."
+  "Wire the trace-buffer listener for `variant-id` if not already wired.
+  Per rf2-sgdd3 the scrubber listener was retired alongside the
+  scrubber panel (Causa's L1 ribbon + L2 event list replace it); the
+  trace-buffer listener stays because the schema-validation panel
+  consumes the per-variant buffer."
   [variant-id]
   (when (and config/enabled?
              (some? variant-id)
              (not (contains? @listened-variants variant-id)))
-    (trace/register-listener! variant-id)
-    (scrubber/register-listener! variant-id)
+    (trace-buffer/register-listener! variant-id)
     (swap! listened-variants conj variant-id)))
 
 (defn- teardown-listeners-for-variant!
   [variant-id]
   (when (some? variant-id)
-    (trace/remove-listener! variant-id)
-    (scrubber/remove-listener! variant-id)
-    (trace/drop-buffer! variant-id)
-    (scrubber/drop-history! variant-id)
-    ;; rf2-sxwvf: drop the per-variant scrub selection too — the cross-
-    ;; reference ratom is keyed by variant-id and needs the same
-    ;; teardown shape as the history / buffer ratoms.
-    (scrubber/drop-selection! variant-id)
+    (trace-buffer/remove-listener! variant-id)
+    (trace-buffer/drop-buffer! variant-id)
     (swap! listened-variants disj variant-id)))
 
 (defn- teardown-all-listeners! []
   (doseq [vid @listened-variants]
-    (trace/remove-listener! vid)
-    (scrubber/remove-listener! vid))
+    (trace-buffer/remove-listener! vid))
   (reset! listened-variants #{})
-  (trace/clear-buffer!))
+  (trace-buffer/clear-buffer!))
 
 (defn- ensure-variant-frame!
   "Drive `run-variant` for `variant-id` so its frame is allocated and
@@ -394,10 +401,27 @@
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
                      (ensure-variant-frame! now)
+                     ;; rf2-sgdd3: Causa is always-on in the RHS by
+                     ;; default. Drive `mount/open!` on every variant-
+                     ;; selection edge so the user lands in a freshly-
+                     ;; opened Causa shell against the new variant's
+                     ;; frame. Feature-detect-safe; no-op when Causa
+                     ;; is not on the classpath. Deferred one tick via
+                     ;; setTimeout so React has committed the RHS
+                     ;; `[data-rf-causa-host]` slot before `mount/open!`
+                     ;; queries the DOM for it (the slot only mounts
+                     ;; on the first render that has a selected variant).
+                     (js/setTimeout
+                       (fn [] (causa-preset/ensure-causa-mounted!))
+                       0)
                      ;; rf2-q9kv5: apply any per-story Causa preset
-                     ;; (auto-open shell, focus tab, configure filters,
-                     ;; focus a cascade position). Feature-detect-safe;
-                     ;; no-op when Causa is not on the classpath.
+                     ;; (focus tab, configure filters, focus a cascade
+                     ;; position). Feature-detect-safe; no-op when
+                     ;; Causa is not on the classpath. The `:open?`
+                     ;; slot of the preset is now redundant — Causa
+                     ;; is opened above unconditionally — but the rest
+                     ;; of the preset (tab / filters / focus) still
+                     ;; rides this hook.
                      (causa-preset/on-variant-selected! now)
                      ;; rf2-8i2a9: auto-run the variant's `:play-script`
                      ;; if `:auto-run?` is true. Best-effort — yields one
@@ -461,12 +485,21 @@
 ;; ---- the top-level component ---------------------------------------------
 
 (defn- right-panel
-  "The right-side pane — controls + scrubber + trace + Stage-6
-  registered story-panels stacked vertically.
+  "The right-side pane — Causa mount + controls + dispatch console +
+  Stage-6 registered story-panels stacked vertically.
+
+  Per rf2-sgdd3 Causa is the primary RHS inspector: the Story-shipped
+  scrubber / trace / actions panels were retired in favour of Causa's
+  ribbon + L2 event list (replaces scrubber), Trace tab (replaces trace
+  panel), and Event-tab cascade view (replaces actions panel). Causa
+  mounts into the `[data-rf-causa-host]` slot below via its standard
+  `mount/open!` flow — driven from the selection-watcher whenever a
+  variant becomes focused (see `ensure-causa-mounted!`).
 
   Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
   `reg-story-panel` registration with `:placement :right` appears here.
-  The built-in v1.0 panels (a11y, layout-debug toggles) ride this path.
+  The built-in v1.0 panels (a11y, layout-debug toggles, schema
+  validation) ride this path.
 
   Renders as an `<aside>` landmark (per rf2-xc65) so screen readers can
   jump straight to the inspectors and so axe-core's
@@ -485,21 +518,28 @@
              :role       "complementary"
              :aria-label "Inspectors"
              :tab-index  "0"}
+     ;; rf2-sgdd3 — Causa mount slot. Causa's `mount/open!` finds
+     ;; `[data-rf-causa-host]` and renders its shell into a child div.
+     ;; Feature-detect-safe: when Causa is not on the classpath the
+     ;; slot stays empty (preload isn't loaded → `causa-preset/
+     ;; causa-available?` returns false → `ensure-causa-mounted!`
+     ;; short-circuits → nothing renders here).
+     ;;
+     ;; The slot is `position: relative` + `flex` so Causa's `:inline`
+     ;; mode (which uses `position: relative` and fills its host)
+     ;; participates in normal flex flow rather than escaping to
+     ;; viewport-fixed. The `min-height` keeps the slot tall enough
+     ;; for Causa's 4-layer chrome to render usefully even before the
+     ;; user resizes the RHS rail.
+     [:div {:data-rf-causa-host true
+            :data-test          "story-rhs-causa-host"
+            :style              {:position    "relative"
+                                 :display     "flex"
+                                 :flex        "1 1 auto"
+                                 :min-height  "320px"
+                                 :overflow    "hidden"}}]
      (when (:controls vis)
        [controls/panel variant-id])
-     (when (and (:scrubber vis) variant-id)
-       [scrubber/panel variant-id])
-     (when (and (:trace vis) variant-id)
-       [trace/panel variant-id])
-     ;; rf2-5yriz — Actions panel.  Reads from the same per-variant
-     ;; trace buffer the six-domino panel reads, but filters down to
-     ;; dispatches + dispatch-shaped fx-handled emits and renders
-     ;; chronologically with pause + clear affordances.  Wired here
-     ;; (not via reg-story-panel) because Story's built-in chrome
-     ;; panels (trace, scrubber, controls, actions) are always-present
-     ;; and have no late-bind contract.
-     (when (and (:actions vis) variant-id)
-       [actions/panel variant-id])
      ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
      ;; the running variant's frame. Default HIDDEN; opt-in via
      ;; `:dispatch-console? true` on the story or variant body. The
@@ -720,6 +760,20 @@
          (rails/hydrate!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid)
+           ;; rf2-sgdd3: mount Causa on shell mount too — without this
+           ;; the deep-link / persisted-selection path would render
+           ;; an empty `[data-rf-causa-host]` slot until the user
+           ;; clicked a different variant. Same setTimeout discipline
+           ;; as the selection-watcher branch: defer one tick so the
+           ;; RHS host slot has committed before Causa queries the DOM.
+           (js/setTimeout
+             (fn [] (causa-preset/ensure-causa-mounted!))
+             0)
+           ;; rf2-q9kv5: apply per-story preset on the mount-time
+           ;; selection too (the selection-watcher only fires on
+           ;; change, so a pre-selected variant would otherwise miss
+           ;; the preset).
+           (causa-preset/on-variant-selected! vid)
            ;; rf2-8i2a9: mount-time auto-run for an already-selected
            ;; variant (deep-link / persisted selection). Yields a tick
            ;; so the canvas has committed before the script's first
