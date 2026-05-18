@@ -163,9 +163,6 @@ test harnesses, and Settings UIs.
 (causa/target-frame)        ;; Return the host frame Causa is currently targeting.
 (causa/set-target-frame! :app/main)
 
-(causa/active-panel)        ;; Return the active panel id (one of :events, :app-db, :causality, ...).
-(causa/set-active-panel! :causality)
-
 (causa/load-theme css-string)
 ;; Programmatically swap the theme (useful for editor-driven palette sync).
 ```
@@ -178,21 +175,18 @@ The canonical symbol list:
 
 ```clojure
 day8.re-frame2-causa.panels.event-detail/Panel
-day8.re-frame2-causa.panels.causality-graph/Panel
-day8.re-frame2-causa.panels.time-travel/Panel
 day8.re-frame2-causa.panels.app-db-diff/Panel
 day8.re-frame2-causa.panels.views/Panel
-day8.re-frame2-causa.panels.effects/Panel
 day8.re-frame2-causa.panels.trace/Panel
 day8.re-frame2-causa.panels.machine-inspector/Panel
-day8.re-frame2-causa.panels.flows/Panel
-day8.re-frame2-causa.panels.routes/Panel
-day8.re-frame2-causa.panels.performance/Panel
-day8.re-frame2-causa.panels.schema-violation-timeline/Panel
 day8.re-frame2-causa.panels.issues-ribbon/Panel
-day8.re-frame2-causa.panels.hydration-debugger/Panel
-day8.re-frame2-causa.panels.mcp-server/Panel
 ```
+
+(rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,
+`time-travel`, `effects`, `flows`, `routes`, `performance`, `schema-
+violation-timeline`, `hydration-debugger`, and `mcp-server`. The
+4-layer shell switches over the 6 L3 tab ids in `spec/018-Event-
+Spine.md` §5 — these six are the surviving `Panel` exports.)
 
 Each accepts the props map specified in
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md):
@@ -402,8 +396,8 @@ major bumps with it.
 - **No "private" surfaces** (`/-` namespaces, internal helpers) —
   callers must not reach for `day8.re-frame2-causa.internal/*`.
 - **No global state mutators** beyond `init!` / `open!` / `close!`
-  / `toggle!` / `set-target-frame!` / `set-active-panel!`. The
-  panel's internal state is encapsulated.
+  / `toggle!` / `set-target-frame!`. The panel's internal state is
+  encapsulated.
 - **No `dock!` / `undock!` body-padding surface.** Removed per
   `rf2-sbfb7` (Mike's pre-alpha decision "A — delete both"); the
   true-inline default and `popout!` cover the dock use case.
