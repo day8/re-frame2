@@ -312,7 +312,7 @@
                           :color (:text-tertiary tokens)
                           :font-family sans-stack
                           :font-size "12px"}}
-      "No machine selected — nothing to chart."]
+      "No machine selected."]
 
      (nil? (:definition props))
      (chart-fallback props)
@@ -479,7 +479,7 @@
                       :color (:text-tertiary tokens)
                       :font-family sans-stack
                       :font-size "12px"}}
-        "No transitions recorded for this machine yet."]
+        "No transitions yet."]
        (into [:ul {:data-testid "rf-causa-machine-inspector-ribbon-list"
                    :style {:list-style "none"
                            :margin 0
@@ -660,8 +660,7 @@
     "Register a machine with "
     [:code {:style {:font-family mono-stack :color (:accent-violet tokens)}}
      "rf/reg-machine"]
-    " and it will appear here with its live state, transition history, "
-    "and any :after countdowns."]])
+    " to populate this panel."]])
 
 ;; ---- public view --------------------------------------------------------
 

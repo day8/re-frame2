@@ -149,7 +149,7 @@
 
 (defn- empty-message [query]
   (if (seq query)
-    (str "No matches for " (pr-str query) " — try a shorter query.")
+    (str "No matches for " (pr-str query) ".")
     "Type to search. ↑↓ navigate · Enter invokes · Ctrl+Enter pops out · ESC closes."))
 
 (defn- empty-row []

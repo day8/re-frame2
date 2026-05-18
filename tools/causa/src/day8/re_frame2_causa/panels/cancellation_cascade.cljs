@@ -305,20 +305,12 @@
                    :text-align "center"}}
      (case kind
        :no-trigger
-       [:div
-        [:p {:style {:margin "0 0 6px 0"}}
-         "No cancellation cascade in the trace window."]
-        [:p {:style {:margin 0 :font-size "11px"}}
-         "Cancellation cascades land here when a parent machine "
-         "destroys a child while in-flight effects are running."]]
+       [:p {:style {:margin 0}}
+        "No cancellation cascade in the trace window."]
 
        :no-aborts
-       [:div
-        [:p {:style {:margin "0 0 6px 0"}}
-         "Destroy fired — no in-flight effects to abort."]
-        [:p {:style {:margin 0 :font-size "11px"}}
-         "The cascade ran cleanly: the child machine was torn down "
-         "without any HTTP / WS / timer / invoke cleanup."]]
+       [:p {:style {:margin 0}}
+        "Destroy fired — no in-flight effects to abort."]
 
        [:p {:style {:margin 0}} "No cascade data."])]))
 

@@ -534,8 +534,7 @@
                       :color     (:text-secondary tokens)
                       :font-family sans-stack
                       :font-size (:body type-scale)}}
-        "Click around your app — every dispatch will land here. "
-        "Press [c] for the causality graph."]
+        "No events."]
        (into [:ul {:style {:list-style "none" :margin 0 :padding 0
                            :display "flex" :flex-direction "column"
                            :gap "2px"}}]

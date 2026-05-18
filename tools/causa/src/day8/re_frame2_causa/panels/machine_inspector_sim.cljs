@@ -467,7 +467,7 @@
                     :font-family sans-stack
                     :font-size "11px"
                     :font-style "italic"}}
-      "No steps yet. Pick an event above and click Step."]
+      "No steps yet."]
      (into [:ol {:data-testid "rf-causa-machine-inspector-sim-audit-list"
                  :style {:list-style "none" :padding 0 :margin 0}}]
            (for [[idx row] (map-indexed vector trail)]

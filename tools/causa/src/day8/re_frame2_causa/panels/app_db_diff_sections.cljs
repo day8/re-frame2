@@ -163,7 +163,7 @@
                   :font-family sans-stack
                   :font-size "12px"
                   :margin 0}}
-      "No epochs in the current ring buffer touched this path."]
+      "No epochs touched this path."]
      (into [:ul {:data-testid "rf-causa-app-db-diff-focus-hits"
                  :style {:list-style "none"
                          :margin 0

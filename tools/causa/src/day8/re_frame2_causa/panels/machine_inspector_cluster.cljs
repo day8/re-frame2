@@ -525,7 +525,7 @@
                       :font-family sans-stack
                       :font-size "12px"
                       :font-style "italic"}}
-        "No instances for the selected cluster-by."]
+        "No instances for this cluster-by."]
        (into [:ul {:data-testid "rf-causa-mode-c-cluster-list"
                    :style {:list-style "none"
                            :margin 0

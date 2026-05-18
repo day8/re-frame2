@@ -514,8 +514,7 @@
      [:p "Select an event in the list to inspect its views."]
 
      :else
-     [:p "No views rendered this cascade. (The handler made no app-db "
-      "changes that any subscribed view depends on.)"])])
+     [:p "No views rendered this cascade."])])
 
 ;; ---- panel root --------------------------------------------------------
 

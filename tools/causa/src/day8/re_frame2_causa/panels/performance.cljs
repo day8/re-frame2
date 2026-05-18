@@ -240,14 +240,10 @@
                        :font-size   "13px"
                        :line-height 1.5
                        :color       (:text-secondary tokens)}}
-   [:p {:style {:margin "0 0 8px 0"
+   [:p {:style {:margin 0
                 :color  (:text-primary tokens)
                 :font-weight 600}}
-    "No performance data yet"]
-   [:p {:style {:margin 0
-                :color  (:text-tertiary tokens)}}
-    "Perform actions in the app to capture cascades. Each dispatch lands "
-    "as one row with a per-step duration breakdown."]])
+    "No performance data yet."]])
 
 ;; ---- public view --------------------------------------------------------
 
