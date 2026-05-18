@@ -269,6 +269,54 @@
           (is (some? (find-by-testid tree (str "rf-causa-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
 
+(deftest tab-bar-uses-tablist-aria-pattern
+  (testing "rf2-lvf8t (rf2-q7who Thread B) — the L3 tab strip uses the
+            proper ARIA tab pattern: a generic container with
+            role='tablist', per-tab buttons with role='tab' and
+            aria-selected matching the active tab. The previous
+            wrapping <nav> element was wrong (tabs aren't site
+            navigation) AND collided with host-app `<nav>` landmarks
+            under Playwright's `getByRole('navigation')` strict-mode
+            lookups when Causa was embedded in Story."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            tab-bar (find-by-testid tree "rf-causa-tab-bar")
+            head    (first tab-bar)
+            attrs   (second tab-bar)]
+        (is (some? tab-bar) "tab-bar still found by data-testid")
+        (is (= :div head)
+            "wrapping element is a generic <div>, NOT <nav>")
+        (is (= "tablist" (:role attrs))
+            "role='tablist' set on the wrapping element")
+        (is (string? (:aria-label attrs))
+            "aria-label present so the tablist has an accessible name"))
+      ;; Per-tab ARIA: role='tab' on every button, aria-selected matching
+      ;; the active state. The active tab is the default :event.
+      (let [tree (shell/shell-view)]
+        (doseq [tab-id expected-tab-ids]
+          (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
+                attrs (second btn)]
+            (is (some? btn) (str "tab button for " tab-id " present"))
+            (is (= "tab" (:role attrs))
+                (str "tab " tab-id " carries role='tab'"))
+            (is (contains? attrs :aria-selected)
+                (str "tab " tab-id " carries aria-selected"))
+            (is (= (if (= tab-id :event) "true" "false")
+                   (:aria-selected attrs))
+                (str "tab " tab-id " aria-selected matches the active tab"))))))
+    ;; After switching tabs the aria-selected flips with the active tab.
+    (select-tab! :machines)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (doseq [tab-id expected-tab-ids]
+          (let [btn   (find-by-testid tree (str "rf-causa-tab-" (name tab-id)))
+                attrs (second btn)]
+            (is (= (if (= tab-id :machines) "true" "false")
+                   (:aria-selected attrs))
+                (str "after select-tab :machines, tab " tab-id
+                     " aria-selected reflects the new active tab"))))))))
+
 (deftest tab-click-dispatches-select-tab
   (testing "spec/018 §5 — clicking a tab fires :rf.causa/select-tab"
     (causa-setup!)

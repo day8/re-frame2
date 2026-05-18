@@ -1029,14 +1029,22 @@
   `aria-label` doubles the visible label as `<tab-label> tab` so the
   button's accessible name never collides with host-app role queries
   (Playwright's `getByRole('button', {name: '-'})` matched our
-  `App-db` tab when only `title` was set)."
+  `App-db` tab when only `title` was set).
+
+  Per rf2-lvf8t (rf2-q7who Thread B) each button carries `role='tab'`
+  and `aria-selected={active?}` so the tab strip exposes the proper
+  ARIA tab pattern. Assistive tech announces the buttons as tabs
+  rather than generic buttons and reads the selected state correctly;
+  `getByRole('tab')` lookups in host integration tests resolve here."
   [{:keys [id label mnem active?]}]
   (let [glyph (if active? "◉" "○")
         color (if active? (:text-primary tokens) (:text-secondary tokens))]
-    [:button {:data-testid (str "rf-causa-tab-" (name id))
-              :on-click    #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
-              :title       (str label " (" mnem ")")
-              :aria-label  (str "Causa " label " tab")
+    [:button {:data-testid   (str "rf-causa-tab-" (name id))
+              :role          "tab"
+              :aria-selected (if active? "true" "false")
+              :on-click      #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
+              :title         (str label " (" mnem ")")
+              :aria-label    (str "Causa " label " tab")
               :style {:background    "transparent"
                       :border        "none"
                       :border-bottom (if active?
@@ -1062,10 +1070,23 @@
   App-db).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/causa`."
+  `:rf/causa`.
+
+  Per rf2-lvf8t (rf2-q7who Thread B) the wrapping element is a
+  generic `<div>` carrying `role='tablist'` — the proper ARIA pattern
+  for a tab strip. The earlier `<nav>` was both semantically wrong
+  (tabs aren't site navigation) and a strict-mode hazard for host
+  apps that also expose a `<nav>` landmark: Playwright's
+  `getByRole('navigation')` lookup became ambiguous when Causa was
+  mounted alongside a host nav, every Story integration test using
+  the role failed (rf2-q7who Thread B — discovered via rf2-drprn).
+  Per-tab buttons carry `role='tab'` + `aria-selected` (see
+  `tab-button`). `data-testid='rf-causa-tab-bar'` is unchanged."
   []
   (let [selected @(rf/subscribe [:rf.causa/selected-tab])]
-    [:nav {:data-testid "rf-causa-tab-bar"
+    [:div {:data-testid "rf-causa-tab-bar"
+           :role        "tablist"
+           :aria-label  "Causa panel tabs"
            :style {:display       "flex"
                    :align-items   "center"
                    :gap           "4px"
