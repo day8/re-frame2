@@ -159,6 +159,45 @@ The orienting layer. Single-line rows; latest-on-bottom; virtualised; eight visi
 | Resizable | Drag handle on L2/L3 boundary | Min 2 rows ≈ 56px; max bounded by canvas |
 | Virtualisation | Viewport + 20-row overscan | Uses existing `panels/overflow_indicator.cljs` |
 
+#### v1 ships — Compact density baseline (rf2-htik0)
+
+The spec table's row-height baseline is `28px` ("cosy"; the named
+default in the View settings table); v1 ships at `22px` ("compact"
+per [`007-UX-IA.md` §Density slider](007-UX-IA.md#density-slider))
+without exposing a user-facing density picker for the L2 surface
+yet. Container height drops from 224px to 200px (8 × 22px + gaps +
+outer padding); min-height drops 56px → 48px so the L2/L3 drag
+handle can still squeeze the list to ~2 rows. The named tiers
+remain in the spec (compact/cosy/comfy) so a future density picker
+re-flips the rhythm without a re-design pass.
+
+#### v1 ships — Nav-button semantics (rf2-htik0)
+
+The ribbon's `[◀ ▶]` nav cluster: `◀` (prev / step backward in time)
+is disabled at the **oldest** event (no older to step to); `▶` (next
+/ step forward) is disabled at the **most recent** event (no newer
+to step to). The earlier shell prototype shipped these inverted —
+the v1 fix swapped the `at-head?` / `at-tail?` predicates and the
+docstring now reads as the actual semantics. Recorded here so the
+spec's nav-button semantics line up with the runtime contract for
+test rigs that pin enable / disable state across the buffer
+boundaries.
+
+#### v1 ships — Full event vector inline (rf2-htik0)
+
+The Row anatomy table below documents the `Event id` column as
+`:order/submit` (the event-id alone). v1 ships the **full dispatched
+event vector** inline (`[:cart/add-item {:item-id "apple" :qty 2}]`)
+truncated at the 80-char inline cap (`<head>…]` suffix preserves the
+closing bracket so the row still reads as a vector). The event-id
+gets the accent-violet keyword colour so it pops out of the payload;
+the payload renders in the row's default text colour. Empty payloads
+collapse to `[:counter/inc]` (no `{}` placeholder). The 80-char cap
+is a single-row legibility constraint — clicking the row opens the
+L4 Event tab with the full untruncated vector. The Row anatomy table
+below remains the canonical shape; this callout records what the
+`Event id` column actually packs at v1.
+
 ### Row anatomy
 
 ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing redaction marker:
@@ -670,7 +709,7 @@ The single-axis selection that every layer reads from.
 | `:rf.causa/focus-cascade-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.causa/filtered-cascades`; flips `:mode → :retro` if not already at head |
 | `:rf.causa/follow-head` | `⏭` button · `L` key · click mode pill when RETRO | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.causa/toggle-live-pause` | `Space` key · click mode pill when LIVE | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
-| `:rf.causa/set-frame <frame-id>` | Frame picker selection | Writes `:frame` slot; clears `:dispatch-id` to head of new frame |
+| `:rf.causa/set-frame <frame-id>` | Frame picker selection | Writes `:frame` slot; clears `:dispatch-id` to head of new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the same write ALSO re-seeds `:rf.causa/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.causa/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.causa/preview-cascade <id>` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id <id>` transiently; reverts on hover-out without click |
 
 ### Per-layer rebind table
@@ -914,6 +953,41 @@ The browser feature gate that asserts I1 + I3 + I4 together is the canonical iso
 **Gate name:** `tools/causa/test/day8/re_frame2_causa/isolation_test.cljs` (new file). Runs under `npm run test:browser`. **Failure blocks merge.**
 
 **Lint I2:** unit test asserting the dev-time lint predicate throws on a deliberately-misconfigured Causa-namespaced sub feeding a host-data render path; passes on the actual Causa registry. Lives in `tools/causa/test/day8/re_frame2_causa/sub_graph_lint_test.cljs` (new file). Runs under `npm run test:cljs`.
+
+### Multi-frame panel-focus invariant (P) — v1 ships
+
+The four invariants above (I1–I4) keep Causa-internal renders OUT of
+inspected-host-frame panels. The complementary invariant — panels
+follow the picker INTO whichever inspected frame the user picks —
+landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
++ rf2-ug1r6 + rf2-thodq):
+
+| Slot | Owner | What `:rf.causa/set-frame` does |
+|---|---|---|
+| `:focus :frame` | spine | Set to picked frame-id; clears `:dispatch-id` to head of new frame. |
+| `:rf.causa/target-frame` | per-frame projection axis | Re-seeded to picked frame-id. This is the legacy axis the App-db diff + Views composites compose against; pre-fix the picker only wrote the spine's `:focus :frame` and the composites stayed bound to whichever frame was last targeted (commonly `:rf/default`). |
+| `:rf.causa/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db diff's `:selected-epoch-diff` / `:sections` / `:annotated-tree` and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
+
+**Invariant P (Panel follows focus):** every per-frame panel
+composite (App-db diff, Views, Machines, Issues, Trace) MUST refresh
+its data axis on every `:rf.causa/set-frame` write within the same
+dispatch. No panel may persist a frame-binding that survives a picker
+selection. The picker is the single seam that re-routes every
+per-frame surface.
+
+The composite seam `:rf.causa/observed-frame` reads
+`(:frame focus)` first (the spine slot the picker writes; also
+derived by `compose-focus` from the focused cascade) and falls back
+to `:rf.causa/target-frame` so click-on-row picker-less navigation
+also rebinds. Both writes happen in the same `:rf.causa/set-frame`
+reducer so the App-db diff renders the diff body for the picked frame
+on the next render-frame, and the Views panel's `:has-cascade?`
+guard does not flip to `false` between picks.
+
+Test gates: `spine_cljs_test.cljs` pins the `:target-frame` +
+`:epoch-history` writes on both arities of the reducer; the
+`app_db_diff_cljs_test.cljs` + `views_subs_cljs_test.cljs` regression
+suites pin the panel render bodies post-reseed.
 
 ---
 
