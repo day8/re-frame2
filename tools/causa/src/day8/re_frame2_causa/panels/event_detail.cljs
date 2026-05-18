@@ -559,6 +559,7 @@
     ;; lives at the composite layer (not the view) so consumers of
     ;; `:rf.causa/event-detail` (the panel + its tests) all see the
     ;; same effective selection.
+    :<- [:rf.causa/cascades]
     :<- [:rf.causa/focus]
     (fn [[cascades focus] _query]
       ;; Phase A spine wiring: read the EFFECTIVE focused id off the
