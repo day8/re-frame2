@@ -350,3 +350,102 @@
   (testing "when no epoch touched the path, returns an empty vector"
     (let [history [(mk-record :e-1 [:a] {} {:other 1})]]
       (is (= [] (h/epochs-touching-path history [:never :touched]))))))
+
+;; ---- (6) count-redacted-modified-paths (rf2-bz1cl) ----------------------
+;;
+;; Contract per `count-redacted-modified-paths`:
+;;
+;;   - Walks both dbs in parallel.
+;;   - Counts paths where BOTH sides carry `:rf/redacted` AND the
+;;     parent subtree differs in pointer-identity.
+;;   - Skips the reserved `:rf/elision` subtree.
+;;   - Returns 0 for identical dbs, nil-safe.
+
+(deftest redacted-modified-count-zero-when-no-redacted
+  (testing "no redacted leaves anywhere → count is 0"
+    (is (= 0 (h/count-redacted-modified-paths {:a 1}      {:a 2})))
+    (is (= 0 (h/count-redacted-modified-paths {}          {})))
+    (is (= 0 (h/count-redacted-modified-paths {:a {:b 1}} {:a {:b 2}})))))
+
+(deftest redacted-modified-count-zero-when-only-one-side-redacted
+  (testing "the chip is for `:rf/redacted` on BOTH sides — when only
+            one side carries the sentinel, the diff algorithm already
+            emits a normal :modified row and the count is 0."
+    (is (= 0 (h/count-redacted-modified-paths
+               {:auth {:token "secret"}}
+               {:auth {:token :rf/redacted}}))
+        "after-only sentinel → 0 (normal :modified diff row)")
+    (is (= 0 (h/count-redacted-modified-paths
+               {:auth {:token :rf/redacted}}
+               {:auth {:token "fresh-secret"}}))
+        "before-only sentinel → 0 (normal :modified diff row)")))
+
+(deftest redacted-modified-count-counts-redacted-both-sides
+  (testing "the canonical case: both sides redacted at the same path,
+            in a parent subtree that mutated (a sibling slot's value
+            changed). The diff algorithm sees :rf/redacted = :rf/redacted
+            → no row; this counter is the separate signal."
+    (let [before {:auth {:token :rf/redacted :method :jwt}}
+          after  {:auth {:token :rf/redacted :method :session}}]
+      (is (= 1 (h/count-redacted-modified-paths before after))))))
+
+(deftest redacted-modified-count-zero-when-subtree-pointer-equal
+  (testing "if the parent subtree is identical? across before/after,
+            nothing inside it changed — skip it entirely, even if it
+            contains a redacted slot. Mirrors the structural-sharing
+            short-circuit in `diff-paths`."
+    (let [inner  {:token :rf/redacted :method :jwt}
+          before {:auth inner :user "ada"}
+          after  (assoc before :user "bob")]
+      (is (identical? (:auth before) (:auth after))
+          "sanity: :auth subtree is pointer-equal across before/after")
+      (is (= 0 (h/count-redacted-modified-paths before after))
+          ":auth subtree didn't mutate → redacted slot isn't counted"))))
+
+(deftest redacted-modified-count-multiple-paths-distinct
+  (testing "distinct redacted leaves in mutated subtrees count
+            independently. Two redacted leaves at two different paths
+            → count is 2."
+    (let [before {:auth   {:token   :rf/redacted}
+                  :secret {:api-key :rf/redacted}
+                  :public {:n 1}}
+          after  {:auth   {:token   :rf/redacted :method :session}
+                  :secret {:api-key :rf/redacted :rotated-at 99}
+                  :public {:n 1}}]
+      (is (= 2 (h/count-redacted-modified-paths before after))))))
+
+(deftest redacted-modified-count-nested-redacted
+  (testing "a redacted leaf deep in a nested tree counts when the
+            enclosing subtree mutated."
+    (let [before {:users {"u-1" {:profile {:ssn :rf/redacted :age 30}}}}
+          after  {:users {"u-1" {:profile {:ssn :rf/redacted :age 31}}}}]
+      (is (= 1 (h/count-redacted-modified-paths before after))))))
+
+(deftest redacted-modified-count-skips-rf-elision-subtree
+  (testing "the reserved `:rf/elision` subtree carries the elision
+            registry; its own values may include `:rf/redacted` as
+            example/documentation form. Counting them would confuse
+            the signal — skip the entire subtree at the root."
+    (let [before {:rf/elision {:sensitive-declarations
+                               {[:foo] {:sensitive? true
+                                        :sentinel :rf/redacted}}}
+                  :auth {:token :rf/redacted}}
+          after  (-> before
+                     (assoc-in [:rf/elision :sensitive-declarations [:bar]]
+                               {:sensitive? true :sentinel :rf/redacted})
+                     (assoc-in [:auth :method] :session))]
+      (is (= 1 (h/count-redacted-modified-paths before after))
+          "only the :auth :token path counts; the :rf/elision tree is skipped"))))
+
+(deftest redacted-modified-count-handles-nil-db
+  (testing "nil-tolerant — a halted-destroy record may carry nil
+            :db-before or :db-after per rf2-v0jwt. The counter must
+            not throw."
+    (is (= 0 (h/count-redacted-modified-paths nil nil)))
+    (is (= 0 (h/count-redacted-modified-paths nil {:a 1})))
+    (is (= 0 (h/count-redacted-modified-paths {:a 1} nil)))))
+
+(deftest redacted-modified-count-pointer-equal-dbs
+  (testing "identical? whole dbs → 0 immediately (no walk)."
+    (let [db {:auth {:token :rf/redacted}}]
+      (is (= 0 (h/count-redacted-modified-paths db db))))))

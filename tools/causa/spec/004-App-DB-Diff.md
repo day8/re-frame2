@@ -164,6 +164,55 @@ canvas:
 The full tree is rarely needed; the slice-centric view answers most
 questions.
 
+## Redacted-paths-modified hint chip
+
+Per [Spec 015 §Data Classification](../../../spec/015-Data-Classification.md)
+and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress),
+an app-supplied epoch `:redact-fn` may substitute the `:rf/redacted`
+sentinel into `:db-before` / `:db-after` to keep sensitive material out
+of recorded records. When the underlying value at a redacted path
+actually changed across a cascade, the structural diff correctly sees
+`:rf/redacted` = `:rf/redacted` and emits no row — the elision
+contract is preserved (per [`diff/annotated_tree.cljc` §Sentinel
+handling](#)). The developer is left with an empty diff and no signal
+that anything happened in the redacted slot.
+
+Causa surfaces a **separate-from-diff** signal: a muted-grey chip
+at the top of the diff body when count > 0.
+
+```
+[· 3 redacted paths modified]
+```
+
+The chip uses the muted-`·` marker from the rf2-87lkf Views polish
+family (`·` = muted/informational; `✱` = amber/attention-cue). Hover
+to read the contract explanation; the chip is absent (no DOM) when
+count is 0.
+
+**Count semantics.** A path `P` counts when:
+
+1. `(= :rf/redacted (get-in db-before P))`, AND
+2. `(= :rf/redacted (get-in db-after  P))`, AND
+3. `P`'s parent subtree is NOT `identical?` across `db-before` /
+   `db-after` (something in the enclosing subtree changed).
+
+Distinct paths are counted independently. The reserved `:rf/elision`
+subtree at the root is skipped (the elision registry's own values may
+include `:rf/redacted` as documentation/sentinel form).
+
+**Heuristic upper bound.** Condition (3) is the structural-sharing
+tightener — without it every redacted slot in `app-db` would count for
+every cascade. With it the count is a tight upper bound: every counted
+path is provably in a mutated subtree AND opaque. It may over-state
+if a sibling slot changed and the redacted slot was incidentally
+untouched.
+
+Causa derives the count from raw epoch records using the heuristic
+above; the framework does not pre-compute it. A future enhancement
+(filed as a follow-on bead) could thread an accurate counter through
+the egress contract — until then the heuristic surface is the
+read-side answer.
+
 ## Read-only
 
 The app-db panel is **read-only forever** (lock #3 in

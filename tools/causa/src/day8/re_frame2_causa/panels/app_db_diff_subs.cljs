@@ -49,6 +49,17 @@
   ;; as `diff-cache` above. Tests reset this atom between cases.
   (atom {}))
 
+(defonce redacted-modified-cache
+  ;; Per-`:epoch-id` cache for the redacted-paths-modified count
+  ;; computed by `:rf.causa/selected-epoch-redacted-modified-count`
+  ;; (rf2-bz1cl). Same caching contract as `diff-cache` above — the
+  ;; walk is bounded by `count-redacted-modified-paths`' structural-
+  ;; sharing short-circuit but cascades replay the same db-before /
+  ;; db-after pair across the inspector's life, so caching the
+  ;; final integer is still cheap insurance. Tests reset this atom
+  ;; between cases.
+  (atom {}))
+
 (defn install!
   "Install the App-DB Diff subscriptions."
   []
@@ -148,6 +159,49 @@
         (sg/group-into-sections annotated)
         [])))
 
+  ;; ---- rf2-bz1cl — redacted-paths-modified count ---------------------
+  ;;
+  ;; The structural diff (above) correctly emits NO rows when both
+  ;; sides of a path carry `:rf/redacted` — `:rf/redacted` = `:rf/redacted`
+  ;; structurally. When an app-supplied `:redact-fn` substitutes the
+  ;; sentinel into `:db-before` / `:db-after` AND the underlying values
+  ;; differ, the diff body is empty and the developer's "something
+  ;; changed" expectation is not met.
+  ;;
+  ;; This sub computes a separate-from-diff signal: the count of
+  ;; redacted leaves whose enclosing subtree mutated across the
+  ;; cascade. Heuristic upper bound — see
+  ;; `app-db-diff-helpers/count-redacted-modified-paths` for the
+  ;; semantics + approximation notes. The renderer surfaces the count
+  ;; as a muted chip above the diff body when count > 0.
+  ;;
+  ;; Selection fallback mirrors `:rf.causa/selected-epoch-diff` —
+  ;; the same selection-stale path that strands the diff panel
+  ;; strands the chip; same `(peek history)` fallback applies.
+  (rf/reg-sub :rf.causa/selected-epoch-redacted-modified-count
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (if record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @redacted-modified-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              (let [n    (h/count-redacted-modified-paths
+                           (:db-before record)
+                           (:db-after  record))
+                    live (into #{} (map :epoch-id) history)]
+                (swap! redacted-modified-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id n))))
+                n)))
+          0))))
+
   (rf/reg-sub :rf.causa/pinned-slices-store
     (fn [db _query]
       (get db :pinned-slices-store {})))
@@ -185,15 +239,22 @@
     :<- [:rf.causa/focused-slice-path]
     :<- [:rf.causa/show-me-when-this-changed-result]
     :<- [:rf.causa/epoch-history]
-    (fn [[target db diff-triples sections pinned focused-path focused-hits history]
+    :<- [:rf.causa/selected-epoch-redacted-modified-count]
+    (fn [[target db diff-triples sections pinned focused-path focused-hits
+          history redacted-modified-count]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
                                      (or diff-triples []))]
-        {:target-frame          target
-         :history-empty?        (empty? history)
-         :changed-non-reserved  non-reserved
-         :changed-sections      sections
-         :changed-reserved      (h/reserved-summary db)
-         :pinned-slices         pinned
-         :focused-path          focused-path
-         :focused-hits          focused-hits}))))
+        {:target-frame              target
+         :history-empty?            (empty? history)
+         :changed-non-reserved      non-reserved
+         :changed-sections          sections
+         :changed-reserved          (h/reserved-summary db)
+         :pinned-slices             pinned
+         :focused-path              focused-path
+         :focused-hits              focused-hits
+         ;; rf2-bz1cl — redacted-paths-modified hint chip surface.
+         ;; Count > 0 when an app `:redact-fn` substituted the
+         ;; `:rf/redacted` sentinel into both `:db-before` /
+         ;; `:db-after` at the same path inside a mutated subtree.
+         :redacted-modified-count   redacted-modified-count}))))

@@ -17,9 +17,10 @@
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 (reset! subs/diff-cache {})
-                (reset! subs/annotated-tree-cache {}))}))
+                (reset! subs/annotated-tree-cache {})
+                (reset! subs/redacted-modified-cache {}))}))
 
-(deftest leaf-install-registers-the-eleven-subs
+(deftest leaf-install-registers-the-twelve-subs
   (subs/install!)
   ;; rf2-fvplw — `:rf.causa/observed-frame` is the picker/focus-aware
   ;; seam that replaces the legacy `:rf.causa/target-frame` read inside
@@ -34,10 +35,16 @@
   (is (some? (registrar/handler :sub :rf.causa/pinned-slices)))
   (is (some? (registrar/handler :sub :rf.causa/focused-slice-path)))
   (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
+  ;; rf2-bz1cl — redacted-paths-modified hint sub.
+  (is (some? (registrar/handler :sub :rf.causa/selected-epoch-redacted-modified-count)))
   (is (some? (registrar/handler :sub :rf.causa/app-db-diff))))
 
 (deftest diff-caches-are-leaf-level-atoms
   (is (some? subs/diff-cache))
   (is (map? @subs/diff-cache))
   (is (some? subs/annotated-tree-cache))
-  (is (map? @subs/annotated-tree-cache)))
+  (is (map? @subs/annotated-tree-cache))
+  ;; rf2-bz1cl — redacted-modified count cache mirrors the existing
+  ;; per-`:epoch-id` caching contract.
+  (is (some? subs/redacted-modified-cache))
+  (is (map? @subs/redacted-modified-cache)))

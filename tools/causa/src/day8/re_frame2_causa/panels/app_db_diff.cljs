@@ -35,7 +35,8 @@
                 changed-reserved
                 pinned-slices
                 focused-path
-                focused-hits]}
+                focused-hits
+                redacted-modified-count]}
         @(rf/subscribe [:rf.causa/app-db-diff])]
     [:section {:data-testid "rf-causa-app-db-diff"
                :style       {:height         "100%"
@@ -64,6 +65,11 @@
 
         :else
         [:div
+         ;; rf2-bz1cl — redacted-paths-modified hint chip. nil when
+         ;; count is 0, so the chip surface is absent unless the
+         ;; cascade actually involved redacted slots in mutated
+         ;; subtrees.
+         (sections/redacted-modified-chip redacted-modified-count)
          (diff-render/render-sections changed-sections "app-db-diff")
          (sections/pinned-group pinned-slices)
          (sections/reserved-group changed-reserved)])]]))

@@ -379,6 +379,180 @@
                  :after    (get-in db-after  path)}))
             history))))
 
+;; ---- redacted-paths-modified hint (rf2-bz1cl) ---------------------------
+;;
+;; The elision contract substitutes the `:rf/redacted` sentinel (per
+;; spec/015-Data-Classification.md §The classification model) at
+;; emission-time / build-time for sensitive paths. An app that installs
+;; an epoch `:redact-fn` (per docs/causa/03-time-travel.md §Privacy +
+;; redact-fn / Security.md §Epoch privacy posture) can substitute the
+;; sentinel into `:db-before` / `:db-after` directly. When that happens
+;; AND the underlying value at the redacted path actually changed
+;; across the epoch, the structural diff sees `:rf/redacted` on both
+;; sides and (correctly per the contract) emits no diff row — the
+;; renderer never tries to override the elision contract (per
+;; `diff/annotated_tree.cljc` §Sentinel handling).
+;;
+;; This leaves the developer with an empty diff and no signal that
+;; anything happened in the redacted slot. The hint surface
+;; (rf2-bz1cl) closes that gap: a separate chip on the diff panel
+;; says "N redacted paths modified" so the developer knows a real
+;; change happened at an opaque path even though no diff row is
+;; renderable.
+;;
+;; ## Count semantics — what counts as "redacted-modified"
+;;
+;; Causa runs in-process and reads RAW epoch records (not the
+;; egress-projected ones), so the only `:rf/redacted` sentinels in
+;; `:db-before` / `:db-after` come from an app-supplied `:redact-fn`
+;; (the `with-redacted` interceptor only redacts event-payload trace
+;; surfaces, not the recorded db). Wire-elision via
+;; `elide-wire-value` happens at the off-box egress boundary and never
+;; touches what Causa sees.
+;;
+;; The framework's egress projection (and the redact-fn that
+;; substitutes the sentinel) discards information about whether the
+;; underlying values actually changed — by design, that's what
+;; "redacted" means. Causa can't reconstruct what was lost; it can
+;; only emit a strong heuristic upper bound:
+;;
+;;   A path P is "redacted-modified" when:
+;;     1. `(= :rf/redacted (get-in db-before P))`
+;;     2. `(= :rf/redacted (get-in db-after  P))`
+;;     3. The path's PARENT subtree is NOT `identical?` across
+;;        `db-before` / `db-after` (something in this subtree changed).
+;;
+;; Condition (3) is the structural-sharing tightener. Without it,
+;; every redacted path in `app-db` would count toward every cascade's
+;; chip, swamping the signal. With it, only redacted paths inside a
+;; subtree that actually mutated count — a tight upper bound:
+;;
+;;   - **Sound for non-zero:** if the count is > 0, the corresponding
+;;     subtree provably mutated; the redacted slot is one possible
+;;     site of that mutation (along with any sibling slots that also
+;;     changed).
+;;   - **Unsound for direction:** the count can over-state if a
+;;     sibling slot changed and the redacted slot was incidentally
+;;     untouched. The chip's tooltip surfaces this approximation
+;;     ("N paths could have changed — the elision contract suppressed
+;;     the values").
+;;
+;; ## What this does NOT cover
+;;
+;; - Paths nominated as sensitive but with no live value (`nil` /
+;;   absent slot) — those don't carry the sentinel.
+;; - The egress-side `elide-wire-value` projection (Causa never sees
+;;   it; that's a property of off-box wire surfaces).
+;; - `:rf.size/large-elided` markers (orthogonal to privacy; tracked
+;;   independently).
+;; - Sub-tree pointer-equality false negatives from `assoc-in` rewrites
+;;   that produce a fresh subtree whose leaves are all equal. These
+;;   would mark a redacted leaf as "potentially modified" even though
+;;   nothing in the subtree changed. The structural-sharing diff has
+;;   the same property — it walks the changed subtree but emits no
+;;   rows when leaves match.
+;;
+;; ## Future enhancement (filed as follow-on)
+;;
+;; A wire-shape augmentation would let the framework annotate the
+;; epoch record with a precise "N redacted paths modified" counter
+;; computed BEFORE the redact-fn runs — eliminating the heuristic.
+;; That's a strictly larger change touching the egress contract; the
+;; chip ships with the heuristic in the meantime.
+
+(def redacted-sentinel
+  "The framework's privacy sentinel keyword. Mirrors
+  `re-frame.privacy/redacted-sentinel` so this artefact doesn't take a
+  hard dep on the privacy ns (Causa is bundle-isolated from
+  framework-internal helpers; the sentinel keyword is a public wire-
+  vocabulary constant per spec/015-Data-Classification.md)."
+  :rf/redacted)
+
+(defn- redacted-value?
+  "True when `v` is the framework's `:rf/redacted` sentinel.
+
+  Currently the sentinel is the bare keyword; the spec's composed form
+  (`:rf/redacted {:bytes N}` per spec/015 §Two parallel axes) is not
+  used as a leaf substitution shape today (the size marker is a
+  separate `:rf.size/large-elided` map and the privacy sentinel wins
+  the composition per the API.md §Composition rule). This predicate
+  matches the leaf-keyword form; if the framework ever introduces a
+  wrapped sensitive-leaf shape, extend here."
+  [v]
+  (= redacted-sentinel v))
+
+(defn count-redacted-modified-paths
+  "Walk `db-before` and `db-after` and return the count of distinct
+  paths where BOTH sides carry the `:rf/redacted` sentinel AND the
+  parent subtree differs in pointer-identity (i.e., something in the
+  enclosing subtree changed).
+
+  Pure data → int. JVM-runnable. Used by the App-DB Diff panel's
+  `redacted-paths-modified` chip (rf2-bz1cl) to surface 'N opaque
+  paths potentially changed; the elision contract suppressed the
+  values'.
+
+  ## Algorithm
+
+  Walk both maps in parallel, starting at the root. At each map level:
+
+    - If the parent maps are `identical?`, skip the entire subtree —
+      no descendant changed. (Structural-sharing short-circuit; same
+      as `diff-paths`.)
+    - Otherwise walk the union of keys:
+      - When the value at key k is `:rf/redacted` on BOTH sides,
+        increment the count (this counts the leaf path).
+      - When both values are maps and not `identical?`, recurse.
+      - Otherwise skip.
+
+  ## Skipped subtrees
+
+  Paths under reserved `:rf/elision` (the wire-elision declaration
+  registry — its own values can include the `:rf/redacted` sentinel
+  as a documentation example) are not counted. The exclusion matches
+  the spirit of `reserved-app-db-keys` — the runtime owns those slots
+  and their contents are not user data.
+
+  Per rf2-bz1cl."
+  ([db-before db-after]
+   (count-redacted-modified-paths db-before db-after []))
+  ([db-before db-after path]
+   (cond
+     ;; Both sides redacted at this slot → count this leaf and stop
+     ;; (don't recurse into a redacted scalar). MUST run BEFORE the
+     ;; pointer-equality short-circuit because the `:rf/redacted`
+     ;; keyword is interned — `(identical? :rf/redacted :rf/redacted)`
+     ;; is `true`, which would otherwise mask every redacted leaf as
+     ;; "subtree didn't change → skip".
+     (and (redacted-value? db-before) (redacted-value? db-after))
+     1
+
+     ;; Subtree-pointer short-circuit: nothing in this subtree
+     ;; changed, so no redacted-modified path can live below. Applies
+     ;; only AFTER the leaf-redacted check above, so we never use
+     ;; pointer equality to short-circuit a leaf comparison.
+     (identical? db-before db-after)
+     0
+
+     ;; Both maps, not identical → walk the union of keys. Skip the
+     ;; reserved `:rf/elision` subtree (the elision registry's own
+     ;; declarations carry the sentinel as an example/value form per
+     ;; spec/015 §Two parallel axes; counting them confuses the
+     ;; signal).
+     (and (map? db-before) (map? db-after))
+     (reduce
+       (fn [acc k]
+         (if (and (empty? path) (= :rf/elision k))
+           acc
+           (+ acc (count-redacted-modified-paths
+                    (get db-before k)
+                    (get db-after  k)
+                    (conj path k)))))
+       0
+       (distinct (concat (keys db-before) (keys db-after))))
+
+     :else 0)))
+
 ;; ---- diff caching --------------------------------------------------------
 
 (defn cache-key-of
