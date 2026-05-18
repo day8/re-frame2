@@ -89,45 +89,24 @@ Click-to-source has been on the spec roadmap since before re-frame2 was named. T
 
 Causa's click-to-source is what closed the loop between "the framework knows where every line came from" and "the developer's first gesture in a debugging session is a *click*, not a grep."
 
-## Walking the 3pm scenario on the shop testbed
+## Walking click-to-source on the parallel-frames testbed
 
-The tutorial's [index page](index.md#a-scenario-before-the-tour) opened with a five-step debugging cascade for a wrong total. The shop testbed at [`tools/causa/testbeds/shop/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/shop) is the runnable version — every step on that page maps to a click in the testbed.
+The tutorial's [index page](index.md#a-scenario-before-the-tour) opened with a five-step Causa loop on the parallel-frames testbed. The runnable version lives at [`tools/causa/testbeds/parallel_frames/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/parallel_frames) — one app, two frames (`:above` and `:below`), each a fully isolated reactive context.
 
-The bug, in code:
-
-```clojure
-;; The display sub — chains through the WRONG upstream subtotal.
-(rf/reg-sub :total-due
-  :<- [:cart/subtotal-WRONG]                       ;; ← the bug
-  :<- [:cart/tax-rate]
-  :<- [:cart/shipping]
-  (fn [[subtotal tax-rate shipping] _]
-    (let [tax (long (* subtotal tax-rate))]
-      (+ subtotal tax shipping))))
-
-;; The WRONG subtotal reads :cart/snapshot ([:checkout :snapshot] on
-;; cart-frame's app-db) — the snapshot the cart's :cart/send-to-checkout
-;; handler froze. After Send-to-checkout, the snapshot drifts from the
-;; live basket and the displayed total locks to the snapshot.
-(rf/reg-sub :cart/subtotal-WRONG
-  :<- [:cart/snapshot]                             ;; ← wrong slot
-  ...)
-```
+Click-to-source is the gesture that gets you from a rendered pixel to its source line; on a multi-frame page that surface is doubly useful, because the same view source produces *two* live elements, one per frame, and the coord identifies both unambiguously.
 
 The five clicks:
 
-1. **Reproduce.** Open `http://127.0.0.1:8030/shop/`. Click `+ Apple` once. The cart visibly carries Apple ×1 ($1.50). The displayed total reads **$5.00** (the empty-snapshot edge: subtotal=0 + tax=0 + shipping=$5.00). The screenshot you'd send the dev. *Wrong number is showing — total doesn't reflect the cart.*
+1. **Open the testbed.** Run `npm run test:examples` from `implementation/`, then visit `http://127.0.0.1:8030/parallel-frames/`. Two stacked panels appear — `:above` and `:below` — each carrying its own counter, clock and title.
 
-2. **The coord on the wire.** Right-click the total span, *Copy element*. The HTML carries `data-rf2-source-coord="shop.core:cart-panel:624:4"`. The coord routes you to the `cart-panel` reg-view in `tools/causa/testbeds/shop/core.cljs`. The view subscribes to `:total-due`.
+2. **The coord on the wire.** Right-click the title text inside `:above`, *Copy element*. The HTML carries `data-rf2-source-coord="parallel-frames.core:title-view:198:4"`. The coord routes you to the `title-view` reg-view in `tools/causa/testbeds/parallel_frames/core.cljs`. Now right-click the same title text in `:below` — same coord. One source, two live mounts; the coord is the source identity.
 
-3. **Views panel.** `Ctrl+Shift+C`, click *Views*, type `total-due`. Causa shows it as a node in the sub-graph. Its upstream edge points at `:cart/subtotal-WRONG`. The id is the symptom-name — production wouldn't name the wrong sub `-WRONG`, but the dependency edge itself would point at the wrong upstream regardless.
+3. **Views panel, scoped by frame.** `Ctrl+Shift+C`, switch the L1 frame picker to `:above`, click *Views*, type `title`. Causa shows `::title-status` and `::title-text` as nodes scoped to `:above`'s sub-cache. Flip the picker to `:below`. The same node ids, the same dependency edges — but the cache rows are independent. Sub recomputes in `:above` don't show in `:below`'s panel.
 
-4. **The dependency edge.** Click the edge. `:cart/subtotal-WRONG` reads its input off `:cart/snapshot` (i.e. `[:checkout :snapshot]` on cart-frame's app-db). That slot is empty until *Send to checkout* runs — once it does (try it: click +Apple → Send to checkout → click +Apple again), the snapshot carries Apple ×1 forever while the live cart accumulates further items. The displayed total locks to the snapshot.
+4. **Click-to-source from a panel row.** Click the registration coord chip next to `::title-status`. Your editor opens at the `reg-sub` form in `core.cljs`. Same gesture works on machines (`:title/flow`) and effect ids — every registered id carries its source coord through to the panel chrome.
 
-5. **App-DB diff.** Open the App-DB panel. The `[:cart :items]` and `[:checkout :snapshot]` slots hold *different* vectors after a *Send to checkout* click — the snapshot froze, the live cart has whatever the user added since. Diff confirms the projection drift.
+5. **Pick mode across frames.** Switch Causa into pick mode (`Ctrl+Shift+S`), hover the *Refresh* button in `:below`. The panel highlights `parallel-frames.core:title-controls:<line>:<col>`. Hover the same button in `:above` — same coord. The coord identifies the view's source; the frame identifies the live mount.
 
-The fix is a one-token edit: change `:<- [:cart/subtotal-WRONG]` to `:<- [:cart/subtotal-CORRECT]` in the `:total-due` reg-sub. Save. The hot-reload preserves app-db; the displayed total catches up to the live basket on the next paint. Issues ribbon clears.
-
-You just walked the 3pm scenario in five minutes.
+The point: click-to-source is **frame-agnostic** on the wire. Two mounted instances of one view share one coord. The framework's frame plumbing handles isolation downstream; the source-coord contract stays clean.
 
 Next: [the schema-violation timeline](06-schema-timeline.md).

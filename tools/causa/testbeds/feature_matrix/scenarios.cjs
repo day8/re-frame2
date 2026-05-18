@@ -36,18 +36,6 @@ const STAGED_SURFACES = [
     servedPath: 'counter',
   },
   {
-    build: 'examples/shop',
-    bundleDir: ['out', 'examples', 'shop'],
-    html: ['tools', 'causa', 'testbeds', 'shop', 'index.html'],
-    servedPath: 'shop',
-    extraFiles: [
-      {
-        src: ['tools', 'causa', 'testbeds', 'shop', 'api', 'products.json'],
-        dest: ['api', 'products.json'],
-      },
-    ],
-  },
-  {
     build: 'examples/counter-perf',
     bundleDir: ['out', 'examples', 'counter-perf'],
     html: ['tools', 'causa', 'testbeds', 'perf_counter', 'index.html'],
