@@ -44,7 +44,7 @@
     2. **Stratify** nodes into rank-buckets; within each bucket
        sort by id for determinism.
     3. **Place** each rank as a horizontal row, centred; row spacing
-       is 100px, node spacing 40px, node size 140x48.
+       is 100px, node spacing 40px, node size 120x40.
     4. **Route** edges as straight lines from source-bottom to
        target-top (simple — no orthogonal routing, no obstacle
        avoidance). Self-loops render as a small arc above the node
@@ -75,8 +75,12 @@
 
 ;; ---- layout constants ---------------------------------------------------
 
-(def node-width 140)
-(def node-height 48)
+;; rf2-gz7vi — node-size trimmed (140×48 → 120×40) to track the
+;; rf2-isgqu/rf2-gz7vi font-shrink cascade. Smaller labels were
+;; rattling around in oversized boxes; the new dims keep the chart
+;; dense and fit at default panel width.
+(def node-width 120)
+(def node-height 40)
 (def rank-gap 100)             ;; vertical gap between ranks
 (def node-gap 40)              ;; horizontal gap between same-rank nodes
 (def chart-margin 32)          ;; outer margin around the layout

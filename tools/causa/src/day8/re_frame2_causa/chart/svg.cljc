@@ -225,28 +225,28 @@
              :stroke stroke
              :stroke-width stroke-w}]
      ;; Label
-     ;; rf2-isgqu — state-label tuned 12 → 11 so labels stop swamping
-     ;; the chart and match the surrounding L4 detail rhythm. Vertical
-     ;; baseline tweak (+4 → +3) keeps the glyphs visually centred at
+     ;; rf2-gz7vi — state-label tuned 11 → 9 (follow-up to rf2-isgqu's
+     ;; 12 → 11 — diagram still didn't fit at default width). Vertical
+     ;; baseline tweak (+3 → +2) keeps the glyphs visually centred at
      ;; the smaller size.
      [:text {:x (+ x (quot width 2))
-             :y (+ y (quot height 2) 3)
+             :y (+ y (quot height 2) 2)
              :text-anchor "middle"
              :font-family font-stack
-             :font-size 11
+             :font-size 9
              :font-weight (if active? 600 400)
              :fill (if active?
                      (:text-primary tokens/tokens)
                      (:text-secondary tokens/tokens))}
       label]
      ;; Final-state check glyph
-     ;; rf2-isgqu — track the state-label tune (11 → 10) so the corner
-     ;; check scales with its neighbour.
+     ;; rf2-gz7vi — corner check tuned 10 → 9 to track the state-label
+     ;; reduction (rf2-isgqu followed 12 → 11; this PR follows 11 → 9).
      (when final?
-       [:text {:x (+ x width -10)
-               :y (+ y 14)
+       [:text {:x (+ x width -9)
+               :y (+ y 13)
                :font-family font-stack
-               :font-size 10
+               :font-size 9
                :fill (:green tokens/tokens)}
         "✓"])]))
 
@@ -327,22 +327,23 @@
              :marker-end marker}]
      (when (seq full-label)
        [:g
-        ;; rf2-isgqu — edge-label tuned 10 → 9 (keeps state > edge by
-        ;; ~2px so the visual hierarchy still reads). Pill geometry
-        ;; shrinks proportionally: 4/8 → 3.5/7 char-width, height
-        ;; 14 → 12, vertical offset 9 → 8 to match the smaller glyph.
+        ;; rf2-gz7vi — edge-label tuned 9 → 7 (rf2-isgqu went 10 → 9;
+        ;; chart still crowded). Keeps state > edge by ~2px so the
+        ;; visual hierarchy still reads. Pill geometry shrinks
+        ;; proportionally: 3.5/7 → 2.75/5.5 char-width, height
+        ;; 12 → 10, vertical offset 8 → 7 to match the smaller glyph.
         ;; Background pill for legibility
-        [:rect {:x (- lx (long (* 3.5 (count full-label))))
-                :y (- ly 8)
-                :width (* 7 (count full-label))
-                :height 12
+        [:rect {:x (- lx (long (* 2.75 (count full-label))))
+                :y (- ly 7)
+                :width (long (* 5.5 (count full-label)))
+                :height 10
                 :rx 3
                 :fill (:bg-2 tokens/tokens)
                 :opacity 0.85}]
-        [:text {:x lx :y (+ ly 1)
+        [:text {:x lx :y ly
                 :text-anchor "middle"
                 :font-family font-stack
-                :font-size 9
+                :font-size 7
                 :fill (:text-secondary tokens/tokens)}
          full-label]])]))
 
