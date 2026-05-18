@@ -29,7 +29,11 @@
   rail surfaces an event picker + Step / Reset buttons. The Sim
   state slot is `:sim/by-machine {<id> <sim-state>}` — the
   `:rf.causa/sim-start` event seeds it. The 'sim mid-step' variant
-  fires sim-start then sim-step to land mid-execution."
+  fires sim-start then sim-step to land mid-execution. The
+  'sim pending-input' variant fires sim-start then seeds the
+  controlled-input slots (`:pending-event` / `:pending-data`) via
+  `:rf.causa/sim-set-pending-event` + `-pending-data` so the side
+  rail's compose box is populated mid-type but not yet stepped."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures-machines :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -145,11 +149,6 @@
   ;; definition into Causa's app-db), then sim-step with the
   ;; `:start` event so the cloned snapshot advances :idle → :loading
   ;; mid-execution. The variant renders the side rail + amber tint.
-  ;;
-  ;; TODO(rf2-sszlr follow-on): a deterministic 'mid-step with
-  ;; pending input populated' variant requires the sim's
-  ;; pending-event input to be controlled-input driven; the variant
-  ;; currently exercises one full step + leaves the trail visible.
   (story/reg-variant :story.causa.machines/uc1-sim-mid-step
     {:doc        "Single :loader machine + UC1 Sim active mid-step:
                  sim-start clones the definition, sim-step fires
@@ -172,12 +171,52 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- 7. UC1 Sim pending-input ------------------------------------
+  ;;
+  ;; Same UC1 Sim sub-mode as variant 6, but instead of stepping the
+  ;; cloned snapshot we seed the controlled-input slots
+  ;; (`:pending-event` + `:pending-data`) via the existing sim API
+  ;; (`:rf.causa/sim-set-pending-event` +
+  ;; `:rf.causa/sim-set-pending-data`). The snapshot stays at
+  ;; `:idle`; the side-rail event-input shows `[:start]` already
+  ;; typed and the payload input shows a sample EDN map, so the
+  ;; Step button is primed but not yet pressed.
+  ;;
+  ;; Approach (b) per rf2-cujgr — uses the existing sim API instead of
+  ;; bypass-writing app-db. Deterministic because the variant `:events`
+  ;; vector is dispatched in order at boot, the same order the existing
+  ;; `uc1-sim-mid-step` variant already relies on.
+  (story/reg-variant :story.causa.machines/uc1-sim-pending-input
+    {:doc        "Single :loader machine + UC1 Sim active with the
+                 side-rail controlled inputs populated mid-compose:
+                 `:pending-event` is `[:start]` and `:pending-data` is
+                 a sample EDN map. The snapshot stays at `:idle` — the
+                 user has typed but not yet pressed Step. Renders the
+                 side rail + amber tint with the inputs primed."
+     :events     [[:rf.causa/set-registered-machines-override-for-test [:loader]]
+                  [:rf.causa/set-machine-snapshots-override-for-test
+                   {:loader (fixtures/snapshot :idle
+                              {:result nil :attempts 0 :error nil})}]
+                  [:rf.causa/set-machine-definitions-override-for-test
+                   {:loader fixtures/loader-definition}]
+                  [:rf.causa/sync-trace-buffer (fixtures/no-transitions-buffer)]
+                  [:rf.causa/select-machine-id :loader]
+                  [:rf.causa/sim-start {:machine-id :loader
+                                        :definition fixtures/loader-definition}]
+                  [:rf.causa/sim-set-pending-event
+                   {:machine-id :loader :text "[:start]"}]
+                  [:rf.causa/sim-set-pending-data
+                   {:machine-id :loader :text "{:result :data}"}]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.causa.machines/all
-    {:doc      "All six Machines tab variants in one auto-grid.
+    {:doc      "All seven Machines tab variants in one auto-grid.
                 Scroll to see the panel's response across no-machines
                 / single Mode A / single Mode B / multi-machine /
-                many-transitions / UC1 Sim mid-step."
+                many-transitions / UC1 Sim mid-step / UC1 Sim
+                pending-input."
      :layout   :variants-grid
      :story    :story.causa.machines
      :columns  2
