@@ -32,6 +32,7 @@
   level keydown-dispatch story lives in the Playwright lane (rf2-s2bhn)
   on a real document."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.keybinding :as keybinding]))
 
 ;; ---- helpers -------------------------------------------------------------
@@ -443,3 +444,65 @@
     (is (nil? (spine-key-id (mk-event {:key "Enter"}))))
     (is (nil? (spine-key-id (mk-event {})))
         "empty event → nil")))
+
+;; ---- (6) :launch.keybinding/enabled? toggle (rf2-4eyik — rf2-q7who.A) ----
+;;
+;; Per Spec 015-Configuration §`:launch.keybinding/enabled?` the slot
+;; controls whether `attach!` installs the window-level capture-phase
+;; listener. Default `true` (existing hosts unaffected); embed hosts —
+;; Story mounts Causa as its RHS panel — flip it to `false` so their own
+;; global keybindings (typically `Cmd/Ctrl+K`) aren't swallowed by the
+;; capture-phase `stopPropagation()`.
+;;
+;; Each test sets the slot, exercises attach!, and ALWAYS resets it in
+;; a `finally` so the default (`true`) survives into neighbouring
+;; tests in the same suite run.
+
+(deftest attach-disabled-by-config-is-noop
+  (testing "rf2-4eyik (rf2-q7who.A) — with :launch.keybinding/enabled?
+            false, attach! does NOT register the global listener and
+            does NOT flip the sentinel; the embed-host contract"
+    (with-stub-document
+      (fn [{:keys [listeners]}]
+        (try
+          (config/set-keybinding-enabled! false)
+          (is (false? (config/keybinding-attach-enabled?))
+              "config flag flipped false")
+          (is (false? (keybinding/attached?))
+              "baseline — sentinel starts at false")
+          (keybinding/attach!)
+          (is (false? (keybinding/attached?))
+              "attach! short-circuited; sentinel stayed false")
+          (is (zero? (count @listeners))
+              "no listener registered on the stub document")
+          (finally
+            ;; Restore the default so neighbouring tests
+            ;; (attach-is-idempotent, detach-round-trips) see the
+            ;; baseline they were written against.
+            (config/set-keybinding-enabled! true)))))))
+
+(deftest attach-default-is-enabled
+  (testing "rf2-4eyik (rf2-q7who.A) — default config is true; attach!
+            registers as it did pre-rf2-4eyik. Defends against an
+            accidental flip of the default."
+    (with-stub-document
+      (fn [{:keys [listeners]}]
+        (is (true? (config/keybinding-attach-enabled?))
+            "default state — slot is true")
+        (keybinding/attach!)
+        (is (true? (keybinding/attached?))
+            "sentinel flipped true under default config")
+        (is (= 1 (count @listeners))
+            "one keydown listener registered as before")))))
+
+(deftest config-set-keybinding-enabled-nil-resets-to-true
+  (testing "rf2-4eyik — `nil` arg restores the default `true` per the
+            convention shared with set-auto-open! / set-editor!"
+    (try
+      (config/set-keybinding-enabled! false)
+      (is (false? (config/keybinding-attach-enabled?)))
+      (config/set-keybinding-enabled! nil)
+      (is (true? (config/keybinding-attach-enabled?))
+          "nil restores the default")
+      (finally
+        (config/set-keybinding-enabled! true)))))

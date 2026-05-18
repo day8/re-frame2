@@ -319,6 +319,23 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Rou Iss`); counts always full. Below 560px the strip scrolls horizontally.
 
+### Tab strip ARIA
+
+The L3 tab strip uses the proper ARIA tab pattern (per rf2-lvf8t —
+rf2-q7who Thread B):
+
+- The wrapping element is a generic container (`<div>`) with
+  `role='tablist'` and a descriptive `aria-label`. It MUST NOT be a
+  `<nav>` element: tabs are not site navigation, and a `<nav>`
+  landmark collides with host-app `<nav>` landmarks under role-based
+  queries (`getByRole('navigation')` becomes ambiguous when Causa is
+  embedded — e.g. as Story's right-hand-side panel).
+- Each tab button carries `role='tab'` and `aria-selected="true"` /
+  `"false"` reflecting the active tab.
+
+The `data-testid="rf-causa-tab-bar"` selector remains the canonical
+test addressing surface; ARIA is the user-facing assistive contract.
+
 ### Detail panel layout
 
 L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). All value displays in the detail panel use the cljs-devtools-shaped renderer (`theme/data_inspector.cljc`):

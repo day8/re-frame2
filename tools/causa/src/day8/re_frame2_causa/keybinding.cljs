@@ -55,6 +55,7 @@
   editable-element guard means even a future Causa-side input field
   (e.g. the filter-pill edit popup) doesn't fight the user typing."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.mount :as mount]))
 
 (defonce ^:private attached-state
@@ -228,9 +229,18 @@
 
 (defn attach!
   "Install the global Ctrl+Shift+C listener once. No-op on second +
-  subsequent calls (the `attached-state` sentinel survives reloads)."
+  subsequent calls (the `attached-state` sentinel survives reloads).
+
+  Honours the `:launch.keybinding/enabled?` config slot (rf2-4eyik —
+  rf2-q7who Thread A). When the slot is `false` the listener is NOT
+  installed: embed hosts (Story RHS, third-party tool surfaces) flip
+  the slot before the preload runs so their own global keybindings
+  (typically `Cmd/Ctrl+K` for the host's command palette) are not
+  swallowed by Causa's capture-phase listener. Standalone Causa
+  (default, slot = `true`) attaches as before."
   []
   (when (and (exists? js/document)
+             (config/keybinding-attach-enabled?)
              (compare-and-set! attached-state false true))
     (.addEventListener js/document "keydown" handle-keydown true))
   nil)

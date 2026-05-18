@@ -224,6 +224,63 @@
   []
   @auto-open?)
 
+;; ---- *keybinding-enabled?* (rf2-4eyik — embed-host opt-out for the
+;; global keydown listener) ------------------------------------------------
+;;
+;; Causa attaches a window-level capture-phase `keydown` listener
+;; (`keybinding/attach!`) that handles `Ctrl+Shift+C` (shell toggle),
+;; `Cmd/Ctrl+K` (command palette), and the unmodified spine bindings
+;; (`Space` / `L` / `j` / `k` / `G` / `c` / `Esc`). The handler calls
+;; `stopPropagation()` for keys it consumes so host bindings further down
+;; the event path don't double-fire.
+;;
+;; Embed hosts (Story mounts Causa as its right-hand-side panel)
+;; routinely register their own `Cmd/Ctrl+K` palette + their own
+;; bindings. With Causa's listener attached at the capture phase the
+;; host's own bindings never fire — the embed silently swallows
+;; keystrokes that belong to the host (rf2-q7who Thread A, observed
+;; via rf2-drprn).
+;;
+;; The flag is the host's surrender switch: set it to `false` BEFORE
+;; the Causa preload runs (typically inside the host's boot sequence
+;; via `(causa-config/configure! {:launch.keybinding/enabled? false})`)
+;; and `keybinding/attach!` short-circuits to a no-op. The shell is
+;; still mountable / dispatchable / inspectable via Causa's other
+;; surfaces (the host owns its own open-Causa affordance); only the
+;; global listener is suppressed.
+;;
+;; Standalone Causa (the default) keeps the listener attached — the
+;; default is `true` so existing hosts that never set the flag observe
+;; no behaviour change.
+
+(defonce
+  ^{:doc "Atom controlling whether `keybinding/attach!` installs the
+         global window-level keydown listener. Default `true` (the
+         standalone Causa shell needs its Ctrl+Shift+C / Cmd-K / spine
+         bindings). Set to `false` by embed hosts (Story RHS, third-
+         party tool surfaces) whose own keybindings collide with
+         Causa's — `attach!` short-circuits to a no-op. Per rf2-4eyik
+         (rf2-q7who Thread A)."}
+  keybinding-enabled?
+  (atom true))
+
+(defn set-keybinding-enabled!
+  "Replace the `:launch.keybinding/enabled?` flag. `nil` resets to the
+  default (`true`). Hosts MUST set this BEFORE the Causa preload runs
+  (the preload calls `keybinding/attach!` at adapter-ready time);
+  setting it afterwards is a no-op on the already-attached listener
+  unless the host explicitly calls `keybinding/detach!`."
+  [v]
+  (reset! keybinding-enabled? (if (nil? v) true (boolean v)))
+  nil)
+
+(defn keybinding-attach-enabled?
+  "Return true when `keybinding/attach!` should install the global
+  keydown listener. Read by `keybinding/attach!` at attach time. Per
+  rf2-4eyik (rf2-q7who Thread A)."
+  []
+  @keybinding-enabled?)
+
 (defonce
   ^{:doc "Atom holding Causa's 'Open in editor' preference. Default
          `:vscode`. Accepts the keywords `:vscode` / `:cursor` /
@@ -895,6 +952,15 @@
        `true`. Story/tool pages that deliberately run without an app
        layout host may set this to `false` before `rf/init!`; explicit
        open!/toggle! still diagnose a missing host.
+    `{:launch.keybinding/enabled? <bool>}` — whether `keybinding/attach!`
+       installs Causa's global window-level keydown listener
+       (Ctrl+Shift+C / Cmd/Ctrl+K / spine bindings). Defaults to
+       `true` — standalone Causa needs the listener. Embed hosts
+       (Story mounts Causa as RHS) set `false` so their own global
+       keybindings — typically `Cmd/Ctrl+K` for the host's command
+       palette — are not swallowed by Causa's capture-phase listener.
+       Per rf2-4eyik (rf2-q7who Thread A). MUST be set BEFORE the
+       Causa preload runs.
     `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
        true` trace events per Spec 009 §Privacy (rf2-azls9). Defaults
        to `false` — Causa's trace collector drops sensitive events
@@ -932,6 +998,7 @@
   [{:keys [editor project-root settings]
     host-selector-opt :layout/host-selector
     auto-open-opt :launch/auto-open?
+    keybinding-opt :launch.keybinding/enabled?
     show-sensitive-opt :trace/show-sensitive?
     filters-opt :filters
     filters-key-opt :filters/storage-key
@@ -944,6 +1011,8 @@
     (set-layout-host-selector! host-selector-opt))
   (when (contains? opts :launch/auto-open?)
     (set-auto-open! auto-open-opt))
+  (when (contains? opts :launch.keybinding/enabled?)
+    (set-keybinding-enabled! keybinding-opt))
   (when (contains? opts :trace/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
   ;; NB: `settings` here is the destructured bulk-config map; the
