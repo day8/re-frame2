@@ -291,6 +291,15 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'login_form', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-form'),
   },
+  // Causa-as-Story-RHS smoke testbed (rf2-drprn). Minimal Story shell
+  // + Causa preload, used by the companion spec.cjs to exercise the
+  // four Causa-side replacement scenarios for the Story RHS panels
+  // retired in PR #1478 (rf2-sgdd3).
+  {
+    build: 'examples/causa-rhs-smoke',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'causa_rhs_smoke', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'causa-rhs-smoke'),
+  },
   // Pattern-LongRunningWork worked example (rf2-o9fg) —
   // :invoke-all spawn-and-join with progress reporting and a
   // cooperative cancellation cascade on parent-unmount.
