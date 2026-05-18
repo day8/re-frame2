@@ -9,6 +9,62 @@
 (def empty-state slices/empty-state)
 (def changed-slices-stack slices/changed-slices-stack)
 
+;; ---- rf2-bz1cl — redacted-paths-modified hint chip ----------------------
+;;
+;; A muted-grey `·`-marker chip at the top of the diff body. Surfaces
+;; "N redacted paths were modified at this cascade" when count > 0.
+;; The marker matches the family established by rf2-87lkf's Views polish
+;; (just merged in #1498) — `·` for muted / informational signal, `✱`
+;; for amber / attention-cue.
+;;
+;; Why a chip and not a diff row: the elision contract (per
+;; spec/015-Data-Classification.md + spec/Security.md §Epoch privacy
+;; posture) deliberately suppresses the underlying value at redacted
+;; paths. Synthesising a fake diff row that says "(redacted) → (redacted)"
+;; would either be useless (no signal) or misleading (suggesting the
+;; renderer broke the contract). The chip is a SEPARATE signal that
+;; complements the diff body without overriding it.
+;;
+;; Tooltip: the chip explains the elision contract so the developer
+;; understands both *what* the count means and *why* the values aren't
+;; in the diff body.
+
+(defn redacted-modified-chip
+  "Render a muted-grey informational chip above the diff body when
+  `count` > 0. Returns nil when count is 0/nil (no chip, no DOM).
+  Per rf2-bz1cl."
+  [count]
+  (when (and (number? count) (pos? count))
+    [:div {:data-testid "rf-causa-app-db-diff-redacted-modified-chip"
+           :title       (str count
+                             (if (= 1 count) " redacted path" " redacted paths")
+                             " in modified subtrees. The elision contract"
+                             " suppresses values where both sides are"
+                             " :rf/redacted, so no diff row is shown — but"
+                             " the enclosing subtree provably changed."
+                             " See spec/015-Data-Classification.md for the"
+                             " redaction contract.")
+           :style       {:display       "inline-flex"
+                         :align-items   "center"
+                         :gap           "6px"
+                         :margin        "8px 12px 0 12px"
+                         :padding       "3px 10px"
+                         :background    (:bg-3 tokens)
+                         :border        (str "1px solid " (:border-subtle tokens))
+                         :border-radius "10px"
+                         :color         (:text-tertiary tokens)
+                         :font-family   sans-stack
+                         :font-size     "11px"
+                         :line-height   "16px"
+                         :cursor        "help"
+                         :user-select   "none"}}
+     [:span {:style {:color (:text-tertiary tokens)
+                     :font-weight 600}} "·"]
+     [:span (str count
+                 (if (= 1 count)
+                   " redacted path modified"
+                   " redacted paths modified"))]]))
+
 (defn- reserved-row
   [[k v]]
   [:div {:data-testid (str "rf-causa-app-db-diff-reserved-" (pr-str k))

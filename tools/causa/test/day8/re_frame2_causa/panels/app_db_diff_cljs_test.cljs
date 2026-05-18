@@ -55,7 +55,11 @@
   ;; `defonce` (lifted from let-local for rf2-o94sp testability).
   ;; Reset between tests so
   ;; cache-size assertions are reproducible across the corpus.
-  (reset! app-db-diff-subs/diff-cache {}))
+  (reset! app-db-diff-subs/diff-cache {})
+  ;; rf2-bz1cl — redacted-paths-modified cache mirrors the same
+  ;; per-`:epoch-id` caching contract; reset between tests for
+  ;; reproducibility.
+  (reset! app-db-diff-subs/redacted-modified-cache {}))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
@@ -184,7 +188,10 @@
         (is (true? (:history-empty? data)))
         (is (nil? (:focused-path data)))
         (is (= [] (:pinned-slices data)))
-        (is (= [] (:focused-hits data)))))))
+        (is (= [] (:focused-hits data)))
+        ;; rf2-bz1cl — chip count defaults to 0 (no history → no
+        ;; redacted-modified paths anywhere).
+        (is (= 0 (:redacted-modified-count data)))))))
 
 ;; ---- (3) selected-epoch-diff produces correct triples -------------------
 
@@ -745,3 +752,102 @@
         (is (= :cart-frame (:target-frame data))
             "composite's :target-frame surface reflects the picker
              selection (rf2-fvplw — preserved post-rf2-ug1r6)")))))
+
+;; ---- rf2-bz1cl — redacted-paths-modified hint chip ----------------------
+;;
+;; Per spec/015-Data-Classification.md the elision contract substitutes
+;; the `:rf/redacted` sentinel at sensitive paths. An app-supplied
+;; epoch `:redact-fn` (per spec/Security.md §Epoch privacy posture) can
+;; substitute the sentinel into `:db-before` / `:db-after` directly.
+;; When that happens the structural diff sees `:rf/redacted` on both
+;; sides → no row → empty diff body → developer can't tell anything
+;; changed.
+;;
+;; The chip closes that gap. These tests pin the surface end-to-end:
+;; composite count slot + view render.
+
+(deftest redacted-modified-count-zero-when-no-redacted-history
+  (testing "the composite's `:redacted-modified-count` is 0 when no
+            cascade involved a redacted leaf"
+    (seed-causa! {:counter 1}
+                 [(mk-record :e-1 [:counter/inc] {:counter 0} {:counter 1})])
+    (rf/with-frame :rf/causa
+      (let [data @(rf/subscribe [:rf.causa/app-db-diff])]
+        (is (= 0 (:redacted-modified-count data)))))))
+
+(deftest redacted-modified-count-non-zero-when-redact-fn-substituted
+  (testing "when a `:redact-fn` substituted `:rf/redacted` into both
+            `:db-before` and `:db-after` at the same path inside a
+            mutated subtree, the count is non-zero — the chip will
+            surface on the view"
+    (let [before {:auth {:token :rf/redacted :method :jwt}}
+          after  {:auth {:token :rf/redacted :method :session}}]
+      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
+      (rf/with-frame :rf/causa
+        (let [data @(rf/subscribe [:rf.causa/app-db-diff])]
+          (is (= 1 (:redacted-modified-count data))
+              "the :auth :token leaf is redacted both sides; the parent
+               subtree mutated (sibling :method changed); chip count = 1"))))))
+
+(deftest redacted-modified-count-cache-hits-on-repeat-deref
+  (testing "the count is cached per `:epoch-id`; second deref returns
+            the same integer (the cache short-circuit pattern mirrors
+            `:selected-epoch-diff`)"
+    (let [before {:auth {:token :rf/redacted}}
+          after  {:auth {:token :rf/redacted :method :session}}]
+      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
+      (rf/with-frame :rf/causa
+        (let [first-call  @(rf/subscribe
+                             [:rf.causa/selected-epoch-redacted-modified-count])
+              second-call @(rf/subscribe
+                             [:rf.causa/selected-epoch-redacted-modified-count])]
+          (is (= 1 first-call))
+          (is (= first-call second-call))
+          (is (= 1 (count @app-db-diff-subs/redacted-modified-cache))
+              "cache holds exactly one entry for the one live epoch"))))))
+
+(deftest redacted-modified-chip-renders-when-count-positive
+  (testing "the chip is in the rendered hiccup tree when the count is
+            > 0; the tooltip text mentions the redaction contract so
+            the developer understands what the chip means"
+    (let [before {:auth {:token :rf/redacted :method :jwt}}
+          after  {:auth {:token :rf/redacted :method :session}}]
+      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
+      (rf/with-frame :rf/causa
+        (let [tree (app-db-diff/Panel)
+              chip (find-by-testid
+                     tree "rf-causa-app-db-diff-redacted-modified-chip")]
+          (is (some? chip) "chip is present when count > 0")
+          (let [chip-text (pr-str chip)]
+            (is (str/includes? chip-text "1 redacted path modified")
+                "singular phrasing for count = 1")
+            (is (str/includes? (or (:title (second chip)) "")
+                               "elision contract")
+                "tooltip mentions the contract that explains the chip")))))))
+
+(deftest redacted-modified-chip-absent-when-count-zero
+  (testing "the chip is NOT in the rendered hiccup tree when no
+            redacted-modified paths exist — no DOM clutter for the
+            common (no privacy declarations) case"
+    (seed-causa! {:counter 1}
+                 [(mk-record :e-1 [:counter/inc] {:counter 0} {:counter 1})])
+    (rf/with-frame :rf/causa
+      (let [tree (app-db-diff/Panel)]
+        (is (nil? (find-by-testid
+                    tree "rf-causa-app-db-diff-redacted-modified-chip"))
+            "chip absent when count = 0")))))
+
+(deftest redacted-modified-chip-uses-plural-phrasing-for-many
+  (testing "more than one redacted path → plural form"
+    (let [before {:auth   {:token   :rf/redacted}
+                  :secret {:api-key :rf/redacted}}
+          after  {:auth   {:token   :rf/redacted :method :session}
+                  :secret {:api-key :rf/redacted :rotated-at 99}}]
+      (seed-causa! after [(mk-record :e-1 [:auth/rotate] before after)])
+      (rf/with-frame :rf/causa
+        (let [tree (app-db-diff/Panel)
+              chip (find-by-testid
+                     tree "rf-causa-app-db-diff-redacted-modified-chip")]
+          (is (some? chip))
+          (is (str/includes? (pr-str chip) "2 redacted paths modified")
+              "plural phrasing for count > 1"))))))
