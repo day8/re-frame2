@@ -146,6 +146,49 @@
          (is (false? (:passed? (nth results 1))))))))
 
 #?(:clj
+   (deftest assert-db-pred-fn-direct
+     (testing ":assert-db :pred accepts a fn directly (rf2-inbad — advanced-CLJS-safe)"
+       (rf/reg-event-db :rt/set-n
+         (fn [db [_ v]] (assoc db :n v)))
+       (story/reg-variant :story.runner/pred-fn
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/set-n 7]]
+                                    [:assert-db [:n] :pred pos?]
+                                    [:assert-db [:n] :pred neg?]
+                                    [:assert-db [:n] :pred (fn [x] (= x 7))]]}})
+       (async/deref-blocking (story/run-variant :story.runner/pred-fn) 5000)
+       (let [final   (run-blocking :story.runner/pred-fn)
+             results (filterv #(= :assert-db (:type %)) (:results final))]
+         (is (= :fail (:status final))
+             "neg? against 7 fails — overall status is :fail")
+         (is (= 3 (count results)))
+         (is (true?  (:passed? (nth results 0))) "pos? against 7 passes")
+         (is (false? (:passed? (nth results 1))) "neg? against 7 fails")
+         (is (true?  (:passed? (nth results 2))) "anonymous fn passes")
+         (is (re-find #"<fn>" (:message (nth results 1)))
+             "failure message renders fn ref as <fn> — no compiler-munged leakage")))))
+
+#?(:clj
+   (deftest assert-db-pred-bogus-symbol-fails-gracefully
+     (testing ":assert-db :pred with an unresolvable symbol fails gracefully (rf2-inbad)"
+       (rf/reg-event-db :rt/set-n
+         (fn [db [_ v]] (assoc db :n v)))
+       (story/reg-variant :story.runner/pred-bogus
+         {:events      []
+          :play-script {:auto-run? false
+                        :script    [[:dispatch-sync [:rt/set-n 7]]
+                                    [:assert-db [:n] :pred 'no.such.ns/missing-pred]]}})
+       (async/deref-blocking (story/run-variant :story.runner/pred-bogus) 5000)
+       (let [final   (run-blocking :story.runner/pred-bogus)
+             results (filterv #(= :assert-db (:type %)) (:results final))]
+         (is (= :fail (:status final)))
+         (is (= 1 (count results)))
+         (is (false? (:passed? (first results))))
+         (is (re-find #"could not resolve" (:message (first results)))
+             "user-facing message mentions resolution failure")))))
+
+#?(:clj
    (deftest run-records-results-in-order
      (testing "results vector reflects step order"
        (rf/reg-event-db :rt/touch

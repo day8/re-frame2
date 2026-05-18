@@ -601,6 +601,26 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  ;; rf2-inbad fn-direct :pred fixture — verifies the advanced-CLJS-safe
+  ;; authoring path for `:assert-db :pred` (a fn reference handed in
+  ;; directly instead of a symbol). The fixture pairs an in-line
+  ;; anonymous predicate with a top-level clojure.core predicate so both
+  ;; cases land in the browser-side play-script runner.
+  (story/reg-variant :story.counter-play-script/pred-fn-direct
+    {:doc        "rf2-inbad CI fixture — `:assert-db :pred` with fn
+                 references handed in directly. Survives advanced CLJS
+                 because no symbol resolution is performed at run time."
+     :args       {:label "Play-script :pred fn-direct"}
+     :events     []
+     :play-script
+     {:name      "pred-fn-direct-passes"
+      :auto-run? true
+      :script    [[:dispatch-sync [:counter/initialise 3]]
+                  [:assert-db [:count] :pred pos?]
+                  [:assert-db [:count] :pred (fn [n] (= n 3))]]}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; rf2-e0kof DOM-step fixtures — live-browser coverage of the rich-DSL
   ;; `:click` / `:type` / `:assert-dom` steps. The pure-step + JVM
   ;; coverage in tools/story/test/re_frame/story/play/ exercises the
