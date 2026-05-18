@@ -113,8 +113,8 @@ through small wrappers in `test/realworld/test_helpers.cljs`.
 
 Each test fn is a plain zero-arg `defn`; failures throw via `assert`. The
 shadow-cljs `node-test` build picks them up via the integration wrapper
-at `implementation/test/re_frame/realworld_cljs_test.cljs` (run with
-`npm run test:cljs` from the `implementation/` directory).
+at `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`
+(run with `npm run test:cljs` from the `implementation/` directory).
 
 The Playwright spec at `realworld.spec.cjs` exercises the user-visible
 flow against the `:rf.http/managed.realworld-demo` override and runs as
