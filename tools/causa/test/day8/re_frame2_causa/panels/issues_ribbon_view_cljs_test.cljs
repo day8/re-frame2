@@ -454,6 +454,102 @@
         (is @stop-evt "stopPropagation was called so the row's pivot
                        handler doesn't also fire")))))
 
+;; ---- cascade scope (rf2-u6dhp) -----------------------------------------
+
+(deftest issues-ribbon-scopes-to-focused-event-cascade
+  (testing "with two cascades in the buffer the composite renders only
+            issues from the spine's focused cascade — strict cascade
+            scope per rf2-u6dhp"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Two cascades worth of issues: dispatch-id 7 carries ids 1+2,
+      ;; dispatch-id 9 carries ids 3+4.
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 2 :op-type :warning
+                              :operation :rf.warning/recoverable
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 3 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 9}))
+      (push-trace! (mk-issue {:id 4 :op-type :warning
+                              :operation :rf.warning/recoverable
+                              :dispatch-id 9}))
+      ;; Pin the spine focus to cascade 7 (defaults to head = 9 in LIVE).
+      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= 2 (:total data))
+            "cascade-scoped total reflects only the focused cascade")
+        (is (= #{1 2} (set (map :id (:issues data))))
+            "only issues from the focused cascade pass")))))
+
+(deftest issues-ribbon-rebinds-when-focus-changes
+  (testing "clicking a different L2 event re-renders the Issues tab
+            for the newly-focused cascade"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 2 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 9}))
+      ;; Initially focus cascade 7.
+      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
+      (let [data-a @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= [1] (mapv :id (:issues data-a)))))
+      ;; Pivot focus to cascade 9 (L2-click equivalent).
+      (rf/dispatch-sync [:rf.causa/focus-cascade 9])
+      (let [data-b @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= [2] (mapv :id (:issues data-b))))))))
+
+(deftest issues-ribbon-cascade-scope-ands-with-chip-filters
+  (testing "user chip filters AND on top of cascade scope — both
+            axes restrict the rendered feed"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 2 :op-type :warning
+                              :operation :rf.warning/recoverable
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 3 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 9}))
+      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :error])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])]
+        (is (= 2 (:total data)) "cascade scope: 2 in cascade 7")
+        (is (= 1 (:rendered data)) "severity chip narrows to 1")
+        (is (= [1] (mapv :id (:issues data))))))))
+
+(deftest issues-ribbon-renders-no-issues-for-event-empty-state
+  (testing "when the buffer carries issues but the focused cascade
+            has none, the panel renders the :no-issues-for-event
+            empty state — distinct from :no-issues (global empty)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      ;; Focus a cascade that has no issues. We need this cascade to
+      ;; actually exist in the buffer for `compose-focus` to honour
+      ;; the pin — seed a benign trace event with dispatch-id 99.
+      (push-trace! {:id 99 :time 1000 :op-type :event
+                    :operation :event/dispatched
+                    :tags {:dispatch-id 99 :event [:noop]}})
+      (rf/dispatch-sync [:rf.causa/focus-cascade 99])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
+            tree (issues-ribbon/Panel)]
+        (is (= :no-issues-for-event (:empty-kind data)))
+        (is (= 0 (:total data)))
+        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues-for-event"))
+            ":no-issues-for-event empty-state container present")
+        (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
+            "no feed list rendered when the focused cascade has no issues")))))
+
 ;; ---- (10) frame isolation ----------------------------------------------
 
 (deftest issues-filter-state-does-not-leak-into-default-frame
