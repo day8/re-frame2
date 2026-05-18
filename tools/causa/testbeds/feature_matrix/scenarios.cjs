@@ -790,7 +790,13 @@ async function readLaunchModeProjection(page) {
         selectedDispatchId: cascade ? cascade.getAttribute('data-dispatch-id') : null,
         selectedFrame: cascade ? cascade.getAttribute('data-frame') : null,
         cascadeText: text(root, '[data-testid="rf-causa-event-detail-cascade"]'),
-        cascadeRows: count(root, '[data-testid^="rf-causa-cascade-row-"]'),
+        // Per rf2-639lc the L4 Event panel default-focuses the head
+        // cascade on mount — the cascade-detail container is the
+        // primary surface. The legacy `rf-causa-cascade-row-*` list
+        // only renders in the empty-state branch (no routable
+        // cascades). `cascadeRows` is 1 when cascade-detail is
+        // rendered, 0 when the empty container or orphaned branch is.
+        cascadeRows: count(root, '[data-testid="rf-causa-event-detail-cascade"]'),
         traceRows: count(root, '[data-testid^="rf-causa-trace-row-"]'),
         traceCountsText: text(root, '[data-testid="rf-causa-trace-counts"]'),
       };
@@ -880,10 +886,15 @@ async function runShellFeatureSweep(page) {
   await clickHostButtonByLabel(page, '-');
 
   await clickTab(page, 'event', 'rf-causa-event-detail');
+  // Per rf2-639lc the L4 Event panel default-focuses the head cascade
+  // on mount, so the panel renders `rf-causa-event-detail-cascade`
+  // (six-domino detail) directly — no click-into-list step required.
+  // The legacy `rf-causa-cascade-row-*` empty-state rows only appear
+  // when the panel has no routable cascade to default-focus on.
   await waitForValue(
-    () => page.locator('[data-testid^="rf-causa-cascade-row-"]').count(),
+    () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
     (count) => count > 0,
-    { timeoutMs: 5000, description: 'event-detail cascade rows' },
+    { timeoutMs: 5000, description: 'event-detail cascade default-focus' },
   );
 
   await clickTab(page, 'trace', 'rf-causa-trace');
@@ -1052,22 +1063,21 @@ async function runHttpToggle(page) {
 
   // Post rf2-xy4yb: the dedicated Effects (fx) panel was dropped.
   // Per spec/018 §5 fx-handlers-ran now lands as an `fx` + `effects`
-  // domino row inside the cascade-detail of the Event tab. Pick the
-  // first cascade row and assert its rendered detail carries an fx
-  // row (the `:rf.fx/handled` emits for the dispatched `:go` event
-  // are projected into the `effects` block).
+  // domino row inside the cascade-detail of the Event tab. Per
+  // rf2-639lc the L4 panel default-focuses the head (most-recent)
+  // cascade on mount — so opening the tab after the last `:go`
+  // dispatch already surfaces its cascade-detail. Assert the rendered
+  // detail carries an fx row (the `:rf.fx/handled` emits for the
+  // dispatched `:go` event are projected into the `effects` block).
   await clickTab(page, 'event', 'rf-causa-event-detail');
-  const firstCascade = await waitForValue(
-    () => page.locator('[data-testid^="rf-causa-cascade-row-"]').first().getAttribute('data-testid'),
-    (id) => typeof id === 'string' && id.length > 0,
-    { timeoutMs: 5000, description: 'first cascade row in event tab' },
-  );
-  await page.locator(`[data-testid="${firstCascade}"]`).click();
   await expectVisible(page.locator('[data-testid="rf-causa-event-detail-cascade"]'), 5000);
   const cascadeText = ((await page.locator('[data-testid="rf-causa-event-detail-cascade"]').textContent()) || '').toLowerCase();
   if (!cascadeText.includes('effects') && !cascadeText.includes('fx')) {
+    const dispatchId = await page
+      .locator('[data-testid="rf-causa-event-detail-cascade"]')
+      .getAttribute('data-dispatch-id');
     failWithDetails('Event-tab cascade-detail did not surface the fx/effects domino rows', {
-      firstCascade,
+      dispatchId,
       cascadeText: cascadeText.slice(0, 800),
     });
   }
@@ -1326,10 +1336,13 @@ async function runTwentyEventLoad(page, state) {
   );
   const elapsedMs = Date.now() - start;
   await clickTab(page, 'event', 'rf-causa-event-detail');
+  // Per rf2-639lc the L4 panel default-focuses the head cascade on
+  // mount — assert the cascade-detail surface rendered (proves the
+  // spine pipeline emitted routable cascades visible to L4).
   await waitForValue(
-    () => page.locator('[data-testid^="rf-causa-cascade-row-"]').count(),
+    () => page.locator('[data-testid="rf-causa-event-detail-cascade"]').count(),
     (count) => count > 0,
-    { timeoutMs: 5000, description: 'event-detail cascade rows after load' },
+    { timeoutMs: 5000, description: 'event-detail cascade default-focus after load' },
   );
   // Post rf2-xy4yb: the Causality Graph panel was dropped (planned
   // future popover via `c` key — not yet wired). The 20-event
