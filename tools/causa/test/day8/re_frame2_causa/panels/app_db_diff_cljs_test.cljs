@@ -32,6 +32,7 @@
   mounting to a DOM. Keeps the suite fast + host-portable on node-
   test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -615,3 +616,56 @@
       (let [causa-db (frame/frame-app-db-value :rf/causa)]
         (is (= [:cart :items]
                (:focused-slice-path causa-db)))))))
+
+;; ---- rf2-fvplw — App-db panel follows picker / focused frame -----------
+
+(deftest observed-frame-follows-rf-causa-set-frame
+  (testing "rf2-fvplw — the frame-picker dispatches `:rf.causa/set-frame`
+            which writes `[:focus :frame]`. The App-db panel's
+            `:rf.causa/observed-frame` sub picks the focused frame up,
+            and the composite's `:target-frame` surface reflects it.
+            Pre-fix the panel read the legacy `:rf.causa/target-frame`
+            slot (which `:rf.causa/set-frame` does NOT touch) and stayed
+            stuck on `:rf/default` regardless of picker selection."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :checkout-frame {})
+    (rf/with-frame :rf/causa
+      ;; Cold-start sanity — observed frame is the default before any
+      ;; picker selection lands.
+      (is (= :rf/default @(rf/subscribe [:rf.causa/observed-frame])))
+      (is (= :rf/default (:target-frame @(rf/subscribe [:rf.causa/app-db-diff]))))
+      ;; User picks :checkout-frame in the ribbon dropdown.
+      (rf/dispatch-sync [:rf.causa/set-frame :checkout-frame])
+      (is (= :checkout-frame @(rf/subscribe [:rf.causa/observed-frame])))
+      (is (= :checkout-frame
+             (:target-frame @(rf/subscribe [:rf.causa/app-db-diff])))
+          "composite's :target-frame surface follows the picker"))))
+
+(deftest empty-state-renders-picker-selected-frame
+  (testing "rf2-fvplw — when history is empty for the picked frame, the
+            empty-state body shows the picked frame's name (NOT the
+            hardcoded `:rf/default`). Pre-fix the body always read
+            'app-db for :rf/default is at the boot value.' regardless
+            of picker selection — the contradiction Mike's testbed
+            surfaced when picking `:checkout-frame` displayed
+            `:rf/default` boot copy."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :checkout-frame {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-frame :checkout-frame])
+      (let [tree (app-db-diff/Panel)
+            empty (find-by-testid tree "rf-causa-app-db-diff-empty")]
+        (is (some? empty) "empty state present (history is empty)")
+        ;; Walk the empty-state node and find the `:code` node carrying
+        ;; the frame id. The frame id renders inside a `[:code …]` child
+        ;; of the first `:p`; assert the text reflects the picker.
+        (let [rendered-text (pr-str empty)]
+          (is (str/includes? rendered-text ":checkout-frame")
+              "empty-state mentions the picker-selected frame")
+          (is (not (str/includes? rendered-text ":rf/default"))
+              "empty-state does NOT show the hardcoded default frame
+               when the picker has selected a different frame"))))))
