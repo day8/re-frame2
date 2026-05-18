@@ -222,8 +222,8 @@ their `staticwebapp.config.json` under Azure, etc.).
 | The layout-debug overlay trio | bundled |
 | The chrome-level toolbar + mode-tabs strip | bundled |
 | The a11y panel (axe-core lazy-load endpoint stays the same) | bundled |
-| The six-domino trace panel | bundled |
-| The scrubber + time-travel cross-reference | bundled |
+| The per-variant trace-buffer infra (feeds the schema-validation panel) | bundled |
+| Causa (when the host build includes its preload) | bundled |
 
 ## What gets stripped
 

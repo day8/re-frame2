@@ -125,13 +125,15 @@ axe-core integration runs against the rendered DOM:
 
 Phase 1 §3.1 #3 names this "the cheapest win in the space."
 
-### Six-domino trace panel
+### Six-domino trace (via embedded Causa)
 
-Per [`003-Render-Shell.md`](003-Render-Shell.md) §Trace bus, every
-variant's frame gets a `register-trace-cb!` registration at mount.
-The trace panel renders the six dominoes (event → handler → fx →
-effect → subscription → re-render) live, side-by-side with the variant
-pane.
+Per [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane,
+Causa is mounted as the RHS primary inspector by default (rf2-sgdd3).
+Causa's Trace tab renders the six dominoes (event → handler → fx →
+effect → subscription → re-render) live, scoped to the selected
+variant's frame. Story's per-variant `trace-buffer` listener stays
+in place to feed the schema-validation panel; Causa runs its own
+trace-cb registration for its UI.
 
 This is the debugging UX no JS tool can match — re-frame's structured
 trace has no JS analogue.

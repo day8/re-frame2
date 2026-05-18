@@ -43,13 +43,16 @@ inspector row:
 ┌──────────────────────────────────────────────────────────────┐
 │ [chip] [chip] [chip] [chip]   ●dark ●mobile   [reset]        │  ← toolbar
 ├──────────┬───────────────────────────────────┬───────────────┤
-│ sidebar  │ Canvas │ Docs │ Tests │           │ controls      │  ← mode-tabs strip
+│ sidebar  │ Canvas │ Docs │ Tests │           │ Causa         │  ← mode-tabs strip
 │          ├───────────────────────────────────┤ ───────────── │
-│ stories  │                                   │ scrubber      │
+│ stories  │                                   │ controls      │
 │ tags     │   <selected mode's pane>          │ ───────────── │
-│ ws       │                                   │ trace         │
+│ ws       │                                   │ disp. console │
 └──────────┴───────────────────────────────────┴───────────────┘
 ```
+
+(RHS shape per rf2-sgdd3 — scrubber / trace / actions panels were
+retired; Causa is the always-on primary inspector now.)
 
 The strip renders inside the shell's root container, **before** the
 flex-row that holds `[sidebar] [main] [right-panel]`. It always

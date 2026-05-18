@@ -1,10 +1,11 @@
 # Story — Render Shell
 
-> The UI: sidebar, canvas, controls, workspaces, scrubber, trace; the
-> five workspace layouts (`:grid` / `:prose` / `:variants-grid` /
-> `:tabs` / `:custom`); hot-reload decorator fingerprinting; the
-> `mount-shell!` / `unmount-shell!` / `active-shell` lifecycle. The
-> contract Stage 4 implements.
+> The UI: sidebar, canvas, controls, workspaces, embedded Causa
+> inspector; the five workspace layouts (`:grid` / `:prose` /
+> `:variants-grid` / `:tabs` / `:custom`); hot-reload decorator
+> fingerprinting; the `mount-shell!` / `unmount-shell!` /
+> `active-shell` lifecycle. The contract Stage 4 implements (RHS
+> revised per rf2-sgdd3 — see §Right-hand pane below).
 
 See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 `:test` mode-tabs primitive that sits at the top of the canvas pane
@@ -12,8 +13,8 @@ See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 
 ## UI shell substrate
 
-Story's own UI shell (sidebar, control panel, trace ribbon, embedded
-Causa panel, etc.) renders using **Reagent** at v1, sourced from
+Story's own UI shell (sidebar, control panel, embedded Causa inspector,
+dispatch console, etc.) renders using **Reagent** at v1, sourced from
 `implementation/adapters/reagent/`. The UI shell namespaces live under
 `tools.story.ui.*`.
 
@@ -106,9 +107,39 @@ change; Stage 4 also adds the "Save layout" affordance.
 form. Rationale: see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 §both-workspace-persistence.
 
+## Right-hand pane (rf2-sgdd3)
+
+The RHS stacks four regions vertically:
+
+1. **Causa** — primary always-on inspector. Mounted into a
+   `[data-rf-causa-host]` slot at the top of the pane; opens via
+   `day8.re-frame2-causa.mount/open!` on every variant-selection
+   edge. Feature-detected through `re-frame.story.causa-preset/
+   causa-available?` — if Causa is not on the host build's classpath
+   the slot stays empty. Covers what the retired scrubber + trace +
+   actions panels did: L1 ribbon (◀ ▶ ⏭) + L2 event list replace the
+   scrubber; the Trace tab replaces the trace panel; the Event-tab
+   cascade view + filtered Trace replace the actions panel.
+
+2. **Controls** — per-variant args editor (Story-unique).
+
+3. **Dispatch Console** — free-form event dispatch into the
+   variant's frame (Story-unique, opt-in per variant via
+   `:dispatch-console?`).
+
+4. **Play status / viewport / backgrounds** — Story-unique chrome
+   chips for the active variant's `:play-script` status, viewport
+   sizing, and background framing.
+
+The shell's `:panel-visibility` map drives Stage-6 registered
+`reg-story-panel` panels (a11y, schema-validation, layout-debug)
+underneath; they keep their late-bind contract per §Panel
+registration contract.
+
 ## Trace bus consumption
 
-Each variant's frame gets a trace callback registered at variant-mount:
+Each variant's frame gets a trace callback registered at variant-mount
+into a per-variant ring buffer (`re-frame.story.ui.trace-buffer`):
 
 ```clojure
 (rf/register-trace-cb! variant-id
@@ -116,12 +147,16 @@ Each variant's frame gets a trace callback registered at variant-mount:
     (swap! (variant-trace-buffer variant-id) conj trace-event)))
 ```
 
-The trace panel
-(`tools/story/src/tools/story/panels/trace.cljs`) subscribes to
-`(rf/subscribe [:story/trace-events variant-id])` and renders the
-six-domino sequence (event → handler → fx → effect → subscription →
-re-render). Per Phase 1 §4.3 this is the debugging UX no JS tool can
-match.
+The buffer is consumed by the schema-validation panel (rf2-dvue) to
+project Spec 010 validation failures. Causa, embedded in the RHS,
+maintains its own trace history through its own preload-time
+`re-frame.trace.tooling/register-trace-cb!` registration — the two
+are independent listeners on the framework trace bus.
+
+The six-domino cascade projection (`re-frame.trace.projection/
+group-cascades`) used to power Story's retired trace panel; it now
+lives in framework code and is consumed by Causa's Trace tab. Per
+Phase 1 §4.3 this is the debugging UX no JS tool can match.
 
 ## Panel registration contract
 
@@ -201,9 +236,9 @@ tools/story/
 │           │   ├── variants_grid.cljs           ; :variants-grid layout
 │           │   ├── controls.cljs                ; auto-derived controls
 │           │   ├── multi_substrate.cljs         ; side-by-side substrate panes
-│           │   └── time_travel.cljs             ; epoch scrubber (Causa embed adapter)
+│           │   └── time_travel.cljs             ; (retired rf2-sgdd3 — Causa L1 ribbon + L2 list)
 │           ├── panels/
-│           │   ├── trace.cljs                   ; six-domino panel
+│           │   ├── trace_buffer.cljs            ; per-variant trace ring buffer (schema-validation consumer)
 │           │   ├── a11y.cljs                    ; axe-core integration
 │           │   ├── perf.cljs                    ; live ribbon (v1.1)
 │           │   ├── layout_debug.cljs            ; measure / outline / pseudo

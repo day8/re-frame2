@@ -36,7 +36,7 @@ The chapters:
 - [3. Recorder + Test Codegen](03-recorder-codegen.md) — the hero feature; record interactions, get `:play` bodies.
 - [4. Workspaces + args editor](04-workspaces.md) — multiple variants on one page; live arg overrides.
 - [5. Snapshot identity + QR sharing](05-snapshot-identity.md) — content-hashed snapshots; share a layout state via QR.
-- [6. Time-travel in Story](06-time-travel.md) — the scrubber, per-variant.
+- [6. Time-travel in Story](06-time-travel.md) — Causa embedded in the RHS, scoped per variant.
 - [7. Multi-substrate side-by-side](07-multi-substrate.md) — render the same variant under Reagent, UIx, Helix.
 
 ## Three load-bearing rules
@@ -76,6 +76,6 @@ In your app's entry namespace:
 
 `install-canonical-vocabulary!` registers the seven canonical tags, the lifecycle machine, the seven `:rf.assert/*` handlers, the built-in `force-fx-stub` decorator, and the v1.0 panel set. Idempotent. Production builds — where `re-frame.story.config/enabled?` is `false` via `:closure-defines` — short-circuit at registration time, and `mount-shell!` short-circuits before any DOM call.
 
-The shell is a three-pane Reagent component: a **left sidebar** (stories tree + tag filter + workspaces), the **main pane** (selected variant's canvas or selected workspace), and a **right panel** (controls, time-travel scrubber, six-domino trace, and any project-custom `reg-story-panel` placements).
+The shell is a three-pane Reagent component: a **left sidebar** (stories tree + tag filter + workspaces), the **main pane** (selected variant's canvas or selected workspace), and a **right panel** — Causa embedded as the primary inspector, plus controls, the dispatch console, play status, and any project-custom `reg-story-panel` placements (rf2-sgdd3).
 
 Ready? Start at [your first story](01-first-story.md).
