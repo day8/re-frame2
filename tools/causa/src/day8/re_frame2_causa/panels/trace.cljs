@@ -27,10 +27,18 @@
 
   ## Filter axes (Spec 009 §Filter vocabulary)
 
-  All 9 named axes the vocabulary enumerates are surfaced:
+  The 8 named axes the vocabulary enumerates that the chip-row UI
+  surfaces:
 
-      :op-type      :severity     :source      :origin       :frame
+      :op-type      :severity     :source      :origin
       :operation    :event-id     :handler-id  :dispatch-id
+
+  `:frame` is in the Spec-009 vocabulary but intentionally omitted
+  from the chip-row UI — post-rf2-ycoct the Trace tab is cascade-
+  scoped, so every visible row already shares the focused event's
+  frame; a frame chip would offer to filter on the only value
+  present. The filter algebra still accepts `:frame` if a dispatcher
+  sets it programmatically.
 
   Each axis is set via `:rf.causa/set-trace-filter` (axis, value);
   `nil` clears the axis. The numeric `:since` / `:since-ms` /
@@ -88,12 +96,16 @@
 (def ^:private axis-labels
   "Human-readable label for each filter axis. The view uses these
   for the chip-row headers and for the 'active filter' badges in the
-  header strip."
+  header strip.
+
+  `:frame` is intentionally absent — post-rf2-ycoct the Trace tab is
+  cascade-scoped, so a frame-filter chip on top of the cascade scope
+  is redundant (the focused event has exactly one frame). See
+  `trace-helpers/filter-axes` for the full rationale."
   {:op-type     "op-type"
    :severity    "severity"
    :source      "source"
    :origin      "origin"
-   :frame       "frame"
    :operation   "operation"
    :event-id    "event-id"
    :handler-id  "handler-id"
@@ -352,11 +364,14 @@
                            :white-space   "nowrap"}
              :title       description}
       description]
-     ;; Per-row chip-filters — the bead's contract. We surface the four
+     ;; Per-row chip-filters — the bead's contract. We surface the
      ;; commonly-grepped axes that ride on the row directly (source,
-     ;; origin, frame). The op-type / severity chips ride the dot;
-     ;; clicking the dot itself is a future affordance — for v1 the
-     ;; chip-row in the header is the op-type entry point.
+     ;; origin). The op-type / severity chips ride the dot; clicking
+     ;; the dot itself is a future affordance — for v1 the chip-row in
+     ;; the header is the op-type entry point. `:frame` is omitted —
+     ;; post-rf2-ycoct the Trace tab is cascade-scoped, so every visible
+     ;; row already shares the focused event's frame; a frame chip on
+     ;; the row would offer to filter on the only value present.
      [:span {:data-testid (str row-test-id "-row-chips")
              :style       {:display "flex"
                            :align-items "center"
@@ -364,9 +379,7 @@
       (row-chip {:axis :source :value source
                  :test-id (str row-test-id "-source-chip")})
       (row-chip {:axis :origin :value origin
-                 :test-id (str row-test-id "-origin-chip")})
-      (row-chip {:axis :frame :value frame
-                 :test-id (str row-test-id "-frame-chip")})]
+                 :test-id (str row-test-id "-origin-chip")})]
      ;; Source-coord (when present)
      (if source-coord
        [:button {:data-testid (str row-test-id "-source-coord")

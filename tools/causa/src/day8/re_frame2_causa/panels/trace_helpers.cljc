@@ -54,12 +54,20 @@
 (def filter-axes
   "The canonical filter-vocabulary axes Spec 009 §Filter vocabulary
   enumerates. Render order for the chip rows in the panel — most-
-  commonly-used axes first. Source/Origin/Frame/Severity ride the
+  commonly-used axes first. Source/Origin/Severity ride the
   enumerable-as-chips path; everything else (:dispatch-id, :event-id,
   :handler-id, :operation, :op-type) is per-row click-to-filter; the
   numeric axes (:since, :since-ms, :between) and :pred ride a
-  follow-on bead."
-  [:op-type :severity :source :origin :frame
+  follow-on bead.
+
+  Note: `:frame` is NOT a chip-row axis. Post-rf2-ycoct the Trace tab
+  is cascade-scoped to the spine's focused event — and the focused
+  event has exactly ONE frame — so a frame-filter chip on top of the
+  cascade scope is doubly redundant (the user has already selected a
+  frame by selecting an event). The underlying filter algebra in
+  `trace-bus/build-filter-predicate` still accepts `:frame` as a
+  vocabulary primitive; we just don't surface a UI for it."
+  [:op-type :severity :source :origin
    :operation :event-id :handler-id :dispatch-id])
 
 ;; ---- short-description ---------------------------------------------------
