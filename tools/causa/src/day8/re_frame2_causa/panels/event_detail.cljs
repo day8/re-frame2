@@ -522,10 +522,13 @@
   ;; keeps reading what it always has — the shim is transparent.
   (rf/reg-event-db :rf.causa/select-dispatch-id
     (fn [db [_ dispatch-id frame-id]]
-      (spine/focus-cascade-reducer db dispatch-id frame-id)))
+      (let [history (get db :epoch-history [])
+            epoch-id (spine/epoch-id-for-cascade history dispatch-id)]
+        (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id))))
 
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
       (-> db
-          (dissoc :selected-dispatch :selected-dispatch-id)
-          (assoc-in [:focus :dispatch-id] nil)))))
+          (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)
+          (assoc-in [:focus :dispatch-id] nil)
+          (assoc-in [:focus :epoch-id] nil)))))
