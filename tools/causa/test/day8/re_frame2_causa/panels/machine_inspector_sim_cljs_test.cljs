@@ -121,6 +121,15 @@
   (rf/dispatch-sync
     [:rf.causa/set-machine-definitions-override-for-test definitions]))
 
+(defn- force-picker-mode!
+  "Force the panel out of the rf2-a9cke focused-event default into the
+  picker-driven Mode A (definition) so the chart / sim chrome / sim
+  side-rail this test ns exercises mounts. The sim sub-mode is
+  picker-driven by design — the focused-event lens is the canonical
+  lens but doesn't surface the sim sub-mode chrome."
+  []
+  (rf/dispatch-sync [:rf.causa/set-forced-machine-mode :mode-a]))
+
 (def ^:private ok-result
   {:re-frame.machines.result/tag :ok
    :re-frame.machines.result/snap {:state :authing :data {:counter 1}}
@@ -300,6 +309,7 @@
 (deftest chart-flips-sim-active-when-sim-on
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-snapshots!   {:auth/login {:state :idle :data {}}})
     (override-definitions! {:auth/login fixture-definition})
@@ -322,6 +332,7 @@
             from the sim snapshot, not the production snapshot"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
+      (force-picker-mode!)
       (override-machines!    [:auth/login])
       ;; The production snapshot says :authing — but sim's snapshot
       ;; starts at :idle (the definition's :initial). The chart should
@@ -340,6 +351,7 @@
 (deftest chart-highlight-follows-sim-step
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -360,6 +372,7 @@
 (deftest side-rail-mounts-when-sim-active
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -384,6 +397,7 @@
 (deftest side-rail-renders-available-transitions
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -403,6 +417,7 @@
 (deftest side-rail-renders-audit-trail-after-step
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -427,6 +442,7 @@
 (deftest side-rail-surfaces-error-on-fail
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -447,6 +463,7 @@
 (deftest toggle-button-enabled-when-definition-present
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (let [tree   (machine-inspector/Panel)
@@ -459,6 +476,7 @@
 (deftest toggle-button-disabled-without-definition
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines! [:auth/login])
     ;; No definitions override — Causa has no way to clone.
     (let [tree   (machine-inspector/Panel)
@@ -470,6 +488,7 @@
 (deftest toggle-button-dispatches-sim-start-and-stop
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
@@ -491,6 +510,7 @@
 (deftest toggle-button-stops-sim-when-active
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
+    (force-picker-mode!)
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])

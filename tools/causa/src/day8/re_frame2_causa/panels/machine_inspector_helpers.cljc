@@ -353,3 +353,243 @@
       (pr-str event)
       (catch #?(:clj Throwable :cljs :default) _
         (str event)))))
+
+;; ---- focused-event lens (rf2-a9cke) -------------------------------------
+;;
+;; Per Mike's canonical Machines design (rf2-si9o5): when the user focuses
+;; an L2 event, the Machines panel becomes a lens on THAT event's machine
+;; activity:
+;;
+;;   - If the event triggered no machine transitions → render nothing
+;;     (silent-by-default per rf2-g3ghh).
+;;   - If the event triggered ≥1 machine transitions → render one section
+;;     per machine, each carrying the topology + current state + new
+;;     state + the transition-edge + any guards + any actions that ran.
+;;
+;; The helper folds the focused epoch record's `:trace-events` (per
+;; spec/Spec-Schemas §`:rf/epoch-record`) into a vector of per-machine
+;; transition records the view consumes. Each record carries enough data
+;; for the view to highlight the chart + render the guards/actions lists
+;; without further trace-walking.
+;;
+;; ## Trace-shape coverage
+;;
+;; Today's substrate (implementation/machines/) emits:
+;;
+;;   - `:rf.machine/transition` — outer transition; tags carry
+;;     `:before` + `:after` snapshots + `:event` + `:machine-id`.
+;;   - `:rf.machine.microstep/transition` — `:always`-driven microstep;
+;;     same tag shape (some tests use `:from`/`:to` tag fallbacks).
+;;
+;; The substrate does NOT yet emit `:rf.machine/guard-evaluated` or
+;; `:rf.machine/action-ran` per-step traces. The helper looks for those
+;; ops anyway (set in `guard-operations` / `action-operations`) so when
+;; the substrate gains them, the lens lights up without further work.
+;; In the meantime guards/actions render as empty lists per transition.
+;;
+;; Per spec/005-StateMachines.md the guard / action functions are
+;; resolved off the transition object on the machine definition; we
+;; surface their refs so the view can label them as `:guards` /
+;; `:actions` lists even when no per-step trace fired.
+
+(def guard-operations
+  "Trace operations the focused-event lens treats as guard evaluations.
+  Today's substrate doesn't emit any of these; the set is the
+  forward-compatible vocabulary so when the runtime gains the trace
+  shape the lens lights up without code changes (rf2-a9cke
+  divergence-allowance note)."
+  #{:rf.machine/guard-evaluated
+    :rf.machine.guard/evaluated})
+
+(def action-operations
+  "Trace operations the focused-event lens treats as action runs.
+  Forward-compatible vocabulary — same posture as `guard-operations`."
+  #{:rf.machine/action-ran
+    :rf.machine.action/ran
+    :rf.machine/action-executed})
+
+(defn guard-event?
+  "True iff `ev` is one of the guard-evaluation operations."
+  [ev]
+  (and (map? ev)
+       (contains? guard-operations (:operation ev))))
+
+(defn action-event?
+  "True iff `ev` is one of the action-run operations."
+  [ev]
+  (and (map? ev)
+       (contains? action-operations (:operation ev))))
+
+(defn- transition-record-from-trace
+  "Project a single `:rf.machine/transition` trace event into the
+  view-consumed record shape. The trace carries `:before` / `:after`
+  snapshots (per registration.cljc's commit-or-finalize) so we can read
+  the from-state / to-state directly off the snapshot pair. Falls back
+  to the legacy `:from`/`:to` tag slots when present (test fixtures)."
+  [ev]
+  (let [tags  (get ev :tags {})
+        before (:before tags)
+        after  (:after  tags)
+        from-state (cond
+                     (some? before) (:state before)
+                     :else          (or (:from tags) (:from-state tags)))
+        to-state   (cond
+                     (some? after)  (:state after)
+                     :else          (or (:to tags) (:to-state tags)))
+        event-v    (or (:event tags) (:event-v tags))
+        ;; The on-event keyword that fired the transition is the
+        ;; head of the event vector. nil-safe so a microstep that
+        ;; lacks the event tag still surfaces a stable record.
+        on-event   (when (vector? event-v) (first event-v))]
+    {:machine-id   (machine-id-of ev)
+     :from-state   from-state
+     :to-state     to-state
+     :on-event     on-event
+     :event        event-v
+     :time         (:time ev)
+     :id           (:id ev)
+     :dispatch-id  (get-in ev [:tags :dispatch-id])
+     :microstep?   (= :rf.machine.microstep/transition (:operation ev))
+     ;; Guards/actions filled in by `attach-guards-and-actions` —
+     ;; default empty so the record shape is stable.
+     :guards       []
+     :actions      []}))
+
+(defn- guard-record
+  "Project a guard-evaluated trace event into the record the view
+  renders inside the per-transition Guards section."
+  [ev]
+  (let [tags (get ev :tags {})]
+    {:guard-id (or (:guard-id tags) (:guard tags))
+     :input    (or (:input tags) (:args tags))
+     :outcome  (cond
+                 (contains? tags :outcome) (:outcome tags)
+                 (contains? tags :pass?)   (if (:pass? tags) :pass :fail)
+                 (contains? tags :passed?) (if (:passed? tags) :pass :fail)
+                 :else                     nil)
+     :time     (:time ev)}))
+
+(defn- action-record
+  "Project an action-ran trace event into the record the view renders
+  inside the per-transition Actions section."
+  [ev]
+  (let [tags (get ev :tags {})]
+    {:action-id (or (:action-id tags) (:action tags))
+     :input     (or (:input tags) (:args tags))
+     :outcome   (cond
+                  (contains? tags :outcome)   (:outcome tags)
+                  (contains? tags :exception) :fail
+                  :else                       :ok)
+     :time      (:time ev)}))
+
+(defn- attach-guards-and-actions
+  "Attach the guard/action records that fired against `transition-record`
+  to the record. Walks the cascade-window trace events and matches by
+  `:machine-id` + time-window (event :time between transition.start and
+  transition.end). Since today's substrate doesn't emit guard/action
+  traces this is forward-compatible — when the runtime gains them, the
+  per-transition lists populate without code changes.
+
+  The match-window v1 is loose — any guard/action trace for the same
+  machine inside the cascade attributes to the only-or-first transition
+  for that machine. When the substrate ships explicit
+  `:transition-id` / `:decl-path` tags on guard/action traces a
+  follow-on bead tightens the attribution."
+  [transition-record events]
+  (let [mid       (:machine-id transition-record)
+        guards    (->> events
+                       (filter (fn [ev]
+                                 (and (guard-event? ev)
+                                      (= mid (machine-id-of ev)))))
+                       (mapv guard-record))
+        actions   (->> events
+                       (filter (fn [ev]
+                                 (and (action-event? ev)
+                                      (= mid (machine-id-of ev)))))
+                       (mapv action-record))]
+    (cond-> transition-record
+      (seq guards)  (assoc :guards guards)
+      (seq actions) (assoc :actions actions))))
+
+(defn project-focused-event-transitions
+  "Project the focused epoch's cascade window into a vector of
+  per-machine-transition records the Machines panel's focused-event
+  lens consumes.
+
+  Inputs:
+
+    `trace-events` — the focused epoch record's `:trace-events` vector
+                     (per spec/Spec-Schemas §`:rf/epoch-record`). nil-safe.
+    `definitions`  — `{machine-id <machine-definition>}` map (from
+                     `:rf.causa/machine-definitions`). nil-safe; used
+                     to surface the registered definition on each
+                     record so the view can render the topology
+                     without re-resolving.
+
+  Returns a vector of records, oldest-first (cascade-document-order),
+  one per `:rf.machine/transition` / `:rf.machine.microstep/transition`
+  event in the cascade:
+
+      {:machine-id   <kw>
+       :from-state   <kw|vec|nil>
+       :to-state     <kw|vec|nil>
+       :on-event     <kw|nil>
+       :event        <event-vec|nil>
+       :time         <int|nil>
+       :id           <int|nil>
+       :dispatch-id  <id|nil>
+       :microstep?   <bool>
+       :definition   <machine-def-or-nil>
+       :guards       [<guard-record>...]
+       :actions      [<action-record>...]}
+
+  Returns `[]` when no machine-transition trace fired in the cascade —
+  the silent-by-default branch the view honours per rf2-g3ghh.
+
+  Pure fn — JVM-runnable."
+  ([trace-events]
+   (project-focused-event-transitions trace-events nil))
+  ([trace-events definitions]
+   (let [defs (or definitions {})
+         events (or trace-events [])]
+     (->> events
+          (filter transition-event?)
+          ;; Stable cascade order — :id is monotonic per Spec 009;
+          ;; fall back to :time, then 0.
+          (sort-by (fn [ev] (or (:id ev) (:time ev) 0)))
+          (map (fn [ev]
+                 (let [base (transition-record-from-trace ev)
+                       mid  (:machine-id base)
+                       defn-> (get defs mid)]
+                   (cond-> (attach-guards-and-actions base events)
+                     defn-> (assoc :definition defn->)))))
+          ;; Drop records whose machine-id couldn't be resolved — a
+          ;; malformed trace shouldn't surface a section with no
+          ;; identity. nil :machine-id matches no chart definition so
+          ;; the row would be unrenderable anyway.
+          (filter :machine-id)
+          vec))))
+
+(defn focused-epoch-record
+  "Resolve the epoch record whose `:epoch-id` matches `focus`'s
+  `:epoch-id`. The spine sub `:rf.causa/focus` carries the focused
+  cascade's settling `:epoch-id` per spec/018 §6 (Spine events); the
+  record's `:trace-events` is the cascade window the lens reads.
+
+  Falls back to the head record when the focused epoch-id is nil
+  (LIVE mode default; matches the views-focused-cascade-pair fallback
+  pattern). Returns nil when the buffer is empty.
+
+  Pure fn — JVM-runnable."
+  [epoch-history focus]
+  (let [history (vec (or epoch-history []))]
+    (cond
+      (empty? history) nil
+      (some? (:epoch-id focus))
+      (or (some (fn [r] (when (= (:epoch-id focus) (:epoch-id r)) r))
+                history)
+          ;; Focused epoch-id not in buffer (evicted) → fall back to
+          ;; head so the panel renders something rather than going
+          ;; silent on what is really a buffer-eviction event.
+          (peek history))
+      :else (peek history))))

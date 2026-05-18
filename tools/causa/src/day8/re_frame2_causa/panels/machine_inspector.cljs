@@ -555,28 +555,41 @@
   "Combine the auto-classification with the user's forced selection.
   Pure fn for unit-testability.
 
-  `forced` is one of `:mode-a / :mode-b / :mode-c / nil`. Nil falls
-  back to `view-mode`. When a force is set but instance-count = 0 the
-  resolver still honours the user's pick so the cluster view remains
-  reachable in the empty-population case (useful for the test
-  override path + future spawn workflow)."
-  [instance-count forced]
+  `forced` is one of `:focused-event / :mode-a / :mode-b / :mode-c /
+  nil`. Per rf2-a9cke the canonical lens-on-focused-event is the panel
+  default — when nothing is explicitly forced, the focused-event lens
+  wins. The picker-driven Mode A/B/C exploration is opt-in via the
+  mode-strip click. The cluster-helpers' `mode-c-suggested?` threshold
+  for the auto-switch hint is computed separately by the mode-tab
+  strip and surfaced as a visual nudge, not as an auto-mode switch.
+
+  When a force is set but instance-count = 0 the resolver still
+  honours the user's pick so the cluster view remains reachable in
+  the empty-population case (useful for the test override path +
+  future spawn workflow)."
+  [_instance-count forced]
   (if (some? forced)
     forced
-    (view-mode instance-count)))
+    ;; Default: focused-event lens (rf2-a9cke). The lens itself is
+    ;; silent-by-default when the focused event triggered no machine
+    ;; transitions, so this never forces noisy chrome.
+    :focused-event))
 
 ;; ---- mode tab strip (UC2 Mode A | B | C selector) ---------------------
 
 (defn- mode-tab-strip
-  "Three-tab strip across the header that lets the user force Mode A
-  (definition), Mode B (instance tabs), or Mode C (cluster view) per
-  spec/003-Machine-Inspector.md §UC2. Auto-classification still drives
-  the default; clicking a tab sets a forced mode that overrides the
-  auto pick. Clicking the active tab clears the force (back to auto)."
+  "Four-tab strip across the header that lets the user pick the
+  canonical focused-event lens (rf2-a9cke; default) or force the
+  picker-driven Mode A (definition), Mode B (instance tabs), or
+  Mode C (cluster view) per spec/003-Machine-Inspector.md §UC2.
+  Clicking a tab sets a forced mode that overrides the default.
+  Clicking the active forced tab clears the force back to the
+  focused-event default."
   [resolved-mode forced-mode instance-count]
-  (let [tabs [{:id :mode-a :label "Definition"}
-              {:id :mode-b :label "Instances"}
-              {:id :mode-c :label "Cluster"}]
+  (let [tabs [{:id :focused-event :label "Focused event"}
+              {:id :mode-a        :label "Definition"}
+              {:id :mode-b        :label "Instances"}
+              {:id :mode-c        :label "Cluster"}]
         suggest-c? (ch/mode-c-suggested? instance-count)]
     [:div {:data-testid "rf-causa-machine-inspector-mode-strip"
            :data-resolved-mode (name resolved-mode)
@@ -639,6 +652,234 @@
                        :font-size "10px"}}
         (str instance-count
              " instances — Cluster view recommended")])]))
+
+;; ---- focused-event lens (rf2-a9cke) ------------------------------------
+;;
+;; Per Mike's canonical Machines design (rf2-si9o5): when an L2 event is
+;; focused, the Machines panel renders one section per machine that
+;; transitioned in that event's cascade — chart with FROM/TO highlights,
+;; the transition-edge, guards list, actions list. Silent when no
+;; machine activity (per rf2-g3ghh silent-by-default policy).
+
+(defn- guards-list
+  "Render the per-transition Guards section. Empty list = no surface
+  (silent-by-default per rf2-g3ghh). Each row carries `:guard-id`,
+  `:input`, `:outcome` (`:pass` / `:fail` / nil)."
+  [guards]
+  (when (seq guards)
+    [:div {:data-testid "rf-causa-machine-focused-event-guards"
+           :style {:padding "8px 12px"
+                   :background (:bg-1 tokens)
+                   :border-top (str "1px solid " (:border-subtle tokens))}}
+     [:div {:style {:color (:text-tertiary tokens)
+                    :font-family sans-stack
+                    :font-size "10px"
+                    :text-transform "uppercase"
+                    :letter-spacing "0.5px"
+                    :margin-bottom "4px"}}
+      "Guards"]
+     (into [:ul {:style {:list-style "none"
+                         :margin 0
+                         :padding 0
+                         :font-family mono-stack
+                         :font-size "11px"
+                         :color (:text-primary tokens)}}]
+           (for [{:keys [guard-id input outcome]} guards]
+             ^{:key (str guard-id)}
+             [:li {:data-testid (str "rf-causa-machine-focused-event-guard-"
+                                     (when guard-id (name guard-id)))
+                   :style {:display "flex"
+                           :align-items "center"
+                           :gap "8px"
+                           :padding "2px 0"}}
+              [:span {:style {:color (case outcome
+                                       :pass (:green tokens)
+                                       :fail (:red tokens)
+                                       (:text-tertiary tokens))
+                              :font-weight 600}}
+               (case outcome
+                 :pass "✓"
+                 :fail "✗"
+                 "?")]
+              [:span (str guard-id)]
+              (when input
+                [:span {:style {:color (:text-tertiary tokens)}}
+                 (pr-str input)])]))]))
+
+(defn- actions-list
+  "Render the per-transition Actions section. Empty list = no surface."
+  [actions]
+  (when (seq actions)
+    [:div {:data-testid "rf-causa-machine-focused-event-actions"
+           :style {:padding "8px 12px"
+                   :background (:bg-1 tokens)
+                   :border-top (str "1px solid " (:border-subtle tokens))}}
+     [:div {:style {:color (:text-tertiary tokens)
+                    :font-family sans-stack
+                    :font-size "10px"
+                    :text-transform "uppercase"
+                    :letter-spacing "0.5px"
+                    :margin-bottom "4px"}}
+      "Actions"]
+     (into [:ul {:style {:list-style "none"
+                         :margin 0
+                         :padding 0
+                         :font-family mono-stack
+                         :font-size "11px"
+                         :color (:text-primary tokens)}}]
+           (for [{:keys [action-id input outcome]} actions]
+             ^{:key (str action-id)}
+             [:li {:data-testid (str "rf-causa-machine-focused-event-action-"
+                                     (when action-id (name action-id)))
+                   :style {:display "flex"
+                           :align-items "center"
+                           :gap "8px"
+                           :padding "2px 0"}}
+              [:span {:style {:color (case outcome
+                                       :ok   (:green tokens)
+                                       :fail (:red tokens)
+                                       (:text-tertiary tokens))
+                              :font-weight 600}}
+               (case outcome
+                 :ok   "✓"
+                 :fail "✗"
+                 "•")]
+              [:span (str action-id)]
+              (when input
+                [:span {:style {:color (:text-tertiary tokens)}}
+                 (pr-str input)])]))]))
+
+(defn- focused-event-section
+  "Render one section per transitioned machine. Header → chart →
+  guards → actions. The chart's FROM/TO highlights drive the visual
+  read of the transition: dashed accent-violet origin, bold cyan
+  landing, the connecting edge emphasised."
+  [{:keys [machine-id from-state to-state on-event event microstep?
+           definition guards actions]}]
+  (let [from-id    (when from-state
+                     (chart-layout/highlight-id from-state))
+        to-id      (when to-state
+                     (chart-layout/highlight-id to-state))
+        direction  :tb
+        positioned (when definition
+                     (elk-layout/layout-or-fallback definition direction))
+        engine     (if (and definition
+                            (some? (elk-layout/cached-layout
+                                     definition direction)))
+                     "elk"
+                     "layered")
+        ;; Kick the loader so the next render swaps the layered
+        ;; fallback for ELK once it resolves.
+        _          (when definition
+                     (elk-layout/ensure-elk!
+                       (fn [_inst]
+                         (when (and (= :ready (elk-layout/elk-status))
+                                    (nil? (elk-layout/cached-layout
+                                            definition direction)))
+                           (elk-layout/compute-layout!
+                             definition direction
+                             (fn [chart-layout]
+                               (when chart-layout
+                                 (rf/dispatch
+                                   [:rf.causa/machine-chart-layout-pulse]
+                                   {:frame :rf/causa}))))))))]
+    [:section
+     {:data-testid (str "rf-causa-machine-focused-event-section-"
+                        (when machine-id
+                          ;; Full namespaced/name pair so the testid
+                          ;; round-trips :auth/login → "auth/login"
+                          ;; (collides cleanly with the
+                          ;; `find-all-by-testid-prefix` walker that
+                          ;; tests use to count sections).
+                          (subs (str machine-id) 1)))
+      :data-machine-id (str machine-id)
+      :data-from-state (str from-state)
+      :data-to-state (str to-state)
+      :data-on-event (str on-event)
+      :data-microstep (str (boolean microstep?))
+      :style {:margin "12px"
+              :border (str "1px solid " (:border-default tokens))
+              :border-radius "4px"
+              :background (:bg-2 tokens)}}
+     [:header {:data-testid "rf-causa-machine-focused-event-header"
+               :style {:padding "10px 12px"
+                       :display "flex"
+                       :align-items "center"
+                       :gap "10px"
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :background (:bg-3 tokens)
+                       :font-family mono-stack
+                       :font-size "12px"
+                       :color (:text-primary tokens)}}
+      (when microstep?
+        [:span {:style {:color (:text-tertiary tokens)
+                        :font-size "10px"}}
+         "↳"])
+      [:strong {:style {:color (:accent-violet tokens)}}
+       (h/format-machine-id machine-id)]
+      [:span {:style {:color (:text-secondary tokens)}}
+       (h/format-state from-state)]
+      [:span {:style {:color (:cyan tokens)}}
+       "→"]
+      [:span {:style {:color (:text-primary tokens)
+                      :font-weight 600}}
+       (h/format-state to-state)]
+      (when event
+        [:span {:style {:color (:text-tertiary tokens)
+                        :font-size "11px"
+                        :margin-left "auto"}}
+         (h/format-event event)])]
+     (cond
+       (nil? definition)
+       [:div {:data-testid "rf-causa-machine-focused-event-no-definition"
+              :style {:padding "12px"
+                      :font-family sans-stack
+                      :font-size "11px"
+                      :color (:text-tertiary tokens)}}
+        "No introspectable definition — chart cannot render."]
+
+       :else
+       [:div {:data-testid "rf-causa-machine-focused-event-chart"
+              :data-layout-engine engine
+              :data-machine-id (str machine-id)
+              :data-from-highlight-id (or from-id "")
+              :data-to-highlight-id (or to-id "")
+              :style {:padding "12px"
+                      :background (:bg-1 tokens)
+                      :overflow "auto"}}
+        (chart-svg/render
+          positioned
+          {:from-highlight-id from-id
+           :to-highlight-id   to-id
+           :on-state-click    (fn [path]
+                                (rf/dispatch
+                                  [:rf.causa/machine-state-clicked
+                                   {:machine-id machine-id
+                                    :path       path}]
+                                  {:frame :rf/causa}))})])
+     (guards-list guards)
+     (actions-list actions)]))
+
+(defn- focused-event-view
+  "Top-level focused-event lens. Reads the
+  `:rf.causa/machine-transitions-for-focused-event` composite sub.
+  Silent (returns nil) when no machine transitioned in the focused
+  event's cascade — the panel renders only the header chrome in that
+  case."
+  []
+  (let [records @(rf/subscribe
+                   [:rf.causa/machine-transitions-for-focused-event])]
+    (when (seq records)
+      (into [:div {:data-testid "rf-causa-machine-focused-event"
+                   :data-section-count (count records)
+                   :style {:display "flex"
+                           :flex-direction "column"}}]
+            (for [rec records]
+              ^{:key (str (:machine-id rec) "-"
+                          (:id rec) "-"
+                          (:from-state rec) "-"
+                          (:to-state rec))}
+              (focused-event-section rec))))))
 
 ;; ---- empty state --------------------------------------------------------
 
@@ -762,33 +1003,55 @@
        (empty-state)
        [:div {:style {:flex 1 :display "flex" :flex-direction "column"
                       :overflow "hidden"}}
-        [machine-picker machines selected-id]
+        ;; Mode strip is the ONLY persistent chrome across modes — it
+        ;; lets the user toggle out of the focused-event lens into the
+        ;; picker-driven exploration surfaces. The picker + instance
+        ;; tabs ride below ONLY in the picker-driven modes; the
+        ;; focused-event lens has its own per-section header instead.
         [mode-tab-strip mode forced-mode instance-count]
-        [instance-tabs (or selected {}) instance-count mode]
-        [:div {:style {:flex 1 :overflow "auto"}}
-         (placeholder-banner
-           {:machine-id     (:machine-id selected)
-            :state          (:state selected)
-            :instance-count instance-count
-            :definition     (:definition selected)
-            :sim-active?    sim-active?})
-         (placeholder-chart chart-props sim-snapshot arc-highlight)
-         ;; Phase 5: scrubber strip beneath the chart. Visible whenever
-         ;; the arc has at least one step (i.e. ≥1 transition or an
-         ;; initial-state-only arc).
-         (when arc-active?
-           [scrubber/ScrubberStrip])
-         (when (= :mode-c mode)
-           [cluster/ClusterView])
-         (when sim-active?
-           [sim/SimSideRail])
-         ;; Cancellation-cascade visualiser (rf2-59e7k) — mounts in the
-         ;; Machines tab side-rail when the focused machine had a
-         ;; destroy-with-cancellation-reason in the trace window. The
-         ;; SidePanel reg-view short-circuits to nil otherwise, so the
-         ;; mount is dormant in the common case.
-         [cancellation-cascade/SidePanel]]
-        (transition-ribbon transitions)])]))
+        (cond
+          (= :focused-event mode)
+          ;; rf2-a9cke canonical lens. Silent (renders nothing) when no
+          ;; machine transitioned in the focused event's cascade — per
+          ;; rf2-g3ghh's silent-by-default policy.
+          [:div {:data-testid "rf-causa-machine-inspector-focused-event-host"
+                 :style {:flex 1 :overflow "auto"}}
+           [focused-event-view]]
+
+          :else
+          ;; Picker-driven exploration modes (Mode A definition view /
+          ;; Mode B instance tabs / Mode C cluster). Preserved verbatim
+          ;; from the pre-rf2-a9cke surface so existing flows
+          ;; (instrumented tests, the Sim sub-mode, the arc + scrubber)
+          ;; keep working when the user opts out of the focused-event
+          ;; lens.
+          [:<>
+           [machine-picker machines selected-id]
+           [instance-tabs (or selected {}) instance-count mode]
+           [:div {:style {:flex 1 :overflow "auto"}}
+            (placeholder-banner
+              {:machine-id     (:machine-id selected)
+               :state          (:state selected)
+               :instance-count instance-count
+               :definition     (:definition selected)
+               :sim-active?    sim-active?})
+            (placeholder-chart chart-props sim-snapshot arc-highlight)
+            ;; Phase 5: scrubber strip beneath the chart. Visible whenever
+            ;; the arc has at least one step (i.e. ≥1 transition or an
+            ;; initial-state-only arc).
+            (when arc-active?
+              [scrubber/ScrubberStrip])
+            (when (= :mode-c mode)
+              [cluster/ClusterView])
+            (when sim-active?
+              [sim/SimSideRail])
+            ;; Cancellation-cascade visualiser (rf2-59e7k) — mounts in
+            ;; the Machines tab side-rail when the focused machine had
+            ;; a destroy-with-cancellation-reason in the trace window.
+            ;; The SidePanel reg-view short-circuits to nil otherwise,
+            ;; so the mount is dormant in the common case.
+            [cancellation-cascade/SidePanel]]
+           (transition-ribbon transitions)])])]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -929,6 +1192,55 @@
         (h/project-data
           machines snapshots definitions buffer selected-id target-frame))))
 
+  ;; ---- rf2-a9cke — focused-event lens composite sub ---------------
+  ;;
+  ;; Per Mike's canonical Machines design (rf2-si9o5) the panel's
+  ;; default surface is a lens on the FOCUSED event — one section per
+  ;; machine that transitioned in that event's cascade, silent
+  ;; otherwise. This composite folds the spine `:rf.causa/focus`'s
+  ;; `:epoch-id` (per spec/018 §6 Spine events) + the per-frame
+  ;; `:rf.causa/epoch-history`'s `:trace-events` window + the
+  ;; registered machine-definitions into the per-transition record
+  ;; vector the view consumes.
+  ;;
+  ;; Returns `[]` when the focused event triggered no machine
+  ;; transitions — the silent-by-default branch the view honours per
+  ;; rf2-g3ghh.
+
+  (rf/reg-sub :rf.causa/machine-transitions-for-focused-event
+    :<- [:rf.causa/focus]
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/machine-definitions]
+    (fn [[focus history definitions] _query]
+      (let [record (h/focused-epoch-record history focus)
+            events (when record (:trace-events record))]
+        (h/project-focused-event-transitions events definitions))))
+
+  ;; Test-only overrides for the rf2-a9cke focused-event composite.
+  ;; The two surfaces this composite reads (`:rf.causa/epoch-history`,
+  ;; the spine's `:rf.causa/focus`) live OUTSIDE this panel's
+  ;; install — `:epoch-history` is owned by time-travel-subs +
+  ;; epoch-capture, `:focus` lives on the spine. Tests want a one-stop
+  ;; override that doesn't reach across those module boundaries, so we
+  ;; register two hooks that write directly to Causa's app-db slots
+  ;; (`:epoch-history` is the slot the time-travel sub reads; `:focus
+  ;; :epoch-id` is the slot the spine's compose-focus reads). Mirrors
+  ;; the existing test-override pattern (snapshots / definitions /
+  ;; registered-machines) so JVM + node-test suites can drive the
+  ;; focused-event lens without booting a host with a live machine
+  ;; transition + epoch capture path.
+  (rf/reg-event-db :rf.causa/set-epoch-history-for-test
+    (fn [db [_ history]]
+      (if (nil? history)
+        (dissoc db :epoch-history)
+        (assoc db :epoch-history (vec history)))))
+
+  (rf/reg-event-db :rf.causa/set-focus-epoch-id-for-test
+    (fn [db [_ epoch-id]]
+      (if (nil? epoch-id)
+        (update db :focus dissoc :epoch-id)
+        (update db :focus (fnil assoc {}) :epoch-id epoch-id))))
+
   ;; ---- Machine Inspector panel events ----------------------------
 
   (rf/reg-event-db :rf.causa/select-machine-id
@@ -979,7 +1291,7 @@
   (rf/reg-event-db :rf.causa/set-forced-machine-mode
     (fn [db [_ mode]]
       (if (or (nil? mode)
-              (contains? #{:mode-a :mode-b :mode-c} mode))
+              (contains? #{:focused-event :mode-a :mode-b :mode-c} mode))
         (if (nil? mode)
           (dissoc db :machine-inspector/forced-mode)
           (assoc db :machine-inspector/forced-mode mode))
