@@ -365,10 +365,18 @@
                  :style {:list-style "none"
                          :margin "4px 0 8px 0"
                          :padding 0}}]
+           ;; `^{:key …}` reader meta on the `(instance-row …)` call
+           ;; below would be attached to the source list and lost when
+           ;; the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `instance-row` always returns a
+           ;; `[:li …]` vector, so apply the key directly via
+           ;; `with-meta`. (rf2-ppzid)
            (for [inst instances]
-             ^{:key (str (:instance-id inst))}
-             (instance-row inst (ch/selection-contains?
-                                  selection (:instance-id inst))))))])
+             (with-meta (instance-row inst
+                                      (ch/selection-contains?
+                                        selection (:instance-id inst)))
+               {:key (str (:instance-id inst))}))))])
 
 (defn- compare-cell
   "One cell inside the compare-table. Divergent cells get the amber
@@ -406,9 +414,14 @@
                  :border (str "1px solid " (:border-subtle tokens))
                  :white-space "nowrap"}}
     (:label column)]
+   ;; `^{:key …}` reader meta on the `(compare-cell …)` call below
+   ;; would be attached to the source list and lost when the call
+   ;; returns its fresh vector — Reagent's `get-react-key` only reads
+   ;; `:key` meta from vectors (see reagent2.impl.template).
+   ;; `compare-cell` always returns a `[:td …]` vector, so apply the
+   ;; key directly via `with-meta`. (rf2-ppzid)
    (for [[idx v] (map-indexed vector values)]
-     ^{:key idx}
-     (compare-cell v diff?))])
+     (with-meta (compare-cell v diff?) {:key idx}))])
 
 (defn- compare-table-view
   "The compare-table side-panel. Renders below the cluster list when
@@ -475,9 +488,14 @@
       [:tbody
        ;; state row first so the user sees the load-bearing divergence
        (compare-row state-row)
+       ;; `^{:key …}` reader meta on the `(compare-row row)` call below
+       ;; would be attached to the source list and lost when the call
+       ;; returns its fresh vector — Reagent's `get-react-key` only
+       ;; reads `:key` meta from vectors (see reagent2.impl.template).
+       ;; `compare-row` always returns a `[:tr …]` vector, so apply the
+       ;; key directly via `with-meta`. (rf2-ppzid)
        (for [row rows]
-         ^{:key (str (-> row :column :key))}
-         (compare-row row))]]]))
+         (with-meta (compare-row row) {:key (str (-> row :column :key))}))]]]))
 
 ;; ---- public view --------------------------------------------------------
 
@@ -528,11 +546,18 @@
                    :style {:list-style "none"
                            :margin 0
                            :padding 0}}]
+             ;; `^{:key …}` reader meta on the `(cluster-row …)` call
+             ;; below would be attached to the source list and lost
+             ;; when the call returns its fresh vector — Reagent's
+             ;; `get-react-key` only reads `:key` meta from vectors
+             ;; (see reagent2.impl.template). `cluster-row` always
+             ;; returns a `[:li …]` vector, so apply the key directly
+             ;; via `with-meta`. (rf2-ppzid)
              (for [cluster clusters]
-               ^{:key (pr-str (:cluster-key cluster))}
-               (cluster-row cluster
-                            (ch/expanded-contains? expanded (:cluster-key cluster))
-                            selection))))
+               (with-meta (cluster-row cluster
+                                       (ch/expanded-contains? expanded (:cluster-key cluster))
+                                       selection)
+                 {:key (pr-str (:cluster-key cluster))}))))
      (when compare-table
        (compare-table-view compare-table))]))
 

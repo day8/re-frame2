@@ -42,3 +42,56 @@
                  :before nil :after [{:id 7}]}])]
     (is (has-testid? tree "rf-causa-app-db-diff-focus-hits"))
     (is (has-testid? tree "rf-causa-app-db-diff-focus-hit-:e-1"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; Three per-row `for` loops previously wrapped a function-call list form
+;; under `^{:key …}` reader meta — Reagent's `get-react-key` only reads
+;; `:key` from vector meta, so the key was silently lost and React
+;; emitted "unique key prop" warnings. The fix routes every per-row child
+;; through `with-meta` so the `:key` meta lands on the returned vector.
+;; Walks the rendered tree, finds each `for`-seq (the list child of a
+;; container vector), and asserts every per-row child carries `:key`
+;; meta. (rf2-ppzid)
+;; ---------------------------------------------------------------------------
+
+(defn- find-vectors-with-key-meta [tree]
+  ;; Walk every vector + seq node in `tree`, descending children in
+  ;; place (no `mapv`) so the keyed vectors retain their original
+  ;; meta. Returns every vector that carries `:key` meta — the for-
+  ;; loops in this ns produce one keyed vector per row.
+  (->> (tree-seq (some-fn vector? seq?)
+                 (fn [n]
+                   (cond
+                     (vector? n) (if (map? (second n)) (drop 2 n) (rest n))
+                     (seq? n)    n))
+                 tree)
+       (filter (every-pred vector? #(some-> (meta %) :key)))))
+
+(deftest reserved-group-rows-carry-key-meta
+  (let [tree (sections/reserved-group
+               [[:rf/route {:id :app/cart}]
+                [:rf/db    {:k :v}]])
+        rows (find-vectors-with-key-meta tree)]
+    (is (>= (count rows) 2) "at least one row per pair carries :key meta")
+    (is (every? vector? rows) "every keyed row is a vector")))
+
+(deftest pinned-group-rows-carry-key-meta
+  (let [tree (sections/pinned-group
+               [{:path [:cart :items] :value [{:id 7}]}
+                {:path [:user :id]    :value 99}])
+        rows (find-vectors-with-key-meta tree)]
+    (is (>= (count rows) 2))
+    (is (every? vector? rows))))
+
+(deftest focus-result-panel-hits-carry-key-meta
+  (let [tree (sections/focus-result-panel
+               [:cart :items]
+               [{:epoch-id :e-1 :event [:cart/add]    :op :added
+                 :before nil    :after [{:id 7}]}
+                {:epoch-id :e-2 :event [:cart/remove] :op :removed
+                 :before [{:id 7}] :after []}])
+        rows (find-vectors-with-key-meta tree)]
+    (is (>= (count rows) 2))
+    (is (every? vector? rows))))

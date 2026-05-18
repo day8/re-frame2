@@ -162,6 +162,13 @@
                  :margin 0}}
      "No slice changes in the selected epoch."]
     (into [:div {:data-testid "rf-causa-app-db-diff-slices"}]
+          ;; `^{:key …}` reader meta on the `(slice-row t)` list form is
+          ;; attached to the source list and lost when the call returns
+          ;; its fresh vector. Reagent's `get-react-key` only reads
+          ;; `:key` meta from vectors (see reagent2.impl.template), so
+          ;; the keys silently vanished and React emitted "unique key
+          ;; prop" warnings. `slice-row` always returns a `[:div …]`
+          ;; vector — apply the key meta directly via `with-meta`.
+          ;; (rf2-ppzid)
           (for [t non-reserved-triples]
-            ^{:key (pr-str (:path t))}
-            (slice-row t)))))
+            (with-meta (slice-row t) {:key (pr-str (:path t))})))))

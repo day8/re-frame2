@@ -340,21 +340,28 @@
        (parent-decision-row parent-decision))
      (when (seq child-teardowns)
        [:div {:data-testid "rf-causa-cancellation-cascade-teardowns"}
+        ;; `^{:key …}` reader meta on the `(teardown-row t)` /
+        ;; `(abort-row …)` call below would be attached to the source
+        ;; list and lost when the call returns its fresh vector —
+        ;; Reagent's `get-react-key` only reads `:key` meta from
+        ;; vectors (see reagent2.impl.template). `teardown-row` and
+        ;; `abort-row` always return a `[:div …]` vector, so apply
+        ;; the key directly via `with-meta`. (rf2-ppzid)
         (doall
           (for [t child-teardowns]
-            ^{:key (str "teardown-" (or (:trace-id t)
-                                        (:child-id t)))}
-            (teardown-row t)))])
+            (with-meta (teardown-row t)
+              {:key (str "teardown-" (or (:trace-id t)
+                                         (:child-id t)))})))])
      (when (seq visible-aborts)
        [:div {:data-testid "rf-causa-cancellation-cascade-aborts"}
         (doall
           (map-indexed
             (fn [idx row]
               (let [last? (= idx (dec (count visible-aborts)))]
-                ^{:key (str "abort-" (or (:trace-id row)
-                                         (:correlation-id row)
-                                         idx))}
-                (abort-row row last?)))
+                (with-meta (abort-row row last?)
+                  {:key (str "abort-" (or (:trace-id row)
+                                          (:correlation-id row)
+                                          idx))})))
             visible-aborts))])
      (when (and collapse? (pos? hidden-count) (not expanded?))
        (expand-button hidden-count (count effect-aborts) expanded?))

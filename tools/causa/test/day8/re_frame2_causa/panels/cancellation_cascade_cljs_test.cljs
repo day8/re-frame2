@@ -310,3 +310,72 @@
         (is (< (:z-index style) 1000))
         (is (= "absolute"
                (:data-rf-causa-modal-positioning (second backdrop))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; The cascade `body` previously attached `^{:key …}` reader meta to two
+;; function-call list forms — `(teardown-row t)` and `(abort-row row last?)`.
+;; Reagent's `get-react-key` only reads `:key` from vector meta, so the
+;; keys were silently lost. The fix routes both per-row children through
+;; `with-meta` so the `:key` meta lands on the returned `[:div …]` vector.
+;; This test asserts every teardown-row + abort-row child carries `:key`
+;; meta so the regression cannot recur silently. (rf2-ppzid)
+;;
+;; Note: the `expand-fn-component` walker above strips element meta
+;; (via `mapv`), so this assertion re-walks the raw rendered tree
+;; without fn expansion to keep keyed vectors intact.
+;; ---------------------------------------------------------------------------
+
+(defn- meta-preserving-children [node]
+  (cond
+    (and (vector? node) (fn? (first node)))
+    [(apply (first node) (rest node))]
+
+    (vector? node)
+    (if (map? (second node))
+      (drop 2 node)
+      (rest node))
+
+    (seq? node)
+    node
+
+    :else nil))
+
+(defn- raw-find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
+
+(deftest cascade-body-rows-carry-key-meta
+  (testing "teardown-row + abort-row children of the cascade body
+            carry :key meta so React's unique-key prop warning cannot
+            recur (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (seed-trace! cancel-cascade-buffer)
+      (rf/dispatch-sync [:rf.causa/cancellation-cascade-open
+                         {:kind :dispatch-id :id 7}])
+      (let [tree         (cc/Popover)
+            teardowns    (raw-find-by-testid tree "rf-causa-cancellation-cascade-teardowns")
+            aborts       (raw-find-by-testid tree "rf-causa-cancellation-cascade-aborts")
+            keyed-children (fn [container]
+                             ;; Container shape is `[:div attrs <doall-seq>]`
+                             ;; — the seq lives at index 2.
+                             (->> (nth container 2)
+                                  (filter vector?)))]
+        (is (some? aborts) "aborts container rendered for the fixture")
+        (when teardowns
+          (doseq [row (keyed-children teardowns)]
+            (is (vector? row) "teardown row is a hiccup vector")
+            (is (some? (some-> (meta row) :key))
+                (str "teardown row carries :key meta — got " (pr-str (meta row))))))
+        (let [abort-rows (keyed-children aborts)]
+          (is (= 2 (count abort-rows)) "two abort rows from the fixture")
+          (doseq [row abort-rows]
+            (is (vector? row) "abort row is a hiccup vector")
+            (is (some? (some-> (meta row) :key))
+                (str "abort row carries :key meta — got " (pr-str (meta row))))))))))
