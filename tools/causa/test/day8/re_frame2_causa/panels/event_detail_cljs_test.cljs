@@ -8,13 +8,14 @@
        — the panel's spine plumbing didn't change).
     2. Cascade-outcome line (top-of-panel) — glyph + colour + SSR badge
        per §5.1 + the hydration-outcome addendum.
-    3. The 6 sections render in order: EVENT, DISPATCH SITE,
-       INTERCEPTORS, HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
+    3. The 7 sections render in order (Mike's Q1 verbatim per
+       rf2-jhhqt): DISPATCH SITE, EVENT, COEFFECTS, INTERCEPTORS,
+       HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
     4. Silent-by-default — sections ABSENT (not '(none)') when their
        data is empty.
-    5. Handler threw → §5/§6 suppressed + Issues-tab footer renders.
-    6. Pure projection helpers (`user-interceptors`, `cascade-outcome`,
-       `effects-handlers-ran`, `hydration-outcome-row`).
+    5. Handler threw → §6/§7 suppressed + Issues-tab footer renders.
+    6. Pure projection helpers (`user-interceptors`, `user-coeffects`,
+       `cascade-outcome`, `effects-handlers-ran`, `hydration-outcome-row`).
     7. The meta-on-vector pattern (rf2-ppzid) — :key reaches every
        row inside :for blocks.
 
@@ -63,7 +64,7 @@
       `:tags` (rf2-twt7m Change 2) so EFFECTS RETURNED has data."
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
-  ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present?]
+  ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present? coeffects]
                                     :or   {fx          [[:db nil] [:dispatch [:bar]]]
                                            db-present? true
                                            source      :ui
@@ -84,7 +85,8 @@
      :tags (cond-> {:dispatch-id dispatch-id}
              frame-id    (assoc :frame frame-id)
              fx          (assoc :fx fx)
-             db-present? (assoc :db-present? true))}
+             db-present? (assoc :db-present? true)
+             (seq coeffects) (assoc :coeffects coeffects))}
     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
      :tags (cond-> {:dispatch-id dispatch-id :fx-id :db :duration-ms 1}
              frame-id (assoc :frame frame-id))}
@@ -188,12 +190,41 @@
       (let [data @(rf/subscribe [:rf.causa/event-detail])]
         (is (= 200 (:selected-dispatch-id data)))))))
 
-;; ---- (2) the 6 sections render in order --------------------------------
+;; ---- (2) the 7 sections render in order --------------------------------
 
-(deftest event-lens-renders-all-six-sections-when-fully-populated
-  (testing "a cascade with call-site + fx + interceptors yields the
-            full 6-section layout: EVENT, DISPATCH SITE, INTERCEPTORS,
-            HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN"
+(def ^:private ^:const section-root-testids
+  "The seven section root testids (post-rf2-jhhqt) in the order they
+  SHOULD appear top-to-bottom in the rendered Event lens. Used by
+  `section-testids-in-order` to filter out section-header / section-
+  body children testids the `section/section-row` primitive emits."
+  #{"rf-causa-event-detail-section-dispatch"
+    "rf-causa-event-detail-section-event"
+    "rf-causa-event-detail-section-coeffects"
+    "rf-causa-event-detail-section-interceptors"
+    "rf-causa-event-detail-section-handler"
+    "rf-causa-event-detail-section-effects-returned"
+    "rf-causa-event-detail-section-effects-ran"})
+
+(defn- section-testids-in-order
+  "Walk the rendered hiccup tree and return the data-testids of every
+  section ROOT in document order. Filters out the per-section
+  `*-header` / `*-body` children testids `section/section-row` emits."
+  [tree]
+  (->> (hiccup-seq tree)
+       (keep (fn [node]
+               (when (and (vector? node) (map? (second node)))
+                 (let [tid (str (or (:data-testid (second node)) ""))]
+                   (when (contains? section-root-testids tid)
+                     tid)))))
+       (distinct)
+       (vec)))
+
+(deftest event-lens-renders-all-seven-sections-when-fully-populated
+  (testing "a cascade with call-site + fx + interceptors + user
+            coeffects yields the full 7-section layout in the
+            rf2-jhhqt-shipped order: DISPATCH SITE, EVENT, COEFFECTS,
+            INTERCEPTORS, HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS
+            RAN"
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke
         [(rf/->interceptor :id :auth/require-login)]
@@ -203,22 +234,55 @@
                    {:call-site {:file "src/widget.cljs" :line 42}
                     :source :ui :origin :app
                     :fx [[:db nil] [:dispatch [:bar]]]
-                    :db-present? true}))
+                    :db-present? true
+                    :coeffects {:now "2026-05-18T19:00:00Z"
+                                :local-storage {:user/last-cart-id "cart-42"}}}))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
-            "§1 EVENT section present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-dispatch"))
-            "§2 DISPATCH SITE section present")
+            "§1 DISPATCH SITE section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
+            "§2 EVENT section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-coeffects"))
+            "§3 COEFFECTS section present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-interceptors"))
-            "§3 INTERCEPTORS section present")
+            "§4 INTERCEPTORS section present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
-            "§4 HANDLER section present")
+            "§5 HANDLER section present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
-            "§5 EFFECTS RETURNED section present")
+            "§6 EFFECTS RETURNED section present")
         (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-ran"))
-            "§6 EFFECTS HANDLERS RAN section present")))))
+            "§7 EFFECTS HANDLERS RAN section present")))))
+
+(deftest event-lens-section-order-matches-mike-q1-verbatim
+  (testing "rf2-jhhqt — sections render top-to-bottom in the verbatim
+            Mike-approved order: DISPATCH SITE → EVENT → COEFFECTS →
+            INTERCEPTORS → HANDLER → EFFECTS RETURNED → EFFECTS
+            HANDLERS RAN"
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :widget/poke
+        [(rf/->interceptor :id :auth/require-login)]
+        (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:widget/poke {:id 1}] 0
+                   {:call-site {:file "src/widget.cljs" :line 42}
+                    :coeffects {:now "2026-05-18T19:00:00Z"}
+                    :fx [[:db nil] [:dispatch [:bar]]]
+                    :db-present? true}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree  (event-detail/Panel)
+            order (section-testids-in-order tree)]
+        (is (= ["rf-causa-event-detail-section-dispatch"
+                "rf-causa-event-detail-section-event"
+                "rf-causa-event-detail-section-coeffects"
+                "rf-causa-event-detail-section-interceptors"
+                "rf-causa-event-detail-section-handler"
+                "rf-causa-event-detail-section-effects-returned"
+                "rf-causa-event-detail-section-effects-ran"]
+               order)
+            "section testids appear in the rf2-jhhqt-shipped order")))))
 
 (deftest cascade-outcome-line-replaces-literal-event-detail-h1
   (testing "the literal 'Event detail' h1 is gone; the cascade-outcome
@@ -470,6 +534,63 @@
             inline (find-by-testid tree "rf-causa-event-detail-effects-ran-managed-fx-4")]
         (is (some? inline)
             "managed-fx record-panel mounts inline beneath fx-handler row")))))
+
+;; ---- (8.5) COEFFECTS section — silent-by-default + rendering -----------
+
+(deftest coeffects-section-absent-when-zero-user-coeffects
+  (testing "rf2-jhhqt — when the cascade carries no user-injected
+            coeffects stamp the COEFFECTS section is ABSENT entirely
+            (silent-by-default, NOT '(none)' placeholder)"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-coeffects"))
+            "COEFFECTS section absent when zero user coeffects stamped")))))
+
+(deftest coeffects-section-renders-one-row-per-user-injected-cofx
+  (testing "with `:now` + `:local-storage` stamped on :event/do-fx, the
+            COEFFECTS section renders one row per id with the value
+            surfaced via the data-inspector"
+    (seed-buffer!
+      (cascade-evs 100 [:cart/restore] 0
+                   {:coeffects {:now "2026-05-18T19:00:00Z"
+                                :local-storage {:user/last-cart-id "cart-42"}}}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            section (find-by-testid tree "rf-causa-event-detail-section-coeffects")]
+        (is (some? section) "COEFFECTS section rendered")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-coeffect-row-now"))
+            ":now row rendered")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-coeffect-row-local-storage"))
+            ":local-storage row rendered")))))
+
+(deftest coeffects-section-renders-qualified-keyword-ids
+  (testing "qualified-keyword cofx ids (e.g. :auth/token, :env/build)
+            render via the same testid-suffix scheme used by INTERCEPTORS"
+    (seed-buffer!
+      (cascade-evs 100 [:checkout/submit] 0
+                   {:coeffects {:auth/token "tok-abc"
+                                :env/build :prod}}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-coeffect-row-auth/token")))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-coeffect-row-env/build")))))))
+
+(deftest user-coeffects-helper-projects-stamp-from-do-fx
+  (testing "user-coeffects reads :tags :coeffects off the cascade's :fx
+            (do-fx) trace; returns nil when the stamp is absent / empty"
+    (is (= {:now "2026-05-18"}
+           (event-detail/user-coeffects
+             {:fx {:tags {:coeffects {:now "2026-05-18"}}}})))
+    (is (nil? (event-detail/user-coeffects {:fx {:tags {}}}))
+        "absent stamp → nil")
+    (is (nil? (event-detail/user-coeffects {:fx {:tags {:coeffects {}}}}))
+        "empty stamp → nil (silent-by-default)")
+    (is (nil? (event-detail/user-coeffects {:fx nil}))
+        "no do-fx trace → nil")))
 
 ;; ---- (9) handler-threw footer + suppression of §5/§6 -------------------
 

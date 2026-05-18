@@ -4,11 +4,12 @@
 
   This panel replaces the v1 'six-domino' renderer with a focused
   Event lens shaped after Chrome DevTools: top-of-panel cascade-outcome
-  line + six stacked sections that read top-to-bottom as the developer
+  line + seven stacked sections that read top-to-bottom as the developer
   scans:
 
-      ▼ EVENT                 the dispatched event vector
       ▼ DISPATCH SITE         where the dispatch happened (source coord)
+      ▼ EVENT                 the dispatched event vector
+      ▼ COEFFECTS             user-injected coeffects (silent when zero)
       ▼ INTERCEPTORS          non-standard chain (silent when empty)
       ▼ HANDLER               where the handler is defined (source coord)
       ▼ EFFECTS RETURNED      the {:db ... :fx [...]} the handler returned
@@ -18,10 +19,9 @@
   own tabs (Views / Issues). See `tools/causa/spec/018-Event-Spine.md`
   §5.1 + `ai/findings/2026-05-18-event-lens-design.md` for design.
 
-  ## Substrate-driven (rf2-twt7m)
+  ## Substrate-driven (rf2-twt7m + rf2-jhhqt)
 
-  Three substrate changes in rf2-twt7m supply the data this lens
-  needs:
+  Four substrate changes supply the data this lens needs:
 
     Change 1 — `:event/dispatched` traces carry `:rf.trace/call-site`
                on success-path emits (previously error-only). DISPATCH
@@ -32,6 +32,11 @@
     Change 3 — Framework-auto-wrapped interceptors carry
                `:rf/default? true` so INTERCEPTORS can filter them out
                without an allowlist.
+    Change 4 — (rf2-jhhqt) `:event/do-fx` traces additionally carry
+               `:coeffects` on their `:tags` — the USER-INJECTED subset
+               of the handler's final coeffects map (framework defaults
+               filtered out at the substrate). COEFFECTS section reads
+               it.
 
   Handler-site coord reads via `(rf/handler-meta :event event-id)` —
   no trace involvement; reads the registry at render time.
@@ -44,12 +49,12 @@
 
   ## What replaced the v1 cascade-detail
 
-    - cascade-detail (six-domino renderer)  → event-lens (6 sections)
+    - cascade-detail (six-domino renderer)  → event-lens (7 sections)
     - event-row / handler-row / fx-row      → section/section-header
     - subs-row / renders-row / other-row    → DELETED
                                               (Views / Issues tabs)
-    - effects-row                           → §5 EFFECTS RETURNED
-                                              + §6 EFFECTS HANDLERS RAN
+    - effects-row                           → §6 EFFECTS RETURNED
+                                              + §7 EFFECTS HANDLERS RAN
     - 'Event detail' h1                     → cascade-outcome line
 
   ## What survives
@@ -388,7 +393,7 @@
                        :margin-left "6px"}}
         "SSR✓"])]))
 
-;; ---- §1 EVENT ----------------------------------------------------------
+;; ---- §2 EVENT ----------------------------------------------------------
 
 (defn- event-section
   [event-vec]
@@ -399,7 +404,7 @@
            :style {:font-weight 600}}
      (inspector/inspect event-vec "event-detail/event")]))
 
-;; ---- §2 DISPATCH SITE --------------------------------------------------
+;; ---- §1 DISPATCH SITE --------------------------------------------------
 
 (defn- coord-chip
   "Reusable 'open in editor' chip. Renders nothing when `coord` has no
@@ -456,20 +461,73 @@
             (and (not source) origin) (str "origin ")
             origin (str origin))])])))
 
-;; ---- §3 INTERCEPTORS ---------------------------------------------------
+;; ---- shared id → testid-suffix renderer --------------------------------
 
 (defn- interceptor-testid-suffix
-  "Render an interceptor id into a stable testid suffix. Qualified
-  keywords (`:auth/require-login`) render as `auth/require-login`;
-  bare keywords use their name; non-keyword ids fall through `str`.
-  Used so the test asserting on a per-interceptor row testid sees the
-  same id the registration declares."
+  "Render an interceptor / cofx / fx id into a stable testid suffix.
+  Qualified keywords (`:auth/require-login`) render as
+  `auth/require-login`; bare keywords use their name; non-keyword ids
+  fall through `str`. Shared across §3 COEFFECTS, §4 INTERCEPTORS, and
+  §7 EFFECTS HANDLERS RAN so a test asserting on a per-row testid sees
+  the same id the registration declares."
   [id]
   (cond
     (qualified-keyword? id) (str (namespace id) "/" (name id))
     (keyword? id)           (name id)
     (nil? id)               "unknown"
     :else                   (str id)))
+
+;; ---- §3 COEFFECTS ------------------------------------------------------
+
+(defn user-coeffects
+  "Project the user-injected coeffects map off the cascade's
+  `:event/do-fx` trace (rf2-jhhqt — substrate Change 4 stamps the
+  user-injected subset on `:tags :coeffects`). Pure fn; JVM-testable.
+
+  Returns the map (preserving id → value pairs) or nil when the
+  cascade carries no coeffects stamp / the stamp is empty. The
+  substrate filters the framework defaults (`:db` `:event` `:frame`
+  `:source` `:trace-id`) at emit-time so this fn is a thin reader —
+  it does NOT re-filter."
+  [cascade]
+  (let [m (some-> (do-fx-trace cascade) :tags :coeffects)]
+    (when (and (map? m) (seq m))
+      m)))
+
+(defn- coeffect-row
+  [id value]
+  (let [suffix (interceptor-testid-suffix id)]
+    [:div {:data-testid (str "rf-causa-event-detail-coeffect-row-" suffix)
+           :style {:display "flex"
+                   :align-items "flex-start"
+                   :padding "2px 0"}}
+     [:span {:style {:color (:accent-violet tokens)
+                     :min-width "180px"
+                     :margin-right "12px"}}
+      (pr-str id)]
+     [:span {:style {:color (:text-primary tokens)
+                     :min-width 0
+                     :flex 1
+                     :word-break "break-word"}}
+      (inspector/inspect value (str "event-detail/coeffect/" suffix))]]))
+
+(defn- coeffects-section
+  "§3. Silent-by-default — section is ABSENT entirely when zero user
+  coeffects were injected (mirrors INTERCEPTORS' posture)."
+  [cascade]
+  (let [user-cofx (user-coeffects cascade)]
+    (when (seq user-cofx)
+      (section/section-row
+        {:label "COEFFECTS"
+         :count* (count user-cofx)
+         :testid "rf-causa-event-detail-section-coeffects"}
+        (into [:div]
+              ;; Per rf2-ppzid — `with-meta` on fn return preserves :key.
+              (for [[id v] user-cofx]
+                (with-meta (coeffect-row id v)
+                           {:key (pr-str id)})))))))
+
+;; ---- §4 INTERCEPTORS ---------------------------------------------------
 
 (defn- interceptor-row
   [{:keys [id file line] :as _interceptor}]
@@ -514,7 +572,7 @@
               (with-meta (interceptor-row icpt)
                          {:key (pr-str (:id icpt))}))))))
 
-;; ---- §4 HANDLER --------------------------------------------------------
+;; ---- §5 HANDLER --------------------------------------------------------
 
 (defn- handler-section
   "Renders the handler-meta read off `(rf/handler-meta :event id)`.
@@ -554,7 +612,7 @@
             "no handler registered")])
        (coord-chip coord "rf-causa-event-detail-handler-open-chip")])))
 
-;; ---- §5 EFFECTS RETURNED -----------------------------------------------
+;; ---- §6 EFFECTS RETURNED -----------------------------------------------
 
 (defn- effects-returned-row
   [label value testid value-style]
@@ -628,7 +686,7 @@
          :testid "rf-causa-event-detail-section-effects-returned"}
         (into [:div] rows)))))
 
-;; ---- §6 EFFECTS HANDLERS RAN -------------------------------------------
+;; ---- §7 EFFECTS HANDLERS RAN -------------------------------------------
 
 (defn- dispatch-fx-summary
   "Render the `:dispatch` fx-handler row's caption — `→ queued event
@@ -728,8 +786,19 @@
 ;; ---- the lens (replaces v1 cascade-detail) -----------------------------
 
 (defn- event-lens
-  "Render the 6-section Event lens for a cascade. Replaces the v1
-  `cascade-detail` six-domino renderer per rf2-zh2qc."
+  "Render the 7-section Event lens for a cascade. Replaces the v1
+  `cascade-detail` six-domino renderer per rf2-zh2qc; COEFFECTS slot
+  added in rf2-jhhqt + section order corrected to honour Mike's Q1
+  answer (DISPATCH SITE first, then EVENT).
+
+  Order (top → bottom):
+    §1 DISPATCH SITE         where the dispatch happened (source coord)
+    §2 EVENT                 the dispatched event vector
+    §3 COEFFECTS             user-injected coeffects (silent when zero)
+    §4 INTERCEPTORS          non-standard chain (silent when zero)
+    §5 HANDLER               where the handler is defined (source coord)
+    §6 EFFECTS RETURNED      {:db ... :fx [...]} the handler returned
+    §7 EFFECTS HANDLERS RAN  per-fx-handler rows + managed-fx inline"
   [{:keys [dispatch-id frame event] :as cascade}]
   (let [event-id   (when (vector? event) (first event))
         meta       (when event-id (rf/handler-meta :event event-id))
@@ -739,8 +808,9 @@
            :data-dispatch-id (str dispatch-id)
            :data-frame (str frame)}
      (cascade-outcome-line cascade)
-     (event-section event)
      (dispatch-site-section cascade)
+     (event-section event)
+     (coeffects-section cascade)
      (interceptors-section user-icpts)
      (handler-section event-id meta)
      (when-not threw?

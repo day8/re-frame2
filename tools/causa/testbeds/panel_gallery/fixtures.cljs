@@ -432,6 +432,32 @@
   []
   (event-lens-simple-buffer))
 
+(defn event-lens-with-coeffects-buffer
+  "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt).
+  Stamps two user-injected coeffects (`:now` + `:local-storage`) onto
+  the `:event/do-fx` trace's `:tags :coeffects` slot — the substrate
+  filter has already excluded the framework defaults (`:db` `:event`
+  `:frame` `:source` `:trace-id`)."
+  []
+  (let [dispatch-id 110
+        id-base     60
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
+             :tags (assoc tag :event [:cart/restore])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/cart/events.cljs" :line 211})
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 7)}
+     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+      :tags (assoc tag :fx [[:db nil]]
+                       :db-present? true
+                       :coeffects {:now "2026-05-18T19:00:00Z"
+                                   :local-storage {:user/last-cart-id "cart-42"
+                                                   :user/wishlist-ids #{"sku-9"}}})}
+     {:id (+ id-base 4) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :db :duration-ms 1)}]))
+
 (defn event-lens-many-fx-buffer
   "Event lens fixture — six fx handlers ran in the cascade, including
   one managed-fx (HTTP). Exercises the inline managed-fx mount under
