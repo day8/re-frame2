@@ -270,10 +270,11 @@ Spec corpus landed via rf2-1lls (2026-05-12); the 17-row test
 coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
 reports `covered` across every row at the unit/helper/view tier.
 
-Browser testbeds live under `tools/causa/testbeds/` — `shop`,
-`counter-driven`, `feature_matrix`, `inline_resize`, `panel_gallery`,
-`perf_counter`, `rigorous` — covering the canonical six-layer demo
-(`shop`: multi-frame · HTTP · machine · flow · app-db · issues), the
+Browser testbeds live under `tools/causa/testbeds/` —
+`parallel_frames`, `counter-driven`, `feature_matrix`, `inline_resize`,
+`panel_gallery`, `perf_counter`, `rigorous` — covering the canonical
+multi-frame isolation demo (`parallel_frames`: one app · two frames ·
+counter · clock · HTTP via state machine · slow-effect Issues), the
 shell, panels, sensitive/large redaction, performance, popout, and
 the production-elision probe.
 

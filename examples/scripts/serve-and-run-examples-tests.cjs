@@ -123,24 +123,6 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-perf'),
   },
-  // Shop testbed (rf2-yhxk3) — THE canonical Causa demo. One rich
-  // multi-frame demo app exercising every Causa lens across three
-  // frames; replaces and absorbs the prior cart-total + multi-frame-
-  // causa testbeds (Mike's testbed-consolidation decision, 2026-05-18).
-  // The companion spec at tools/causa/testbeds/shop/spec.cjs walks
-  // all six layers end-to-end (multi-frame · HTTP · machine · flow ·
-  // app-db · issues).
-  {
-    build: 'examples/shop',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'shop', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'shop'),
-    extraFiles: [
-      {
-        src: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'shop', 'api', 'products.json'),
-        dest: path.join('api', 'products.json'),
-      },
-    ],
-  },
   // Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
   // isolation demo. One app, mounted in TWO frames (:above + :below)
   // on ONE page with zero cross-frame coupling. Each frame is a

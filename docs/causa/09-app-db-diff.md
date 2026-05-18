@@ -1,8 +1,10 @@
 # 9. App-DB diff
 
-You just dispatched `:cart/send-to-checkout` on the shop testbed and half the tree moved. The Event-detail panel's mini-diff is the right size for "one leaf changed" — what you want now is the *whole* delta, slice by slice, with the un-touched 90% of the tree out of the way. App-DB panel is what you escalate to.
+You just clicked *Refresh* on the parallel-frames testbed's `:above` panel and the title HTTP flow rewrote a couple of slots — `[:rf/machines :title/flow]` walked `:idle → :loading`, and once the mock fetch resolves it walks again to `:loaded` and writes `[:title :text]`. The Event-detail panel's mini-diff is the right size for "one leaf changed" — what you want now is the *whole* delta, slice by slice, with the un-touched 90% of the tree out of the way. App-DB panel is what you escalate to.
 
-`app-db` is a value. Two epochs are two values. The diff is the difference between them — and on the shop epoch where `[:checkout :snapshot]` got populated and `[:cart :items]` got emptied, the diff is two paths and four values. Not a 200-line tree dump.
+`app-db` is a value. Two epochs are two values. The diff is the difference between them — and on the epoch where the title-flow machine landed `:loaded`, the diff is two paths and four values: the machine slot moved from `:loading` to `:loaded`, and the `[:title :text]` slot picked up the resolved title. Not a 200-line tree dump.
+
+The panel is **per-frame**, scoped by the L1 frame picker. Switch from `:above` to `:below` and the same `[:rf/machines :title/flow]` slot reads from `:below`'s `app-db` — a different ring buffer, a different cascade history, a different diff per epoch.
 
 The panel renders the diff of the **current epoch** (the one selected in Event detail or the time-travel scrubber) — `:db-before` and `:db-after`, slice-aware.
 

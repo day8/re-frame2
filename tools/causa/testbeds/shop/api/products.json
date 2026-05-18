@@ -1,8 +1,0 @@
-{
-  "products": [
-    {"id": "apple",  "name": "Apple",  "price": 150},
-    {"id": "bread",  "name": "Bread",  "price": 350},
-    {"id": "coffee", "name": "Coffee", "price": 450},
-    {"id": "donut",  "name": "Donut",  "price": 200}
-  ]
-}

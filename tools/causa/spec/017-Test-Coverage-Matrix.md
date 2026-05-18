@@ -95,7 +95,7 @@ debug without re-running under a debugger:
 | Gate | Scope |
 |---|---|
 | `tools/causa` unit gate | CLJ/CLJS helper, registry, config, shell, trace bus, and panel view tests. Intended default local/CI coverage for Causa internals. |
-| Causa browser smoke gate | Existing lightweight browser coverage from `tools/causa/testbeds/counter-driven`, `tools/causa/testbeds/rigorous`, `tools/causa/testbeds/shop`, and `tools/causa/testbeds/perf_counter`. Intended default browser smoke coverage. |
+| Causa browser smoke gate | Existing lightweight browser coverage from `tools/causa/testbeds/counter-driven`, `tools/causa/testbeds/rigorous`, `tools/causa/testbeds/parallel_frames`, and `tools/causa/testbeds/perf_counter`. Intended default browser smoke coverage. |
 | Causa browser feature gate | New deterministic feature matrix gate described by this spec. It owns direct and failure paths for each matrix row. It can be sharded by panel but should report one matrix. |
 | Causa 20-event/load gate | Explicit or pre-commit/pre-PR stress gate only. It is not default CI. It reuses the feature testbed and runs the row-specific 20-event/load checks. |
 | Production elision gate | Existing implementation production-elision probes plus any Causa-specific release probe proving preload, keybinding, pill, trace collector, and shell are absent under `goog.DEBUG=false`. |

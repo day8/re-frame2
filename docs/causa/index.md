@@ -12,26 +12,26 @@ This is the welcome page. The chapters that follow are a walkthrough — install
 
 ## A scenario, before the tour
 
-You're paged at 3pm. A tester drops a screenshot on your desk: *the wrong number is showing in the cart total*. There's no reproduction recipe; the only clue is the screenshot.
+You're investigating a page with the same app mounted in two frames — an `:above` panel and a `:below` panel. The two frames are meant to be **fully isolated reactive contexts**: counters move independently, clocks tick on independent cadences, an HTTP-loaded title in `:above` should never disturb the same title slot in `:below`. A teammate asks: *the two frames look out of sync after I click Refresh in only one — is that the design, or did state leak?*
 
-The legacy debugging loop is the one you know: open browser DevTools, set a breakpoint on whatever you guess produced the number, refresh, try to reproduce, watch the call stack scroll past. Maybe you log. Maybe you `console.dir(state)`. Maybe you give up and ask the tester to re-run with the React profiler open.
+The legacy debugging loop is the one you know: open browser DevTools, log `console.dir(state)` from two places, refresh, try to reproduce, watch the call stack scroll past. Maybe you sprinkle `println`s. Maybe you give up and ask the teammate to re-run with the React profiler open.
 
-The Causa loop is different. You haven't reproduced anything yet. You haven't even *opened* Causa. The tester just sent you the screenshot.
+The Causa loop is different. You haven't opened Causa yet. You're just looking at the page.
 
-1. You ask the tester to right-click the wrong number and *copy element*. The HTML they paste back is:
+1. You right-click the title text in `:below` and *Copy element*. The HTML reads:
    ```html
-   <span data-rf2-source-coord="shop.core:cart-panel:624:4">$5.00</span>
+   <span data-rf2-source-coord="parallel-frames.core:title-view:198:4">No title yet…</span>
    ```
 2. The `data-rf2-source-coord` attribute is on **every** rendered DOM element in dev mode. Four segments, colon-separated: `<ns>:<sym>:<line>:<col>`. You're already at the line in your editor.
-3. You read the function. It subscribes to `:total-due`. You open the running app on your machine, press `Ctrl+Shift+C`, click *Views*, type `total-due`. The sub is recomputing on every line-item edit. Good — that's expected.
-4. The sub chains through `:cart/subtotal-WRONG`. You click the dependency edge. The upstream is reading `:cart/snapshot` (`[:checkout :snapshot]` on cart-frame's app-db) — the snapshot the send-to-checkout handler froze, not the live `[:cart :items]`. Wrong slot. The tester had the cart open during a checkout transition; the projection drifted.
-5. You write a one-line fix, hot-reload, and Causa's Issues ribbon clears.
+3. You read the function. It subscribes to `::title-status` and `::title-text`. You open the running app, press `Ctrl+Shift+C`, click the L1 frame picker, switch from `:above` to `:below`. The Views panel now scopes every sub-recompute to the `:below` frame.
+4. You click *Refresh* in `:above` only. The frame picker is still on `:below`. The Trace tab is empty for `:below` — no `:title/flow` transition, no HTTP-shaped row, no sub recompute. Flip the picker back to `:above`: a single `:title/flow` machine-transition row, one in-flight HTTP row, and the title-status sub recomputing on a single frame. Frames are isolated. The design holds.
+5. The Machines tab confirms it from the other direction: `[:rf/machines :title/flow]` reads `:loading` under `:above` and `:idle` under `:below`. Two machines, two app-dbs, one source.
 
-This is the loop the rest of the tutorial unpacks. Source coords on the wire. Sub-graph navigation in the panel. Trace bus carrying every fx and sub-run. Epoch history you can scrub. Hot-reload with the diff preserved. None of it is novel by itself; what's novel is that they're **on one substrate** and the tool just paints.
+This is the loop the rest of the tutorial unpacks. Source coords on the wire. Frame-scoped panels. Trace bus carrying every fx and sub-run, scoped per frame. Sub-graph navigation in the panel. Epoch history you can scrub. Hot-reload with the diff preserved. None of it is novel by itself; what's novel is that they're **on one substrate** and the tool just paints.
 
 !!! tip "Run the scenario yourself"
 
-    The five-step walk-through above is a runnable testbed at [`tools/causa/testbeds/shop/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/shop). Clone the repo, run `npm run test:examples` from `implementation/`, then open `http://127.0.0.1:8030/shop/` and reproduce the bug in three clicks: *Send to checkout* → *+ Apple* → watch the displayed total stay locked to the snapshot's value while the live cart visibly carries different items. Open Causa (`Ctrl+Shift+C`), find `:total-due` in the Views panel, and click the dependency edge — the wrong upstream slot (`:cart/subtotal-WRONG` reading `:cart/snapshot`) is one click away. [Chapter 5 (click-to-source)](05-click-to-source.md) walks the fix end-to-end on the same testbed.
+    The five-step walk-through above is a runnable testbed at [`tools/causa/testbeds/parallel_frames/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/parallel_frames). Clone the repo, run `npm run test:examples` from `implementation/`, then open `http://127.0.0.1:8030/parallel-frames/`. Click `+` three times in `:above`, then open Causa (`Ctrl+Shift+C`) and use the L1 frame picker to scope every panel between `:above` and `:below`. Click *Refresh* in `:below` only and watch the `:title/flow` machine drive `:idle → :loading → :loaded` under `:below` while `:above`'s machine stays put. [Chapter 5 (click-to-source)](05-click-to-source.md) walks the source-coord gesture end-to-end on the same testbed; [Chapter 9 (App-DB diff)](09-app-db-diff.md) reads the per-frame diffs that fall out as the user interacts.
 
 The chapters:
 

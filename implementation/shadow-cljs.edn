@@ -435,30 +435,6 @@
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn perf-counter.core/run}}}
 
-  ;; Shop testbed (rf2-yhxk3) — THE canonical Causa demo. One rich
-  ;; multi-frame demo app exercising every Causa lens (Event / App-db
-  ;; / Views / Trace / Machines / Issues) across three frames
-  ;; (:cart-frame, :checkout-frame, :admin-frame) on one page. Layers
-  ;; in the spec: multi-frame · HTTP catalogue fetch · :checkout/flow
-  ;; state machine · :total-due derived view with the deliberately-
-  ;; wrong sub from the 3pm tutorial · nested per-frame app-db ·
-  ;; schema-violation + handler-throw issues sources. Replaces and
-  ;; absorbs the prior :examples/cart-total (rf2-0sg12) and
-  ;; :examples/multi-frame-causa (rf2-2vgog) builds — Mike's testbed-
-  ;; consolidation decision (2026-05-18).
-  ;;
-  ;; Sources live under tools/causa/testbeds/shop/; the Causa preload
-  ;; auto-mounts inline so a visitor steps through every lens without
-  ;; configuration. The api/products.json static asset is staged
-  ;; alongside main.js by the orchestrator's `extraFiles` entry so
-  ;; the live-Fetch success path resolves under the same origin.
-  :examples/shop
-  {:target     :browser
-   :output-dir "out/examples/shop"
-   :asset-path "."
-   :modules    {:main {:init-fn shop.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
-
   ;; Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
   ;; isolation demo. One app, mounted in TWO frames (:above + :below)
   ;; on ONE page, with zero cross-frame coupling. Each frame is a
@@ -476,9 +452,11 @@
   ;;
   ;; Sources live under tools/causa/testbeds/parallel-frames/; the
   ;; Causa preload auto-mounts inline so the frame-picker switching
-  ;; between :above and :below is one click away. Replaces shop as
-  ;; the canonical multi-frame exemplar — shop's deletion is a
-  ;; separate follow-on bead.
+  ;; between :above and :below is one click away. Replaced the shop
+  ;; testbed (rf2-yhxk3, deleted in rf2-ljmm1) as the canonical
+  ;; multi-frame exemplar — shop coupled data across frames and used
+  ;; a deliberately-wrong sub for tutorial pedagogy, both of which
+  ;; violated the saved-memory rules above.
   :examples/parallel-frames
   {:target     :browser
    :output-dir "out/examples/parallel-frames"
