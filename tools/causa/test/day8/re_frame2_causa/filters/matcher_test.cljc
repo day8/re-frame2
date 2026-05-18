@@ -172,3 +172,47 @@
                     {:event [:anim-frame]}]]
       (is (= cascades
              (matcher/filter-cascades cascades {:in [] :out []}))))))
+
+;; ---- frame-picker filter (rf2-oziyr) ------------------------------------
+
+(deftest keep-cascade-for-frame-nil-picker-keeps-everything
+  (testing "nil picker-frame means 'no frame filter' — every cascade survives"
+    (is (matcher/keep-cascade-for-frame? {:frame :cart-frame} nil))
+    (is (matcher/keep-cascade-for-frame? {:frame :checkout-frame} nil))
+    (is (matcher/keep-cascade-for-frame? {:frame nil} nil))))
+
+(deftest keep-cascade-for-frame-matching-frame-keeps
+  (is (matcher/keep-cascade-for-frame? {:frame :cart-frame} :cart-frame))
+  (is (matcher/keep-cascade-for-frame? {:frame :rf/default} :rf/default)))
+
+(deftest keep-cascade-for-frame-non-matching-frame-drops
+  (is (not (matcher/keep-cascade-for-frame? {:frame :cart-frame} :checkout-frame)))
+  (is (not (matcher/keep-cascade-for-frame? {:frame nil} :cart-frame))
+      "ungrouped/frame-less cascade drops when a frame filter is active"))
+
+(deftest filter-cascades-by-frame-nil-is-identity
+  (let [cascades [{:dispatch-id 1 :frame :cart-frame}
+                  {:dispatch-id 2 :frame :checkout-frame}
+                  {:dispatch-id 3 :frame nil}]]
+    (is (= cascades (matcher/filter-cascades-by-frame cascades nil)))))
+
+(deftest filter-cascades-by-frame-restricts-and-preserves-order
+  (testing "rf2-oziyr — picker filter at data layer keeps only matching
+            cascades; order preserved so [◀ ▶ ⏭] walks the same surface"
+    (let [cascades [{:dispatch-id 1 :frame :cart-frame}
+                    {:dispatch-id 2 :frame :checkout-frame}
+                    {:dispatch-id 3 :frame :cart-frame}
+                    {:dispatch-id 4 :frame :checkout-frame}]]
+      (is (= [1 3] (mapv :dispatch-id
+                         (matcher/filter-cascades-by-frame cascades :cart-frame))))
+      (is (= [2 4] (mapv :dispatch-id
+                         (matcher/filter-cascades-by-frame cascades :checkout-frame)))))))
+
+(deftest filter-cascades-by-frame-drops-frameless
+  (testing "ungrouped / frame-less cascades drop when a frame filter is
+            active — keeps the L2 list aligned with the picker label"
+    (let [cascades [{:dispatch-id 1 :frame :cart-frame}
+                    {:dispatch-id :ungrouped :frame nil}
+                    {:dispatch-id 2 :frame :cart-frame}]]
+      (is (= [1 2] (mapv :dispatch-id
+                         (matcher/filter-cascades-by-frame cascades :cart-frame)))))))

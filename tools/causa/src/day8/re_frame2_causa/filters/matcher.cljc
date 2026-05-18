@@ -171,3 +171,31 @@
   order. Pure — no I/O, no atoms read."
   [cascades filters]
   (filterv #(keep-cascade? % filters) cascades))
+
+;; ---- frame-picker filter (rf2-oziyr) -------------------------------------
+
+(defn keep-cascade-for-frame?
+  "True iff `cascade`'s `:frame` matches the picker-selected
+  `picker-frame`. nil / absent `picker-frame` means 'no frame filter
+  active' — every cascade survives. Cascades whose `:frame` slot is
+  nil (the `:ungrouped` bucket from registry-time emits / lifecycle
+  outside a drain) drop out when a frame filter is active.
+
+  Per spec/018 §3 Frame dropdown: the picker is single-select and the
+  L2 list MUST show only the picked frame's cascades. Filtering at
+  the data layer keeps the virtualisation budget honest and the
+  ribbon nav (`◀ ▶ ⏭`) walking the same surface every consumer reads.
+
+  Pure data; JVM-runnable."
+  [cascade picker-frame]
+  (or (nil? picker-frame)
+      (= picker-frame (:frame cascade))))
+
+(defn filter-cascades-by-frame
+  "Restrict `cascades` to those whose `:frame` matches `picker-frame`.
+  nil `picker-frame` returns `cascades` unchanged. Pure — no I/O, no
+  atoms read. Per spec/018 §3 Frame dropdown + rf2-oziyr."
+  [cascades picker-frame]
+  (if (nil? picker-frame)
+    cascades
+    (filterv #(keep-cascade-for-frame? % picker-frame) cascades)))

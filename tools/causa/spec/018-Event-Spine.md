@@ -663,10 +663,11 @@ The single-axis selection that every layer reads from.
         │
         ▼
 :rf.causa/active-filters           ← IN/OUT pill state (Causa app-db slot)
+:rf.causa/focus-slot               ← spine slot incl. picker's :frame (per rf2-oziyr)
         │
         ▼
 :rf.causa/filtered-cascades        ← single switch point: list + scrubber + counters
-        │
+        │                            (composes IN/OUT pills + picker frame)
         ▼
 :rf.causa/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
         │
@@ -676,9 +677,10 @@ The single-axis selection that every layer reads from.
         └──── L4 detail panel (per-tab content)
 ```
 
-The filtering happens at the data layer (`:rf.causa/filtered-cascades`), not at render. Two reasons:
+The filtering happens at the data layer (`:rf.causa/filtered-cascades`), not at render. Three reasons:
 1. Virtualisation cares about row count — render-time filtering means the virtualiser budgets unfiltered rows.
 2. Scrubbing must respect filters — `[◀ ▶ ⏭]` walks `:rf.causa/filtered-cascades`, not all cascades.
+3. The frame picker is a filter too — per rf2-oziyr the picker's `:frame` selection (stored on `:focus :frame` via `:rf.causa/set-frame`) is composed into `:rf.causa/filtered-cascades` alongside the IN/OUT pills so the L2 list, scrubber, and nav `[◀ ▶ ⏭]` walk the picker-scoped cascade list as one. Spine's LIVE auto-tracking ALSO respects the picker frame so `:head?` and the head walk are scoped per-frame.
 
 ### LIVE / RETRO transitions
 

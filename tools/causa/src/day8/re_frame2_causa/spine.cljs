@@ -206,12 +206,26 @@
   points at `:ungrouped` OR points at an evicted cascade. Combined
   with the LIVE auto-follow above this makes 'buffer non-empty +
   effective :dispatch-id nil' structurally unreachable — the L4
-  panels never have to handle the 'no cascade' degraded render."
+  panels never have to handle the 'no cascade' degraded render.
+
+  ## Frame-picker scoping (rf2-oziyr)
+
+  When `slot-frame` is non-nil (the frame-picker has restricted the
+  inspectable surface to one frame), the head walk runs over
+  cascades restricted to that frame so `:live` mode auto-tracks the
+  picked frame's head and `[◀ ▶ ⏭]` boundaries respect the picker.
+  Without this scoping the composer would pick the global head
+  (whatever frame fired the latest event), which under multi-frame
+  apps drifts focus off the picker's frame on every cross-frame
+  dispatch."
   [focus cascades]
-  (let [focusable  (focusable-cascades cascades)
+  (let [focusable* (focusable-cascades cascades)
+        slot-frame (:frame focus)
+        focusable  (if slot-frame
+                     (filterv #(= slot-frame (:frame %)) focusable*)
+                     focusable*)
         head-id    (head-dispatch-id focusable)
         slot-id    (:dispatch-id focus)
-        slot-frame (:frame focus)
         paused?    (boolean (:paused? focus))
         ;; rf2-fzbrw — a slot pointing at nil OR the :ungrouped bucket
         ;; is NOT a valid focus pin. (Evicted ids are still a valid
@@ -343,7 +357,15 @@
   ([db cascades delta]
    (focus-step-reducer db cascades [] delta))
   ([db cascades epoch-history delta]
-   (let [focusable  (focusable-cascades cascades)
+   (let [slot-frame (get-in db [:focus :frame])
+         focusable* (focusable-cascades cascades)
+         ;; rf2-oziyr — when the frame-picker has restricted the
+         ;; inspectable surface, the step walk MUST honour that
+         ;; restriction so [◀ ▶ ⏭] / j / k step through the picker's
+         ;; cascades only, matching what the user sees in L2.
+         focusable  (if slot-frame
+                      (filterv #(= slot-frame (:frame %)) focusable*)
+                      focusable*)
          ;; rf2-s0s5x Phase A: resolve current-id through the same
          ;; composer the spine sub uses, so in LIVE mode `j` steps
          ;; back from the CURRENT head rather than from a stale
