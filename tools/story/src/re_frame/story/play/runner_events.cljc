@@ -45,8 +45,33 @@
   ^{:doc "frame-id → runner-state map. The UI's play-status chip derefs
          this atom and renders the per-variant status. The driver
          swaps the slot on every step transition. CLJS uses a Reagent
-         ratom (so UI re-renders observe it); JVM uses a plain atom."}
+         ratom (so UI re-renders observe it); JVM uses a plain atom.
+
+         rf2-tl7zk multi-play: the stored state carries a `:play-key`
+         slot (the play's `:name` for `:plays` variants, nil for the
+         single-script `:play-script` slot). The chip uses this to
+         show which play was last run; per-play history lives in
+         `runs-by-play` for finer-grained queries."}
   run-state
+  #?(:cljs (r/atom {})
+     :clj  (atom  {})))
+
+(defonce
+  ^{:doc "[frame-id play-key] → runner-state. rf2-tl7zk: per-play
+         history so the toolbar dropdown can show each play's last
+         outcome and the CI runner can read per-play terminal state.
+         For single-script (`:play-script`) variants the only key is
+         `[variant-id nil]`. CLJS uses a Reagent ratom."}
+  runs-by-play
+  #?(:cljs (r/atom {})
+     :clj  (atom  {})))
+
+(defonce
+  ^{:doc "frame-id → play-key. rf2-tl7zk: the play the toolbar is
+         currently focused on. Default is the first play's name (or
+         nil for single-script variants). Changed by the dropdown's
+         `select-play!`. Reagent ratom on CLJS."}
+  active-play
   #?(:cljs (r/atom {})
      :clj  (atom  {})))
 
@@ -55,21 +80,48 @@
   [frame-id]
   (get @run-state frame-id))
 
+(defn current-state-for-play
+  "Read the run-state for `(frame-id, play-key)`, or nil. rf2-tl7zk:
+  exposes per-play state for the dropdown's per-row status badges +
+  the CI runner's per-play outcome read."
+  [frame-id play-key]
+  (get @runs-by-play [frame-id play-key]))
+
+(defn active-play-key
+  "Return the play-key the toolbar is currently focused on for
+  `frame-id`, or nil. rf2-tl7zk multi-play."
+  [frame-id]
+  (get @active-play frame-id))
+
+(defn set-active-play!
+  "Set the toolbar's focused play for `frame-id`. rf2-tl7zk multi-play.
+  Idempotent — re-setting the same key is a no-op."
+  [frame-id play-key]
+  (swap! active-play assoc frame-id play-key)
+  nil)
+
 (defn clear-state!
   "Wipe the run-state for `frame-id`. Called from frame teardown +
   before each fresh run."
   [frame-id]
   (swap! run-state dissoc frame-id)
+  (swap! runs-by-play (fn [m]
+                        (into {} (remove (fn [[[fid _]] _]
+                                           (= fid frame-id)) m))))
+  (swap! active-play dissoc frame-id)
   nil)
 
 (defn- update-state!
-  [frame-id f & args]
+  [frame-id play-key f & args]
   (swap! run-state update frame-id #(apply f % args))
+  (swap! runs-by-play update [frame-id play-key] #(apply f % args))
   nil)
 
 (defn- set-state!
-  [frame-id state]
-  (swap! run-state assoc frame-id state)
+  [frame-id play-key state]
+  (let [tagged (assoc state :play-key play-key)]
+    (swap! run-state    assoc frame-id tagged)
+    (swap! runs-by-play assoc [frame-id play-key] tagged))
   nil)
 
 ;; ---- wall-clock probe ----------------------------------------------------
@@ -90,11 +142,77 @@
 (defn variant-play-script
   "Resolve the `:play-script` body on `variant-id` and parse it. Returns
   the normalised spec map per `runner/parse-spec`. Variants without
-  `:play-script` return `{:script [] :auto-run? true}`."
+  `:play-script` return `{:script [] :auto-run? true}`.
+
+  Note (rf2-tl7zk): variants declaring `:plays` resolve to the FIRST
+  play's spec — preserves legacy single-script call sites + matches the
+  toolbar's 'default play' behaviour. Callers that need the full plays
+  vector should use `variant-plays` instead."
   [variant-id]
-  (runner/parse-spec
-    (when-let [body (handler-meta variant-id)]
-      (:play-script body))))
+  (let [body  (handler-meta variant-id)
+        plays (runner/variant-body->plays body)]
+    (cond
+      ;; Multi-play (:plays slot) — default to the first play.
+      (and (seq plays) (contains? body :plays))
+      (first plays)
+
+      ;; Single-script (:play-script slot) — legacy path.
+      :else
+      (runner/parse-spec (when body (:play-script body))))))
+
+;; ---- multi-play warning (one-shot) ---------------------------------------
+
+(defonce ^:private ^{:doc "Set of variant ids that have already received
+                          the both-:play-script-and-:plays console
+                          warning. One warning per variant per page
+                          lifetime keeps the console quiet."}
+  warned-both-slots
+  (atom #{}))
+
+(defn- warn-both-slots-once!
+  [variant-id]
+  (when (and variant-id (not (contains? @warned-both-slots variant-id)))
+    (swap! warned-both-slots conj variant-id)
+    #?(:cljs
+       (try
+         (js/console.warn
+           (str "[re-frame.story.play] " (pr-str variant-id)
+                " declares BOTH :play-script and :plays — preferring :plays."
+                " Pick one per variant to silence this warning."))
+         (catch :default _ nil))
+       :clj
+       (binding [*out* *err*]
+         (println (str "[re-frame.story.play] " (pr-str variant-id)
+                       " declares BOTH :play-script and :plays — preferring :plays."
+                       " Pick one per variant to silence this warning."))))))
+
+(defn variant-plays
+  "Resolve the canonical vector of parsed plays for `variant-id`. Pure
+  data → data; works on JVM + CLJS. rf2-tl7zk multi-play.
+
+  - `:plays` present → returns the parsed plays vector (size >= 1).
+  - `:play-script` present → returns a single-entry vector wrapping the
+    parsed single-script spec.
+  - Both present → warns once, prefers `:plays`.
+  - Neither → returns `[]`."
+  [variant-id]
+  (let [body (handler-meta variant-id)]
+    (when (and body
+               (contains? body :play-script)
+               (contains? body :plays))
+      (warn-both-slots-once! variant-id))
+    (runner/variant-body->plays body)))
+
+(defn resolve-play
+  "Resolve a `(variant-id, play-key)` pair to the parsed play spec, or
+  nil. `play-key` may be nil — meaning 'the default play' (first
+  entry for multi-play, the single script for `:play-script`).
+  rf2-tl7zk multi-play."
+  [variant-id play-key]
+  (let [plays (variant-plays variant-id)]
+    (if (nil? play-key)
+      (first plays)
+      (runner/find-play plays play-key))))
 
 ;; ---- trace emission ------------------------------------------------------
 
@@ -302,18 +420,18 @@
 (defn- record-result!
   "Append `result` to the run-state for `frame-id` and emit the trace
   event."
-  [frame-id name idx step result]
-  (update-state! frame-id runner/record-step-result result)
+  [frame-id play-key name idx step result]
+  (update-state! frame-id play-key runner/record-step-result result)
   (emit-trace! frame-id name idx step result)
   nil)
 
 (defn- finish!
   "Transition the run-state to `:pass` / `:fail` and resolve `done-cb`
   with the final state."
-  [frame-id done-cb]
-  (update-state! frame-id runner/finish (now-ms))
+  [frame-id play-key done-cb]
+  (update-state! frame-id play-key runner/finish (now-ms))
   (when done-cb
-    (try (done-cb (current-state frame-id))
+    (try (done-cb (current-state-for-play frame-id play-key))
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn- run-loop!
@@ -321,15 +439,15 @@
   to the scheduler and resume from the wait time onwards.
 
   `done-cb` is invoked with the final run-state once the loop ends."
-  [frame-id done-cb]
-  (let [state (current-state frame-id)]
+  [frame-id play-key done-cb]
+  (let [state (current-state-for-play frame-id play-key)]
     (cond
       ;; abort if state has gone missing (frame torn down mid-run)
       (nil? state)
       nil
 
       (runner/done? state)
-      (finish! frame-id done-cb)
+      (finish! frame-id play-key done-cb)
 
       :else
       (let [idx  (:step-idx state)
@@ -338,8 +456,8 @@
         (cond
           (= :wait (runner/step-type step))
           (let [ms (runner/step-wait-ms step)]
-            (record-result! frame-id nm idx step (runner/step-skip idx step))
-            (schedule! (or ms 0) #(run-loop! frame-id done-cb)))
+            (record-result! frame-id play-key nm idx step (runner/step-skip idx step))
+            (schedule! (or ms 0) #(run-loop! frame-id play-key done-cb)))
 
           :else
           (let [result (try
@@ -348,12 +466,12 @@
                            (runner/step-exception idx step
                                                   #?(:clj  (.getMessage ^Throwable e)
                                                      :cljs (str e)))))]
-            (record-result! frame-id nm idx step result)
+            (record-result! frame-id play-key nm idx step result)
             ;; Tail-call into the loop. On CLJS we yield via a 0-ms
             ;; setTimeout so a long async script doesn't blow the stack
             ;; and the UI gets a chance to repaint between steps.
-            #?(:cljs (js/setTimeout #(run-loop! frame-id done-cb) 0)
-               :clj  (recur frame-id done-cb))))))))
+            #?(:cljs (js/setTimeout #(run-loop! frame-id play-key done-cb) 0)
+               :clj  (recur frame-id play-key done-cb))))))))
 
 ;; ---- public driver -------------------------------------------------------
 
@@ -369,36 +487,139 @@
 
   Idempotent w.r.t. concurrent runs — calling `run!` while a previous
   run is in flight cancels the previous run's `done-cb` (the new one
-  takes over the run-state slot)."
+  takes over the run-state slot).
+
+  Arities:
+  - `[variant-id]`                — run the default play (rf2-tl7zk:
+                                    the first play of `:plays`, or the
+                                    single `:play-script`).
+  - `[variant-id done-cb]`        — as above + completion callback.
+  - `[variant-id spec done-cb]`   — legacy: drive an explicit spec.
+                                    The play-key is read off the spec's
+                                    `:name` (nil for unnamed scripts).
+  - `[variant-id play-key spec done-cb]` — rf2-tl7zk multi-play form:
+                                    drive a specific play. `play-key`
+                                    is the play's `:name` string (or
+                                    nil for the single-script case)."
   ([variant-id]
-   (run! variant-id nil nil))
+   (run! variant-id nil nil nil))
   ([variant-id done-cb]
-   (run! variant-id nil done-cb))
+   ;; Legacy two-arity: variant-id + done-cb. Picks the default play.
+   (run! variant-id nil nil done-cb))
   ([variant-id spec done-cb]
-   (let [spec  (or spec (variant-play-script variant-id))
+   ;; Legacy three-arity: variant-id + spec + done-cb. The play-key is
+   ;; derived from the spec's :name (nil for unnamed scripts). Preserved
+   ;; for back-compat with callers that hand-build a spec.
+   (run! variant-id (when spec (:name spec)) spec done-cb))
+  ([variant-id play-key spec done-cb]
+   (let [spec  (or spec
+                   (resolve-play variant-id play-key)
+                   ;; Fall back to the legacy single-script path so the
+                   ;; default play of a `:play-script` variant Just Works.
+                   (variant-play-script variant-id))
+         pk    (or play-key (:name spec))
          init  (runner/initial-state spec)
-         start (runner/start init (now-ms))]
-     (set-state! variant-id start)
-     (run-loop! variant-id done-cb)
-     start)))
+         started (runner/start init (now-ms))]
+     (set-state! variant-id pk started)
+     (set-active-play! variant-id pk)
+     (run-loop! variant-id pk done-cb)
+     started)))
 
 (defn re-run!
   "Re-run the play script for `variant-id`. Convenience wrapper around
   `run!` — distinct fn name so the toolbar's `[Re-run]` button has a
-  one-call API."
+  one-call API.
+
+  rf2-tl7zk: with no explicit `play-key`, re-runs the currently active
+  play (set by the dropdown). For single-script variants the active
+  play is nil, so this matches the legacy behaviour."
   ([variant-id]
    (re-run! variant-id nil))
   ([variant-id done-cb]
-   (run! variant-id done-cb)))
+   (let [pk (active-play-key variant-id)]
+     (run! variant-id pk nil done-cb))))
+
+(defn run-play!
+  "rf2-tl7zk multi-play: run the play identified by `play-key` (a
+  play's `:name`) for `variant-id`. Passing nil picks the default
+  play (first entry for multi-play, the single script for
+  `:play-script`)."
+  ([variant-id play-key]
+   (run-play! variant-id play-key nil))
+  ([variant-id play-key done-cb]
+   (run! variant-id play-key nil done-cb)))
+
+(defn select-play!
+  "rf2-tl7zk: set `variant-id`'s active play to `play-key` WITHOUT
+  running it. Used by the toolbar dropdown when the user picks a play
+  but the user hasn't pressed Re-run yet."
+  [variant-id play-key]
+  (set-active-play! variant-id play-key))
+
+(declare run-plays-sequentially!)
 
 (defn auto-run!
   "Run the play script if `:auto-run?` is true. Called from the shell
   after the variant mounts. No-op when the variant has no
-  `:play-script` slot or `:auto-run?` is false."
+  `:play-script` / `:plays` slot or no play declares `:auto-run? true`.
+
+  rf2-tl7zk multi-play: every play with `:auto-run? true` is run in
+  ORDER (sequentially) so they don't race against the same frame. By
+  the per-play default (first play true, rest false) only the first
+  play auto-runs on mount; subsequent plays opt in explicitly."
   ([variant-id]
    (auto-run! variant-id nil))
   ([variant-id done-cb]
    (when config/enabled?
-     (let [spec (variant-play-script variant-id)]
-       (when (and (:auto-run? spec) (seq (:script spec)))
-         (run! variant-id spec done-cb))))))
+     (let [plays      (variant-plays variant-id)
+           auto-plays (filterv (fn [p] (and (:auto-run? p)
+                                            (seq (:script p))))
+                               plays)]
+       (cond
+         (empty? auto-plays)
+         nil
+
+         ;; Single auto-run play — direct fire so the legacy
+         ;; single-script callers keep their existing run shape.
+         (= 1 (count auto-plays))
+         (let [spec (first auto-plays)]
+           (run! variant-id (:name spec) spec done-cb))
+
+         ;; Multiple auto-run plays — sequence them so a later play
+         ;; doesn't trample the frame mid-run.
+         :else
+         (run-plays-sequentially! variant-id auto-plays done-cb))))))
+
+;; ---- run-all (sequential) — rf2-tl7zk ------------------------------------
+
+(defn- run-plays-sequentially!
+  "Internal: run `plays` against `variant-id` one after another.
+  Resolves `done-cb` with a vector of terminal states once every play
+  has finished (or the loop is interrupted by a missing frame)."
+  [variant-id plays done-cb]
+  (let [acc (atom [])]
+    (letfn [(step! [remaining]
+              (if (empty? remaining)
+                (when done-cb
+                  (try (done-cb @acc)
+                       (catch #?(:clj Throwable :cljs :default) _ nil)))
+                (let [spec (first remaining)
+                      pk   (:name spec)]
+                  (run! variant-id pk spec
+                        (fn [final]
+                          (swap! acc conj final)
+                          (step! (rest remaining)))))))]
+      (step! plays))))
+
+(defn run-all-plays!
+  "rf2-tl7zk multi-play: run every play declared on `variant-id` in
+  order, sequentially. Calls `done-cb` with a vector of per-play
+  terminal states once every play has completed. Returns nil.
+
+  No-op when the variant carries no plays."
+  ([variant-id]
+   (run-all-plays! variant-id nil))
+  ([variant-id done-cb]
+   (let [plays (variant-plays variant-id)]
+     (when (seq plays)
+       (run-plays-sequentially! variant-id (vec plays) done-cb)))))

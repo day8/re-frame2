@@ -315,3 +315,107 @@
                 {:results [{:passed? true} {:passed? false}]})))
   (is (true?  (runner/any-failure?
                 {:results [{:exception true :passed? false}]}))))
+
+;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+
+(deftest parse-plays-empty
+  (testing "parse-plays of nil / [] returns []"
+    (is (= [] (runner/parse-plays nil)))
+    (is (= [] (runner/parse-plays [])))))
+
+(deftest parse-plays-first-auto-runs-by-default
+  (testing "the first entry defaults :auto-run? to true; subsequent entries default to false"
+    (let [plays (runner/parse-plays
+                  [{:name "happy" :script [[:dispatch [:a]]]}
+                   {:name "error" :script [[:dispatch [:b]]]}
+                   {:name "edge"  :script [[:dispatch [:c]]]}])]
+      (is (= 3 (count plays)))
+      (is (true?  (:auto-run? (nth plays 0))))
+      (is (false? (:auto-run? (nth plays 1))))
+      (is (false? (:auto-run? (nth plays 2)))))))
+
+(deftest parse-plays-respects-explicit-auto-run
+  (testing "explicit :auto-run? overrides the per-position default"
+    (let [plays (runner/parse-plays
+                  [{:name "first" :auto-run? false :script [[:dispatch [:a]]]}
+                   {:name "second" :auto-run? true :script [[:dispatch [:b]]]}])]
+      (is (false? (:auto-run? (nth plays 0))))
+      (is (true?  (:auto-run? (nth plays 1)))))))
+
+(deftest parse-plays-coerces-bare-event-vectors
+  (testing "bare event vectors inside a play's :script lift to [:dispatch ...]"
+    (let [plays (runner/parse-plays
+                  [{:name "p" :script [[:foo/bar 1] [:wait 0]]}])]
+      (is (= [[:dispatch [:foo/bar 1]] [:wait 0]]
+             (:script (first plays)))))))
+
+(deftest parse-plays-preserves-name
+  (let [plays (runner/parse-plays
+                [{:name "happy path" :script [[:dispatch [:a]]]}])]
+    (is (= "happy path" (:name (first plays))))))
+
+(deftest variant-body->plays-prefers-plays-over-play-script
+  (testing "if both :plays and :play-script are present, :plays wins"
+    (let [body  {:play-script [[:dispatch [:legacy]]]
+                 :plays       [{:name "p1" :script [[:dispatch [:plays]]]}]}
+          plays (runner/variant-body->plays body)]
+      (is (= 1 (count plays)))
+      (is (= "p1" (:name (first plays))))
+      (is (= [[:dispatch [:plays]]] (:script (first plays)))))))
+
+(deftest variant-body->plays-wraps-play-script
+  (testing "a :play-script-only variant produces a single-entry vector"
+    (let [body  {:play-script {:name "single" :script [[:dispatch [:a]]]}}
+          plays (runner/variant-body->plays body)]
+      (is (= 1 (count plays)))
+      (is (= "single" (:name (first plays))))
+      (is (= [[:dispatch [:a]]] (:script (first plays)))))))
+
+(deftest variant-body->plays-bare-play-script-without-name
+  (testing "a bare :play-script without a :name produces a one-entry vector with :name nil"
+    (let [body  {:play-script [[:dispatch [:a]]]}
+          plays (runner/variant-body->plays body)]
+      (is (= 1 (count plays)))
+      (is (nil? (:name (first plays)))))))
+
+(deftest variant-body->plays-empty
+  (testing "no play surface yields an empty vector"
+    (is (= [] (runner/variant-body->plays nil)))
+    (is (= [] (runner/variant-body->plays {})))
+    (is (= [] (runner/variant-body->plays {:events []})))))
+
+(deftest find-play-by-name
+  (let [plays (runner/parse-plays
+                [{:name "happy" :script [[:dispatch [:a]]]}
+                 {:name "error" :script [[:dispatch [:b]]]}])]
+    (is (= "happy" (:name (runner/find-play plays "happy"))))
+    (is (= "error" (:name (runner/find-play plays "error"))))
+    (is (nil? (runner/find-play plays "missing")))))
+
+(deftest find-play-nil-key-returns-first
+  (let [plays (runner/parse-plays
+                [{:name "first" :script [[:dispatch [:a]]]}
+                 {:name "second" :script [[:dispatch [:b]]]}])]
+    (is (= "first" (:name (runner/find-play plays nil))))))
+
+(deftest default-play-key-shape
+  (let [multi  (runner/parse-plays
+                 [{:name "alpha" :script [[:dispatch [:a]]]}
+                  {:name "beta"  :script [[:dispatch [:b]]]}])
+        single-bare (runner/variant-body->plays {:play-script [[:dispatch [:a]]]})
+        single-named (runner/variant-body->plays {:play-script {:name "n" :script [[:dispatch [:a]]]}})]
+    (is (= "alpha" (runner/default-play-key multi)))
+    ;; Single-script wrap preserves the original :name (nil for bare, "n" for named).
+    (is (nil? (runner/default-play-key single-bare)))
+    (is (= "n" (runner/default-play-key single-named)))
+    (is (nil? (runner/default-play-key [])))))
+
+(deftest multi?-predicate
+  (is (false? (runner/multi? [])))
+  (is (false? (runner/multi? [{:name "one"}])))
+  (is (true?  (runner/multi? [{:name "one"} {:name "two"}]))))
+
+(deftest play-key-extraction
+  (is (= "p" (runner/play-key {:name "p"})))
+  (is (nil?  (runner/play-key {:name nil})))
+  (is (nil?  (runner/play-key nil))))

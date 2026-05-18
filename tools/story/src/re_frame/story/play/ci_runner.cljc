@@ -65,18 +65,36 @@
       (map? body)    (pos? (count (:script body [])))
       :else          false)))
 
+(defn has-plays?
+  "True iff `variant-body` carries a non-empty `:plays` vector.
+  rf2-tl7zk multi-play. Pure data → data."
+  [variant-body]
+  (let [plays (:plays variant-body)]
+    (boolean (and (vector? plays) (pos? (count plays))))))
+
+(defn has-any-play?
+  "True iff `variant-body` carries EITHER a non-empty `:play-script`
+  or a non-empty `:plays` vector. rf2-tl7zk multi-play."
+  [variant-body]
+  (or (has-play-script? variant-body)
+      (has-plays? variant-body)))
+
 (defn variants-with-play-scripts
   "Return a SORTED vector of variant ids whose body carries a non-empty
-  `:play-script` slot. Pure data → data; reads the Story registrar's
-  variant side-table.
+  `:play-script` or `:plays` slot. Pure data → data; reads the Story
+  registrar's variant side-table.
 
   Sorted so the CI runner walks variants in a deterministic order —
-  helpful when comparing run logs across runs / branches."
+  helpful when comparing run logs across runs / branches.
+
+  rf2-tl7zk: the name kept its `play-scripts` plural for back-compat;
+  it now includes `:plays`-carrying variants too. The CI runner uses
+  `ci-rows` to enumerate per-PLAY rows."
   ([]
    (variants-with-play-scripts (registrar/registrations :variant)))
   ([variant-registrations]
    (->> variant-registrations
-        (filter (fn [[_ body]] (has-play-script? body)))
+        (filter (fn [[_ body]] (has-any-play? body)))
         (map first)
         (sort)
         (vec))))
@@ -89,23 +107,72 @@
       {:variant-id <kw>
        :name       <string or nil>     ; from `:play-script` `:name`
        :script-len <int>               ; number of steps (post-coerce)
-       :auto-run?  <bool>}"
+       :auto-run?  <bool>}
+
+  rf2-tl7zk: for variants carrying `:plays` (multi-play), the summary
+  reports the FIRST play (the toolbar's default selection). Use
+  `ci-rows` for the per-play enumeration."
   [variant-id]
-  (let [body (registrar/handler-meta :variant variant-id)
-        spec (runner/parse-spec (:play-script body))]
+  (let [body  (registrar/handler-meta :variant variant-id)
+        plays (runner/variant-body->plays body)
+        spec  (or (first plays)
+                  ;; Defensive: no play surface registered — return the
+                  ;; empty-script shape (mirrors the historical contract).
+                  (runner/parse-spec nil))]
     {:variant-id variant-id
      :name       (:name spec)
      :script-len (count (:script spec))
      :auto-run?  (boolean (:auto-run? spec))}))
 
+(defn ci-rows
+  "rf2-tl7zk multi-play: enumerate the CI runner's per-row catalogue.
+  Each row is one play; a variant with `:plays` of size N yields N
+  rows; a single-script `:play-script` variant yields ONE row.
+
+  Pure data → data.
+
+  Shape (one entry per row):
+      {:variant-id <kw>
+       :play-key   <string or nil>     ; play's :name (nil for legacy)
+       :name       <string or nil>     ; same as :play-key, for parity
+       :script-len <int>
+       :auto-run?  <bool>}
+
+  The CI runner uses this to drive one Playwright assertion per row.
+  Stable order: variants sorted alphabetically, plays in declaration
+  order within each variant."
+  ([]
+   (ci-rows (registrar/registrations :variant)))
+  ([variant-registrations]
+   (let [vids (variants-with-play-scripts variant-registrations)]
+     (vec
+       (mapcat
+         (fn [vid]
+           (let [body  (get variant-registrations vid)
+                 plays (runner/variant-body->plays body)]
+             (map (fn [spec]
+                    {:variant-id vid
+                     :play-key   (:name spec)
+                     :name       (:name spec)
+                     :script-len (count (:script spec))
+                     :auto-run?  (boolean (:auto-run? spec))})
+                  plays)))
+         vids)))))
+
 (defn ci-context
-  "Build the full CI catalogue: every variant with a `:play-script`
+  "Build the full CI catalogue: every variant with a play surface
   paired with its summary metadata. Pure data → data. Used by the
-  Playwright runner via `install-ci-hooks!`."
+  Playwright runner via `install-ci-hooks!`.
+
+  rf2-tl7zk multi-play: adds `:rows` — the per-play enumeration the
+  multi-play runner uses to drive its per-play assertions. The legacy
+  `:summaries` keeps the per-VARIANT shape (first play of multi-play)
+  for back-compat with consumers that haven't migrated."
   []
   (let [vids (variants-with-play-scripts)]
-    {:variants vids
-     :summaries (mapv play-script-summary vids)}))
+    {:variants  vids
+     :summaries (mapv play-script-summary vids)
+     :rows      (ci-rows)}))
 
 ;; ---- terminal-state helpers ---------------------------------------------
 
@@ -183,18 +250,57 @@
      (->js (ci-context))))
 
 #?(:cljs
+   (defn- ->variant-id
+     "Coerce a `variant-id-str` of the form `\"story.foo/bar\"` back into
+     the keyword `:story.foo/bar`."
+     [variant-id-str]
+     (let [s (str variant-id-str)
+           slash (.indexOf s "/")]
+       (if (pos? slash)
+         (keyword (subs s 0 slash) (subs s (inc slash)))
+         (keyword s)))))
+
+#?(:cljs
    (defn- read-run-state-js
      "Read the current `:rf.story.play/run-state` slot for `variant-id`
      (passed as a fully-qualified string) and return the projected
-     shape as JSON-safe JS. Returns nil when no run has been started."
+     shape as JSON-safe JS. Returns nil when no run has been started.
+
+     rf2-tl7zk: this reads the LATEST run-state for the variant —
+     whichever play was most recently driven. CI runners that want a
+     specific play's outcome should use `readPlayRunState`."
      [variant-id-str]
-     (let [vid   (let [s (str variant-id-str)
-                       slash (.indexOf s "/")]
-                   (if (pos? slash)
-                     (keyword (subs s 0 slash) (subs s (inc slash)))
-                     (keyword s)))
+     (let [vid   (->variant-id variant-id-str)
            state (runner-events/current-state vid)]
        (->js (project-state state)))))
+
+#?(:cljs
+   (defn- read-play-run-state-js
+     "rf2-tl7zk multi-play: read the per-(variant, play-key) run state.
+     `play-key-str` is the play's `:name` string, or null/empty for the
+     single-script `:play-script` slot. Returns the projected JSON-safe
+     shape, or nil when no run has been started for that play."
+     [variant-id-str play-key-str]
+     (let [vid (->variant-id variant-id-str)
+           pk  (when (and play-key-str
+                          (not= "" play-key-str))
+                 (str play-key-str))
+           state (runner-events/current-state-for-play vid pk)]
+       (->js (project-state state)))))
+
+#?(:cljs
+   (defn- run-play-js
+     "rf2-tl7zk multi-play: trigger a run for `(variant-id, play-key)`.
+     Used by the CI runner when the auto-run default doesn't fire the
+     intended play (e.g. the second play of a multi-play variant whose
+     `:auto-run?` defaults to false)."
+     [variant-id-str play-key-str]
+     (let [vid (->variant-id variant-id-str)
+           pk  (when (and play-key-str
+                          (not= "" play-key-str))
+                 (str play-key-str))]
+       (runner-events/run-play! vid pk)
+       nil)))
 
 #?(:cljs
    (defn install-ci-hooks!
@@ -206,11 +312,18 @@
      on a CI-only init path (e.g. a testbed's `core/run` checks
      `window.location.search` for a `ci=1` flag, or simply always
      install when re-frame.story.config/enabled? is true since the
-     hook is inert until polled)."
+     hook is inert until polled).
+
+     rf2-tl7zk multi-play: the hook object grows two new entry points:
+     - `readPlayRunState(variantId, playKey)` — per-play state read.
+     - `runPlay(variantId, playKey)` — trigger a run for a specific
+       play (used by the CI runner for non-auto-run plays)."
      []
      (let [hooks (js-obj
-                   "listVariants" list-variants-js
-                   "ciContext"    ci-context-js
-                   "readRunState" read-run-state-js)]
+                   "listVariants"     list-variants-js
+                   "ciContext"        ci-context-js
+                   "readRunState"     read-run-state-js
+                   "readPlayRunState" read-play-run-state-js
+                   "runPlay"          run-play-js)]
        (aset js/window "__rf2_story_ci" hooks)
        nil)))

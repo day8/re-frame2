@@ -379,6 +379,35 @@
     [:auto-run? {:optional true} :boolean]
     [:name      {:optional true} :string]]])
 
+;; ---- :plays — multi-play extension (rf2-tl7zk) ---------------------------
+
+(def NamedPlaySpec
+  "A single entry in a `:plays` vector. Same shape as `PlaySpec` (map
+  form) but `:name` is REQUIRED — multi-play needs a stable label per
+  play so the toolbar dropdown + the CI runner can identify each
+  play unambiguously.
+
+  Example:
+      {:name      \"happy path\"
+       :auto-run? true
+       :script    [[:dispatch-sync [:counter/initialise 3]]
+                   [:assert-db [:count] 3]]}"
+  [:map
+   [:name      :string]
+   [:script    PlayScript]
+   [:auto-run? {:optional true} :boolean]])
+
+(def PlaysSpec
+  "A vector of named play specs. At least one entry; every entry MUST
+  carry a `:name` so the toolbar dropdown + CI rows can identify it."
+  [:and
+   [:vector NamedPlaySpec]
+   [:fn {:error/message ":plays must contain at least one named play"}
+    (fn [v] (and (vector? v) (pos? (count v))))]
+   [:fn {:error/message ":plays entries must have unique :name values"}
+    (fn [v] (or (empty? v)
+                (= (count v) (count (distinct (map :name v))))))]])
+
 (def Variant
   "Schema for the body of `reg-variant`.
 
@@ -388,41 +417,66 @@
 
   Open shape — Story-defined keys are validated; downstream tools may add
   their own keys without registration ceremony (per Spec-Schemas's
-  open-by-default convention)."
-  [:map
-   [:doc                   {:optional true} :string]
-   [:extends               {:optional true} :keyword]
-   [:events                {:optional true} [:vector EventVector]]
-   [:play                  {:optional true} [:vector EventVector]]
-   ;; rf2-8i2a9 — the rich Storybook-style play script. Coexists with
-   ;; `:play` (the existing phase-4 plain-event-vector sequence).
-   ;; `:play-script` is interpreted post-mount by the play runner; each
-   ;; step is a tagged vector (`[:dispatch ...]`, `[:wait ms]`,
-   ;; `[:assert-db path value]`, etc.). See `PlaySpec`.
-   [:play-script           {:optional true} PlaySpec]
-   [:args                  {:optional true} ArgMap]
-   [:argtypes              {:optional true} ArgtypesMap]
-   [:tags                  {:optional true} TagSet]
-   [:decorators            {:optional true} DecoratorRefs]
-   [:loaders               {:optional true} [:vector EventVector]]
-   [:loaders-complete-when {:optional true}
-    [:or
-     :keyword                                ; registered predicate-event id
-     [:vector EventVector]]]                 ; literal data form
-   [:args->events          {:optional true} [:map-of :keyword :keyword]]
-   [:platforms             {:optional true} PlatformSet]
-   [:substrates            {:optional true} SubstrateSet]
-   [:modes                 {:optional true} ModeRefSet]
-   ;; rf2-q9kv5: per-variant overrides for the dispatch-console panel +
-   ;; Causa preset. A variant may opt out of the dispatch-console panel
-   ;; (default true at story level) or carry a Causa preset that
-   ;; overrides the parent story's preset.
-   [:dispatch-console?     {:optional true} :boolean]
-   [:causa                 {:optional true} CausaPreset]
-   ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
-   ;; with variant-first, then story-level, then chrome toolbar.
-   [:viewport              {:optional true} ViewportSlot]
-   [:background            {:optional true} BackgroundSlot]])
+  open-by-default convention).
+
+  ## Multi-play (rf2-tl7zk)
+
+  A variant may declare ONE of two play surfaces:
+
+  - `:play-script` — a single named play (the simple case).
+  - `:plays`       — a vector of named plays (multiple scenarios).
+
+  These slots are mutually exclusive. If both are present the runner
+  prefers `:plays` and emits a one-time console warning."
+  [:and
+   [:map
+    [:doc                   {:optional true} :string]
+    [:extends               {:optional true} :keyword]
+    [:events                {:optional true} [:vector EventVector]]
+    [:play                  {:optional true} [:vector EventVector]]
+    ;; rf2-8i2a9 — the rich Storybook-style play script. Coexists with
+    ;; `:play` (the existing phase-4 plain-event-vector sequence).
+    ;; `:play-script` is interpreted post-mount by the play runner; each
+    ;; step is a tagged vector (`[:dispatch ...]`, `[:wait ms]`,
+    ;; `[:assert-db path value]`, etc.). See `PlaySpec`.
+    [:play-script           {:optional true} PlaySpec]
+    ;; rf2-tl7zk — multi-play: a vector of named plays. Mutually
+    ;; exclusive with `:play-script` (validated by the `:fn` clause
+    ;; below). The toolbar surfaces a dropdown when `:plays` has more
+    ;; than one entry; the CI runner enumerates each play as its own
+    ;; result row. See `PlaysSpec`.
+    [:plays                 {:optional true} PlaysSpec]
+    [:args                  {:optional true} ArgMap]
+    [:argtypes              {:optional true} ArgtypesMap]
+    [:tags                  {:optional true} TagSet]
+    [:decorators            {:optional true} DecoratorRefs]
+    [:loaders               {:optional true} [:vector EventVector]]
+    [:loaders-complete-when {:optional true}
+     [:or
+      :keyword                                ; registered predicate-event id
+      [:vector EventVector]]]                 ; literal data form
+    [:args->events          {:optional true} [:map-of :keyword :keyword]]
+    [:platforms             {:optional true} PlatformSet]
+    [:substrates            {:optional true} SubstrateSet]
+    [:modes                 {:optional true} ModeRefSet]
+    ;; rf2-q9kv5: per-variant overrides for the dispatch-console panel +
+    ;; Causa preset. A variant may opt out of the dispatch-console panel
+    ;; (default true at story level) or carry a Causa preset that
+    ;; overrides the parent story's preset.
+    [:dispatch-console?     {:optional true} :boolean]
+    [:causa                 {:optional true} CausaPreset]
+    ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
+    ;; with variant-first, then story-level, then chrome toolbar.
+    [:viewport              {:optional true} ViewportSlot]
+    [:background            {:optional true} BackgroundSlot]]
+   ;; rf2-tl7zk — mutual-exclusion check. Authors pick ONE play surface
+   ;; per variant; mixing them is a schema-level error so the rejection
+   ;; lands at `reg-variant*` rather than surprising the runner.
+   [:fn {:error/message
+         ":play-script and :plays are mutually exclusive — pick one per variant"}
+    (fn [body]
+      (not (and (contains? body :play-script)
+                (contains? body :plays))))]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
 
