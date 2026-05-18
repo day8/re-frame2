@@ -998,6 +998,15 @@ async function runSchemaViolation(page, state) {
   // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Per
   // spec/018 §5 schema violations now surface in the Issues tab as
   // `:rf.error/schema-validation-failure` rows (one per `:where`).
+  //
+  // Per rf2-u6dhp the Issues feed is cascade-scoped: only issues
+  // whose `:dispatch-id` matches the spine's focused cascade are
+  // projected. Each `violate-*` click above is its own cascade, so
+  // the focused cascade renders the single schema-violation row for
+  // that one violation — not the whole 4-row aggregate. The trace
+  // assertions above already verify all four `:where` surfaces
+  // fired; here we verify the focused-cascade round-trip (every
+  // violation in this cascade surfaces as a visible Issues row).
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
   const issuesProjection = await waitForValue(
@@ -1016,10 +1025,10 @@ async function runSchemaViolation(page, state) {
           d.includes(':rf.error/schema-validation-failure')).length,
       };
     }),
-    (projection) => projection.schemaRowCount >= 4,
+    (projection) => projection.schemaRowCount >= 1,
     {
       timeoutMs: 5000,
-      description: 'Issues feed rendered >= 4 schema-validation rows',
+      description: 'Issues feed rendered >= 1 schema-validation row in focused cascade',
     },
   );
   state.schemaRecovery.issuesProjection = issuesProjection;
@@ -1028,11 +1037,11 @@ async function runSchemaViolation(page, state) {
   // `short-description`); the `:where` keyword that distinguishes the
   // four recovery surfaces lives on the raw trace event, not the row.
   // The trace assertions above already verify all four `:where`
-  // surfaces fired; here we verify that every fired schema-violation
-  // trace round-trips into a visible Issues-tab row.
-  if (issuesProjection.schemaRowCount < schemaEvents.length) {
-    failWithDetails('Issues feed dropped one or more schema-violation traces', {
-      expectedRowCount: schemaEvents.length,
+  // surfaces fired; here we verify that schema-violation traces
+  // round-trip into visible Issues-tab rows for the focused cascade.
+  if (issuesProjection.schemaRowCount < 1) {
+    failWithDetails('Issues feed dropped the focused-cascade schema-violation trace', {
+      expectedMinRowCount: 1,
       observedRowCount: issuesProjection.schemaRowCount,
       observed: issuesProjection,
       schemaEvents,
@@ -1081,8 +1090,13 @@ async function runHttpToggle(page) {
       cascadeText: cascadeText.slice(0, 800),
     });
   }
+  // Per rf2-u6dhp the Issues feed is cascade-scoped: when the focused
+  // cascade has no issues the feed `<ul>` is replaced by the silent
+  // 'no issues for this event' empty-state. This scenario's intent
+  // at the Issues tab is to verify the panel/tab handoff works — the
+  // `clickTab` helper already asserts the `rf-causa-issues-ribbon`
+  // panel is visible, which is the right assertion now.
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
-  await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
 }
 
 async function runMultiFrame(page, state) {
@@ -1296,7 +1310,54 @@ async function runHydration(page) {
   // Post rf2-xy4yb: the dedicated Hydration debugger panel was
   // dropped. Per spec/018 §5 hydration mismatches now surface in the
   // Issues tab as `:rf.ssr/*` rows (category-prefix "rf.ssr").
+  //
+  // Per rf2-u6dhp the Issues feed is cascade-scoped: only issues
+  // whose `:dispatch-id` matches the focused cascade pass to the
+  // feed. The `:rf.ssr/hydration-mismatch` trace is emitted by
+  // `verify-hydration!` OUTSIDE any event-handler context — the
+  // projector buckets these as `:dispatch-id :ungrouped`. The L2
+  // event-list filters `:ungrouped` cascades out (per rf2-639lc) so
+  // the user can't click that pseudo-cascade; focus the ungrouped
+  // bucket via direct dispatch so the feed surfaces the row.
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
+  // Dispatch `:rf.causa/focus-cascade :ungrouped` directly through
+  // the CLJS interop surface (the L2 list filters `:ungrouped` rows
+  // out per rf2-639lc so we can't click them).
+  const focusResult = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || typeof dispatch !== 'function') {
+      return { ok: false, reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable' };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const event = cljs.PersistentVector.fromArray([
+      keyword(':rf.causa/focus-cascade'),
+      keyword(':ungrouped'),
+    ], true);
+    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
+    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
+    } else {
+      dispatch(event, opts);
+    }
+    return { ok: true };
+  });
+  if (!focusResult.ok) {
+    failWithDetails('Could not focus :ungrouped cascade for hydration test', focusResult);
+  }
   await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
   await waitForValue(
     () => page.evaluate(() => {
