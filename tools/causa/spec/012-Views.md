@@ -87,19 +87,19 @@ in fixed top-to-bottom order:
 │                                                                                          │
 │ ── Re-rendered this cascade (4) ─────────────────────────────────────────────────────── │
 │                                                                                          │
-│   ┌─ <OrderList> ─────────────────────┬─ Invalidated by ─────────────────────────────┐ │
+│   ┌─ <OrderList> ─────────────────────┬─ Rerendered because ─────────────────────────────┐ │
 │   │ src/cart/views.cljs:84  ↗         │ ✱ :cart/orders            → [<92 92> <91 91>]│ │
 │   │ ⏱ 0.7ms                            │   (was: [<92> <91 91>] — element 0 changed)  │ │
 │   │ ▾ expand for diff                  │ · :ui/theme               → :dark             │ │
 │   └────────────────────────────────────┴───────────────────────────────────────────────┘ │
 │                                                                                          │
-│   ┌─ <CartTotal> ─────────────────────┬─ Invalidated by ─────────────────────────────┐ │
+│   ┌─ <CartTotal> ─────────────────────┬─ Rerendered because ─────────────────────────────┐ │
 │   │ src/cart/views.cljs:62  ↗         │ ✱ :cart/subtotal          → 47.50            │ │
 │   │ ⏱ 0.2ms                            │   (was: 42.00)                                │ │
 │   │ ▾ expand for diff                  │ · :cart/items             → [{…} {…}]         │ │
 │   └────────────────────────────────────┴───────────────────────────────────────────────┘ │
 │                                                                                          │
-│   ┌─ <MyCell> × 1000 (clustered) ─────┬─ Invalidated by ─────────────────────────────┐ │
+│   ┌─ <MyCell> × 1000 (clustered) ─────┬─ Rerendered because ─────────────────────────────┐ │
 │   │ src/grid/views.cljs:42  ↗         │ ✱ :grid/cell-data [args vary per instance]   │ │
 │   │ ⏱ 12.4ms total · 12µs avg          │   (each instance invalidated by own data)    │ │
 │   │ [Expand cluster ▾]                 │                                               │ │
@@ -140,25 +140,35 @@ Unmounted rows show the subs the component had subscribed to with
 last-known values shown but greyed — so the user can see what data the
 component was reading immediately before it disappeared.
 
-### Per-row content (Re-rendered group — two-column "invalidated by")
+### Per-row content (Re-rendered group — two-column "Rerendered because")
 
 The Re-rendered group uses a structured two-column row layout that
 surfaces "which sub change caused this re-render" as first-class
-content:
+content. **Developer-framed framing**: the column is titled "Rerendered
+because" (not "Invalidated by") — it answers the developer's question
+("why did this view re-render?") rather than the substrate's view of
+the world ("which subs invalidated"). The underlying data shape
+(`:invalidated-by` slot, `:rf.causa/views-*` sub keywords) is internal-
+data and remains unchanged.
 
 - **Left column (~40% width):** component identity, source coords,
   render duration, expand-caret for inline drilldown (§Per-component
   drilldown).
-- **Right column (~60% width):** "Invalidated by" list.
+- **Right column (~60% width):** "Rerendered because" list.
   - Each consumed sub gets a row.
-  - Trigger sub(s) marked with `✱` at the front; non-trigger subs
-    marked with `·`.
+  - Trigger sub(s) marked with `✱` (amber, bold) at the front;
+    non-trigger subs marked with `·` (muted-grey). Each marker
+    ships a hover tooltip explaining its meaning:
+    - `✱` → "Value changed since last cascade — likely cause of
+      the re-render."
+    - `·` → "Sub recomputed, value unchanged — React skipped
+      re-render of any view reading only this sub."
   - For each trigger sub, the previous-vs-new value shown in `(was:
     …)` on the next line; if previous value was large, `inspect-diff`
     summary used.
   - Multiple triggers → multiple `✱` rows; the most-likely-cause
     (deepest in dependency graph) is rendered first.
-  - Parent-forced re-render (no changed sub) → "Invalidated by" reads
+  - Parent-forced re-render (no changed sub) → "Rerendered because" reads
     `✱ <parent component> re-rendered → forced child re-render` (no
     sub-id; parent is the trigger).
   - Clustered renders (per §Grid-explosion clustering) → single `✱`
@@ -301,11 +311,26 @@ block.
 - **Headline content = props diff** — the diff is what the developer
   is most-often after: "what changed about this component's input that
   the framework saw?" Rendered via `inspect-diff` per the §Renderer.
-- **Subs consumed** repeats the Re-rendered group's "invalidated by"
+- **Subs consumed** repeats the Re-rendered group's "Rerendered because"
   content (trigger marked with `✱`, sub return value, was-value). For
   mounted: "Subs consumed at mount" (no diff — first read). For
   unmounted: "Subs consumed at unmount" (last-known values from cache,
   greyed).
+
+  Expanding a Re-rendered row whose `Rerendered because` list contains
+  a `·` (recomputed-but-equal) sub shows an explicit drilldown
+  treatment per sub instead of an empty diff space:
+
+  ```
+  · :user/profile   ✓ No change.  Sub recomputed; value = previous.
+                    (React skipped re-render.)
+                    [Why?] → reaction-lifecycle explainer (inline expander)
+  ```
+
+  Trigger subs (`✱`) drill into the structural-diff renderer; non-
+  trigger but recomputed subs (`·`) drill into the "No change" chip.
+  Both treatments are anchored on the same marker the row column
+  uses, so the marker → drilldown affordance is consistent.
 - **Reason** echoes the row-level reason for in-context disclosure.
 - **Render timing** appears WHEN React profiler data is available
   (host app has `Profiler` mounted, or `React.unstable_*` API

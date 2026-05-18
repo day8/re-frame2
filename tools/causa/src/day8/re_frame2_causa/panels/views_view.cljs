@@ -12,7 +12,10 @@
 
   - Three-group rendering (mounted / re-rendered / unmounted) per
     spec §Three-group layout.
-  - Re-rendered group two-column 'Invalidated by' layout (spec §R3-D).
+  - Re-rendered group two-column 'Rerendered because' layout (spec
+    §R3-D) — developer-framed: the column answers \"why did this
+    component re-render?\" rather than describing the substrate's
+    invalidation mechanism.
   - Grid-explosion clustering (spec §Grid-explosion clustering) with
     `[Expand cluster ▾]` affordance for ≥ 50-render clusters.
   - Heatmap-mode toggle + segment bar (spec §Heatmap mode, §R3-E).
@@ -86,14 +89,48 @@
    :font-size "12px"
    :color (:text-secondary tokens)})
 
+;; ---- ✱ / · marker chrome (rf2-87lkf — Delta 2 polish) ------------------
+;;
+;; The two markers in the Re-rendered group's "Rerendered because" column
+;; answer the developer's first question — "for each sub the view
+;; consumed, did its value change since last cascade?" The visual
+;; hierarchy puts `✱` (value changed → likely cause) ahead of `·` (sub
+;; recomputed, value unchanged → React skipped re-render). Amber for `✱`
+;; carries the "this is the interesting case" weight; muted-grey `·`
+;; recedes. Inline-block + fixed width keeps the marker column
+;; scannable when dense.
+
 (def ^:private trigger-glyph-style
-  {:color (:accent-violet tokens)
-   :font-weight 700
-   :margin-right "6px"})
+  {:color         (:yellow tokens)       ; amber → "this changed; look here"
+   :font-weight   700
+   :font-size     "14px"                 ; slightly larger than 12px body so the glyph reads
+   :line-height   1                      ; tight so vertical rhythm matches `·`
+   :display       "inline-block"
+   :width         "12px"
+   :text-align    "center"
+   :margin-right  "6px"})
 
 (def ^:private non-trigger-glyph-style
-  {:color (:text-tertiary tokens)
-   :margin-right "6px"})
+  {:color         (:text-tertiary tokens)  ; muted-grey — recedes from `✱`
+   :font-weight   400
+   :font-size     "14px"
+   :line-height   1
+   :display       "inline-block"
+   :width         "12px"
+   :text-align    "center"
+   :margin-right  "6px"})
+
+(def ^:private trigger-glyph-tooltip
+  "Hover text for `✱` — explains the marker means \"value changed since last
+  cascade\" (the substrate term \"invalidated\" is hidden; the developer-
+  facing framing matches the section header \"Rerendered because\")."
+  "Value changed since last cascade — this sub's recompute returned a value that differs from the previous one. (Likely cause of the re-render.)")
+
+(def ^:private non-trigger-glyph-tooltip
+  "Hover text for `·` — explains the marker means \"sub recomputed but
+  value unchanged\". React skipped the re-render of any view subscribed
+  only to this sub, so the `·` is informational — not a cause."
+  "Sub recomputed, value unchanged — the substrate re-ran this sub during the cascade but the new value structurally equals the previous one. (React skipped re-render of any view reading only this sub.)")
 
 ;; ---- small helpers ------------------------------------------------------
 
@@ -190,20 +227,47 @@
       (when (> (:fraction seg) 0.04)
         (h/format-view-id (:view-id seg)))])])
 
-;; ---- invalidated-by list (Re-rendered) ---------------------------------
+;; ---- 'Rerendered because' list (Re-rendered) ---------------------------
+;;
+;; Per spec §Per-row content (Re-rendered) the right-column lists every
+;; sub the component consumed this cascade with a marker per sub:
+;;
+;;   `✱` (amber, bold) — the sub's recomputed value DIFFERS from the
+;;        previous cascade's value (likely cause of the re-render).
+;;   `·` (muted grey)  — the sub recomputed but the new value structurally
+;;        equals the previous (React skipped re-render of any view reading
+;;        only this sub).
+;;
+;; The kw `:invalidated-by` and the testid `rf-causa-views-invalidated-by`
+;; are stable internal-data + test-contract surfaces (rf2-87lkf bead
+;; out-of-scope rename); the UI text developer-frames as "Rerendered
+;; because" instead.
 
-(defn- invalidated-by-list
+(defn- rerendered-because-list
   [invalidated-by]
   [:div {:data-testid "rf-causa-views-invalidated-by"
+         :role "list"
+         :aria-label "Rerendered because"
          :style {:display "flex"
                  :flex-direction "column"
                  :gap "2px"}}
    (for [[i row] (map-indexed vector invalidated-by)]
      ^{:key i}
-     [:div {:style mono-style}
-      [:span {:style (if (:trigger? row)
-                       trigger-glyph-style
-                       non-trigger-glyph-style)}
+     [:div {:role "listitem"
+            :style mono-style}
+      [:span {:style       (if (:trigger? row)
+                             trigger-glyph-style
+                             non-trigger-glyph-style)
+              ;; Hover tooltip per rf2-87lkf — Delta 2. `title` ships
+              ;; the explanation on every browser without a dispatch
+              ;; round-trip; ARIA labels mirror it for screen readers.
+              :title       (if (:trigger? row)
+                             trigger-glyph-tooltip
+                             non-trigger-glyph-tooltip)
+              :aria-label  (if (:trigger? row)
+                             "value changed"
+                             "value unchanged")
+              :data-marker (if (:trigger? row) "trigger" "non-trigger")}
        (if (:trigger? row) "✱" "·")]
       [:span (format-sub-id (:sub-id row))]
       (when (:clustered? row)
@@ -312,7 +376,7 @@
       (hiccup-diff-block r)]
      (when (seq invalidated-by)
        [:div [:strong "Subs consumed"]
-        (invalidated-by-list invalidated-by)])
+        (rerendered-because-list invalidated-by)])
      ;; rf2-xjhhp Phase 2 — sub-output structural diff for the row's
      ;; invalidating subs. The renderer ships an empty-state chip when
      ;; no records remain after filtering (e.g. for parent-forced
@@ -365,11 +429,16 @@
         [:div {:style {:flex "1 1 60%" :min-width 0
                        :border-left (str "1px solid " (:border-subtle tokens))
                        :padding-left "12px"}}
+         ;; rf2-87lkf Delta 1 — developer-framed section header. Same
+         ;; data as "Invalidated by"; answers the developer's
+         ;; question ("why did this view re-render?") rather than
+         ;; the substrate's view of the world ("which subs
+         ;; invalidated"). Underlying kw + testid unchanged (stable).
          [:div {:style {:color (:text-tertiary tokens)
                         :font-size "11px"
                         :margin-bottom "4px"}}
-          "Invalidated by"]
-         (invalidated-by-list invalidated-by)])]
+          "Rerendered because"]
+         (rerendered-because-list invalidated-by)])]
      (when expanded?
        (expanded-block item))]))
 
@@ -392,7 +461,11 @@
               (format-ms avg-ms) " avg · "
               (format-ms p95-ms) " p95")]]
        [:div {:style mono-style}
-        [:span {:style trigger-glyph-style} "✱"]
+        [:span {:style       trigger-glyph-style
+                :title       trigger-glyph-tooltip
+                :aria-label  "value changed"
+                :data-marker "trigger"}
+         "✱"]
         [:span (format-sub-id triggered-by)]
         [:span {:style {:margin-left "8px" :color (:text-tertiary tokens)
                         :font-size "11px"}}

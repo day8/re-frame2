@@ -10,7 +10,9 @@
       cascade's `:renders` for the unmounted-set difference.
     - Re-rendered group sub-grouping by triggering sub (per
       `012-Views.md` §Per-row content (Re-rendered) — two-column
-      `Invalidated by` layout; spec §R3-D).
+      `Rerendered because` layout; spec §R3-D). The data slot stays
+      named `:invalidated-by` for shape stability; the UI text is
+      developer-framed.
     - Grid-explosion clustering — collapse `≥ cluster-threshold`
       renders sharing `(view-id, triggered-by)` into one aggregate row
       with `× N · total ms · avg µs` stats (spec §Grid-explosion
@@ -70,7 +72,7 @@
 
 (def group-glyph
   "Per spec §Group gutters. Mounted is a filled diamond; Re-rendered
-  uses a half-circle (the two-column 'Invalidated by' card carries
+  uses a half-circle (the two-column 'Rerendered because' card carries
   the glyph in its header); Unmounted is an open diamond + struck-
   through row text."
   {:mounted    "◆"

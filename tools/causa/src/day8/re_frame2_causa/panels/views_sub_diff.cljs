@@ -29,8 +29,32 @@
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
+;; rf2-87lkf — Delta 2 / Delta 3 polish helpers.
+;;
+;; The header now leads with the `·` marker for unchanged-after-recompute
+;; subs so the drilldown's block-level treatment matches the Re-rendered
+;; row's marker column. Hover tooltips on the marker mirror the chrome
+;; in `views_view.cljs` so the same explanation is one mouse-hover away
+;; in either location.
+
+(def ^:private non-trigger-glyph-style
+  {:color         (:text-tertiary tokens)
+   :font-weight   400
+   :font-size     "14px"
+   :line-height   1
+   :display       "inline-block"
+   :width         "12px"
+   :text-align    "center"
+   :margin-right  "6px"})
+
+(def ^:private non-trigger-glyph-tooltip
+  "Sub recomputed, value unchanged — the substrate re-ran this sub during the cascade but the new value structurally equals the previous one. (React skipped re-render of any view reading only this sub.)")
+
 (defn- sub-header
-  "Per-sub header — sub-id, args, and a one-line summary."
+  "Per-sub header — sub-id, args, and a one-line summary. Per rf2-87lkf
+  Delta 3, unchanged-after-recompute subs lead with a hoverable `·`
+  marker so the drilldown block ships the same marker chrome the
+  Re-rendered row's column carries."
   [{:keys [sub-id query-v unchanged? diff-sections]}]
   (let [args        (vec (rest query-v))
         section-cnt (count diff-sections)]
@@ -45,6 +69,14 @@
                       :color          (:text-primary tokens)
                       :border-bottom  (str "1px solid "
                                            (:border-subtle tokens))}}
+     (when unchanged?
+       [:span {:style       non-trigger-glyph-style
+               :title       non-trigger-glyph-tooltip
+               :aria-label  "value unchanged"
+               :data-marker "non-trigger"
+               :data-testid (str "rf-causa-views-sub-diff-marker-"
+                                 (pr-str sub-id))}
+        "·"])
      [:span {:style {:color (:accent-violet tokens) :font-weight 600}}
       (pr-str sub-id)]
      (when (seq args)
@@ -74,15 +106,56 @@
                        :border-radius "3px"}}
      (sub-header record)
      (cond
+       ;; rf2-87lkf Delta 3 — recomputed-but-equal subs (the `·`
+       ;; marker case). Pre-bead the drilldown rendered a single
+       ;; muted-italic chip ("Value identical between db-before and
+       ;; db-after.") which read as substrate-internal language. The
+       ;; replacement is developer-framed in two beats: a green ✓
+       ;; one-liner that mirrors the row-level marker, plus a Why?
+       ;; expander with the reaction-lifecycle explanation. The
+       ;; expander is inline-only (no event dispatch) so the drilldown
+       ;; stays self-contained.
        unchanged?
        [:div {:data-testid (str "rf-causa-views-sub-diff-unchanged-"
                                 (pr-str sub-id))
               :style {:padding "8px 4px"
-                      :color (:text-tertiary tokens)
+                      :color (:text-secondary tokens)
                       :font-family sans-stack
-                      :font-size "11px"
-                      :font-style "italic"}}
-        "Value identical between db-before and db-after."]
+                      :font-size "12px"
+                      :display "flex"
+                      :flex-direction "column"
+                      :gap "4px"}}
+        [:div {:style {:display "flex" :align-items "baseline" :gap "6px"}}
+         [:span {:style {:color (:green tokens) :font-weight 700}} "✓"]
+         [:span {:style {:color (:text-primary tokens)}} "No change."]
+         [:span {:style {:color (:text-tertiary tokens)
+                         :font-family mono-stack
+                         :font-size "11px"}}
+          "Sub recomputed; value = previous."]
+         [:span {:style {:color (:text-tertiary tokens)
+                         :font-style "italic"}}
+          "(React skipped re-render.)"]]
+        [:details {:data-testid (str "rf-causa-views-sub-diff-unchanged-why-"
+                                     (pr-str sub-id))
+                   :style {:font-size "11px"
+                           :color (:text-tertiary tokens)}}
+         [:summary {:style {:cursor "pointer"
+                            :color (:accent-violet tokens)
+                            :font-family sans-stack}}
+          "Why?"]
+         [:p {:style {:margin "4px 0 0 0"
+                      :padding-left "8px"
+                      :border-left (str "2px solid "
+                                        (:border-subtle tokens))}}
+          (str "Reaction lifecycle — the sub's input ratoms changed "
+               "(reactivated), so the substrate re-ran the sub's "
+               "compute. The new return value structurally equals "
+               "the previous one, so any view subscribed only to "
+               "this sub was NOT re-rendered: re-frame's reactive "
+               "cache compares value-by-value before propagating to "
+               "watchers. The `·` marker exists to make this case "
+               "visible — recompute happened, but it was free of "
+               "downstream render cost.")]]]
 
        (empty? diff-sections)
        [:div {:data-testid (str "rf-causa-views-sub-diff-empty-"
