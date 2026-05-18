@@ -329,21 +329,26 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Event tab content — the 6-section Event lens
+### §5.1 Event tab content — the 7-section Event lens
 
-Shipped layout per rf2-zh2qc (rewrite of the v1 'fattened Event tab').
-Top-of-panel: a single-line cascade-outcome summary; below: six stacked
+Shipped layout per rf2-zh2qc + rf2-jhhqt (the latter swaps DISPATCH SITE
+before EVENT per Mike's Q1 verbatim, and adds the COEFFECTS section).
+Top-of-panel: a single-line cascade-outcome summary; below: seven stacked
 sections that read top-to-bottom as the developer scans.
 
 ```
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
 │                                                                                      │
-│ ▼ EVENT                                                                              │
-│   [:cart/add-item {:id 42 :qty 2}]                                                   │
-│                                                                                      │
 │ ▼ DISPATCH SITE                                                                      │
 │   src/cart/views.cljs:127       [open ↗]                                             │
 │   via :ui · origin :app                                                              │
+│                                                                                      │
+│ ▼ EVENT                                                                              │
+│   [:cart/add-item {:id 42 :qty 2}]                                                   │
+│                                                                                      │
+│ ▼ COEFFECTS  (2)                                                                     │
+│   :now            #inst "2026-05-18T19:00:00Z"                                       │
+│   :local-storage  {:user/last-cart-id "cart-42"}                                     │
 │                                                                                      │
 │ ▼ INTERCEPTORS  (1)                                                                  │
 │   :auth/require-login          src/auth/interceptors.cljs:42   [open ↗]              │
@@ -376,24 +381,33 @@ sections that read top-to-bottom as the developer scans.
   `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
   purely-client-side cascades.
 
-#### The 6 sections (Mike's verbatim order)
+#### The 7 sections (Mike's verbatim order, rf2-jhhqt)
 
-1. **EVENT** — the dispatched event vector via `inspector/inspect`.
-   Always present.
-2. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
+1. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
    caption. Reads `:rf.trace/call-site` off the `:event/dispatched`
    trace (rf2-twt7m Change 1). Renders an absent-placeholder when no
-   call-site was captured.
-3. **INTERCEPTORS** — non-standard chain only, **silent when zero**
+   call-site was captured. **Comes FIRST** per Mike's Q1 — the
+   developer's first instinct ("who fired this?") gets the most
+   prominent slot.
+2. **EVENT** — the dispatched event vector via `inspector/inspect`.
+   Always present.
+3. **COEFFECTS** — user-injected coeffects only, **silent when zero**
+   (the section is ABSENT entirely, NOT '(none)'). Reads `:coeffects`
+   off the `:event/do-fx` trace's `:tags` (rf2-jhhqt — the runtime
+   stamps the user-injected subset; the framework defaults `:db`
+   `:event` `:frame` `:source` `:trace-id` are filtered at the
+   substrate). Mirrors the INTERCEPTORS section's filter-out-framework-
+   defaults posture. Each row: `<:cofx-id>  <inspected-value>`.
+4. **INTERCEPTORS** — non-standard chain only, **silent when zero**
    (the section is ABSENT entirely, NOT '(none)'). Reads
    `(rf/handler-meta :event id) :interceptors` and filters out anything
    carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
    auto-wrapper ids (`:rf/db-handler` / `:rf/fx-handler` /
    `:rf/ctx-handler`) as a belt-and-braces fallback.
-4. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [open ↗]`. Per
-   Q2: does NOT duplicate the event-id (already shown in §1). Reads
+5. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [open ↗]`. Per
+   Q2: does NOT duplicate the event-id (already shown in §2). Reads
    `(rf/handler-meta :event id)`.
-5. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
+6. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
    was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
    trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
    `<… changed; see App-db tab …>` — the diff itself lives in the
@@ -401,7 +415,7 @@ sections that read top-to-bottom as the developer scans.
    additional `:rf.ssr/hydration-outcome` row renders with the
    `{:duration-ms :subs-ran :mismatches}` payload + (when mismatches
    > 0) a `→ jump to Issues bisector` affordance.
-6. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
+7. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
    row per `:rf.fx/handled` (or override / skipped / exception) trace:
    fx-id chip + perf-tier dot + status caption. For `:dispatch` the
    queued child event renders inline as `→ queued [:foo …]`. For
@@ -414,10 +428,11 @@ sections that read top-to-bottom as the developer scans.
 
 - **No call-site captured** — DISPATCH SITE shows
   `"source coord unavailable"`; no open chip rendered.
+- **No user coeffects** — COEFFECTS section ABSENT entirely.
 - **No user interceptors** — INTERCEPTORS section ABSENT entirely.
 - **No effects returned** — EFFECTS RETURNED section ABSENT.
 - **No fx handlers ran** — EFFECTS HANDLERS RAN section ABSENT.
-- **Handler threw** — §5 + §6 are both absent (handler never
+- **Handler threw** — §6 + §7 are both absent (handler never
   returned / fx walk never started); a small footer caption renders:
   `Handler threw — see Issues tab ⚠ for the exception detail.` This
   is the ONE inline cross-reference to another tab.
