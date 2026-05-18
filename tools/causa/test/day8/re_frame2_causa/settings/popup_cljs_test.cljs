@@ -7,6 +7,12 @@
   - Each section renders
   - Tab strip switches sections
 
+  Click-time frame-routing tests (rf2-smvvz — the X button / backdrop /
+  Esc / tab-button must close the modal even when the dispatch fires
+  outside `:rf/causa`'s React-context tier) live in
+  `popup_dispatch_routing_cljs_test.cljs` — separate ns because they
+  use `cljs.test/async` which requires a different `use-fixtures` shape.
+
   Uses the same hiccup-walk + plain-atom-fixture pattern as
   `shell_cljs_test.cljs` so the test surface stays Reagent-free
   on the assertion side."
@@ -231,3 +237,4 @@
         (is (= "absolute"
                (:data-rf-causa-modal-positioning (second backdrop)))
             "data attribute echoes the resolved positioning")))))
+

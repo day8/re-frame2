@@ -5,7 +5,33 @@
   it in `reg-view` so subscribes route to `:rf/causa`. Visual style
   mirrors the palette modal (dim backdrop, centred dialog,
   `tokens/bg-1` body) so the user gets a consistent affordance
-  class for transient overlays."
+  class for transient overlays.
+
+  ## Why every dispatch carries `{:frame :rf/causa}` (rf2-smvvz)
+
+  Subscribes resolve through the React-context tier at RENDER time —
+  React's `_currentValue` for the `frame-context` is set to `:rf/causa`
+  while the body of the `frame-provider`'s children is rendering, so
+  `(rf/subscribe …)` from inside the popup picks up the right frame
+  with no explicit opt.
+
+  Dispatches from `:on-click` / `:on-change` / `:on-key-down` fire
+  LATER — after render commits and React has POPPED `_currentValue`
+  back to the context's default (`:rf/default`). At click time the
+  3-tier frame resolution chain (dynamic var → React-context tier →
+  `:rf/default`) falls all the way through, the dispatch lands on
+  `:rf/default`'s router, and the `:rf.causa/settings-*` handler
+  reduces `:rf/default`'s db — leaving Causa's `:settings-open?` flag
+  untouched. Symptom: X button does nothing, tabs do not switch, Esc
+  does not close — the modal is stuck. Same shape as the
+  `filters/edit_popup.cljs` + `share_modal.cljs` fix that already
+  passes the opt explicitly.
+
+  The fix is mechanical: every `rf/dispatch` from a deferred handler
+  carries `{:frame :rf/causa}` so the envelope's `:frame` is set at
+  call time and never depends on the click-time React-context read.
+  Sister modals (palette + causality popover) carry the same bug;
+  fixed separately under their own beads to keep this PR scoped."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
@@ -169,7 +195,8 @@
 (defn- tab-button [{:keys [id label]} active?]
   [:button {:data-testid (str "rf-causa-settings-tab-" (name id))
             :data-active (str active?)
-            :on-click    #(rf/dispatch [:rf.causa/settings-select-tab id])
+            :on-click    #(rf/dispatch [:rf.causa/settings-select-tab id]
+                                       {:frame :rf/causa})
             :style       (tab-style active?)}
    label])
 
@@ -197,7 +224,8 @@
                                (let [n (js/parseInt (.. e -target -value) 10)]
                                  (when-not (js/isNaN n)
                                    (rf/dispatch [:rf.causa/settings-update
-                                                 :general :text-size n]))))
+                                                 :general :text-size n]
+                                                {:frame :rf/causa}))))
                 :style       {:flex 1}}]
        [:span {:data-testid "rf-causa-settings-text-size-value"
                :style       {:font-family mono-stack
@@ -219,7 +247,8 @@
                                (let [n (js/parseInt (.. e -target -value) 10)]
                                  (when-not (js/isNaN n)
                                    (rf/dispatch
-                                     [:rf.causa/set-panel-width-px n]))))
+                                     [:rf.causa/set-panel-width-px n]
+                                     {:frame :rf/causa}))))
                 :style       {:width        "120px"
                               :padding      "4px 8px"
                               :background   (:bg-2 tokens)
@@ -229,7 +258,8 @@
                               :font-family  mono-stack}}]
        [:button {:data-testid "rf-causa-settings-panel-width-reset"
                  :title       "Reset to default (560px)"
-                 :on-click    #(rf/dispatch [:rf.causa/reset-panel-width])
+                 :on-click    #(rf/dispatch [:rf.causa/reset-panel-width]
+                                            {:frame :rf/causa})
                  :style       {:background "transparent"
                                :border     (str "1px solid " (:border-default tokens))
                                :color      (:text-secondary tokens)
@@ -259,7 +289,8 @@
                   :name        "rf-causa-settings-panel-position"
                   :checked     (= panel-position pos)
                   :on-change   #(rf/dispatch [:rf.causa/settings-update
-                                              :general :panel-position pos])}]
+                                              :general :panel-position pos]
+                                             {:frame :rf/causa})}]
          label])]
 
      ;; ── Auto-open-on-error checkbox ─────────────────────────────
@@ -274,7 +305,8 @@
                 :on-change   #(rf/dispatch
                                 [:rf.causa/settings-update
                                  :general :auto-open-on-error?
-                                 (boolean (.. % -target -checked))])}]
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/causa})}]
        "Auto-open Causa when an issue is observed"]]]))
 
 ;; ---- section: Filters ---------------------------------------------------
@@ -292,7 +324,8 @@
       "ribbon; this section is the management surface."]
      (if present?
        [:button {:data-testid "rf-causa-settings-filters-open"
-                 :on-click    #(rf/dispatch [:rf.causa.filters/open])
+                 :on-click    #(rf/dispatch [:rf.causa.filters/open]
+                                            {:frame :rf/causa})
                  :style       (primary-button-style)}
         "Open auto-filter UI"]
        [:div {:data-testid "rf-causa-settings-filters-install-hint"
@@ -330,7 +363,8 @@
                   :checked     (= theme t)
                   :on-change   #(rf/dispatch
                                   [:rf.causa/settings-update
-                                   :theme nil t])}]
+                                   :theme nil t]
+                                  {:frame :rf/causa})}]
          label])]]))
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
@@ -358,7 +392,8 @@
                 :on-change   #(rf/dispatch
                                 [:rf.causa/settings-update
                                  :diff :highlight-fn-ref-changes?
-                                 (boolean (.. % -target -checked))])}]
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/causa})}]
        "Highlight function-ref changes in view hiccup"]
       [:p {:style (hint-style)}
        "Off by default. The hiccup-diff engine treats function-valued "
@@ -376,7 +411,8 @@
   (case (.-key e)
     "Escape" (do (.preventDefault e)
                  (.stopPropagation e)
-                 (rf/dispatch [:rf.causa/settings-close]))
+                 (rf/dispatch [:rf.causa/settings-close]
+                              {:frame :rf/causa}))
     nil))
 
 ;; ---- public view --------------------------------------------------------
@@ -391,7 +427,8 @@
         positioning @(rf/subscribe [:rf.causa/modal-positioning])]
     [:div {:data-testid "rf-causa-settings-backdrop"
            :data-rf-causa-modal-positioning (name (or positioning :fixed))
-           :on-click    #(rf/dispatch [:rf.causa/settings-close])
+           :on-click    #(rf/dispatch [:rf.causa/settings-close]
+                                      {:frame :rf/causa})
            :on-key-down handle-keydown
            :style       (backdrop-style positioning)}
      [:div {:data-testid "rf-causa-settings-dialog"
@@ -408,7 +445,10 @@
         "Settings"]
        [:button {:data-testid "rf-causa-settings-close"
                  :title       "Close settings (Esc)"
-                 :on-click    #(rf/dispatch [:rf.causa/settings-close])
+                 :on-click    (fn [^js e]
+                                (.stopPropagation e)
+                                (rf/dispatch [:rf.causa/settings-close]
+                                             {:frame :rf/causa}))
                  :style       (close-button-style)}
         "✕"]]
       ;; Tab strip
