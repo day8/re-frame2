@@ -85,7 +85,7 @@ For the 7GUIs cluster's own narrative (entries 13–18 above plus the counter fr
 
 ## UIx
 
-The UIx adapter ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+The UIx adapter ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the canonical Reagent smoke trio (counter + login + realworld) is reduced to a **smoke pair (counter + login)** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|

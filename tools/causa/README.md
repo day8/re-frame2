@@ -262,7 +262,7 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. Running shell with the full 15-panel layout, one wired
+Pre-alpha. Running shell with the full 16-panel layout, one wired
 keybinding (`Ctrl+Shift+C` toggle), default true-inline mount under
 `[data-rf-causa-host]`, programmatic pop-out via `(causa/popout!)`,
 and a frame-isolated `:rf/causa` registrar.
