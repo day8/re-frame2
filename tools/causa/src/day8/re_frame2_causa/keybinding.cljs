@@ -246,8 +246,19 @@
   nil)
 
 (defn detach!
-  "Remove the listener. Intended for tests; production sessions never
-  call this."
+  "Remove the global keydown listener if one is currently attached.
+  Idempotent — safe to call when nothing is attached (no-op), and safe
+  to call twice in a row (the second call is a no-op).
+
+  Public embed-host escape hatch (rf2-ycrt2 — rf2-q7who.1 follow-on).
+  The `:launch.keybinding/enabled?` config slot suppresses installation
+  only when read at attach time; embed hosts whose mount lifecycle
+  (e.g. Story's `ensure-causa-mounted!`) flips the slot AFTER Causa's
+  preload has already run must call `detach!` to remove the listener
+  that the preload installed under the default-true posture. Symmetric
+  with `attach!`; calling them in sequence (`attach! → detach! →
+  attach!`) flips between attached / not-attached cleanly without
+  leaking listeners or stale sentinel state."
   []
   (when (and (exists? js/document)
              (compare-and-set! attached-state true false))

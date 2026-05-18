@@ -352,6 +352,27 @@
         (is (zero? (count @listeners))
             "no listener was added or removed")))))
 
+(deftest detach-is-idempotent
+  (testing "rf2-ycrt2 — detach! is the public embed-host escape hatch
+            (Story calls it from ensure-causa-mounted! after flipping
+            :launch.keybinding/enabled? false); calling it twice in a
+            row must be safe — the second call removes nothing (the
+            sentinel is already false) and does not throw"
+    (with-stub-document
+      (fn [{:keys [listeners]}]
+        (keybinding/attach!)
+        (is (= 1 (count @listeners)))
+        (keybinding/detach!)
+        (is (false? (keybinding/attached?))
+            "first detach! flips the sentinel back to false")
+        (is (zero? (count @listeners))
+            "first detach! removed the listener")
+        (keybinding/detach!)
+        (is (false? (keybinding/attached?))
+            "second detach! keeps the sentinel at false (no underflow)")
+        (is (zero? (count @listeners))
+            "second detach! is a no-op on the listener set")))))
+
 (deftest attach-without-document-is-safe
   (testing "absence of js/document — node-test baseline — must not
             throw and must not flip the sentinel"
