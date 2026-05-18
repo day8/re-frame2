@@ -88,6 +88,25 @@
     selection
     {:dispatch-id selection}))
 
+(defn- cascade-has-event?
+  "True iff `cascade` carries a real `:event` vector. The `:ungrouped`
+  bucket produced by `re-frame.trace.projection/group-cascades` for
+  registry-time emits / frame lifecycle outside a drain / REPL evals
+  carries no event vector. Per rf2-639lc head-cascade selection skips
+  this bucket so the L4 default-focus lands on the most recent ROUTED
+  cascade, not the projection's internal bucket."
+  [cascade]
+  (vector? (:event cascade)))
+
+(defn- default-head-cascade
+  "Pick the head (most recent) routed cascade from the cascade vector,
+  or nil when none exist. `:ungrouped` cascades are filtered out so a
+  registry-time emit can never become the default-focused row.
+  Cascades are oldest-first per group-cascades' contract; `last`
+  returns the head."
+  [cascades]
+  (last (filterv cascade-has-event? cascades)))
+
 (defn- cascade-matches-selection?
   [{:keys [dispatch-id frame]} selection]
   (let [{selected-id :dispatch-id selected-frame :frame} (selected-ref selection)]
@@ -460,20 +479,35 @@
     ;; when either changes. The `:<-` chain is the only sub-
     ;; registration form in v2 (per Spec 002 §Subscriptions composing
     ;; — reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
+    ;;
+    ;; Per rf2-639lc Bug 2: when the user has not explicitly selected a
+    ;; cascade (legacy `:selected-dispatch-id` slot nil), default-focus
+    ;; the head cascade so the L4 Event tab renders cascade DETAIL on
+    ;; first mount rather than the cascade-LIST landing view (the L2
+    ;; event list is the list affordance under the 4-layer chrome;
+    ;; rf2-lv9bc folded the panel-internal list into a landing
+    ;; placeholder, but on first mount with a populated buffer the
+    ;; user expects the detail of the latest event). The head-fallback
+    ;; lives at the composite layer (not the view) so consumers of
+    ;; `:rf.causa/event-detail` (the panel + its tests) all see the
+    ;; same effective selection.
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/selected-dispatch-id]
     :<- [:rf.causa/selected-dispatch-frame]
     (fn [[cascades selected-id selected-frame] _query]
-      (let [selection (when selected-id
-                        {:dispatch-id selected-id
-                         :frame       selected-frame})
+      (let [head      (when (nil? selected-id) (default-head-cascade cascades))
+            eff-id    (or selected-id (:dispatch-id head))
+            eff-frame (or selected-frame (:frame head))
+            selection (when eff-id
+                        {:dispatch-id eff-id
+                         :frame       eff-frame})
             by-id     (when selection
                         (some #(when (cascade-matches-selection? % selection) %)
                               cascades))]
-        {:cascades             cascades
-         :selected-dispatch-id selected-id
-         :selected-dispatch-frame selected-frame
-         :selected-cascade     by-id})))
+        {:cascades                cascades
+         :selected-dispatch-id    eff-id
+         :selected-dispatch-frame eff-frame
+         :selected-cascade        by-id})))
 
   ;; Spine shim (rf2-adve5) — `:rf.causa/select-dispatch-id` is the
   ;; legacy entry point used by causality / machine-inspector /
