@@ -31,12 +31,25 @@
                 "core/test"
                 "adapters/reagent/src"
                 "adapters/reagent/test"
+                ;; rf2-eceuv — per-adapter testbed (Reagent). Standalone
+                ;; counter app under adapters/reagent/testbed/ that proves
+                ;; the adapter wires up end-to-end. Source path here so the
+                ;; :adapters/reagent-testbed build's init-fn resolves; the
+                ;; testbed is example-free by design (examples/ is for
+                ;; humans, smoke lives with the adapter).
+                "adapters/reagent/testbed"
                 "adapters/reagent-slim/src"
                 "adapters/reagent-slim/test"
                 "adapters/uix/src"
                 "adapters/uix/test"
+                ;; rf2-eceuv — per-adapter testbed (UIx). See the Reagent
+                ;; testbed comment above.
+                "adapters/uix/testbed"
                 "adapters/helix/src"
                 "adapters/helix/test"
+                ;; rf2-eceuv — per-adapter testbed (Helix). See the Reagent
+                ;; testbed comment above.
+                "adapters/helix/testbed"
                 "schemas/src"
                 "schemas/test"
                 "machines/src"
@@ -890,4 +903,37 @@
    :output-dir "out/examples/testbed-ssr-multi-frame"
    :asset-path "."
    :modules    {:main {:init-fn ssr-multi-frame.core/run}}
-   :devtools   {:preloads [day8.re-frame2-causa.preload]}}}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
+  ;; ============================================================================
+  ;; Per-adapter testbeds (rf2-eceuv).
+  ;;
+  ;; Per Mike's directive ("examples are for humans, not smoke tests")
+  ;; each adapter (Reagent / UIx / Helix) ships a dedicated standalone
+  ;; smoke fixture under implementation/adapters/<name>/testbed/. Each is
+  ;; a minimal counter that proves the adapter wires up — mount,
+  ;; subscribe, dispatch, re-render — without depending on any example.
+  ;;
+  ;; The orchestrator (examples/scripts/serve-and-run-examples-tests.cjs)
+  ;; stages each bundle into out/examples/adapter-testbeds/<name>/ next
+  ;; to the testbed's hand-written index.html and the companion spec.cjs
+  ;; (discovered by the runner via SPEC_ROOTS).
+  ;; ============================================================================
+
+  :adapters/reagent-testbed
+  {:target     :browser
+   :output-dir "out/examples/adapter-testbeds/reagent"
+   :asset-path "."
+   :modules    {:main {:init-fn adapter-testbed-reagent.core/init}}}
+
+  :adapters/uix-testbed
+  {:target     :browser
+   :output-dir "out/examples/adapter-testbeds/uix"
+   :asset-path "."
+   :modules    {:main {:init-fn adapter-testbed-uix.core/init}}}
+
+  :adapters/helix-testbed
+  {:target     :browser
+   :output-dir "out/examples/adapter-testbeds/helix"
+   :asset-path "."
+   :modules    {:main {:init-fn adapter-testbed-helix.core/init}}}}}

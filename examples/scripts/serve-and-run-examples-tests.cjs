@@ -398,6 +398,30 @@ const EXAMPLES = [
     bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'drain-depth-trigger'),
     outDir: path.join(OUT_ROOT, 'testbeds', 'drain-depth-trigger'),
   },
+  // rf2-eceuv — per-adapter testbeds. Each adapter (Reagent / UIx /
+  // Helix) ships a standalone counter under
+  // implementation/adapters/<name>/testbed/ that proves the adapter
+  // wires up end-to-end (mount, subscribe, dispatch, re-render). The
+  // shadow build emits straight into out/examples/adapter-testbeds/<name>/,
+  // so the HTML is staged alongside main.js and the static server picks
+  // it up under /adapter-testbeds/<name>/. The companion spec.cjs sits
+  // beside core.cljs + index.html and is discovered via SPEC_ROOTS in
+  // run-examples-tests.cjs (which now scans implementation/adapters/).
+  {
+    build: 'adapters/reagent-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'reagent', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'reagent'),
+  },
+  {
+    build: 'adapters/uix-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'uix', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'uix'),
+  },
+  {
+    build: 'adapters/helix-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'helix', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
+  },
 ];
 
 // rf2-h9ut9 — substring-match a build id against the filter. Empty
