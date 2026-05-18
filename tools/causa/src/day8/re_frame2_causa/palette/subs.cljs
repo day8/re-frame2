@@ -37,19 +37,25 @@
 ;; ---- canonical panel list ------------------------------------------------
 ;;
 ;; Single source of truth for the palette source aggregator. The ids
-;; mirror the 6 L3 tab ids in `shell.cljs` (per spec/018 §5); selecting
+;; mirror the 7 L3 tab ids in `shell.cljs` (per spec/018 §5); selecting
 ;; a row dispatches `:rf.causa/select-tab` so the visible tab flips.
 ;;
 ;; Causality removed (rf2-dqnuu) — it is now a popover, not a tab; per
 ;; spec/018 §10 + §11. The palette surfaces it via the dedicated
 ;; `:causality-popover-open` command (handled by the popover events
 ;; ns) rather than as a panel row.
+;;
+;; Routing added (rf2-nrbs9) — promoted from 'lives in App-db + Trace'
+;; to its own L3 lens tab. Per Mike's design call (2026-05-18):
+;; cohesive sub-domains earn their own tab rather than overloading
+;; App-db.
 (def palette-panels
   [{:id :event    :label "Event"}
    {:id :app-db   :label "App DB"}
    {:id :views    :label "Views"}
    {:id :trace    :label "Trace"}
    {:id :machines :label "Machines"}
+   {:id :routing  :label "Routing"}
    {:id :issues   :label "Issues"}])
 
 (defn- handler-entries

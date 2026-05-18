@@ -49,6 +49,7 @@
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
+            [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
@@ -545,6 +546,13 @@
     ;; mounts inline in event_detail.cljs under the six-domino cascade,
     ;; so no L3 tab is added.
     (managed-fx-subs/install!)
+    ;; Routing tab (rf2-nrbs9) — 7th L3 tab. Installs the registered-
+    ;; routes / current-route-slice / routing-tab-data subs +
+    ;; test-only overrides. Composes against `:rf.causa/target-frame-db`
+    ;; (registered by `app-db-diff/install!` above) so the install
+    ;; order is intentional, though re-frame's `:<-` resolution is
+    ;; lazy and the order is purely cosmetic.
+    (routing/install!)
     (views/install!)
     (trace/install!))
   nil)
