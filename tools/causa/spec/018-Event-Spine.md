@@ -1,8 +1,8 @@
 # 018-Event-Spine
 
-The architectural core of Causa: the **4-layer chrome** + the **6-tab detail panel** + the **single-axis spine sub** (`:rf.causa/focus`) that binds every dependent surface to one user-controlled focal point.
+The architectural core of Causa: the **4-layer chrome** + the **7-tab detail panel** + the **single-axis spine sub** (`:rf.causa/focus`) that binds every dependent surface to one user-controlled focal point.
 
-This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 6-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
+This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 7-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
 
 ---
 
@@ -276,12 +276,12 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 6 tabs
+### The 7 tabs
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ⚠Issues 1                    │   L3
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ○Routing  ⚠Issues 1                  │   L3
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | # | Tab | Mnem | What it shows for the focused event | Spec |
@@ -291,7 +291,8 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Bus.md`](013-Trace-Bus.md) |
 | 5 | **Machines** | `m` | UC1 (definition + sim) + UC2 (Mode A/B/C dynamic instances); supervision tree | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
+| 6 | **Routing** | `r` | Always-on **route tree** (orientation surface); per-focused-event lens with `◆ HERE` on the current matched route + `◆ FROM` / `◆ TO` arrow when the cascade caused navigation; params + query for the active route. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+| 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
 
 **Causality is a popover, not a tab** — invoked via `c` from any tab; see §10.
 
@@ -304,9 +305,9 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 ### Tab strip rendering
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ⚠Issues 1                    │
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ○Routing  ⚠Issues 1                  │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Active:** `◉` gutter + 2px violet underline + `text-primary`.
@@ -316,7 +317,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 - **Dormant tab:** `text-disabled` + `○`; clickable → empty state.
 - **Count flash on LIVE update:** count flashes violet 200ms then settles. No continuous spinner.
 
-Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Iss`); counts always full. Below 560px the strip scrolls horizontally.
+Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Rou Iss`); counts always full. Below 560px the strip scrolls horizontally.
 
 ### Detail panel layout
 
@@ -518,6 +519,30 @@ Default scope = "All issues this session." Toggle to "Spine cascade only" to fil
 ### §5.5 Machines tab — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
 
 Briefly: UC1 sim sub-mode (entry toggle; event picker; guards evaluated against mocked `:data`; failed-guard transitions listed greyed with Shift+Enter to fire-despite) + UC2 dynamic Mode A/B/C view modes (A=zero instances · B=1-3 instances on shared topology with per-instance hues · C=4+ instances with Erlang-Observer virtualised table + cluster-by-state count badges + shift-click divergence) + full XState parity for actor lifecycle (invoke auto-cleanup; spawn explicit; parent-stop cascades).
+
+### §5.6 Routing tab — parallel to Machines (rf2-nrbs9)
+
+The 7th tab — promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
+
+**Always-shown structure:** the **full route tree** (every route registered via `re-frame.routing/reg-route`, sorted by path). This is the orientation surface — flipping to the Routing tab immediately reveals the app's routing topology without forcing the user to dig through code.
+
+**Per-focused-event highlighting** (parallel to the Machines tab's focused-event lens):
+
+| Marker | When | Visual |
+|---|---|---|
+| `◆ HERE` | The current matched route, always | Violet chip (`accent-violet`); left-border accent |
+| `◆ FROM` | Cascade caused navigation — the prior route | Cyan chip; left-border accent |
+| `◆ TO` | Cascade caused navigation — the new route | Green chip; left-border accent |
+
+When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When the focused cascade has no routing impact, only `◆ HERE` surfaces (orientation only).
+
+**Detection contract:** the panel scans the focused cascade's trace events for a `:rf.route.nav-token/allocated` emit (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires inside both `:rf.route/navigate` and `:rf/url-changed`). The emit's `:tags :route-id` is the TO; the current `:rf/route` slice's `:id` (when different) is the FROM. Same-route re-navigations (different params/query, same route-id) collapse FROM — surfacing a FROM equal to TO is noise.
+
+**Below the tree:** params + query + fragment for the active route slice. Rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`.
+
+**Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
+
+**L4 case-switch entry.** The detail panel's case-switch (`shell.cljs` §L4 detail panel) routes `:routing → [routing/Panel]`. The panel reads `:rf.causa/routing-tab-data`, a composite over `:rf.causa/registered-routes` + `:rf.causa/current-route-slice` + `:rf.causa/cascades` + `:rf.causa/focus`.
 
 ---
 
@@ -982,7 +1007,7 @@ Complete map for the spine + chrome:
 |---|---|
 | **Ribbon nav cluster** | `j` back-one-event · `k` forward-one-event · `G` fast-forward-to-latest (= `⏭`, snap LIVE) |
 | **Event list (L2)** | `j` / `k` next/prev (alias of ribbon nav) · `J` / `K` cascade-root skip · `g g` / `G` top/bottom · `Enter` activate · `Space` pause auto-scroll · `[` / `]` (10x parity = `j`/`k`) · `*` pin · `r` rewind · `R` re-dispatch · `o` open source · `/` focus filter add-pill |
-| **Tab bar (L3)** | `1`–`6` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `i` Issues |
+| **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest |
 | **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `c` Causality popover · `Esc` close modal / return to canvas |
@@ -994,7 +1019,7 @@ Complete map for the spine + chrome:
 - `c` (Causality tab) — Causality is now a popover (not a tab); `c` repurposed to open the popover from anywhere.
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
 - `w` (Flows) — Flows folded into Views; `w` unused.
-- `r` (Routes panel) — Routes folded into App-db (route is a sub-tree of app-db); `r` returns to its event-action meaning (rewind).
+- ~~`r` (Routes panel) — Routes folded into App-db~~. **Restored** (rf2-nrbs9): Routing got promoted back to its own L3 tab (cohesive sub-domains earn their own lens tab). `r` is now the **Routing tab** mnemonic; the event-list `r` rewind binding stays on the L2 event list scope (the L2 list's key handler wins when focus is in the list; the tab-bar's letter mnemonic wins when focus is elsewhere).
 - `S` (Schemas) — schema violations live in Issues; `S` unused.
 - `h` (Hydration) — hydration mismatches live in Issues; `h` unused.
 

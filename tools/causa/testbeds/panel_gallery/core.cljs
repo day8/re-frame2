@@ -1,10 +1,10 @@
 (ns panel-gallery.core
   "Boot for the Causa panel gallery testbed (rf2-sszlr — rebuilt for
-  the new 6-tab Causa shape).
+  the new 7-tab Causa shape).
 
   ## What this testbed is
 
-  A visual gallery of the six L4 tab panels (Event / App-db / Views
+  A visual gallery of the seven L4 tab panels (Event / App-db / Views
   / Trace / Machines / Issues) plus the full 4-layer Causa chrome,
   framed exactly like Storybook frames UI components. Scroll the
   workspace; see what each panel looks like under varying state
@@ -14,7 +14,7 @@
 
   Per `tools/causa/spec/018-Event-Spine.md` the new chrome is four
   stacked layers — top ribbon + event list + tab bar + detail panel
-  — with six L4 tabs replacing the legacy sidebar's 16+ panels.
+  — with seven L4 tabs replacing the legacy sidebar's 16+ panels.
   Causality is a `c`-key popover (not a tab); Time Travel is folded
   into the spine.
 
@@ -68,6 +68,7 @@
             [panel-gallery.gallery-views]
             [panel-gallery.gallery-trace]
             [panel-gallery.gallery-machines]
+            [panel-gallery.gallery-routing]
             [panel-gallery.gallery-issues]
             [panel-gallery.gallery-chrome]
             ;; Chrome follow-on galleries — rf2-mpn8m settings popup,
@@ -84,9 +85,9 @@
 (defn- landing-view []
   [:div {:class "gallery-landing"}
    [:h1 "Causa panel gallery"]
-   [:p "A visual gallery of the new 6-tab Causa chrome (per "
+   [:p "A visual gallery of the new 7-tab Causa chrome (per "
     [:code "tools/causa/spec/018-Event-Spine.md"]
-    ") and each of the six L4 tab panels."]
+    ") and each of the seven L4 tab panels."]
    [:p "Open the gallery at "
     [:a {:href "#/stories"} [:code "#/stories"]]
     " to scroll the workspaces."]
