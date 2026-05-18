@@ -133,10 +133,13 @@
     (reset! navigator f)
     prev))
 
-(defn- open!
+(defn open!
   "Navigate `js/window.location` to `uri` via the configured navigator
   seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
+
+  Public so the element-inspector (rf2-h0jc0) can share the exact same
+  click-time gate the chip uses — one launcher, one allowlist seam.
 
   Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
   already rejects `javascript:` / `data:` / `vbscript:` schemes by
@@ -222,6 +225,29 @@
                              (.preventDefault e)
                              (open! uri))}
           "open"])))))
+
+(defn open-source-coord!
+  "Resolve `source-coord` to an editor URI via the current Story config
+  (`config/get-editor` + `config/get-project-root`) and hand it off to
+  `open!`. Returns true when the launcher was invoked with an allowed
+  URI, false otherwise (missing :file, forbidden scheme, or scheme
+  outside the rf2-cm93v allowlist).
+
+  This is the imperative path the element-inspector (rf2-h0jc0) uses
+  when the user clicks a DOM element while inspector mode is on. The
+  chip's `:on-click` (above) takes the same shape: build URI via
+  `editor-uri`, gate via `allowed-uri?`, hand to `open!`.
+
+  `source-coord` shape: `{:file :line :column}` per
+  `re-frame.source-coords`."
+  [source-coord]
+  (when (editor-uri/has-source? source-coord)
+    (let [editor (config/get-editor)
+          opts   {:project-root (config/get-project-root)}
+          uri    (editor-uri/editor-uri editor source-coord opts)]
+      (when (and uri (editor-uri/allowed-uri? uri))
+        (open! uri)
+        true))))
 
 (defn open-chip-for-variant
   "Render an open-chip for a variant — reads the source-coord off the

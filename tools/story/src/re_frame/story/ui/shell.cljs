@@ -55,6 +55,7 @@
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.dispatch-console :as dispatch-console]
             [re-frame.story.ui.docs :as docs]
+            [re-frame.story.ui.element-inspector :as element-inspector]
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
@@ -700,7 +701,16 @@
          ;; install is free even when REC is idle.
          (js/setTimeout
            (fn []
-             (recorder-dom/install!))
+             (recorder-dom/install!)
+             ;; rf2-h0jc0: element-level click-to-code inspector. Hooks
+             ;; mousemove / click / keydown on the same canvas root the
+             ;; recorder uses. Listener gates on `(inspector/active?)`
+             ;; so the install is free when the chip is off — install
+             ;; once at shell-mount, gate per-event at the listener
+             ;; head. Same one-tick `setTimeout` discipline as the
+             ;; recorder so the React tree has committed the canvas-
+             ;; frame DOM node before the install tries to find it.
+             (element-inspector/install!))
            0)
          ;; rf2-one3t: install the save-as-variant dialog-open callback
          ;; against the pure ns so `save-variant/save-current-as-variant!`
@@ -725,6 +735,10 @@
        ;; rf2-d5u89: tear down DOM-capture listeners alongside the
        ;; trace listener so we don't leak listeners across re-mounts.
        (recorder-dom/remove!)
+       ;; rf2-h0jc0: tear down the element-inspector listeners +
+       ;; reset its mode flag. Mirrors the recorder-dom shape — both
+       ;; rides the canvas-root listener install lifecycle.
+       (element-inspector/remove!)
        ;; rf2-o4u18: drop popstate + shell-state URL watchers so a
        ;; re-mount doesn't accumulate listeners.
        (url-state/tear-down! state/shell-state-atom)
@@ -771,6 +785,12 @@
           [recorder-ui/recording-overlay]
           [recorder-ui/assertion-picker]
           [recorder-ui/save-dialog]
+          ;; rf2-h0jc0: element-inspector hover overlay. Self-elides
+          ;; when inspect mode is off OR no element is currently
+          ;; hovered. Lives in the chrome layer (fixed positioning)
+          ;; so it floats above the three-pane layout regardless of
+          ;; which panels are visible.
+          [element-inspector/overlay]
           ;; rf2-x9zsr — Test Codegen :play-script export dialog. Opens
           ;; off the recorder save-dialog's [export as :play-script]
           ;; button; stacks above via a higher z-index. Lives in its own

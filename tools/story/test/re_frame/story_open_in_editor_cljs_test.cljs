@@ -78,6 +78,56 @@
     (is (nil? (open-in-editor/open-chip-for-variant {:events []})))
     (is (nil? (open-in-editor/open-chip-for-variant nil)))))
 
+;; ---- open-source-coord! (rf2-h0jc0) --------------------------------------
+;;
+;; The element-inspector uses this helper to resolve a source-coord →
+;; URI through Story config and hand it to `open!`. One launcher across
+;; the chip + the inspector — same allowlist gate, same navigator seam.
+
+(deftest open-source-coord!-fires-navigator-with-resolved-uri
+  (testing "open-source-coord! resolves through Story config + the
+            navigator seam — same path the chip uses"
+    (let [calls (atom [])
+          nav   (fn [uri] (swap! calls conj uri))
+          prev  (open-in-editor/set-navigator! nav)]
+      (try
+        (open-in-editor/open-source-coord!
+          {:file "src/app.cljs" :line 17 :column 3})
+        (is (= ["vscode://file/src/app.cljs:17:3"] @calls)
+            "navigator invoked once with the resolved vscode:// URI")
+        (finally
+          (open-in-editor/set-navigator! prev))))))
+
+(deftest open-source-coord!-no-op-without-file
+  (testing "open-source-coord! returns nil when source-coord lacks :file"
+    (let [calls (atom [])
+          nav   (fn [uri] (swap! calls conj uri))
+          prev  (open-in-editor/set-navigator! nav)]
+      (try
+        (is (nil? (open-in-editor/open-source-coord! nil)))
+        (is (nil? (open-in-editor/open-source-coord! {:line 10})))
+        (is (= [] @calls)
+            "no navigation attempted when :file is absent")
+        (finally
+          (open-in-editor/set-navigator! prev))))))
+
+(deftest open-source-coord!-respects-editor-preference
+  (testing "the URI shipped by open-source-coord! reflects the live
+            editor + project-root config — same source of truth the
+            chip's :href reads"
+    (config/set-editor! :cursor)
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (let [calls (atom [])
+          nav   (fn [uri] (swap! calls conj uri))
+          prev  (open-in-editor/set-navigator! nav)]
+      (try
+        (open-in-editor/open-source-coord!
+          {:file "src/app.cljs" :line 17 :column 3})
+        (is (= ["cursor://file/C:/Users/me/code/my-app/src/app.cljs:17:3"]
+               @calls))
+        (finally
+          (open-in-editor/set-navigator! prev))))))
+
 (deftest open-chip-title-attribute-shape
   (testing "the chip's :title attr surfaces file:line for hover"
     (let [hiccup (open-in-editor/open-chip
