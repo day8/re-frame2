@@ -187,6 +187,16 @@
     (when (vector? ev)
       (first ev))))
 
+(defn cascade-has-event?
+  "True iff `cascade` carries a real `:event` vector (`(first :event)`
+  resolves to a non-nil event-id). False for the `:ungrouped` bucket
+  produced by `re-frame.trace.projection/group-cascades` for registry-
+  time emits / frame lifecycle outside a drain / REPL evals — those
+  carry no event vector. Per rf2-639lc the L2 event list filters this
+  bucket out so the user never sees a `<no event>` placeholder row."
+  [cascade]
+  (some? (event-id-of-cascade cascade)))
+
 (defn gutter-glyph
   "Pick the gutter glyph per spec/018 §4 Row anatomy. The selected row
   gets `◉`; an errored row gets `x`; a wholly-redacted row gets `▥`;
@@ -515,11 +525,21 @@
   the same filtered list (per spec/018 §6 'Atomicity contract').
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/causa`."
+  `:rf/causa`.
+
+  Per rf2-639lc the list filters out `:ungrouped` cascades (those
+  with no `:event` vector — registry-time emits / frame lifecycle
+  outside a drain / REPL evals). Without the filter the L2 list
+  rendered a leading `<no event>` placeholder row that leaked the
+  projection's internal bucket into the user-facing event timeline.
+  Other panels (Causality Graph, Performance, etc.) keep reading
+  `:rf.causa/cascades` directly so the bucket remains available where
+  it is meaningful."
   []
-  (let [cascades   @(rf/subscribe [:rf.causa/filtered-cascades])
-        focus      @(rf/subscribe [:rf.causa/focus])
-        focused-id (:dispatch-id focus)]
+  (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
+        focus          @(rf/subscribe [:rf.causa/focus])
+        focused-id     (:dispatch-id focus)
+        event-cascades (filterv cascade-has-event? cascades)]
     [:div {:data-testid "rf-causa-event-list"
            :style {:height        "224px"   ; 8 rows × 28px
                    :min-height    "56px"    ; 2 rows minimum per spec
@@ -529,7 +549,7 @@
                    :border-bottom (str "1px solid " (:border-subtle tokens))
                    :resize        "vertical"   ; native vertical resize for the L2/L3 drag handle
                    :padding       "4px"}}
-     (if (empty? cascades)
+     (if (empty? event-cascades)
        [:div {:data-testid "rf-causa-event-list-empty"
               :style {:padding   "16px"
                       :color     (:text-secondary tokens)
@@ -539,7 +559,7 @@
        (into [:ul {:style {:list-style "none" :margin 0 :padding 0
                            :display "flex" :flex-direction "column"
                            :gap "2px"}}]
-             (for [cascade cascades]
+             (for [cascade event-cascades]
                ^{:key (str (:dispatch-id cascade))}
                [event-row {:cascade cascade :focused-id focused-id}])))]))
 

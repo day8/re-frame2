@@ -367,6 +367,48 @@
         (is (= 2 (count rows))
             "one row per cascade")))))
 
+(deftest event-list-suppresses-ungrouped-cascade-placeholder
+  (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`
+            cascade produced by group-cascades for registry-time emits /
+            frame lifecycle outside a drain / REPL evals. Without the
+            filter the list rendered a leading `<no event>` placeholder
+            row that leaked the projection's internal bucket into the
+            user-facing event timeline.
+
+            Synthesise a real cascade plus a stray registry-time emit
+            (no :dispatch-id tag → :ungrouped bucket). The L2 list
+            renders exactly one row (the real cascade) and no row
+            carries the `<no event>` text."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-bus/collect-trace! {:id 50 :op-type :registry
+                               :operation :sub/registered
+                               :tags {:sub-id :foo/bar}})
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            rows (find-all-by-testid-prefix tree "rf-causa-event-row-")
+            text (text-nodes tree)]
+        (is (= 1 (count rows))
+            "exactly one event row — the :ungrouped bucket is filtered out")
+        (is (not (re-find #"<no event>" text))
+            "no `<no event>` placeholder leaks into the rendered list")))))
+
+(deftest event-list-empty-when-only-ungrouped-cascades
+  (testing "per rf2-639lc Bug 1 a buffer that carries ONLY :ungrouped
+            cascades (no routed events) collapses to the empty-state
+            container — the `<no event>` placeholder is never the
+            user's first impression of the L2 list."
+    (causa-setup!)
+    (trace-bus/collect-trace! {:id 50 :op-type :registry
+                               :operation :sub/registered
+                               :tags {:sub-id :foo/bar}})
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (some? (find-by-testid tree "rf-causa-event-list-empty"))
+            "empty-state container present when only :ungrouped cascades exist")
+        (is (empty? (find-all-by-testid-prefix tree "rf-causa-event-row-"))
+            "no event rows render — the :ungrouped bucket is filtered out")))))
+
 (deftest event-row-click-dispatches-focus-cascade
   (testing "spec/018 §6 — row click dispatches :rf.causa/focus-cascade,
             spine flips to :retro, every dependent surface rebinds"
