@@ -116,6 +116,44 @@
   (is (nil? (spine/step-dispatch-id [] :c1 +1)))
   (is (nil? (spine/step-dispatch-id [] nil -1))))
 
+;; ---- focusable-head-frame-id (rf2-boyc2) --------------------------------
+
+(deftest focusable-head-frame-id-returns-head-cascade-frame
+  (testing "rf2-boyc2 — the head focusable cascade's :frame is the seed
+            frame for first-mount `:target-frame` + `:epoch-history`. The
+            picker-driven `set-frame-reducer` aligns the same two axes
+            on a frame change; this helper extends the alignment to the
+            first-mount path so the App-DB panel doesn't render the boot
+            empty-state when pre-mount cascades exist on a non-default
+            frame."
+    (let [cascades [(cascade :c1 :cart-frame)
+                    (cascade :c2 :checkout-frame)
+                    (cascade :c3 :cart-frame)]]
+      (is (= :cart-frame (spine/focusable-head-frame-id cascades))
+          "head focusable cascade is :c3 — its :frame is :cart-frame"))))
+
+(deftest focusable-head-frame-id-skips-ungrouped
+  (testing "rf2-boyc2 — :ungrouped bucket is filtered out so the seed
+            frame is always a real, L2-visible cascade's frame. Without
+            the filter the bucket (no `:frame` slot) could be chosen as
+            the head, and `:target-frame nil` would resolve via
+            `set-target-frame`'s `(or frame-id default-target-frame)`
+            to `:rf/default` — wiping out a real pre-mount frame's
+            history."
+    (let [cascades [(cascade :c1 :cart-frame)
+                    (cascade :ungrouped nil)]]
+      (is (= :cart-frame (spine/focusable-head-frame-id cascades))
+          ":ungrouped is filtered; head focusable cascade is :c1"))))
+
+(deftest focusable-head-frame-id-empty-cascades-returns-nil
+  (testing "rf2-boyc2 — no focusable cascades → nil. Callers fall back
+            to `defaults/default-target-frame` so the cold-start path
+            behaves identically to pre-fix."
+    (is (nil? (spine/focusable-head-frame-id [])))
+    (is (nil? (spine/focusable-head-frame-id
+                [(cascade :ungrouped nil)]))
+        "only the :ungrouped bucket present → nil")))
+
 ;; -------------------------------------------------------------------------
 ;; (2) compose-focus — :head? + effective :dispatch-id derivation
 ;; -------------------------------------------------------------------------
