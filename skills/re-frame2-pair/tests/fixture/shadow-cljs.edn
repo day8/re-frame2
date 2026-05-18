@@ -1,0 +1,45 @@
+;; Pair2 fixture build (rf2-cxik; rf2-kp1d8 flipped to `:deps true`).
+;;
+;; A minimal shadow-cljs build that mounts the counter view and preloads
+;; `re-frame2-pair.runtime`. Used by re-frame2-pair's tests/shim, tests/e2e, and
+;; tests/prompts surfaces, plus tools/mcp-conformance's hermetic
+;; orchestrator (`run-live-re-frame2-pair-overflow-hermetic.cjs`).
+;;
+;; The two re-frame2-pair-specific bits are:
+;;
+;;   1. The `../../preload` source path — directory carrying the
+;;      `re_frame2_pair/runtime.cljs` namespace that ships in the
+;;      `@day8/re-frame2-pair` npm package's `preload/`. Pair2's SKILL.md
+;;      §Setup tells consumers to put `node_modules/@day8/re-frame2-pair/preload`
+;;      on the build's source paths; here we point straight at the
+;;      in-repo source. With `:deps true` the source-paths live in
+;;      `deps.edn` `:paths`, not here.
+;;
+;;   2. `:devtools :preloads [re-frame2-pair.runtime]` — shadow-cljs's
+;;      standard mechanism for loading the namespace before app code,
+;;      so the load-time sentinel (`js/globalThis.__re_frame2_pair_runtime`)
+;;      is in place by the time `discover-app` probes.
+;;
+;; `:deps true` (rf2-kp1d8) routes classpath resolution through this
+;; artefact's `deps.edn`. The earlier shape declared `:dependencies`
+;; here AND a parallel set of `:local/root` entries in `deps.edn` —
+;; shadow-cljs's own `:dependencies` slot wins when both are present,
+;; so the `:local/root "../../../../implementation/core"` entry (and
+;; therefore `re-frame.core`) was silently dropped and the build
+;; failed with "namespace re-frame.core not available". Same idiom
+;; as `tools/re-frame2-pair-mcp/shadow-cljs.edn` (rf2-obpa9).
+;;
+;; The nREPL port file lands at `.shadow-cljs/nrepl.port` (shadow-cljs
+;; 3.x default cache-root); the hermetic orchestrator and re-frame2-pair-mcp's
+;; `read-port-from-fs` both probe that path plus the legacy
+;; `target/shadow-cljs/nrepl.port` and `.nrepl-port` fallbacks.
+{:deps     true
+ :nrepl    {:port 0}  ;; let shadow choose; re-frame2-pair reads the port file.
+ :dev-http {8030 "public"}
+ :builds
+ {:app
+  {:target     :browser
+   :output-dir "public/out"
+   :asset-path "/out"
+   :modules    {:main {:init-fn counter.core/run}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}}}

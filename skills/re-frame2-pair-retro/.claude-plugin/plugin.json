@@ -1,0 +1,9 @@
+{
+  "name": "re-frame2-pair-retro",
+  "version": "0.1.0-alpha.1",
+  "description": "Review a re-frame2-pair session, identify workflow friction, and propose improvements or bead drafts.",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "status": "alpha"
+}

@@ -1,4 +1,0 @@
-interface:
-  display_name: "re-frame-pair2"
-  short_description: "Pair-program against a live re-frame2 app: inspect app-db, dispatch events, trace dominoes, hot-swap handlers, and restore epochs through the Tool-Pair runtime contract. Use only when a runtime is attached; do not use for static source-only work."
-  default_prompt: "Use $re-frame-pair2 to attach to my running re-frame2 app and help me investigate what's happening in the live runtime."
