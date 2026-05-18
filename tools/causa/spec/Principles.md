@@ -175,6 +175,23 @@ rail was removed under bead rf2-s3vx5; the cost / privacy / UX
 trade-offs that earlier locks debated now route through the MCP
 integration instead.
 
+## Silent by default — UI text earns its keep
+
+Causa is an information-dense devtool. Every pixel of chrome competes
+with the data the developer is here to inspect. UI text is **silent by
+default** — prose appears only when an affordance is genuinely
+non-obvious AND has no iconographic alternative, or when the user is in
+a state they couldn't otherwise know about. Panel subheads, empty-state
+explainers, and "click X to Y" narration are banned; tooltips carry
+shortcuts and disambiguation, not descriptions.
+
+This is the AI-first principle applied to surface text: information
+density is the read, and narration is its enemy. The full policy —
+banned phrasings, tooltip discipline, empty-state tiers, the
+"earn its keep" test, and audit cadence — lives in
+[`Conventions.md` §UI text](./Conventions.md#ui-text). Recent cleanups
+under this policy: PRs #1435, #1436, #1437, #1439.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
