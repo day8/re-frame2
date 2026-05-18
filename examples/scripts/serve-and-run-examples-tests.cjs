@@ -123,25 +123,23 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-perf'),
   },
-  // Cart-total testbed (rf2-0sg12) — Causa tutorial hero scenario as
-  // runnable code. The companion spec at
-  // tools/causa/testbeds/cart_total/spec.cjs walks the 3pm bug
-  // (wrong-slot sub) end-to-end through the rendered UI.
+  // Shop testbed (rf2-yhxk3) — THE canonical Causa demo. One rich
+  // multi-frame demo app exercising every Causa lens across three
+  // frames; replaces and absorbs the prior cart-total + multi-frame-
+  // causa testbeds (Mike's testbed-consolidation decision, 2026-05-18).
+  // The companion spec at tools/causa/testbeds/shop/spec.cjs walks
+  // all six layers end-to-end (multi-frame · HTTP · machine · flow ·
+  // app-db · issues).
   {
-    build: 'examples/cart-total',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'cart_total', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'cart-total'),
-  },
-  // Multi-frame Causa testbed (rf2-2vgog) — three named frames
-  // (:cart-frame, :checkout-frame, :admin-frame) coexisting; one
-  // cross-frame coordination scenario. The companion spec at
-  // tools/causa/testbeds/multi_frame_causa/spec.cjs exercises frame
-  // scoping, cascade isolation, the cross-frame hop, and Causa's
-  // frame picker enumerating all three frames.
-  {
-    build: 'examples/multi-frame-causa',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'multi_frame_causa', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'multi-frame-causa'),
+    build: 'examples/shop',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'shop', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'shop'),
+    extraFiles: [
+      {
+        src: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'shop', 'api', 'products.json'),
+        dest: path.join('api', 'products.json'),
+      },
+    ],
   },
   {
     build: 'examples/temperature',
