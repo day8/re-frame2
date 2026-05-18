@@ -20,11 +20,18 @@
     config-atom in the node-test build (Causa's source path is on the
     test classpath) and via a shimmed `configure!` fn that captures
     the call payload.
-  - `ensure-causa-mounted!` (rf2-q7who.1): calls `disable-keybinding!`
-    as part of the mount edge so Story's RHS-mounted Causa never
-    swallows the host's Cmd/Ctrl+K command palette."
+  - `detach-keybinding!` (rf2-ycrt2): drives Causa's
+    `keybinding/detach!` so the listener Causa's preload installed
+    under the default-true posture is removed at runtime (the slot
+    alone is read only at attach time).
+  - `ensure-causa-mounted!` (rf2-q7who.1 + rf2-ycrt2): calls
+    `disable-keybinding!` then `detach-keybinding!` as part of the
+    mount edge so Story's RHS-mounted Causa never swallows the host's
+    Cmd/Ctrl+K command palette — both the intent declaration (slot
+    flip) and the runtime mechanism (detach!) fire together."
   (:require [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-causa.config :as causa-config]
+            [day8.re-frame2-causa.keybinding :as causa-keybinding]
             [re-frame.story.causa-preset :as causa-preset]))
 
 ;; ---- disable-keybinding! -------------------------------------------------
@@ -65,7 +72,38 @@
         (is (= {:launch.keybinding/enabled? false} @captured)
             "configure! is called with exactly the keybinding-disable slot")))))
 
-;; ---- ensure-causa-mounted! drives the bridge -----------------------------
+;; ---- detach-keybinding! (rf2-ycrt2) --------------------------------------
+
+(deftest detach-keybinding-drives-causa-keybinding-detach
+  (testing "detach-keybinding! removes Causa's global keydown listener"
+    ;; Belt-and-braces test: redef `causa-config-available?` and the
+    ;; `resolve-fn` lookup so we capture that detach-keybinding! drives
+    ;; `keybinding/detach!` by symbol. The bridge is symbol-based
+    ;; (resolve-fn 'day8.re-frame2-causa.keybinding/detach!) so the
+    ;; assertion mirrors that lookup contract.
+    (let [called? (atom false)
+          shim-detach! (fn [] (reset! called? true) nil)]
+      (with-redefs [causa-preset/causa-config-available?
+                    (fn [] true)
+                    causa-preset/resolve-fn
+                    (fn [sym]
+                      (when (= sym 'day8.re-frame2-causa.keybinding/detach!)
+                        shim-detach!))]
+        (is (true? (causa-preset/detach-keybinding!))
+            "returns true when keybinding/detach! is reachable")
+        (is (true? @called?)
+            "keybinding/detach! was driven by the bridge")))))
+
+(deftest detach-keybinding-is-noop-without-causa
+  (testing "detach-keybinding! returns nil when Causa's keybinding ns is absent"
+    ;; Shim causa-config-available? false so the outer guard short-
+    ;; circuits — bridges must degrade silently when Causa is not on the
+    ;; classpath (the standalone-Story posture).
+    (with-redefs [causa-preset/causa-config-available? (fn [] false)]
+      (is (nil? (causa-preset/detach-keybinding!))
+          "no Causa → no work → nil"))))
+
+;; ---- ensure-causa-mounted! drives the bridges ----------------------------
 
 (deftest ensure-causa-mounted-disables-keybinding
   (testing "ensure-causa-mounted! drives disable-keybinding! on the mount edge"
@@ -74,15 +112,18 @@
     ;; that flow. We shim the Causa-availability gate AND
     ;; `disable-keybinding!` itself so we can assert the wiring without
     ;; depending on the underlying configure! plumbing (covered by the
-    ;; shimmed-configure test above). We also stub the `resolve-fn`
-    ;; lookup `apply-open!` uses so we don't actually try to mount a
-    ;; shell.
+    ;; shimmed-configure test above). We also stub `detach-keybinding!`
+    ;; and the `resolve-fn` lookup `apply-open!` uses so we don't
+    ;; actually try to mount a shell.
     (let [disable-called? (atom false)
+          detach-called?  (atom false)
           open-called?    (atom false)]
       (with-redefs [causa-preset/causa-available?
                     (fn [] true)
                     causa-preset/disable-keybinding!
                     (fn [] (reset! disable-called? true) true)
+                    causa-preset/detach-keybinding!
+                    (fn [] (reset! detach-called? true) true)
                     causa-preset/resolve-fn
                     (fn [sym]
                       (when (= sym 'day8.re-frame2-causa.mount/open!)
@@ -90,5 +131,79 @@
         (causa-preset/ensure-causa-mounted!)
         (is (true? @disable-called?)
             "disable-keybinding! is part of the mount edge")
+        (is (true? @detach-called?)
+            "detach-keybinding! is part of the mount edge")
         (is (true? @open-called?)
             "apply-open! still fires (keybinding wire-up does not break mount)")))))
+
+(deftest ensure-causa-mounted-sequences-slot-then-detach
+  (testing "rf2-ycrt2 — ensure-causa-mounted! flips the slot BEFORE
+            removing the listener; sequencing matters because a host
+            (or test runner) inspecting the slot mid-flow must always
+            see the declared intent. We capture the order via a shared
+            log and assert disable-keybinding! ran before
+            detach-keybinding!."
+    (let [calls (atom [])]
+      (with-redefs [causa-preset/causa-available?
+                    (fn [] true)
+                    causa-preset/disable-keybinding!
+                    (fn [] (swap! calls conj :disable) true)
+                    causa-preset/detach-keybinding!
+                    (fn [] (swap! calls conj :detach) true)
+                    causa-preset/resolve-fn
+                    (fn [sym]
+                      (when (= sym 'day8.re-frame2-causa.mount/open!)
+                        (fn [] (swap! calls conj :open) nil)))]
+        (causa-preset/ensure-causa-mounted!)
+        (is (= [:disable :detach :open] @calls)
+            "slot flip (intent) lands before detach! (runtime removal)
+             which lands before apply-open!")))))
+
+;; ---- runtime integration: slot + detach! together (rf2-ycrt2) ------------
+
+(deftest ensure-causa-mounted-clears-attached-listener
+  (testing "rf2-ycrt2 — simulate Causa's preload-time attach! under the
+            default-true posture, then drive ensure-causa-mounted!;
+            after the mount edge the keybinding sentinel must be false
+            (the listener was removed). This is the runtime contract
+            rf2-q7who.1 declared but did not close — the slot flip
+            alone wouldn't detach the listener; rf2-ycrt2 closes the
+            gap via detach-keybinding!."
+    ;; Restore baseline so attach! sees the default-true slot. Then
+    ;; simulate the preload: attach!. Without rf2-ycrt2 the listener
+    ;; would survive past ensure-causa-mounted!; with the fix the
+    ;; sentinel flips back to false.
+    (causa-config/set-keybinding-enabled! true)
+    (try
+      ;; Skip the inner attach when js/document is unstubbable (real
+      ;; browser-test) — the contract still proves on node-test where
+      ;; the keybinding suite's stub gates idempotency.
+      (when (exists? js/document)
+        (causa-keybinding/attach!)
+        (is (true? (causa-keybinding/attached?))
+            "precondition: preload-style attach! installed the listener"))
+      ;; Drive the mount edge. We shim Causa-availability + apply-open!
+      ;; so we don't try to mount a shell. `disable-keybinding!` and
+      ;; `detach-keybinding!` run for real (with-redefs unchanged) and
+      ;; their inner `resolve-fn` lookups resolve against Causa's live
+      ;; config/keybinding namespaces (both on the test classpath).
+      ;; Capture the original resolve-fn so the with-redefs delegate
+      ;; can fall through for the keybinding/detach! + configure!
+      ;; lookups without recursing on itself.
+      (let [orig-resolve-fn @#'causa-preset/resolve-fn]
+        (with-redefs [causa-preset/causa-available? (fn [] true)
+                      causa-preset/resolve-fn
+                      (fn [sym]
+                        (if (= sym 'day8.re-frame2-causa.mount/open!)
+                          (fn [] nil)
+                          (orig-resolve-fn sym)))]
+          (causa-preset/ensure-causa-mounted!)))
+      (is (false? (causa-config/keybinding-attach-enabled?))
+          "ensure-causa-mounted! flipped the slot to false")
+      (is (false? (causa-keybinding/attached?))
+          "ensure-causa-mounted! removed the listener (rf2-ycrt2 runtime gap closed)")
+      (finally
+        ;; Restore defaults so neighbouring tests see the baseline.
+        (causa-config/set-keybinding-enabled! true)
+        (when (exists? js/document)
+          (causa-keybinding/detach!))))))

@@ -198,7 +198,7 @@ down the propagation path don't double-fire.
 Hosts MUST set this BEFORE the Causa preload runs (the preload calls
 `keybinding/attach!` at adapter-ready time). Setting it afterwards is
 a no-op on the already-attached listener unless the host explicitly
-calls `keybinding/detach!`.
+calls `keybinding/detach!` (see below).
 
 The slot exists for embed hosts (per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — Story
@@ -208,6 +208,45 @@ keybindings collide with Causa's. Story's command-palette
 capture-phase listener consumes the keypress before Story's handler
 fires. Per rf2-4eyik (rf2-q7who Thread A) — the embed-contract gap
 discovered via rf2-drprn.
+
+#### `keybinding/detach!` — public escape hatch (rf2-ycrt2)
+
+`day8.re-frame2-causa.keybinding/detach!` is the public companion to
+`attach!` for embed hosts whose mount lifecycle runs AFTER Causa's
+preload. The contract:
+
+```clojure
+(require '[day8.re-frame2-causa.keybinding :as causa-keybinding])
+
+(causa-keybinding/detach!)
+```
+
+- **No arguments**; returns `nil`.
+- **Idempotent**. Calling it when nothing is attached is a no-op (the
+  internal sentinel does not underflow); calling it twice in a row is
+  safe.
+- **Symmetric with `attach!`**. The pair `(attach!) → (detach!) →
+  (attach!)` flips between attached / not-attached cleanly without
+  leaking listeners.
+- **Safe in any host**. Guarded on `(exists? js/document)`.
+
+When to call: embed hosts that flip `:launch.keybinding/enabled?` to
+`false` from a **mount-time** hook (not boot-time) must follow the
+slot flip with `detach!`. The slot alone is read only at attach time;
+without `detach!` the listener Causa's preload installed under the
+default-true posture stays on `js/document` and continues consuming
+keypresses despite the intent declaration. Per rf2-ycrt2 (rf2-q7who.1
+runtime follow-on). Story's `ensure-causa-mounted!` is the canonical
+example: it calls `disable-keybinding!` (slot flip) then
+`detach-keybinding!` (runtime removal) on every variant-selection
+edge.
+
+Boot-time hosts (those that call `configure! {:launch.keybinding/enabled?
+false}` BEFORE Causa's preload runs) do NOT need to call `detach!` —
+their slot flip lands before `attach!` reads it, the short-circuit
+fires, and no listener is ever installed. `detach!` exists for the
+mount-time lifecycle the slot's attach-time-only read cannot cover
+alone.
 
 ### `:settings`
 

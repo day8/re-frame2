@@ -242,11 +242,65 @@
      mounts never have Causa swallow the host's global keybindings
      (typically `Cmd/Ctrl+K` for Story's command palette). Per
      rf2-q7who.1 (rf2-4eyik sibling on the Causa side). Idempotent —
-     writing `false` over an existing `false` is a plain reset!."
+     writing `false` over an existing `false` is a plain reset!.
+
+     Sequencing: `disable-keybinding!` flips the slot (intent
+     declaration); rf2-ycrt2's `detach-keybinding!` removes the
+     listener Causa's preload already installed under the default-true
+     posture (runtime mechanism). Both fire from `ensure-causa-mounted!`
+     in that order."
      []
      (when (and config/enabled? (causa-config-available?))
        (when-let [configure! (resolve-fn 'day8.re-frame2-causa.config/configure!)]
          (safe-call! "config/configure!" configure! {:launch.keybinding/enabled? false})
+         true))))
+
+;; ---- keybinding/detach! bridge (rf2-ycrt2 — rf2-q7who.1 follow-on) -------
+;;
+;; `disable-keybinding!` above flips Causa's `:launch.keybinding/enabled?`
+;; slot to `false`, but that slot is only read at attach time (by
+;; `keybinding/attach!`). Causa's preload runs BEFORE Story's mount-time
+;; bridge fires — so by the time `disable-keybinding!` flips the slot,
+;; `attach!` has already installed the global keydown listener under the
+;; default-true posture. The listener stays on `js/document` and
+;; continues swallowing Story's `Cmd/Ctrl+K` despite the intent
+;; declaration.
+;;
+;; The fix (option (b) per rf2-ycrt2 operator decision): Causa exposes
+;; a public `detach!` fn (idempotent, safe to call without prior
+;; `attach!`). Story drives it after `disable-keybinding!` so the
+;; intent-declaration is matched by a runtime removal. Slot remains the
+;; baseline contract; `detach!` is the embed-host escape hatch.
+;;
+;; Option (a) — making the slot reactive (watcher on the atom that
+;; detaches on true → false transitions) — was considered but rejected:
+;; expands Causa's reactive surface for one case; option (b) is the
+;; smaller commitment and matches the existing symmetry with
+;; `attach!`.
+
+#?(:cljs
+   (defn detach-keybinding!
+     "Remove Causa's global keydown listener via
+     `day8.re-frame2-causa.keybinding/detach!`. Returns `true` when the
+     call landed, or `nil` when Causa's `keybinding` ns is not on the
+     classpath (preload absent).
+
+     Called by `ensure-causa-mounted!` AFTER `disable-keybinding!`
+     flipped the slot — the slot declares intent, `detach!` removes the
+     listener Causa's preload installed under the default-true posture.
+     The runtime gap rf2-q7who.1 declared but did not close — rf2-ycrt2
+     closes it.
+
+     Idempotent — `keybinding/detach!` is a no-op when nothing is
+     attached, so this bridge is safe on the rare edge where Causa's
+     preload was suppressed (e.g. host already set the slot to `false`
+     before Causa's preload ran). Feature-detect-safe — when Causa's
+     `keybinding` ns is absent the bridge returns nil without touching
+     the wire."
+     []
+     (when (and config/enabled? (causa-config-available?))
+       (when-let [detach! (resolve-fn 'day8.re-frame2-causa.keybinding/detach!)]
+         (safe-call! "keybinding/detach!" detach!)
          true))))
 
 #?(:cljs
@@ -270,11 +324,18 @@
      rf2-q7who.1: also disables Causa's global keybinding listener via
      `:launch.keybinding/enabled? false` so Story's own Cmd/Ctrl+K
      command palette is not swallowed by Causa's capture-phase
-     listener. The slot is idempotent on every variant edge."
+     listener. The slot is idempotent on every variant edge.
+
+     rf2-ycrt2: also calls `keybinding/detach!` AFTER the slot flip so
+     the listener Causa's preload installed (under the default-true
+     posture, before Story's mount-time bridge fires) is removed at
+     runtime — the slot alone is read only at attach time and would
+     leave the listener installed without this step."
      []
      (when (and config/enabled? (causa-available?))
        (propagate-project-root!)
        (disable-keybinding!)
+       (detach-keybinding!)
        (apply-open!))))
 
 #?(:cljs

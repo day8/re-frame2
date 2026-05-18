@@ -71,6 +71,26 @@ explicit `(mount/open!)` / `(mount/toggle!)` calls, the `:rf.causa/*`
 event surface — remain fully usable; only the window-level keystroke
 capture is suppressed.
 
+Hosts whose lifecycle places the `configure!` call BEFORE Causa's
+preload runs (boot-time configuration) need nothing further — the
+slot flip wins the read at attach time. Hosts whose mount lifecycle
+runs AFTER the preload (Story's `ensure-causa-mounted!` fires at
+variant-selection time) MUST additionally call
+`day8.re-frame2-causa.keybinding/detach!` AFTER the slot flip:
+
+```clojure
+(causa-config/configure! {:launch.keybinding/enabled? false})
+(causa-keybinding/detach!)
+```
+
+`detach!` is idempotent and safe to call when nothing is attached
+(no-op). Per rf2-ycrt2 (rf2-q7who.1 runtime follow-on) — the slot
+declares intent but is read only at attach time; without `detach!`
+the listener Causa's preload already installed under the default-true
+posture stays on `js/document` and continues consuming keypresses.
+The full API contract for `detach!` is documented in
+[`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!`.
+
 ## Scoping
 
 The `:scope` prop narrows the observation window:
