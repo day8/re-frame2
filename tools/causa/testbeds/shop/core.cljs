@@ -118,7 +118,12 @@
             ;; correct here (mirrors testbeds/http_toggle and the
             ;; cart_total testbed this one supersedes).
             [re-frame.http-test-support]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter]
+            ;; rf2-6jyf6 — Causa's `configure!` to seed `:project-root`
+            ;; so the Event lens 'open' chip resolves a classpath-
+            ;; relative `:file` slot to an absolute on-disk URI the
+            ;; OS-side editor handler (VS Code et al.) can stat.
+            [day8.re-frame2-causa.config :as causa-config])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -836,7 +841,42 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
+;; rf2-6jyf6 — Causa 'Open in editor' project-root for the live testbed.
+;;
+;; Source-coords are stamped at registration time with a classpath-
+;; relative `:file` (e.g. `"shop/core.cljs"`), but OS-side editor URI
+;; handlers (`vscode://file/<path>...` etc.) resolve `<path>` against
+;; the filesystem and reject relative paths. Mike's live testbed runs
+;; from the mayor checkout `C:/Users/miket/code/re-frame2`; shop's
+;; source-path under shadow-cljs is `../tools/causa/testbeds` so the
+;; absolute on-disk root that prepends to a coord like
+;; `shop/core.cljs:88` is the testbeds dir below.
+;;
+;; Hosts that run the same testbed from a different worktree (CI, other
+;; devs) can override at runtime via the `?project-root=...` query
+;; string — no code change needed. An empty / absent override falls
+;; back to the mayor-checkout default below.
+(def ^:private default-project-root
+  "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
+
+(defn- query-param
+  "Return the named URL query param as a string, or nil when absent
+  / blank. Pure-data helper — kept private to this testbed since the
+  query-string override is a per-host knob (not a Causa-API surface)."
+  [name]
+  (when (exists? js/window)
+    (let [params (-> js/window .-location .-search
+                     (js/URLSearchParams.))
+          v      (.get params name)]
+      (when (and (string? v) (seq v)) v))))
+
+(defn- resolve-project-root []
+  (or (query-param "project-root") default-project-root))
+
 (defn ^:export run []
+  ;; Configure Causa BEFORE `rf/init!` so the preload's auto-open
+  ;; reads the right project-root on its first paint of any chip.
+  (causa-config/configure! {:project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Register the three frames; :on-create seeds each frame's
   ;; app-db synchronously per Spec 002 §Frame creation.
