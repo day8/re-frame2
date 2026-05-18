@@ -73,6 +73,24 @@
         (is (= :rf.error/workspace-shape (:rf.error (ex-data e))))
         (is (re-find #"workspace schema" (.getMessage e)))))))
 
+(deftest reg-workspace-isolation-slot-accepts-both-values
+  ;; rf2-gqid4 — the optional `:isolation` slot accepts `:isolated`
+  ;; (default) and `:shared`. Other values reject with
+  ;; :rf.error/workspace-shape.
+  (testing ":isolation :isolated registers cleanly"
+    (is (some? (story/reg-workspace :Workspace.iso-ok/isolated
+                 {:layout :variants-grid :isolation :isolated}))))
+  (testing ":isolation :shared registers cleanly"
+    (is (some? (story/reg-workspace :Workspace.iso-ok/shared
+                 {:layout :variants-grid :isolation :shared}))))
+  (testing "an unknown :isolation value rejects with :rf.error/workspace-shape"
+    (try
+      (story/reg-workspace :Workspace.iso-bad/sandboxed
+        {:layout :variants-grid :isolation :sandboxed})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/workspace-shape (:rf.error (ex-data e))))))))
+
 (deftest reg-decorator-bad-shape-carries-error-key
   (testing "an invalid decorator body raises with :rf.error in ex-data"
     (try

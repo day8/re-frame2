@@ -27,6 +27,33 @@
   cells. A genuine one-at-a-time renderer serialises mounting so each
   visit re-seeds the active variant cleanly.
 
+  ## `:isolation :shared` for `:variants-grid` (rf2-gqid4)
+
+  The workspace body's optional `:isolation` slot tunes mount strategy
+  for `:variants-grid`. Two values:
+
+  - `:isolated` (default) — every variant cell mounts in parallel;
+    each cell wraps its rendered view in a per-variant frame-provider
+    so subscribes / dispatches route to the cell's allocated frame.
+    Baseline frame-isolation contract.
+  - `:shared` — variant cells mount ONE at a time with a prev/next
+    navigator. Equivalent strategy to `:tabs`, scoped to the implicit
+    `:variants-grid` enumeration. Use when a `:component` view
+    internally hardcodes a frame-provider (the
+    `gallery_chrome.cljs` / rf2-sszlr pattern): under `:isolated`
+    parallel-rendered cells share their interior state because the
+    last-seeded cell's app-db clobbers the rest, but a serialised
+    renderer re-seeds each cell on visit.
+
+  Belt-and-braces to `:tabs`. The Causa modal-positioning fix
+  (rf2-om6fa) covered the most visible failure mode (full-viewport
+  modal stack); `:isolation :shared` addresses the remaining interior
+  state-bleed without forcing the author to convert the workspace to
+  `:tabs` (which loses the devcards `:variants-grid` semantic of
+  enumerating from the registry).
+
+  Only honoured by `:variants-grid`; ignored on other layouts.
+
   Tab selection is held in a per-mount `r/atom` (local to the tabs
   component) — the workspace root already remounts on workspace swap
   (workspace-id-keyed `<section>`, per rf2-kgn0c) so the local atom's
@@ -473,6 +500,109 @@
                 "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
+;; ---- :variants-grid :isolation :shared renderer (rf2-gqid4) ------------
+;;
+;; When a `:variants-grid` workspace body declares `:isolation :shared`,
+;; cells mount ONE at a time with a prev/next navigator. Same serialised-
+;; mount strategy as `:tabs` (rf2-ktnl8), but presented as a navigator
+;; (◀ N/total ▶) rather than a tab strip so the devcards "all states"
+;; reading remains the dominant UX — the navigator is the
+;; state-isolation lever, not a tab vocabulary.
+
+#?(:cljs
+   (def ^:private shared-styles
+     {:shared-wrap {:display "flex" :flex-direction "column" :gap "8px"}
+      :nav-strip   {:display         "flex"
+                    :flex-direction  "row"
+                    :align-items     "center"
+                    :gap             "8px"
+                    :border-bottom   "1px solid #3c3c3c"
+                    :padding-bottom  "4px"}
+      :nav-button  {:background    "#2d2d2d"
+                    :border        "1px solid #3c3c3c"
+                    :border-radius "3px"
+                    :color         "#cccccc"
+                    :font-family   "monospace"
+                    :font-size     "11px"
+                    :padding       "4px 10px"
+                    :cursor        "pointer"}
+      :nav-button-disabled {:background  "#252526"
+                            :color       "#666666"
+                            :cursor      "not-allowed"}
+      :nav-label   {:color       "#9cdcfe"
+                    :font-family "monospace"
+                    :font-size   "11px"
+                    :font-weight "bold"}
+      :nav-body    {:display "block"}}))
+
+#?(:cljs
+   (defn- shared-grid-renderer
+     "Reagent component for `:variants-grid` with `:isolation :shared`.
+
+     Renders ONE cell at a time and exposes prev/next buttons. Identical
+     mount-serialisation guarantee as `:tabs` — only one cell is
+     simultaneously mounted, so a view that hardcodes a frame-provider
+     does not collide with the variant-allocated frames of sibling
+     cells.
+
+     Selection is held in a per-mount `r/atom`; the workspace root
+     remounts on workspace swap (workspace-id-keyed `<section>`) so the
+     atom's lifetime matches one workspace selection. Clamps the index
+     on hot-reload-driven cell-vector shrinkage, mirroring
+     `tabs-renderer`."
+     [cells]
+     (r/with-let [selected (r/atom 0)]
+       (let [n            (count cells)
+             idx          (max 0 (min @selected (dec n)))
+             active-cell  (nth cells idx nil)
+             prev-enabled (pos? idx)
+             next-enabled (< idx (dec n))
+             label        (case (:type active-cell)
+                            :variant (pr-str (:variant-id active-cell))
+                            :prose   (str "prose " (inc idx))
+                            :custom  (str "custom " (inc idx))
+                            (str "cell " (inc idx)))]
+         [:div {:style (:shared-wrap shared-styles)}
+          [:div {:style      (:nav-strip shared-styles)
+                 :role       "group"
+                 :aria-label "Workspace cell navigator"}
+           [:button {:style    (merge (:nav-button shared-styles)
+                                      (when-not prev-enabled
+                                        (:nav-button-disabled shared-styles)))
+                     :type     "button"
+                     :disabled (not prev-enabled)
+                     :data-test-shared-prev "true"
+                     :on-click #(when prev-enabled
+                                  (swap! selected dec))}
+            "◀"]                       ; ◀
+           [:span {:style (:nav-label shared-styles)
+                   :data-test-shared-position (str (inc idx) "/" n)}
+            (str (inc idx) " / " n " — " label)]
+           [:button {:style    (merge (:nav-button shared-styles)
+                                      (when-not next-enabled
+                                        (:nav-button-disabled shared-styles)))
+                     :type     "button"
+                     :disabled (not next-enabled)
+                     :data-test-shared-next "true"
+                     :on-click #(when next-enabled
+                                  (swap! selected inc))}
+            "▶"]]                      ; ▶
+          [:div {:style              (:nav-body shared-styles)
+                 :data-test-shared-body (str idx)}
+           (when active-cell
+             (case (:type active-cell)
+               :variant
+               ^{:key (cell-key idx active-cell)}
+               [variant-cell (:variant-id active-cell)]
+               :prose
+               ^{:key (cell-key idx active-cell)}
+               [prose-block (:body active-cell)]
+               :custom
+               ^{:key (cell-key idx active-cell)}
+               [:div {:style (:cell styles)}
+                "custom render: " (pr-str (:render active-cell))]
+               nil))]]))))
+
 #?(:cljs
    (defn workspace-view
      "Render a workspace. Resolves the cells and dispatches per layout.
@@ -521,6 +651,17 @@
               ;; `gallery_chrome.cljs`).
               (= :tabs (:layout body))
               [tabs-renderer cells]
+
+              ;; rf2-gqid4: `:variants-grid` + `:isolation :shared`
+              ;; mounts cells one-at-a-time via a prev/next navigator.
+              ;; Same serialised-mount strategy as `:tabs`, applied to
+              ;; the implicit `:variants-grid` enumeration. Belt-and-
+              ;; braces for hardcoded-frame-provider views without
+              ;; forcing the author to flip the workspace to `:tabs`
+              ;; (which loses registry-enumerating semantics).
+              (and (= :variants-grid (:layout body))
+                   (= :shared        (:isolation body)))
+              [shared-grid-renderer cells]
 
               (= :prose (:layout body))
               [:div {:style (:prose-flow styles)}

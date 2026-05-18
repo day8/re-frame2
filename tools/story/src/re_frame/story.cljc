@@ -183,6 +183,15 @@
      - `:prose` → `:content` (vector of `{:type :prose|:variant ...}`)
      - `:custom` → `:render` (registered view id)
 
+     Optional slots (per spec/001 §reg-workspace):
+
+     - `:doc`       — string description.
+     - `:isolation` — `:variants-grid` mount strategy (rf2-gqid4):
+                      `:isolated` (default — parallel cells with
+                      per-variant frames) or `:shared` (serialised
+                      mount, one cell at a time with prev/next nav,
+                      for views that hardcode a frame-provider).
+
      Workspaces are 100% transit-shareable; the `:variants-grid` layout is
      the v1 devcards-style multi-variant pane (IMPL-SPEC §2.8.4)."
      [id metadata]
