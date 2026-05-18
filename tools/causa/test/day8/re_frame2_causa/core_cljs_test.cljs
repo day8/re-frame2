@@ -10,12 +10,13 @@
      `core/toggle!` into its keybinding catalogue must land on the
      same Var the preload's listener calls.
 
-  2. **Frame / panel wiring.** `set-target-frame!` and
-     `set-active-panel!` dispatch into the `:rf/causa` frame; the
-     dispatch updates `:rf.causa/target-frame` /
-     `:rf.causa/selected-panel` slots in Causa's app-db, so the
-     companion subs re-fire and `active-frame` / `active-panel`
-     read back the new value.
+  2. **Frame wiring.** `set-target-frame!` dispatches into the
+     `:rf/causa` frame; the dispatch updates `:rf.causa/target-frame`
+     in Causa's app-db, so the companion sub re-fires and
+     `target-frame` reads back the new value. (The legacy panel
+     picker — `active-panel` / `set-active-panel!` — was deleted with
+     rf2-qy0nu; the 4-layer shell switches via `:rf.causa/selected-
+     tab` and the API is gone.)
 
   3. **TBD stubs do not crash.** `load-theme` emits a
      `:rf.warning/*` trace event and returns nil — host code that
@@ -76,7 +77,8 @@
 ;; `:rf/causa` frame's router so it lands inside the next drain). The
 ;; tests assert the same wiring contract via `dispatch-sync` so the
 ;; drain runs to completion inside the assertion — mirrors the pattern
-;; the registry / shell tests use for `:rf.causa/select-panel` etc.
+;; the registry / shell tests use for the rest of the `:rf.causa/*`
+;; surface.
 
 (deftest target-frame-default-is-rf-default
   (testing "target-frame defaults to :rf/default (per defaults/default-target-frame)"
@@ -109,34 +111,6 @@
       (is (= [[:rf.causa/set-target-frame :app/main]] @seen)
           "facade dispatches the right event with the right arg"))))
 
-;; ---- (2) panel wiring --------------------------------------------------
-
-(deftest active-panel-default-is-event-detail
-  (testing "active-panel defaults to :event-detail (per defaults/default-panel-id)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= :event-detail (core/active-panel))))))
-
-(deftest select-panel-wires-active-panel
-  (testing ":rf.causa/select-panel updates the slot active-panel reads"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      ;; :trace is an arbitrary panel id — anything currently in the
-      ;; canvas dispatch table works. (Causality removed with
-      ;; rf2-dqnuu — popover, not a tab.)
-      (rf/dispatch-sync [:rf.causa/select-panel :trace])
-      (is (= :trace (core/active-panel)))
-      (rf/dispatch-sync [:rf.causa/select-panel :time-travel])
-      (is (= :time-travel (core/active-panel))))))
-
-(deftest set-active-panel!-dispatches-select-panel
-  (testing "set-active-panel! dispatches :rf.causa/select-panel into :rf/causa"
-    (let [seen (atom [])]
-      (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
-        (core/set-active-panel! :trace))
-      (is (= [[:rf.causa/select-panel :trace]] @seen)
-          "facade dispatches the right event with the right arg"))))
-
 ;; ---- (3) TBD stubs — emit warning trace, return nil --------------------
 
 (deftest load-theme-emits-warning-trace
@@ -165,7 +139,7 @@
     ;; throwing and the registry's idempotency sentinel reports
     ;; installed.
     (core/init!)
-    (is (some? (registrar/handler :sub :rf.causa/selected-panel))
+    (is (some? (registrar/handler :sub :rf.causa/target-frame))
         "registry/register-causa-handlers! ran")
     ;; Second call: each sub-side-effect is defonce-guarded so the
     ;; combined effect is a no-op. We just assert no throw.

@@ -307,29 +307,6 @@
         (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
             "no empty-state container — LIVE is focused on the head cascade")))))
 
-;; ---- (4) defaults / wiring ----------------------------------------------
-
-(deftest default-panel-id-is-event-detail
-  (testing "registry/default-panel-id is :event-detail per §10 Lock 7"
-    (is (= :event-detail registry/default-panel-id))))
-
-(deftest selected-panel-sub-defaults-to-event-detail
-  (testing ":rf.causa/selected-panel returns :event-detail before any
-            :rf.causa/select-panel has fired"
-    (registry/register-causa-handlers!)
-    (frame/reg-frame :rf/causa {})
-    (rf/with-frame :rf/causa
-      (is (= :event-detail
-             @(rf/subscribe [:rf.causa/selected-panel]))))))
-
-(deftest selected-panel-sub-tracks-select-panel-event
-  (testing "dispatching :rf.causa/select-panel updates the sub"
-    (registry/register-causa-handlers!)
-    (frame/reg-frame :rf/causa {})
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-panel :app-db])
-      (is (= :app-db @(rf/subscribe [:rf.causa/selected-panel]))))))
-
 ;; ---- (5) edge cases: empty buffer / missing id / sensitive redacted ----
 ;;
 ;; Per rf2-dkmq5: the existing tests cover the happy path; this section
