@@ -443,12 +443,20 @@
                :style {:display "flex" :flex-direction "column"}}
      [:header {:style group-section-style}
       (str (name group) " this cascade (" (count items) ")")]
+     ;; `^{:key rk}` reader meta on the `(case …)` form below would be
+     ;; attached to the source list and lost when `case` returns the
+     ;; branch's vector value — Reagent's `get-react-key` only reads
+     ;; `:key` meta from vectors (see reagent2.impl.template). Apply the
+     ;; key meta to the returned vector directly via `with-meta`.
+     ;; `single-row` and `cluster-row` always return a `[:div …]` vector,
+     ;; so `with-meta` is safe (never nil). (rf2-gphsi)
      (for [item items]
        (let [rk (row-key item)]
-         ^{:key rk}
-         (case (:kind item)
-           :single  (single-row item group (contains? expanded-rows rk))
-           :cluster (cluster-row item group (contains? expanded-clusters rk)))))]))
+         (with-meta
+           (case (:kind item)
+             :single  (single-row item group (contains? expanded-rows rk))
+             :cluster (cluster-row item group (contains? expanded-clusters rk)))
+           {:key rk})))]))
 
 ;; ---- chrome -------------------------------------------------------------
 
@@ -555,7 +563,15 @@
         :else
         [:div {:data-testid "rf-causa-views-groups"
                :style {:display "flex" :flex-direction "column"}}
-         (for [g h/group-order]
-           ^{:key g}
-           (group-section g (get groups g) expanded-rows expanded-clusters))])]
+         ;; `^{:key g}` reader meta on the `(group-section …)` call would
+         ;; be attached to the source list and lost — Reagent's
+         ;; `get-react-key` only reads `:key` meta from vectors. Apply
+         ;; the key directly to the returned `[:section …]` vector via
+         ;; `with-meta`, guarding for nil (empty groups → no section).
+         ;; (rf2-gphsi)
+         (for [g h/group-order
+               :let [section (group-section g (get groups g)
+                                            expanded-rows expanded-clusters)]
+               :when section]
+           (with-meta section {:key g}))])]
      (bottom-controls data)]))
