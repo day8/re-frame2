@@ -549,13 +549,19 @@
   threaded into `do-fx` so reserved-fx defmethods (`:dispatch`,
   `:dispatch-later`) can copy inheritable keys (`:fx-overrides`,
   `:interceptor-overrides`, `:trace-id`, `:origin`, `:source`) onto
-  child dispatches. User fxs see it at `(:envelope m)`."
+  child dispatches. User fxs see it at `(:envelope m)`.
+
+  Per rf2-twt7m Change 2: the full effects map is also threaded to
+  `do-fx` (the 7-arity) so the terminating `:event/do-fx` trace
+  marker can stamp `:fx` (the returned vector) and `:db-present?`
+  (whether the handler returned a `:db` slot). The value of `:db`
+  is NOT stamped — App-db diff traces already carry slice changes."
   [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (get-in frame-record [:config :platform])
                               interop/platform)
           event           (:event envelope)]
-      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope))))
+      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope effects))))
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;
