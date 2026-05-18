@@ -24,20 +24,28 @@
 
   ## Ribbon clusters (L1)
 
-  Five clusters, fixed order left → right per spec/018 §3:
+  Four clusters, fixed order left → right per spec/018 §3 (Round-3
+  rf2-g9pee — the explicit `● LIVE` / `◐ RETRO` mode pill was dropped;
+  the spine's mode is already derivable from sticky-row selection +
+  the `[◀ ▶ ⏭]` cluster + the `:rf.causa/focus` sub. Space / L / G
+  keybindings preserve the toggle access the pill used to surface):
 
   - **Nav** (`◀ ▶ ⏭`) — back / forward / fast-forward through the
     spine. Dispatches `:rf.causa/focus-cascade-prev` / `-next` /
-    `:rf.causa/follow-head`.
+    `:rf.causa/follow-head`. Pressing `⏭` (or `Space` in paused-LIVE,
+    or `L` in RETRO) snaps focus back to head — the operations the
+    mode pill used to host.
   - **Frame picker** — single-select dropdown over the cascade list's
     distinct frames. Excludes `:rf/causa` by default per §8 I1.
   - **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills
     + trailing `[+]` add-pill. Click any pill → edit popup.
-  - **Mode pill** — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` dual-
-    purpose indicator + toggle. Carries the REDACTED-count tooltip.
   - **Right icons** — `⚙` settings · `✕` close. (Pop-out is a
     programmatic API only — `(causa/popout!)` — no ribbon affordance
     until the second-window UX lands per spec/011-Launch-Modes.md.)
+
+  The REDACTED indicator (`[● REDACTED N]`) renders inline next to
+  the right-icons cluster when the suppressed-sensitive count is
+  positive, surfacing privacy state without a permanent ribbon slot.
 
   ## Event list (L2)
 
@@ -169,24 +177,6 @@
                       (conj acc f)))))
       []
       cascades)))
-
-(defn mode-pill-text
-  "Render text for the L1 mode pill per spec/018 §3 Mode pill click
-  behaviour. `focus` is the `:rf.causa/focus` sub value."
-  [{:keys [mode paused? head?]}]
-  (case mode
-    :live  (if paused? "● LIVE (paused)" "● LIVE")
-    :retro (if head? "● LIVE" "◐ RETRO")
-    "● LIVE"))
-
-(defn mode-pill-on-click
-  "Dispatcher for the mode-pill click — Space-equivalent when in LIVE,
-  L-equivalent when in RETRO. Per spec/018 §3 table 'Mode pill click
-  behaviour'."
-  [{:keys [mode]}]
-  (if (= mode :retro)
-    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
-    #(rf/dispatch [:rf.causa/toggle-live-pause] {:frame :rf/causa})))
 
 (defn event-id-of-cascade
   "Best-effort pluck of the event-id from a cascade's `:event` slot.
@@ -428,44 +418,6 @@
   [{:keys [filters]}]
   [filter-pills/pills-view {:filters filters}])
 
-(defn- ribbon-mode-pill
-  "Mode pill — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` per spec/018
-  §3. Tooltip surfaces the REDACTED total. Click toggles per the
-  mode-pill click behaviour table."
-  [{:keys [focus redacted-count]}]
-  (let [pill-tone (case (:mode focus)
-                    :live  (if (:paused? focus)
-                             (:text-secondary tokens)
-                             (:green tokens))
-                    :retro (if (:head? focus)
-                             (:green tokens)
-                             (:cyan tokens))
-                    (:green tokens))
-        red-suffix (when (pos? redacted-count)
-                     (str " · ● REDACTED " redacted-count " (default-suppressed)"))
-        base-title (case (:mode focus)
-                     :live  (if (:paused? focus)
-                              "Resume LIVE feed (Space)"
-                              "Pause LIVE feed (Space)")
-                     :retro (if (:head? focus)
-                              "Pause LIVE feed (Space)"
-                              "Snap to LIVE (L)")
-                     "")
-        full-title (str base-title (or red-suffix ""))]
-    [:span {:data-testid "rf-causa-mode-pill"
-            :on-click    (mode-pill-on-click focus)
-            :title       full-title
-            :style       {:color         pill-tone
-                          :cursor        "pointer"
-                          :font-weight   600
-                          :padding       "2px 8px"
-                          :border        (str "1px solid " pill-tone)
-                          :border-radius "10px"
-                          :font-family   sans-stack
-                          :font-size     (:body type-scale)
-                          :white-space   "nowrap"}}
-     (mode-pill-text focus)]))
-
 (defn- ribbon-redacted-indicator
   "REDACTED indicator (rf2-azls9) — preserved next to the mode pill for
   back-compat with the existing redacted-counter assertion surface.
@@ -570,8 +522,15 @@
       "✕"]]))
 
 (rf/reg-view ribbon
-  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Five clusters left
-  to right: nav · frame · filters · mode pill · right icons.
+  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Four clusters left
+  to right: nav · frame · filters · right icons. The REDACTED
+  indicator surfaces on-demand next to the right-icons cluster when
+  the suppressed-sensitive count is positive.
+
+  Per Round-3 rf2-g9pee the explicit `● LIVE` / `◐ RETRO` mode pill
+  was dropped — the spine mode is already derivable from sticky-row
+  selection + the `[◀ ▶ ⏭]` nav cluster. Space / L / G keybindings
+  preserve the toggle access the pill used to surface.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -625,8 +584,7 @@
                            :frames frames}]
      [ribbon-filter-pills {:filters filters}]
      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-      [ribbon-redacted-indicator redacted-count]
-      [ribbon-mode-pill {:focus focus :redacted-count redacted-count}]]
+      [ribbon-redacted-indicator redacted-count]]
      [ribbon-right-icons]]))
 
 ;; ---- L2 event list -------------------------------------------------------

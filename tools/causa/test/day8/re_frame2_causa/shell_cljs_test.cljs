@@ -13,9 +13,12 @@
        panel-<tab>`) and the palette modal — and does NOT mount any
        legacy sidebar or bottom rail.
 
-    2. The L1 ribbon carries five clusters in fixed order: nav,
-       frame, filter pills, mode pill (+ REDACTED indicator
-       neighbour), right icons.
+    2. The L1 ribbon carries four clusters in fixed order: nav,
+       frame, filter pills, right icons. The REDACTED indicator
+       sits inline next to the right-icons cluster when the
+       suppressed-sensitive count is positive. (Round-3 rf2-g9pee
+       dropped the explicit `● LIVE` / `◐ RETRO` mode pill — the
+       state is derivable, and Space / L / G preserve toggles.)
 
     3. The L3 tab bar renders six tabs (Event / App-db / Views /
        Trace / Machines / Issues) and clicking a tab updates
@@ -27,8 +30,9 @@
 
     5. The REDACTED indicator (rf2-azls9) preserves its render gate
        `(pos? redacted-count)` and pluralises 'event' / 'events' in
-       the tooltip. The indicator now lives next to the mode pill in
-       L1 per the 4-layer-chrome relocation.
+       the tooltip. Post-Round-3 (rf2-g9pee) the indicator sits next
+       to the right-icons cluster — the previous mode-pill neighbour
+       was dropped along with the pill itself.
 
     6. The frame picker excludes `:rf/causa` (and other tool frames)
        per spec/018 §8 I1.
@@ -184,9 +188,13 @@
 ;; (2) L1 ribbon clusters
 ;; -------------------------------------------------------------------------
 
-(deftest ribbon-mounts-all-five-clusters
-  (testing "spec/018 §3 — ribbon carries nav · frame · filter pills ·
-            mode pill · right icons in fixed left-to-right order"
+(deftest ribbon-mounts-all-four-clusters
+  (testing "spec/018 §3 + Round-3 rf2-g9pee — ribbon carries nav ·
+            frame · filter pills · right icons in fixed left-to-right
+            order. The explicit `● LIVE` / `◐ RETRO` mode pill was
+            dropped in Round-3 — spine mode is derivable from
+            sticky-row selection + the `[◀ ▶ ⏭]` cluster, and Space /
+            L / G keybindings preserve toggle access."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)]
@@ -197,8 +205,8 @@
             "frame cluster present (label or dropdown)")
         (is (some? (find-by-testid tree "rf-causa-ribbon-filters"))
             "filter cluster present")
-        (is (some? (find-by-testid tree "rf-causa-mode-pill"))
-            "mode pill present")
+        (is (nil? (find-by-testid tree "rf-causa-mode-pill"))
+            "mode pill is absent — dropped in Round-3 rf2-g9pee")
         (is (some? (find-by-testid tree "rf-causa-ribbon-icons"))
             "right-icons cluster present")))))
 

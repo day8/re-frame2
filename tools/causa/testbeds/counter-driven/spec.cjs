@@ -25,8 +25,9 @@
  *   2. Chrome: all four layers (ribbon, event list, tab bar, detail
  *      panel) and the palette modal mount; legacy sidebar testids
  *      are absent.
- *   3. Ribbon: nav cluster, frame picker, filter pills, mode pill,
- *      right-icons cluster all render.
+ *   3. Ribbon: nav cluster, frame picker, filter pills, right-icons
+ *      cluster all render. (Round-3 rf2-g9pee dropped the explicit
+ *      LIVE / RETRO mode pill — state is derivable from the spine.)
  *   4. Tab bar: all six tabs (Event / App-db / Views / Trace /
  *      Machines / Issues) render and clicking each tab updates the
  *      L4 detail panel's testid (`rf-causa-detail-panel-<tab>`).
@@ -98,7 +99,9 @@ module.exports = {
     }
 
     // ----------------------------------------------------------------
-    // 3. Ribbon clusters — five fixed-order regions per spec/018 §3.
+    // 3. Ribbon clusters — four fixed-order regions per spec/018 §3.
+    //    Round-3 rf2-g9pee dropped the explicit `● LIVE` / `◐ RETRO`
+    //    mode pill; assert its testid is absent.
     // ----------------------------------------------------------------
     await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-nav"]`), 5000);
     // frame cluster is either a label OR a select depending on count
@@ -109,7 +112,13 @@ module.exports = {
       throw new Error('Expected ribbon frame cluster (label or dropdown) to render');
     }
     await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-filters"]`), 5000);
-    await expectVisible(page.locator(`[data-testid="rf-causa-mode-pill"]`), 5000);
+    const modePillCount = await page.locator(`[data-testid="rf-causa-mode-pill"]`).count();
+    if (modePillCount !== 0) {
+      throw new Error(
+        `Expected no mode pill post-rf2-g9pee; got ${modePillCount}. ` +
+        `Round-3 dropped the explicit LIVE / RETRO pill.`,
+      );
+    }
     await expectVisible(page.locator(`[data-testid="rf-causa-ribbon-icons"]`), 5000);
 
     // ----------------------------------------------------------------
@@ -172,8 +181,10 @@ module.exports = {
     }
 
     // ----------------------------------------------------------------
-    // 6. [● REDACTED N] indicator — relocated to L1 ribbon next to
-    //     the mode pill per rf2-xy4yb (was on the dead bottom rail).
+    // 6. [● REDACTED N] indicator — renders inline next to the
+    //     right-icons cluster in L1 when the suppressed-sensitive
+    //     count is positive (rf2-xy4yb relocation from the legacy
+    //     bottom rail; rf2-g9pee dropped the mode-pill neighbour).
     // ----------------------------------------------------------------
     const noted = await page.evaluate(() => {
       const cfg =
