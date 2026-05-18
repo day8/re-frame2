@@ -462,18 +462,13 @@
    [:h1 {:style {:font-size "16px" :font-weight 600 :margin 0
                  :color (:text-primary tokens)}}
     "Views"]
-   [:p {:style {:font-size "12px" :color (:text-tertiary tokens)
-                :margin "4px 0 0 0"
-                :font-family sans-stack}}
-    (str "Per-view rows: mounted / re-rendered / unmounted. "
-         "Subs nest under each view (spec/012). "
-         "Cascade ms: " (format-ms (:cascade-ms (:totals data))))]
    (when-let [frame (:frame data)]
      [:p {:style {:font-size "11px" :color (:text-tertiary tokens)
                   :margin "2px 0 0 0"}}
       (str "Frame: " frame
            (when-let [did (:dispatch-id data)]
-             (str " · cascade " (pr-str did))))])])
+             (str " · cascade " (pr-str did)))
+           " · cascade ms: " (format-ms (:cascade-ms (:totals data))))])])
 
 (defn- bottom-controls
   [data]
