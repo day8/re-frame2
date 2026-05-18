@@ -188,21 +188,36 @@
   "Count how many nodes the renderer would visit for `subtree`. Used
   for the `max-unchanged-context` split rule (§3.1.1 step 3).
 
-  Counts every annotated node in the subtree — `:same`, `:added`,
-  `:removed`, `:modified`, `:children`. A `:children` container counts
-  as one + the sum of its children's counts.
+  ## Renderer-faithful accounting (rf2-szzjh)
 
-  The renderer collapses `:same` subtrees into single chips, so a
-  better proxy for 'paths the user actually sees' is the count of
-  non-`:same` nodes plus the count of `:same` direct children of
-  changed containers (which become chips). For v1 we use the simple
-  total-node count as a conservative upper bound — over-counting is
-  safe (more splits, smaller sections); under-counting would let
-  overfilled sections through."
+  The renderer (`diff/render.cljs`) collapses **all** `:same` direct
+  children of a `:children` container into a single
+  `(N entries unchanged)` chip — many siblings or few, the chip
+  occupies one row's worth of canvas. Earlier versions counted each
+  `:same` sibling verbatim, which inflated the cost of legitimately-
+  coalesced clusters with many unchanged siblings (e.g.
+  `pg/large-multi-tier`: 50 new catalog keys merged into a 200-key
+  unchanged catalog → counter reported 251, defeated every
+  `max-unchanged-context` ≤ 250 and shattered into 50 singletons).
+
+  This counter mirrors the renderer's collapse:
+
+  - `:children` container → `1` (header) + Σ counts for **non-`:same`**
+    children + `1` if **any** `:same` children exist (the chip)
+  - `:added` / `:removed` / `:modified` / `:same` leaf → `1`
+
+  Discovered by rf2-ogkh0's 53-pair corpus sweep; see
+  `ai/findings/2026-05-19-causa-section-grouping-heuristics.md` §5.1."
   [subtree]
   (let [op (at/op-of subtree)]
     (if (= op :children)
-      (+ 1 (reduce + 0 (map count-rendered-nodes (:children subtree))))
+      (let [children    (:children subtree)
+            same?       #(= :same (at/op-of %))
+            changed     (remove same? children)
+            any-same?   (boolean (some same? children))]
+        (+ 1
+           (reduce + 0 (map count-rendered-nodes changed))
+           (if any-same? 1 0)))
       1)))
 
 ;; ---- 5. whole-DB replacement detection --------------------------------

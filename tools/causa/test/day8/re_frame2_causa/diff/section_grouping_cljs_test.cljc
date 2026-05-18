@@ -216,3 +216,175 @@
 (deftest subtree-at-empty-path-returns-root
   (let [tree (at/diff-tree {:a 1} {:a 2})]
     (is (= tree (sg/subtree-at-path tree [])))))
+
+;; ---- (7) count-rendered-nodes — renderer-faithful chip accounting ------
+;;
+;; rf2-szzjh regression. The renderer collapses all `:same` direct
+;; children of a `:children` container into a single chip. The earlier
+;; counter charged each `:same` sibling as 1 (verbatim), inflating the
+;; cost of legitimately-coalesced clusters and shattering them under
+;; the `max-unchanged-context` split rule. See
+;; `ai/findings/2026-05-19-causa-section-grouping-heuristics.md` §5.1.
+
+(deftest count-rendered-nodes-charges-same-cluster-as-one-chip
+  (testing "rf2-szzjh: a :children container with many :same siblings
+            charges the WHOLE :same cluster as 1 (the renderer's
+            `(N entries unchanged)` chip), not 1 per sibling"
+    (let [;; 10 keys: 2 modified, 8 unchanged.
+          before   (into {} (for [i (range 10)] [(keyword (str "k" i)) i]))
+          after    (assoc before :k0 :changed :k1 :changed)
+          tree     (at/diff-tree before after)]
+      ;; Total nodes via the new counter:
+      ;;   container (1) + 2 :modified (2) + 1 :same-chip (1) = 4
+      ;; Old behaviour would have been: 1 + 2 + 8 = 11.
+      (is (= 4 (sg/count-rendered-nodes tree))
+          "container + 2 changed + 1 chip"))))
+
+(deftest count-rendered-nodes-no-same-children-no-chip
+  (testing "rf2-szzjh: when every child is changed, no chip is charged"
+    (let [before {:a 1 :b 2 :c 3}
+          after  {:a 9 :b 8 :c 7}
+          tree   (at/diff-tree before after)]
+      ;; All children changed → no :same children → no chip.
+      ;;   container (1) + 3 :modified (3) = 4
+      (is (= 4 (sg/count-rendered-nodes tree))))))
+
+(deftest count-rendered-nodes-leaf-ops-count-as-one
+  (testing "rf2-szzjh: each leaf op (:added :removed :modified :same)
+            counts as 1; only :children recurses"
+    (let [tree (at/diff-tree {:a 1} {:a 2})
+          leaf (sg/subtree-at-path tree [:a])]
+      (is (= 1 (sg/count-rendered-nodes leaf))))
+    (let [tree  (at/diff-tree {:a 1 :b 2} {:a 1 :b 2})]
+      ;; All same → root degrades to :same; counts as 1.
+      (is (= 1 (sg/count-rendered-nodes tree))))))
+
+(deftest count-rendered-nodes-recursion-skips-only-same-children
+  (testing "rf2-szzjh: non-:same children still recurse normally — a
+            nested `:children` subtree's cost still contributes verbatim"
+    (let [;; outer container has one :modified and one :children child
+          ;; (which itself has nested changes); :same siblings stay flat.
+          before {:outer {:inner-changed {:x 1 :y 2}
+                          :inner-same    "stable"}
+                  :touched 0
+                  :pad-a 1 :pad-b 2 :pad-c 3}
+          after  {:outer {:inner-changed {:x 9 :y 8}
+                          :inner-same    "stable"}
+                  :touched 1
+                  :pad-a 1 :pad-b 2 :pad-c 3}
+          tree   (at/diff-tree before after)]
+      ;; root :children — children: [:outer :children] [:touched :modified]
+      ;;                             + 3 :same (:pad-a/b/c)
+      ;; root count = 1
+      ;;            + count(:outer) + count(:touched)   ; non-same recurse
+      ;;            + 1                                  ; the :same chip
+      ;; :outer count = 1 (container)
+      ;;              + count(:inner-changed)            ; non-same
+      ;;              + 1                                ; :same chip for :inner-same
+      ;; :inner-changed count = 1 (container)
+      ;;                      + 2 :modified
+      ;;                      + 0 (no :same children)
+      ;;                      = 3
+      ;; :outer = 1 + 3 + 1 = 5
+      ;; :touched = 1
+      ;; root = 1 + 5 + 1 + 1 = 8
+      (is (= 8 (sg/count-rendered-nodes tree))))))
+
+;; ---- (8) pg/large-multi-tier regression --------------------------------
+;;
+;; rf2-szzjh + rf2-ogkh0. The corpus pathology: 50 new catalog SKUs
+;; merged into a 200-key catalog map. Pre-fix counter reported 251 for
+;; the [:catalog] subtree, defeated every (depth, context) ≤ 250, and
+;; shattered the cluster into 50 singleton sections. Post-fix the
+;; counter reports ≈52 (1 + 50 changed + 1 chip), well under the
+;; default budget; the cluster survives as one section.
+
+(defn- catalog-pad
+  "Build a 200-key catalog map of stable `:sku-NNN` entries."
+  []
+  (into {} (for [i (range 200)]
+             [(keyword (str "sku-" (format "%03d" i)))
+              {:price (* i 7) :stock (mod i 13)}])))
+
+(defn- catalog-with-new
+  "Catalog after merge: pad + 50 new `:sku-new-NNN` entries."
+  []
+  (merge (catalog-pad)
+         (into {} (for [i (range 50)]
+                    [(keyword (str "sku-new-" (format "%03d" i)))
+                     {:price (* i 11) :stock (mod i 9)}]))))
+
+(deftest large-multi-tier-counter-no-longer-walks-same-cluster
+  (testing "rf2-szzjh + rf2-ogkh0 pg/large-multi-tier: the counter cost
+            of the [:catalog] subtree (50 changed + 200 unchanged keys)
+            tracks the renderer's chip-collapse — small upper bound
+            (~52: container + 50 changes + 1 chip), NOT the 251-node
+            pre-fix verbatim walk that defeated every (depth, context)
+            ≤ 250 in the rf2-ogkh0 sweep."
+    (let [before    {:catalog (catalog-pad)}
+          after     {:catalog (catalog-with-new)}
+          tree      (at/diff-tree before after)
+          catalog   (sg/subtree-at-path tree [:catalog])
+          cost      (sg/count-rendered-nodes catalog)]
+      (is (= :children (at/op-of catalog))
+          ":catalog subtree is a :children container post-diff")
+      ;; Tight upper bound: 1 (container) + 50 (:added leaves) + 1 (chip) = 52.
+      ;; Pre-fix this would have been 1 + 50 + 200 = 251.
+      (is (= 52 cost)
+          (str "expected ~52 (chip-aware), got " cost
+               " — pre-fix the counter walked the :same cluster verbatim "
+               "and reported 251.")))))
+
+(deftest large-multi-tier-coalesces-at-fixed-budget
+  (testing "rf2-szzjh + rf2-ogkh0 pg/large-multi-tier: at a budget that
+            accommodates the 50 changes (context=60), the [:catalog]
+            cluster survives as ONE section. Pre-fix even context=250
+            shattered it into 50 singleton sections."
+    (let [before   {:catalog (catalog-pad)
+                    :auth    {:user {:name "alice"}}
+                    :cart    {:items [{:id 7 :qty 1}]}}
+          after    {:catalog (catalog-with-new)
+                    :auth    {:user {:name "alice" :last-seen 42}}
+                    :cart    {:items [{:id 7 :qty 1} {:id 22 :qty 1}]}}
+          tree     (at/diff-tree before after)
+          ;; context=60 chosen to clear the 52-node :catalog cost. The
+          ;; depth=2 budget lets [:auth :user :last-seen] coalesce up to
+          ;; [:auth :user], [:cart :items 1] up to [:cart :items].
+          sections (sg/group-into-sections tree
+                                           {:max-coalesce-depth    2
+                                            :max-unchanged-context 60})
+          paths    (set (map :path sections))]
+      ;; Expected: 3 sections — [:catalog], [:auth :user], [:cart :items].
+      ;; Pre-fix this shattered into 52 under ANY context ≤ 250.
+      (is (= 3 (count sections))
+          (str "expected 3 sections, got " (count sections)
+               ": " (mapv :path sections)))
+      (is (contains? paths [:catalog])
+          ":catalog stays coalesced (post-fix; pre-fix shattered into 50 shards)")
+      (is (or (contains? paths [:auth :user])
+              (contains? paths [:auth :user :last-seen]))
+          "auth section present")
+      (is (or (contains? paths [:cart :items])
+              (contains? paths [:cart]))
+          "cart section present"))))
+
+(deftest medium-multi-tier-coalesces-at-default-budget
+  (testing "rf2-szzjh: a smaller variant of the same shape — 10 new
+            catalog keys merged into a 40-key catalog — coalesces into
+            ONE [:catalog] section at the tuned default (depth=2,
+            context=40) post-fix. The chip-aware counter prevents the
+            200-sibling shatter; the smaller change-count fits the
+            default budget."
+    (let [pad      (into {} (for [i (range 40)]
+                              [(keyword (str "sku-" i)) {:price i}]))
+          extras   (into {} (for [i (range 10)]
+                              [(keyword (str "sku-new-" i)) {:price (+ 100 i)}]))
+          before   {:catalog pad}
+          after    {:catalog (merge pad extras)}
+          tree     (at/diff-tree before after)
+          ;; Tuned default — depth=2, context=40 (rf2-ogkh0).
+          sections (sg/group-into-sections tree)]
+      (is (= 1 (count sections))
+          (str "expected 1 section, got " (count sections)
+               ": " (mapv :path sections)))
+      (is (= [:catalog] (:path (first sections)))))))
