@@ -186,6 +186,10 @@
      Optional slots (per spec/001 §reg-workspace):
 
      - `:doc`       — string description.
+     - `:modes`     — future-reserved (rf2-q5e36); workspaces inherit
+                      the chrome toolbar's `:active-modes` in v1 (see
+                      spec/001 §Workspace `:modes` slot for the
+                      authoritative wording + spec/010 §State location).
      - `:isolation` — `:variants-grid` mount strategy (rf2-gqid4):
                       `:isolated` (default — parallel cells with
                       per-variant frames) or `:shared` (serialised

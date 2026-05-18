@@ -397,7 +397,17 @@ support 11px chip text.
   resize overlay).
 - **Workspace-local toolbar** — workspaces inherit the chrome's
   `:active-modes` for now; if workspaces want their own toolbar
-  scoping it lands as a v2 follow-up.
+  scoping it lands as a v2 follow-up. The workspace body's `:modes`
+  slot (declared in
+  [`001-Authoring.md`](001-Authoring.md) §reg-workspace) is
+  **future-reserved** in v1 — it is not honoured by the runtime
+  yet; the chrome's `:active-modes` is the only path that affects
+  rendering. See
+  [`001-Authoring.md`](001-Authoring.md) §Workspace `:modes` slot —
+  future-reserved (v1) for the authoritative wording (rf2-q5e36).
+  The v2 workspace-local toolbar will lock the workspace `:modes`
+  slot semantics (override vs union vs cell fan-out matrix) at that
+  point.
 - **Toolbar customisation API** — projects cannot register their own
   chip widgets in v1; the chip is uniform (`button` with mode id
   label). If the design-token panel (v1.1) needs richer chips, the

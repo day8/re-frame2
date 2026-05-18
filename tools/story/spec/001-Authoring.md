@@ -99,7 +99,7 @@ Body:
  :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs
  :content   [{:type :prose :body "md..."} ...]    ; for :prose
  :render    <view-id>                              ; for :custom (a registered view)
- :modes     #{<mode-id> ...}
+ :modes     #{<mode-id> ...}                       ; future-reserved — see below
  :isolation :isolated | :shared}                   ; rf2-gqid4 — :variants-grid only
 ```
 
@@ -107,6 +107,21 @@ The `:variants-grid` layout (per Phase 2 SOTA refinement) renders
 every variant of a single parent story side-by-side; it differs from
 `:grid` (which renders an explicit `:variants` list) by enumerating
 variants from the registry.
+
+#### Workspace `:modes` slot — future-reserved (v1) (rf2-q5e36)
+
+The workspace body's `:modes` slot is **declared but not honoured by
+the runtime in v1**. Workspaces inherit the chrome's `:active-modes`
+selection (the chrome-level toolbar, per
+[`010-Toolbar.md`](010-Toolbar.md)). Workspace-local mode scoping
+(override / union / cell fan-out matrix) is a v2 follow-up; the slot
+is reserved so existing bodies don't break when the runtime starts
+honouring it. **This paragraph is authoritative** for the workspace
+`:modes` slot semantics. The chrome-level toolbar is the only path
+that affects rendering today; see
+[`010-Toolbar.md`](010-Toolbar.md) §State location for the
+`:active-modes` slot every workspace render consumes via
+`re-frame.story.ui.state/shell-state-atom`.
 
 #### Workspace `:isolation` slot — `:variants-grid` mount strategy (rf2-gqid4)
 
