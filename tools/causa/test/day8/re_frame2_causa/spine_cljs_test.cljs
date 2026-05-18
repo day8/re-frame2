@@ -150,14 +150,26 @@
       (is (true? (:head? r))))))
 
 (deftest compose-focus-derives-frame-from-cascade
-  (testing ":frame derives from the focused cascade — overrides any
-            stored slot frame so retro selections track the cascade
-            they pin to"
+  (testing ":frame derives from the focused cascade when the picker
+            and cascade frames agree (the common case post-click —
+            focus-cascade-reducer writes the cascade's frame onto the
+            slot so they're consistent)"
     (let [r (spine/compose-focus {:dispatch-id :c2 :mode :retro
-                                  :frame :stale-frame}
+                                  :frame :rf/default}
                                  fixture-cascades)]
       (is (= :rf/default (:frame r))
-          "frame comes from the cascade record, not the stored slot"))))
+          "frame comes from the cascade record"))))
+
+(deftest compose-focus-stale-slot-frame-falls-through
+  (testing "rf2-oziyr — when the slot's :frame restricts the focusable
+            walk to an empty subset (e.g. mid-transition between
+            picker selections), :frame falls back to the slot value so
+            the picker label and the panel stay consistent"
+    (let [r (spine/compose-focus {:dispatch-id :c2 :mode :retro
+                                  :frame :unknown-frame}
+                                 fixture-cascades)]
+      (is (= :unknown-frame (:frame r))
+          "no cascade in :unknown-frame → slot's :frame wins as fallback"))))
 
 (deftest compose-focus-paused-flag-rides-through
   (let [r (spine/compose-focus {:dispatch-id nil :mode :live :paused? true}
@@ -171,6 +183,41 @@
                                 :previewing? true}
                                fixture-cascades)]
     (is (true? (:previewing? r)))))
+
+;; ---- frame-picker scoping (rf2-oziyr) -----------------------------------
+
+(def ^:private multi-frame-fixture
+  "Mixed-frame fixture — :cart-frame and :checkout-frame interleaved.
+  Latest overall is the checkout cascade :c4; latest in :cart-frame is
+  :c3. Used to verify compose-focus's picker-aware head selection."
+  [(cascade :c1 :cart-frame)
+   (cascade :c2 :checkout-frame)
+   (cascade :c3 :cart-frame)
+   (cascade :c4 :checkout-frame)])
+
+(deftest compose-focus-picker-frame-scopes-head-walk
+  (testing "rf2-oziyr — when the picker (slot :frame) restricts to one
+            frame, LIVE head tracking auto-snaps to that frame's head,
+            not the global head"
+    (let [r (spine/compose-focus {:frame :cart-frame :mode :live}
+                                 multi-frame-fixture)]
+      (is (= :c3 (:dispatch-id r))
+          "head of :cart-frame is :c3, NOT :c4 (the global head)")
+      (is (= :cart-frame (:frame r)))
+      (is (true? (:head? r))))
+    (let [r (spine/compose-focus {:frame :checkout-frame :mode :live}
+                                 multi-frame-fixture)]
+      (is (= :c4 (:dispatch-id r))
+          "head of :checkout-frame is :c4")
+      (is (= :checkout-frame (:frame r))))))
+
+(deftest compose-focus-nil-picker-frame-keeps-global-head
+  (testing "rf2-oziyr — no picker restriction (slot :frame nil) keeps
+            the pre-existing behaviour: LIVE tracks global head"
+    (let [r (spine/compose-focus {:frame nil :mode :live}
+                                 multi-frame-fixture)]
+      (is (= :c4 (:dispatch-id r))
+          "global head wins when picker is unset"))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) focus-cascade-reducer — writes :focus + legacy shim
@@ -721,6 +768,23 @@
           db       {}
           r        (spine/focus-step-reducer db cascades -1)]
       (is (= db r)))))
+
+(deftest focus-step-reducer-respects-picker-frame
+  (testing "rf2-oziyr — when the picker has scoped to one frame, [◀]
+            and [▶] walk only that frame's cascades. Cross-frame
+            cascades are invisible to the nav so the user can't
+            accidentally step into a frame they're not inspecting."
+    (let [cascades [(cascade :c1 :cart-frame)
+                    (cascade :c2 :checkout-frame)
+                    (cascade :c3 :cart-frame)
+                    (cascade :c4 :checkout-frame)]
+          db       {:focus {:frame :cart-frame
+                            :dispatch-id :c3
+                            :mode :live}}
+          r        (spine/focus-step-reducer db cascades -1)]
+      (is (= :c1 (get-in r [:focus :dispatch-id]))
+          "prev from :c3 (cart head) skips :c2 (checkout) and lands on :c1
+           (the only other cart cascade)"))))
 
 (deftest compose-focus-snaps-to-head-when-slot-id-is-ungrouped
   (testing "rf2-fzbrw — even in :retro, a stored slot pointing at

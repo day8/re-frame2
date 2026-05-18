@@ -130,11 +130,23 @@
   ;; cascade list (event-list, scrubber, palette, Issues counter)
   ;; reads `:rf.causa/filtered-cascades`; raw `:rf.causa/cascades`
   ;; stays available for unfiltered totals.
+  ;;
+  ;; Per spec/018 §3 Frame dropdown + rf2-oziyr: the frame picker is
+  ;; ALSO a data-layer filter. The picker's selection lives on the
+  ;; spine's `:focus :frame` slot (written by `:rf.causa/set-frame`);
+  ;; we read the raw slot here (not the composed `:rf.causa/focus` sub)
+  ;; to avoid the cycle composed-focus → cascades → filtered-cascades
+  ;; → composed-focus. nil slot = no frame filter active (multi-frame
+  ;; app, picker has not been touched, OR a single-frame app whose
+  ;; picker collapses to a flat label).
   (rf/reg-sub :rf.causa/filtered-cascades
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/active-filters]
-    (fn [[cascades filters] _query]
-      (matcher/filter-cascades cascades filters)))
+    :<- [:rf.causa/focus-slot]
+    (fn [[cascades filters focus-slot] _query]
+      (-> cascades
+          (matcher/filter-cascades-by-frame (:frame focus-slot))
+          (matcher/filter-cascades filters))))
 
   ;; Popup state — three slots so the open / trigger / draft tiers
   ;; are individually subscribable.
