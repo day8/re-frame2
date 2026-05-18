@@ -31,10 +31,10 @@
         frame     (wire/arg-keyword raw-args :frame)
         since-id  (wire/arg raw-args :since-id)
         ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
-        ;; `:include-sensitive? false` when OFF (the default).
+        ;; `:include-sensitive false` when OFF (the default).
         incl?     (if (raw-state/force-redact?)
                     false
-                    (args/parse-bool-arg raw-args :include-sensitive?))
+                    (args/parse-bool-arg raw-args :include-sensitive))
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))

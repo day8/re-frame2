@@ -447,7 +447,7 @@
 
 (deftest drain-form-gated-elision-honours-include-sensitive
   ;; Gate ON path — when the operator passed `--allow-raw-state` AND the
-  ;; caller passed `:include-sensitive? true`, the walker still fires
+  ;; caller passed `:include-sensitive true`, the walker still fires
   ;; (elision is independent of sensitive), but sensitive slots pass
   ;; through.
   (let [form (sub/drain-form "sub-xyz" true true)]

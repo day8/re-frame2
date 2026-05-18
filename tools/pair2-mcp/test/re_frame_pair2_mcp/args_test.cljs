@@ -4,10 +4,10 @@
   Pins the four boolean MCP args shared across pair2-mcp tools to the
   single `args/bool-args` table:
 
-    :dedup              ⇒ default true
-    :elision            ⇒ default true
-    :cache              ⇒ default false
-    :include-sensitive? ⇒ default false
+    :dedup             ⇒ default true
+    :elision           ⇒ default true
+    :cache             ⇒ default false
+    :include-sensitive ⇒ default false (rf2-ihq4d — wire-key drops `?`)
 
   Accept-shape coverage (true/false bools, `\"true\"`/`\"yes\"`/`\"1\"`
   string forms, `:true`/`:false` keywords, case-insensitivity,
@@ -35,12 +35,12 @@
 (deftest bool-args-table-shape
   ;; The four arg keys are catalogued; their default postures are the
   ;; cross-MCP convention. Drift here = drift across consumers.
-  (is (= #{:dedup :elision :cache :include-sensitive?}
+  (is (= #{:dedup :elision :cache :include-sensitive}
          (set (keys args/bool-args))))
-  (is (true?  (get-in args/bool-args [:dedup              :default])))
-  (is (true?  (get-in args/bool-args [:elision            :default])))
-  (is (false? (get-in args/bool-args [:cache              :default])))
-  (is (false? (get-in args/bool-args [:include-sensitive? :default]))))
+  (is (true?  (get-in args/bool-args [:dedup             :default])))
+  (is (true?  (get-in args/bool-args [:elision           :default])))
+  (is (false? (get-in args/bool-args [:cache             :default])))
+  (is (false? (get-in args/bool-args [:include-sensitive :default]))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-bool-arg — table lookup + JS-args extraction.
@@ -52,7 +52,7 @@
     (is (true?  (args/parse-bool-arg empty-args :dedup)))
     (is (true?  (args/parse-bool-arg empty-args :elision)))
     (is (false? (args/parse-bool-arg empty-args :cache)))
-    (is (false? (args/parse-bool-arg empty-args :include-sensitive?)))))
+    (is (false? (args/parse-bool-arg empty-args :include-sensitive)))))
 
 (deftest parse-bool-arg-nil-args-uses-table-default
   ;; A nil args object collapses to the table default — the dispatcher
@@ -78,14 +78,14 @@
   ;; hand-rolled a smaller parser. The unified table delegates to
   ;; `base-args/parse-boolean` for every key, so `"yes"` flips on
   ;; uniformly across all four args.
-  (let [a (args-js {:dedup              "no"
-                    :elision            "off"
-                    :cache              "yes"
-                    :include-sensitive? "1"})]
+  (let [a (args-js {:dedup             "no"
+                    :elision           "off"
+                    :cache             "yes"
+                    :include-sensitive "1"})]
     (is (false? (args/parse-bool-arg a :dedup)))
     (is (false? (args/parse-bool-arg a :elision)))
     (is (true?  (args/parse-bool-arg a :cache)))
-    (is (true?  (args/parse-bool-arg a :include-sensitive?)))))
+    (is (true?  (args/parse-bool-arg a :include-sensitive)))))
 
 (deftest parse-bool-arg-case-insensitive-strings
   (let [a (args-js {:cache "TRUE" :dedup "False"})]
@@ -103,9 +103,12 @@
     (is (false? (args/parse-bool-arg a :cache)))))  ; default false
 
 (deftest parse-bool-arg-include-sensitive-name-is-stringified
-  ;; The keyword name carries a trailing `?`; the JS wire key is
-  ;; `"include-sensitive?"`. The name coercion in `parse-bool-arg`
-  ;; round-trips the `?` correctly — pin the contract so a future
-  ;; rename can't silently drift.
-  (let [a (args-js {:include-sensitive? "true"})]
-    (is (true? (args/parse-bool-arg a :include-sensitive?)))))
+  ;; Post-rf2-ihq4d the keyword carries NO trailing `?`; the JS wire
+  ;; key is `"include-sensitive"`. The name coercion in `parse-bool-arg`
+  ;; round-trips the literal `(name k)` correctly — pin the contract so
+  ;; a future drift either way (re-adding `?`, snake_case, etc.) breaks
+  ;; here. Per Anthropic's tool-input-schema regex
+  ;; `^[a-zA-Z0-9_.-]{1,64}$`, predicate-style `?` is rejected at the
+  ;; agent host.
+  (let [a (args-js {:include-sensitive "true"})]
+    (is (true? (args/parse-bool-arg a :include-sensitive)))))

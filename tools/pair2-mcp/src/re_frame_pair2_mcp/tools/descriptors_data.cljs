@@ -68,7 +68,7 @@
   {:name "trace-window"
    :description (str "Return the :rf/epoch-records added in the last N ms for the operating frame. "
                      "Per spec/009 §Privacy this forwarder default-drops items carrying `:sensitive? true` "
-                     "at the top level; opt back in with `include-sensitive? true`. Dropped count surfaces "
+                     "at the top level; opt back in with `include-sensitive true`. Dropped count surfaces "
                      "as `:dropped-sensitive` on the result when non-zero. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode) (needed for time-travel restore). "
@@ -90,7 +90,7 @@
                                             :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (complete :db-after snapshot — opt-in for time-travel restore, which needs the verbatim state)."
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
-                              :include-sensitive? {:type "boolean"
+                              :include-sensitive {:type "boolean"
                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                               :build {:type "string"}}
                  :additionalProperties false}})
@@ -107,7 +107,7 @@
                      "never cross the wire — typicalTokens above is the worst case, narrowing on :timing-ms "
                      "(e.g. only :>100ms epochs) shrinks the payload roughly proportional to the match rate. "
                      "Per spec/009 §Privacy this forwarder "
-                     "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
+                     "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive true`. "
                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
                      "— pass `epochs-mode \"full\"` for the full-pair shape (the time-travel-restore mode). "
                      "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip. "
@@ -127,7 +127,7 @@
                                             :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (legacy, opt-in for time-travel restore)."
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
-                              :include-sensitive? {:type "boolean"
+                              :include-sensitive {:type "boolean"
                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                               :build    {:type "string"}}
                  :additionalProperties false}})
@@ -163,11 +163,11 @@
                      "`epochs-mode \"full\"` for full-pair shape (the time-travel-restore mode, which needs verbatim state). "
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
-                     "`:sensitive? true`; opt back in with `include-sensitive? true`. "
+                     "`:sensitive? true`; opt back in with `include-sensitive true`. "
                      "Per Tool-Pair §Direct-read privacy posture (rf2-vflrg) the `:app-db` and `:sub-cache` "
                      "slices are routed through `re-frame.core/elide-wire-value` with off-box defaults — "
                      "declared-sensitive paths return the `:rf/redacted` sentinel and large slots return "
-                     "the `:rf.size/large-elided` marker; the same `include-sensitive? true` flag opts back "
+                     "the `:rf.size/large-elided` marker; the same `include-sensitive true` flag opts back "
                      "in to seeing the raw value at sensitive paths. The `:machines` slice passes through "
                      "unchanged — payload redaction there is the `with-redacted` interceptor's job. "
                      "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
@@ -223,7 +223,7 @@
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :elision  knobs/elision-property
-                              :include-sensitive? {:type "boolean"
+                              :include-sensitive {:type "boolean"
                                                    :description (str "Opt back in to BOTH (a) forwarding `:sensitive? true` "
                                                                      "items in the :traces / :epochs slices AND (b) seeing "
                                                                      "the raw value at declared-sensitive paths in the "
@@ -250,7 +250,7 @@
                      "to bypass the walk and receive the raw value. "
                      "Privacy (rf2-vflrg, per Tool-Pair §Direct-read privacy posture): declared-sensitive "
                      "paths return the `:rf/redacted` sentinel by default — opt in to seeing the raw "
-                     "value at sensitive paths via `include-sensitive? true`.")
+                     "value at sensitive paths via `include-sensitive true`.")
    :typicalTokens 500
    :inputSchema {:type "object"
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
@@ -262,7 +262,7 @@
                               :frame   {:type "string"
                                         :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
                               :elision knobs/elision-property
-                              :include-sensitive? {:type "boolean"
+                              :include-sensitive {:type "boolean"
                                                    :description (str "Opt in to seeing the raw value at declared-sensitive "
                                                                      "paths (the walker's `:rf.size/include-sensitive?` opt). "
                                                                      "Default false ⇒ sensitive paths return the `:rf/redacted` "
@@ -285,7 +285,7 @@
                      "filter — number (sugar for `>= N`) or comparison string (`\">100\"`, `\"<=50\"`, …). "
                      "Pass `filter` either as a JSON object or as an EDN-encoded string. "
                      "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
-                     "level; opt back in with `include-sensitive? true`. Dropped count surfaces as `:dropped-sensitive` "
+                     "level; opt back in with `include-sensitive true`. Dropped count surfaces as `:dropped-sensitive` "
                      "on each progress payload (when non-zero) and the final summary. "
                      "Each progress payload's `:events` vector is structurally deduped by default (rf2-obpa9) — "
                      "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
@@ -311,7 +311,7 @@
                               :max-events {:type "integer"
                                            :description "Terminate after this many events have been delivered. 0 = unbounded. Default 0."}
                               :dedup    knobs/dedup-property
-                              :include-sensitive? {:type "boolean"
+                              :include-sensitive {:type "boolean"
                                                    :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                               :build   {:type "string"}}
                  :required ["topic"]

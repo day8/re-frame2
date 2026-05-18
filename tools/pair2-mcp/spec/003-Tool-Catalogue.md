@@ -245,13 +245,13 @@ rf2-c2dtu). Operators pass them as MCP-server CLI flags:
 | Flag                | Default | Effect when ON |
 |---------------------|---------|----------------|
 | `--allow-eval`      | OFF     | Enables `eval-cljs`. Without the flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-raw-state` | OFF     | Honours caller-supplied `:include-sensitive? true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. |
+| `--allow-raw-state` | OFF     | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. |
 
 When `--allow-raw-state` is OFF (the published-build default), the
 direct-read tools above:
 
-1. Force `:include-sensitive? false` on every call. Caller-supplied
-   `:include-sensitive? true` is dropped before reaching the walker —
+1. Force `:include-sensitive false` on every call. Caller-supplied
+   `:include-sensitive true` is dropped before reaching the walker —
    declared-sensitive slots in `:app-db` / `:sub-cache` reads return
    the `:rf/redacted` sentinel; sensitive trace events / epochs are
    stripped from streaming payloads.
@@ -268,7 +268,7 @@ direct-read tools above:
 
 Operators who need raw state for offline debug opt in at server launch
 by passing `--allow-raw-state`. The per-call args then win again
-(`:include-sensitive? true` / `:elision false` pass through to the
+(`:include-sensitive true` / `:elision false` pass through to the
 walker unchanged).
 
 Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx) and
@@ -791,7 +791,7 @@ that axis"):
 | `:dispatch-id`   | `(get-in ev [:tags :dispatch-id])`                                |
 | `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
 | `:between`       | `[t0 t1]` — `(<= t0 (:time ev) t1)` host-clock ms.                |
-| `:sensitive?`    | `(:sensitive? ev)` — boolean. **Default forwarder posture:** events with `:sensitive? true` are dropped at the MCP boundary before any data reaches the agent surface (per [spec/009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The runtime stamps the flag on every trace event emitted inside a `:sensitive? true` registration's handler scope. Opt back in per-call with `include-sensitive? true` (an MCP tool arg on `trace-window`, `watch-epochs`, `snapshot`, `subscribe`). Dropped count surfaces as `:dropped-sensitive` on the result / progress payload when non-zero. |
+| `:sensitive?`    | `(:sensitive? ev)` — boolean. **Default forwarder posture:** events with `:sensitive? true` are dropped at the MCP boundary before any data reaches the agent surface (per [spec/009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The runtime stamps the flag on every trace event emitted inside a `:sensitive? true` registration's handler scope. Opt back in per-call with `include-sensitive true` (an MCP tool arg on `trace-window`, `watch-epochs`, `snapshot`, `subscribe`). Dropped count surfaces as `:dropped-sensitive` on the result / progress payload when non-zero. |
 
 For `topic :epoch`, the filter map mirrors `epoch-matches?` (same
 vocab `watch-epochs` already accepts):
@@ -838,7 +838,7 @@ vocab `watch-epochs` already accepts):
   client cancels.
 - `max-events` (integer, default `0` = unbounded) — terminate after
   this many events have been delivered.
-- `include-sensitive?` (boolean, default `false`) — opt back in to
+- `include-sensitive` (boolean, default `false`) — opt back in to
   forwarding events carrying `:sensitive? true`. Per [spec/009
   §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
   the forwarder default-drops these events at the MCP boundary; pass

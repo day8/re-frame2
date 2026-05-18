@@ -445,14 +445,14 @@
         max-ms             (or (wire/arg raw-args :max-ms) 0)
         max-events         (or (wire/arg raw-args :max-events) 0)
         ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
-        ;; `:include-sensitive? false` on every streamed event when OFF
+        ;; `:include-sensitive false` on every streamed event when OFF
         ;; (the published-build default). `sensitive/strip-sensitive`
         ;; below honours the post-gate value, so a caller's
-        ;; `:include-sensitive? true` arg is dropped before reaching the
+        ;; `:include-sensitive true` arg is dropped before reaching the
         ;; runtime drain.
         incl?              (if (raw-state/force-redact?)
                              false
-                             (args/parse-bool-arg raw-args :include-sensitive?))
+                             (args/parse-bool-arg raw-args :include-sensitive))
         ;; rf2-vr2hn — the `--allow-raw-state` boot gate forces
         ;; `:elision true` on every streamed event when OFF, mirroring
         ;; the snapshot / get-path gate. Server-side, the drain envelope's
