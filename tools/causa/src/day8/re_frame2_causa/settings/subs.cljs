@@ -48,4 +48,18 @@
     (fn [db _query]
       (or (get db :settings) (config/get-settings))))
 
+  ;; rf2-i39w2 Phase 3 — convenience sub for the diff opts map the
+  ;; hiccup-diff engine consumes via `classify-prop`. Reads the
+  ;; `:diff` slot of the settings map (in app-db when seeded, the
+  ;; atom otherwise) and reshapes to the engine's opts vocabulary.
+  ;; A single sub means subs that compose against the diff engine
+  ;; read one canonical map rather than per-knob `:rf.causa/setting`
+  ;; calls.
+  (rf/reg-sub :rf.causa/diff-opts
+    (fn [db _query]
+      (let [diff (or (get-in db [:settings :diff])
+                     (:diff (config/get-settings)))]
+        {:highlight-fn-ref-changes? (boolean
+                                      (:highlight-fn-ref-changes? diff))})))
+
   nil)

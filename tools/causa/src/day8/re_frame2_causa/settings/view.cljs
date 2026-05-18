@@ -149,18 +149,22 @@
 ;; ---- tab strip ----------------------------------------------------------
 
 (def ^:private tabs
-  "Ordered tab list. The modal carries three sections
-  (General | Filters | Theme). Tab id matches the
+  "Ordered tab list. The modal carries four sections
+  (General | Filters | Theme | Diff). Tab id matches the
   `:rf.causa/settings-update` `section` for sections that map 1:1
   to a settings slot.
 
   Telemetry was removed (rf2-jh9ws): Causa ships no telemetry
   endpoint, and the toggle in v1 was a broken affordance — silent
   by default, no broken claims (per text-audit rf2-yn86j). When
-  telemetry actually ships, the tab returns with real wiring."
+  telemetry actually ships, the tab returns with real wiring.
+
+  Diff (rf2-i39w2 Phase 3) carries the hiccup-diff micro-engine's
+  opt-in fn-ref-changes toggle."
   [{:id :general   :label "General"}
    {:id :filters   :label "Filters"}
-   {:id :theme     :label "Theme"}])
+   {:id :theme     :label "Theme"}
+   {:id :diff      :label "Diff"}])
 
 (defn- tab-button [{:keys [id label]} active?]
   [:button {:data-testid (str "rf-causa-settings-tab-" (name id))
@@ -303,6 +307,42 @@
        "Light / dark only for v1. Accent picker arrives in a later "
        "release."]]]))
 
+;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
+
+(defn- diff-section []
+  (let [highlight? @(rf/subscribe [:rf.causa/setting :diff :highlight-fn-ref-changes?])]
+    [:div {:data-testid "rf-causa-settings-section-diff"}
+     [:h2 {:style (section-heading-style)} "Diff"]
+     [:p {:style {:color (:text-secondary tokens)
+                  :line-height 1.5
+                  :margin "0 0 16px 0"}}
+      "Controls for the structural-diff engine that powers App-DB Diff, "
+      "Sub-output diff, and the View-hiccup diff drilldown in the Views "
+      "panel."]
+
+     ;; ── Highlight fn-ref changes ────────────────────────────────
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-causa-settings-diff-highlight-fn-ref"
+                :type        "checkbox"
+                :checked     (boolean highlight?)
+                :on-change   #(rf/dispatch
+                                [:rf.causa/settings-update
+                                 :diff :highlight-fn-ref-changes?
+                                 (boolean (.. % -target -checked))])}]
+       "Highlight function-ref changes in view hiccup"]
+      [:p {:style (hint-style)}
+       "Off by default. The hiccup-diff engine treats function-valued "
+       "props (`:on-click`, `:on-change`, `:ref`, …) as opaque — "
+       "anonymous fns created fresh per render do NOT surface as a "
+       "diff. Flip this on when diagnosing memoization issues (a "
+       "child re-renders because the parent passes a new fn every "
+       "time); identity-different fns will surface as a distinct "
+       "violet `(fn ref changed)` chip."]]]))
+
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-keydown
@@ -357,4 +397,5 @@
          :general   (general-section)
          :filters   (filters-section)
          :theme     (theme-section)
+         :diff      (diff-section)
          (general-section))]]]))

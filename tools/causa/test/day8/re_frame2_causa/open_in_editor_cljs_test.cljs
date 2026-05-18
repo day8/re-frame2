@@ -418,3 +418,97 @@
       (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
              (:uri (first @captured-editor-fx)))
           "fx's :uri ≡ chip's :href once :project-root is configured"))))
+
+;; ---- click-time navigation (rf2-muvs8) ----------------------------------
+;;
+;; Mirror of Story's click-time tests. The bead: `(set! (.-location js/window)
+;; uri)` was silently no-op'd by some Chromium builds on Windows for
+;; custom URI schemes; the fix switched to `Location.assign`, routed it
+;; through an atom-held navigator seam (`set-navigator!`) so tests can
+;; capture calls without mutating `js/window.location` (which is non-
+;; configurable in modern browsers and throws under `defineProperty`),
+;; and added a `console.log` of the URI for live diagnosis. These tests
+;; pin the new click-time contract.
+
+(defn- with-stub-navigator
+  "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
+  Restores the original navigator afterward (even on throw)."
+  [stub-fn body-fn]
+  (let [prev (open-in-editor/set-navigator! stub-fn)]
+    (try
+      (body-fn)
+      (finally
+        (open-in-editor/set-navigator! prev)))))
+
+(defn- capturing-navigator
+  "Build a navigator fn that pushes its URI argument onto the shared
+  `calls` atom. Returns `[navigator-fn, calls-atom]`."
+  []
+  (let [calls (atom [])
+        nav   (fn [uri] (swap! calls conj uri))]
+    [nav calls]))
+
+(deftest click-handler-calls-navigator-with-uri
+  (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
+            with the same URI carried in the :href"
+    (let [hiccup       (open-in-editor/open-chip
+                         {:file "src/x.cljs" :line 42 :column 7})
+          props        (second hiccup)
+          href         (:href props)
+          on-click     (:on-click props)
+          fake-evt     #js {:preventDefault (fn [])}
+          [nav calls]  (capturing-navigator)]
+      (with-stub-navigator nav
+        #(on-click fake-evt))
+      (is (= ["vscode://file/src/x.cljs:42:7"]
+             @calls)
+          "navigator called exactly once with the chip's href URI")
+      (is (= href (first @calls))
+          "the navigation URI is identical to the rendered href"))))
+
+(deftest click-handler-prevents-default
+  (testing "rf2-muvs8 — the click handler preventDefaults so the
+            browser doesn't double-navigate"
+    (let [hiccup       (open-in-editor/open-chip
+                         {:file "src/x.cljs" :line 1})
+          on-click     (:on-click (second hiccup))
+          prevented?   (atom false)
+          fake-evt     #js {:preventDefault (fn [] (reset! prevented? true))}
+          [nav _]      (capturing-navigator)]
+      (with-stub-navigator nav
+        #(on-click fake-evt))
+      (is @prevented?
+          "the click handler must call e.preventDefault()"))))
+
+(deftest open-bang-calls-navigator
+  (testing "rf2-muvs8 — `open!` (the public seam shared by the chip and
+            the `:rf.editor/open` reg-fx) invokes the navigator with
+            an allowed URI"
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(open-in-editor/open! "vscode://file/src/x.cljs:1:1"))
+      (is (= ["vscode://file/src/x.cljs:1:1"] @calls)))))
+
+(deftest open-bang-no-op-for-nil-uri
+  (testing "rf2-muvs8 — `open!` is a no-op for nil URI (the absent-coord
+            case + the rejected-by-allowlist case both flow nil)"
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(open-in-editor/open! nil))
+      (is (= [] @calls)
+          "no navigation attempted for nil URI"))))
+
+(deftest open-bang-no-op-for-disallowed-scheme
+  (testing "rf2-muvs8 / rf2-cm93v — `open!` is a no-op for URIs whose
+            scheme is outside `editor-uri/allowed-editor-uri-schemes`.
+            Defense-in-depth — the chip's render-time gate already
+            hides the chip for disallowed schemes, but `open!` enforces
+            the allowlist independently so callers that bypass the
+            render gate (e.g. a future MCP-side replay) can't escape it."
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(do (open-in-editor/open! "http://evil.example/x")
+             (open-in-editor/open! "javascript:alert(1)")))
+      (is (= [] @calls)
+          "http: and javascript: navigations refused at the open!
+           boundary even though `open!` is called directly"))))
