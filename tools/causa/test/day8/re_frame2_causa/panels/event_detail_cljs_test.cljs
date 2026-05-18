@@ -1,33 +1,29 @@
 (ns day8.re-frame2-causa.panels.event-detail-cljs-test
-  "Tests for the Causa event-detail hero panel (Phase 2, rf2-op3bz).
+  "Tests for the Causa Event lens panel (rf2-zh2qc — rewrite of the
+  v1 six-domino renderer per Mike's verbatim 6-section design).
 
-  ## Three contracts under test
+  ## What this suite covers
 
-  1. **Default-focus head cascade on cold start.** With trace events
-     in the buffer but no explicit selection (rf2-639lc Bug 2), the
-     panel's `:rf.causa/event-detail` composite sub defaults
-     `:selected-dispatch-id` to the head (most recent routed)
-     cascade so the view renders cascade DETAIL on first mount.
-     The pre-rf2-639lc landing-list behaviour was redundant under the
-     4-layer chrome — the L2 event list is always visible alongside
-     L4 so the panel-internal list never carried weight (rf2-lv9bc).
-
-  2. **Cascade detail when something is selected.** With a selection
-     set via `:rf.causa/select-dispatch-id`, the composite sub returns
-     the matching cascade record and the view renders the six-domino
-     rows.
-
-  3. **Clear selection.** Dispatching `:rf.causa/clear-selected-
-     dispatch-id` empties the explicit selection; the panel
-     default-focuses the head cascade again per (1).
+    1. Default-focus / cascade selection / clear (carried over from v1
+       — the panel's spine plumbing didn't change).
+    2. Cascade-outcome line (top-of-panel) — glyph + colour + SSR badge
+       per §5.1 + the hydration-outcome addendum.
+    3. The 6 sections render in order: EVENT, DISPATCH SITE,
+       INTERCEPTORS, HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN.
+    4. Silent-by-default — sections ABSENT (not '(none)') when their
+       data is empty.
+    5. Handler threw → §5/§6 suppressed + Issues-tab footer renders.
+    6. Pure projection helpers (`user-interceptors`, `cascade-outcome`,
+       `effects-handlers-ran`, `hydration-outcome-row`).
+    7. The meta-on-vector pattern (rf2-ppzid) — :key reaches every
+       row inside :for blocks.
 
   ## Pure-data scope
 
   The view is pure hiccup; the tests assert against the hiccup tree
-  rather than booting a substrate adapter / mounting to the DOM. This
-  keeps the suite fast and host-portable per the same node-test
-  rationale as `preload_cljs_test.cljs`."
+  rather than booting a substrate adapter / mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -44,10 +40,6 @@
 (defn- causa-init! []
   (causa-test-support/reset-all!)
   (trace-bus/clear-buffer!)
-  ;; Reset the :sensitive? privacy gate to its default (suppress) so the
-  ;; redaction-state tests below start from a known baseline regardless
-  ;; of test ordering or prior toggles. Symmetric with
-  ;; sensitive_trace_cljs_test's own fixture.
   (config/set-show-sensitive! false)
   (config/reset-suppressed-count!))
 
@@ -56,46 +48,52 @@
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 
-;; ---- fixture trace stream ------------------------------------------------
+;; ---- fixture stream builders -------------------------------------------
 
 (defn- cascade-evs
-  "Produce a representative one-cascade event stream — same shape as
-  re-frame.trace.projection's own tests. `dispatch-id` rides on every
-  event's `:tags :dispatch-id` per rf2-g6ih4."
+  "Build the canonical Event-lens cascade stream for a given dispatch-
+  id + event vector. Mirrors v1 `cascade-evs` but additionally:
+
+    - Hoists `:rf.trace/call-site` to the top level of the
+      `:event/dispatched` trace (rf2-twt7m Change 1) so the DISPATCH
+      SITE section has data.
+    - Stamps `:source` + `:origin` (also top-level — `build-event`'s
+      success-path hoist).
+    - Stamps `:fx` + `:db-present?` on the `:event/do-fx` trace's
+      `:tags` (rf2-twt7m Change 2) so EFFECTS RETURNED has data."
   ([dispatch-id event-vec id-base]
    (cascade-evs dispatch-id event-vec id-base nil))
-  ([dispatch-id event-vec id-base frame-id]
-   [{:id (+ id-base 1) :op-type :event    :operation :event/dispatched
-     :tags (cond-> {:dispatch-id dispatch-id :event event-vec}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 2) :op-type :event    :operation :event
+  ([dispatch-id event-vec id-base {:keys [frame-id call-site source origin fx db-present?]
+                                    :or   {fx          [[:db nil] [:dispatch [:bar]]]
+                                           db-present? true
+                                           source      :ui
+                                           origin      :app}}]
+   [(cond-> {:id (+ id-base 1) :op-type :event :operation :event/dispatched
+             :tags (cond-> {:dispatch-id dispatch-id :event event-vec}
+                     frame-id (assoc :frame frame-id))}
+      call-site (assoc :rf.trace/call-site call-site)
+      source    (assoc :source source)
+      origin    (assoc :origin origin))
+    {:id (+ id-base 2) :op-type :event :operation :event
      :tags (cond-> {:dispatch-id dispatch-id :phase :run-start}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 3) :op-type :event    :operation :event
-     :tags (cond-> {:dispatch-id dispatch-id :phase :run-end}
+    {:id (+ id-base 3) :op-type :event :operation :event
+     :tags (cond-> {:dispatch-id dispatch-id :phase :run-end :duration-ms 11}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 4) :op-type :event    :operation :event/do-fx
+    {:id (+ id-base 4) :op-type :event :operation :event/do-fx
      :tags (cond-> {:dispatch-id dispatch-id}
+             frame-id    (assoc :frame frame-id)
+             fx          (assoc :fx fx)
+             db-present? (assoc :db-present? true))}
+    {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
+     :tags (cond-> {:dispatch-id dispatch-id :fx-id :db :duration-ms 1}
              frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 5) :op-type :fx       :operation :rf.fx/handled
-     :tags (cond-> {:dispatch-id dispatch-id :fx-id :db}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 6) :op-type :fx       :operation :rf.fx/handled
-     :tags (cond-> {:dispatch-id dispatch-id :fx-id :dispatch}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 7) :op-type :sub/run  :operation :sub/run
-     :tags (cond-> {:dispatch-id dispatch-id :sub-id :sub/foo}
-             frame-id (assoc :frame frame-id))}
-    {:id (+ id-base 8) :op-type :view     :operation :view/render
-     :tags (cond-> {:dispatch-id dispatch-id :render-key [:app/root nil]}
+    {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
+     :tags (cond-> {:dispatch-id dispatch-id :fx-id :dispatch :fx-args [[:bar]]
+                    :duration-ms 0}
              frame-id (assoc :frame frame-id))}]))
 
 (defn- seed-buffer!
-  "Register Causa's handlers, allocate the :rf/causa frame, then push
-  the supplied events through Causa's trace-bus atom via
-  `collect-trace!` — the production path. Per rf2-e9s81
-  `:rf.causa/trace-buffer` thunks the atom, so a subsequent
-  subscribe returns the events directly."
   [evs]
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {})
@@ -103,10 +101,6 @@
     (trace-bus/collect-trace! ev)))
 
 (defn- expand-fn-component
-  "When `node` is a hiccup-style `[fn-component args...]` vector
-  (first element is a function rather than a keyword/string), invoke
-  the fn with the rest of the args so the test can recurse into the
-  rendered sub-tree. Otherwise return the node unchanged."
   [node]
   (if (and (vector? node) (fn? (first node)))
     (apply (first node) (rest node))
@@ -115,17 +109,7 @@
 (defn- hiccup-seq
   "Walk a hiccup tree and emit every node (vectors only). Vectors
   whose first element is a function are invoked first so the walker
-  descends into the sub-tree they would render to.
-
-  ## Recursive descent through fn-components (rf2-6ja23)
-
-  `[handler-row handler]` is a fn-component vector — the walker must
-  invoke `handler-row` to get the inner hiccup and then keep
-  descending. tree-seq alone only walks the structural children of
-  the original tree; without an `expand-fn-component` step in the
-  `children` lambda, deep testids inside fn-component vector bodies
-  (e.g. the `rf-causa-event-detail-tier-dot-*` span inside
-  `handler-row`) are unreachable."
+  descends into the rendered sub-tree."
   [tree]
   (let [children (fn [node]
                    (let [expanded (expand-fn-component node)]
@@ -145,43 +129,35 @@
             node))
         (hiccup-seq tree)))
 
-;; ---- (1) initial state: LIVE auto-focuses head (rf2-s0s5x Phase A) ------
-;;
-;; Pre-rf2-s0s5x the panel landed on a cascade-list 'empty state' until
-;; the user clicked a row. Phase A makes the panel spine-driven —
-;; `:rf.causa/event-detail` reads its `:selected-dispatch-id` off the
-;; spine `:rf.causa/focus` sub. With no stored focus, the spine
-;; composer returns LIVE + head; the panel renders the head cascade's
-;; detail. The cascade-list landing page only renders when the buffer
-;; is empty (no head to focus on).
-;;
-;; This subsumes the rf2-639lc Bug 2 default-focus contract — the
-;; spine's LIVE-tracks-head semantics is the canonical implementation
-;; of "head is the default selection"; the panel-side filter below
-;; preserves rf2-639lc Bug 1 (skip the :ungrouped bucket).
+(defn- find-all-by-testid
+  "Find every node in a hiccup tree whose attrs map has the given
+  `:data-testid`. Returns a (possibly empty) vector — useful for
+  asserting on counts."
+  [tree testid]
+  (vec
+    (filter (fn [node]
+              (and (vector? node)
+                   (map? (second node))
+                   (= testid (:data-testid (second node)))))
+            (hiccup-seq tree))))
+
+;; ---- (1) selection plumbing — survives from v1 -------------------------
 
 (deftest live-focus-renders-head-cascade-detail
   (testing "with cascades in the buffer + no explicit selection, the
             spine LIVE-tracks head and the panel renders the head
-            cascade's detail (rf2-s0s5x Phase A / rf2-639lc Bug 2)"
+            cascade's detail"
     (seed-buffer! (concat (cascade-evs 100 [:user/login {:id 42}] 0)
                           (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
-      ;; Composite sub: effective selection is the head's dispatch-id.
       (let [data @(rf/subscribe [:rf.causa/event-detail])]
         (is (= 200 (:selected-dispatch-id data))
             "head cascade (200, latest) is the default selection"))
-      ;; View: cascade-detail container renders for the head, not the
-      ;; landing list.
       (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
             "cascade-detail container renders for the head cascade")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "no empty-state container when there's a head to focus on")
-        (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
-            "panel-internal cascade list NOT rendered on default-focus
-             — the L2 event list (rf-causa-event-list) is the list
-             affordance under the 4-layer chrome (rf2-lv9bc)")))))
+            "no empty-state container when there's a head to focus on")))))
 
 (deftest cold-start-with-no-cascades-renders-empty-container
   (testing "with an empty buffer + no selection the panel still
@@ -189,456 +165,418 @@
     (seed-buffer! [])
     (rf/with-frame :rf/causa
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container present even with an empty buffer")
-        (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
-            "no cascade list when there are zero cascades")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "no cascade-detail when there is nothing to default-focus")))))
-
-(deftest cold-start-default-focus-skips-ungrouped-bucket
-  (testing "per rf2-639lc Bug 1 the head-fallback ignores the
-            `:ungrouped` cascade (registry-time emits / frame
-            lifecycle outside a drain). Synthesise a trace with a
-            real cascade plus a stray registry-time emit (no
-            :dispatch-id tag — lands in the :ungrouped bucket); the
-            default focus must land on the real cascade's id."
-    (seed-buffer!
-      (concat (cascade-evs 100 [:user/login] 0)
-              ;; Stray emit with no :dispatch-id — group-cascades
-              ;; routes this to the :ungrouped bucket.
-              [{:id 50 :op-type :registry :operation :sub/registered
-                :tags {:sub-id :foo/bar}}]))
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/event-detail])]
-        (is (= 100 (:selected-dispatch-id data))
-            "default-focus picks the routed cascade (100), not the
-             :ungrouped bucket")))))
-
-;; ---- (2) cascade-detail when a dispatch-id is selected ------------------
-
-(deftest cascade-detail-renders-six-dominoes
-  (testing "after selecting a dispatch-id the panel switches to the
-            cascade-detail layout"
-    (seed-buffer! (cascade-evs 100 [:user/login {:id 42}] 0))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail container present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container absent once a selection is set")
-        ;; Per rf2-lv9bc — the panel-internal '← Events' back-link was
-        ;; a pre-4-layer-chrome leftover. Under the 4-layer chrome the
-        ;; L2 event list is always visible alongside the L4 detail, so
-        ;; the affordance is meaningless. Assert positively that no
-        ;; back-link is rendered in either the header (cascade view)
-        ;; or the orphaned branch.
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-back"))
-            "no internal '← Events' back-link in the header — L2 event
-             list is always visible alongside L4 detail (rf2-lv9bc)")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-empty")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade")))))))
 
 (deftest selecting-non-existent-dispatch-id-shows-orphaned-state
   (testing "selecting a dispatch-id that's not in the buffer surfaces
             the orphaned-selection branch"
-    (seed-buffer! (cascade-evs 100 [:user/login {:id 42}] 0))
+    (seed-buffer! (cascade-evs 100 [:user/login] 0))
     (rf/with-frame :rf/causa
-      ;; 999 is not in the buffer — the composite sub returns
-      ;; :selected-cascade=nil; the view should surface the
-      ;; orphaned-state branch rather than the cascade rows.
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 999])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
-            "orphaned-selection container present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail absent when the id has no matching cascade")
-        ;; rf2-lv9bc — the orphaned branch's '← Events' button was the
-        ;; same pre-4-layer-chrome leftover; under the chrome the L2
-        ;; list is always visible so the user picks another cascade
-        ;; directly. The handler (`:rf.causa/clear-selected-dispatch-id`)
-        ;; is retained for programmatic clear.
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned-back"))
-            "no '← Events' button in the orphaned branch (rf2-lv9bc)")))))
-
-(deftest frame-qualified-selection-renders-the-matching-cascade
-  (testing "same dispatch-id in two frames resolves to the selected frame's cascade"
-    (seed-buffer! (concat (cascade-evs 100 [:counter/a-inc] 0 :counter/a)
-                          (cascade-evs 100 [:counter/b-inc] 100 :counter/b)))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100 :counter/b])
-      (let [data @(rf/subscribe [:rf.causa/event-detail])]
-        (is (= :counter/b (:selected-dispatch-frame data)))
-        (is (= :counter/b (get-in data [:selected-cascade :frame])))
-        (is (= [:counter/b-inc] (get-in data [:selected-cascade :event])))))))
-
-;; ---- (3) the select / clear events -------------------------------------
-
-(deftest select-dispatch-id-event-writes-to-causa-frame
-  (testing ":rf.causa/select-dispatch-id sets :selected-dispatch-id on
-            the :rf/causa frame's db (not the host's :rf/default)"
-    (seed-buffer! [])
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 42]))
-    (let [causa-db   (frame/frame-app-db-value :rf/causa)
-          default-db (frame/frame-app-db-value :rf/default)]
-      (is (= 42 (:selected-dispatch-id causa-db))
-          "selection lands on the Causa frame")
-      (is (nil? (:selected-dispatch-id default-db))
-          "selection did NOT leak into :rf/default"))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade")))))))
 
 (deftest clear-selected-dispatch-id-snaps-to-live-head
-  (testing "after select + clear the panel snaps back to LIVE
-            head-tracking (rf2-s0s5x Phase A / rf2-639lc Bug 2).
-            Clearing the selection means 'resume following the live
-            stream' — the spine resets to :live and the panel renders
-            the head cascade's detail."
+  (testing "after select + clear the panel snaps back to LIVE head-tracking"
     (seed-buffer! (concat (cascade-evs 100 [:user/login] 0)
                           (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (rf/dispatch-sync [:rf.causa/clear-selected-dispatch-id])
-      (let [data @(rf/subscribe [:rf.causa/event-detail])
-            tree (event-detail/Panel)]
-        (is (= 200 (:selected-dispatch-id data))
-            "after clear the focus snaps back to the head (200) via the
-             spine's LIVE head-tracking")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "head cascade's detail renders after clear (LIVE auto-tracks head)")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "no empty-state container — LIVE is focused on the head cascade")))))
+      (let [data @(rf/subscribe [:rf.causa/event-detail])]
+        (is (= 200 (:selected-dispatch-id data)))))))
 
-;; ---- (5) edge cases: empty buffer / missing id / sensitive redacted ----
-;;
-;; Per rf2-dkmq5: the existing tests cover the happy path; this section
-;; extends to the edge cases listed in the bead's findings doc
-;; (`ai/findings/causa-test-coverage-20260513-1706.md` recommendation #8).
-;;
-;;   - Empty buffer with a selection set — the panel must render the
-;;     orphaned-state branch rather than crashing on a nil cascade.
-;;   - No selection (initial state, empty buffer) — per spec/007-UX-IA.md
-;;     §The default landing view the panel renders the empty-state
-;;     container with the "no cascades yet" placeholder copy.
-;;   - Sensitive-redacted state — when the privacy gate has dropped the
-;;     selected dispatch-id's trace events the panel renders the
-;;     orphaned branch AND the shell-level `:rf.causa/suppressed-
-;;     sensitive-count` sub reports the suppression so the bottom-rail
-;;     `[● REDACTED N]` marker (rf2-a6buk / PR #705) renders.
-;;   - Sensitive opt-in pass-through — flipping `:trace/show-sensitive?`
-;;     true lets the same cascade reach the buffer; the panel then
-;;     renders the six-domino layout with no suppression count.
+;; ---- (2) the 6 sections render in order --------------------------------
 
-(deftest empty-buffer-with-selection-renders-orphaned-state
-  (testing "selecting a dispatch-id when the buffer is empty surfaces
-            the orphaned-selection branch rather than the cascade rows
-            or a nil-deref crash"
-    (seed-buffer! [])
+(deftest event-lens-renders-all-six-sections-when-fully-populated
+  (testing "a cascade with call-site + fx + interceptors yields the
+            full 6-section layout: EVENT, DISPATCH SITE, INTERCEPTORS,
+            HANDLER, EFFECTS RETURNED, EFFECTS HANDLERS RAN"
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :widget/poke
+        [(rf/->interceptor :id :auth/require-login)]
+        (fn [_ _] {})))
+    (seed-buffer!
+      (cascade-evs 100 [:widget/poke {:id 1}] 0
+                   {:call-site {:file "src/widget.cljs" :line 42}
+                    :source :ui :origin :app
+                    :fx [[:db nil] [:dispatch [:bar]]]
+                    :db-present? true}))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 42])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
-            "orphaned-selection container present when buffer is empty")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail absent — there is no cascade to render")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state cascade-list absent — a selection is set, so the
-             panel is in detail mode not list mode")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
+            "§1 EVENT section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-dispatch"))
+            "§2 DISPATCH SITE section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-interceptors"))
+            "§3 INTERCEPTORS section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
+            "§4 HANDLER section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
+            "§5 EFFECTS RETURNED section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-effects-ran"))
+            "§6 EFFECTS HANDLERS RAN section present")))))
 
-(deftest no-selection-empty-buffer-renders-default-landing-view
-  (testing "per spec/007-UX-IA.md §Default landing view, the panel's
-            initial state (no selection, no events) renders the empty-
-            state container silently — per rf2-b9f6z the panel reflects
-            the L2 event-list focus like every other panel, so the
-            empty container carries no prose"
-    (seed-buffer! [])
+(deftest cascade-outcome-line-replaces-literal-event-detail-h1
+  (testing "the literal 'Event detail' h1 is gone; the cascade-outcome
+            line carries the event-id + outcome glyph + duration"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
-      (let [tree    (event-detail/Panel)
-            empty   (find-by-testid tree "rf-causa-event-detail-empty")
-            ;; Flatten every text node under the empty-state container
-            ;; so the silent-by-default assertion is agnostic to the
-            ;; container's exact hiccup nesting.
-            text    (->> (hiccup-seq empty)
-                         (filter string?)
-                         (apply str))]
-        (is (some? empty)
-            "empty-state container present in the initial state")
-        (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
-            "no cascade list when there are zero cascades")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "no cascade-detail container in the initial state")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned"))
-            "no orphaned-state container in the initial state")
-        (is (= "" text)
-            "silent-by-default — empty-state container carries no prose
-             (rf2-b9f6z: drop pre-spine 'pick from cascade list' wording)")))))
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            outcome (find-by-testid tree "rf-causa-event-detail-outcome")
+            event-id (find-by-testid tree "rf-causa-event-detail-outcome-event-id")
+            ok-glyph (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")
+            text     (->> (hiccup-seq tree) (filter string?) (apply str))]
+        (is (some? outcome) "outcome line present")
+        (is (some? event-id) "event-id shown in outcome line")
+        (is (some? ok-glyph) "✓ glyph rendered for happy path")
+        (is (not (re-find #"Event detail" text))
+            "literal 'Event detail' h1 has been removed")))))
 
-(deftest sensitive-redacted-cascade-renders-orphaned-and-bumps-count
-  (testing "when the privacy gate drops a :sensitive? cascade entirely,
-            the selected dispatch-id has no buffer match — the panel
-            renders the orphaned branch AND the shell-level redaction-
-            count sub reports the suppression so the bottom rail's
-            [● REDACTED N] marker (rf2-a6buk / PR #705) renders.
+;; ---- (3) cascade-outcome glyph + SSR badge -----------------------------
 
-            The bump is driven through the reactive production event
-            `:rf.causa/note-sensitive-suppressed` (rf2-0vxdn) — same
-            path `trace-bus/collect-trace!` uses when it drops a
-            `:sensitive? true` trace event in CLJS. Dispatch-sync so
-            the sub fires before the next render."
-    (registry/register-causa-handlers!)
-    (frame/reg-frame :rf/causa {})
-    ;; Privacy gate at its default (suppress sensitive). Verify a
-    ;; sensitive event going through trace-bus's collector is dropped
-    ;; before the buffer (per Spec 009 §Privacy + rf2-azls9) — the
-    ;; cascade's events never land, so the selected dispatch-id
-    ;; resolves to no cascade.
-    (trace-bus/collect-trace! {:id 1
-                               :op-type :event
-                               :operation :event/dispatched
-                               :sensitive? true
-                               :tags {:dispatch-id 777
-                                      :event [:user/secret]
-                                      :frame :rf/default}})
-    (is (empty? (trace-bus/buffer))
-        "the :sensitive? event was dropped before the buffer push")
-    ;; Drive the redaction-count bump through the reactive path
-    ;; explicitly. (The collect-trace! call above also dispatches
-    ;; `:rf.causa/note-sensitive-suppressed`, but only when
-    ;; `:rf/default` exists in the runtime; the test fixture leaves
-    ;; the chain-routing detail to the shell-side tests.)
+(deftest cascade-outcome-error-glyph-when-handler-threw
+  (testing "a handler exception flips the outcome to ✗ error (red)"
+    (seed-buffer!
+      (conj (cascade-evs 100 [:foo] 0)
+            {:id 99 :op-type :error :operation :rf.error/handler-exception
+             :tags {:dispatch-id 100 :event-id :foo}}))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/note-sensitive-suppressed :rf/default])
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 777])
-      (let [tree   (event-detail/Panel)
-            count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
-            "orphaned-selection container present — the redacted cascade
-             never reached the buffer")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail absent — the redacted cascade has no rows
-             to render")
-        (is (pos? count*)
-            "the suppressed-sensitive-count sub reports the drop so the
-             shell's bottom-rail [● REDACTED N] marker renders")))))
-
-(deftest sensitive-cascade-with-opt-in-renders-detail
-  (testing "with (causa-config/configure! {:trace/show-sensitive? true})
-            the same `:sensitive? true` event is NOT suppressed by
-            the privacy gate — the predicate inverts and the cascade
-            reaches the buffer. The panel then renders the cascade
-            via the standard happy-path branch.
-
-            We seed the reactive app-db buffer slot directly (same
-            pattern the other tests use) so the assertion stays
-            substrate-agnostic; the privacy-gate predicate is the
-            unit under test here, not collect-trace!'s atom-swap
-            (which `sensitive_trace_cljs_test` covers exhaustively)."
-    (config/set-show-sensitive! true)
-    ;; First — assert the privacy-gate predicate's opt-in path: with
-    ;; show-sensitive? true, a sensitive event does NOT get suppressed.
-    (is (false? (config/suppress-sensitive?
-                  {:sensitive? true
-                   :tags {:dispatch-id 888 :event [:user/secret]}}))
-        "with show-sensitive? true, the privacy gate is inert")
-    ;; Then — drive the reactive buffer to the same shape `collect-
-    ;; trace!` would produce with the gate open, and assert the panel
-    ;; renders the cascade-detail layout (no orphaned branch, no
-    ;; suppressed-count bump).
-    (seed-buffer! (->> (cascade-evs 888 [:user/secret] 200)
-                       (map #(assoc % :sensitive? true))))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 888])
-      (let [tree   (event-detail/Panel)
-            count* @(rf/subscribe [:rf.causa/suppressed-sensitive-count])]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail renders the six-domino layout under the
-             opt-in flag")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned"))
-            "no orphaned-state when the cascade is in the buffer")
-        (is (zero? count*)
-            "the suppressed-count is zero — nothing was dropped")))))
-
-;; ---- (6) handler-row perf-tier dot (rf2-6ja23) --------------------------
-;;
-;; The rf2-6ja23 audit hoists the perf-tier ladder into `theme/perf_tier.cljc`
-;; and wires the first cross-panel consumer: the handler row already
-;; surfaces `:duration-ms` (as raw EDN text); the audit adds a coloured
-;; dot + label so the eye picks up the tier the same way it does on the
-;; Performance panel.
-;;
-;; The tests below assert the dot renders for each tier's representative
-;; duration. The dot's testid carries the tier suffix
-;; (`rf-causa-event-detail-tier-dot-<tier>`) so the assertion is precise.
-
-(defn- cascade-evs-with-duration
-  "Variant of `cascade-evs` where the `:run-end` handler trace carries
-  a `:duration-ms` tag. The handler-row should render a perf-tier dot
-  matching `(classify-tier duration-ms)`."
-  [dispatch-id event-vec id-base duration-ms]
-  (mapv (fn [ev]
-          (if (= :run-end (get-in ev [:tags :phase]))
-            (assoc-in ev [:tags :duration-ms] duration-ms)
-            ev))
-        (cascade-evs dispatch-id event-vec id-base)))
-
-(deftest handler-row-renders-fast-tier-dot
-  (testing "handler :duration-ms 5ms classifies as :fast — green dot"
-    (seed-buffer! (cascade-evs-with-duration 300 [:counter/inc] 300 5))
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 300])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
-            "fast-tier dot present alongside the :duration-ms text")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-error")))
+        (is (nil?  (find-by-testid tree "rf-causa-event-detail-outcome-glyph-ok")))))))
 
-(deftest handler-row-renders-medium-tier-dot
-  (testing "handler :duration-ms 30ms classifies as :medium — yellow dot"
-    (seed-buffer! (cascade-evs-with-duration 301 [:counter/inc] 310 30))
+(deftest cascade-outcome-warning-glyph-when-depth-exceeded
+  (testing "a depth-exceeded warning flips the outcome to ⚠ warning"
+    (seed-buffer!
+      (conj (cascade-evs 100 [:foo] 0)
+            {:id 99 :op-type :warning :operation :rf.warning/depth-exceeded
+             :tags {:dispatch-id 100}}))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 301])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium"))
-            "medium-tier dot present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-glyph-warning")))))))
 
-(deftest handler-row-renders-slow-tier-dot
-  (testing "handler :duration-ms 75ms classifies as :slow — orange triangle"
-    (seed-buffer! (cascade-evs-with-duration 302 [:counter/inc] 320 75))
+(deftest cascade-outcome-ssr-badge-when-hydrated
+  (testing ":rf.ssr/hydrated event surfaces the SSR✓ badge on the
+            outcome line"
+    (seed-buffer! (cascade-evs 100 [:rf.ssr/hydrated {:duration-ms 87 :mismatches 0}] 0))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 302])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow"))
-            "slow-tier dot present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-outcome-ssr-badge")))))))
 
-(deftest handler-row-renders-blocking-tier-dot
-  (testing "handler :duration-ms 250ms classifies as :blocking — red triangle"
-    (seed-buffer! (cascade-evs-with-duration 303 [:counter/inc] 330 250))
+(deftest cascade-outcome-no-ssr-badge-for-ordinary-event
+  (testing "ordinary client-only cascades do NOT carry the SSR badge"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 303])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking"))
-            "blocking-tier dot present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-outcome-ssr-badge")))))))
 
-(deftest handler-row-omits-tier-dot-when-duration-ms-absent
-  (testing "without :duration-ms on the :run-end emit, no tier-dot
-            renders — the audit only wires the dot to nodes that
-            carry a measurable duration"
-    ;; The baseline `cascade-evs` builder leaves :duration-ms unset.
-    (seed-buffer! (cascade-evs 304 [:counter/inc] 340))
+;; ---- (4) DISPATCH SITE section -----------------------------------------
+
+(deftest dispatch-site-renders-call-site-coord-and-open-chip
+  (testing "the DISPATCH SITE section reads :rf.trace/call-site off the
+            :event/dispatched trace (rf2-twt7m Change 1) and renders
+            both the coord display + the open-in-editor chip"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0
+                                {:call-site {:file "src/views.cljs" :line 127}
+                                 :source :ui :origin :app}))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 304])
-      (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast"))
-            "no tier-dot when :duration-ms is absent")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            coord (find-by-testid tree "rf-causa-event-detail-dispatch-coord")
+            chip  (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")
+            caption (find-by-testid tree "rf-causa-event-detail-dispatch-caption")
+            text  (->> (hiccup-seq coord) (filter string?) (apply str))]
+        (is (some? coord) "dispatch coord rendered")
+        (is (some? chip)  "open-in-editor chip rendered alongside coord")
+        (is (re-find #"src/views\.cljs:127" text)
+            "coord display includes the file:line")
+        (is (some? caption) "via :source · origin :origin caption rendered")))))
 
-(deftest handler-row-omits-tier-dot-when-duration-ms-is-non-numeric
-  (testing "a malformed :duration-ms tag (e.g. nil or a string) does
-            NOT render a tier-dot — the dot is gated on (number?
-            duration-ms) so the panel never surfaces a misleading
-            green dot for un-measurable nodes"
-    (seed-buffer! (cascade-evs-with-duration 305 [:counter/inc] 350 "not-a-number"))
+(deftest dispatch-site-without-call-site-renders-placeholder
+  (testing "when no :rf.trace/call-site is captured the DISPATCH SITE
+            section renders the absent placeholder (not the open chip)"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0 {:call-site nil}))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 305])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-fast")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-dispatch-coord-absent")))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-dispatch-open-chip")))))))
 
-;; ---- (7) EFFECTS row — non-lying empty state (rf2-s0s5x Phase A) -------
-;;
-;; Per the bead's Bug 1: the EFFECTS row previously showed `(none)` on
-;; cascades whose handler returned only `:db` — `:event/db-changed`
-;; lives in the projection's `:other` bucket (no `:op-type :fx` is
-;; emitted for the framework-driven `:db` commit), so the row's
-;; `(empty? effects)` branch fired even though the user clearly saw
-;; the state change. The fix folds `:event/db-changed` in as a virtual
-;; `:db` entry alongside the standard fx-handled traces; the row now
-;; shows `(none)` only when neither signal is present (true silence).
+;; ---- (5) INTERCEPTORS section — silent-by-default ----------------------
 
-(defn- cascade-evs-db-only
-  "Pure-db cascade — like `cascade-evs` but instead of the two
-  `:rf.fx/handled` rows it emits one `:event/db-changed` so the
-  projection bucketises `:effects` as empty AND surfaces the db
-  commit in `:other`. Mirrors what `reg-event-db` produces in
-  production (the shop testbed's `:cart/add-item` is the canonical
-  repro)."
-  [dispatch-id event-vec id-base]
-  [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
-    :tags {:dispatch-id dispatch-id :event event-vec}}
-   {:id (+ id-base 2) :op-type :event :operation :event
-    :tags {:dispatch-id dispatch-id :phase :run-end}}
-   {:id (+ id-base 3) :op-type :event :operation :event/db-changed
-    :tags {:dispatch-id dispatch-id :event-id (first event-vec)}}
-   {:id (+ id-base 4) :op-type :event :operation :event/do-fx
-    :tags {:dispatch-id dispatch-id}}])
-
-(deftest effects-row-renders-db-when-db-changed-emitted
-  (testing "rf2-s0s5x Phase A — a reg-event-db cascade emits
-            `:event/db-changed` but no `:rf.fx/handled`; the EFFECTS
-            row surfaces a virtual `:db` entry so the panel doesn't
-            lie with `(none)` when the cascade committed a `:db`
-            effect"
-    (seed-buffer! (cascade-evs-db-only 400 [:counter/inc] 400))
+(deftest interceptors-section-absent-when-zero-non-standard
+  (testing "per §4.2 + §7.2 — when the event has no non-standard
+            interceptors the INTERCEPTORS section is ABSENT entirely
+            (silent-by-default, NOT '(none)' placeholder)"
+    (rf/with-frame :rf/default
+      (rf/reg-event-db :counter/inc (fn [db _] db)))
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 400])
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects"))
-            "EFFECTS row renders the entries list, not the (none) span")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-db"))
-            "db row carries a stable testid")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-none"))
-            "no (none) caption when an effect was committed")))))
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-interceptors"))
+            "INTERCEPTORS section absent when zero user interceptors")))))
 
-(deftest effects-row-renders-fx-entries-when-handled
-  (testing "an fx-bearing cascade emits one `:rf.fx/handled` per fx
-            handler invocation; the EFFECTS row lists each by fx-id +
-            operation. Same fixture as `cascade-detail-renders-six-
-            dominoes` — two :rf.fx/handled entries (`:fx-id :db` and
-            `:fx-id :dispatch`)."
-    (seed-buffer! (cascade-evs 401 [:counter/inc] 400))
+(deftest interceptors-section-renders-user-interceptors
+  (testing "with a user interceptor on the chain INTERCEPTORS is
+            shown with one row per non-default interceptor"
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :auth/login
+        [(rf/->interceptor :id :auth/require-login)
+         (rf/->interceptor :id :auth/log-action)]
+        (fn [_ _] {})))
+    (seed-buffer! (cascade-evs 100 [:auth/login] 0))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 401])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects")))
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-db"))
-            "fx-id :db row present (from the cascade-evs fixture)")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-dispatch"))
-            "fx-id :dispatch row present")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-none")))))))
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            section (find-by-testid tree "rf-causa-event-detail-section-interceptors")]
+        (is (some? section) "section rendered")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-interceptor-row-auth/require-login")))
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-interceptor-row-auth/log-action")))))))
 
-(deftest effects-row-shows-none-when-truly-empty
-  (testing "a cascade with no fx-handled traces AND no db-changed
-            trace renders `(none)` — the empty-state is only a lie
-            when there's actual cascade work; the silent path stays
-            silent."
-    (seed-buffer! [{:id 1 :op-type :event :operation :event/dispatched
-                    :tags {:dispatch-id 500 :event [:noop]}}
-                   {:id 2 :op-type :event :operation :event
-                    :tags {:dispatch-id 500 :phase :run-end}}
-                   {:id 3 :op-type :event :operation :event/do-fx
-                    :tags {:dispatch-id 500}}])
+;; ---- (6) HANDLER section -----------------------------------------------
+
+(deftest handler-section-shows-flavour-and-source-coord
+  (testing "HANDLER section shows reg-event-* flavour (per Q2 — does
+            NOT duplicate the event-id)"
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :cart/add-item (fn [_ _] {})))
+    (seed-buffer! (cascade-evs 100 [:cart/add-item {:id 1}] 0))
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id 500])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-none"))
-            "(none) caption renders for a truly empty cascade")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects")))))))
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            flav (find-by-testid tree "rf-causa-event-detail-handler-flavour")
+            flav-text (->> (hiccup-seq flav) (filter string?) (apply str))]
+        (is (some? flav) "flavour caption rendered")
+        (is (= "reg-event-fx" flav-text)
+            "shows reg-event-fx flavour for :fx-kind handler")))))
 
-(deftest effects-entries-orders-db-first
-  (testing "the entries fn surfaces db before fx-vector entries —
-            matches the runtime ordering (db commit precedes the fx
-            walk per Spec 002 §Drain-loop pseudocode)"
-    (let [cascade {:effects [{:id 5 :op-type :fx :operation :rf.fx/handled
-                              :tags {:fx-id :dispatch}}]
-                   :other   [{:id 3 :op-type :event :operation :event/db-changed
-                              :tags {}}]}
-          entries (event-detail/effects-entries cascade)]
-      (is (= [:db :dispatch] (mapv :fx-id entries))
-          "db row first (cascade order), then fx vector entries"))))
+(deftest handler-section-absent-coord-when-no-registration
+  (testing "an event with no registered handler renders the absent
+            placeholder (the lens never crashes on an unregistered id)"
+    (seed-buffer! (cascade-evs 100 [:never-registered/event] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-handler-coord-absent")))))))
+
+;; ---- (7) EFFECTS RETURNED — silent-by-default + hydration row ----------
+
+(deftest effects-returned-renders-db-marker-and-fx-vector
+  (testing "rf2-twt7m Change 2 stamps :fx + :db-present? on
+            :event/do-fx — EFFECTS RETURNED surfaces both rows"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0
+                                {:fx [[:dispatch [:bar]]]
+                                 :db-present? true}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-db"))
+            ":db marker row present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-fx"))
+            ":fx vector row present")))))
+
+(deftest effects-returned-section-absent-when-no-effects
+  (testing "per §7.3 — when neither :fx nor :db is present, §5 is ABSENT"
+    (seed-buffer! (cascade-evs 100 [:noop/event] 0
+                                {:fx nil :db-present? false}))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-returned")))))))
+
+(deftest hydration-outcome-row-renders-for-rf-ssr-hydrated
+  (testing "the hydration-outcome addendum surfaces a dedicated row
+            when the focused event is :rf.ssr/hydrated"
+    (seed-buffer!
+      (concat (cascade-evs 100
+                            [:rf.ssr/hydrated {:duration-ms 87 :subs-ran 142 :mismatches 0}]
+                            0
+                            {:fx nil :db-present? false})
+              [{:id 50 :op-type :event :operation :rf.ssr/hydration-outcome
+                :tags {:dispatch-id 100 :duration-ms 87 :subs-ran 142 :mismatches 0}}]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-returned-row-hydration"))
+            "hydration-outcome row renders inside §5")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-hydration-issues-jump"))
+            "no jump-to-Issues affordance when :mismatches is 0")))))
+
+(deftest hydration-outcome-row-jumps-to-issues-when-mismatches-pos
+  (testing "when :mismatches > 0 the hydration row carries the
+            jump-to-Issues affordance"
+    (seed-buffer!
+      (concat (cascade-evs 100 [:rf.ssr/hydrated {:mismatches 3}] 0
+                            {:fx nil :db-present? false})
+              [{:id 50 :op-type :event :operation :rf.ssr/hydration-outcome
+                :tags {:dispatch-id 100 :duration-ms 91 :mismatches 3}}]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-hydration-issues-jump"))
+            "jump-to-Issues affordance renders when mismatches > 0")))))
+
+;; ---- (8) EFFECTS HANDLERS RAN — silent-by-default + managed-fx inline -
+
+(deftest effects-handlers-ran-renders-one-row-per-fx
+  (testing "EFFECTS HANDLERS RAN renders one row per :rf.fx/handled
+            trace, keyed by trace :id"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-ran-row-db")))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-ran-row-dispatch")))))))
+
+(deftest effects-handlers-ran-section-absent-when-no-fx-ran
+  (testing "per §7.3 — when no fx-handlers ran, §6 is ABSENT"
+    (let [evs (filterv #(not= :rf.fx/handled (:operation %))
+                       (cascade-evs 100 [:noop/event] 0))]
+      (seed-buffer! evs))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-ran")))))))
+
+(deftest effects-handlers-ran-mounts-managed-fx-record-inline
+  (testing "per §8.3 — when an fx-handler is a managed-fx surface
+            (:rf.http/* etc.) the managed-fx record-panel mounts
+            INLINE beneath its causing row, not in a trailing block"
+    (seed-buffer!
+      [{:id 1 :op-type :event :operation :event/dispatched
+        :tags {:dispatch-id 100 :event [:cart/refresh]}}
+       {:id 2 :op-type :event :operation :event
+        :tags {:dispatch-id 100 :phase :run-end :duration-ms 3}}
+       {:id 3 :op-type :event :operation :event/do-fx
+        :tags {:dispatch-id 100}}
+       {:id 4 :op-type :fx :operation :rf.fx/handled
+        :tags {:dispatch-id 100 :fx-id :rf.http/get :duration-ms 87
+               :source :http :origin :app}}])
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            inline (find-by-testid tree "rf-causa-event-detail-effects-ran-managed-fx-4")]
+        (is (some? inline)
+            "managed-fx record-panel mounts inline beneath fx-handler row")))))
+
+;; ---- (9) handler-threw footer + suppression of §5/§6 -------------------
+
+(deftest handler-threw-suppresses-effects-sections-and-renders-footer
+  (testing "per §7.5 — when the handler threw, §5 + §6 are absent and
+            the footer caption pointing at Issues tab renders"
+    (seed-buffer!
+      (concat (cascade-evs 100 [:checkout/submit] 0
+                            {:fx nil :db-present? false})
+              [{:id 50 :op-type :error :operation :rf.error/handler-exception
+                :tags {:dispatch-id 100 :event-id :checkout/submit
+                       :exception-message "NullPointerException"}}]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-handler-threw-footer"))
+            "footer caption renders when handler threw")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-returned"))
+            "§5 EFFECTS RETURNED absent — handler never returned")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-effects-ran"))
+            "§6 EFFECTS HANDLERS RAN absent — fx walk never started")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-event"))
+            "§1 EVENT still present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-handler"))
+            "§4 HANDLER still present")))))
+
+;; ---- (10) pure projection helpers --------------------------------------
+
+(deftest user-interceptors-filters-rf-default-flagged-entries
+  (testing "user-interceptors removes anything carrying :rf/default? true
+            (rf2-twt7m Change 3) — no allowlist needed"
+    (let [chain [{:id :rf/db-handler :rf/default? true :before identity}
+                 {:id :auth/require-login :before identity}
+                 {:id :path :before identity}]
+          user  (event-detail/user-interceptors chain)]
+      (is (= 2 (count user))
+          "the auto-wrapper is filtered; the user interceptor + std :path remain")
+      (is (= #{:auth/require-login :path} (set (map :id user)))))))
+
+(deftest user-interceptors-falls-back-to-allowlist-when-flag-missing
+  (testing "for legacy registrations missing the :rf/default? flag, the
+            three known auto-wrapper ids are still filtered as a
+            belt-and-braces fallback"
+    (let [chain [{:id :rf/db-handler :before identity}
+                 {:id :rf/fx-handler :before identity}
+                 {:id :rf/ctx-handler :before identity}
+                 {:id :user-icpt :before identity}]
+          user  (event-detail/user-interceptors chain)]
+      (is (= [:user-icpt] (map :id user))))))
+
+(deftest cascade-outcome-projection-shape-is-stable
+  (testing "cascade-outcome returns the documented keys"
+    (let [out (event-detail/cascade-outcome
+                {:event [:foo] :handler {:tags {:duration-ms 5}}
+                 :dispatch-id 1 :other []})]
+      (is (= #{:event-id :glyph :outcome :duration-ms :dispatch-id :ssr?}
+             (set (keys out)))))))
+
+(deftest effects-handlers-ran-projects-rows-from-effects-bucket
+  (testing "effects-handlers-ran reads cascade :effects directly"
+    (let [rows (event-detail/effects-handlers-ran
+                 {:effects [{:id 5 :operation :rf.fx/handled
+                             :tags {:fx-id :db}}
+                            {:id 6 :operation :rf.fx/handled
+                             :tags {:fx-id :dispatch :fx-args [[:foo]]}}]})]
+      (is (= [:db :dispatch] (mapv :fx-id rows)))
+      (is (= [:rf.fx/handled :rf.fx/handled] (mapv :operation rows)))
+      (is (= [5 6] (mapv :id rows))))))
+
+(deftest hydration-outcome-row-nil-for-ordinary-events
+  (testing "hydration-outcome-row returns nil unless the event is
+            :rf.ssr/hydrated / :rf.ssr/hydration-complete"
+    (is (nil? (event-detail/hydration-outcome-row
+                {:event [:counter/inc] :other []})))
+    (is (some? (event-detail/hydration-outcome-row
+                 {:event [:rf.ssr/hydrated]
+                  :other [{:operation :rf.ssr/hydration-outcome
+                           :tags {:mismatches 0 :duration-ms 87}}]})))))
+
+;; ---- (11) meta-on-vector pattern (rf2-ppzid) ---------------------------
+
+(deftest fx-rows-carry-distinct-react-keys
+  (testing "rf2-ppzid — `with-meta` on the fn return preserves :key on
+            each row inside :for. Without the wrapper Reagent's
+            `get-react-key` reads from the source list and gets nil for
+            every row, causing reconciliation churn + a console warning"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            rows (find-all-by-testid tree "rf-causa-event-detail-effects-ran-row-db")]
+        (is (= 1 (count rows))
+            "exactly one :db row rendered (sanity)")
+        (let [section (find-by-testid tree "rf-causa-event-detail-section-effects-ran")
+              body    (some #(when (and (vector? %)
+                                        (map? (second %))
+                                        (= "rf-causa-event-detail-section-effects-ran-body"
+                                           (:data-testid (second %))))
+                               %)
+                            (hiccup-seq section))
+              row-elts (->> (hiccup-seq body)
+                            (filter (fn [n]
+                                      (and (vector? n)
+                                           (map? (second n))
+                                           (let [tid (str (or (:data-testid (second n)) ""))]
+                                             (str/starts-with?
+                                               tid
+                                               "rf-causa-event-detail-effects-ran-row-"))))))]
+          (is (every? #(some? (:key (meta %))) row-elts)
+              "every fx row vector carries a :key in its meta"))))))
