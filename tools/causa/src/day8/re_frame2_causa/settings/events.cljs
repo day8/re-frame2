@@ -95,6 +95,9 @@
         (and (= section :general) (= key :panel-position))
         (effects/apply-panel-position! value)
 
+        (and (= section :general) (= key :panel-width-px))
+        (effects/apply-panel-width! value)
+
         (and (= section :theme) (nil? key))
         (effects/apply-theme! value)
 

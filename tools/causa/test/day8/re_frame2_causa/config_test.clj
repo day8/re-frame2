@@ -229,6 +229,66 @@
   (config/configure! {:editor :cursor})
   (is (= "myhost.filters" (config/get-filters-storage-key))))
 
+;; ---- panel-width (rf2-x8h9y resize handle) -----------------------------
+
+(deftest default-panel-width-px-published
+  (testing "config publishes a default panel width — the resize handle's
+            double-click reset target. 560px mirrors the inline-host
+            snippet's documented `var(--rf-causa-inline-width, 560px)`
+            so reset reads the same value the host CSS falls back to."
+    (is (= 560 config/default-panel-width-px))))
+
+(deftest default-settings-include-panel-width-px
+  (testing "the default settings map carries `:general :panel-width-px`
+            so the persistence round-trip + the Settings popup's reads
+            never see a nil"
+    (is (= config/default-panel-width-px
+           (get-in config/default-settings [:general :panel-width-px])))))
+
+(deftest clamp-panel-width-px-floor
+  (testing "min-clamp is published as `min-panel-width-px` (320) and a
+            sub-floor input snaps to the floor"
+    (is (= 320 config/min-panel-width-px))
+    (is (= 320 (config/clamp-panel-width-px 100 2000)))
+    (is (= 320 (config/clamp-panel-width-px 320 2000)))
+    (is (= 321 (config/clamp-panel-width-px 321 2000)))))
+
+(deftest clamp-panel-width-px-ceil
+  (testing "ceil is viewport × 0.9 — a wider request snaps down"
+    (is (= 1800 (config/clamp-panel-width-px 5000 2000))
+        "2000 × 0.9 = 1800")
+    (is (= 1800 (config/clamp-panel-width-px 1800 2000)))
+    (is (= 1799 (config/clamp-panel-width-px 1799 2000)))))
+
+(deftest clamp-panel-width-px-non-numeric-falls-back-to-default
+  (testing "malformed persisted payload (string, nil, NaN) shouldn't
+            leave the panel at an unusable size — fall back to default"
+    (is (= config/default-panel-width-px
+           (config/clamp-panel-width-px nil 2000)))
+    (is (= config/default-panel-width-px
+           (config/clamp-panel-width-px "wide" 2000)))))
+
+(deftest clamp-panel-width-px-narrow-viewport-still-floors
+  (testing "if viewport is narrower than the floor (mobile / odd
+            test runtime), the floor still wins over the ceil — the
+            panel never collapses below 320px"
+    (is (= 320 (config/clamp-panel-width-px 200 300))
+        "300 × 0.9 = 270 < 320 floor; floor wins")
+    (is (= 320 (config/clamp-panel-width-px 999 300))
+        "even a wide request clamps to the floor when the viewport
+         is too narrow for the floor to cleanly fit")))
+
+(deftest update-setting-round-trips-panel-width
+  (testing "the standard settings round-trip drives the panel-width
+            slot — same surface text-size + theme go through. After
+            the round-trip get-setting reads the new value."
+    (config/reset-settings!)
+    (config/update-setting! :general :panel-width-px 720)
+    (is (= 720 (config/get-setting :general :panel-width-px)))
+    (config/update-setting! :general :panel-width-px 480)
+    (is (= 480 (config/get-setting :general :panel-width-px)))
+    (config/reset-settings!)))
+
 (deftest editor-uri-project-root-regression-rf2-5m5n2
   (testing "regression: the relative source-coord case the editor's
             OS handler used to reject ('Path does not exist') now

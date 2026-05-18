@@ -176,9 +176,10 @@
 ;; ---- section: General ---------------------------------------------------
 
 (defn- general-section []
-  (let [text-size      @(rf/subscribe [:rf.causa/setting :general :text-size])
-        panel-position @(rf/subscribe [:rf.causa/setting :general :panel-position])
-        auto-open?     @(rf/subscribe [:rf.causa/setting :general :auto-open-on-error?])]
+  (let [text-size       @(rf/subscribe [:rf.causa/setting :general :text-size])
+        panel-position  @(rf/subscribe [:rf.causa/setting :general :panel-position])
+        panel-width-px  @(rf/subscribe [:rf.causa/panel-width-px])
+        auto-open?      @(rf/subscribe [:rf.causa/setting :general :auto-open-on-error?])]
     [:div {:data-testid "rf-causa-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -204,6 +205,43 @@
                              :min-width   "32px"
                              :text-align  "right"}}
         (str (or text-size 13) "px")]]]
+
+     ;; ── Panel width (rf2-x8h9y resize handle numeric override) ─
+     [:div {:style (field-style)}
+      [:label {:style (label-style)} "Panel width (px)"]
+      [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
+       [:input {:data-testid "rf-causa-settings-panel-width-input"
+                :type        "number"
+                :min         "320"
+                :step        "10"
+                :value       (str (or panel-width-px 560))
+                :on-change   (fn [^js e]
+                               (let [n (js/parseInt (.. e -target -value) 10)]
+                                 (when-not (js/isNaN n)
+                                   (rf/dispatch
+                                     [:rf.causa/set-panel-width-px n]))))
+                :style       {:width        "120px"
+                              :padding      "4px 8px"
+                              :background   (:bg-2 tokens)
+                              :color        (:text-primary tokens)
+                              :border       (str "1px solid " (:border-default tokens))
+                              :border-radius "4px"
+                              :font-family  mono-stack}}]
+       [:button {:data-testid "rf-causa-settings-panel-width-reset"
+                 :title       "Reset to default (560px)"
+                 :on-click    #(rf/dispatch [:rf.causa/reset-panel-width])
+                 :style       {:background "transparent"
+                               :border     (str "1px solid " (:border-default tokens))
+                               :color      (:text-secondary tokens)
+                               :cursor     "pointer"
+                               :padding    "4px 10px"
+                               :border-radius "4px"
+                               :font-family sans-stack
+                               :font-size  (:body type-scale)}}
+        "Reset"]]
+      [:p {:style (hint-style)}
+       "Drag the left edge of the Causa panel to resize, or set "
+       "an exact pixel width here. Double-click the handle to reset."]]
 
      ;; ── Panel position radio ────────────────────────────────────
      [:div {:style (field-style)}

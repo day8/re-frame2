@@ -227,3 +227,17 @@
   (when-let [el (shell-root)]
     (is (= "12px" (.getPropertyValue (.-style el) "--rf-causa-text-size")))
     (is (true? (.contains (.-classList el) "rf-causa-theme-light")))))
+
+;; ---- panel width (rf2-x8h9y) -------------------------------------------
+
+(deftest apply-all-restores-panel-width
+  (testing "rf2-x8h9y — boot path restores the persisted panel width
+            so the user's saved drag survives reload BEFORE first
+            paint. The CSS var lands on `<html>` (the cascade reaches
+            the layout host's flex-basis even pre-mount)."
+    (config/update-setting! :general :panel-width-px 700)
+    (effects/apply-all!)
+    (when-let [html (html-root)]
+      (is (= "700px"
+             (.getPropertyValue (.-style html) "--rf-causa-inline-width"))
+          "<html> --rf-causa-inline-width carries the persisted value"))))

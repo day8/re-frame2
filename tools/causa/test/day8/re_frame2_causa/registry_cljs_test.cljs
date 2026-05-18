@@ -204,6 +204,8 @@
    :rf.causa/selected-mismatch-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/modal-positioning
+   ;; rf2-x8h9y — horizontal resize handle width.
+   :rf.causa/panel-width-px
    :rf.causa/selected-panel
    :rf.causa/selected-route-id
    :rf.causa/selected-tab
@@ -336,6 +338,8 @@
    :rf.causa/rename-pin
    :rf.causa/reorder-pinned-slices
    :rf.causa/reroot-tree-view
+   ;; rf2-x8h9y — resize-handle double-click reset.
+   :rf.causa/reset-panel-width
    :rf.causa/reset-suppressed-counters
    :rf.causa/reset-to-epoch
    :rf.causa/reset-to-pinned
@@ -362,6 +366,8 @@
    :rf.causa/set-mode-c-context-key
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
+   ;; rf2-x8h9y — resize-handle live update event.
+   :rf.causa/set-panel-width-px
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
    :rf.causa/set-now-ms-override-for-test
    :rf.causa/set-performance-budget-ms
@@ -556,7 +562,9 @@
     ;;   :rf.causa/diff-opts — wraps the Settings → Diff section's
     ;;   `:highlight-fn-ref-changes?` slot in the shape the hiccup-diff
     ;;   engine's `classify-prop` consumes.
-    (is (= 127 (count all-sub-names)))
+    ;; + 1 resize handle (rf2-x8h9y):
+    ;;   :rf.causa/panel-width-px — drag-to-resize panel width slot.
+    (is (= 128 (count all-sub-names)))
     ;; Includes panel-local Causa events and internal mirror/tick events
     ;; that still occupy the public registrar namespace.
     ;; 67 baseline + 8 palette (rf2-wm7z4):
@@ -624,7 +632,10 @@
     ;;   pin for the CLJS-side test surface).
     ;; + 1 modal positioning (rf2-om6fa):
     ;;   :rf.causa/set-modal-positioning — Story-aware shell-view opt.
-    (is (= 143 (count all-event-names)))
+    ;; + 2 resize handle (rf2-x8h9y):
+    ;;   :rf.causa/set-panel-width-px (drag live update) +
+    ;;   :rf.causa/reset-panel-width (double-click reset).
+    (is (= 145 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

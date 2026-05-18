@@ -100,6 +100,7 @@
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.popover.causality :as causality-popover]
+            [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
@@ -735,6 +736,15 @@
                             :min-width  "560px"
                             :z-index    2147483000
                             :box-shadow "rgba(0, 0, 0, 0.4) -8px 0 24px"}))}
+    ;; Left-edge horizontal resize handle (rf2-x8h9y) — only renders
+    ;; in `:inline` (right-rail) mode. Position-absolute pins it to
+    ;; the LEFT edge of this flex container; the outer div is
+    ;; `position: relative` in :inline so the handle's anchor
+    ;; resolves correctly. The handle's drag math writes through
+    ;; `:rf.causa/set-panel-width-px`, which clamps + persists +
+    ;; pushes `--rf-causa-inline-width` onto the layout host so the
+    ;; host's `flex-basis` re-evaluates this paint.
+    [resize-handle/Handle mode]
     ;; L1 — top ribbon (scope controls)
     [ribbon {}]
     ;; L2 — event list (the spine timeline)
