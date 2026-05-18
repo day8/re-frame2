@@ -448,26 +448,37 @@ see §Structural dedup at the top of this catalogue), `build` (string).
 
 **Returns**: `{:ok? true :window-ms N :until-ms T :count K :limit L :epochs-mode :diff|:full :epochs [...] :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
-### Diff-encoded `:db-after` (rf2-1wdzp)
+### Diff-encoded `:db-after` (rf2-1wdzp + rf2-qeous)
 
 By default (`epochs-mode "diff"`), each epoch's `:db-after` is replaced
-with a path-keyed structural diff against its own `:db-before`:
+with a path-headed cluster projection of a path-keyed structural diff
+against its own `:db-before`:
 
 ```clojure
 {:db-before <full-app-db>
  :db-after  {:rf.mcp/diff-from :db-before
-             :patches [[<path> :assoc <new-value>]
-                       [<path> :dissoc]
-                       ...]}}
+             :sections [{:section-path [:cart :items]
+                         :section-kind :modified
+                         :patches      [[[:cart :items 0 :qty] :assoc 2]]}
+                        {:section-path [:checkout :state]
+                         :section-kind :modified
+                         :patches      [[[:checkout :state] :assoc :paying]]}
+                        ...]}}
 ```
 
-The diff is intra-record (each record encodes against its own
-`:db-before`); records are self-contained and decodable without
-reference to siblings. Round-trip is exact. Pass `epochs-mode "full"`
-for the legacy full-pair shape — only needed if your workflow drives
-time-travel restore off the wire response rather than via the runtime
-(the framework's `rf/restore-epoch` path is the canonical restore
-surface).
+Each section heads N patches with a breadcrumb path
+(`:section-path`) plus a cluster-intent summary (`:section-kind`,
+one of `:added` / `:removed` / `:modified`) — what the agent reads to
+answer "what did this cascade do?" without re-clustering flat
+triples. The per-section `:patches` slot carries the leaf-level
+detail; decoding flattens them back to one ordered patch list and
+applies via `apply-patches`. The diff is intra-record (each record
+encodes against its own `:db-before`); records are self-contained
+and decodable without reference to siblings. Round-trip is exact.
+Pass `epochs-mode "full"` for the legacy full-pair shape — only
+needed if your workflow drives time-travel restore off the wire
+response rather than via the runtime (the framework's
+`rf/restore-epoch` path is the canonical restore surface).
 
 See [`Principles.md` §Diff-encoded `:db-after`](Principles.md#diff-encoded-db-after-on-epoch-slices-rf2-1wdzp)
 for the full wire shape, decoder algorithm, and design rationale. The

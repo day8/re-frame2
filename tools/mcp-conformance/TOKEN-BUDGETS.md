@@ -143,8 +143,9 @@ order:
 
 1. **Size elision** — `:rf.size/large-elided` substitution at
    declared-large slots, BEFORE everything else (rf2-urjnc).
-2. **Diff-encoded `:db-after`** — `:rf.mcp/diff-from` patches in epoch
-   slices (rf2-1wdzp).
+2. **Diff-encoded `:db-after`** — `:rf.mcp/diff-from` path-headed
+   cluster sections in epoch slices (rf2-1wdzp + rf2-qeous; each
+   `:section-path`-headed cluster bundles the relevant patches).
 3. **Structural dedup** — `:rf.mcp/dedup-table` cross-record
    substitution table (rf2-obpa9).
 4. **Path slicing** — `:path` arg defaults to tree-summary on rich

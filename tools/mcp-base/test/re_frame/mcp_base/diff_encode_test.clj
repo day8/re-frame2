@@ -86,13 +86,20 @@
 ;; diff-encode-db-after / decode-db-after — round-trip.
 ;; ---------------------------------------------------------------------------
 
-(deftest diff-encode-db-after-emits-diff-shape
+(deftest diff-encode-db-after-emits-sections-shape
+  ;; rf2-qeous: the encoder now emits path-headed cluster sections
+  ;; instead of a flat patch list.
   (let [epoch    {:db-before {:a 1 :b 2}
                   :db-after  {:a 1 :b 3}}
-        encoded  (de/diff-encode-db-after epoch)]
+        encoded  (de/diff-encode-db-after epoch)
+        sections (get-in encoded [:db-after :sections])]
     (is (= :db-before (get-in encoded [:db-after :rf.mcp/diff-from])))
-    (is (vector? (get-in encoded [:db-after :patches])))
-    (is (= [[[:b] :assoc 3]] (get-in encoded [:db-after :patches])))))
+    (is (vector? sections))
+    (is (= 1 (count sections)) "single change → one section")
+    (let [s (first sections)]
+      (is (= [:b] (:section-path s)))
+      (is (= :modified (:section-kind s)))
+      (is (= [[[:b] :assoc 3]] (:patches s))))))
 
 (deftest diff-encode-then-decode-restores-original
   (let [epoch   {:db-before {:user {:name "ada" :age 30}
@@ -144,7 +151,7 @@
         reversed (vec (reverse out))]
     (doseq [enc reversed]
       (let [dec (de/decode-db-after enc)]
-        (is (= (dissoc enc :db-after :patches)
+        (is (= (dissoc enc :db-after)
                (dissoc dec :db-after))
             "non-:db-after fields unchanged on decode")))))
 
@@ -240,20 +247,24 @@
               (str "patches conform for case " (pr-str [a b])
                    " — produced " (pr-str patches))))))))
 
-(deftest diff-encode-db-after-emits-schema-conformant-patches
-  ;; The encoder-boundary entry point. Whatever collect-patches
-  ;; produced flows out through diff-encode-db-after; its validation
-  ;; gate (`validate-patches!`) must accept the emission silently.
-  (let [epoch   {:db-before {:user {:name "ada" :age 30}
-                             :session :idle}
-                 :db-after  {:user {:name "ada" :age 31 :role :admin}
-                             :flags #{:beta}}}
-        encoded (de/diff-encode-db-after epoch)
-        patches (get-in encoded [:db-after :patches])]
-    (is (true? (m/validate de/patches-schema patches))
-        "encoded patches conform to patches-schema")
-    (is (pos? (count patches))
-        "non-trivial encode produced at least one patch")))
+(deftest diff-encode-db-after-emits-schema-conformant-sections
+  ;; The encoder-boundary entry point. Whatever collect-patches +
+  ;; group-patches-into-sections produced flows out through
+  ;; diff-encode-db-after; its validation gates (`validate-patches!`
+  ;; + `validate-sections!`) must accept the emission silently.
+  (let [epoch    {:db-before {:user {:name "ada" :age 30}
+                              :session :idle}
+                  :db-after  {:user {:name "ada" :age 31 :role :admin}
+                              :flags #{:beta}}}
+        encoded  (de/diff-encode-db-after epoch)
+        sections (get-in encoded [:db-after :sections])]
+    (is (true? (m/validate de/sections-schema sections))
+        "encoded sections conform to sections-schema")
+    (is (pos? (count sections))
+        "non-trivial encode produced at least one section")
+    (doseq [s sections]
+      (is (true? (m/validate de/patches-schema (:patches s)))
+          "every section's :patches subset conforms to patches-schema"))))
 
 (deftest diff-encode-db-after-throws-when-validation-disabled-elsewhere-noop
   ;; The validation gate is `validate-patches!`. Calling it directly

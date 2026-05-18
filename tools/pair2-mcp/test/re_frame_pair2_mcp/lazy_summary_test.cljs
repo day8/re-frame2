@@ -121,8 +121,8 @@
                 :sub-cache {[:user/email] {:value "a@b" :ref-count 1}
                             [:cart/total] {:value 42   :ref-count 3}}
                 :machines  {:ids [:auth-fsm] :state {:auth-fsm {:state :idle}}}
-                :epochs    [{:event-id :foo :db-after {:rf.mcp/diff-from :db-before :patches []}}
-                            {:event-id :bar :db-after {:rf.mcp/diff-from :db-before :patches []}}]
+                :epochs    [{:event-id :foo :db-after {:rf.mcp/diff-from :db-before :sections []}}
+                            {:event-id :bar :db-after {:rf.mcp/diff-from :db-before :sections []}}]
                 :traces    [{:operation :event :event-id :foo}
                             {:operation :sub   :sub-id  :bar}]}
    :stories    {:app-db    {:rf.mcp/summary {:type :map :keys [:story-id] :count 1 :bytes 12}}

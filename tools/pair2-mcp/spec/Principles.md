@@ -439,25 +439,44 @@ wire-byte cost flagged in the rf2-jlq5j findings doc.
 **The transform**. At the MCP wire boundary, every epoch
 record passing through `trace-window`, `watch-epochs`, or the
 `:epochs` slice of `snapshot` has its `:db-after` replaced
-with a path-keyed structural diff against its own `:db-before`:
+with a path-headed cluster projection of a path-keyed
+structural diff against its own `:db-before` (rf2-qeous):
 
 ```clojure
 ;; Wire shape
 {:db-before <full-app-db>
  :db-after  {:rf.mcp/diff-from :db-before
-             :patches [[<path> :assoc <new-value>]
-                       [<path> :dissoc]
-                       ...]}}
+             :sections [{:section-path [:cart :items]
+                         :section-kind :modified
+                         :patches      [[[:cart :items 0 :qty]      :assoc 2]
+                                        [[:cart :items 0 :discount] :assoc 0.1]]}
+                        {:section-path [:checkout :state]
+                         :section-kind :modified
+                         :patches      [[[:checkout :state] :assoc :paying]]}
+                        ...]}}
 ```
 
-A patch is a 2- or 3-element vector. `[path :assoc v]` records
+Each section heads N patches with a breadcrumb path
+(`:section-path`) and a cluster-intent summary
+(`:section-kind`, one of `:added` / `:removed` / `:modified`).
+A patch is a 2- or 3-element vector — `[path :assoc v]` records
 a new or changed leaf; `[path :dissoc]` records a key that
-disappeared. The decoder applies patches in order via
-`assoc-in` / `update-in`. Vectors and scalars are treated as
-leaves (replaced wholesale via `:assoc`); element-wise vector
-diff doesn't help for the typical app-db where vector values
-are short. Round-trip is exact: `decode(encode(record)) =
-record` for every record the runtime can produce.
+disappeared. The decoder flattens every section's `:patches`
+back to one ordered patch list and applies via `assoc-in` /
+`update-in`. Vectors and scalars are treated as leaves
+(replaced wholesale via `:assoc`); element-wise vector diff
+doesn't help for the typical app-db where vector values are
+short. Round-trip is exact: `decode(encode(record)) = record`
+for every record the runtime can produce.
+
+**Why sections-per-cluster** (rf2-qeous). Agent queries like
+"what did this cascade do?" want scoped cluster summaries
+keyed by path. The flat patch list (the predecessor shape)
+forced agents to re-cluster mentally. The sections projection
+mirrors Causa's panel sections-per-cluster decomposition
+(rf2-gfxmk Phase 1 of rf2-abts7) so the on-box developer
+surface and the off-box agent surface read the same cascade
+shape.
 
 **Why path-keyed patches, not `clojure.data/diff`**. The
 parallel-vector sparse form `clojure.data/diff` produces for

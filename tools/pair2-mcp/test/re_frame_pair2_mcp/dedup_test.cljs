@@ -114,12 +114,16 @@
                           [(keyword (str "k" i))
                            {:v (str "value-" i)
                             :meta {:tags [:tag1 :tag2 :tag3]}}]))
+        ;; rf2-qeous: wire shape is sections-per-cluster. Each
+        ;; synthetic epoch carries a single-section :db-after.
         epochs (vec (for [i (range 10)]
-                      {:epoch-id (str "ep-" i)
-                       :db-before big-db
-                       :db-after  {:rf.mcp/diff-from :db-before
-                                   :patches [[[(keyword (str "k" i)) :v]
-                                              :assoc (str "new-" i)]]}}))
+                      (let [path [(keyword (str "k" i)) :v]]
+                        {:epoch-id (str "ep-" i)
+                         :db-before big-db
+                         :db-after  {:rf.mcp/diff-from :db-before
+                                     :sections [{:section-path [(keyword (str "k" i))]
+                                                 :section-kind :modified
+                                                 :patches [[path :assoc (str "new-" i)]]}]}})))
         wrapped (dedup/dedup-value epochs true)
         restored (tu/dedup-expand wrapped)]
     (is (= epochs restored))))
@@ -161,13 +165,16 @@
                           [(keyword (str "k" i))
                            (apply str (repeat 256 \x))]))
         ;; 10 epochs, each sharing the same :db-before reference.
+        ;; rf2-qeous: sections-per-cluster wire shape.
         epochs (vec (for [i (range 10)]
-                      {:epoch-id (str "ep-" i)
-                       :event-id :touch
-                       :db-before big-db
-                       :db-after  {:rf.mcp/diff-from :db-before
-                                   :patches [[[(keyword (str "k" i))]
-                                              :assoc (apply str (repeat 256 \y))]]}}))
+                      (let [path [(keyword (str "k" i))]]
+                        {:epoch-id (str "ep-" i)
+                         :event-id :touch
+                         :db-before big-db
+                         :db-after  {:rf.mcp/diff-from :db-before
+                                     :sections [{:section-path path
+                                                 :section-kind :modified
+                                                 :patches [[path :assoc (apply str (repeat 256 \y))]]}]}})))
         raw-size (count (pr-str epochs))
         wrapped (dedup/dedup-value epochs true)
         wrapped-size (count (pr-str wrapped))]
@@ -228,10 +235,10 @@
                 :machines  {:ids [] :state {}}
                 :epochs    [{:epoch-id :ep-1
                              :db-before {:cart {:items []}}
-                             :db-after  {:rf.mcp/diff-from :db-before :patches []}}
+                             :db-after  {:rf.mcp/diff-from :db-before :sections []}}
                             {:epoch-id :ep-2
                              :db-before {:cart {:items []}}
-                             :db-after  {:rf.mcp/diff-from :db-before :patches []}}]
+                             :db-after  {:rf.mcp/diff-from :db-before :sections []}}]
                 :traces    []}
    :stories    {:app-db    {:k2 :v2}
                 :sub-cache {}
@@ -239,7 +246,9 @@
                 :epochs    [{:epoch-id :ep-A
                              :db-before {:foo 1}
                              :db-after  {:rf.mcp/diff-from :db-before
-                                         :patches [[[:foo] :assoc 2]]}}]
+                                         :sections [{:section-path [:foo]
+                                                     :section-kind :modified
+                                                     :patches [[[:foo] :assoc 2]]}]}}]
                 :traces    []}})
 
 (deftest snapshot-dedup-wraps-each-frames-epochs
