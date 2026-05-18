@@ -312,10 +312,19 @@ function summariseResults(results) {
       `${tag} ${r.variantId}${playLabel}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`,
     );
     if (!r.matched) {
+      // The CLJS `project-state` serialises `:passed?` as the literal
+      // string key `"passed?"` (keyword → name preservation); read it
+      // via bracket-access so the `?` survives the JS identifier rules.
+      // Older drafts read `.passed` and silently dropped every failure
+      // line — leaving only the row-level MISS with no step diagnostic.
       const fails = (r.runState && r.runState.results) || [];
       for (const stepR of fails) {
-        if (stepR.passed === false) {
-          lines.push(`     step ${stepR.idx} ${stepR.type} — ${stepR.message || '(no message)'}`);
+        if (stepR['passed?'] === false) {
+          const expected = stepR.expected ? ` expected=${stepR.expected}` : '';
+          const actual   = stepR.actual   ? ` actual=${stepR.actual}`     : '';
+          lines.push(
+            `     step ${stepR.idx} ${stepR.type} — ${stepR.message || '(no message)'}${expected}${actual}`,
+          );
         }
       }
     }

@@ -150,6 +150,69 @@
              :data-test "a11y-known-bad-action"}
     "Unlabelled image above"]])
 
+;; ---- counter-with-input — DOM-step play-script fixture (rf2-e0kof) -----
+;;
+;; A minimal counter variant whose user surface exposes the three DOM
+;; affordances the rich-DSL `:click` / `:type` / `:assert-dom` steps
+;; reach for:
+;;
+;;   - [data-test=count-input]   — text input the `:type` step writes into
+;;   - [data-test=set-button]    — button the `:click` step dispatches
+;;   - [data-test=count-display] — span the `:assert-dom :text` step reads
+;;
+;; The component owns local state for the input value (Reagent ratom);
+;; the button click commits it to app-db via `:counter/set`. Picking a
+;; distinct `[data-test=count-display]` selector (rather than
+;; `[data-test=count]` from counter-buttons) avoids cross-component
+;; selector collisions if a future variant composes both surfaces.
+;;
+;; The CI runner at examples/scripts/serve-and-run-story-play-scripts.cjs
+;; navigates to the matching variant and asserts the auto-run reaches
+;; `:pass` (or `:fail` for the expected-fail twin).
+
+(reg-view counter-with-input [{:keys [label]}]
+  [:div {:style {:padding         "1em 1.5em"
+                 :border          "1px solid #ddd"
+                 :border-radius   "6px"
+                 :background      "#fff"
+                 :display         "inline-flex"
+                 :flex-direction  "column"
+                 :gap             "0.5em"
+                 :font-family     "system-ui, sans-serif"}}
+   [:div {:style {:font-size "14px" :color "#666"}}
+    (or label "Counter (input)")]
+   [:div {:style {:display "flex" :align-items "center" :gap "0.5em"}}
+    [:span {:data-test "count-display"
+            :style     {:min-width "2em" :text-align "center"
+                        :font-weight "bold"}}
+     (str @(subscribe [:count]))]
+    ;; Uncontrolled input — `defaultValue ""` + no `:value` prop. Reads
+    ;; back from the DOM on click. The rich-DSL `:type` step sets
+    ;; `.value` directly (re_frame.story.play.dom/type!) and dispatches
+    ;; synthetic `input` + `change` events; a controlled input here
+    ;; would fight React's value-tracker (the tracker thinks the value
+    ;; is unchanged after a raw `.value =` write), so we read the DOM
+    ;; directly on click instead. This isolates the DOM-step spec from
+    ;; React controlled-input semantics — exactly what we want under
+    ;; test, where the step contract is "DOM node mutated; event fired".
+    [:input {:type          "text"
+             :data-test     "count-input"
+             :default-value ""}]
+    [:button {:type       "button"
+              :data-test  "set-button"
+              :aria-label "Set count from input"
+              :on-click
+              (fn [_]
+                (let [node (.querySelector js/document
+                             "[data-test=count-input]")
+                      raw  (when node (.-value node))
+                      n    (try
+                             (js/parseInt raw 10)
+                             (catch :default _ nil))]
+                  (when (and (number? n) (not (js/isNaN n)))
+                    (dispatch [:counter/set n]))))}
+     "Set"]]])
+
 (reg-view throwing-card [_args]
   [:div {:style {:background "#5a1d1d"
                  :color "#fff"

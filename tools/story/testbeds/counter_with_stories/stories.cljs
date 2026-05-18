@@ -601,6 +601,73 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  ;; rf2-e0kof DOM-step fixtures — live-browser coverage of the rich-DSL
+  ;; `:click` / `:type` / `:assert-dom` steps. The pure-step + JVM
+  ;; coverage in tools/story/test/re_frame/story/play/ exercises the
+  ;; parser + the JVM no-DOM branches; this fixture closes the gap by
+  ;; driving the actual DOM via the Story shell in the Playwright runner
+  ;; at examples/scripts/serve-and-run-story-play-scripts.cjs.
+  ;;
+  ;; The :counter-with-stories.views/counter-with-input view exposes
+  ;;   - [data-test=count-display] — read by `:assert-dom :text`
+  ;;   - [data-test=count-input]   — written by `:type`
+  ;;   - [data-test=set-button]    — clicked by `:click` (dispatches
+  ;;                                 :counter/set with the input value)
+  ;; The script: seed db → type "42" → click set → wait for re-render →
+  ;; assert app-db AND the rendered text both reflect 42. End-to-end
+  ;; coverage of every DOM-step type in one play.
+  (story/reg-variant :story.counter-play-script/dom
+    {:doc        "rf2-e0kof DOM-step fixture — exercises every
+                 rich-DSL DOM step (`:click` / `:type` / `:assert-dom`)
+                 end-to-end against a real browser DOM. Pairs with the
+                 expected-fail twin to keep the failure path under CI
+                 coverage too."
+     :component  :counter-with-stories.views/counter-with-input
+     :args       {:label "Play-script DOM"}
+     :events     []
+     :play-script
+     {:name      "type-click-and-assert-dom"
+      :auto-run? true
+      ;; A leading `:wait 300` gives React's first commit a chance to
+      ;; render the component before the first DOM assertion. The
+      ;; auto-run fires as soon as the lifecycle machine reaches
+      ;; `:ready`, which can race ahead of React's render flush.
+      :script    [[:dispatch-sync [:counter/initialise 0]]
+                  [:wait        300]
+                  [:assert-dom  "[data-test=count-display]" :text "0"]
+                  [:type        "[data-test=count-input]" "42"]
+                  [:click       "[data-test=set-button]"]
+                  ;; The click dispatches :counter/set synchronously
+                  ;; on Reagent; the wait ensures the next render cycle
+                  ;; has flushed before we read the DOM.
+                  [:wait        300]
+                  [:assert-db   [:count] 42]
+                  [:assert-dom  "[data-test=count-display]" :text "42"]
+                  [:assert-dom  "[data-test=set-button]"    :visible]]}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
+  (story/reg-variant :story.counter-play-script/dom-expected-fail
+    {:doc        "rf2-e0kof expected-fail twin — same DOM-step shape as
+                 :story.counter-play-script/dom but the FINAL
+                 `:assert-dom :text` expects '99' against an actual
+                 '42'. The CI runner reads `expected-fail` off the
+                 variant id and asserts the play reaches `:fail`."
+     :component  :counter-with-stories.views/counter-with-input
+     :args       {:label "Play-script DOM (expected-fail)"}
+     :events     []
+     :play-script
+     {:name      "type-click-and-assert-dom-wrong"
+      :auto-run? true
+      :script    [[:dispatch-sync [:counter/initialise 0]]
+                  [:wait          50]
+                  [:type          "[data-test=count-input]" "42"]
+                  [:click         "[data-test=set-button]"]
+                  [:wait          100]
+                  [:assert-dom    "[data-test=count-display]" :text "99"]]}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; rf2-tl7zk multi-play fixture — three named plays on one variant.
   ;; The first play (happy-path) auto-runs on mount per the per-position
   ;; default; the other two run on demand (manual trigger via the
