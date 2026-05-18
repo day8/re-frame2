@@ -567,8 +567,8 @@
   `:rf.fx/handled` rows it emits one `:event/db-changed` so the
   projection bucketises `:effects` as empty AND surfaces the db
   commit in `:other`. Mirrors what `reg-event-db` produces in
-  production (the cart-total testbed's `:cart/add-item` is the
-  canonical repro)."
+  production (the shop testbed's `:cart/add-item` is the canonical
+  repro)."
   [dispatch-id event-vec id-base]
   [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
     :tags {:dispatch-id dispatch-id :event event-vec}}

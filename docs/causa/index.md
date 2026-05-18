@@ -20,18 +20,18 @@ The Causa loop is different. You haven't reproduced anything yet. You haven't ev
 
 1. You ask the tester to right-click the wrong number and *copy element*. The HTML they paste back is:
    ```html
-   <span data-rf2-source-coord="cart-total.core:cart-total-line:286:4">$0.00</span>
+   <span data-rf2-source-coord="shop.core:cart-panel:624:4">$5.00</span>
    ```
 2. The `data-rf2-source-coord` attribute is on **every** rendered DOM element in dev mode. Four segments, colon-separated: `<ns>:<sym>:<line>:<col>`. You're already at the line in your editor.
-3. You read the function. It subscribes to `:cart/total`. You open the running app on your machine, press `Ctrl+Shift+C`, click *Subscriptions*, type `cart/total`. The sub is recomputing on every line-item edit. Good — that's expected.
-4. The sub reads `:cart/items`. You click the dependency edge. The upstream sub is reading `:checkout/items`. Wrong slot. The tester had the cart open during a checkout transition; the projection drifted.
+3. You read the function. It subscribes to `:total-due`. You open the running app on your machine, press `Ctrl+Shift+C`, click *Views*, type `total-due`. The sub is recomputing on every line-item edit. Good — that's expected.
+4. The sub chains through `:cart/subtotal-WRONG`. You click the dependency edge. The upstream is reading `:cart/snapshot` (`[:checkout :snapshot]` on cart-frame's app-db) — the snapshot the send-to-checkout handler froze, not the live `[:cart :items]`. Wrong slot. The tester had the cart open during a checkout transition; the projection drifted.
 5. You write a one-line fix, hot-reload, and Causa's Issues ribbon clears.
 
 This is the loop the rest of the tutorial unpacks. Source coords on the wire. Sub-graph navigation in the panel. Trace bus carrying every fx and sub-run. Epoch history you can scrub. Hot-reload with the diff preserved. None of it is novel by itself; what's novel is that they're **on one substrate** and the tool just paints.
 
 !!! tip "Run the scenario yourself"
 
-    The five-step walk-through above is a runnable testbed at [`tools/causa/testbeds/cart_total/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/cart_total). Clone the repo, run `npm run test:examples` from `implementation/`, then open `http://127.0.0.1:8030/cart-total/` and reproduce the bug in three clicks: *Checkout* → *+ Apple* → watch the total stay locked to the snapshot's value while the live cart visibly carries different items. Open Causa (`Ctrl+Shift+C`), find `:cart/total` in the Subscriptions panel, and click the dependency edge — the wrong upstream slot is one click away. [Chapter 5 (click-to-source)](05-click-to-source.md) walks the fix end-to-end on the same testbed.
+    The five-step walk-through above is a runnable testbed at [`tools/causa/testbeds/shop/`](https://github.com/day8/re-frame2/tree/main/tools/causa/testbeds/shop). Clone the repo, run `npm run test:examples` from `implementation/`, then open `http://127.0.0.1:8030/shop/` and reproduce the bug in three clicks: *Send to checkout* → *+ Apple* → watch the displayed total stay locked to the snapshot's value while the live cart visibly carries different items. Open Causa (`Ctrl+Shift+C`), find `:total-due` in the Views panel, and click the dependency edge — the wrong upstream slot (`:cart/subtotal-WRONG` reading `:cart/snapshot`) is one click away. [Chapter 5 (click-to-source)](05-click-to-source.md) walks the fix end-to-end on the same testbed.
 
 The chapters:
 
