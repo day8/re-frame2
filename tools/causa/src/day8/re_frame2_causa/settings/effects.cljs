@@ -180,30 +180,55 @@
   apply fn + tests reference one spelling."
   "--rf-causa-inline-width")
 
-(defn- layout-host-element
-  "Resolve the configured layout host element if Causa is mounted in
-  the right-rail. Falls back to nil under :overlay/:popout/test
-  runtimes — `apply-panel-width!` then writes to `:root` only, which
-  is harmless because the host element doesn't exist in those modes."
-  []
-  (when (and (exists? js/document) (.-querySelector js/document))
-    (try
-      (.querySelector js/document (config/get-layout-host-selector))
-      (catch :default _ nil))))
-
 (defn apply-panel-width!
-  "Write `px` as the value of `--rf-causa-inline-width` on both the
-  configured layout host (so the host's `flex-basis` re-evaluates
-  immediately) and the `<html>` root (so the cascade still resolves
-  for any consumer reading `var(--rf-causa-inline-width, 560px)`
-  further up the tree). No-op when neither element is present —
-  matches the apply-text-size! / apply-theme! pattern."
+  "Drive `--rf-causa-inline-width` on the `<html>` root from the user's
+  resize-handle setting.
+
+  - When `px` differs from `config/default-panel-width-px`, write the
+    value as an inline style on `<html>`. The recommended host CSS
+    reads `var(--rf-causa-inline-width, 560px)` for its `flex-basis`;
+    CSS custom properties inherit, so a declaration on `<html>`
+    resolves at every descendant — including the host — on the very
+    next paint.
+  - When `px` IS the default (or `nil`), REMOVE any existing inline
+    declaration rather than re-asserting it. This is the critical
+    move: keeping the property unset on `<html>` lets the consumer's
+    own override (e.g. `:root { --rf-causa-inline-width: 720px; }`
+    in the host stylesheet) resolve at the host via the documented
+    cascade. Asserting the default would otherwise shadow that
+    override — inline declarations on `<html>` beat any author-normal
+    selector-based rule, including `:root { ... }` in `<style>`
+    (rf2-6fqr5).
+
+  No-op when `<html>` is absent (test runtimes without a `document`
+  root). Matches the apply-text-size! / apply-theme! pattern, except
+  for the default-as-clear behaviour, which is unique to this
+  property because only this property is part of a documented
+  consumer-cascade contract.
+
+  ## Why we do NOT also write to the host element
+
+  An earlier draft (rf2-x8h9y) wrote the custom property on BOTH the
+  host element AND `<html>`. The host write trapped the cascade even
+  harder than the `<html>`-default trap above: inline style on the
+  host beats ALL selector-based declarations regardless of layer,
+  including the consumer's `:root` rule. Removed for the same
+  rf2-6fqr5 reason; the host's `var(...)` inherits from `<html>`
+  (or `:root`) on the next paint without any per-element write."
   [px]
-  (let [value (str (long (or px config/default-panel-width-px)) "px")]
-    (when-let [host (layout-host-element)]
-      (.setProperty (.-style host) panel-width-css-var value))
-    (when-let [html (html-root-element)]
-      (.setProperty (.-style html) panel-width-css-var value)))
+  (when-let [html (html-root-element)]
+    (let [px      (or px config/default-panel-width-px)
+          default config/default-panel-width-px]
+      (if (= (long px) (long default))
+        ;; Default value — clear any prior inline write so the
+        ;; consumer's cascade override (or the host CSS's `var(...)`
+        ;; fallback) wins.
+        (.removeProperty (.-style html) panel-width-css-var)
+        ;; Explicit user setting (drag handle / numeric input) —
+        ;; write inline on `<html>` so it overrides the consumer's
+        ;; baseline. The user's gesture is the strongest signal.
+        (.setProperty (.-style html) panel-width-css-var
+                      (str (long px) "px")))))
   nil)
 
 ;; ---- panel position -----------------------------------------------------
