@@ -381,45 +381,15 @@ async function assertShareUrlIntegrity(page, phase) {
   await resetToolbarModes(page);
 }
 
-async function assertTraceActionsScrubberA11y(page, phase) {
-  await step(page, phase, 'trace/actions/scrubber/cross-ref/a11y', async () => {
+async function assertA11y(page, phase) {
+  // Per rf2-sgdd3 the trace / actions / scrubber assertions in this
+  // step retired alongside the Story-side panels they exercised; the
+  // a11y panel assertion (the last surviving section) carries on as
+  // the body of this step.
+  await step(page, phase, 'a11y', async () => {
     await clickVariant(page, '/loaded');
     await waitForCanvasVariant(page, ':story.counter/loaded');
     await setMode(page, 'dev');
-
-    const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
-    await canvas.locator('[data-test="inc"]').first().click();
-
-    await waitForValue(
-      () => page.locator('[data-test="story-trace-cascade-row"]').count(),
-      (count) => count >= 1,
-      { timeoutMs: 10000, description: 'at least one trace cascade row' },
-    );
-    await waitForValue(
-      () => page.locator('[data-test="story-actions-row"]').count(),
-      (count) => count >= 1,
-      { timeoutMs: 10000, description: 'at least one action row' },
-    );
-
-    const slider = page.locator('[data-test="story-scrubber-slider"]').first();
-    await slider.waitFor({ state: 'visible', timeout: 5000 });
-    const max = await waitForValue(
-      () => slider.getAttribute('max').then((value) => parseInt(value || '0', 10)),
-      (value) => value >= 1,
-      { timeoutMs: 10000, description: 'scrubber slider max >= 1' },
-    );
-    await slider.evaluate((el, value) => {
-      el.value = String(value);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    }, max);
-    await waitForValue(
-      () => page.locator('[data-test="story-trace-panel"]').getAttribute('data-scrubbed-epoch'),
-      (value) => value != null && value !== '',
-      { timeoutMs: 10000, description: 'trace panel scrubbed epoch attribute' },
-    );
-    await page.locator('[data-test="story-scrubber-release"]').click();
 
     await expectVisible(
       page.locator('[data-rf-story-variant-root=":story.counter/loaded"]').first(),
@@ -989,40 +959,11 @@ async function assertTestWidgetAndWatch(page) {
   await watch.click();
 }
 
-async function assertActionsScrubberExactBurst(page) {
-  await ensureCounterLoaded(page);
-  const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
-  for (let i = 0; i < 10; i += 1) {
-    await canvas.locator('[data-test="inc"]').first().click();
-    await canvas.locator('[data-test="dec"]').first().click();
-  }
-  await waitForValue(
-    () => page.locator('[data-test="story-actions-row"]').count(),
-    (count) => count >= 20,
-    { timeoutMs: 15000, description: '20 event action rows appended' },
-  );
-  const slider = page.locator('[data-test="story-scrubber-slider"]').first();
-  await waitForValue(
-    () => slider.getAttribute('max').then((value) => parseInt(value || '0', 10)),
-    (value) => value >= 20,
-    { timeoutMs: 15000, description: 'scrubber has at least 20 epochs' },
-  );
-}
-
-async function assertTracePanelCascadeRows(page) {
-  await ensureCounterLoaded(page);
-  const canvas = page.locator('[data-test-variant=":story.counter/loaded"]');
-  await canvas.locator('[data-test="inc"]').first().click();
-  await canvas.locator('[data-test="dec"]').first().click();
-  await waitForValue(
-    () => page.locator('[data-test="story-trace-cascade-row"]').count(),
-    (count) => count >= 2,
-    {
-      timeoutMs: 10000,
-      description: 'trace panel renders at least two cascade rows after dispatches',
-    },
-  );
-}
+// `assertActionsScrubberExactBurst` and `assertTracePanelCascadeRows`
+// retired per rf2-sgdd3 — Story no longer ships the actions / scrubber
+// / trace panels they probed. Equivalent coverage lives in
+// tools/causa/ browser tests against Causa's L2 event list + Trace
+// tab + Event-tab cascade view.
 
 async function assertSidebarNavigationSelectsEveryRow(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
@@ -1273,18 +1214,39 @@ const COVERAGE_MATRIX = [
   },
   { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetAndWatch },
   { feature: 'Test watch mode', kind: 'probe', probe: assertTestWidgetAndWatch },
-  { feature: 'Actions panel', kind: 'probe', probe: assertActionsScrubberExactBurst },
-  { feature: 'Trace panel', kind: 'probe', probe: assertTracePanelCascadeRows },
-  { feature: 'Scrubber', kind: 'probe', probe: assertActionsScrubberExactBurst },
+  // Actions panel / Trace panel / Scrubber / Trace-scrubber cross-ref
+  // retired per rf2-sgdd3 — Causa is the RHS primary inspector now
+  // (L1 ribbon + L2 event list replace the scrubber; Trace tab
+  // replaces the trace panel; Event-tab cascade view replaces the
+  // actions panel). Coverage now lives in tools/causa/.
+  {
+    feature: 'Actions panel',
+    kind: 'owned-by',
+    gate: 'tools/causa browser tests',
+    why: 'rf2-sgdd3 — replaced by Causa Event-tab cascade view',
+  },
+  {
+    feature: 'Trace panel',
+    kind: 'owned-by',
+    gate: 'tools/causa browser tests',
+    why: 'rf2-sgdd3 — replaced by Causa Trace tab',
+  },
+  {
+    feature: 'Scrubber',
+    kind: 'owned-by',
+    gate: 'tools/causa browser tests',
+    why: 'rf2-sgdd3 — replaced by Causa L1 ribbon + L2 event list',
+  },
   {
     feature: 'Trace/scrubber cross-reference',
-    kind: 'probe',
-    probe: async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+    kind: 'owned-by',
+    gate: 'tools/causa browser tests',
+    why: 'rf2-sgdd3 — Causa Event-tab focused-event cascade is the replacement',
   },
   {
     feature: 'A11y panel',
     kind: 'probe',
-    probe: async (page) => assertTraceActionsScrubberA11y(page, 'matrix'),
+    probe: async (page) => assertA11y(page, 'matrix'),
   },
   {
     feature: 'Layout-debug overlays',
@@ -1494,7 +1456,7 @@ async function runTwentyEventBurst(page) {
 
 async function assertFeatureSet(page, phase) {
   await assertCounterCore(page, phase);
-  await assertTraceActionsScrubberA11y(page, phase);
+  await assertA11y(page, phase);
   await assertToolbarRecorder(page, phase);
   await assertDiagnostics(page, phase);
   await assertLoginStory(page, phase);

@@ -63,9 +63,12 @@
   - `:pinned-snapshots`  — {variant-id → [{:label ... :epoch-id ...}]}.
   - `:panel-visibility`  — {panel-id → boolean}. Determines whether a
                            registered :story-panel renders in the chrome.
-                           Stage 4 ships a vanilla set of panels (trace /
-                           scrubber / controls / actions per rf2-5yriz);
-                           Stage 6 will register more via reg-story-panel.
+                           Stage 4 ships a vanilla set of panels
+                           (controls + dispatch-console); Stage 6
+                           registers more via reg-story-panel.
+                           Per rf2-sgdd3 the trace / scrubber / actions
+                           panels were retired in favour of Causa
+                           mounted in the RHS by default.
   - `:active-mode-tab`   — {variant-id → :dev | :docs | :test}. Per-variant
                            mode-tab selection for the render-shell's top
                            Canvas | Docs | Tests switcher (rf2-9hc8).
@@ -124,7 +127,7 @@
    ;; default. The shell's right-panel checks the per-story flag first
    ;; and falls back to FALSE when nothing is declared (opt-in default;
    ;; the chrome-level toolbar chip flips this without a body edit).
-   :panel-visibility    {:trace true :scrubber true :controls true :actions true}
+   :panel-visibility    {:controls true}
    :active-mode-tab     {}
    :rail-widths         {:left 260 :right 320}
    :tests               {:runs           {}

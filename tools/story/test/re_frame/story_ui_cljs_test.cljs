@@ -6,14 +6,14 @@
 
   - The pure shell-state helpers (selection, filters, fingerprints).
   - The pure layout resolver (`:grid`, `:prose`, `:variants-grid`).
-  - The pure trace cascade grouper (six-domino projection).
+  - The pure trace cascade grouper (six-domino projection — framework
+    code, consumed by Causa's Trace tab post-rf2-sgdd3).
   - The pure argtype inference + sidebar tag collection.
   - The public mount/unmount surface on `re-frame.story`.
 
   The visual / interaction shape (clicking a variant row triggers a
-  re-render; the scrubber slider commits via `restore-epoch`) lives in
-  the browser-test target (Stage 4 ships the smoke layer; Stage 8's
-  examples integration covers end-to-end Playwright)."
+  re-render) lives in the browser-test target (Stage 4 ships the smoke
+  layer; Stage 8's examples integration covers end-to-end Playwright)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
@@ -32,9 +32,7 @@
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.test-mode.pure :as test-mode-pure]
             [re-frame.story.ui.test-mode.view :as test-mode-view]
-            [re-frame.story.ui.scrubber :as scrubber]
-            [re-frame.story.ui.scrubber-xref :as xref]
-            [re-frame.story.ui.trace :as trace]
+            [re-frame.story.ui.trace-buffer :as trace-buffer]
             [re-frame.story.ui.workspace :as workspace]
             [re-frame.trace.projection :as projection]))
 
@@ -759,10 +757,12 @@
 (deftest trace-group-cascades-classifies
   (testing "group-cascades splits trace events into six-domino slots.
             Per rf2-wvzgd the projection lives in
-            `re-frame.trace.projection` — consumers (Story's trace
-            panel, Causa, pair2) require that namespace directly.
-            Event shapes here track the framework's actual emit
-            pattern per Spec 009 §`:op-type` vocabulary."
+            `re-frame.trace.projection` — consumers (Causa, pair2)
+            require that namespace directly. Per rf2-sgdd3 Story no
+            longer ships a built-in trace panel; Causa's Trace tab is
+            the RHS replacement. Event shapes here track the
+            framework's actual emit pattern per Spec 009 §`:op-type`
+            vocabulary."
     (let [evs       [{:op-type :event :operation :event/dispatched
                       :id 1 :tags {:dispatch-id 100 :event [:foo]}}
                      {:op-type :event :operation :event
@@ -785,51 +785,6 @@
         (is (= 1 (count (:subs c))))
         (is (= 1 (count (:renders c))))))))
 
-;; ---- trace × scrubber cross-reference (rf2-sxwvf) -----------------------
-
-(deftest trace-scrubber-cross-ref-pure-helpers-callable-in-cljs
-  (testing "the pure-data cross-ref helpers (xref ns) are JVM+CLJS:
-            CLJS callers see the same shape under the cljc target."
-    (let [history [{:epoch-id 7 :trace-events [{:id 2 :tags {:dispatch-id 100}}
-                                               {:id 6 :tags {:dispatch-id 100}}]}
-                   {:epoch-id 8 :trace-events [{:id 12 :tags {:dispatch-id 200}}]}]]
-      (is (= 100 (xref/cascade-id-for-epoch history 7)))
-      (is (= 6   (xref/max-trace-event-id-for-epoch history 7)))
-      (is (nil?  (xref/cascade-id-for-epoch history nil)))
-      ;; filter is the identity under nil cap, drops cascades under a cap.
-      (let [cs [{:dispatch-id 100 :handler {:id 2 :tags {}} :effects [] :subs [] :renders [] :other []}
-                {:dispatch-id 200 :handler {:id 12 :tags {}} :effects [] :subs [] :renders [] :other []}]]
-        (is (= cs (xref/filter-cascades-up-to cs nil)))
-        (is (= [(first cs)] (xref/filter-cascades-up-to cs 6))))
-      (is (true? (xref/cascade-matches-selected-epoch?
-                   {:dispatch-id 100} 100)))
-      (is (false? (xref/cascade-matches-selected-epoch?
-                    {:dispatch-id 200} 100))))))
-
-(deftest scrubber-selection-ratom-roundtrips
-  (testing "selection ratom set/get/drop round-trip in CLJS — the trace
-            panel's deref against the ratom sees the value the scrubber
-            committed (the wiring the .cljs `panel` fns walk)."
-    (let [vid :story.xref/v1]
-      (try
-        ;; default: no selection (cleaned in finally below)
-        (is (nil? (scrubber/selected-epoch-id vid)))
-        ;; set, read, clear via select-epoch!
-        (scrubber/select-epoch! vid 42)
-        (is (= 42 (scrubber/selected-epoch-id vid)))
-        (scrubber/select-epoch! vid nil)
-        (is (nil? (scrubber/selected-epoch-id vid)))
-        ;; ensure-selection-atom! returns the same atom on repeated calls
-        ;; (the trace panel relies on this for stable deref signal).
-        (let [a1 (scrubber/ensure-selection-atom! vid)
-              a2 (scrubber/ensure-selection-atom! vid)]
-          (is (identical? a1 a2)))
-        ;; drop-selection! removes the entry
-        (scrubber/drop-selection! vid)
-        (is (nil? (scrubber/selected-epoch-id vid)))
-        (finally
-          (scrubber/drop-selection! vid))))))
-
 ;; ---- privacy: retroactive scrub on set-show-sensitive! false (rf2-lqmje)
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
@@ -837,7 +792,7 @@
 ;; per-variant trace buffer. The Story trace listener only gates at
 ;; ingest time, so without this scrub a sensitive cascade emitted
 ;; while the flag was true would remain visible in every variant's
-;; trace + actions panels after the user expected privacy to be
+;; downstream consumer of the per-variant buffer after the user expected privacy to be
 ;; restored. The trade-off (non-sensitive history also lost) is the
 ;; simplest correct semantic — see Spec 009 for the rationale.
 
@@ -845,8 +800,8 @@
   (testing "true → false toggle clears every per-variant Story trace buffer"
     (let [v-a       :story.priv-scrub/a
           v-b       :story.priv-scrub/b
-          buf-a     (trace/ensure-buffer! v-a)
-          buf-b     (trace/ensure-buffer! v-b)
+          buf-a     (trace-buffer/ensure-buffer! v-a)
+          buf-b     (trace-buffer/ensure-buffer! v-b)
           mk-ev     (fn [vid sensitive?]
                       (cond-> {:op-type   :event
                                :operation :event/dispatched
@@ -879,15 +834,15 @@
         (is (zero? (story-config/suppressed-count v-a))
             "per-variant suppressed counter drops in lockstep with the buffer")
         (finally
-          (trace/drop-buffer! v-a)
-          (trace/drop-buffer! v-b)
+          (trace-buffer/drop-buffer! v-a)
+          (trace-buffer/drop-buffer! v-b)
           (story-config/set-show-sensitive! false)
           (story-config/reset-suppressed-count!))))))
 
 (deftest set-show-sensitive!-no-clear-when-already-false-rf2-lqmje
   (testing "false → false toggle leaves the buffers alone"
     (let [vid :story.priv-scrub/idempotent
-          buf (trace/ensure-buffer! vid)]
+          buf (trace-buffer/ensure-buffer! vid)]
       (try
         ;; The flag started false, so no sensitive events ever landed.
         ;; A redundant set-show-sensitive! false call must NOT throw away
@@ -897,20 +852,20 @@
         (is (= 1 (count @buf))
             "redundant set-show-sensitive! false must not clear the buffer")
         (finally
-          (trace/drop-buffer! vid)
+          (trace-buffer/drop-buffer! vid)
           (story-config/set-show-sensitive! false))))))
 
 (deftest set-show-sensitive!-true-does-not-clear-rf2-lqmje
   (testing "false → true toggle leaves the buffers alone (no buffered sensitive risk)"
     (let [vid :story.priv-scrub/opt-in
-          buf (trace/ensure-buffer! vid)]
+          buf (trace-buffer/ensure-buffer! vid)]
       (try
         (reset! buf [{:op-type :event :tags {:frame vid}}])
         (story-config/set-show-sensitive! true)
         (is (= 1 (count @buf))
             "opting in must not clear pre-existing non-sensitive history")
         (finally
-          (trace/drop-buffer! vid)
+          (trace-buffer/drop-buffer! vid)
           (story-config/set-show-sensitive! false))))))
 
 ;; ---- shell render smoke -------------------------------------------------
@@ -919,10 +874,10 @@
 ;; Instead we confirm the component fns are callable and return hiccup.
 
 (deftest shell-components-are-functions
-  (testing "sidebar / canvas / controls / scrubber / trace expose top-level component fns"
+  (testing "sidebar / controls expose top-level component fns (per
+            rf2-sgdd3 the scrubber / trace / actions panels were
+            retired; Causa is the RHS primary inspector now)"
     (is (fn? sidebar/sidebar))
-    (is (fn? trace/panel))
-    (is (fn? scrubber/panel))
     ;; The controls/panel takes a variant-id arg.
     (is (fn? controls/panel))
     ;; rf2-rodx — the :docs mode pane.

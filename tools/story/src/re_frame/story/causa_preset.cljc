@@ -142,6 +142,22 @@
        (safe-call! "open!" open-fn))))
 
 #?(:cljs
+   (defn ensure-causa-mounted!
+     "Always-on entry point used by the Story shell (rf2-sgdd3) to drive
+     Causa's `mount/open!` regardless of a per-story preset. Feature-
+     detect-safe: when Causa is not on the classpath the call is a
+     silent no-op.
+
+     The shell's right-panel ships a `[data-rf-causa-host]` slot;
+     `mount/open!` finds the slot and mounts the Causa shell into it.
+     Idempotent — Causa's own singleton state guarantees only one
+     mount per process, subsequent calls flip visibility back to
+     visible if the user closed the shell."
+     []
+     (when (and config/enabled? (causa-available?))
+       (apply-open!))))
+
+#?(:cljs
    (defn- apply-tab!
      "Select the Causa panel tab via `:rf.causa/select-panel`. Causa's
      registry registers this event-db handler against the `:rf/causa`

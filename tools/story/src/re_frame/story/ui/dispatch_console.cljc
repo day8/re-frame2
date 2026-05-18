@@ -191,9 +191,8 @@
 ;; ---- pure: timestamp formatting ------------------------------------------
 
 (defn format-timestamp
-  "Render a wall-clock `ms` as `HH:MM:SS`. Pure; mirrors
-  `re-frame.story.ui.actions/format-timestamp` but trims the millis
-  suffix since the dispatch console's row density is lower."
+  "Render a wall-clock `ms` as `HH:MM:SS`. Pure; the trimmed-millis
+  shape suits the dispatch console's lower row density."
   [ms]
   (cond
     (nil? ms)          ""

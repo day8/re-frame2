@@ -101,7 +101,7 @@ The substantive implementation contract is decomposed into
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What Story is, what it isn't, how it relates to `spec/007-Stories.md`. |
 | [`spec/001-Authoring.md`](./spec/001-Authoring.md) | The seven `reg-*` macros; EDN-first variant contract; inclusion tags; source-coord stamping. |
 | [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
-| [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / scrubber / trace); the five workspace layouts; multi-substrate side-by-side. |
+| [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / embedded Causa inspector); the five workspace layouts; multi-substrate side-by-side. |
 | [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
 | [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; QR share; multi-substrate; 10x embed; v1.1 deferrals; production elision. |
 | [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
@@ -142,7 +142,8 @@ The browser testbeds also depend on a few non-obvious invariants:
 - [Spec 008 — Testing](../../spec/008-Testing.md) — the test-runner surface
   Story integrates with via `run-variant`.
 - [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the trace
-  bus Story consumes for its trace panel.
+  bus Story's per-variant ring buffer consumes (rf2-sgdd3 — used by
+  schema-validation; Causa, embedded in the RHS, also subscribes).
 - [Spec 010 — Schemas](../../spec/010-Schemas.md) — the auto-derivation source
   for controls.
 - [Spec 011 — SSR](../../spec/011-SSR.md) — the schema-digest source for

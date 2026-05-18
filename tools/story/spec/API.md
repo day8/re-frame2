@@ -148,10 +148,10 @@ into `:assertions` rather than throwing — see
 - [`009-Test-Mode.md`](009-Test-Mode.md) — Test pane auto-run +
   summary surface.
 - [`010-Toolbar.md`](010-Toolbar.md) — toolbar chrome + mode toggle.
-- [`011-Actions-Panel.md`](011-Actions-Panel.md) — user-action / fx
-  emission log.
-- [`012-Trace-Scrubber-Cross-Ref.md`](012-Trace-Scrubber-Cross-Ref.md)
-  — trace ↔ scrubber filter/highlight contract.
+- 011 + 012 — RETIRED per rf2-sgdd3 (actions panel + scrubber +
+  trace panel deleted in favour of embedded Causa). See
+  `003-Render-Shell.md` §Right-hand pane for the post-rf2-sgdd3 RHS
+  contract.
 - [`013-Static-Build.md`](013-Static-Build.md) — static-export
   surface + suppression rules.
 - [`014-Chrome-Features.md`](014-Chrome-Features.md) — schema-validation

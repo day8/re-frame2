@@ -271,8 +271,8 @@
 (deftest panel-visibility-toggle
   (testing "toggle-panel flips a panel's visibility"
     (let [s  state/default-shell-state
-          s1 (state/toggle-panel s :trace)]
-      (is (= false (get-in s1 [:panel-visibility :trace]))))))
+          s1 (state/toggle-panel s :controls)]
+      (is (= false (get-in s1 [:panel-visibility :controls]))))))
 
 ;; ---- command palette -----------------------------------------------------
 

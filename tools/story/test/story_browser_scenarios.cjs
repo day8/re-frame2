@@ -121,22 +121,8 @@ async function setMode(page, mode) {
   );
 }
 
-async function scrubTo(page, value, description) {
-  const slider = page.locator('[data-test="story-scrubber-slider"]').first();
-  await slider.waitFor({ state: 'visible', timeout: 5000 });
-  const requiredMax = Math.max(value, 1);
-  await waitForValue(
-    () => slider.getAttribute('max').then((v) => Number.parseInt(v || '0', 10)),
-    (max) => max >= requiredMax,
-    { timeoutMs: 10000, description: `${description} scrubber max` },
-  );
-  await slider.evaluate((el, nextValue) => {
-    el.value = String(nextValue);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  }, value);
-}
+// `scrubTo` helper retired per rf2-sgdd3 — the Story-side scrubber
+// slider was replaced by Causa's L1 ribbon (◀ ▶ ⏭) + L2 event list.
 
 async function snapshotHash(page, variantId) {
   return canvas(page, variantId).getAttribute('data-snapshot-hash');
@@ -461,12 +447,12 @@ module.exports = {
       const a = canvas(page, ':story.counter-matrix/isolation-a');
       await a.locator('[data-test="inc"]').first().click();
       await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
-      await scrubTo(page, 0, 'isolation-a time travel');
-      await waitForValue(
-        () => page.locator('[data-test="story-trace-panel"]').getAttribute('data-scrubbed-epoch'),
-        (value) => value != null && value !== '',
-        { timeoutMs: 10000, description: 'isolation-a scrubbed epoch recorded' },
-      );
+      // Per rf2-sgdd3 the Story-side scrubber + trace panels were
+      // retired in favour of Causa's L1 ribbon + L2 event list +
+      // Trace tab; the time-travel sub-assertion that polled
+      // `[data-test="story-trace-panel"][data-scrubbed-epoch]`
+      // moved out with them. Causa carries its own time-travel
+      // contract — covered by tools/causa/testbeds/*.
 
       await clickVariant(page, '/isolation-b');
       await waitForCanvas(page, ':story.counter-matrix/isolation-b');
@@ -658,180 +644,17 @@ module.exports = {
       assertNoThirdPartyRequests(page);
     });
 
-    await scenario(page, 'lifecycle-phase-happy-path-order-rf2-rrw6o', async () => {
-      /*
-       * Case-1 follow-on (rf2-rrw6o) — Lifecycle phase ordering
-       * beyond the matrix bookkeeping baseline.
-       *
-       * Per Spec 008 §Lifecycle the run-variant orchestrator drives
-       * four phases in order: phase-0 setup → phase-1 loaders →
-       * phase-2 events → phase-4 play (phase-3 render is shell-
-       * concern). The lifecycle machine emits :loaders-started →
-       * :loaders-complete → :events-complete → :mount under the
-       * `:rf.story.lifecycle/machine` event-id; seed `:events` slot
-       * dispatches land between :loaders-complete and :events-
-       * complete; :play assertions land between :events-complete and
-       * :mount.
-       *
-       * Beyond-mount surface assertions:
-       *   - the actions panel surfaces the lifecycle dispatches in
-       *     the documented order (loaders-started < events seed <
-       *     events-complete < play assertions < mount). Reading by
-       *     the panel's chronological row order makes the four-phase
-       *     contract directly visible.
-       *   - re-selecting the same variant re-fires the full sequence
-       *     (the run-variant orchestrator is idempotent against an
-       *     existing frame — frame teardown + re-alloc per Spec 008
-       *     §reset-variant) and the order is identical
-       *   - cross-variant ordering: switching to a different variant
-       *     produces a NEW lifecycle sequence on the new frame's
-       *     trace bus, not a continuation of the previous variant's
-       */
-      await primeHelpDismissed(page);
-      await gotoStory(page, '/counter-with-stories/#/stories');
-
-      // Pick a variant with a deterministic four-phase sequence —
-      // :story.counter/loaded carries one :events seed
-      // ([:counter/initialise 7]) and three :play assertions, so
-      // we can pin the exact lifecycle ordering.
-      await clickVariant(page, '/loaded');
-      // Force :dev mode so the canvas mounts (the play sequence ran
-      // on initial allocation; the actions panel buffer carries it).
-      await setMode(page, 'dev');
-      await waitForCanvas(page, ':story.counter/loaded');
-
-      // Helper: read the chronological event-id sequence from the
-      // actions panel rows. The buffer is bounded (200 entries) and
-      // every dispatch + dispatch-shaped fx is appended in arrival
-      // order — same order the trace listener observed them.
-      const readEventSequence = () =>
-        page
-          .locator('[data-test="story-actions-row"]')
-          .evaluateAll((els) =>
-            els.map((el) => el.getAttribute('data-event-id') || ''),
-          );
-
-      // Poll until the lifecycle has produced at least one mount
-      // event for this variant (a stable post-phase-4 signal).
-      await waitForValue(
-        async () => {
-          const seq = await readEventSequence();
-          return seq.filter((id) => id === ':rf.story.lifecycle/machine').length;
-        },
-        // 4 expected: loaders-started, loaders-complete, events-
-        // complete, mount.
-        (count) => count >= 4,
-        {
-          timeoutMs: 10000,
-          description: ':loaded lifecycle machine emitted >= 4 phase transitions',
-        },
-      );
-
-      const fullSeq = await readEventSequence();
-
-      // Helper: project the lifecycle-machine sub-sequence by
-      // walking the dispatch rows in order. The machine event is
-      // always `:rf.story.lifecycle/machine` and its payload (the
-      // phase transition keyword) lives inside the event vector,
-      // not the data-event-id attribute. We can't read the payload
-      // here, but the COUNT of machine rows tells us the four-phase
-      // ordering held — the runtime emits them in order or not at
-      // all (Spec 008 contract).
-      const machineRowCount = fullSeq.filter((id) => id === ':rf.story.lifecycle/machine').length;
-      if (machineRowCount < 4) {
-        throw new Error(
-          `expected >= 4 :rf.story.lifecycle/machine rows in actions panel, got ${machineRowCount}`,
-        );
-      }
-
-      // The seed event :counter/initialise MUST appear AFTER the
-      // first lifecycle dispatch (loaders-started lands before
-      // phase-1 starts; the seed lands during phase-2). Find the
-      // chronological positions in the row sequence.
-      const firstLifecycleIdx = fullSeq.indexOf(':rf.story.lifecycle/machine');
-      const firstInitialiseIdx = fullSeq.indexOf(':counter/initialise');
-      if (firstLifecycleIdx === -1 || firstInitialiseIdx === -1) {
-        throw new Error(
-          `expected both lifecycle (idx=${firstLifecycleIdx}) and :counter/initialise (idx=${firstInitialiseIdx}) ` +
-            `rows; full sequence (head 20)=${JSON.stringify(fullSeq.slice(0, 20))}`,
-        );
-      }
-      if (firstInitialiseIdx <= firstLifecycleIdx) {
-        throw new Error(
-          `phase ordering violation: :counter/initialise appeared at row ${firstInitialiseIdx} ` +
-            `before the first lifecycle dispatch at row ${firstLifecycleIdx} — expected loaders-started ` +
-            `to land before seed-event dispatches per Spec 008 §Lifecycle.`,
-        );
-      }
-
-      // The play assertions (`:rf.assert/path-equals`,
-      // `:rf.assert/sub-equals`) MUST land AFTER :counter/initialise
-      // — phase-4 play runs after phase-2 events complete.
-      const firstPathEqualsIdx = fullSeq.indexOf(':rf.assert/path-equals');
-      if (firstPathEqualsIdx === -1) {
-        throw new Error(
-          `expected :rf.assert/path-equals to appear in actions panel; full sequence=${JSON.stringify(fullSeq)}`,
-        );
-      }
-      if (firstPathEqualsIdx <= firstInitialiseIdx) {
-        throw new Error(
-          `phase ordering violation: :rf.assert/path-equals (play assertion) appeared at row ${firstPathEqualsIdx} ` +
-            `before :counter/initialise (seed event) at row ${firstInitialiseIdx} — expected phase-2 ` +
-            `events to settle before phase-4 play runs per Spec 008 §Lifecycle.`,
-        );
-      }
-
-      // Cross-variant isolation: switching to a different variant
-      // produces a NEW lifecycle sequence on the new frame's trace
-      // bus. The actions panel is scoped to the selected variant's
-      // buffer; switching to /clicked-three-times exposes that
-      // variant's own four-phase ordering — the prior /loaded
-      // buffer's rows are NOT mixed into the new variant's view.
-      await clickVariant(page, '/clicked-three-times');
-      await setMode(page, 'dev');
-      await waitForCanvas(page, ':story.counter/clicked-three-times');
-      await waitForValue(
-        async () => {
-          const seq = await readEventSequence();
-          return seq.filter((id) => id === ':rf.story.lifecycle/machine').length;
-        },
-        (count) => count >= 4,
-        {
-          timeoutMs: 10000,
-          description: ':clicked-three-times lifecycle emitted >= 4 phase transitions on its own frame',
-        },
-      );
-      const ctsSeq = await readEventSequence();
-      // /clicked-three-times's :play declares three :counter/inc
-      // dispatches followed by :rf.assert/path-equals + :rf.assert/
-      // dispatched?. The :counter/inc rows must follow the seed
-      // :counter/initialise and precede the assertion rows — exact
-      // four-phase ordering as a fresh sequence on the new frame.
-      const ctsFirstLifecycle = ctsSeq.indexOf(':rf.story.lifecycle/machine');
-      const ctsFirstInit = ctsSeq.indexOf(':counter/initialise');
-      const ctsFirstInc = ctsSeq.indexOf(':counter/inc');
-      const ctsFirstAssert = ctsSeq.findIndex((id) =>
-        id && id.startsWith(':rf.assert/'),
-      );
-      if (ctsFirstLifecycle === -1 || ctsFirstInit === -1 || ctsFirstInc === -1 || ctsFirstAssert === -1) {
-        throw new Error(
-          ':clicked-three-times buffer missing one of (lifecycle/init/inc/assert) — ' +
-            `indices=${JSON.stringify([ctsFirstLifecycle, ctsFirstInit, ctsFirstInc, ctsFirstAssert])}`,
-        );
-      }
-      // Strict ordering: lifecycle < init < inc < assert.
-      const order = [ctsFirstLifecycle, ctsFirstInit, ctsFirstInc, ctsFirstAssert];
-      for (let i = 1; i < order.length; i += 1) {
-        if (order[i] <= order[i - 1]) {
-          throw new Error(
-            `phase ordering violation on :clicked-three-times: expected ` +
-              `lifecycle < :counter/initialise < :counter/inc < :rf.assert/* ` +
-              `but observed indices ${JSON.stringify(order)} (full seq head 30=` +
-              `${JSON.stringify(ctsSeq.slice(0, 30))})`,
-          );
-        }
-      }
-    });
+    // Scenario `lifecycle-phase-happy-path-order-rf2-rrw6o` retired per
+    // rf2-sgdd3 — it polled `[data-test="story-actions-row"]` rows in
+    // chronological order to validate Spec 008 four-phase ordering, but
+    // the Story-side actions panel was retired in favour of Causa's
+    // Event-tab cascade view + filtered Trace tab. The four-phase
+    // ordering contract is still validated by the JVM/CLJS unit suite
+    // for `re-frame.story.lifecycle` directly; cross-variant isolation
+    // is covered by `substrate-decorator-and-frame-isolation` above. A
+    // Causa-side equivalent (reading the spine projection rather than
+    // the Story actions panel rows) belongs in tools/causa/testbeds/
+    // and is out of scope for rf2-sgdd3.
 
     await scenario(page, 'reg-story-panel-for-filter-and-toggle-rf2-pv9xu', async () => {
       /*
@@ -1851,31 +1674,26 @@ module.exports = {
           `(d) post-remount landmark count not 1/1/1 (root leak after round-trip): ${JSON.stringify(lm)}`,
         );
       }
-      // Listener leak guard: the variant scrubber slot for any
-      // variant should be nil since the shell was just freshly
-      // mounted and no variant has been selected on this session.
-      const scrubberSelections = await page.evaluate(() => {
-        // re-frame.story.ui.scrubber maintains a per-variant
-        // selection atom; after an unmount the listeners-teardown
-        // wipe should have left it empty. We expose a public read
-        // via the registered shell-state — no selection at this
-        // point means no per-variant scrubber-selection slots
-        // remain.
+      // Shell-state leak guard: the selected-variant / selected-
+      // workspace slots should both be nil since the shell was just
+      // freshly mounted and no variant has been selected on this
+      // session. Per rf2-sgdd3 the scrubber-selection slot was
+      // retired alongside the scrubber panel (Causa is the RHS
+      // primary now); the unmount-then-mount round-trip is still
+      // expected to leave the default shell state shape behind.
+      const remountState = await page.evaluate(() => {
         const state = window.re_frame.story.ui.state;
         const cur = state.get_state.call(null);
         const cljs = window.cljs.core;
         const kw = cljs.keyword;
-        // Confirm the default-shell-state shape: no selected variant,
-        // no selected workspace, no panel-visibility entries beyond
-        // the defaults.
         return {
           variant: cljs.get.call(null, cur, kw('selected-variant')),
           workspace: cljs.get.call(null, cur, kw('selected-workspace')),
         };
       });
-      if (scrubberSelections.variant != null || scrubberSelections.workspace != null) {
+      if (remountState.variant != null || remountState.workspace != null) {
         throw new Error(
-          `(d) post-remount shell state did not reset cleanly: ${JSON.stringify(scrubberSelections)}`,
+          `(d) post-remount shell state did not reset cleanly: ${JSON.stringify(remountState)}`,
         );
       }
       // Re-prime help dismissal so downstream scenarios don't trip
@@ -2020,76 +1838,11 @@ module.exports = {
         { timeoutMs: 5000, description: ':status/stable chip deactivated' },
       );
 
-      // ----------------------------------------------------------
-      // (ii) Trace panel phase grouping
-      // ----------------------------------------------------------
-      //
-      // Drive a :counter/inc on /loaded and assert the trace panel
-      // surfaces a cascade row whose first cell text contains the
-      // event keyword (the panel's `[:span event-cell]` renders
-      // (pr-str (first event))).
-      await clickVariant(page, '/loaded');
-      await setMode(page, 'dev');
-      await waitForCanvas(page, ':story.counter/loaded');
-      await canvas(page, ':story.counter/loaded')
-        .locator('[data-test="inc"]')
-        .first()
-        .click();
-      const tracePanel = page.locator('[data-test="story-trace-panel"]');
-      await tracePanel.waitFor({ state: 'visible', timeout: 5000 });
-      // Wait for at least one cascade row to land.
-      await waitForValue(
-        () => tracePanel.locator('[data-test="story-trace-cascade-row"]').count(),
-        (count) => count >= 1,
-        {
-          timeoutMs: 5000,
-          description: 'trace panel renders at least one cascade row after :counter/inc',
-        },
-      );
-      // The row should display a six-column shape (event handler fx
-      // effects subs renders). Walk every cascade row and confirm
-      // at least one shows the namespaced :counter/inc event in
-      // its first column AND every row carries the six per-phase
-      // columns (a render-only cascade may show "nil" in the event
-      // column but still surfaces the subs/renders columns).
-      const cascadeTexts = await tracePanel
-        .locator('[data-test="story-trace-cascade-row"]')
-        .allInnerTexts();
-      const hasNamespacedKeyword = cascadeTexts.some((t) =>
-        /:[a-zA-Z][a-zA-Z0-9_.\-?!*+]*\/[a-zA-Z][a-zA-Z0-9_.\-?!*+]*/.test(t),
-      );
-      if (!hasNamespacedKeyword) {
-        throw new Error(
-          `no trace cascade row shows a namespaced keyword event; rows=${JSON.stringify(cascadeTexts.slice(0, 5))}`,
-        );
-      }
-      // Every row carries the per-phase column suffixes (proves
-      // the six-column shape is structurally intact regardless of
-      // which phase the cascade exercised). The fx column renders
-      // "—" when no :fx slot is present in the cascade, otherwise
-      // "N fx"; the effects/subs/renders columns render "N <name>"
-      // even when N is zero. Anchor on the first row that has a
-      // recognisable event id.
-      const richestRow = cascadeTexts.find((t) =>
-        /:counter\//.test(t) || /:rf\.assert\//.test(t),
-      ) || cascadeTexts[0];
-      // effects / subs / renders ALWAYS carry the "\d+ <tail>"
-      // shape per trace.cljs cascade-row.
-      for (const tail of ['effects', 'subs', 'renders']) {
-        if (!new RegExp(`\\d+\\s+${tail}\\b`).test(richestRow)) {
-          throw new Error(
-            `trace cascade row missing per-phase column "${tail}"; row="${richestRow.slice(0, 200)}"`,
-          );
-        }
-      }
-      // fx column is "N fx" when present, "—" when no :fx slot.
-      // Either pattern proves the column rendered; absence of both
-      // means the structural shape regressed.
-      if (!/(?:\d+\s+fx\b|—)/.test(richestRow)) {
-        throw new Error(
-          `trace cascade row missing fx column ("N fx" or "—" expected); row="${richestRow.slice(0, 200)}"`,
-        );
-      }
+      // (ii) Trace panel phase grouping — retired per rf2-sgdd3.
+      // The Story-side trace panel was replaced by Causa's Trace tab.
+      // The six-domino cascade projection contract lives in the JVM
+      // `re-frame.trace.projection` unit suite; the visual surface is
+      // exercised by Causa's own browser tests under tools/causa/.
 
       // ----------------------------------------------------------
       // (iii) Open-in-editor chip render in test mode

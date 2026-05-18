@@ -249,11 +249,12 @@
 ;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
 ;; false (rf2-lqmje), toggling the flag from true → false MUST clear
 ;; the per-variant trace buffers — the flag is NOT a one-way trapdoor.
-;; The Story trace listener (`re-frame.story.ui.trace`) only gates at
-;; ingest time via `suppress-sensitive?`, so without this scrub a
-;; sensitive cascade emitted while the flag was true would remain
-;; visible in every variant's trace + actions panels after the user
-;; flipped the flag back to false expecting privacy to be restored.
+;; The Story trace listener (`re-frame.story.ui.trace-buffer`) only
+;; gates at ingest time via `suppress-sensitive?`, so without this
+;; scrub a sensitive cascade emitted while the flag was true would
+;; remain visible in every downstream consumer of the per-variant
+;; buffer after the user flipped the flag back to false expecting
+;; privacy to be restored.
 ;;
 ;; The cost: non-sensitive history that was buffered alongside the
 ;; sensitive cascade is also lost. This is the documented trade-off —
