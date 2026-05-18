@@ -389,8 +389,9 @@
 ;; they project sub-ids, render-keys, fx-ids, and outcome tags — so
 ;; the projection leaves them as-is. The record-level bookkeeping
 ;; (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:outcome`,
-;; `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`) is
-;; structurally non-sensitive and passes through.
+;; `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
+;; `:rf.epoch/redacted-modified-paths-count`) is structurally
+;; non-sensitive and passes through.
 ;;
 ;; Per-tool reimplementation of the projection is prohibited (the
 ;; same posture as the wire-elision walker). New egress tools call
@@ -417,9 +418,9 @@
   `:rf.size/large-elided` markers per the §Composition rule. The
   record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
   `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
-  `:rf.epoch/sensitive?`) and the cheap structured projections
-  (`:sub-runs`, `:renders`, `:effects`) pass through unchanged —
-  they carry no app-db material.
+  `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`)
+  and the cheap structured projections (`:sub-runs`, `:renders`,
+  `:effects`) pass through unchanged — they carry no app-db material.
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools

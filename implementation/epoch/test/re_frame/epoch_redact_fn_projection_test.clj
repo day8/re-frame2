@@ -336,6 +336,190 @@
         "privacy/redacted-sentinel is the keyword :rf/redacted")))
 
 ;; ============================================================================
+;;  rf2-dl3gx — :rf.epoch/redacted-modified-paths-count on the record
+;; ============================================================================
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` and Security.md §Epoch privacy
+;; posture: the framework annotates each assembled record with an
+;; integer count of schema-declared sensitive paths whose value differs
+;; between :db-before and :db-after. Computed inside `build-record`
+;; from RAW values BEFORE the redact-fn runs, parallel to the
+;; :rf.epoch/sensitive? rollup. Closes the "redact-fn ⇒ empty diff but
+;; something changed" gap by surfacing the count Causa's chip needs.
+;;
+;; Coverage matrix:
+;;   G1. No sensitive paths declared → 0.
+;;   G2. Sensitive path declared but value unchanged → 0.
+;;   G3. Sensitive path declared and value changed → 1; rollup also true.
+;;   G4. Multiple sensitive paths; some changed, some not → count.
+;;   G5. Counter is computed BEFORE redact-fn (= reflects RAW signal
+;;       even when the fn erases the leaf it keyed on).
+;;   G6. Projection passes the counter through unchanged.
+;;   G7. Halted record (nil :db-after) — counter handles the nil edge.
+
+(deftest G1-no-sensitive-paths-yields-zero-count
+  (testing "with no schema-declared sensitive paths registered, the
+            counter is 0 (the empty-paths short-circuit). Mirrors the
+            common case for apps without a privacy posture."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= 0 (:rf.epoch/redacted-modified-paths-count r))
+          "no declarations → 0, regardless of how much the db changed"))))
+
+(deftest G2-sensitive-path-unchanged-yields-zero-count
+  (testing "a sensitive path is declared but its value did NOT change
+            across the cascade — the counter is 0 (the value-equality
+            predicate filters it out). A non-sensitive sibling change
+            does not lift the counter."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event-db :seed (fn [_ _]
+                             {:auth   {:password "topsecret"}
+                              :public {:counter 0}}))
+    (rf/reg-event-db :touch-public
+                     (fn [db _] (update-in db [:public :counter] inc)))
+    (rf/dispatch-sync [:seed]         {:frame :test/main})
+    (rf/dispatch-sync [:touch-public] {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= 0 (:rf.epoch/redacted-modified-paths-count r))
+          ":auth :password value identical pre/post — counter = 0
+           even though a sibling slot changed"))))
+
+(deftest G3-sensitive-path-modified-yields-positive-count
+  (testing "a sensitive path's value changed across the cascade — the
+            counter is 1. The :rf.epoch/sensitive? rollup also reads
+            true (both signals fire from the same schema-declared
+            registry)."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count r))
+          ":auth :password mutated nil → \"topsecret\" — count = 1")
+      (is (true? (:rf.epoch/sensitive? r))
+          "rollup also true — both signals key on the same registry"))))
+
+(deftest G4-multiple-sensitive-paths-partial-modification
+  (testing "two sensitive paths declared; one changes, the other does
+            not — the counter is 1 (the unchanged path filters out via
+            value-equality)."
+    (rf/reg-frame :test/main {})
+    (install-two-sensitive-paths-schema! :test/main)
+    (rf/reg-event-db :seed
+                     (fn [_ _]
+                       {:auth {:password "pw-1" :token "tk-1"}}))
+    (rf/reg-event-db :rotate-token
+                     (fn [db [_ tk]] (assoc-in db [:auth :token] tk)))
+    (rf/dispatch-sync [:seed]                    {:frame :test/main})
+    (rf/dispatch-sync [:rotate-token "tk-fresh"] {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count r))
+          ":token changed (count += 1); :password unchanged (filtered)")))
+
+  (testing "both declared paths change in the same cascade — counter
+            is 2 (paths counted independently)"
+    (rf/reg-frame :test/main {})
+    (install-two-sensitive-paths-schema! :test/main)
+    (rf/reg-event-db :login-both
+                     (fn [db [_ pw tk]]
+                       (-> db
+                           (assoc-in [:auth :password] pw)
+                           (assoc-in [:auth :token]    tk))))
+    (rf/dispatch-sync [:login-both "topsecret" "tok-xyz"]
+                      {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= 2 (:rf.epoch/redacted-modified-paths-count r))
+          "both :password and :token changed — count = 2"))))
+
+(deftest G5-counter-reflects-raw-signal-pre-redact-fn
+  (testing "the counter is computed from RAW db values BEFORE the
+            redact-fn runs (parallel to :rf.epoch/sensitive? rollup
+            invariant 1 of the impl bead). Even when the redact-fn
+            erases the leaves wholesale, the counter on the assembled
+            record carries the truthful figure."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/configure :epoch-history
+                  {:redact-fn (fn [r]
+                                ;; Wipe :db-before / :db-after entirely
+                                ;; — if the counter were computed after,
+                                ;; it would read 0 (both sides equal
+                                ;; sentinels). The framework computes
+                                ;; pre-redact-fn, so the truthful 1
+                                ;; survives.
+                                (-> r
+                                    (assoc :db-before :rf/redacted)
+                                    (assoc :db-after  :rf/redacted)))})
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [r (last-record :test/main)]
+      (is (= :rf/redacted (:db-before r))
+          "redact-fn ran — :db-before is the sentinel")
+      (is (= :rf/redacted (:db-after  r))
+          "redact-fn ran — :db-after is the sentinel")
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count r))
+          "counter reads from RAW signal — :auth :password mutated
+           BEFORE the fn erased the leaves; figure survives the
+           erasure"))))
+
+(deftest G6-projection-preserves-counter
+  (testing "projected-record passes :rf.epoch/redacted-modified-paths-count
+            through unchanged — the integer is structurally non-sensitive
+            bookkeeping, parallel to :rf.epoch/sensitive?."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [r         (last-record :test/main)
+          projected (epoch/projected-record r)]
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count r)))
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count projected))
+          "projection preserves the counter verbatim")
+      (is (= (:rf.epoch/redacted-modified-paths-count r)
+             (:rf.epoch/redacted-modified-paths-count
+               (epoch/projected-record projected)))
+          "idempotent under a second projection pass"))))
+
+(deftest G7-counter-handles-nil-db-edge
+  (testing "halted-destroy records may carry nil :db-before or
+            :db-after (rf2-v0jwt). The counter handles the nil edge:
+            transitioning a sensitive path from nil to a value counts
+            as a change; nil-to-nil is unchanged. `(get-in nil P)` is
+            `nil` — the value-equality predicate handles both shapes
+            without throwing."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    ;; Direct unit-level test against the assembly fn — covers the
+    ;; nil shapes the standard dispatch path can't easily produce.
+    (require '[re-frame.epoch.assembly :as assembly])
+    (let [count-fn (resolve 're-frame.epoch.assembly/redacted-modified-paths-count)]
+      (is (= 0 (count-fn :test/main nil nil))
+          "nil → nil at every path: 0 changes")
+      (is (= 1 (count-fn :test/main nil {:auth {:password "x"}}))
+          "nil → {:auth {:password \"x\"}}: 1 change at the sensitive path")
+      (is (= 1 (count-fn :test/main {:auth {:password "x"}} nil))
+          "{:auth {:password \"x\"}} → nil: 1 change at the sensitive path")
+      (is (= 0 (count-fn :test/main
+                         {:auth {:password "x"}}
+                         {:auth {:password "x"}}))
+          "value-equal across the cascade: 0 changes"))))
+
+;; ============================================================================
 ;;  E. Nil-slot records (halted-destroy / partial)
 ;; ============================================================================
 

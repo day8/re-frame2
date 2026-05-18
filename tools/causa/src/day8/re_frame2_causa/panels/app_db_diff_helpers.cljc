@@ -452,13 +452,22 @@
 ;;   the same property — it walks the changed subtree but emits no
 ;;   rows when leaves match.
 ;;
-;; ## Future enhancement (filed as follow-on)
+;; ## Status: fallback only (rf2-dl3gx superseded the preferred path)
 ;;
-;; A wire-shape augmentation would let the framework annotate the
-;; epoch record with a precise "N redacted paths modified" counter
-;; computed BEFORE the redact-fn runs — eliminating the heuristic.
-;; That's a strictly larger change touching the egress contract; the
-;; chip ships with the heuristic in the meantime.
+;; The framework now ships `:rf.epoch/redacted-modified-paths-count`
+;; on the epoch record (rf2-dl3gx) — an exact integer computed inside
+;; `re-frame.epoch.assembly/build-record` from raw db-before /
+;; db-after BEFORE the `:redact-fn` runs (per
+;; `spec/Spec-Schemas.md §:rf/epoch-record`). The Causa sub
+;; `:rf.causa/selected-epoch-redacted-modified-count` reads that
+;; slot when present.
+;;
+;; This helper survives as the **absent-slot fallback** for records
+;; without the egress slot — legacy snapshots, hand-rolled test
+;; fixtures, hosts without a runtime schema layer that produces no
+;; sensitive-declarations registry. The heuristic upper-bound
+;; properties documented above still apply on that path; callers
+;; using the framework's exact count get a precise figure.
 
 (def redacted-sentinel
   "The framework's privacy sentinel keyword. Mirrors
