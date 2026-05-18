@@ -375,6 +375,9 @@
    :rf.causa/set-registered-fxs-override-for-test
    :rf.causa/set-registered-machines-override-for-test
    :rf.causa/set-arc-hover
+   ;; rf2-a9cke — focused-event lens test overrides (Machine Inspector).
+   :rf.causa/set-epoch-history-for-test
+   :rf.causa/set-focus-epoch-id-for-test
    :rf.causa/set-registered-routes-override-for-test
    :rf.causa/set-schema-filter
    :rf.causa/set-scrubber-position
@@ -635,7 +638,11 @@
     ;; + 2 resize handle (rf2-x8h9y):
     ;;   :rf.causa/set-panel-width-px (drag live update) +
     ;;   :rf.causa/reset-panel-width (double-click reset).
-    (is (= 145 (count all-event-names)))
+    ;; + 2 rf2-a9cke focused-event lens test overrides:
+    ;;   :rf.causa/set-epoch-history-for-test (writes the epoch-history
+    ;;   slot the lens walks) + :rf.causa/set-focus-epoch-id-for-test
+    ;;   (pins the spine focus's :epoch-id to a known cascade).
+    (is (= 147 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,

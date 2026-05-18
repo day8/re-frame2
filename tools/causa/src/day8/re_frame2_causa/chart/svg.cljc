@@ -44,19 +44,23 @@
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- node-fill
-  [{:keys [highlight? sim?]}]
+  [{:keys [highlight? sim? from-highlight? to-highlight?]}]
   (cond
-    sim?       "rgba(251, 191, 36, 0.18)"   ;; amber tint (Sim mode)
-    highlight? "rgba(67, 195, 208, 0.18)"   ;; cyan tint (live)
-    :else      "#1c2030"))
+    sim?            "rgba(251, 191, 36, 0.18)"   ;; amber tint (Sim mode)
+    to-highlight?   "rgba(67, 195, 208, 0.22)"   ;; brighter cyan (focused-event lens: landing state)
+    from-highlight? "rgba(132, 110, 230, 0.14)"  ;; violet tint (focused-event lens: origin state)
+    highlight?      "rgba(67, 195, 208, 0.18)"   ;; cyan tint (live)
+    :else           "#1c2030"))
 
 (defn- node-stroke
-  [{:keys [highlight? sim? final?]}]
+  [{:keys [highlight? sim? final? from-highlight? to-highlight?]}]
   (cond
-    sim?       (:yellow tokens/tokens)
-    highlight? (:cyan tokens/tokens)
-    final?     (:green tokens/tokens)
-    :else      (:border-default tokens/tokens)))
+    sim?            (:yellow tokens/tokens)
+    to-highlight?   (:cyan tokens/tokens)
+    from-highlight? (:accent-violet tokens/tokens)
+    highlight?      (:cyan tokens/tokens)
+    final?          (:green tokens/tokens)
+    :else           (:border-default tokens/tokens)))
 
 (defn compound-containers
   "rf2-m7co9 Phase 4 — compute the bounding box of each compound state
@@ -187,16 +191,27 @@
 
 (defn- render-node
   [{:keys [x y width height label final? compound? node-id path] :as n}
-   {:keys [highlight-id sim? on-state-click]}]
-  (let [active?    (= node-id highlight-id)
-        styled     (assoc n
-                          :highlight? active?
-                          :sim?       (and active? sim?))
-        fill       (node-fill styled)
-        stroke     (node-stroke styled)
-        stroke-w   (if active? highlight-stroke-width stroke-width)]
+   {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click]}]
+  (let [active?         (= node-id highlight-id)
+        from-highlight? (= node-id from-highlight-id)
+        to-highlight?   (= node-id to-highlight-id)
+        ;; The focused-event lens's TO node wins over both the FROM
+        ;; node and the live highlight; the FROM node is dashed so the
+        ;; eye reads transition-direction; the live highlight is the
+        ;; fallback for picker-driven modes.
+        emphasised?     (or active? from-highlight? to-highlight?)
+        styled          (assoc n
+                               :highlight?      active?
+                               :from-highlight? from-highlight?
+                               :to-highlight?   to-highlight?
+                               :sim?            (and active? sim?))
+        fill            (node-fill styled)
+        stroke          (node-stroke styled)
+        stroke-w        (if emphasised? highlight-stroke-width stroke-width)]
     [:g {:data-testid (str "rf-causa-chart-node-" node-id)
          :data-active (str active?)
+         :data-from-highlight (str from-highlight?)
+         :data-to-highlight (str to-highlight?)
          :data-state-path (pr-str path)
          :on-click (when on-state-click
                      (fn [_ev] (on-state-click path)))
@@ -223,7 +238,11 @@
              :rx corner-radius
              :fill fill
              :stroke stroke
-             :stroke-width stroke-w}]
+             :stroke-width stroke-w
+             ;; FROM node draws with a dashed stroke so the eye reads
+             ;; the transition direction (origin → landing).
+             :stroke-dasharray (when (and from-highlight? (not to-highlight?))
+                                 "4 2")}]
      ;; Label
      ;; rf2-gz7vi — state-label tuned 11 → 9 (follow-up to rf2-isgqu's
      ;; 12 → 11 — diagram still didn't fit at default width). Vertical
@@ -234,8 +253,8 @@
              :text-anchor "middle"
              :font-family font-stack
              :font-size 9
-             :font-weight (if active? 600 400)
-             :fill (if active?
+             :font-weight (if emphasised? 600 400)
+             :fill (if emphasised?
                      (:text-primary tokens/tokens)
                      (:text-secondary tokens/tokens))}
       label]
@@ -303,13 +322,21 @@
 (defn- render-edge
   [{:keys [event-label points guard from-id to-id]
     :as _edge}
-   {:keys [highlight-id]}]
-  (let [active? (or (= from-id highlight-id)
-                    (= to-id   highlight-id))
-        stroke  (if active?
+   {:keys [highlight-id from-highlight-id to-highlight-id]}]
+  (let [active?         (or (= from-id highlight-id)
+                            (= to-id   highlight-id))
+        ;; Focused-event lens: when both endpoints match the
+        ;; from/to highlight pair, the edge IS the transition that
+        ;; fired — emphasise it.
+        focused-edge?   (and (some? from-highlight-id)
+                             (some? to-highlight-id)
+                             (= from-id from-highlight-id)
+                             (= to-id   to-highlight-id))
+        emphasised?     (or active? focused-edge?)
+        stroke  (if emphasised?
                   (:cyan tokens/tokens)
                   (:border-default tokens/tokens))
-        marker  (if active?
+        marker  (if emphasised?
                   "url(#rf-causa-chart-arrow-highlight)"
                   "url(#rf-causa-chart-arrow)")
         [lx ly] (edge-label-position points)
@@ -319,11 +346,12 @@
                      event-label)]
     [:g {:data-testid (str "rf-causa-chart-edge-" from-id "-to-" to-id)
          :data-event event-label
-         :data-active (str active?)}
+         :data-active (str active?)
+         :data-focused-edge (str focused-edge?)}
      [:path {:d (path-from-points points)
              :fill "none"
              :stroke stroke
-             :stroke-width (if active? highlight-stroke-width stroke-width)
+             :stroke-width (if emphasised? highlight-stroke-width stroke-width)
              :marker-end marker}]
      (when (seq full-label)
        [:g
@@ -354,19 +382,28 @@
 
   Options:
 
-    :highlight-id     — node-id to render as the active state (cyan
-                        when `:sim?` is false, amber when true)
-    :sim?             — flips the highlight palette to amber
-                        (UC1 sim mode — follow-on bead wires this)
-    :on-state-click   — `(fn [path] ...)` called when a node is clicked
-                        (Causa wires this to its source-coord jump)
-    :testid           — overrides the root SVG data-testid
+    :highlight-id        — node-id to render as the active state (cyan
+                           when `:sim?` is false, amber when true)
+    :from-highlight-id   — node-id for the focused-event lens's origin
+                           state (rf2-a9cke). Dashed accent-violet
+                           border; the edge between FROM and TO is
+                           emphasised cyan when both are set.
+    :to-highlight-id     — node-id for the focused-event lens's
+                           landing state (rf2-a9cke). Bold cyan
+                           border; wins over `:highlight-id` when set.
+    :sim?                — flips the highlight palette to amber
+                           (UC1 sim mode — follow-on bead wires this)
+    :on-state-click      — `(fn [path] ...)` called when a node is
+                           clicked (Causa wires this to its source-
+                           coord jump)
+    :testid              — overrides the root SVG data-testid
 
   Returns a stable hiccup form. Empty graphs (no nodes) render an
   inline note so the panel never sees an empty SVG container."
   ([positioned] (render positioned {}))
   ([{:keys [nodes edges width height] :as positioned}
-    {:keys [highlight-id sim? on-state-click testid]}]
+    {:keys [highlight-id from-highlight-id to-highlight-id
+            sim? on-state-click testid]}]
    (if (empty? nodes)
      [:div {:data-testid (or testid "rf-causa-chart-empty")
             :style {:padding "16px"
@@ -381,6 +418,8 @@
            containers (compound-containers nodes)]
        [:svg {:data-testid (or testid "rf-causa-chart-svg")
               :data-highlight-id (or highlight-id "")
+              :data-from-highlight-id (or from-highlight-id "")
+              :data-to-highlight-id (or to-highlight-id "")
               :viewBox (str "0 0 " width " " height)
               :width "100%"
               :preserveAspectRatio "xMidYMin meet"
@@ -400,15 +439,19 @@
               (for [edge edges]
                 ^{:key (str (:from-id edge) "->" (:to-id edge)
                             "/" (:event-label edge))}
-                (render-edge edge {:highlight-id highlight-id})))
+                (render-edge edge {:highlight-id      highlight-id
+                                   :from-highlight-id from-highlight-id
+                                   :to-highlight-id   to-highlight-id})))
         (render-initial-marker initial-node)
         (into [:g {:data-testid "rf-causa-chart-nodes"}]
               (for [node nodes]
                 ^{:key (:node-id node)}
                 (render-node node
-                             {:highlight-id   highlight-id
-                              :sim?           sim?
-                              :on-state-click on-state-click})))]))))
+                             {:highlight-id      highlight-id
+                              :from-highlight-id from-highlight-id
+                              :to-highlight-id   to-highlight-id
+                              :sim?              sim?
+                              :on-state-click    on-state-click})))]))))
 
 (defn render-from-definition
   "Convenience: lay out + render in one call. Useful for the panel
