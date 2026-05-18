@@ -218,11 +218,18 @@
     (is (= :live (get-in r [:focus :mode]))
         "stepping back to head implicitly re-engages LIVE")))
 
-(deftest focus-step-reducer-from-empty-slot-uses-legacy
-  (let [db {:selected-dispatch-id :c2}
-        r  (spine/focus-step-reducer db fixture-cascades -1)]
-    (is (= :c1 (get-in r [:focus :dispatch-id]))
-        "stepping reads current-id from legacy when :focus is empty")))
+(deftest focus-step-reducer-from-empty-slot-snaps-to-head-then-steps
+  (testing "rf2-s0s5x Phase A — with an empty `:focus` slot the
+            current-id is derived through `compose-focus` (which
+            snaps to head in :live), not lifted off the legacy
+            `:selected-dispatch-id` slot. The legacy slot is a
+            shim-write-target now, not a read source — keeping
+            spine as the canonical source of truth."
+    (let [db {:selected-dispatch-id :c2}
+          r  (spine/focus-step-reducer db fixture-cascades -1)]
+      (is (= :c2 (get-in r [:focus :dispatch-id]))
+          "step prev: empty :focus → composer derives head (c3) → prev
+           lands on c2 (one step back from head)"))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) follow-head-reducer
@@ -405,7 +412,116 @@
     (is (= :live (:mode r)))))
 
 ;; -------------------------------------------------------------------------
-;; (9) :epoch-id resolution — rf2-ak3ty
+;; (9) Live auto-follow head (rf2-s0s5x Phase A)
+;; -------------------------------------------------------------------------
+;;
+;; Per the bead's Phase A acceptance: when `:mode :live` and a new
+;; cascade arrives, the effective focus auto-advances. Previously
+;; `compose-focus` honoured a non-nil stored slot-id even in :live
+;; mode (so stepping back to head with `k` left the slot pinned and
+;; later head arrivals went unfollowed). The composer now treats
+;; LIVE as 'always head' unless paused — and the legacy slot writes
+;; are still honoured for paused/retro selections.
+
+(deftest compose-focus-live-with-stored-id-tracks-head
+  (testing "rf2-s0s5x Phase A — LIVE always tracks head, even when a
+            stored slot-id exists and matches the previous head. The
+            stored id might be the previous head pinned by
+            focus-step-reducer landing back on head; once a fresher
+            cascade arrives, focus auto-advances."
+    (let [r (spine/compose-focus {:dispatch-id :c2 :mode :live}
+                                 fixture-cascades)]
+      (is (= :c3 (:dispatch-id r))
+          "LIVE mode → effective id is the current head, not the stored id")
+      (is (true? (:head? r))))))
+
+(deftest compose-focus-paused-live-preserves-stored-id
+  (testing "rf2-s0s5x Phase A — when paused, LIVE auto-follow is
+            suspended so the user can inspect a pinned cascade
+            without losing it as new traffic arrives. The composer
+            falls back to slot-id behaviour."
+    (let [r (spine/compose-focus {:dispatch-id :c1 :mode :live :paused? true}
+                                 fixture-cascades)]
+      (is (= :c1 (:dispatch-id r))
+          "paused LIVE → stored slot-id wins")
+      (is (true? (:paused? r))))))
+
+(deftest compose-focus-paused-live-with-evicted-id-snaps-head
+  (testing "paused LIVE + the stored id has been evicted from the
+            buffer → snap to head (no orphan focus). Matches the
+            non-paused eviction fallback."
+    (let [r (spine/compose-focus {:dispatch-id :gone :mode :live :paused? true}
+                                 fixture-cascades)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (true? (:head? r))))))
+
+(deftest focus-sub-live-auto-follows-new-head
+  (testing "rf2-s0s5x Phase A acceptance — user is in LIVE on c3
+            (head); a new cascade c4 arrives; focus auto-advances to
+            c4 without the user clicking the LIVE pill."
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    ;; Initial state — LIVE, focused on head c3 (implicit, slot-id nil).
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (= :live (:mode r))))
+    ;; User steps prev then next — lands on c3 again, slot-id is now :c3.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade-prev])
+      (rf/dispatch-sync [:rf.causa/focus-cascade-next]))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (= :live (:mode r))
+          "stepping back to head re-engages LIVE per focus-step-reducer"))
+    ;; A new cascade c4 arrives — head shifts.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (let [r (focus-sub)]
+      (is (= :c4 (:dispatch-id r))
+          "LIVE auto-follows the new head — focus advances to c4")
+      (is (true? (:head? r))))))
+
+(deftest focus-sub-retro-does-not-auto-follow
+  (testing "in :retro the focus stays pinned even when new cascades
+            arrive — the user has explicitly opted out of LIVE."
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c1 (:dispatch-id r)))
+      (is (= :retro (:mode r))))
+    ;; New cascade arrives. Focus stays on c1.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (let [r (focus-sub)]
+      (is (= :c1 (:dispatch-id r))
+          ":retro pins the focus through arrivals")
+      (is (= :retro (:mode r))))))
+
+(deftest focus-sub-paused-live-does-not-auto-follow
+  (testing "paused LIVE freezes auto-follow — user paused to inspect,
+            so new arrivals don't pull focus away."
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      ;; Get into :live mode with slot-id pinned on c2 (paused inspection
+      ;; of a non-head cascade — possible via focus-step then pause).
+      (rf/dispatch-sync [:rf.causa/focus-cascade-prev])
+      (rf/dispatch-sync [:rf.causa/focus-cascade-next]))
+    ;; Now slot-id = :c3, mode = :live. Pause.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/toggle-live-pause]))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r)))
+      (is (true? (:paused? r))))
+    ;; New cascade arrives. Paused LIVE stays put.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r))
+          "paused LIVE pins focus through arrivals")
+      (is (true? (:paused? r))))))
+
+;; -------------------------------------------------------------------------
+;; (10) :epoch-id resolution — rf2-ak3ty
 ;;
 ;; Spec/018 §6 Spine events says `:rf.causa/focus-cascade <id>` MUST
 ;; "compute `:epoch-id` from cascades". The reducer takes a resolved

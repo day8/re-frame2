@@ -233,22 +233,78 @@
     [:div (inspector/inspect (:tags ev) "event-detail/fx-tags")]
     (coord-line ev)]])
 
+(defn- db-changed-events
+  "Pluck the `:event/db-changed` traces from a cascade's `:other`
+  bucket. Per Spec 002 §Drain-loop pseudocode every `:db` commit
+  emits one `:event/db-changed` trace; the projection routes those
+  to `:other` (they don't fit a domino slot per Spec 009
+  §`:op-type` vocabulary). For the EFFECTS row this is the only
+  cascade-side signal that the handler returned a `:db` effect — no
+  `:rf.fx/handled` is emitted for `:db` because the commit happens
+  in the interceptor chain, not in the fx walk."
+  [other]
+  (filter (fn [ev]
+            (and (= :event (:op-type ev))
+                 (= :event/db-changed (:operation ev))))
+          other))
+
+(defn effects-entries
+  "Build the EFFECTS row's display entries from a cascade. Combines:
+
+    1. `:event/db-changed` traces (if any) — surfaced as a virtual
+       `:db` entry per rf2-s0s5x Phase A so events that committed
+       only a `:db` effect (the common `reg-event-db` case) don't
+       lie with `EFFECTS (none)`.
+    2. `:op-type :fx` traces from the `:effects` slot — every fx
+       handler invocation (`:rf.fx/handled` /
+       `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform`).
+
+  Returns a sequence of `{:fx-id <kw> :operation <kw> :id <int>}`
+  display rows in cascade order (`:db` first, then fx vector
+  entries). Empty when neither signal is present."
+  [cascade]
+  (let [db-rows (for [ev (db-changed-events (:other cascade))]
+                  {:fx-id     :db
+                   :operation (:operation ev)
+                   :id        (:id ev)
+                   :ev        ev})
+        fx-rows (for [ev (:effects cascade)]
+                  {:fx-id     (get-in ev [:tags :fx-id])
+                   :operation (:operation ev)
+                   :id        (:id ev)
+                   :ev        ev})]
+    (concat db-rows fx-rows)))
+
 (defn- effects-row
-  "Fourth domino: every `:op-type :fx` event (one per fx handler
-  invocation). Renders as a stacked list — fx-id + status — under a
-  single label cell."
-  [effects]
-  [domino-row {:label "effects" :tone :green}
-   (if (empty? effects)
-     [:span {:style {:color (:text-tertiary tokens)}} "(none)"]
-     (into [:div]
-           (for [ev effects]
-             ^{:key (:id ev)}
-             [:div {:style {:padding "2px 0"}}
-              [:span {:style {:color (:accent-violet tokens) :margin-right "8px"}}
-               (str (get-in ev [:tags :fx-id]))]
-              [:span {:style {:color (:text-secondary tokens)}}
-               (str (:operation ev))]])))])
+  "Fourth domino: the effects the cascade actually committed. Renders
+  a stacked list of fx-id + operation, with a virtual `:db` row when
+  the cascade emitted `:event/db-changed` (the cascade-side signal
+  for the `:db` effect — see `db-changed-events`).
+
+  Per rf2-s0s5x Phase A: previously this row read only the
+  projection's `:effects` slot (built from `:op-type :fx` events),
+  which left pure `reg-event-db` handlers showing `(none)` even
+  though `:db` had been committed — the EFFECTS lie the bead calls
+  out. The composite `effects-entries` folds in `:event/db-changed`
+  from the `:other` bucket so the row reflects the cascade's actual
+  outcome."
+  [cascade]
+  (let [entries (effects-entries cascade)]
+    [domino-row {:label "effects" :tone :green}
+     (if (empty? entries)
+       [:span {:data-testid "rf-causa-event-detail-effects-none"
+               :style {:color (:text-tertiary tokens)}}
+        "(none)"]
+       (into [:div {:data-testid "rf-causa-event-detail-effects"}]
+             (for [{:keys [fx-id operation id]} entries]
+               ^{:key id}
+               [:div {:data-testid (str "rf-causa-event-detail-effects-row-"
+                                        (name (or fx-id :unknown)))
+                      :style {:padding "2px 0"}}
+                [:span {:style {:color (:accent-violet tokens) :margin-right "8px"}}
+                 (str fx-id)]
+                [:span {:style {:color (:text-secondary tokens)}}
+                 (str operation)]])))]))
 
 (defn- subs-row
   "Fifth domino: subscription work (`:sub/run` + `:sub/create`)."
@@ -357,7 +413,7 @@
   wire-boundary diff template (rf2-uyp86 / F-C2) mounts below the
   six-domino window as an inline `<div>` per record. Cascades without
   managed-fx invocations render unchanged."
-  [{:keys [dispatch-id frame event handler fx effects subs renders other] :as cascade}]
+  [{:keys [dispatch-id frame event handler fx subs renders other] :as cascade}]
   (let [managed-fx-records (managed-fx-h/cascade->managed-fx-records cascade)]
     [:div {:data-testid "rf-causa-event-detail-cascade"
            :data-dispatch-id (str dispatch-id)
@@ -373,7 +429,7 @@
       [event-row event (trigger-handler-coord (or handler fx))]
       (when handler [handler-row handler])
       (when fx [fx-row fx])
-      [effects-row effects]
+      [effects-row cascade]
       [subs-row subs]
       [renders-row renders]
       (other-row other)]
@@ -473,9 +529,21 @@
   ;; The projection runs against the live buffer on every recompute.
   ;; Per spec/007-UX-IA.md §Performance budget the panel renders at
   ;; most ~200 cascades; the projection is O(n) over the buffer.
+  ;;
+  ;; ## Spine-driven focus (rf2-s0s5x Phase A)
+  ;;
+  ;; The composite reads the EFFECTIVE focused dispatch-id off the
+  ;; spine sub (`:rf.causa/focus`) rather than the legacy
+  ;; `:selected-dispatch-id` slot. The spine composer auto-advances
+  ;; the effective id to head in `:live` mode (rf2-s0s5x §Live
+  ;; auto-follow); reading the legacy slot would leave this panel
+  ;; pinned to a stale id that `focus-cascade-reducer` last wrote.
+  ;; The legacy slot remains as a shim for older direct readers (the
+  ;; orphaned-branch caption, MCP probes) but the focused-cascade
+  ;; computation here is canonically off the spine.
   (rf/reg-sub :rf.causa/event-detail
     ;; Signal layer: depend on the shared `:rf.causa/cascades`
-    ;; projection + selected-dispatch-id so this composite recomputes
+    ;; projection + the spine focus so this composite recomputes
     ;; when either changes. The `:<-` chain is the only sub-
     ;; registration form in v2 (per Spec 002 §Subscriptions composing
     ;; — reg-sub-raw is dropped; see `re-frame.subs/parse-reg-sub-args`).
@@ -492,21 +560,42 @@
     ;; `:rf.causa/event-detail` (the panel + its tests) all see the
     ;; same effective selection.
     :<- [:rf.causa/cascades]
-    :<- [:rf.causa/selected-dispatch-id]
-    :<- [:rf.causa/selected-dispatch-frame]
-    (fn [[cascades selected-id selected-frame] _query]
-      (let [head      (when (nil? selected-id) (default-head-cascade cascades))
-            eff-id    (or selected-id (:dispatch-id head))
-            eff-frame (or selected-frame (:frame head))
-            selection (when eff-id
-                        {:dispatch-id eff-id
-                         :frame       eff-frame})
-            by-id     (when selection
-                        (some #(when (cascade-matches-selection? % selection) %)
-                              cascades))]
+    :<- [:rf.causa/focus]
+    (fn [[cascades focus] _query]
+      ;; Phase A spine wiring: read the EFFECTIVE focused id off the
+      ;; spine sub. The spine composer already snaps to head in :live
+      ;; mode (compose-focus, rf2-s0s5x), so this composite no longer
+      ;; needs the legacy head-fallback when the slot is nil.
+      ;;
+      ;; rf2-639lc Bug 1 preserved: if the spine landed on `:ungrouped`
+      ;; (the projection's catch-all bucket for registry-time emits /
+      ;; frame lifecycle outside a drain), fall back to the most recent
+      ;; ROUTED cascade so the L4 default-focus never lands on the
+      ;; projection's internal bucket. The spine's head-cascade picks
+      ;; the structural last entry; this panel-side filter keeps the
+      ;; user-visible default focused on a real cascade.
+      (let [focus-id       (:dispatch-id focus)
+            focus-frame    (:frame focus)
+            ungrouped?     (= :ungrouped focus-id)
+            head           (when (or (nil? focus-id) ungrouped?)
+                             (default-head-cascade cascades))
+            selected-id    (cond
+                             ungrouped?      (:dispatch-id head)
+                             (nil? focus-id) (:dispatch-id head)
+                             :else           focus-id)
+            selected-frame (cond
+                             ungrouped?      (:frame head)
+                             (nil? focus-id) (:frame head)
+                             :else           focus-frame)
+            selection      (when selected-id
+                             {:dispatch-id selected-id
+                              :frame       selected-frame})
+            by-id          (when selection
+                             (some #(when (cascade-matches-selection? % selection) %)
+                                   cascades))]
         {:cascades                cascades
-         :selected-dispatch-id    eff-id
-         :selected-dispatch-frame eff-frame
+         :selected-dispatch-id    selected-id
+         :selected-dispatch-frame selected-frame
          :selected-cascade        by-id})))
 
   ;; Spine shim (rf2-adve5) — `:rf.causa/select-dispatch-id` is the
@@ -526,9 +615,16 @@
             epoch-id (spine/epoch-id-for-cascade history dispatch-id)]
         (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id))))
 
+  ;; Programmatic clear of the focused cascade. Resets the spine focus
+  ;; back to LIVE (head-tracking) per the rf2-s0s5x Phase A semantics —
+  ;; clearing means "go back to following the live stream", same
+  ;; outcome the user gets by clicking the LIVE pill.
   (rf/reg-event-db :rf.causa/clear-selected-dispatch-id
     (fn [db _event]
       (-> db
           (dissoc :selected-dispatch :selected-dispatch-id :selected-epoch-id)
-          (assoc-in [:focus :dispatch-id] nil)
-          (assoc-in [:focus :epoch-id] nil)))))
+          (update :focus (fnil assoc {})
+                  :dispatch-id nil
+                  :epoch-id    nil
+                  :mode        :live
+                  :previewing? false)))))
