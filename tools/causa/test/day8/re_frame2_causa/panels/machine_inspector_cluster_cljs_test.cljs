@@ -461,3 +461,106 @@
       ;; users in gen-instances are ada/bob/cat (3 distinct)
       (is (= #{"ada" "bob" "cat"} ks)
           "cluster-by-context-key on :user yields 3 clusters"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; Four `for` loops in the cluster view previously wrapped function-call
+;; list forms — `(instance-row …)`, `(compare-cell …)`, `(compare-row …)`,
+;; `(cluster-row …)` — under `^{:key …}` reader meta. Reagent's
+;; `get-react-key` only reads `:key` from vector meta, so the keys were
+;; silently lost. The fix routes each per-row child through `with-meta`
+;; so the `:key` lands on the returned vector. This test renders the
+;; cluster view under populated fixtures and asserts every per-row
+;; child carries `:key` meta. (rf2-ppzid)
+;;
+;; Note: the `expand-fn-component` walker above strips element meta
+;; (via `mapv`), so the assertions here re-walk the raw rendered tree
+;; without fn expansion to keep keyed vectors intact.
+;; ---------------------------------------------------------------------------
+
+(defn- meta-preserving-children [node]
+  (cond
+    (and (vector? node) (fn? (first node)))
+    [(apply (first node) (rest node))]
+
+    (vector? node)
+    (if (map? (second node))
+      (drop 2 node)
+      (rest node))
+
+    (seq? node)
+    node
+
+    :else nil))
+
+(defn- raw-find-all-by-testid-prefix [tree prefix]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (some-> (:data-testid (second node))
+                         (.startsWith prefix))))
+          (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
+
+(deftest cluster-list-rows-carry-key-meta
+  (testing "cluster-row for-loop ships per-cluster <li> children with
+            :key meta on the returned vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:req/protocol])
+      (select-machine! :req/protocol)
+      (override-instances! (gen-instances :req/protocol 12))
+      (rf/dispatch-sync [:rf.causa/set-forced-machine-mode :mode-c])
+      (let [tree    (machine-inspector/Panel)
+            li-rows (filter
+                      (fn [n]
+                        (some-> (:data-testid (second n))
+                                (.startsWith "rf-causa-mode-c-cluster-:")))
+                      (raw-find-all-by-testid-prefix
+                        tree "rf-causa-mode-c-cluster-"))]
+        (is (>= (count li-rows) 2) "at least two cluster rows for the fixture")
+        (doseq [row li-rows]
+          (is (vector? row) "cluster row is a hiccup vector")
+          (is (some? (some-> (meta row) :key))
+              (str "cluster row carries :key meta — got "
+                   (pr-str (meta row)))))))))
+
+(deftest instance-rows-inside-expansion-carry-key-meta
+  (testing "instance-row for-loop ships per-instance <li> children with
+            :key meta on the returned vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:req/protocol])
+      (select-machine! :req/protocol)
+      (override-instances! (gen-instances :req/protocol 12))
+      (rf/dispatch-sync [:rf.causa/set-forced-machine-mode :mode-c])
+      (rf/dispatch-sync [:rf.causa/toggle-mode-c-cluster-expanded :idle])
+      (let [tree  (machine-inspector/Panel)
+            insts (raw-find-all-by-testid-prefix tree "rf-causa-mode-c-instance-")]
+        (is (>= (count insts) 2))
+        (doseq [row insts]
+          (is (vector? row) "instance row is a hiccup vector")
+          (is (some? (some-> (meta row) :key))
+              (str "instance row carries :key meta — got "
+                   (pr-str (meta row)))))))))
+
+(deftest compare-table-rows-carry-key-meta
+  (testing "compare-row + compare-cell for-loops ship per-row + per-cell
+            children with :key meta on the returned vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:req/protocol])
+      (select-machine! :req/protocol)
+      (override-instances! (gen-instances :req/protocol 12))
+      (rf/dispatch-sync [:rf.causa/set-forced-machine-mode :mode-c])
+      (rf/dispatch-sync [:rf.causa/toggle-mode-c-selection :inst-0])
+      (rf/dispatch-sync [:rf.causa/toggle-mode-c-selection :inst-1])
+      (let [tree (machine-inspector/Panel)
+            ;; per-row <tr> compare-row children
+            rows (raw-find-all-by-testid-prefix tree "rf-causa-mode-c-compare-row-")]
+        ;; The :state row is rendered eagerly (no for-loop key), but the
+        ;; remaining rows come through `(for [row rows] (with-meta
+        ;; (compare-row row) …))`. Assert at least one row carries
+        ;; :key meta — the non-state rows go through the for-loop.
+        (is (some #(some-> (meta %) :key) rows)
+            "at least one compare-row child carries :key meta")))))

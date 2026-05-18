@@ -537,3 +537,107 @@
           "sim slot lands on Causa")
       (is (nil? (:sim/by-machine default-db))
           "sim slot did NOT leak into :rf/default"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; Two `for` loops in the Sim side-rail previously wrapped function-call
+;; list forms — `(available-transition-row …)` and `(audit-trail-row …)`
+;; — under `^{:key …}` reader meta. Reagent's `get-react-key` only reads
+;; `:key` from vector meta, so the keys were silently lost. The fix
+;; routes each per-row child through `with-meta` so the `:key` lands on
+;; the returned `[:li …]` vector. This test renders the side-rail under
+;; populated fixtures and asserts every per-row child carries `:key`
+;; meta. (rf2-ppzid)
+;;
+;; Note: the `expand-fn-component` walker above strips element meta
+;; (via `mapv`), so the assertions here re-walk the raw rendered tree
+;; without fn expansion to keep keyed vectors intact.
+;; ---------------------------------------------------------------------------
+
+(defn- meta-preserving-children [node]
+  (cond
+    (and (vector? node) (fn? (first node)))
+    [(apply (first node) (rest node))]
+
+    (vector? node)
+    (if (map? (second node))
+      (drop 2 node)
+      (rest node))
+
+    (seq? node)
+    node
+
+    :else nil))
+
+(defn- raw-find-all-by-testid-prefix [tree prefix]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (some-> (:data-testid (second node))
+                         (.startsWith prefix))))
+          (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
+
+(deftest sim-available-transitions-carry-key-meta
+  (testing "available-transition-row for-loop ships per-transition <li>
+            children with :key meta on the returned vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (force-picker-mode!)
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
+      (rf/dispatch-sync [:rf.causa/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (let [tree      (machine-inspector/Panel)
+            available (raw-find-all-by-testid-prefix
+                        tree "rf-causa-machine-inspector-sim-available-")
+            ;; Drop the container <ul> (testid `…-available-list`); we
+            ;; want only the per-row <li> children.
+            li-rows   (remove
+                        (fn [n]
+                          (= "rf-causa-machine-inspector-sim-available-list"
+                             (:data-testid (second n))))
+                        available)]
+        (is (>= (count li-rows) 1) "at least one available-transition row")
+        (doseq [row li-rows]
+          (is (vector? row) "available-transition row is a hiccup vector")
+          (is (some? (some-> (meta row) :key))
+              (str "available-transition row carries :key meta — got "
+                   (pr-str (meta row)))))))))
+
+(deftest sim-audit-trail-rows-carry-key-meta
+  (testing "audit-trail-row for-loop ships per-step <li> children with
+            :key meta on the returned vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (force-picker-mode!)
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
+      (rf/dispatch-sync [:rf.causa/sim-start
+                         {:machine-id :auth/login
+                          :definition fixture-definition}])
+      (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
+        (rf/dispatch-sync [:rf.causa/sim-step
+                           {:machine-id :auth/login :event [:start]}])
+        (rf/dispatch-sync [:rf.causa/sim-step
+                           {:machine-id :auth/login :event [:ok]}]))
+      (let [tree (machine-inspector/Panel)
+            rows (raw-find-all-by-testid-prefix
+                   tree "rf-causa-machine-inspector-sim-audit-")
+            ;; Drop the container <ol> (testid `…-audit-list`).
+            li-rows (remove
+                      (fn [n]
+                        (or (= "rf-causa-machine-inspector-sim-audit-list"
+                               (:data-testid (second n)))
+                            (= "rf-causa-machine-inspector-sim-audit-empty"
+                               (:data-testid (second n)))))
+                      rows)]
+        (is (>= (count li-rows) 2) "two audit rows after two steps")
+        (doseq [row li-rows]
+          (is (vector? row) "audit row is a hiccup vector")
+          (is (some? (some-> (meta row) :key))
+              (str "audit row carries :key meta — got "
+                   (pr-str (meta row)))))))))

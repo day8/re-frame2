@@ -236,12 +236,18 @@
                      :overflow "visible"}}
        (legend (count arc))
        ;; Render segments first so markers paint on top.
+       ;; `^{:key …}` reader meta on the `(arc-segment seg)` /
+       ;; `(arc-marker …)` calls would be attached to the source list
+       ;; and lost when the call returns its fresh vector — Reagent's
+       ;; `get-react-key` only reads `:key` meta from vectors (see
+       ;; reagent2.impl.template). `arc-segment` returns `[:line …]`
+       ;; and `arc-marker` returns `[:circle …]`, so apply the key
+       ;; directly via `with-meta`. (rf2-ppzid)
        (when (seq segments)
          (into [:g {:data-testid "rf-causa-machine-inspector-arc-segments"
                     :style {:pointer-events "stroke"}}]
                (for [seg segments]
-                 ^{:key (:idx seg)}
-                 (arc-segment seg))))
+                 (with-meta (arc-segment seg) {:key (:idx seg)}))))
        (into [:g {:data-testid "rf-causa-machine-inspector-arc-markers"
                   :style {:pointer-events "all"}}]
              (for [{:keys [point centre]} renderable
@@ -249,12 +255,12 @@
                          origin?   (zero? (:idx point))
                          endpoint? (= (:idx point) (:idx (:point (last renderable))))
                          hovered?  (= hover (:idx point))]]
-               ^{:key (:idx point)}
-               (arc-marker {:point point
-                            :cx cx :cy cy
-                            :hovered? hovered?
-                            :origin?  origin?
-                            :endpoint? endpoint?})))])))
+               (with-meta (arc-marker {:point point
+                                       :cx cx :cy cy
+                                       :hovered? hovered?
+                                       :origin?  origin?
+                                       :endpoint? endpoint?})
+                 {:key (:idx point)})))])))
 
 ;; ---- public install entry -----------------------------------------------
 

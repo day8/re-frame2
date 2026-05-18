@@ -410,9 +410,17 @@
       "No outgoing transitions declared on this state."]
      (into [:ul {:data-testid "rf-causa-machine-inspector-sim-available-list"
                  :style {:list-style "none" :padding 0 :margin 0}}]
+           ;; `^{:key …}` reader meta on the `(available-transition-row
+           ;; …)` call below would be attached to the source list and
+           ;; lost when the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `available-transition-row`
+           ;; always returns a `[:li …]` vector, so apply the key
+           ;; directly via `with-meta`. (rf2-ppzid)
            (for [t transitions]
-             ^{:key (str (:event t))}
-             (available-transition-row machine-id pending-event t))))])
+             (with-meta
+               (available-transition-row machine-id pending-event t)
+               {:key (str (:event t))}))))])
 
 (defn- error-toast
   [{:keys [event reason]}]
@@ -470,9 +478,15 @@
       "No steps yet."]
      (into [:ol {:data-testid "rf-causa-machine-inspector-sim-audit-list"
                  :style {:list-style "none" :padding 0 :margin 0}}]
+           ;; `^{:key …}` reader meta on the `(audit-trail-row …)` call
+           ;; below would be attached to the source list and lost when
+           ;; the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `audit-trail-row` always returns
+           ;; a `[:li …]` vector, so apply the key directly via
+           ;; `with-meta`. (rf2-ppzid)
            (for [[idx row] (map-indexed vector trail)]
-             ^{:key idx}
-             (audit-trail-row idx row))))])
+             (with-meta (audit-trail-row idx row) {:key idx}))))])
 
 (defn SimSideRail
   "The Sim sub-mode's side rail. Mounted by the Machine Inspector

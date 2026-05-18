@@ -197,3 +197,79 @@
     (is (= 3 (:machine-inspector/scrubber-position causa-db)))
     (is (nil? (:machine-inspector/scrubber-position default-db))
         "host frame is untouched")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; ArcOverlay's two `for` loops previously wrapped `(arc-segment seg)` /
+;; `(arc-marker …)` list forms under `^{:key …}` reader meta — Reagent's
+;; `get-react-key` only reads `:key` from vector meta, so the keys were
+;; silently lost and React emitted "unique key prop" warnings. The fix
+;; routes each per-row child through `with-meta` so `:key` lands on the
+;; returned `[:line …]` / `[:circle …]` vector. This test renders the
+;; overlay against a stubbed positioned graph and asserts every segment
+;; + marker child carries `:key` meta. (rf2-ppzid)
+;; ---------------------------------------------------------------------------
+
+(defn- ids-for-states [states]
+  ;; Mirror `chart-layout/highlight-id` for the synthetic graph below —
+  ;; `highlight-id` calls `chart.layout/node-id` which for a flat
+  ;; keyword `:idle` returns "idle" (no namespace). Keep this minimal
+  ;; helper local so the test isn't coupled to the layout ns.
+  (zipmap states (map name states)))
+
+(deftest arc-overlay-segments-and-markers-carry-key-meta
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (override-machines!    [:auth/login])
+    (override-definitions! {:auth/login fixture-definition})
+    (push-transition! 1 :idle    :authing [:auth/start])
+    (push-transition! 2 :authing :done    [:auth/ok])
+    ;; Synthetic positioned graph — one node per state in the arc, with
+    ;; the layout-shape `:node-id`/`:x`/`:y`/`:width`/`:height` so
+    ;; `arc-helpers/nodes->index` + `point-center` resolve.
+    (let [ids   (ids-for-states [:idle :authing :done])
+          nodes (mapv (fn [[state idx]]
+                        {:node-id (get ids state)
+                         :x       (* 50 idx)
+                         :y       50
+                         :width   40
+                         :height  20})
+                      (map vector [:idle :authing :done] (range)))
+          tree  (arc/ArcOverlay
+                  {:nodes nodes :width 400 :height 200})]
+      (when (and tree (vector? tree))
+        (let [segments-container
+              (some (fn [n]
+                      (when (and (vector? n)
+                                 (map? (second n))
+                                 (= "rf-causa-machine-inspector-arc-segments"
+                                    (:data-testid (second n))))
+                        n))
+                    (tree-seq vector? seq tree))
+              markers-container
+              (some (fn [n]
+                      (when (and (vector? n)
+                                 (map? (second n))
+                                 (= "rf-causa-machine-inspector-arc-markers"
+                                    (:data-testid (second n))))
+                        n))
+                    (tree-seq vector? seq tree))
+              child-vectors-of
+              (fn [container]
+                (when container
+                  (filter vector? (drop 2 container))))
+              seg-rows    (child-vectors-of segments-container)
+              marker-rows (child-vectors-of markers-container)]
+          (when (seq seg-rows)
+            (doseq [row seg-rows]
+              (is (vector? row) "arc-segment row is a vector")
+              (is (some? (some-> (meta row) :key))
+                  (str "arc-segment row carries :key meta — got "
+                       (pr-str (meta row))))))
+          (when (seq marker-rows)
+            (doseq [row marker-rows]
+              (is (vector? row) "arc-marker row is a vector")
+              (is (some? (some-> (meta row) :key))
+                  (str "arc-marker row carries :key meta — got "
+                       (pr-str (meta row)))))))))))
