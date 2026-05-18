@@ -372,11 +372,16 @@
   "The hero panel's root view. Subscribes to
   `:rf.causa/event-detail` and renders either the cascade-detail
   layout (when a dispatch-id is selected) or the cascade-list empty
-  state (when not)."
+  state (when not).
+
+  Note: this panel has no internal back-link affordance — under the
+  4-layer chrome (rf2-lv9bc) the L2 event list is always visible
+  alongside the L4 detail, so a 'back to events' affordance is
+  meaningless. Selection is cleared by clicking a different cascade
+  row, or programmatically via `:rf.causa/clear-selected-dispatch-id`."
   []
   (let [{:keys [selected-dispatch-id selected-dispatch-frame selected-cascade cascades]}
-        @(rf/subscribe [:rf.causa/event-detail])
-        has-selection? (boolean selected-dispatch-id)]
+        @(rf/subscribe [:rf.causa/event-detail])]
     [:section {:data-testid "rf-causa-event-detail"
                :style       {:height         "100%"
                              :display        "flex"
@@ -386,17 +391,6 @@
                              :font-family    sans-stack
                              :font-size      "14px"}}
      [:header {:style {:padding "16px 16px 8px 16px"}}
-      (when has-selection?
-        [:button {:data-testid "rf-causa-event-detail-back"
-                  :on-click    #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
-                  :style       {:background  "transparent"
-                                :border      "none"
-                                :color       (:text-secondary tokens)
-                                :padding     "0 0 6px 0"
-                                :cursor      "pointer"
-                                :font-family sans-stack
-                                :font-size   "12px"}}
-         "← Events"])
       [:h1 {:style {:font-size   "16px"
                     :font-weight 600
                     :margin      0
@@ -418,26 +412,14 @@
                              :color   (:text-tertiary tokens)
                              :font-family sans-stack
                              :font-size "13px"}}
-       "Selected dispatch-id "
-        [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+         "Selected dispatch-id "
+         [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
           (str selected-dispatch-id)]
-        (when selected-dispatch-frame
-          [:span " in frame "
-           [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
-            (str selected-dispatch-frame)]])
-         " is no longer in the trace buffer. "
-         [:button {:data-testid "rf-causa-event-detail-orphaned-back"
-                   :on-click #(rf/dispatch [:rf.causa/clear-selected-dispatch-id] {:frame :rf/causa})
-                   :style    {:margin-left "8px"
-                              :background  "transparent"
-                              :border      (str "1px solid " (:border-default tokens))
-                              :color       (:text-secondary tokens)
-                              :padding     "2px 8px"
-                              :border-radius "4px"
-                              :cursor      "pointer"
-                              :font-family sans-stack
-                              :font-size   "11px"}}
-          "← Events"]]
+         (when selected-dispatch-frame
+           [:span " in frame "
+            [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
+             (str selected-dispatch-frame)]])
+         " is no longer in the trace buffer. Pick another cascade from the event list."]
 
         :else
         (cascade-list cascades))]]))

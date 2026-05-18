@@ -186,8 +186,15 @@
             "cascade-detail container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container absent once a selection is set")
-        (is (some? (find-by-testid tree "rf-causa-event-detail-back"))
-            "back-to-events button is rendered in the panel header")))))
+        ;; Per rf2-lv9bc — the panel-internal '← Events' back-link was
+        ;; a pre-4-layer-chrome leftover. Under the 4-layer chrome the
+        ;; L2 event list is always visible alongside the L4 detail, so
+        ;; the affordance is meaningless. Assert positively that no
+        ;; back-link is rendered in either the header (cascade view)
+        ;; or the orphaned branch.
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-back"))
+            "no internal '← Events' back-link in the header — L2 event
+             list is always visible alongside L4 detail (rf2-lv9bc)")))))
 
 (deftest selecting-non-existent-dispatch-id-shows-orphaned-state
   (testing "selecting a dispatch-id that's not in the buffer surfaces
@@ -202,7 +209,14 @@
         (is (some? (find-by-testid tree "rf-causa-event-detail-orphaned"))
             "orphaned-selection container present")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail absent when the id has no matching cascade")))))
+            "cascade-detail absent when the id has no matching cascade")
+        ;; rf2-lv9bc — the orphaned branch's '← Events' button was the
+        ;; same pre-4-layer-chrome leftover; under the chrome the L2
+        ;; list is always visible so the user picks another cascade
+        ;; directly. The handler (`:rf.causa/clear-selected-dispatch-id`)
+        ;; is retained for programmatic clear.
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned-back"))
+            "no '← Events' button in the orphaned branch (rf2-lv9bc)")))))
 
 (deftest frame-qualified-selection-renders-the-matching-cascade
   (testing "same dispatch-id in two frames resolves to the selected frame's cascade"
