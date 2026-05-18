@@ -295,3 +295,83 @@
     (let [ev (mismatch-ev 1 [] [:p] [:p])]
       (is (= {:coord nil :annotation nil}
              (h/source-coord-for-mismatch ev))))))
+
+;; ---- (8) Phase 4 (rf2-1mcax) — first-divergent header -------------------
+
+(deftest bisector-path-segments-empty-path-is-root
+  (testing "bisector-path-segments with [] returns one segment — the
+            tree's root tag"
+    (is (= [":div"]
+           (h/bisector-path-segments [:div [:p "hi"]] [])))))
+
+(deftest bisector-path-segments-walks-down-tree
+  (testing "bisector-path-segments walks the bisector path and returns
+            short readable tag strings, one per node"
+    (let [tree [:div
+                [:section
+                 [:p "match"]
+                 [:p [:em "server"]]]]]
+      (is (= [":div" ":section" ":p" ":em"]
+             (h/bisector-path-segments tree [0 1 0]))))))
+
+(deftest bisector-path-segments-renders-id-and-class
+  (testing "bisector-path-segments surfaces :id and :class for readability"
+    (let [tree [:div {:id "app" :class "layout"}
+                [:section {:class "cart"}
+                 [:p "x"]]]]
+      (let [segs (h/bisector-path-segments tree [0 0])]
+        (is (= 3 (count segs)))
+        (is (re-find #"^:div" (first segs)))
+        (is (re-find #"#app" (first segs)))
+        (is (re-find #"\.layout" (first segs)))
+        (is (re-find #":section" (nth segs 1)))
+        (is (re-find #"\.cart" (nth segs 1)))
+        (is (= ":p" (nth segs 2)))))))
+
+(deftest bisector-path-segments-handles-text-leaf
+  (testing "bisector-path-segments walks into a text leaf at the tail"
+    (let [tree [:p "hello"]]
+      (let [segs (h/bisector-path-segments tree [0])]
+        (is (= 2 (count segs)))
+        (is (= ":p" (first segs)))
+        (is (= "\"hello\"" (second segs)))))))
+
+(deftest bisector-path-segments-truncates-long-text
+  (testing "bisector-path-segments truncates long text leaves to keep
+            the header on one line"
+    (let [tree [:p (apply str (repeat 100 "x"))]
+          segs (h/bisector-path-segments tree [0])
+          leaf (second segs)]
+      (is (= ":p" (first segs)))
+      (is (<= (count leaf) 24))
+      (is (re-find #"\.\.\.$" leaf)))))
+
+(deftest first-divergent-header-text-renders-single-line
+  (testing "first-divergent-header-text joins segments with ' > '"
+    (let [tree [:div [:section [:p "x"]]]]
+      (is (= ":div > :section > :p"
+             (h/first-divergent-header-text tree [0 0]))))))
+
+(deftest first-divergent-header-text-empty-path-renders-root
+  (testing "first-divergent-header-text with [] just renders the root"
+    (is (= ":div"
+           (h/first-divergent-header-text [:div [:p "x"]] [])))))
+
+;; ---- (9) pane-diff-input shape ------------------------------------------
+
+(deftest pane-diff-input-shape
+  (testing "pane-diff-input surfaces the slots the per-pane renderer
+            consumes from the mismatch-detail"
+    (let [detail {:server-tree   [:p "3 items"]
+                  :client-tree   [:p "0 items"]
+                  :bisector-path [0]}
+          pane   (h/pane-diff-input detail)]
+      (is (= [:p "3 items"] (:server-tree pane)))
+      (is (= [:p "0 items"] (:client-tree pane)))
+      (is (= [0] (:bisector-path pane))))))
+
+(deftest pane-diff-input-defaults-bisector-path
+  (testing "pane-diff-input defaults missing bisector-path to []"
+    (is (= [] (:bisector-path
+                (h/pane-diff-input {:server-tree [:p]
+                                    :client-tree [:p]}))))))

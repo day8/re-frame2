@@ -60,22 +60,38 @@
   All pure-data logic — `classify-divergence`, `first-divergence-path`,
   `mismatch-detail`, `re-root` — lives in
   `hydration_debugger_helpers.cljc` so the algebra runs under the JVM
-  unit-test target."
+  unit-test target.
+
+  ## Phase 4 (rf2-1mcax) — hiccup-engine adoption
+
+  Per Phase 4 of epic rf2-abts7 the side-by-side panes consume the
+  Phase 3 hiccup-diff micro-engine
+  (`day8.re-frame2-causa.diff.hiccup`) through the perspective-aware
+  renderer in `day8.re-frame2-causa.panels.hydration-pane-render`. The
+  raw `pr-str` rendering kept in Phase 5 is replaced by a structural
+  diff: server-only nodes render red on the server pane and as
+  greyed-out `[absent]` chips on the client pane; client-only nodes do
+  the mirror; shared elements surface their attr deltas inline; the
+  fn-prop opaque rule + the `:highlight-fn-ref-changes?` toggle from
+  Phase 3 apply uniformly.
+
+  The drilldown header surfaces the `:rf.causa/first-divergent-path`
+  text — a single line like `:div > :section.cart > :p` derived from
+  the bisector path (see `h/first-divergent-header-text`)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.hydration-debugger-helpers :as h]
+            ;; rf2-1mcax Phase 4 — adopt the Phase 3 hiccup-diff
+            ;; micro-engine for per-pane annotation. The pane renderer
+            ;; below consumes the annotated tree once + renders it
+            ;; twice (one perspective per side).
+            [day8.re-frame2-causa.diff.hiccup :as hd]
+            [day8.re-frame2-causa.panels.hydration-pane-render
+             :as pane-render]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- pure-data render helpers -------------------------------------------
-
-(defn- format-edn
-  "Best-effort EDN-like format. Used to render the path + hash + tree
-  scalars in the mono columns."
-  [v]
-  (try
-    (pr-str v)
-    (catch :default _ (str v))))
 
 (defn- path-segments
   "Render a path vector as `:a > :b > :c` — used in the mismatch list
@@ -205,38 +221,46 @@
    (str "#" (subs (str hash) 0 (min 6 (count (str hash)))))])
 
 (defn- tree-pane
-  "Render one side of the side-by-side view. `chips` is the bisector
-  chip list for this side; `divergent-path` is the bisection path
-  (used to mark the chip at that path as divergent). `tree` is the
-  full hiccup subtree to display in EDN form."
-  [{:keys [side label tree chips divergent-path]}]
-  [:section {:data-testid (str "rf-causa-hydration-tree-pane-" (name side))
-             :style       {:flex   1
-                           :min-width 0
-                           :background (:bg-2 tokens)
-                           :border-right (when (= side :server)
-                                           (str "1px solid " (:border-default tokens)))
-                           :overflow "auto"}}
-   [:header {:style {:padding "8px 12px"
-                     :border-bottom (str "1px solid " (:border-subtle tokens))
-                     :font-family sans-stack
-                     :font-size "12px"
-                     :font-weight 600
-                     :color (:text-secondary tokens)}}
-    [:span (str (name side) " render")]
-    (into [:span {:style {:margin-left "8px"}}]
-          (map (fn [chip]
-                 (hash-chip chip (= (:path chip) divergent-path)))
-               chips))]
-   [:pre {:data-testid (str "rf-causa-hydration-tree-content-" (name side))
-          :style       {:margin       0
-                        :padding      "12px"
-                        :font-family  mono-stack
-                        :font-size    "12px"
-                        :color        (:text-primary tokens)
-                        :white-space  "pre-wrap"
-                        :word-break   "break-word"}}
-    (format-edn tree)]])
+  "Render one side of the side-by-side view.
+
+  Phase 4 (rf2-1mcax): rather than `pr-str` over the tree, this consumes
+  the pre-computed Phase-3 annotated diff and routes it through the
+  perspective-aware renderer (`hydration-pane-render/render-pane`). The
+  pane shows structural diff annotations from `side`'s POV — server-
+  only nodes red on the server pane / `[absent]` on the client pane;
+  client-only nodes mirror; shared elements surface their attr deltas
+  inline.
+
+  `chips` is the bisector chip list (rendered in the header); `annotated`
+  is the diff node from `hiccup/diff-hiccup-node`; `mismatch-id` enters
+  the surface key so per-pane expand state is per-selection."
+  [{:keys [side annotated chips divergent-path mismatch-id]}]
+  (let [surface (str "hydration/" (pr-str mismatch-id))]
+    [:section {:data-testid (str "rf-causa-hydration-tree-pane-" (name side))
+               :style       {:flex   1
+                             :min-width 0
+                             :background (:bg-2 tokens)
+                             :border-right (when (= side :server)
+                                             (str "1px solid " (:border-default tokens)))
+                             :overflow "auto"}}
+     [:header {:style {:padding "8px 12px"
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :font-family sans-stack
+                       :font-size "12px"
+                       :font-weight 600
+                       :color (:text-secondary tokens)
+                       :display "flex"
+                       :align-items "baseline"
+                       :gap "8px"
+                       :flex-wrap "wrap"}}
+      [:span {:data-testid (str "rf-causa-hydration-pane-label-" (name side))}
+       (str (name side) " render")]
+      (into [:span {:style {:margin-left "8px"}}]
+            (map (fn [chip]
+                   (hash-chip chip (= (:path chip) divergent-path)))
+                 chips))]
+     [:div {:data-testid (str "rf-causa-hydration-tree-content-" (name side))}
+      (pane-render/render-pane annotated side surface)]]))
 
 (defn- divergent-marker
   "Per spec §Layout the divergent node is flagged with `⚠`. Rendered
@@ -315,15 +339,65 @@
                             :title "Source-coord fallback — exact view coord unavailable; using handler coord."}}
              "(?)"])])])))
 
+;; ---- first-divergent header (Phase 4) -----------------------------------
+
+(defn- first-divergent-header
+  "Phase 4 (rf2-1mcax) — surface the path to the first divergent node
+  as a single line at the top of the drilldown. Uses the bisector path
+  computed by the projection plus the (possibly re-rooted) server tree
+  to render readable tag segments."
+  [{:keys [tree bisector-path view-id]}]
+  [:div {:data-testid "rf-causa-hydration-first-divergent-header"
+         :style       {:padding       "6px 12px"
+                       :background    (:bg-3 tokens)
+                       :border-bottom (str "1px solid "
+                                           (:border-default tokens))
+                       :font-family   sans-stack
+                       :font-size     "12px"
+                       :color         (:text-primary tokens)
+                       :display       "flex"
+                       :align-items   "baseline"
+                       :gap           "8px"
+                       :flex-wrap     "wrap"}}
+   [:span {:style {:color (:cyan tokens)
+                   :font-family mono-stack
+                   :font-size "11px"
+                   :text-transform "uppercase"}}
+    "first divergent"]
+   [:code {:data-testid "rf-causa-hydration-first-divergent-path"
+           :style       {:color       (:accent-violet tokens)
+                         :font-family mono-stack
+                         :font-size   "12px"}}
+    (h/first-divergent-header-text tree bisector-path)]
+   (when view-id
+     [:span {:style {:margin-left "auto"
+                     :color (:text-tertiary tokens)
+                     :font-size "11px"}}
+      "in "
+      [:code {:style {:color (:cyan tokens)
+                      :font-family mono-stack}}
+       (str view-id)]])])
+
 ;; ---- mismatch detail composite view -------------------------------------
 
 (defn- mismatch-detail
   "Per spec §Layout — the side-by-side server / client render-tree
-  view with the bisector path highlighted + the hypothesis below."
-  [{:keys [detail source-coord re-root-path] :as _data}]
+  view with the bisector path highlighted + the hypothesis below.
+
+  Phase 4 (rf2-1mcax): runs the Phase 3 hiccup-diff micro-engine once
+  over the (possibly re-rooted) server vs client subtrees, then routes
+  the annotated tree through the per-pane renderer. Each pane sees the
+  same diff but flips `:added` / `:removed` semantics so the eye reads
+  'this side has this, the other side does not'.
+
+  The hiccup-diff opts (e.g. `:highlight-fn-ref-changes?`) come from
+  the shared `:rf.causa/diff-opts` sub — same source the Views panel
+  uses for its drilldown diff. The two panels now share the same
+  toggle state."
+  [{:keys [detail source-coord re-root-path diff-opts] :as _data}]
   (let [{:keys [server-tree client-tree
                 server-chips client-chips
-                bisector-path view-id]} detail
+                bisector-path view-id id]} detail
         ;; If the user has re-rooted (clicked a hash chip), apply the
         ;; re-root to both trees; otherwise render the full subtree.
         server-tree' (if (seq re-root-path)
@@ -331,12 +405,19 @@
                        server-tree)
         client-tree' (if (seq re-root-path)
                        (h/re-root client-tree re-root-path)
-                       client-tree)]
+                       client-tree)
+        ;; Phase 4 — run the diff once; render twice (one perspective
+        ;; per pane). The opts map flows through `classify-prop`'s
+        ;; opaque-fn rule per Phase 3 §4.5.
+        annotated    (hd/diff-hiccup-node server-tree' client-tree' (or diff-opts {}))]
     [:div {:data-testid "rf-causa-hydration-mismatch-detail"
            :style       {:flex          1
                          :display       "flex"
                          :flex-direction "column"
                          :overflow      "hidden"}}
+     (first-divergent-header {:tree          server-tree'
+                              :bisector-path bisector-path
+                              :view-id       view-id})
      (hypothesis-row detail)
      (source-coord-row source-coord view-id)
      (divergent-marker)
@@ -345,15 +426,15 @@
                     :flex-direction "row"
                     :overflow "hidden"}}
       (tree-pane {:side           :server
-                  :label          "server render"
-                  :tree           server-tree'
+                  :annotated      annotated
                   :chips          server-chips
-                  :divergent-path bisector-path})
+                  :divergent-path bisector-path
+                  :mismatch-id    id})
       (tree-pane {:side           :client
-                  :label          "client render"
-                  :tree           client-tree'
+                  :annotated      annotated
                   :chips          client-chips
-                  :divergent-path bisector-path})]]))
+                  :divergent-path bisector-path
+                  :mismatch-id    id})]]))
 
 ;; ---- public view --------------------------------------------------------
 
@@ -373,7 +454,12 @@
                 selected-mismatch-id detail
                 source-coord re-root-path target-frame]
          :as data}
-        @(rf/subscribe [:rf.causa/hydration-debugger-data])]
+        @(rf/subscribe [:rf.causa/hydration-debugger-data])
+        ;; Phase 4 (rf2-1mcax) — same diff-opts sub the Views panel
+        ;; uses. The two panels share the `:highlight-fn-ref-changes?`
+        ;; toggle from Settings → Diff so users get one mental model
+        ;; for opaque-prop rendering across the tool.
+        diff-opts @(rf/subscribe [:rf.causa/diff-opts])]
     [:section {:data-testid "rf-causa-hydration-debugger"
                :style       {:height         "100%"
                              :display        "flex"
@@ -406,7 +492,8 @@
         (mismatch-list mismatch-summary selected-mismatch-id)
         (mismatch-detail {:detail        detail
                           :source-coord  source-coord
-                          :re-root-path  re-root-path})]
+                          :re-root-path  re-root-path
+                          :diff-opts     diff-opts})]
 
        has-mismatch?
        ;; Edge case — mismatches exist but no detail (selection
