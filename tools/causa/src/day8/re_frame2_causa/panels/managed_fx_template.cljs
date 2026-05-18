@@ -46,46 +46,14 @@
             [day8.re-frame2-causa.chart.timing-waterfall :as waterfall]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.theme.section :as section]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]))
 
-;; ---- section header (collapsible) --------------------------------------
-
-(defn- section-header
-  "One row above a section's body — `▼ SECTION TITLE`. Pure visual;
-  collapse-toggle wires through the `:rf.causa.managed-fx/section-state`
-  sub when the panel adds per-record persistence (follow-on)."
-  [{:keys [label expanded? testid]}]
-  [:div {:data-testid testid
-         :style       {:display       "flex"
-                       :align-items   "center"
-                       :gap           "6px"
-                       :padding       "4px 0"
-                       :font-family   sans-stack
-                       :font-size     "11px"
-                       :font-weight   600
-                       :letter-spacing "0.6px"
-                       :text-transform "uppercase"
-                       :color         (:text-secondary tokens)}}
-   [:span {:style {:color (:text-tertiary tokens)
-                   :font-family mono-stack}}
-    (if expanded? "▼" "▶")]
-   label])
-
-(defn- section
-  [{:keys [label expanded? testid]} body]
-  [:div {:data-testid testid
-         :style       {:padding "8px 0"
-                       :border-bottom (str "1px dotted " (:border-subtle tokens))}}
-   (section-header {:label label
-                    :expanded? expanded?
-                    :testid (str testid "-header")})
-   (when expanded?
-     [:div {:data-testid (str testid "-body")
-            :style       {:padding "6px 0 0 18px"
-                          :font-family mono-stack
-                          :font-size "12px"
-                          :color (:text-primary tokens)}}
-      body])])
+;; Section rhythm hoisted to `theme/section.cljc` per rf2-pie8q —
+;; identical visual contract is shared with `panels/event_detail`.
+;; This panel passes `:container-padding "8px 0"` so the section sits
+;; flush against the record-panel's surrounding `padding "8px 12px"`
+;; outer wrapper (added below in `record-panel`).
 
 ;; ---- panel header ------------------------------------------------------
 
@@ -359,21 +327,31 @@
                            :background    (:bg-2 tokens)}}
    (panel-header record)
    [:div {:style {:padding "8px 12px"}}
-    (section {:label "REQUEST" :expanded? false
-              :testid (str "rf-causa-managed-fx-section-request")}
-             (request-section record))
-    (section {:label "WIRE TIMING" :expanded? true
-              :testid (str "rf-causa-managed-fx-section-wire")}
-             (wire-section record))
-    (section {:label "RESPONSE" :expanded? false
-              :testid (str "rf-causa-managed-fx-section-response")}
-             (response-section record))
-    (section {:label "HANDLER DISPATCHED" :expanded? false
-              :testid (str "rf-causa-managed-fx-section-handler")}
-             (handler-section record))
-    (section {:label "APP-DB SLICE TOUCHED" :expanded? true
-              :testid (str "rf-causa-managed-fx-section-app-db")}
-             (app-db-slice-section record))]])
+    (section/section-row
+      {:label "REQUEST" :expanded? false
+       :testid "rf-causa-managed-fx-section-request"
+       :container-padding "8px 0"}
+      (request-section record))
+    (section/section-row
+      {:label "WIRE TIMING" :expanded? true
+       :testid "rf-causa-managed-fx-section-wire"
+       :container-padding "8px 0"}
+      (wire-section record))
+    (section/section-row
+      {:label "RESPONSE" :expanded? false
+       :testid "rf-causa-managed-fx-section-response"
+       :container-padding "8px 0"}
+      (response-section record))
+    (section/section-row
+      {:label "HANDLER DISPATCHED" :expanded? false
+       :testid "rf-causa-managed-fx-section-handler"
+       :container-padding "8px 0"}
+      (handler-section record))
+    (section/section-row
+      {:label "APP-DB SLICE TOUCHED" :expanded? true
+       :testid "rf-causa-managed-fx-section-app-db"
+       :container-padding "8px 0"}
+      (app-db-slice-section record))]])
 
 ;; ---- list panel --------------------------------------------------------
 
