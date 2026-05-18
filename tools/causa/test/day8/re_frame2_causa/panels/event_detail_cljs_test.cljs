@@ -142,29 +142,32 @@
             node))
         (hiccup-seq tree)))
 
-;; ---- (1) empty state: cascade list --------------------------------------
+;; ---- (1) initial state: LIVE auto-focuses head (rf2-s0s5x Phase A) ------
+;;
+;; Pre-rf2-s0s5x the panel landed on a cascade-list 'empty state' until
+;; the user clicked a row. Phase A makes the panel spine-driven —
+;; `:rf.causa/event-detail` reads its `:selected-dispatch-id` off the
+;; spine `:rf.causa/focus` sub. With no stored focus, the spine
+;; composer returns LIVE + head; the panel renders the head cascade's
+;; detail. The cascade-list landing page only renders when the buffer
+;; is empty (no head to focus on).
 
-(deftest empty-state-renders-cascade-list
-  (testing "with cascades in the buffer but no selection, the panel
-            renders the cascade list"
+(deftest live-focus-renders-head-cascade-detail
+  (testing "with cascades in the buffer + no explicit selection, the
+            spine LIVE-tracks head and the panel renders the head
+            cascade's detail (rf2-s0s5x Phase A)"
     (seed-buffer! (concat (cascade-evs 100 [:user/login {:id 42}] 0)
                           (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container present")
-        (is (some? (find-by-testid tree "rf-causa-cascade-list"))
-            "cascade list container present")
-        (is (some? (find-by-testid tree "rf-causa-cascade-row-100"))
-            "cascade 100 has a clickable row")
-        (is (some? (find-by-testid tree "rf-causa-cascade-row-200"))
-            "cascade 200 has a clickable row")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail container absent when no selection")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail container renders for the head cascade")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
+            "no empty-state container when there's a head to focus on")))))
 
 (deftest empty-state-renders-with-no-cascades
   (testing "with an empty buffer + no selection the panel still
-            renders the empty-state container"
+            renders the empty-state container — no head to focus on"
     (seed-buffer! [])
     (rf/with-frame :rf/causa
       (let [tree (event-detail/Panel)]
@@ -244,17 +247,21 @@
       (is (nil? (:selected-dispatch-id default-db))
           "selection did NOT leak into :rf/default"))))
 
-(deftest clear-selected-dispatch-id-returns-to-empty-state
-  (testing "after select + clear the panel renders the empty state"
+(deftest clear-selected-dispatch-id-snaps-to-live-head
+  (testing "after select + clear the panel snaps back to LIVE
+            head-tracking (rf2-s0s5x Phase A). Clearing the
+            selection means 'resume following the live stream' —
+            the spine resets to :live and the panel renders the
+            head cascade's detail."
     (seed-buffer! (cascade-evs 100 [:user/login {:id 42}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (rf/dispatch-sync [:rf.causa/clear-selected-dispatch-id])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container present after clear")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail container absent after clear")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "head cascade's detail renders after clear (LIVE auto-tracks head)")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-empty"))
+            "no empty-state container — LIVE is focused on the head cascade")))))
 
 ;; ---- (4) defaults / wiring ----------------------------------------------
 
@@ -522,3 +529,95 @@
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-medium")))
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-slow")))
         (is (nil? (find-by-testid tree "rf-causa-event-detail-tier-dot-blocking")))))))
+
+;; ---- (7) EFFECTS row — non-lying empty state (rf2-s0s5x Phase A) -------
+;;
+;; Per the bead's Bug 1: the EFFECTS row previously showed `(none)` on
+;; cascades whose handler returned only `:db` — `:event/db-changed`
+;; lives in the projection's `:other` bucket (no `:op-type :fx` is
+;; emitted for the framework-driven `:db` commit), so the row's
+;; `(empty? effects)` branch fired even though the user clearly saw
+;; the state change. The fix folds `:event/db-changed` in as a virtual
+;; `:db` entry alongside the standard fx-handled traces; the row now
+;; shows `(none)` only when neither signal is present (true silence).
+
+(defn- cascade-evs-db-only
+  "Pure-db cascade — like `cascade-evs` but instead of the two
+  `:rf.fx/handled` rows it emits one `:event/db-changed` so the
+  projection bucketises `:effects` as empty AND surfaces the db
+  commit in `:other`. Mirrors what `reg-event-db` produces in
+  production (the cart-total testbed's `:cart/add-item` is the
+  canonical repro)."
+  [dispatch-id event-vec id-base]
+  [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
+    :tags {:dispatch-id dispatch-id :event event-vec}}
+   {:id (+ id-base 2) :op-type :event :operation :event
+    :tags {:dispatch-id dispatch-id :phase :run-end}}
+   {:id (+ id-base 3) :op-type :event :operation :event/db-changed
+    :tags {:dispatch-id dispatch-id :event-id (first event-vec)}}
+   {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+    :tags {:dispatch-id dispatch-id}}])
+
+(deftest effects-row-renders-db-when-db-changed-emitted
+  (testing "rf2-s0s5x Phase A — a reg-event-db cascade emits
+            `:event/db-changed` but no `:rf.fx/handled`; the EFFECTS
+            row surfaces a virtual `:db` entry so the panel doesn't
+            lie with `(none)` when the cascade committed a `:db`
+            effect"
+    (seed-buffer! (cascade-evs-db-only 400 [:counter/inc] 400))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 400])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects"))
+            "EFFECTS row renders the entries list, not the (none) span")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-db"))
+            "db row carries a stable testid")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-none"))
+            "no (none) caption when an effect was committed")))))
+
+(deftest effects-row-renders-fx-entries-when-handled
+  (testing "an fx-bearing cascade emits one `:rf.fx/handled` per fx
+            handler invocation; the EFFECTS row lists each by fx-id +
+            operation. Same fixture as `cascade-detail-renders-six-
+            dominoes` — two :rf.fx/handled entries (`:fx-id :db` and
+            `:fx-id :dispatch`)."
+    (seed-buffer! (cascade-evs 401 [:counter/inc] 400))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 401])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects")))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-db"))
+            "fx-id :db row present (from the cascade-evs fixture)")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-row-dispatch"))
+            "fx-id :dispatch row present")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects-none")))))))
+
+(deftest effects-row-shows-none-when-truly-empty
+  (testing "a cascade with no fx-handled traces AND no db-changed
+            trace renders `(none)` — the empty-state is only a lie
+            when there's actual cascade work; the silent path stays
+            silent."
+    (seed-buffer! [{:id 1 :op-type :event :operation :event/dispatched
+                    :tags {:dispatch-id 500 :event [:noop]}}
+                   {:id 2 :op-type :event :operation :event
+                    :tags {:dispatch-id 500 :phase :run-end}}
+                   {:id 3 :op-type :event :operation :event/do-fx
+                    :tags {:dispatch-id 500}}])
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 500])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-effects-none"))
+            "(none) caption renders for a truly empty cascade")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-effects")))))))
+
+(deftest effects-entries-orders-db-first
+  (testing "the entries fn surfaces db before fx-vector entries —
+            matches the runtime ordering (db commit precedes the fx
+            walk per Spec 002 §Drain-loop pseudocode)"
+    (let [cascade {:effects [{:id 5 :op-type :fx :operation :rf.fx/handled
+                              :tags {:fx-id :dispatch}}]
+                   :other   [{:id 3 :op-type :event :operation :event/db-changed
+                              :tags {}}]}
+          entries (event-detail/effects-entries cascade)]
+      (is (= [:db :dispatch] (mapv :fx-id entries))
+          "db row first (cascade order), then fx vector entries"))))

@@ -64,10 +64,27 @@
 
 (defn cascade-by-id
   "Find a cascade in `cascades` by its `:dispatch-id`. Returns nil when
-  no match (id refers to an evicted cascade, or a fresh session)."
-  [cascades dispatch-id]
-  (when dispatch-id
-    (some #(when (= dispatch-id (:dispatch-id %)) %) cascades)))
+  no match (id refers to an evicted cascade, or a fresh session).
+
+  The 3-arity prefers a cascade matching `:frame` when supplied —
+  multiple cascades can share a dispatch-id across frames (Spec 002
+  §Frame isolation + rf2-g6ih4: dispatch-id uniqueness is per-frame,
+  not process-global). When no frame-matching cascade exists the
+  lookup falls back to a dispatch-id-only match so a stale stored
+  frame (e.g. a user-frame the cascade was re-emitted from) doesn't
+  hide an otherwise-valid cascade — the cascade's own `:frame` is
+  treated as authoritative."
+  ([cascades dispatch-id]
+   (cascade-by-id cascades dispatch-id nil))
+  ([cascades dispatch-id frame-id]
+   (when dispatch-id
+     (or (when frame-id
+           (some #(when (and (= dispatch-id (:dispatch-id %))
+                             (= frame-id (:frame %)))
+                    %)
+                 cascades))
+         (some #(when (= dispatch-id (:dispatch-id %)) %)
+               cascades)))))
 
 (defn step-dispatch-id
   "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
@@ -98,20 +115,60 @@
 
   In `:live` mode an unset (or evicted) dispatch-id snaps to head so
   a fresh session opens already pointing at the latest cascade per
-  §4 Defaults."
+  §4 Defaults.
+
+  ## Live auto-follow (rf2-s0s5x Phase A)
+
+  In `:live` mode the effective `:dispatch-id` is ALWAYS the current
+  head — even when a stored `slot-id` exists and is still in the
+  buffer. Previously the composer honoured the stored slot-id once it
+  was set (so `focus-step-reducer` landing on the then-head left
+  `:dispatch-id` pinned to that id even after newer cascades arrived);
+  the user observed focus 'stuck' even though the LIVE pill said it
+  was tracking. Spec/018 §3 says the LIVE pill auto-tracks head; this
+  composer is the canonical site that derives that behaviour.
+
+  `:paused?` suspends the auto-track — when paused, the focus stays
+  on the stored slot-id so the user can inspect a cascade without
+  losing it as new traffic arrives. Resuming (`follow-head` /
+  `toggle-live-pause`) snaps back to head."
   [focus cascades]
-  (let [head-id (head-dispatch-id cascades)
-        slot-id (:dispatch-id focus)
-        mode    (or (:mode focus)
-                    (if (or (nil? slot-id) (= slot-id head-id))
-                      :live
-                      :retro))
-        eff-id  (if (and (= :live mode)
-                         (or (nil? slot-id)
-                             (nil? (cascade-by-id cascades slot-id))))
+  (let [head-id    (head-dispatch-id cascades)
+        slot-id    (:dispatch-id focus)
+        slot-frame (:frame focus)
+        paused?    (boolean (:paused? focus))
+        mode       (or (:mode focus)
+                       (if (or (nil? slot-id) (= slot-id head-id))
+                         :live
+                         :retro))
+        eff-id  (cond
+                  ;; Live + unpaused — track head, regardless of slot-id.
+                  ;; This is the rf2-s0s5x Phase A change: previously the
+                  ;; stored slot-id won here, so once `focus-step-reducer`
+                  ;; landed on head the slot pinned to that id and never
+                  ;; auto-advanced as newer cascades arrived. Pre-alpha
+                  ;; the LIVE pill's contract is unambiguous — head IS
+                  ;; the focus.
+                  (and (= :live mode) (not paused?))
                   head-id
+                  ;; Live but paused — slot-id wins (frozen inspection);
+                  ;; if the stored id has been evicted from the buffer,
+                  ;; snap to head so the inspector doesn't dangle on a
+                  ;; nonexistent cascade.
+                  (and (= :live mode) paused?)
+                  (if (cascade-by-id cascades slot-id slot-frame) slot-id head-id)
+                  ;; Retro — slot-id wins UNCONDITIONALLY (even when
+                  ;; evicted). The event-detail panel's orphaned-state
+                  ;; branch surfaces "this id is no longer in the
+                  ;; buffer" copy off the evicted slot-id; auto-snapping
+                  ;; to head in retro would hide that signal. Empty
+                  ;; slot-id (initial state) does snap to head per §4
+                  ;; Defaults.
+                  (nil? slot-id)
+                  head-id
+                  :else
                   slot-id)
-        cascade (cascade-by-id cascades eff-id)]
+        cascade (cascade-by-id cascades eff-id slot-frame)]
     {:dispatch-id eff-id
      :epoch-id    (:epoch-id focus)
      :frame       (or (:frame cascade) (:frame focus))
@@ -119,7 +176,7 @@
      :head?       (or (nil? eff-id)
                       (= eff-id head-id))
      :previewing? (boolean (:previewing? focus))
-     :paused?     (boolean (:paused? focus))}))
+     :paused?     paused?}))
 
 ;; ---- pure reducers exposed for direct unit testing ----------------------
 
@@ -146,10 +203,15 @@
   the `:dispatch-id` through the cascade vector by `delta` (-1 or
   +1), updates the legacy shim slot, and flips mode based on the
   step's outcome — stepping back from head → :retro; stepping
-  forward back to head → :live (the user has scrubbed home)."
+  forward back to head → :live (the user has scrubbed home).
+
+  Per rf2-s0s5x Phase A — `compose-focus` now treats `:live` mode as
+  always tracking head, so the stored slot-id can lag the actual
+  focused cascade. Compute `current-id` through the same composer so
+  pressing `j` (prev) from LIVE steps back one from the CURRENT head
+  rather than from a stale stored id."
   [db cascades delta]
-  (let [current-id (or (get-in db [:focus :dispatch-id])
-                       (:selected-dispatch-id db))
+  (let [current-id (:dispatch-id (compose-focus (get db :focus) cascades))
         new-id     (step-dispatch-id cascades current-id delta)
         head-id    (head-dispatch-id cascades)
         new-mode   (if (= new-id head-id) :live :retro)
