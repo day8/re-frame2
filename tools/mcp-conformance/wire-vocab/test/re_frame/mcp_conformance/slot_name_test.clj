@@ -20,7 +20,7 @@
 
   The three vocabularies compose. An agent learns once that:
 
-  - the input arg `:include-sensitive?` opts back in to sensitive
+  - the input arg `:include-sensitive` opts back in to sensitive
     events on any tool surfacing trace-like payloads,
   - the input arg `:max-tokens` overrides the 5,000-token cap on any
     tool,
@@ -41,10 +41,14 @@
 
   ## What this test guards
 
-  1. **Tool-arg slot-name parity** — `:include-sensitive?` /
+  1. **Tool-arg slot-name parity** — `:include-sensitive` /
      `:max-tokens` literals appear as INPUT-arg keys in every server's
      descriptor source and arg-parsing source. A rename on any server
-     trips this gate.
+     trips this gate. The wire-key drops the trailing `?` (per rf2-y710n)
+     because Anthropic's tool-input-schema regex
+     `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`; the predicate FUNCTION name
+     `include-sensitive?` keeps its `?` — the idiom belongs on the
+     predicate, not on a data key whose wire form disallows it.
   2. **No near-miss variants** — snake_case / pluralised / quoted
      forms (`:include_sensitive`, `:max_tokens`, `\"includeSensitive\"`)
      don't appear in any server's tool source.
@@ -107,12 +111,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private canonical-slots
-  [{:slot     :include-sensitive?
+  [{:slot     :include-sensitive
     :role     :opt-in-boolean
     :servers  #{:pair2-mcp :story-mcp}
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
-               ;; story-mcp's `:include-sensitive?` parsing lives in
+               ;; story-mcp's `:include-sensitive` parsing lives in
                ;; `helpers.cljc` (rf2-73wuj — the cross-MCP `args/parse-
                ;; boolean` reader) and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
@@ -121,7 +125,13 @@
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
-               default-drop on `:sensitive? true` items. Default false."}
+               default-drop on `:sensitive? true` items. Default false.
+               Wire-key has no trailing `?` (per rf2-y710n) because the
+               Anthropic tools/input_schema regex
+               `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. The predicate FUNCTION
+               name `include-sensitive?` (e.g. `helpers/include-sensitive?`)
+               keeps the `?` — the idiom belongs on predicate fns, not on
+               a data key whose wire form disallows it."}
 
    {:slot     :max-tokens
     :role     :override-integer
@@ -169,12 +179,14 @@
   here breaks every server in lockstep — which is the right
   invariant. The slot keys in this set are the NAMESPACED framework
   forms (`:rf.size/include-large?` /
-  `:rf.size/include-sensitive?` — the walker opts) PLUS the
-  unqualified MCP-surface forms (`:include-sensitive?` —
-  inferred from the docstrings in vocab.cljc)."
+  `:rf.size/include-sensitive?` — the walker opts; these are internal
+  framework keys, NOT wire keys, so they retain the predicate `?`)
+  PLUS the unqualified MCP-surface form (`:include-sensitive` — no
+  `?` because the wire-key MUST omit `?` per Anthropic's tool input
+  schema regex `^[a-zA-Z0-9_.-]{1,64}$`; rf2-y710n)."
   #{":rf.size/include-large?"
     ":rf.size/include-sensitive?"
-    ":include-sensitive?"})
+    ":include-sensitive"})
 
 ;; ---------------------------------------------------------------------------
 ;; Argument-role schema gate. Each role pins a Malli shape — a
@@ -185,7 +197,7 @@
 
 (def ^:private OptInBoolean
   "A boolean-typed input arg payload."
-  [:map {:closed false} [:include-sensitive? :boolean]])
+  [:map {:closed false} [:include-sensitive :boolean]])
 
 (def ^:private OverrideInteger
   "An integer-typed input arg payload — non-negative because `0` is
@@ -202,8 +214,8 @@
   role's canonical schema. Drift in the role contract (e.g. a server
   silently accepting `:max-tokens \"5000\"` as a string) is caught
   upstream — these fixtures pin the AGENT-FACING canonical shape."
-  {:opt-in-boolean   [{:include-sensitive? true}
-                      {:include-sensitive? false}]
+  {:opt-in-boolean   [{:include-sensitive true}
+                      {:include-sensitive false}]
    :override-integer [{:max-tokens 5000}
                       {:max-tokens 0}                       ; cap disabled
                       {:max-tokens 1}                       ; tight cap
@@ -216,12 +228,12 @@
 ;; Each variant is matched with a regex that compiles a trailing
 ;; negative-lookahead so we only match the variant when it's NOT
 ;; immediately followed by a keyword-extender character. Plain
-;; `str/includes?` on a substring would false-positive: the variant
-;; `:include-sensitive` is technically a substring of the canonical
-;; `:include-sensitive?`, so a naive check would always trip even in
-;; a clean codebase. The regex form pins the variant as a full
-;; keyword token — followed by whitespace, paren, brace, colon, comma,
-;; etc — anything that isn't a keyword-extender.
+;; `str/includes?` on a substring would false-positive: e.g. the
+;; variant `:max-tokens` is technically a substring of `:max-tokens-arg`
+;; or `:max-tokens?`, so a naive check would trip even in a clean
+;; codebase. The regex form pins the variant as a full keyword token —
+;; followed by whitespace, paren, brace, colon, comma, etc — anything
+;; that isn't a keyword-extender.
 ;; ---------------------------------------------------------------------------
 
 ;; `variant-regex` lives in `re-frame.mcp-conformance.fixtures`
@@ -312,7 +324,7 @@
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"
                      "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"]
-         ;; story-mcp's `:include-sensitive?` parsing / schema lives in
+         ;; story-mcp's `:include-sensitive` parsing / schema lives in
          ;; `helpers.cljc` + `schemas.cljc` (no `sensitive.cljc` —
          ;; that's pair2-mcp's shape). The other entries below are the
          ;; full tools/ surface, covered for near-miss-variant defence.
