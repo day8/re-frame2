@@ -69,6 +69,11 @@ const SPEC_ROOTS = [
   path.join(REPO_ROOT, 'examples'),
   path.join(REPO_ROOT, 'tools'),
   path.join(REPO_ROOT, 'testbeds'),
+  // rf2-eceuv — per-adapter testbeds live with their adapter under
+  // implementation/adapters/<name>/testbed/. Each carries its own
+  // spec.cjs (one per adapter); the orchestrator stages each bundle
+  // under /adapter-testbeds/<name>/ on the static server.
+  path.join(REPO_ROOT, 'implementation', 'adapters'),
 ];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 const { isVerboseTests } = require(path.join(

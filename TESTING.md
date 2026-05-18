@@ -25,6 +25,27 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
 
+## Test surface ownership
+
+Each surface in this repo has one owner and one purpose. Don't overload
+examples with internal canaries; don't grow per-example smoke specs
+where adapter / framework gates already carry the signal (rf2-eceuv).
+
+| Surface | Audience | Carries smoke? |
+|---|---|---|
+| `examples/` | **Humans** — learning + demonstration. | **No.** Per-example smoke specs are intentionally absent. |
+| `implementation/adapters/<name>/testbed/` | Per-adapter smoke. One tiny standalone counter per adapter (Reagent / UIx / Helix). Proves the adapter wires up end-to-end (mount, subscribe, dispatch, re-render). | Yes — one `spec.cjs` per adapter. |
+| `testbeds/` (top-level) | Framework feature-matrix substrates. Cross-cutting fixtures consumed by multiple tools (Causa, Story, pair2-mcp). | Yes — per-testbed `spec.cjs` driving the matrix. |
+| `tools/causa/testbeds/` | Causa-rich demos (multi-frame, cart-total, panel gallery). | Yes — Causa-owned scenarios. |
+| `tools/story/testbeds/` | Story testbeds (counter-with-stories, login-form). | Yes — Story-owned scenarios. |
+| Framework tests (`clojure -M:test` per artefact) | The spec is the artefact; these protect contracts. | N/A (unit, not smoke). |
+| Causa feature-matrix gate (`test:causa-feature-gate`) | 13 scenarios across the matrix. | N/A (feature-gate, not smoke). |
+
+Real bugs land in framework contracts + adapter wire-up + Causa lens
+behaviour, not in "this example mounted + clicked." Coverage value
+lives in the framework + feature-matrix gates + per-adapter smoke.
+Don't grow example-level specs.
+
 ## How we manage the cost
 
 The cost-management shape is simple:
