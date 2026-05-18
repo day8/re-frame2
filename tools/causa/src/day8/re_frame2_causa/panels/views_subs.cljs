@@ -20,21 +20,23 @@
 
 (defn- find-cascade-index
   "Walk `epoch-history` (a vector of epoch records) and return the
-  index of the record whose `:event-id` / cascade discriminator
-  matches `dispatch-id`. The spine carries `:dispatch-id`; the epoch
-  record carries `:event-id` per Spec-Schemas — Tool-Pair's time-
-  travel slot is keyed on event-id, but per spec/018 §6 the
-  user-facing 'cascade id' the spine pins is the cascade's root
-  dispatch-id. The renderer needs both signals to align — we look
-  for either match (`:event-id` first, then `:trigger-event` head)
-  so the projection works against both the live cascade list and
-  legacy epoch records that key on event-id alone."
-  [epoch-history dispatch-id]
-  (when (and dispatch-id (seq epoch-history))
+  index of the record whose `:epoch-id` matches `epoch-id`.
+
+  Per spec/018 §6 Spine events the spine sub `:rf.causa/focus`
+  carries `:epoch-id` (the per-frame primary key into the epoch ring
+  buffer) alongside `:dispatch-id`. The spine resolves the linkage
+  for us via `epoch-id-for-cascade` (`spine.cljs`); panels just look
+  up by `:epoch-id` directly — there is no second-level join needed
+  here. This is the spec-canonical lookup.
+
+  Returns nil when the focus has no resolved `:epoch-id` (cold start,
+  ungrouped frame, mid-build cascade) or when the matching epoch has
+  been evicted from the ring buffer — the composite then falls back
+  to head so the panel stays useful."
+  [epoch-history epoch-id]
+  (when (and epoch-id (seq epoch-history))
     (some (fn [[idx record]]
-            (when (or (= dispatch-id (:event-id record))
-                      (= dispatch-id (:dispatch-id record))
-                      (= dispatch-id (first (:trigger-event record))))
+            (when (= epoch-id (:epoch-id record))
               idx))
           (map-indexed vector epoch-history))))
 
@@ -73,8 +75,9 @@
     :<- [:rf.causa/epoch-history]
     (fn [[focus history] _query]
       (let [history (vec history)
-            idx     (or (find-cascade-index history (:dispatch-id focus))
-                        ;; LIVE / no explicit focus → fall back to head.
+            idx     (or (find-cascade-index history (:epoch-id focus))
+                        ;; LIVE / no explicit focus (or evicted from ring)
+                        ;; → fall back to head.
                         (when (seq history) (dec (count history))))
             current (when idx (nth history idx nil))
             prior   (when (and idx (pos? idx)) (nth history (dec idx) nil))]
