@@ -21,7 +21,7 @@
 (def include-sensitive-schema
   "Recurring fragment — every tool that surfaces a live `:app-db`
   slice or assertion accumulator accepts the cross-MCP
-  `:include-sensitive?` opt-in (rf2-73wuj). Default false:
+  `:include-sensitive` opt-in (rf2-73wuj). Default false:
   declared-sensitive paths land `:rf/redacted` via `elide-wire-value`,
   and assertion records stamped `:sensitive? true` are dropped via
   `strip-sensitive`. Pass true to forward the raw values; per the
@@ -31,7 +31,15 @@
   `--allow-sensitive-reads` (rf2-g9fje). When that operator-only gate
   is closed, the slot is omitted from `tools/list` advertisements (so
   agents don't even see it) and any caller-supplied value is silently
-  ignored at egress."
+  ignored at egress.
+
+  Wire-key shape: the property key is `:include-sensitive` (no `?`).
+  The Anthropic Messages API constrains tool input-schema property
+  keys to `^[a-zA-Z0-9_.-]{1,64}$` — the trailing `?` Clojure-idiomatic
+  for booleans is rejected at the host, so the wire form drops it. The
+  predicate FUNCTION `helpers/include-sensitive?` retains the `?` (the
+  Clojure idiom belongs on the predicate, not on the data key whose
+  wire form disallows it)."
   {:type "boolean"
    :description (str "Opt in to forwarding sensitive `:app-db` slots and "
                      "assertion records. Default false (declared-sensitive paths "
@@ -47,7 +55,7 @@
   (assoc props :max-tokens max-tokens-schema))
 
 (defn with-include-sensitive
-  "Inject the `:include-sensitive?` slot into a tool's `:properties`
+  "Inject the `:include-sensitive` slot into a tool's `:properties`
   map. Used by tools that surface a live `:app-db` slice or assertion
   accumulator (`preview-variant`, `run-variant`, `read-failures`).
 
@@ -55,6 +63,10 @@
   stripped at `tools/list` time by `registry/tool-descriptors` when the
   server's `--allow-sensitive-reads` gate is closed (rf2-g9fje) — so a
   closed gate hides the opt-in from agents entirely, and an open gate
-  surfaces it verbatim."
+  surfaces it verbatim.
+
+  Wire-key shape: the property key is `:include-sensitive` (no `?`)
+  to satisfy Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` constraint on tool
+  input-schema property keys; see `include-sensitive-schema`."
   [props]
-  (assoc props :include-sensitive? include-sensitive-schema))
+  (assoc props :include-sensitive include-sensitive-schema))

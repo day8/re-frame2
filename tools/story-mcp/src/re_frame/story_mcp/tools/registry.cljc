@@ -47,7 +47,7 @@
         "tool-registry: every entry must carry positive-integer :typicalTokens")
 
 (defn- strip-include-sensitive
-  "Remove the `:include-sensitive?` slot from a tool's `:inputSchema`
+  "Remove the `:include-sensitive` slot from a tool's `:inputSchema`
   properties. The slot is baked into the descriptor at load time by
   `schemas/with-include-sensitive`; this fn runs at `tools/list` time
   and removes it when the operator-only gate is closed (rf2-g9fje) so
@@ -55,8 +55,8 @@
   to ignore. Idempotent: tools whose schema never carried the slot are
   returned unchanged."
   [schema]
-  (if (contains? (:properties schema) :include-sensitive?)
-    (update schema :properties dissoc :include-sensitive?)
+  (if (contains? (:properties schema) :include-sensitive)
+    (update schema :properties dissoc :include-sensitive)
     schema))
 
 (defn tool-descriptors
@@ -77,11 +77,11 @@
 
   ## Sensitive-read gate (rf2-g9fje)
 
-  The `:include-sensitive?` slot is stripped from every tool's input
+  The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
   three affected tools (`preview-variant`, `run-variant`, `read-failures`)
-  silently ignore caller-supplied `:include-sensitive? true` at the
+  silently ignore caller-supplied `:include-sensitive true` at the
   helper layer regardless, so the descriptor strip is purely a UX
   improvement and a defence-in-depth signal."
   []

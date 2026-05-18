@@ -19,7 +19,7 @@
     or programmatically (tests).
   - `allow-sensitive-reads?` — atom holding the sensitive-read gate. Read
     by the wire-egress scrubbers (`helpers/include-sensitive?`); a `false`
-    value forces redaction regardless of any per-call `:include-sensitive?`
+    value forces redaction regardless of any per-call `:include-sensitive`
     arg. Symmetric with `--allow-eval` in pair2-mcp (rf2-zyoj2): arbitrary
     code execution + raw sensitive-state reads are operator-only opt-ins,
     not caller-controlled toggles.
@@ -124,7 +124,7 @@
 ;; Per the rf2-uaymx (b) decision and rf2-zyoj2's `--allow-eval` precedent,
 ;; raw sensitive-state reads are an operator-only opt-in. The wire-egress
 ;; helpers (`helpers/include-sensitive?`) defer to this atom — when it is
-;; `false` the per-call `:include-sensitive?` arg is silently treated as
+;; `false` the per-call `:include-sensitive` arg is silently treated as
 ;; `false`, so a hostile or careless caller cannot exfiltrate declared-
 ;; sensitive `:app-db` slots / assertion records by flipping a JSON
 ;; boolean. Closed-by-default; opened by `--allow-sensitive-reads` CLI
@@ -133,7 +133,7 @@
 
 (defonce
   ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. Per
-         the rf2-uaymx (b) decision the per-call `:include-sensitive?`
+         the rf2-uaymx (b) decision the per-call `:include-sensitive`
          arg is honoured ONLY when this atom is also `true`. Symmetric
          with `allow-eval?` in pair2-mcp."}
   allow-sensitive-reads?
@@ -149,7 +149,7 @@
 
 (defn sensitive-reads-allowed?
   "True iff raw sensitive-read egress is currently enabled. The wire-
-  egress helpers AND each per-call `:include-sensitive?` arg must both
+  egress helpers AND each per-call `:include-sensitive` arg must both
   be `true` for raw values to cross the wire."
   []
   (boolean @allow-sensitive-reads?))
