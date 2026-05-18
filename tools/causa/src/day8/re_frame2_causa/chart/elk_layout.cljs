@@ -176,8 +176,10 @@
 
 ;; ---- definition → ELK graph (pure) -------------------------------------
 
-(def ^:private default-node-width 140)
-(def ^:private default-node-height 48)
+;; rf2-gz7vi — kept in lock-step with layout/node-width / node-height
+;; so ELK + the layered fallback render at the same physical size.
+(def ^:private default-node-width 120)
+(def ^:private default-node-height 40)
 
 (defn ->elk-graph
   "Project a parsed machine-definition into the ELK JSON graph shape:
