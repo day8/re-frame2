@@ -671,6 +671,24 @@
    :asset-path "."
    :modules    {:main {:init-fn counter-with-stories.core/run}}}
 
+  ;; Causa-as-Story-RHS smoke testbed (rf2-drprn). Minimal Story shell
+  ;; (one story, one variant) with the Causa preload wired, used by
+  ;; tools/story/testbeds/causa_rhs_smoke/spec.cjs to exercise the four
+  ;; Causa-side replacement scenarios for the Story RHS panels retired
+  ;; in PR #1478 (rf2-sgdd3). Lives separately from
+  ;; :examples/counter-with-stories because adding the Causa preload to
+  ;; that build surfaces real embedding collisions (Story <nav> vs
+  ;; Causa <nav> tab bar, Story Ctrl+K vs Causa Ctrl+K palette,
+  ;; getByText('Schema') matching Causa's frame picker option for the
+  ;; schema-invalid variant). Under-featuring this testbed sidesteps
+  ;; all three.
+  :examples/causa-rhs-smoke
+  {:target     :browser
+   :output-dir "out/examples/causa-rhs-smoke"
+   :asset-path "."
+   :modules    {:main {:init-fn causa-rhs-smoke.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
   ;; Login-form testbed (rf2-0sg12) — the Story tutorial's five-state
   ;; login-form scenario as runnable variants. Hash-routed: `#/`
   ;; renders the live login card; `#/stories` mounts the Story shell
