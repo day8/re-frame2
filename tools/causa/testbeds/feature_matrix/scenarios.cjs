@@ -621,35 +621,118 @@ async function setCausaTraceFilter(page, axis, value) {
   }
 }
 
-async function clickTraceRowByFrame(page, { frame, event }) {
-  const result = await page.evaluate(({ targetFrame, targetEvent }) => {
-    const root = document.getElementById('rf-causa-root');
-    if (!root) return { clicked: false, reason: 'Causa root missing', candidates: [] };
-    const rows = Array.from(root.querySelectorAll('[data-testid^="rf-causa-trace-row-"]'));
-    const candidates = rows.map((row) => ({
-      testId: row.getAttribute('data-testid'),
-      text: (row.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240),
-    }));
-    const target = rows.find((row) => {
-      const text = (row.textContent || '').trim();
-      return text.includes(targetFrame) && text.includes(targetEvent);
-    });
-    if (!target) {
+/**
+ * Find the `:dispatch-id` of the bus trace event matching the given
+ * (`frame`, `eventId`) pair (an `:event/dispatched` record) and
+ * dispatch `:rf.causa/focus-cascade` to focus that cascade.
+ *
+ * Replaces the old `clickTraceRowByFrame` helper: post rf2-ycoct the
+ * Trace DOM is cascade-scoped and only renders rows for the currently
+ * focused cascade, so scanning trace rows to "find and click" a
+ * sibling cascade no longer works. The bus buffer is the canonical,
+ * unscoped source of (frame, event) → dispatch-id, and `:rf.causa/
+ * focus-cascade` is the same spine event the L2 event-row click
+ * dispatches — picking a cascade through this helper exercises the
+ * same focus → projection wiring without depending on the cascade-
+ * scoped Trace surface.
+ */
+async function focusCascadeByFrameEvent(page, { frame, eventId }) {
+  const result = await page.evaluate(({ targetFrame, targetEventId }) => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const bus = window.day8 &&
+      window.day8.re_frame2_causa &&
+      window.day8.re_frame2_causa.trace_bus;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || !bus || typeof bus.buffer !== 'function' ||
+        typeof dispatch !== 'function') {
       return {
-        clicked: false,
-        reason: `No trace row matched frame=${targetFrame} event=${targetEvent}`,
+        ok: false,
+        reason: 'cljs.core / trace_bus.buffer / re_frame dispatch unavailable',
+      };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const kFrame      = keyword(':frame');
+    const kEvent      = keyword(':event');
+    const kTags       = keyword(':tags');
+    const kOperation  = keyword(':operation');
+    const kDispatchId = keyword(':dispatch-id');
+    const opDispatched   = keyword(':event/dispatched');
+    const targetFrameKw  = keyword(targetFrame);
+    const targetEventKw  = keyword(targetEventId);
+    // Walk bus buffer; first match wins (events are append-ordered so
+    // this is the originating `:event/dispatched` record). The raw
+    // framework trace puts the dispatched event vector under
+    // `:tags :event`; the event-id is `(first event-vector)`. We do
+    // NOT read `:tags :event-id` — Causa's projection materialises
+    // that field but the trace-bus's stored events do not carry it.
+    let s = cljs.seq(bus.buffer());
+    let match = null;
+    const candidates = [];
+    while (s) {
+      const ev   = cljs.first(s);
+      const op   = cljs.get(ev, kOperation);
+      const tags = cljs.get(ev, kTags);
+      const evFrame    = tags ? cljs.get(tags, kFrame)      : null;
+      const evVec      = tags ? cljs.get(tags, kEvent)      : null;
+      const dispatchId = tags ? cljs.get(tags, kDispatchId) : null;
+      const evEventId  = (evVec != null && cljs.seq(evVec)) ? cljs.first(evVec) : null;
+      if (op && cljs._EQ_(op, opDispatched)) {
+        candidates.push({
+          frame:     evFrame   ? cljs.pr_str(evFrame)   : null,
+          eventId:   evEventId ? cljs.pr_str(evEventId) : null,
+          dispatchId,
+        });
+        if (evFrame && evEventId &&
+            cljs._EQ_(evFrame, targetFrameKw) &&
+            cljs._EQ_(evEventId, targetEventKw)) {
+          match = { frame: evFrame, dispatchId };
+          break;
+        }
+      }
+      s = cljs.next(s);
+    }
+    if (!match) {
+      return {
+        ok: false,
+        reason: `No bus :event/dispatched record matched frame=${targetFrame} event-id=${targetEventId}`,
         candidates: candidates.slice(0, 20),
       };
     }
-    target.click();
+    const event = cljs.PersistentVector.fromArray([
+      keyword(':rf.causa/focus-cascade'),
+      match.dispatchId,
+      match.frame,
+    ], true);
+    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
+    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
+    } else {
+      dispatch(event, opts);
+    }
     return {
-      clicked: true,
-      testId: target.getAttribute('data-testid'),
-      text: (target.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 240),
+      ok: true,
+      frame: targetFrame,
+      eventId: targetEventId,
+      dispatchId: match.dispatchId,
     };
-  }, { targetFrame: frame, targetEvent: event });
-  if (!result.clicked) {
-    failWithDetails('Could not select trace row by frame', { frame, event, observed: result });
+  }, { targetFrame: frame, targetEventId: eventId });
+  if (!result.ok) {
+    failWithDetails('Could not focus cascade by (frame, event-id)', {
+      frame, eventId, observed: result,
+    });
   }
   return result;
 }
@@ -703,19 +786,31 @@ async function pushSyntheticTraceEvents(page, count) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
+    // Post rf2-ycoct: the Trace tab is cascade-scoped — it only
+    // renders rows belonging to the spine's focused cascade. To stress
+    // the per-cascade 200-row DOM budget we push every synthetic event
+    // under a SINGLE shared :dispatch-id so the buffer holds one
+    // focusable cascade containing all `eventCount` rows; LIVE mode
+    // auto-snaps focus to that head cascade and the trace ribbon ends
+    // up trying to render all 1000 — which the DOM budget then caps at
+    // 200 with the overflow indicator. (The earlier shape allocated a
+    // distinct :dispatch-id per event, producing 1000 single-row
+    // cascades; under cascade-scoping only the head cascade — a single
+    // row — would render, missing the budget assertion entirely.)
+    const sharedDispatchId = 500000;
     const now = Date.now();
     for (let i = 0; i < eventCount; i += 1) {
-      const dispatchId = 500000 + i;
+      const eventId = sharedDispatchId + i;
       const tags = cljs.hash_map(
         keyword(':frame'), keyword(':rf/default'),
         keyword(':event-id'), keyword(':causa.synthetic/load'),
         keyword(':event'), cljs.PersistentVector.fromArray([keyword(':causa.synthetic/load'), i], true),
-        keyword(':dispatch-id'), dispatchId,
+        keyword(':dispatch-id'), sharedDispatchId,
         keyword(':origin'), keyword(':app'),
         keyword(':source'), keyword(':synthetic'),
       );
       const ev = cljs.hash_map(
-        keyword(':id'), dispatchId,
+        keyword(':id'), eventId,
         keyword(':time'), now + i,
         keyword(':operation'), keyword(':event/dispatched'),
         keyword(':op-type'), keyword(':info'),
@@ -1143,9 +1238,24 @@ async function runMultiFrame(page, state) {
     (count) => count > 0,
     { timeoutMs: 5000, description: 'multi-frame trace rows' },
   );
-  const selected = await clickTraceRowByFrame(page, {
+  // Post rf2-ycoct: the Trace tab is cascade-scoped — it only renders
+  // rows belonging to the spine's focused cascade. LIVE mode auto-
+  // snaps focus to the head cascade (the most recent dispatch), so
+  // unless the :counter/b :multi-frame.core/inc cascade happens to be
+  // the head the Trace DOM never contains that row. The old test
+  // scanned `[data-testid^="rf-causa-trace-row-"]` for it directly
+  // and failed under cascade-scoping.
+  //
+  // The test's intent — exercise the cascade-focus → event-detail
+  // wiring for a chosen :counter/b cascade — is preserved by focusing
+  // the cascade explicitly via the spine event `:rf.causa/focus-
+  // cascade` (the same event the L2 event-row click dispatches) and
+  // then asserting the event-detail projection. We look up the
+  // dispatch-id by walking the bus buffer for the (frame, event-id)
+  // pair, which is independent of the cascade-scoped Trace DOM.
+  const selected = await focusCascadeByFrameEvent(page, {
     frame: ':counter/b',
-    event: ':multi-frame.core/inc',
+    eventId: ':multi-frame.core/inc',
   });
   state.multiFrame.selectedTraceRow = selected;
   await clickTab(page, 'event', 'rf-causa-event-detail');
@@ -1162,7 +1272,7 @@ async function runMultiFrame(page, state) {
       };
     }),
     (projection) => projection.selectedCascadeFrame === ':counter/b',
-    { timeoutMs: 5000, description: 'event-detail projection after selecting B trace row' },
+    { timeoutMs: 5000, description: 'event-detail projection after focusing B cascade' },
   );
   state.multiFrame.eventDetailProjection = eventDetailProjection;
   if (eventDetailProjection.orphanedText ||

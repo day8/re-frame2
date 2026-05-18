@@ -50,7 +50,8 @@
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.panels.trace :as trace]))
+            [day8.re-frame2-causa.panels.trace :as trace]
+            [day8.re-frame2-causa.panels.trace-helpers :as h]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -224,11 +225,15 @@
 
 (deftest empty-state-no-matches-renders-when-filters-hide-all
   (testing "with events present but a filter that matches nothing the
-            panel renders the :no-matches empty-state with clear button"
+            panel renders the :no-matches empty-state with clear button.
+            The event carries `:dispatch-id 1` so the spine has a
+            focusable cascade (rf2-fzbrw strips :ungrouped from the
+            focusable list; without a focusable cascade the panel
+            would render :no-focus, not :no-matches)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                              :source :ui}))
+                              :source :ui :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :no-such-source])
       (let [tree (trace/Panel)]
         (is (some? (find-by-testid tree "rf-causa-trace-empty-no-matches"))
@@ -265,13 +270,16 @@
           "every filter axis cleared"))))
 
 (deftest filter-by-source-narrows-rendered-rows
-  (testing "setting :source narrows the feed to events with that source"
+  (testing "setting :source narrows the feed to events with that source.
+            All events share `:dispatch-id 1` so the rf2-ycoct cascade-
+            scope is a no-op for this axis-in-isolation assertion (the
+            spine's head cascade is 1, every row is in scope)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
                               :source :ui :dispatch-id 1}))
       (push-trace! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
-                              :source :timer :dispatch-id 2}))
+                              :source :timer :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 2 (:total feed)))
@@ -279,12 +287,19 @@
         (is (= [1] (mapv :id (:rows feed))))))))
 
 (deftest filter-by-op-type-narrows-rendered-rows
-  (testing "setting :op-type narrows the feed to events with that op-type"
+  (testing "setting :op-type narrows the feed to events with that op-type.
+            All events share `:dispatch-id 1` so the rf2-ycoct cascade-
+            scope is a no-op (rf2-fzbrw strips :ungrouped from focusable
+            cascades — events without :dispatch-id would otherwise leave
+            the spine with no focusable cascade and trigger :no-focus)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched}))
-      (push-trace! (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-threw}))
-      (push-trace! (mk-trace {:id 3 :op-type :fx    :operation :rf.fx/handled}))
+      (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                              :dispatch-id 1}))
+      (push-trace! (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-threw
+                              :dispatch-id 1}))
+      (push-trace! (mk-trace {:id 3 :op-type :fx    :operation :rf.fx/handled
+                              :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :op-type :error])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 1 (:rendered feed)))
@@ -292,15 +307,16 @@
 
 (deftest filter-axes-compose-and-wise
   (testing "two filter axes compose AND-wise — only rows matching both
-            survive"
+            survive. All events share `:dispatch-id 1` so the rf2-ycoct
+            cascade-scope is a no-op for this composition assertion."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                              :source :ui    :frame :rf/default}))
+                              :source :ui    :frame :rf/default :dispatch-id 1}))
       (push-trace! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
-                              :source :ui    :frame :rf/causa}))
+                              :source :ui    :frame :rf/causa   :dispatch-id 1}))
       (push-trace! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
-                              :source :timer :frame :rf/default}))
+                              :source :timer :frame :rf/default :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
       (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/default])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
@@ -309,7 +325,14 @@
         (is (= [1] (mapv :id (:rows feed))))))))
 
 (deftest filter-by-dispatch-id-collapses-cascade
-  (testing "setting :dispatch-id slices the feed to one cascade's events"
+  (testing "setting :dispatch-id slices the feed to one cascade's events.
+            Per rf2-ycoct the panel is cascade-scoped to the focused
+            cascade by default; here we explicitly focus 42, then the
+            user's `:dispatch-id` chip-filter narrows to the same id
+            (redundant in this case — both filters land on the same
+            set, which is the expected workflow when the user clicks
+            the dispatch-id chip on a row of the already-focused
+            cascade)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
@@ -318,6 +341,10 @@
                               :dispatch-id 42}))
       (push-trace! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
                               :dispatch-id 99}))
+      ;; Focus cascade 42 (the spine's LIVE auto-snap would land on 99 —
+      ;; the head — so we pin to 42 explicitly to assert the axis
+      ;; filter algebra in isolation from the auto-scope).
+      (rf/dispatch-sync [:rf.causa/focus-cascade 42])
       (rf/dispatch-sync [:rf.causa/set-trace-filter :dispatch-id 42])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 2 (:rendered feed)))
@@ -464,7 +491,11 @@
             :key of any previously-rendered <li>. Same input row → same
             React key → React's reconciler reuses the DOM node instead
             of unmounting + remounting it. Mirrors rf2-kgn0c's
-            v:<variant-id> discipline in the story workspace."
+            v:<variant-id> discipline in the story workspace.
+
+            All six events share `:dispatch-id 1` so the rf2-ycoct
+            cascade-scope is a no-op for this key-stability assertion
+            (the spine's head cascade stays 1, every row is in scope)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Seed three rows.
@@ -482,14 +513,15 @@
             "every initial row carries a React :key")
         (is (= 3 (count (distinct (vals keys-1))))
             "initial row keys are distinct")
-        ;; Push three more events — under the broken positional-key
-        ;; shape, this would shift every existing key.
+        ;; Push three more events in the SAME cascade — under the
+        ;; broken positional-key shape, this would shift every
+        ;; existing key.
         (sync-push! (mk-trace {:id 4 :op-type :event :operation :event/dispatched
-                               :time 400 :dispatch-id 2}))
+                               :time 400 :dispatch-id 1}))
         (sync-push! (mk-trace {:id 5 :op-type :fx    :operation :rf.fx/handled
-                               :time 500 :dispatch-id 2}))
+                               :time 500 :dispatch-id 1}))
         (sync-push! (mk-trace {:id 6 :op-type :error :operation :rf.error/handler-threw
-                               :time 600 :dispatch-id 2}))
+                               :time 600 :dispatch-id 1}))
         (let [tree-2 (trace/Panel)
               keys-2 {1 (:key (second (row-li-by-id tree-2 1)))
                       2 (:key (second (row-li-by-id tree-2 2)))
@@ -568,14 +600,18 @@
 (deftest orphan-empty-state-surfaces-active-filter-strip
   (testing "rf2-vu0mp: the :no-matches empty state surfaces an
             'narrowing on:' strip listing each active axis=value pair
-            so the user always sees what is filtering the ribbon"
+            so the user always sees what is filtering the ribbon.
+            Events carry `:dispatch-id 1` so the spine has a focusable
+            cascade (rf2-fzbrw)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push two events that won't match the filter.
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                             :source :ui :origin :app :frame :rf/default}))
+                             :source :ui :origin :app :frame :rf/default
+                             :dispatch-id 1}))
       (sync-push! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
-                             :source :ui :origin :app :frame :rf/default}))
+                             :source :ui :origin :app :frame :rf/default
+                             :dispatch-id 1}))
       ;; Narrow on a value the buffer doesn't carry — orphan.
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
       (let [tree (trace/Panel)]
@@ -589,11 +625,13 @@
 (deftest active-filter-pill-click-drops-the-axis
   (testing "rf2-vu0mp: clicking an active-filter pill drops that axis
             from the filter map (lets the user clear an orphan without
-            hunting through the header)"
+            hunting through the header). Event carries `:dispatch-id 1`
+            so the spine has a focusable cascade (rf2-fzbrw)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                             :source :ui :frame :rf/default}))
+                             :source :ui :frame :rf/default
+                             :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
       (rf/dispatch-sync [:rf.causa/set-trace-filter :frame :rf/missing])
       (let [dispatches (atom [])]
@@ -612,14 +650,17 @@
 (deftest empty-state-active-filter-pill-marks-present-vs-orphan
   (testing "rf2-vu0mp: a present axis pill (the value still exists in
             the buffer) is styled differently from an orphan pill — the
-            data-driven marker on the chip label."
+            data-driven marker on the chip label. Event carries
+            `:dispatch-id 1` so the spine has a focusable cascade
+            (rf2-fzbrw)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push :ui-sourced events; then add TWO filters: source = :ui
       ;; (present, but combined with the second filter renders zero
       ;; rows) AND frame = :rf/missing (orphan).
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                             :source :ui :frame :rf/default}))
+                             :source :ui :frame :rf/default
+                             :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
       (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/missing])
       (let [tree         (trace/Panel)
@@ -735,4 +776,165 @@
         (is (contains? feed :any-filter?))
         (is (contains? feed :empty-kind))
         (is (contains? feed :active-filters)
-            "rf2-vu0mp adds :active-filters for the empty-state strip")))))
+            "rf2-vu0mp adds :active-filters for the empty-state strip")
+        (is (contains? feed :cascade-dispatch-id)
+            "rf2-ycoct adds :cascade-dispatch-id for the spine-scoped
+             view")))))
+
+;; ---- (11) cascade-scope (focused-event invariant) — rf2-ycoct ----------
+;;
+;; Per spec/018 §6 every L4 panel is a lens on the spine's focused event,
+;; not a global ribbon. Mike's call (audit findings 2026-05-18) on
+;; rf2-ycoct: the Trace tab is cascade-scoped by default. The composite
+;; reads :rf.causa/focus and pre-filters rows to the focused cascade's
+;; events; user chip filters AND on top of the scope.
+
+(deftest trace-feed-cascade-scoped-to-focused-event
+  (testing "rf2-ycoct: with two cascades in the buffer, focusing one
+            scopes the feed to that cascade's events. Switching focus
+            to the other re-renders with the other cascade's events."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Cascade A: dispatch-id 100, events 1+2.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 100 :frame :rf/default}))
+      (sync-push! (mk-trace {:id 2 :op-type :fx    :operation :rf.fx/handled
+                             :time 110 :dispatch-id 100 :frame :rf/default}))
+      ;; Cascade B: dispatch-id 200, events 3+4+5.
+      (sync-push! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
+                             :time 200 :dispatch-id 200 :frame :rf/default}))
+      (sync-push! (mk-trace {:id 4 :op-type :fx    :operation :rf.fx/handled
+                             :time 210 :dispatch-id 200 :frame :rf/default}))
+      (sync-push! (mk-trace {:id 5 :op-type :error :operation :rf.error/x
+                             :time 220 :dispatch-id 200 :frame :rf/default}))
+      ;; Focus cascade A.
+      (rf/dispatch-sync [:rf.causa/focus-cascade 100])
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (= 5 (:total feed))
+            ":total reflects the ENTIRE buffer (unscoped count) —
+             cascade-scope narrows what RENDERS, not what's in the
+             buffer")
+        (is (= 2 (:rendered feed))
+            "only the two events in cascade A are rendered")
+        (is (= #{1 2} (set (mapv :id (:rows feed))))
+            "rows are exactly cascade A's events")
+        (is (= 100 (:cascade-dispatch-id feed))
+            "the scope value rides on the feed shape"))
+      ;; Pivot focus to cascade B.
+      (rf/dispatch-sync [:rf.causa/focus-cascade 200])
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (= 3 (:rendered feed))
+            "rendered count flips to cascade B's three events")
+        (is (= #{3 4 5} (set (mapv :id (:rows feed))))
+            "rows are exactly cascade B's events")
+        (is (= 200 (:cascade-dispatch-id feed)))))))
+
+(deftest trace-feed-user-chip-filter-ands-with-cascade-scope
+  (testing "rf2-ycoct: user chip filters AND on top of the cascade
+            scope — the panel is a lens AND a filterable ribbon."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Cascade A: two events, mixed sources.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 100 :source :ui}))
+      (sync-push! (mk-trace {:id 2 :op-type :fx    :operation :rf.fx/handled
+                             :time 110 :dispatch-id 100 :source :timer}))
+      ;; Cascade B: one :ui-sourced event (would survive a global
+      ;; :source :ui filter if scope were not applied).
+      (sync-push! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
+                             :time 200 :dispatch-id 200 :source :ui}))
+      ;; Focus cascade A, then narrow on :source :ui — the AND-wise
+      ;; result must be cascade-A AND :source :ui = event 1 only.
+      (rf/dispatch-sync [:rf.causa/focus-cascade 100])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (= 1 (:rendered feed))
+            "AND-wise: cascade-A ∩ :source :ui = event 1 only")
+        (is (= [1] (mapv :id (:rows feed))))
+        (is (true? (:any-filter? feed))
+            ":any-filter? reflects USER filter state (cascade-scope is
+             a system invariant, not a user narrowing)")))))
+
+(deftest trace-feed-live-mode-auto-tracks-head-cascade
+  (testing "rf2-ycoct + rf2-s0s5x: in LIVE mode the spine auto-tracks
+            the head cascade, so a new cascade landing rebinds the
+            scope automatically. No explicit focus event needed — the
+            panel ALWAYS shows the latest cascade by default."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Cascade A — head while it's alone.
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 100}))
+      (sync-push! (mk-trace {:id 2 :op-type :fx    :operation :rf.fx/handled
+                             :time 110 :dispatch-id 100}))
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (= 2 (:rendered feed))
+            "with one cascade, LIVE auto-scope shows that cascade")
+        (is (= 100 (:cascade-dispatch-id feed))))
+      ;; Cascade B lands — head pivots, LIVE auto-tracks.
+      (sync-push! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
+                             :time 200 :dispatch-id 200}))
+      (sync-push! (mk-trace {:id 4 :op-type :fx    :operation :rf.fx/handled
+                             :time 210 :dispatch-id 200}))
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (= 2 (:rendered feed))
+            "scope auto-pivoted to cascade B (the new head)")
+        (is (= #{3 4} (set (mapv :id (:rows feed)))))
+        (is (= 200 (:cascade-dispatch-id feed)))))))
+
+(deftest trace-feed-cascade-scope-no-match-renders-no-matches
+  (testing "rf2-ycoct: when the focused cascade is in the buffer but
+            user filters reduce it to zero rendered rows, the
+            :no-matches empty-state renders (not :no-events)."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :time 100 :dispatch-id 100 :source :ui}))
+      (sync-push! (mk-trace {:id 2 :op-type :fx    :operation :rf.fx/handled
+                             :time 110 :dispatch-id 100 :source :ui}))
+      (rf/dispatch-sync [:rf.causa/focus-cascade 100])
+      ;; Narrow on a source that doesn't exist in cascade A.
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])
+            tree (trace/Panel)]
+        (is (= :no-matches (:empty-kind feed)))
+        (is (some? (find-by-testid tree "rf-causa-trace-empty-no-matches")))))))
+
+(deftest trace-feed-defensive-no-focus-empty-state
+  (testing "rf2-ycoct defensive branch: when the buffer is non-empty
+            but the spine's focus has no :dispatch-id (default-focus
+            rule from rf2-639lc broken / not yet applied), the panel
+            renders the terse :no-focus empty state.
+
+            We construct this state directly via the helper to pin the
+            contract — the spine's LIVE auto-snap normally prevents
+            this state from arising in the running app."
+    (let [state  (h/rebuild-feed-state
+                   [(mk-trace {:id 1 :op-type :event
+                               :operation :event/dispatched
+                               :dispatch-id 100})])
+          feed   (h/project-feed-from-state
+                   state {} {:cascade-dispatch-id nil})]
+      (is (= :no-focus (:empty-kind feed)))
+      (is (= 0 (:rendered feed))
+          "no rows render in the no-focus defensive branch")
+      (is (= 1 (:total feed))
+          ":total still reflects the buffer (the state is broken,
+           not the data)"))))
+
+(deftest panel-spine-auto-snap-guards-against-no-focus-in-production
+  (testing "rf2-ycoct + rf2-s0s5x guard: in LIVE mode with cascades
+            present, the spine ALWAYS snaps focus to head — the
+            defensive :no-focus state should never arise in production.
+            This pins the contract: a regression in the spine's auto-
+            snap behaviour that left :dispatch-id nil with a non-empty
+            buffer would fail this assertion."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
+                             :dispatch-id 100}))
+      (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
+        (is (not= :no-focus (:empty-kind feed))
+            "LIVE auto-snap → focus has :dispatch-id 100 → no :no-focus")
+        (is (= 100 (:cascade-dispatch-id feed))
+            "scope landed on the head cascade automatically")))))
