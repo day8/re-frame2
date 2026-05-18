@@ -159,7 +159,7 @@
         (sg/group-into-sections annotated)
         [])))
 
-  ;; ---- rf2-bz1cl — redacted-paths-modified count ---------------------
+  ;; ---- rf2-bz1cl / rf2-dl3gx — redacted-paths-modified count ----------
   ;;
   ;; The structural diff (above) correctly emits NO rows when both
   ;; sides of a path carry `:rf/redacted` — `:rf/redacted` = `:rf/redacted`
@@ -170,14 +170,35 @@
   ;;
   ;; This sub computes a separate-from-diff signal: the count of
   ;; redacted leaves whose enclosing subtree mutated across the
-  ;; cascade. Heuristic upper bound — see
-  ;; `app-db-diff-helpers/count-redacted-modified-paths` for the
-  ;; semantics + approximation notes. The renderer surfaces the count
-  ;; as a muted chip above the diff body when count > 0.
+  ;; cascade. The renderer surfaces the count as a muted chip above
+  ;; the diff body when count > 0.
   ;;
-  ;; Selection fallback mirrors `:rf.causa/selected-epoch-diff` —
-  ;; the same selection-stale path that strands the diff panel
-  ;; strands the chip; same `(peek history)` fallback applies.
+  ;; ## Sources (preferred → fallback)
+  ;;
+  ;; 1. **Egress slot (rf2-dl3gx, preferred).** The epoch record may
+  ;;    carry `:rf.epoch/redacted-modified-paths-count` — an integer
+  ;;    computed BY THE FRAMEWORK from raw db-before / db-after values
+  ;;    BEFORE the `:redact-fn` runs (per
+  ;;    `re-frame.epoch.assembly/redacted-modified-paths-count` +
+  ;;    `spec/Spec-Schemas.md §:rf/epoch-record`). When the slot is
+  ;;    present the sub returns it verbatim — exact count, no walk.
+  ;;
+  ;; 2. **Heuristic fallback (rf2-bz1cl).** Records that lack the slot
+  ;;    (legacy snapshots, mock records with no schema layer, tests
+  ;;    seeding raw record maps) fall back to the Causa-side heuristic
+  ;;    `app-db-diff-helpers/count-redacted-modified-paths` — paths where
+  ;;    both sides carry the sentinel AND the parent subtree's pointer
+  ;;    differs. Tight upper bound; can over-state when a sibling
+  ;;    changed and the redacted slot was incidentally untouched.
+  ;;
+  ;; The cache is shared between both paths — `:epoch-id` keys the
+  ;; integer regardless of which source produced it.
+  ;;
+  ;; ## Selection fallback
+  ;;
+  ;; Mirrors `:rf.causa/selected-epoch-diff` — the same selection-stale
+  ;; path that strands the diff panel strands the chip; same
+  ;; `(peek history)` fallback applies.
   (rf/reg-sub :rf.causa/selected-epoch-redacted-modified-count
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-id]
@@ -190,10 +211,16 @@
                 cached   (get @redacted-modified-cache epoch-id ::miss)]
             (if (not= ::miss cached)
               cached
-              (let [n    (h/count-redacted-modified-paths
-                           (:db-before record)
-                           (:db-after  record))
-                    live (into #{} (map :epoch-id) history)]
+              ;; Egress slot wins when present — exact count from the
+              ;; framework (rf2-dl3gx). Falls back to the Causa-side
+              ;; heuristic only when the slot is absent.
+              (let [egress (:rf.epoch/redacted-modified-paths-count record)
+                    n      (if (some? egress)
+                             egress
+                             (h/count-redacted-modified-paths
+                               (:db-before record)
+                               (:db-after  record)))
+                    live   (into #{} (map :epoch-id) history)]
                 (swap! redacted-modified-cache
                        (fn [m]
                          (-> m

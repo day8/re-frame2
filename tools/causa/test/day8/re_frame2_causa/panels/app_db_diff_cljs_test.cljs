@@ -851,3 +851,108 @@
           (is (some? chip))
           (is (str/includes? (pr-str chip) "2 redacted paths modified")
               "plural phrasing for count > 1"))))))
+
+;; ============================================================================
+;;  rf2-dl3gx — egress slot wins; heuristic is the absent-slot fallback
+;; ============================================================================
+;;
+;; Per `tools/causa/spec/004-App-DB-Diff.md` §Count semantics: the
+;; framework's `:rf.epoch/redacted-modified-paths-count` slot is the
+;; preferred source. The Causa-side heuristic only fires when the
+;; record lacks the slot (legacy snapshots, hand-rolled fixtures, hosts
+;; with no schema layer).
+
+(defn- mk-record-with-egress
+  "`mk-record` plus the `:rf.epoch/redacted-modified-paths-count`
+  egress slot — exercises the rf2-dl3gx preferred read path."
+  [epoch-id event db-before db-after egress-count]
+  (assoc (mk-record epoch-id event db-before db-after)
+         :rf.epoch/redacted-modified-paths-count egress-count))
+
+(deftest egress-slot-wins-over-heuristic
+  (testing "when a record carries :rf.epoch/redacted-modified-paths-count,
+            the sub reads that integer directly — the heuristic does not
+            run. Pin this with a record whose egress count DISAGREES with
+            what the heuristic would compute, so the test would fail if
+            the sub picked the wrong source."
+    ;; This record's :db-before / :db-after carry no :rf/redacted
+    ;; sentinels at all — the heuristic would compute 0. The egress
+    ;; slot reports 3 (e.g. the framework saw three schema-declared
+    ;; sensitive paths mutate, the redact-fn replaced them with
+    ;; non-sentinel app-supplied shapes, or the records here are a
+    ;; pre-redact snapshot). The egress integer wins.
+    (let [before {:counter 0}
+          after  {:counter 1}
+          record (mk-record-with-egress :e-1 [:counter/inc] before after 3)]
+      (seed-causa! after [record])
+      (rf/with-frame :rf/causa
+        (let [n @(rf/subscribe
+                   [:rf.causa/selected-epoch-redacted-modified-count])
+              data @(rf/subscribe [:rf.causa/app-db-diff])]
+          (is (= 3 n)
+              "sub reads the egress slot verbatim — the heuristic would
+               have produced 0 because no :rf/redacted sentinel is in
+               the dbs")
+          (is (= 3 (:redacted-modified-count data))
+              "composite carries the egress figure too"))))))
+
+(deftest egress-slot-zero-overrides-heuristic-positive
+  (testing "the egress slot landing as 0 means the framework computed
+            'no schema-declared sensitive path actually changed' —
+            this overrides a heuristic that would otherwise count
+            sentinels in the dbs (e.g. the redact-fn replaced an
+            unchanged sensitive path with the sentinel anyway)."
+    ;; Heuristic on these dbs would count 1 (:auth :token, both
+    ;; sides sentinel, parent subtree differs). The framework's
+    ;; exact count says 0 — :auth :token didn't actually change;
+    ;; the sibling :method did. Egress wins.
+    (let [before  {:auth {:token :rf/redacted :method :jwt}}
+          after   {:auth {:token :rf/redacted :method :session}}
+          record  (mk-record-with-egress :e-1 [:auth/rotate] before after 0)]
+      (seed-causa! after [record])
+      (rf/with-frame :rf/causa
+        (let [n @(rf/subscribe
+                   [:rf.causa/selected-epoch-redacted-modified-count])]
+          (is (= 0 n)
+              "sub reads the 0 — the egress slot is the source of truth
+               when present, even when 0"))))))
+
+(deftest heuristic-fires-when-egress-slot-absent
+  (testing "records WITHOUT :rf.epoch/redacted-modified-paths-count
+            fall back to the Causa-side heuristic. Pin the existing
+            legacy-snapshot path with an mk-record (no egress slot)
+            that the heuristic counts to 1."
+    (let [before {:auth {:token :rf/redacted}}
+          after  {:auth {:token :rf/redacted :method :session}}
+          record (mk-record :e-1 [:auth/rotate] before after)]
+      ;; Pre-condition: the test fixture record does NOT carry the
+      ;; rf2-dl3gx slot — this exercises the fallback intentionally.
+      (is (not (contains? record :rf.epoch/redacted-modified-paths-count))
+          "mk-record produces records without the egress slot — covers
+           the legacy-snapshot fallback path")
+      (seed-causa! after [record])
+      (rf/with-frame :rf/causa
+        (let [n @(rf/subscribe
+                   [:rf.causa/selected-epoch-redacted-modified-count])]
+          (is (= 1 n)
+              "heuristic kicked in — counts the :auth :token sentinel
+               in a mutated subtree (sibling :method changed)"))))))
+
+(deftest egress-slot-cached-by-epoch-id-like-heuristic
+  (testing "the per-`:epoch-id` cache covers both sources — second
+            deref of the same epoch returns the same integer without
+            re-reading the slot (same short-circuit pattern the
+            heuristic uses)."
+    (let [record (mk-record-with-egress :e-1 [:auth/rotate]
+                                        {:counter 0} {:counter 1} 5)]
+      (seed-causa! {:counter 1} [record])
+      (rf/with-frame :rf/causa
+        (let [first-call  @(rf/subscribe
+                             [:rf.causa/selected-epoch-redacted-modified-count])
+              second-call @(rf/subscribe
+                             [:rf.causa/selected-epoch-redacted-modified-count])]
+          (is (= 5 first-call))
+          (is (= first-call second-call))
+          (is (= 1 (count @app-db-diff-subs/redacted-modified-cache))
+              "cache holds exactly one entry — same shape as the
+               heuristic path"))))))

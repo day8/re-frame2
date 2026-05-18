@@ -163,6 +163,100 @@
                (or (any-sensitive-leaf? db-before sensitive-paths)
                    (any-sensitive-leaf? db-after  sensitive-paths)))))))
 
+;; ---- redacted-modified-paths-count (rf2-dl3gx) ---------------------------
+;;
+;; Per Security.md §Epoch privacy posture and rf2-dl3gx (follow-on to
+;; rf2-bz1cl's Causa-side heuristic chip): the record carries a
+;; top-level integer count of schema-declared sensitive paths
+;; (`[:rf/elision :sensitive-declarations]`) whose value differs between
+;; `:db-before` and `:db-after`. Computed inside `build-record` from RAW
+;; values BEFORE the installed `:redact-fn` runs — parallel to the
+;; `:rf.epoch/sensitive?` rollup pattern just above.
+;;
+;; ## Why the count exists
+;;
+;; When an app `:redact-fn` substitutes the `:rf/redacted` sentinel into
+;; both `:db-before` and `:db-after` at the same path (the standard
+;; pattern for keeping sensitive material out of recorded records), and
+;; the underlying value at that path actually changed across the
+;; cascade, the structural diff sees `:rf/redacted` on both sides and
+;; (correctly per the elision contract) emits no row. The developer
+;; sees an empty diff body and no signal that anything happened.
+;;
+;; The count closes that gap by recording, on the raw record, exactly
+;; how many schema-declared sensitive paths mutated this cascade.
+;; Downstream consumers (Causa's `redacted-paths-modified` chip per
+;; `tools/causa/spec/004-App-DB-Diff.md`, MCP wire pipeline, story
+;; recorders) read the integer directly rather than re-deriving from
+;; the post-redaction shape (which is heuristic — see the Causa helper
+;; for the heuristic's tightness and approximation notes).
+;;
+;; ## What counts
+;;
+;; A path P counts when:
+;;   1. P appears in `sensitive-paths-for frame-id`
+;;      (schema-declared via `{:sensitive? true}` props per Spec 015).
+;;   2. `(not= (get-in db-before P) (get-in db-after P))`.
+;;
+;; The check uses **value-equality** on the raw (pre-redact-fn) dbs.
+;; Pointer-equality would over-count under `assoc-in` rewrites that
+;; produce a fresh subtree whose leaves are value-equal; `=` is the
+;; precise predicate for "did this leaf actually change."
+;;
+;; ## What this does NOT cover
+;;
+;; - `:redact-fn` substitutions at NON-schema-declared paths. The
+;;   redact-fn is opaque (record-in, record-out); the framework cannot
+;;   inspect "would the fn redact this leaf?" without running it. The
+;;   schema-declared sensitive-paths set is the framework's authoritative
+;;   "what would be redacted" oracle — apps that install a redact-fn
+;;   pointing at non-schema paths get the schema-declared count, not a
+;;   superset. (In practice apps either declare sensitive props on
+;;   schemas or run a redact-fn covering the same paths; the two
+;;   surfaces compose at the schema-declaration site.)
+;; - Paths nominated as sensitive but with no live leaf (`nil` on both
+;;   sides) — `(= nil nil)` is true, so the path doesn't count. A
+;;   transition from non-nil to nil (or vice versa) counts as a value
+;;   change.
+;; - Production builds. The entire epoch surface elides under
+;;   `interop/debug-enabled?` false; the count is dev-only by
+;;   construction.
+
+(defn redacted-modified-paths-count
+  "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
+  rollup for the assembled record. Returns the integer count of
+  schema-declared sensitive paths whose value differs between
+  `db-before` and `db-after` (per rf2-dl3gx).
+
+  HOT PATH: fires once per drain-settle. `sensitive-paths-for` derefs
+  the elision registry once and the walk is O(P) where P is the
+  declared-sensitive-path count for the frame — typically a small
+  constant (apps declare a handful of `[:auth :password]`-shaped
+  paths). For the common case (no schema-declared sensitive paths)
+  the cost is one keys-of-empty call and an empty-reduce.
+
+  Returns `0` when:
+    - No paths are declared sensitive (no schema layer / no
+      `{:sensitive? true}` props), OR
+    - No declared-sensitive path's value differs across the cascade.
+
+  Halted records: `db-before` and/or `db-after` may be `nil` on the
+  `:halted-destroy` path (per rf2-v0jwt). `(get-in nil P)` is `nil`;
+  the predicate `(not= a b)` handles the nil/non-nil edge correctly
+  (counts as a change when one side is nil and the other isn't)."
+  [frame-id db-before db-after]
+  (let [sensitive-paths (sensitive-paths-for frame-id)]
+    (if (empty? sensitive-paths)
+      0
+      (reduce
+        (fn [acc path]
+          (if (not= (get-in db-before path)
+                    (get-in db-after  path))
+            (inc acc)
+            acc))
+        0
+        sensitive-paths))))
+
 ;; ---- record assembly ------------------------------------------------------
 
 (defn build-record
@@ -197,7 +291,16 @@
          ;; the record-level boolean rollup mirrors the trace-event
          ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
          ;; the projected-record helper branch on one slot per record.
-         sensitive? (sensitive-rollup frame-id db-before db-after events)]
+         sensitive? (sensitive-rollup frame-id db-before db-after events)
+         ;; Per rf2-dl3gx and Security.md §Epoch privacy posture: the
+         ;; record-level integer counter of schema-declared sensitive
+         ;; paths whose value differs between :db-before / :db-after.
+         ;; Closes Causa's "redact-fn ⇒ empty diff but something changed"
+         ;; gap by surfacing the suppressed signal directly on the
+         ;; record. Computed BEFORE :redact-fn runs (parallel to the
+         ;; :rf.epoch/sensitive? rollup above).
+         redacted-modified-count (redacted-modified-paths-count
+                                   frame-id db-before db-after)]
      (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
               :committed-at       (interop/now-ms)
@@ -211,6 +314,7 @@
               ;; produces nil; consumers tolerate the absent slot).
               :schema-digest      (current-schema-digest frame-id)
               :rf.epoch/sensitive? sensitive?
+              :rf.epoch/redacted-modified-paths-count redacted-modified-count
               :trace-events       events
               :sub-runs           sub-runs
               :renders            renders

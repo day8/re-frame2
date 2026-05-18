@@ -189,7 +189,29 @@ family (`·` = muted/informational; `✱` = amber/attention-cue). Hover
 to read the contract explanation; the chip is absent (no DOM) when
 count is 0.
 
-**Count semantics.** A path `P` counts when:
+**Count semantics — preferred path (rf2-dl3gx).** The framework
+threads an exact `:rf.epoch/redacted-modified-paths-count` integer on
+the epoch record (per
+[Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)).
+Computed inside `re-frame.epoch.assembly/build-record` from raw
+db-before / db-after values BEFORE the `:redact-fn` runs — parallel to
+the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
+figure when:
+
+1. `P` is schema-declared sensitive (`[:rf/elision :sensitive-declarations]`,
+   populated from `{:sensitive? true}` per-slot schema props per
+   [Spec 015](../../../spec/015-Data-Classification.md)).
+2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
+   on the raw (pre-redact-fn) dbs.
+
+This is the **exact** count of declared-sensitive paths that mutated
+this cascade. Causa reads it directly from the record; no walk, no
+heuristic.
+
+**Heuristic fallback (rf2-bz1cl).** Records that lack the egress slot
+(legacy snapshots, hand-rolled test fixtures, hosts with no schema
+layer that produces a sensitive-declarations registry) fall back to a
+Causa-side heuristic — paths `P` where:
 
 1. `(= :rf/redacted (get-in db-before P))`, AND
 2. `(= :rf/redacted (get-in db-after  P))`, AND
@@ -198,20 +220,12 @@ count is 0.
 
 Distinct paths are counted independently. The reserved `:rf/elision`
 subtree at the root is skipped (the elision registry's own values may
-include `:rf/redacted` as documentation/sentinel form).
-
-**Heuristic upper bound.** Condition (3) is the structural-sharing
-tightener — without it every redacted slot in `app-db` would count for
-every cascade. With it the count is a tight upper bound: every counted
-path is provably in a mutated subtree AND opaque. It may over-state
-if a sibling slot changed and the redacted slot was incidentally
-untouched.
-
-Causa derives the count from raw epoch records using the heuristic
-above; the framework does not pre-compute it. A future enhancement
-(filed as a follow-on bead) could thread an accurate counter through
-the egress contract — until then the heuristic surface is the
-read-side answer.
+include `:rf/redacted` as documentation/sentinel form). Condition (3)
+is the structural-sharing tightener — without it every redacted slot
+in `app-db` would count for every cascade. The fallback is a tight
+upper bound; it may over-state if a sibling slot changed and the
+redacted slot was incidentally untouched. The exact framework count
+above is preferred whenever it is present.
 
 ## Read-only
 
