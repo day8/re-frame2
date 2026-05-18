@@ -104,51 +104,164 @@
 
 ;; ---- breadcrumb -------------------------------------------------------
 
+(defn- subtree->after-value
+  "Extract the 'most-useful' value at the section's path for the
+  Copy-value affordance: prefer `:after` on a `:modified` leaf, then
+  `:value` for `:added` / `:children` / `:same`, then fall back to
+  `:value` on a `:removed` leaf (the removed value is the only one
+  available for a deleted slice)."
+  [subtree]
+  (case (at/op-of subtree)
+    :modified (:after subtree)
+    (:added :children :same) (:value subtree)
+    :removed  (:value subtree)
+    (:value subtree)))
+
+(defn- header-button
+  "Per-button hiccup factory for the breadcrumb's affordance row. Uses
+  the same chrome the slice-mini-panel used before rf2-gfxmk so the
+  visual language stays consistent."
+  [{:keys [testid label colour on-click]}]
+  [:button {:data-testid testid
+            :on-click    on-click
+            :style       {:background    "transparent"
+                          :color         (or colour (:text-secondary tokens))
+                          :border        (str "1px solid "
+                                              (:border-default tokens))
+                          :padding       "1px 6px"
+                          :border-radius "4px"
+                          :cursor        "pointer"
+                          :font-family   sans-stack
+                          :font-size     "10px"}}
+   label])
+
+(defn- breadcrumb-segments
+  "Render the section path as individual clickable segments. Plain click
+  copies the absolute path up to and including the clicked segment;
+  Cmd-click (or Ctrl-click on non-Mac) is the explicit modifier the
+  design (§5.1) calls out — both gestures dispatch
+  `:rf.causa/copy-path-to-clipboard` with the prefix path."
+  [section-path]
+  (if (empty? section-path)
+    [:span {:data-testid (str "rf-causa-diff-section-path-"
+                              (pr-str section-path))
+            :style       {:color (:accent-violet tokens)}}
+     "(root)"]
+    (into [:span {:data-testid (str "rf-causa-diff-section-path-"
+                                    (pr-str section-path))
+                  :style       {:color (:accent-violet tokens)
+                                :display "inline-flex"
+                                :flex-wrap "wrap"
+                                :gap "2px"}}]
+          (for [i (range (count section-path))]
+            (let [seg        (nth section-path i)
+                  prefix     (vec (take (inc i) section-path))
+                  on-click   (fn [^js e]
+                               (.preventDefault e)
+                               (rf/dispatch
+                                 [:rf.causa/copy-path-to-clipboard prefix]
+                                 {:frame :rf/causa}))]
+              ^{:key i}
+              [:span {:data-testid (str "rf-causa-diff-breadcrumb-segment-"
+                                        (pr-str section-path) "-" i)
+                      :on-click    on-click
+                      :title       (str "Copy path up to "
+                                        (pr-str prefix)
+                                        " (or Cmd-click)")
+                      :style       {:cursor      "pointer"
+                                    :color       (:accent-violet tokens)
+                                    :text-decoration "none"}}
+               (pr-str seg)])))))
+
 (defn breadcrumb
-  "Sticky path-header breadcrumb (per design §5.1). Clickable segments
-  emit copy-path events on click (Cmd-click defers to native browser
-  behaviour); the breadcrumb's surface-prefix is rendered as a faded
-  label so the user sees `app-db → [:cart] [:items]`.
+  "Sticky path-header breadcrumb (per design §5.1) carrying the section
+  path + the per-section affordance row (rf2-ykjl5):
+
+      [:cart :items]  ⟨Pin⟩ ⟨Show me when this changed⟩
+                      ⟨Copy path⟩ ⟨Copy value⟩
+                                            ◴ 3 changes
+
+  Path segments are individually clickable — a plain click copies the
+  absolute path up to and including that segment (the design's Cmd-
+  click integration in §5.1; we make plain click suffice and also keep
+  Cmd-click compatible since the click handler always fires).
 
   The container is `position: sticky; top: 0` so it stays pinned as
   the user scrolls through a long section body. Per the design's
   scroll-sticky-vs-click decision (§5.1 + §7.2 open question 5), v1
   uses scroll-sticky — the breadcrumb is the user's 'where am I'
-  anchor in a long diff tree."
-  [section-path child-summary]
-  (let [{:keys [added removed modified children]
-         :or   {added 0 removed 0 modified 0 children 0}} child-summary
-        total-changes (+ added removed modified children)]
-    [:header {:data-testid (str "rf-causa-diff-section-header-"
-                                (pr-str section-path))
-              :style {:position       "sticky"
-                      :top            0
-                      :z-index        1
-                      :display        "flex"
-                      :align-items    "center"
-                      :gap            "8px"
-                      :padding        "6px 12px"
-                      :background     (:bg-3 tokens)
-                      :border-bottom  (str "1px solid "
-                                           (:border-subtle tokens))
-                      :font-family    mono-stack
-                      :font-size      "12px"
-                      :color          (:text-primary tokens)
-                      :font-weight    600}}
-     [:span {:data-testid (str "rf-causa-diff-section-path-"
+  anchor in a long diff tree.
+
+  `subtree-value` is the unwrapped 'after' (or fallback) value at the
+  section's path, used as the payload for the Copy-value button. Older
+  callers that pass only `[path child-summary]` still work — the
+  Copy-value button copies `nil` in that case."
+  ([section-path child-summary]
+   (breadcrumb section-path child-summary nil))
+  ([section-path child-summary subtree-value]
+   (let [{:keys [added removed modified children]
+          :or   {added 0 removed 0 modified 0 children 0}} child-summary
+         total-changes (+ added removed modified children)
+         path-vec      (vec section-path)]
+     [:header {:data-testid (str "rf-causa-diff-section-header-"
+                                 (pr-str section-path))
+               :style {:position       "sticky"
+                       :top            0
+                       :z-index        1
+                       :display        "flex"
+                       :align-items    "center"
+                       :flex-wrap      "wrap"
+                       :gap            "8px"
+                       :padding        "6px 12px"
+                       :background     (:bg-3 tokens)
+                       :border-bottom  (str "1px solid "
+                                            (:border-subtle tokens))
+                       :font-family    mono-stack
+                       :font-size      "12px"
+                       :color          (:text-primary tokens)
+                       :font-weight    600}}
+      (breadcrumb-segments section-path)
+      ;; Affordance row — Pin / Show-me-when / Copy path / Copy value.
+      [:div {:data-testid (str "rf-causa-diff-section-affordances-"
                                (pr-str section-path))
-             :style {:color (:accent-violet tokens)}}
-      (if (empty? section-path)
-        "(root)"
-        (format-path section-path))]
-     (when (pos? total-changes)
-       [:span {:style {:font-family sans-stack
-                       :font-size "11px"
-                       :color (:text-tertiary tokens)
-                       :font-weight 400}}
-        (str "◴ "
-             total-changes
-             (if (= total-changes 1) " change" " changes"))])]))
+             :style       {:display     "inline-flex"
+                           :gap         "4px"
+                           :align-items "center"}}
+       (header-button
+         {:testid   (str "rf-causa-diff-section-pin-" (pr-str section-path))
+          :label    "Pin"
+          :colour   (:cyan tokens)
+          :on-click #(rf/dispatch [:rf.causa/pin-slice path-vec]
+                                  {:frame :rf/causa})})
+       (header-button
+         {:testid   (str "rf-causa-diff-section-show-when-"
+                         (pr-str section-path))
+          :label    "Show me when this changed"
+          :colour   (:magenta tokens)
+          :on-click #(rf/dispatch [:rf.causa/focus-slice-path path-vec]
+                                  {:frame :rf/causa})})
+       (header-button
+         {:testid   (str "rf-causa-diff-section-copy-path-"
+                         (pr-str section-path))
+          :label    "Copy path"
+          :on-click #(rf/dispatch [:rf.causa/copy-path-to-clipboard path-vec]
+                                  {:frame :rf/causa})})
+       (header-button
+         {:testid   (str "rf-causa-diff-section-copy-value-"
+                         (pr-str section-path))
+          :label    "Copy value"
+          :on-click #(rf/dispatch [:rf.causa/copy-value-to-clipboard
+                                   subtree-value]
+                                  {:frame :rf/causa})})]
+      (when (pos? total-changes)
+        [:span {:style {:font-family sans-stack
+                        :font-size "11px"
+                        :color (:text-tertiary tokens)
+                        :font-weight 400
+                        :margin-left "auto"}}
+         (str "◴ "
+              total-changes
+              (if (= total-changes 1) " change" " changes"))])])))
 
 ;; ---- annotated leaf renderers ------------------------------------------
 
@@ -392,11 +505,17 @@
 
 (defn section
   "Render a single `{:path :subtree}` section: sticky breadcrumb +
-  local annotated subtree."
+  local annotated subtree.
+
+  The breadcrumb carries the per-section affordances (Pin /
+  Show-me-when / Copy-path / Copy-value, rf2-ykjl5). The Copy-value
+  payload is the subtree's after-value (or fallback) extracted via
+  `subtree->after-value`."
   [{:keys [path subtree]} surface]
   (let [child-summary (if (= :children (at/op-of subtree))
                         (:child-summary subtree)
-                        nil)]
+                        nil)
+        after-value   (subtree->after-value subtree)]
     [:section {:data-testid (str "rf-causa-diff-section-"
                                  (pr-str path))
                :style {:margin         "8px 12px"
@@ -405,7 +524,7 @@
                                             (:border-subtle tokens))
                        :border-radius  "4px"
                        :overflow       "hidden"}}
-     (breadcrumb path child-summary)
+     (breadcrumb path child-summary after-value)
      [:div {:style {:padding "8px 12px"
                     :font-family mono-stack
                     :font-size "12px"
