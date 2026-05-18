@@ -128,6 +128,8 @@
    :rf.causa/event-detail
    :rf.causa/filtered-cascades
    :rf.causa/focus
+   ;; rf2-a1z3b — focus-navigation primitive slot sub.
+   :rf.causa/focus-set
    :rf.causa/focus-slot
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
@@ -250,6 +252,10 @@
    :rf.causa/causality-popover-toggle
    :rf.causa/causality-popover-toggle-layout
    :rf.causa/clear-machine-selection
+   ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
+   ;; focus-set; `[◀][▶]` step within the in-focus subset).
+   :rf.causa/clear-focus
+   :rf.causa/clear-machine-selection
    :rf.causa/clear-mode-c-selection
    :rf.causa/clear-selected-dispatch-id
    :rf.causa/clear-slice-focus
@@ -308,6 +314,8 @@
    :rf.causa/select-epoch
    :rf.causa/select-machine-id
    :rf.causa/select-tab
+   ;; rf2-a1z3b — focus-navigation primitive write event.
+   :rf.causa/set-focus
    :rf.causa/set-forced-machine-mode
    :rf.causa/set-frame
    :rf.causa/set-machine-definitions-override-for-test
@@ -452,8 +460,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 100 (count all-sub-names)))
-    (is (= 117 (count all-event-names)))
+    (is (= 101 (count all-sub-names)))
+    (is (= 120 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
