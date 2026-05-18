@@ -235,6 +235,71 @@
   [event]
   (= :rf/causa (or (:frame event) (get-in event [:tags :frame]))))
 
+;; ---- causa-internal event-id guard (rf2-g1pt8) --------------------------
+;;
+;; The ingest-side `causa-internal-event?` predicate above filters trace
+;; events by `:frame`. It catches every emit that originates inside a
+;; `(rf/with-frame :rf/causa ...)` scope — the dominant self-noise case
+;; (panel re-render `:sub/run` + `:view/render` floods).
+;;
+;; But it misses one cleanup pattern: Causa-internal events (`:rf.causa/
+;; focus-cascade`, `:rf.causa/select-tab`, `:rf.causa/open-settings`,
+;; etc.) dispatched WITHOUT a `:frame :rf/causa` option. Those land on
+;; the host's `:rf/default` frame (re-frame chain-resolution per
+;; rf2-higwg), so the trace envelope carries `:frame :rf/default` —
+;; the ingest filter waves them through into Causa's buffer, and the
+;; L2 event list shows Causa instrumenting itself in the user-facing
+;; cascade list. Concrete sites (as of this fix): the causality popover
+;; node click in `popover/causality_graph.cljs:255`, the palette's
+;; `:palette/select-panel` dispatch in `palette/events.cljs:175`, and
+;; the headless `core/select-panel!` helper.
+;;
+;; Tightening every call site to pass `{:frame :rf/causa}` would be a
+;; manual sweep with no structural guarantee. The data-layer guard
+;; here is the single point of truth: cascades whose event vector's
+;; head is in the `rf.causa` namespace are filtered out of the shared
+;; `:rf.causa/cascades` sub, and every downstream consumer (the
+;; filtered-cascades facade, the L2 event list, the spine, the
+;; causality popover, performance / event-detail / trace / issues
+;; tabs) inherits the filter automatically. Single point of truth;
+;; readers stay simple.
+;;
+;; Pre-alpha posture mirrors `causa-internal-event?`: drop
+;; unconditionally, no opt-out toggle. Causa's internals are
+;; structurally invisible to the user.
+
+(defn causa-internal-event-id?
+  "True when `event-id` is a keyword in the `rf.causa` namespace
+  (spec/Conventions.md §Reserved namespaces — Causa's canonical
+  devtool prefix).
+
+  Pure-data + JVM-runnable; nil-safe.
+
+  Examples:
+    (causa-internal-event-id? :rf.causa/focus-cascade)  ;; true
+    (causa-internal-event-id? :rf.causa/select-tab)     ;; true
+    (causa-internal-event-id? :cart/add-item)           ;; false
+    (causa-internal-event-id? :rf/init)                 ;; false
+    (causa-internal-event-id? nil)                      ;; false
+    (causa-internal-event-id? \"rf.causa/x\")           ;; false (non-kw)"
+  [event-id]
+  (and (keyword? event-id)
+       (= "rf.causa" (namespace event-id))))
+
+(defn causa-internal-cascade?
+  "True when `cascade`'s `:event` vector's head is a Causa-internal
+  event-id (see `causa-internal-event-id?`). False for cascades whose
+  event vector is absent (e.g. the `:ungrouped` bucket — those are
+  filtered separately by `cascade-has-event?` at the L2 boundary).
+
+  Pure-data + JVM-runnable. Used by the `:rf.causa/cascades` sub to
+  hard-filter Causa's own events out of every downstream consumer
+  per rf2-g1pt8."
+  [cascade]
+  (let [ev (:event cascade)]
+    (and (vector? ev)
+         (causa-internal-event-id? (first ev)))))
+
 ;; ---- collector --------------------------------------------------------
 
 (defn collect-trace!
