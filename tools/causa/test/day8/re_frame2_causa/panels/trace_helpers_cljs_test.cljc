@@ -777,3 +777,99 @@
   (let [state (h/rebuild-feed-state (events-fixture))
         feed  (h/project-feed-from-state state {})]
     (is (= [] (:active-filters feed)))))
+
+;; ---- (7) cascade-scope (rf2-ycoct) -------------------------------------
+;;
+;; Mike's call on rf2-ycoct: the Trace tab is cascade-scoped by default
+;; (audit findings 2026-05-18). project-feed-from-state's 3-arity takes
+;; `{:cascade-dispatch-id <id-or-:ungrouped-or-nil>}` and pre-filters
+;; rows to the focused cascade. User chip filters AND on top.
+
+(deftest project-feed-from-state-cascade-scope-narrows-to-cascade
+  (testing "rf2-ycoct: cascade-scope filters rows to those whose
+            :dispatch-id matches the focused cascade's id"
+    (let [evs   (events-fixture)
+          state (h/rebuild-feed-state evs)
+          ;; Fixture has dispatch-ids 10, 11, 12. Scope to 10 → rows 1, 2, 4.
+          feed  (h/project-feed-from-state state {} {:cascade-dispatch-id 10})]
+      (is (= 5 (:total feed))
+          ":total reflects entire buffer, not the scoped subset")
+      (is (= 3 (:rendered feed))
+          "three rows belong to cascade 10")
+      (is (= #{1 2 4} (set (mapv :id (:rows feed))))
+          "exactly cascade 10's events surface")
+      (is (= 10 (:cascade-dispatch-id feed))
+          ":cascade-dispatch-id rides on the result"))))
+
+(deftest project-feed-from-state-cascade-scope-ands-with-user-filter
+  (testing "rf2-ycoct: user chip filter AND-wise with cascade-scope"
+    (let [evs    (events-fixture)
+          state  (h/rebuild-feed-state evs)
+          ;; Cascade 10 has 3 rows (ids 1, 2, 4). Of those, op-type :error
+          ;; is only row 2. AND-wise: cascade 10 ∩ op-type :error = {2}.
+          feed   (h/project-feed-from-state state
+                                            {:op-type :error}
+                                            {:cascade-dispatch-id 10})]
+      (is (= 1 (:rendered feed)))
+      (is (= [2] (mapv :id (:rows feed)))))))
+
+(deftest project-feed-from-state-cascade-scope-no-overlap-empty
+  (testing "rf2-ycoct: scope on a cascade not in the buffer renders
+            zero rows and reports :no-matches"
+    (let [evs   (events-fixture)
+          state (h/rebuild-feed-state evs)
+          feed  (h/project-feed-from-state state {} {:cascade-dispatch-id 99999})]
+      (is (= 0 (:rendered feed)))
+      (is (= :no-matches (:empty-kind feed)))
+      (is (= 99999 (:cascade-dispatch-id feed))))))
+
+(deftest project-feed-from-state-cascade-scope-ungrouped-matches-nil-dispatch-id
+  (testing "rf2-ycoct: scope :ungrouped matches rows whose :dispatch-id
+            is nil (the projection's catch-all bucket)"
+    (let [evs   [(ev {:id 1 :op-type :event :operation :event/dispatched
+                      :time 100 :source :ui})           ; no dispatch-id
+                 (ev {:id 2 :op-type :event :operation :event/dispatched
+                      :time 200 :source :ui :dispatch-id 10})
+                 (ev {:id 3 :op-type :info  :operation :rf/lifecycle
+                      :time 300 :source :ui})]          ; no dispatch-id
+          state (h/rebuild-feed-state evs)
+          feed  (h/project-feed-from-state state {} {:cascade-dispatch-id :ungrouped})]
+      (is (= 2 (:rendered feed))
+          "rows 1 and 3 have no :dispatch-id → they belong to :ungrouped")
+      (is (= #{1 3} (set (mapv :id (:rows feed))))))))
+
+(deftest project-feed-from-state-no-focus-defensive-empty-state
+  (testing "rf2-ycoct defensive: opts passed with nil :cascade-dispatch-id
+            and a non-empty buffer triggers :no-focus (the default-focus
+            rule from rf2-639lc should prevent this in production)"
+    (let [evs   (events-fixture)
+          state (h/rebuild-feed-state evs)
+          feed  (h/project-feed-from-state state {} {:cascade-dispatch-id nil})]
+      (is (= :no-focus (:empty-kind feed)))
+      (is (= 0 (:rendered feed)))
+      (is (= [] (:rows feed)))
+      (is (= 5 (:total feed))
+          ":total reflects the buffer (the state is broken, not the data)"))))
+
+(deftest project-feed-from-state-2-arity-preserves-global-ribbon-shape
+  (testing "rf2-ycoct: the 2-arity (no opts) keeps the pre-rf2-ycoct
+            global-ribbon behaviour — no cascade-scope, no :no-focus
+            defensive branch. Headless test rigs / callers that pre-
+            date the spine wiring continue to work."
+    (let [evs   (events-fixture)
+          state (h/rebuild-feed-state evs)
+          feed  (h/project-feed-from-state state {})]
+      (is (= 5 (:rendered feed))
+          "every buffered row renders — no cascade-scope applied")
+      (is (nil? (:empty-kind feed)))
+      (is (nil? (:cascade-dispatch-id feed))
+          "the scope key is nil (no scope was passed)"))))
+
+(deftest project-feed-from-state-cascade-scope-empty-buffer
+  (testing "rf2-ycoct: with an empty buffer, :no-events wins regardless
+            of the cascade-scope value (the buffer is empty FIRST,
+            scoping is a no-op)"
+    (let [state (h/init-feed-state)
+          feed  (h/project-feed-from-state state {} {:cascade-dispatch-id 100})]
+      (is (= :no-events (:empty-kind feed))
+          ":no-events takes precedence over :no-focus when total = 0"))))
