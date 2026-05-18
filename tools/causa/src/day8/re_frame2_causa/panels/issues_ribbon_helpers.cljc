@@ -63,7 +63,20 @@
       since-ms         — relative time window; events older than
                          `(- now-ms since-ms)` drop from the feed
 
-  Each axis is independent; empty filters disable the axis."
+  Each axis is independent; empty filters disable the axis.
+
+  ## Cascade scope (rf2-u6dhp)
+
+  Per spec/018 §Tabs honour the focused-event invariant the Issues
+  tab is a lens on the focused cascade — NOT a global firehose. The
+  composite pre-filters the feed to issues whose `:dispatch-id`
+  matches the spine's focused cascade. The user chip filters
+  (severity / prefix / since-ms) AND on top of cascade scope.
+
+  No 'cascade only · all issues' toggle, no counter ribbon — strict
+  cascade scope is the panel's contract. When the focused event has
+  no issues the feed renders empty (silent-by-default per rf2-g3ghh,
+  with a terse one-liner so the panel-skeleton doesn't look broken)."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.panels.common-helpers :as common]))
 
@@ -210,13 +223,20 @@
        :category-prefix <string-or-nil>
        :description     <string>
        :source-coord    <string-or-nil>
-       :dispatch-id     <int-or-nil>
+       :dispatch-id     <int-or-:ungrouped>
        :recovery        <kw-or-nil>
        :raw             <trace-event>}
 
   Pure data → data; JVM-testable. Returns nil when `ev` is not an
   issue (success-path / lifecycle trace) so callers can `keep` over
-  a mixed stream."
+  a mixed stream.
+
+  `:dispatch-id` defaults to `:ungrouped` (the sentinel that
+  `re-frame.trace.projection/group-cascades` uses for events outside
+  any cascade) so cascade-scope filtering (rf2-u6dhp) treats
+  unscoped issues consistently with how the cascade projection groups
+  them — focusing the `:ungrouped` cascade surfaces them; focusing a
+  real cascade hides them."
   [{:keys [id time op-type operation recovery tags] :as ev}]
   (when (issue-event? ev)
     {:id              id
@@ -228,7 +248,8 @@
      :description     (short-description ev)
      :source-coord    (source-coord ev)
      :dispatch-id     (or (:dispatch-id tags)
-                          (get-in ev [:tags :dispatch-id]))
+                          (get-in ev [:tags :dispatch-id])
+                          :ungrouped)
      :recovery        recovery
      :raw             ev}))
 
@@ -277,19 +298,38 @@
            (number? now)
            (>= time (- now since-ms)))))
 
-(defn apply-filters
-  "Apply the three filter axes to `issues`. Pure data → vector;
-  JVM-testable. Each axis is independent — empty filter sets / nil
-  since-ms disable the axis.
+(defn passes-cascade?
+  "True iff `issue`'s `:dispatch-id` matches `focus-dispatch-id`. Pure
+  data → bool; JVM-testable.
 
-  `filters` is `{:severities #{...} :prefixes #{...} :since-ms <ms>}`.
+  `nil` `focus-dispatch-id` disables the axis (no cascade scope) —
+  used in test rigs that don't seed the spine. In production the spine
+  always carries a focused dispatch-id (head in LIVE, pinned in RETRO)
+  per spec/018 §Spine binding.
+
+  An issue with no `:dispatch-id` (defensive — malformed trace event,
+  or an issue raised outside any dispatch) DOES NOT pass when a focus
+  is set; cascade scope is strict per rf2-u6dhp."
+  [focus-dispatch-id {:keys [dispatch-id] :as _issue}]
+  (or (nil? focus-dispatch-id)
+      (= focus-dispatch-id dispatch-id)))
+
+(defn apply-filters
+  "Apply the four filter axes to `issues`. Pure data → vector;
+  JVM-testable. Each user-chip axis is independent — empty filter
+  sets / nil since-ms disable the axis. Cascade scope (when
+  `:focus-dispatch-id` is set) ANDs over the chip axes.
+
+  `filters` is `{:severities #{...} :prefixes #{...} :since-ms <ms>
+                 :focus-dispatch-id <id-or-nil>}`.
   `now` is the wall-clock 'now' to test :time against (helper-
   injected so tests don't depend on the system clock)."
   [issues filters now]
-  (let [{:keys [severities prefixes since-ms]} filters]
+  (let [{:keys [severities prefixes since-ms focus-dispatch-id]} filters]
     (filterv
       (fn [issue]
-        (and (passes-severity? severities issue)
+        (and (passes-cascade? focus-dispatch-id issue)
+             (passes-severity? severities issue)
              (passes-category-prefix? prefixes issue)
              (passes-since? now since-ms issue)))
       issues)))
@@ -321,31 +361,51 @@
   single-pass collapse is deferred until row caps have landed and
   measurable residual cost remains (rf2-60vcu).
 
+  Per rf2-u6dhp the feed is cascade-scoped — only issues whose
+  `:dispatch-id` matches `filters`' `:focus-dispatch-id` survive.
+  The chip-filter histograms (severity-counts, distinct-prefixes)
+  are computed over the cascade-scoped projection, NOT the global
+  buffer — chips reflect what's IN the focused event's cascade, so
+  the user never sees a chip for a prefix that's not in their lens.
+
   Returns:
 
       {:issues               [<row> ...]      ;; post-filter, newest first
-       :total                <int>            ;; pre-filter count
-       :rendered             <int>            ;; post-filter count
-       :severity-counts      {severity count} ;; pre-filter histogram
-       :distinct-prefixes    [<prefix> ...]
+       :total                <int>            ;; cascade-scoped count
+       :rendered             <int>            ;; post-chip-filter count
+       :severity-counts      {severity count} ;; cascade-scoped histogram
+       :distinct-prefixes    [<prefix> ...]   ;; cascade-scoped prefixes
        :filters              <pass-through>
-       :empty-kind           <:no-issues / :no-matches / nil>}
+       :empty-kind           <:no-issues / :no-issues-for-event / :no-matches / nil>}
 
   `events` is the raw trace-buffer. `filters` is the current filter
   state. `now` is wall-clock ms.
 
-  `:empty-kind` discriminates the three empty-state branches:
+  `:empty-kind` discriminates the four empty-state branches:
 
-      :no-issues  — the feed itself is empty (no issues observed).
-                    The view paints the 'All clear' positive-result
-                    badge.
-      :no-matches — issues exist but the active filters hide them
-                    all. The view paints 'No issues match filters'
-                    with a clear-filters affordance.
-      nil         — at least one issue passed; render the feed."
+      :no-issues           — the global buffer carries no issues at
+                             all. The view paints the 'All clear'
+                             positive-result badge.
+      :no-issues-for-event — issues exist somewhere in the buffer but
+                             none belong to the focused cascade. The
+                             view paints a terse one-liner per
+                             rf2-g3ghh silent-by-default.
+      :no-matches          — cascade-scoped issues exist but the active
+                             chip filters hide them all. The view paints
+                             'No issues match filters' with a clear-
+                             filters affordance.
+      nil                  — at least one issue passed; render the feed."
   [events filters now]
-  (let [all              (project-issues events)
-        filtered         (apply-filters all filters now)
+  (let [all-global       (project-issues events)
+        focus-dispatch-id (:focus-dispatch-id filters)
+        ;; Cascade scope is the OUTER filter — chip histograms and the
+        ;; 'total in lens' count are all derived from this slice, so the
+        ;; UI surfaces what's IN the focused cascade and only that.
+        in-cascade       (filterv (partial passes-cascade? focus-dispatch-id)
+                                  all-global)
+        filtered         (apply-filters in-cascade
+                                        (dissoc filters :focus-dispatch-id)
+                                        now)
         ;; Newest first for display per the bead's contract
         ;; (timestamp · category · severity · short description).
         sorted-display   (vec (reverse filtered))
@@ -353,16 +413,17 @@
                            (fn [acc {:keys [severity]}]
                              (update acc severity (fnil inc 0)))
                            {}
-                           all)
+                           in-cascade)
         empty-kind       (cond
-                           (empty? all)      :no-issues
-                           (empty? filtered) :no-matches
-                           :else             nil)]
+                           (empty? all-global)  :no-issues
+                           (empty? in-cascade)  :no-issues-for-event
+                           (empty? filtered)    :no-matches
+                           :else                nil)]
     {:issues            sorted-display
-     :total             (count all)
+     :total             (count in-cascade)
      :rendered          (count filtered)
      :severity-counts   severity-counts
-     :distinct-prefixes (distinct-prefixes all)
+     :distinct-prefixes (distinct-prefixes in-cascade)
      :filters           filters
      :empty-kind        empty-kind}))
 

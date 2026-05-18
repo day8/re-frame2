@@ -208,11 +208,14 @@
            source-coord dispatch-id]
     :as _issue}]
   (let [row-test-id (str "rf-causa-issues-row-" id)
-        colour      (h/severity-colour severity)]
+        colour      (h/severity-colour severity)
+        ;; `:ungrouped` is the cascade sentinel for issues outside any
+        ;; dispatch — there's no meaningful event to pivot to.
+        pivotable?  (and dispatch-id (not= :ungrouped dispatch-id))]
     [:li {:key         id
           :data-testid row-test-id
           :on-click    (fn []
-                         (when dispatch-id
+                         (when pivotable?
                            (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
                            (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa})))
           :style       {:display       "grid"
@@ -221,7 +224,7 @@
                         :align-items   "center"
                         :padding       "6px 16px"
                         :border-bottom (str "1px solid " (:border-subtle tokens))
-                        :cursor        (if dispatch-id "pointer" "default")
+                        :cursor        (if pivotable? "pointer" "default")
                         :color         (:text-primary tokens)
                         :font-family   mono-stack
                         :font-size     "12px"
@@ -302,6 +305,21 @@
                     :font-weight 600}}
      "All clear"]]])
 
+(defn- empty-state-no-issues-for-event
+  "Per rf2-u6dhp — the focused cascade has no issues. The buffer DOES
+  carry issues elsewhere, but the panel honours the focused-event
+  invariant: the lens is on this cascade alone. Silent-by-default per
+  rf2-g3ghh; a single terse line so the panel-skeleton doesn't look
+  broken."
+  []
+  [:div {:data-testid "rf-causa-issues-empty-no-issues-for-event"
+         :style       {:padding     "24px"
+                       :font-family sans-stack
+                       :font-size   "13px"
+                       :line-height 1.5
+                       :color       (:text-tertiary tokens)}}
+   "No issues for this event."])
+
 (defn- empty-state-no-matches
   "Issues exist but the active filters hide them all. Carries a
   Clear filters affordance."
@@ -363,9 +381,10 @@
               :any-filter?        any-filter?})
      [:div {:style {:flex 1 :overflow "auto"}}
       (case empty-kind
-        :no-issues  (empty-state-no-issues)
-        :no-matches (empty-state-no-matches)
-        nil         (overflow/capped-list
+        :no-issues           (empty-state-no-issues)
+        :no-issues-for-event (empty-state-no-issues-for-event)
+        :no-matches          (empty-state-no-matches)
+        nil                  (overflow/capped-list
                       issues
                       {:panel-id "issues"
                        :ul-attrs {:data-testid "rf-causa-issues-feed"
@@ -421,13 +440,23 @@
   ;; Composite — produces every slot the view consumes. The
   ;; helper's `project-feed` does the heavy lifting; the sub is a
   ;; thin wrapper that injects `now-ms` (so the since-ms axis is
-  ;; meaningful) and reads the trace-buffer + filter state through
-  ;; the reactive surface.
+  ;; meaningful) and reads the trace-buffer + filter state + the
+  ;; spine focus through the reactive surface.
+  ;;
+  ;; Per rf2-u6dhp the panel honours the focused-event invariant:
+  ;; only issues whose `:dispatch-id` matches the spine's focused
+  ;; cascade pass to the feed. The spine's `:rf.causa/focus` carries
+  ;; `:dispatch-id` (head in LIVE, pinned in RETRO) per spec/018
+  ;; §Spine binding, so the lens follows the user's L2-list focus
+  ;; automatically and rebinds on every cascade landing in LIVE.
   (rf/reg-sub :rf.causa/issues-ribbon
     :<- [:rf.causa/trace-buffer]
     :<- [:rf.causa/issues-filters]
-    (fn [[buffer filters] _query]
-      (h/project-feed buffer filters (h/now-ms))))
+    :<- [:rf.causa/focus]
+    (fn [[buffer filters focus] _query]
+      (h/project-feed buffer
+                      (assoc filters :focus-dispatch-id (:dispatch-id focus))
+                      (h/now-ms))))
 
   ;; ---- Issues ribbon events --------------------------------------
 
