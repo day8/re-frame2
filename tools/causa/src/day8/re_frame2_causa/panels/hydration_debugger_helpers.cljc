@@ -49,7 +49,21 @@
   The hypothesis is **a hint, not an answer**; the panel surfaces it
   with the appropriate panel pivot link. The classification fn is
   pure → callers (tests + view) consume it without any reactive
-  context."
+  context.
+
+  ## Phase 4 hiccup-engine adoption (rf2-1mcax)
+
+  Per `tools/causa/spec/006-Hydration-Debugger.md` §Layout the panel
+  renders the divergent subtree side-by-side. Phase 4 of rf2-abts7
+  composes the Phase 3 hiccup-diff micro-engine
+  (`day8.re-frame2-causa.diff.hiccup`) so each pane shows structural
+  diff annotations rather than raw `pr-str` output. The annotated
+  tree is computed **once** (the diff is symmetric) and the renderer
+  consumes it with a `:perspective` flag that picks which side's
+  value to surface and which `::op` semantics to flip.
+
+  See `bisector-path-segments` for the human-readable first-divergent
+  header and `first-divergent-header-text` for the title bar text."
   (:require [clojure.string :as str]))
 
 ;; ---- mismatch projection ------------------------------------------------
@@ -411,6 +425,94 @@
         (if (and (< idx (count children)))
           (recur (nth children idx) (rest remaining))
           node)))))
+
+;; ---- Phase 4 (rf2-1mcax) — first-divergent header ---------------------
+
+(defn- node-display-tag
+  "Render a node as a short readable tag for the bisector header. Hiccup
+  vectors collapse to `:tag`; text leaves render via `pr-str` (truncated
+  to keep the header on one line). Pure data → string."
+  [node]
+  (cond
+    (hiccup-vector? node)
+    (let [tag    (tag-of node)
+          attrs  (attrs-of node)
+          id     (when attrs (get attrs :id))
+          cls    (when attrs (get attrs :class))]
+      (cond-> (str tag)
+        id  (str "#" id)
+        cls (str (if (string? cls) (str "." (str/replace cls " " "."))
+                                   (str "." cls)))))
+
+    (text-node? node)
+    (let [s (pr-str node)]
+      (if (> (count s) 24) (str (subs s 0 21) "...") s))
+
+    :else
+    (let [s (pr-str node)]
+      (if (> (count s) 24) (str (subs s 0 21) "...") s))))
+
+(defn bisector-path-segments
+  "Walk a tree along the bisector path (vector of integer child indices)
+  and return a vector of short readable segments, one per node from the
+  root down to the first divergent node. Used to render the
+  'first divergent' header per Phase 4.
+
+  Example:
+
+      (bisector-path-segments
+        [:div [:section.cart [:p \"3 items\"]]]
+        [0 0])
+      ;; => [\":div\" \":section.cart\" \":p\"]
+
+  Pure data → vector of strings. JVM-runnable."
+  [tree bisector-path]
+  (loop [segments [(node-display-tag tree)]
+         node     tree
+         remaining bisector-path]
+    (if (empty? remaining)
+      segments
+      (let [idx      (first remaining)
+            children (vec (children-of node))
+            sub      (when (< idx (count children))
+                       (nth children idx))]
+        (if (nil? sub)
+          segments
+          (recur (conj segments (node-display-tag sub))
+                 sub
+                 (rest remaining)))))))
+
+(defn first-divergent-header-text
+  "Render the first-divergent path as a single-line header string for
+  the panel's drilldown header (per Phase 4). Joins segments with `>`.
+
+      \":div > :section.cart > :p\"
+
+  Returns `(root)` when the bisector path is empty (root divergence)."
+  [tree bisector-path]
+  (let [segs (bisector-path-segments tree bisector-path)]
+    (if (= 1 (count segs))
+      (first segs)
+      (str/join " > " segs))))
+
+;; ---- Phase 4 (rf2-1mcax) — hiccup-engine pane diff -------------------
+
+(defn pane-diff-input
+  "Return a map suitable for per-pane rendering by the Phase 4 pane
+  renderer in `hydration_debugger.cljs`:
+
+      {:server-tree   <original>
+       :client-tree   <original>
+       :bisector-path <path>}
+
+  The hiccup-engine diff is computed lazily inside the renderer (it
+  requires the runtime `:diff-opts` map fed from the settings sub).
+  This helper exists so the projection is JVM-testable shape-wise
+  without depending on the engine ns from the .cljc target."
+  [{:keys [server-tree client-tree bisector-path] :as _detail}]
+  {:server-tree   server-tree
+   :client-tree   client-tree
+   :bisector-path (or bisector-path [])})
 
 ;; ---- source-coord resolution (Lock #11 fallback) ------------------------
 

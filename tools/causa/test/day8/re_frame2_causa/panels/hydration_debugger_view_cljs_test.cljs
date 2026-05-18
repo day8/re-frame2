@@ -361,3 +361,129 @@
         (is (= 1 (count (:mismatch-summary data)))
             "only the :rf/default mismatch surfaces by default")
         (is (= [1] (mapv :id (:mismatch-summary data))))))))
+
+;; ---- (6) Phase 4 (rf2-1mcax) — hiccup-engine adoption -------------------
+;;
+;; Phase 4 of epic rf2-abts7 wires the Phase 3 hiccup-diff micro-engine
+;; into the side-by-side panes. The tests below assert:
+;;   - The first-divergent header surfaces a readable path line.
+;;   - Per-pane render mounts (one container per perspective).
+;;   - Server-only / client-only nodes route through perspective-aware
+;;     chrome — `:added` flips between green-on-client and absent-on-
+;;     server, and the converse for `:removed`.
+;;   - Shared elements surface modified-attr deltas inline.
+
+(deftest view-renders-first-divergent-header
+  (testing "with a mismatch present, the drilldown surfaces the
+            first-divergent header + the readable path line"
+    (seed-buffer! [(mismatch-ev 1 [:div :main]
+                                [:div [:section [:p "3 items"]]]
+                                [:div [:section [:p "0 items"]]])])
+    (rf/with-frame :rf/causa
+      (let [tree (hydration/Panel)]
+        (is (some? (find-by-testid tree
+                                   "rf-causa-hydration-first-divergent-header"))
+            "first-divergent header present")
+        (let [path-el (find-by-testid tree
+                                      "rf-causa-hydration-first-divergent-path")
+              txt     (when path-el
+                        (->> (hiccup-seq path-el)
+                             (filter string?)
+                             (apply str)))]
+          (is (some? path-el))
+          (is (re-find #":div.*:section.*:p" txt)
+              "path is rendered with > separators down to the divergent leaf"))))))
+
+(deftest view-renders-perspective-aware-pane-containers
+  (testing "each pane mounts its perspective-aware render container"
+    (seed-buffer! [(mismatch-ev 1 [] [:p "x"] [:p "y"])])
+    (rf/with-frame :rf/causa
+      (let [tree (hydration/Panel)]
+        (is (some? (find-by-testid tree
+                                   "rf-causa-hydration-pane-render-server"))
+            "server pane render container present")
+        (is (some? (find-by-testid tree
+                                   "rf-causa-hydration-pane-render-client"))
+            "client pane render container present")
+        (is (some? (find-by-testid tree
+                                   "rf-causa-hydration-pane-label-server")))
+        (is (some? (find-by-testid tree
+                                   "rf-causa-hydration-pane-label-client")))))))
+
+(deftest view-surfaces-server-only-element-as-absent-on-client-pane
+  (testing "an element present only on the server renders red on the
+            server pane and as an [absent] chip on the client pane"
+    ;; Server has [:p ...], client has empty subtree at that slot.
+    (seed-buffer! [(mismatch-ev 1 []
+                                [:div [:span "kept"] [:p "server-only"]]
+                                [:div [:span "kept"]])])
+    (rf/with-frame :rf/causa
+      (let [tree         (hydration/Panel)
+            server-pane  (find-by-testid tree
+                                         "rf-causa-hydration-pane-render-server")
+            client-pane  (find-by-testid tree
+                                         "rf-causa-hydration-pane-render-client")
+            client-abs   (find-all-by-testid-prefix
+                           client-pane "rf-causa-hydration-pane-client-absent")]
+        (is (some? server-pane))
+        (is (some? client-pane))
+        (is (pos? (count client-abs))
+            "client pane shows at least one [absent] chip for the server-only :p")))))
+
+(deftest view-surfaces-client-only-element-as-absent-on-server-pane
+  (testing "an element present only on the client mirrors — green on
+            client pane, [absent] chip on server pane"
+    (seed-buffer! [(mismatch-ev 1 []
+                                [:div [:span "kept"]]
+                                [:div [:span "kept"] [:p "client-only"]])])
+    (rf/with-frame :rf/causa
+      (let [tree        (hydration/Panel)
+            server-pane (find-by-testid tree
+                                        "rf-causa-hydration-pane-render-server")
+            server-abs  (find-all-by-testid-prefix
+                          server-pane "rf-causa-hydration-pane-server-absent")]
+        (is (pos? (count server-abs))
+            "server pane shows at least one [absent] chip for the client-only :p")))))
+
+(deftest view-surfaces-modified-attr-on-both-panes
+  (testing "a shared element whose attr differs surfaces a `:modified`
+            row on both panes (each pane shows ITS value with the other
+            value as a faint annotation)"
+    (seed-buffer! [(mismatch-ev 1 []
+                                [:a {:href "/server"} "go"]
+                                [:a {:href "/client"} "go"])])
+    (rf/with-frame :rf/causa
+      (let [tree         (hydration/Panel)
+            server-pane  (find-by-testid tree
+                                         "rf-causa-hydration-pane-render-server")
+            client-pane  (find-by-testid tree
+                                         "rf-causa-hydration-pane-render-client")
+            server-mods  (find-all-by-testid-prefix
+                           server-pane "rf-causa-hydration-attr-modified-")
+            client-mods  (find-all-by-testid-prefix
+                           client-pane "rf-causa-hydration-attr-modified-")]
+        (is (pos? (count server-mods))
+            "server pane surfaces the modified :href row")
+        (is (pos? (count client-mods))
+            "client pane surfaces the modified :href row")))))
+
+(deftest view-no-structural-difference-collapses-to-chip
+  (testing "if the bisector flagged a mismatch but both subtrees are
+            structurally identical after re-rooting, the per-pane
+            renderer shows a 'no structural difference' chip (defensive
+            against malformed traces and re-root edge cases)"
+    ;; Stash two identical trees. The classify-divergence path returns
+    ;; :unknown / nil for equal trees but the panel still mounts the
+    ;; detail.
+    (seed-buffer! [(mismatch-ev 1 []
+                                [:p "same"]
+                                [:p "same"])])
+    (rf/with-frame :rf/causa
+      (let [tree (hydration/Panel)]
+        ;; The chip mounts on at least one pane (both, in this case
+        ;; since the subtrees are equal).
+        (is (or (some? (find-by-testid tree
+                                       "rf-causa-hydration-pane-no-diff-server"))
+                (some? (find-by-testid tree
+                                       "rf-causa-hydration-pane-no-diff-client")))
+            "no-difference chip surfaces when both subtrees match")))))
