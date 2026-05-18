@@ -406,3 +406,79 @@
           (rf/reg-event-db :test.fuudi/bad-middle
             "not-a-map-or-vector"
             (fn [db _] db))))))
+
+;; ---- rf2-twt7m Change 3 — :rf/default? tag on auto-wrappers ---------------
+;;
+;; The framework auto-wraps the user handler into a kind-appropriate
+;; interceptor (:rf/db-handler / :rf/fx-handler / :rf/ctx-handler).
+;; Pre-rf2-twt7m a tool wanting to distinguish "framework default" from
+;; "user supplied" had to maintain a hardcoded allowlist of these three
+;; ids. Per rf2-twt7m Change 3 the auto-wrapper carries `:rf/default?
+;; true` on the interceptor map itself; self-describing.
+;;
+;; Causa, Story, and the Event lens redesign (rf2-zh2qc) read
+;; `(rf/handler-meta :event id) :interceptors` and filter
+;; `(remove :rf/default?)` to surface only the user's interceptor chain.
+
+(deftest auto-wrapper-carries-rf-default-tag
+  (testing "reg-event-db auto-wrapper has :rf/default? true"
+    (rf/reg-event-db :test.twt7m/db-handler (fn [db _] db))
+    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/db-handler)
+                           :interceptors)
+          auto-wrapper (last interceptors)]
+      (is (= :rf/db-handler (:id auto-wrapper))
+          "the auto-wrapper sits at the tail of the interceptor chain")
+      (is (= true (:rf/default? auto-wrapper))
+          "the auto-wrapper carries :rf/default? true")))
+
+  (testing "reg-event-fx auto-wrapper has :rf/default? true"
+    (rf/reg-event-fx :test.twt7m/fx-handler (fn [_ _] {}))
+    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/fx-handler)
+                           :interceptors)
+          auto-wrapper (last interceptors)]
+      (is (= :rf/fx-handler (:id auto-wrapper)))
+      (is (= true (:rf/default? auto-wrapper)))))
+
+  (testing "reg-event-ctx auto-wrapper has :rf/default? true"
+    (rf/reg-event-ctx :test.twt7m/ctx-handler (fn [ctx] ctx))
+    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/ctx-handler)
+                           :interceptors)
+          auto-wrapper (last interceptors)]
+      (is (= :rf/ctx-handler (:id auto-wrapper)))
+      (is (= true (:rf/default? auto-wrapper))))))
+
+(deftest user-supplied-interceptors-do-not-carry-rf-default-tag
+  (testing "user-supplied interceptors do NOT carry :rf/default? true —
+   only the framework-auto-wrapper at the chain tail does"
+    (let [user-icpt {:id :test.twt7m/user :before identity :after identity}]
+      (rf/reg-event-db :test.twt7m/with-user-icpt
+        [user-icpt]
+        (fn [db _] db))
+      (let [interceptors (-> (rf/handler-meta :event :test.twt7m/with-user-icpt)
+                             :interceptors)
+            user-slot    (first interceptors)
+            auto-wrapper (last interceptors)]
+        (is (= 2 (count interceptors))
+            "user interceptor + auto-wrapper = 2 entries")
+        (is (= :test.twt7m/user (:id user-slot)))
+        (is (not (contains? user-slot :rf/default?))
+            "user-supplied interceptor carries no :rf/default? slot")
+        (is (= true (:rf/default? auto-wrapper))
+            "only the auto-wrapper carries :rf/default? true")))))
+
+(deftest tooling-can-filter-defaults-via-rf-default-tag
+  (testing "the self-describing tag lets tools filter without an id
+   allowlist — `(remove :rf/default?)` surfaces user-supplied
+   interceptors only"
+    (let [a {:id :test.twt7m/a :before identity}
+          b {:id :test.twt7m/b :after identity}]
+      (rf/reg-event-db :test.twt7m/filtering
+        [a b]
+        (fn [db _] db))
+      (let [interceptors (-> (rf/handler-meta :event :test.twt7m/filtering)
+                             :interceptors)
+            user-only    (vec (remove :rf/default? interceptors))]
+        (is (= 3 (count interceptors)) "two user + one framework auto-wrapper")
+        (is (= 2 (count user-only))
+            "filtering by :rf/default? leaves the two user interceptors")
+        (is (= [:test.twt7m/a :test.twt7m/b] (mapv :id user-only)))))))

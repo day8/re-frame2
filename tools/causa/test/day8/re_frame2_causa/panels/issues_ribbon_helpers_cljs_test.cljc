@@ -336,6 +336,104 @@
            (h/short-description
              (error-ev 1 :rf.error/handler-exception {:tags {}}))))))
 
+;; ---- cascade scope (rf2-u6dhp) ------------------------------------------
+
+(deftest project-issue-defaults-dispatch-id-to-ungrouped
+  (testing "when an issue's tags carry no :dispatch-id, project-issue
+            falls back to the :ungrouped sentinel — same shape that
+            group-cascades uses for events outside any cascade so
+            cascade-scope filtering is uniform"
+    (let [row (h/project-issue (error-ev 1 :rf.error/handler-exception))]
+      (is (= :ungrouped (:dispatch-id row))))))
+
+(deftest passes-cascade-disabled-when-no-focus
+  (testing "nil focus-dispatch-id disables the cascade axis"
+    (is (true? (h/passes-cascade? nil {:dispatch-id 42})))
+    (is (true? (h/passes-cascade? nil {:dispatch-id :ungrouped})))
+    (is (true? (h/passes-cascade? nil {})))))
+
+(deftest passes-cascade-strict-match
+  (testing "with focus set the axis is strict — only issues whose
+            :dispatch-id matches pass"
+    (is (true?  (h/passes-cascade? 42 {:dispatch-id 42})))
+    (is (false? (h/passes-cascade? 42 {:dispatch-id 99})))
+    (is (false? (h/passes-cascade? 42 {:dispatch-id :ungrouped})))
+    (is (true?  (h/passes-cascade? :ungrouped {:dispatch-id :ungrouped})))))
+
+(deftest project-feed-cascade-scope-narrows-to-focused-dispatch
+  (testing "with :focus-dispatch-id set the feed renders only issues
+            from that cascade; issues from other cascades drop"
+    (let [stream [(error-ev   1 :rf.error/handler-exception
+                              {:time 100 :tags {:dispatch-id 7}})
+                  (warning-ev 2 :rf.warning/missing-doc
+                              {:time 200 :tags {:dispatch-id 7}})
+                  (advisory-ev 3 :rf.http/retry-attempt
+                               {:time 300 :tags {:dispatch-id 9}})
+                  (error-ev   4 :rf.error/no-such-fx
+                              {:time 400 :tags {:dispatch-id 9}})]
+          feed   (h/project-feed stream {:focus-dispatch-id 7} 1000)]
+      (is (= 2 (:total feed))
+          "total reflects cascade-scoped count, not global")
+      (is (= 2 (:rendered feed)))
+      (is (= #{1 2} (set (map :id (:issues feed)))))
+      (is (nil? (:empty-kind feed))))))
+
+(deftest project-feed-empty-kind-no-issues-for-event
+  (testing "when the global buffer carries issues but the focused
+            cascade has none, :empty-kind is :no-issues-for-event —
+            distinct from :no-issues (global buffer empty)"
+    (let [stream [(error-ev 1 :rf.error/handler-exception
+                            {:time 100 :tags {:dispatch-id 7}})
+                  (warning-ev 2 :rf.warning/missing-doc
+                              {:time 200 :tags {:dispatch-id 7}})]
+          feed   (h/project-feed stream {:focus-dispatch-id 99} 1000)]
+      (is (= 0 (:total feed)))
+      (is (= 0 (:rendered feed)))
+      (is (= :no-issues-for-event (:empty-kind feed))))))
+
+(deftest project-feed-cascade-scope-ands-with-chip-filters
+  (testing "cascade scope and chip filters compose intersectively —
+            an issue must pass both axes to render"
+    (let [stream [(error-ev   1 :rf.error/handler-exception
+                              {:time 100 :tags {:dispatch-id 7}})
+                  (warning-ev 2 :rf.warning/missing-doc
+                              {:time 200 :tags {:dispatch-id 7}})
+                  (error-ev   3 :rf.error/no-such-fx
+                              {:time 300 :tags {:dispatch-id 9}})]
+          feed   (h/project-feed stream
+                                 {:focus-dispatch-id 7
+                                  :severities        #{:error}}
+                                 1000)]
+      (is (= 2 (:total feed)) "cascade scope: 2 issues in cascade 7")
+      (is (= 1 (:rendered feed)) "severity chip narrows to 1")
+      (is (= [1] (map :id (:issues feed)))))))
+
+(deftest project-feed-histograms-are-cascade-scoped
+  (testing "severity-counts and distinct-prefixes reflect the cascade-
+            scoped slice, NOT the global buffer — chips never surface
+            for prefixes that aren't in the focused event's cascade"
+    (let [stream [(error-ev   1 :rf.error/handler-exception
+                              {:time 100 :tags {:dispatch-id 7}})
+                  (error-ev   2 :rf.ssr/hydration-mismatch
+                              {:time 200 :tags {:dispatch-id 9}})
+                  (warning-ev 3 :rf.warning/missing-doc
+                              {:time 300 :tags {:dispatch-id 9}})]
+          feed   (h/project-feed stream {:focus-dispatch-id 7} 1000)]
+      (is (= {:error 1} (:severity-counts feed)))
+      (is (= ["rf.error"] (:distinct-prefixes feed))))))
+
+(deftest project-feed-no-focus-falls-through-to-global
+  (testing "when :focus-dispatch-id is nil the feed renders the global
+            buffer (back-compat for callers / tests that don't seed
+            the spine)"
+    (let [stream [(error-ev 1 :rf.error/handler-exception
+                            {:time 100 :tags {:dispatch-id 7}})
+                  (warning-ev 2 :rf.warning/missing-doc
+                              {:time 200 :tags {:dispatch-id 9}})]
+          feed   (h/project-feed stream {} 1000)]
+      (is (= 2 (:total feed)))
+      (is (= 2 (:rendered feed))))))
+
 ;; ---- (10) source-coord ------------------------------------------------
 
 (deftest source-coord-projection

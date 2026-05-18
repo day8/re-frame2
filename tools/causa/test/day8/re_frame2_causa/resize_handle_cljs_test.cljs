@@ -14,7 +14,9 @@
     5. Double-click handler dispatches `:rf.causa/reset-panel-width`
        which dispatches set-panel-width-px with the default value.
     6. `apply-panel-width!` writes the CSS custom property on the
-       host element.
+       `<html>` root so it cascades to the host via inheritance
+       (rf2-6fqr5 — writing it on the host's own inline style would
+       shadow consumer overrides on `:root`).
     7. `apply-all!` restores the persisted width on boot.
     8. Reload survival — `update-setting!` round-trips through
        localStorage (covered indirectly by config + effects)."
@@ -249,6 +251,57 @@
   ;; Even without a layout host present, the call should not throw.
   (is (nil? (settings-effects/apply-panel-width! 480))
       "no-op safe pre-mount"))
+
+(deftest apply-panel-width-does-not-pin-host-inline-style
+  ;; Regression for rf2-6fqr5: an earlier draft wrote the CSS custom
+  ;; property as an INLINE style on the layout host as well as on
+  ;; `<html>`. Inline declarations beat any selector-based rule in
+  ;; the cascade, so a consumer's `:root { --rf-causa-inline-width:
+  ;; 720px; }` was silently shadowed by Causa's host write. The
+  ;; documented inline-host contract (spec/011-Launch-Modes.md
+  ;; §Resizing the inline host) requires that an override anywhere
+  ;; up the cascade takes effect — which means Causa MUST NOT write
+  ;; the property to the host element itself; the host inherits the
+  ;; value from `<html>` via the `var(...)` lookup on the next paint.
+  (when (and (exists? js/document) (.-createElement js/document))
+    (let [host (.createElement js/document "aside")]
+      (.setAttribute host "data-rf-causa-host" "")
+      (when (.-body js/document)
+        (.appendChild (.-body js/document) host))
+      (try
+        (settings-effects/apply-panel-width! 480)
+        (is (= "" (.getPropertyValue (.-style host)
+                                     "--rf-causa-inline-width"))
+            "host element MUST NOT carry the CSS var as an inline style")
+        (finally
+          (when (.-parentNode host)
+            (.removeChild (.-parentNode host) host)))))))
+
+(deftest apply-panel-width-clears-html-inline-when-default
+  ;; Regression for rf2-6fqr5: an earlier draft asserted the default
+  ;; value as an inline style on `<html>` at boot. Inline `<html>`
+  ;; declarations beat author-normal `:root { ... }` rules (the cascade
+  ;; treats inline as the highest origin), so a consumer's documented
+  ;; `:root { --rf-causa-inline-width: 720px; }` was silently shadowed
+  ;; by Causa's default-assertion. When the user has NOT explicitly
+  ;; resized — i.e. the value still equals `default-panel-width-px` —
+  ;; `apply-panel-width!` MUST clear any prior inline declaration so
+  ;; the consumer's `:root` override (or the host CSS's `var(...)`
+  ;; fallback) wins.
+  (when-let [html (and (exists? js/document)
+                       (.-documentElement js/document))]
+    ;; Prime an inline declaration first to prove the clear path runs.
+    (.setProperty (.-style html) "--rf-causa-inline-width" "999px")
+    (settings-effects/apply-panel-width! config/default-panel-width-px)
+    (is (= "" (.getPropertyValue (.-style html)
+                                 "--rf-causa-inline-width"))
+        "default value MUST clear the inline `<html>` declaration")
+    ;; nil arg also routes to the default and must clear.
+    (.setProperty (.-style html) "--rf-causa-inline-width" "888px")
+    (settings-effects/apply-panel-width! nil)
+    (is (= "" (.getPropertyValue (.-style html)
+                                 "--rf-causa-inline-width"))
+        "nil arg defaults to the published width and clears the inline")))
 
 ;; ---- panel-width-px sub --------------------------------------------------
 

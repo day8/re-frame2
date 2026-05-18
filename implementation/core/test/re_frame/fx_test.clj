@@ -582,3 +582,81 @@
       (is (= [:fx-test/issue-with-event :payload-1]
              (:event @captured-ctx))
           "ctx :event is the originating event vector"))))
+
+;; ---- rf2-twt7m Change 2 — :event/do-fx carries :fx + :db-present? ---------
+;;
+;; The handler's return shape is otherwise invisible at the trace level —
+;; the :db value already rides through :event/db-changed diffs (not
+;; stamped on the do-fx marker because it can be huge), and the :fx
+;; vector lives in the interceptor context's :effects slot for the
+;; duration of the cascade but never makes it onto a trace. Per
+;; rf2-twt7m Change 2 we now stamp :fx (the vector) and :db-present?
+;; (boolean) onto the :event/do-fx marker that terminates the do-fx
+;; walk. Stamps the SHAPE, not deep values; Event lens (rf2-zh2qc)
+;; consumers can align cascade rows with handler returns.
+
+(deftest event-do-fx-stamps-fx-and-db-present
+  (testing "reg-event-fx returning {:db ... :fx [...]} fires :event/do-fx
+   with :fx (the vector) and :db-present? true under :tags (same slot
+   placement as :frame — payload-shaped tags ride under :tags)"
+    (rf/reg-fx :fx-test/do-fx-shape (fn [_ _] :ok))
+    (rf/reg-event-fx :fx-test/returns-db-and-fx
+      (fn [_ _]
+        {:db {:seeded? true}
+         :fx [[:fx-test/do-fx-shape {:k 1}]]}))
+    (let [acc (collect-traces! ::do-fx-shape)]
+      (try
+        (rf/dispatch-sync [:fx-test/returns-db-and-fx])
+        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+              tags  (:tags dof)]
+          (is (some? dof) ":event/do-fx fired")
+          (is (= true (:db-present? tags))
+              ":db-present? true because the handler returned a :db slot")
+          (is (= [[:fx-test/do-fx-shape {:k 1}]] (:fx tags))
+              ":fx vector matches what the handler returned"))
+        (finally
+          (rf/remove-trace-cb! ::do-fx-shape))))))
+
+(deftest event-do-fx-stamps-when-only-fx-returned
+  (testing "reg-event-fx returning {:fx [...]} only (no :db slot) stamps
+   :db-present? false and :fx with the vector"
+    (rf/reg-fx :fx-test/no-db-fx (fn [_ _] :ok))
+    (rf/reg-event-fx :fx-test/fx-only
+      (fn [_ _]
+        {:fx [[:fx-test/no-db-fx {}]]}))
+    (let [acc (collect-traces! ::no-db)]
+      (try
+        (rf/dispatch-sync [:fx-test/fx-only])
+        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+              tags  (:tags dof)]
+          (is (some? dof) ":event/do-fx fired")
+          (is (= false (:db-present? tags))
+              ":db-present? false because the handler returned no :db slot")
+          (is (= [[:fx-test/no-db-fx {}]] (:fx tags))
+              ":fx vector matches what the handler returned"))
+        (finally
+          (rf/remove-trace-cb! ::no-db))))))
+
+(deftest event-do-fx-stamp-rides-under-tags
+  (testing ":fx and :db-present? are payload-shaped slots — they ride
+   under :tags alongside :frame (consistent with how every payload
+   slot on a trace event is placed; top-level is reserved for
+   substrate-hoisted slots like :rf.trace/call-site,
+   :rf.trace/trigger-handler, :source, :recovery, :sensitive?)"
+    (rf/reg-event-fx :fx-test/top-level-shape
+      (fn [_ _] {:db {:x 1} :fx []}))
+    (let [acc (collect-traces! ::top-level)]
+      (try
+        (rf/dispatch-sync [:fx-test/top-level-shape])
+        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+              tags  (:tags dof)]
+          (is (some? dof) ":event/do-fx fired")
+          (is (contains? tags :fx)          ":fx lives under :tags")
+          (is (contains? tags :db-present?) ":db-present? lives under :tags")
+          (is (contains? tags :frame)       ":frame is alongside (pre-existing)")
+          (is (not (contains? dof :fx))
+              ":fx is NOT at top level")
+          (is (not (contains? dof :db-present?))
+              ":db-present? is NOT at top level"))
+        (finally
+          (rf/remove-trace-cb! ::top-level))))))

@@ -41,9 +41,15 @@
                        :color (:text-secondary tokens)}}
       "[runtime] — reserved app-db keys"]
      (into [:div]
+           ;; `^{:key …}` reader meta on the `(reserved-row pair)` call
+           ;; below would be attached to the source list and lost when
+           ;; the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `reserved-row` always returns a
+           ;; `[:div …]` vector, so apply the key directly via
+           ;; `with-meta`. (rf2-ppzid)
            (for [pair reserved-pairs]
-             ^{:key (pr-str (first pair))}
-             (reserved-row pair)))]))
+             (with-meta (reserved-row pair) {:key (pr-str (first pair))})))]))
 
 (defn- pinned-row
   [{:keys [path value]}]
@@ -90,9 +96,15 @@
                        :color (:text-secondary tokens)}}
       "Pinned slices"]
      (into [:div]
+           ;; `^{:key …}` reader meta on the `(pinned-row p)` call
+           ;; below would be attached to the source list and lost when
+           ;; the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `pinned-row` always returns a
+           ;; `[:div …]` vector, so apply the key directly via
+           ;; `with-meta`. (rf2-ppzid)
            (for [p pinned-slices]
-             ^{:key (pr-str (:path p))}
-             (pinned-row p)))]))
+             (with-meta (pinned-row p) {:key (pr-str (:path p))})))]))
 
 (defn- focus-result-row
   [{:keys [epoch-id event op before after] :as _hit}]
@@ -168,6 +180,12 @@
                  :style {:list-style "none"
                          :margin 0
                          :padding 0}}]
+           ;; `^{:key …}` reader meta on the `(focus-result-row hit)`
+           ;; call below would be attached to the source list and lost
+           ;; when the call returns its fresh vector — Reagent's
+           ;; `get-react-key` only reads `:key` meta from vectors (see
+           ;; reagent2.impl.template). `focus-result-row` always
+           ;; returns a `[:li …]` vector, so apply the key directly
+           ;; via `with-meta`. (rf2-ppzid)
            (for [hit hits]
-             ^{:key (pr-str (:epoch-id hit))}
-             (focus-result-row hit))))])
+             (with-meta (focus-result-row hit) {:key (pr-str (:epoch-id hit))}))))])

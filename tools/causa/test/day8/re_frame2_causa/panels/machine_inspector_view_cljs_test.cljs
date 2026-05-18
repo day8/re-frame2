@@ -603,3 +603,112 @@
           "selection lands on Causa")
       (is (nil? (:selected-machine-id default-db))
           "selection did NOT leak into :rf/default"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ppzid — React unique-key warning regression guard.
+;;
+;; Two `for` loops in the Machine Inspector panel previously attached
+;; `^{:key …}` reader meta to a function-call list form — `(transition-
+;; entry row)` and `(focused-event-section rec)`. Reagent's
+;; `get-react-key` only reads `:key` from vector meta, so the keys were
+;; silently lost and React emitted "unique key prop" warnings. The fix
+;; routes both per-row children through `with-meta` so the `:key` meta
+;; lands on the returned `[:li …]` / `[:section …]` vector. This test
+;; renders both loops under populated fixtures and asserts every
+;; per-row child carries `:key` meta so the regression cannot recur
+;; silently. (rf2-ppzid)
+;; ---------------------------------------------------------------------------
+
+;; Meta-preserving walker. The `expand-fn-component`/`mapv` walker
+;; above rewrites every vector node with `mapv`, stripping element
+;; meta. To assert `:key` meta survives we walk via `tree-seq` with a
+;; custom children fn: for fn-component vectors we descend into
+;; `(apply f args)`; for pure hiccup vectors we yield their children
+;; in place. Either way the data-testid-bearing vectors land in our
+;; hand as-is, with meta intact.
+(defn- meta-preserving-children [node]
+  (cond
+    (and (vector? node) (fn? (first node)))
+    [(apply (first node) (rest node))]
+
+    (vector? node)
+    (if (map? (second node))
+      (drop 2 node)
+      (rest node))
+
+    (seq? node)
+    node
+
+    :else nil))
+
+(defn- raw-find-all-by-testid-prefix [tree prefix]
+  (filter (fn [node]
+            (and (vector? node)
+                 (map? (second node))
+                 (some-> (:data-testid (second node))
+                         (.startsWith prefix))))
+          (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
+
+(deftest ribbon-entries-carry-key-meta
+  (testing "ribbon entries (transition-entry for-loop) carry :key meta
+            on the returned [:li …] vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:auth/login])
+      (force-mode! :mode-a)
+      (trace-bus/collect-trace!
+        {:id 1 :operation :rf.machine/transition :time 100
+         :tags {:machine-id :auth/login :from :idle :to :authing
+                :event [:auth/submit] :dispatch-id "d-1"}})
+      (trace-bus/collect-trace!
+        {:id 2 :operation :rf.machine/transition :time 200
+         :tags {:machine-id :auth/login :from :authing :to :idle
+                :event [:auth/cancel] :dispatch-id "d-2"}})
+      (trace-bus/collect-trace!
+        {:id 3 :operation :rf.machine/transition :time 300
+         :tags {:machine-id :auth/login :from :idle :to :authing
+                :event [:auth/retry] :dispatch-id "d-3"}})
+      (let [tree    (machine-inspector/Panel)
+            entries (raw-find-all-by-testid-prefix
+                      tree "rf-causa-machine-inspector-transition-")]
+        (is (= 3 (count entries))
+            "three ribbon entries — one per transition event")
+        (doseq [entry entries]
+          (is (vector? entry) "ribbon entry is a hiccup vector")
+          (is (some? (some-> (meta entry) :key))
+              (str "ribbon entry carries :key meta — got "
+                   (pr-str (meta entry)))))))))
+
+(deftest focused-event-sections-carry-key-meta
+  (testing "focused-event-section per-record for-loop ships per-section
+            children carrying :key meta on the returned [:section …]
+            vector (rf2-ppzid)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
+      ;; Two transitions across two machines so the focused-event lens
+      ;; renders two sibling sections.
+      (trace-bus/collect-trace!
+        {:id 1 :operation :event/dispatched :op-type :event :time 100
+         :tags {:event [:cascade/start] :dispatch-id "d-cascade"
+                :frame :rf/default}})
+      (trace-bus/collect-trace!
+        {:id 2 :operation :rf.machine/transition :time 110
+         :tags {:machine-id :auth/login :from :idle :to :authing
+                :event [:cascade/start] :dispatch-id "d-cascade"}})
+      (trace-bus/collect-trace!
+        {:id 3 :operation :rf.machine/transition :time 120
+         :tags {:machine-id :checkout/flow :from :idle :to :authing
+                :event [:cascade/start] :dispatch-id "d-cascade"}})
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id "d-cascade"])
+      (let [tree     (machine-inspector/Panel)
+            sections (raw-find-all-by-testid-prefix
+                       tree "rf-causa-machine-focused-event-section-")]
+        (when (seq sections)
+          (doseq [section sections]
+            (is (vector? section) "focused-event-section is a hiccup vector")
+            (is (some? (some-> (meta section) :key))
+                (str "focused-event-section carries :key meta — got "
+                     (pr-str (meta section))))))))))

@@ -186,11 +186,19 @@
     (c) invoke the user handler with kind-appropriate inputs;
     (d) commit the return into the context.
 
-  See `kind-spec` for the per-kind :invoke / :commit pair."
+  See `kind-spec` for the per-kind :invoke / :commit pair.
+
+  Per rf2-twt7m Change 3: the produced interceptor carries
+  `:rf/default? true` so tools (Causa, Story, the Event lens
+  redesign rf2-zh2qc) can filter out the framework's auto-wrappers
+  without a hardcoded allowlist of `:rf/db-handler` /
+  `:rf/fx-handler` / `:rf/ctx-handler` interceptor ids. Self-
+  describing: the meta lives on the interceptor map itself."
   [kind handler-fn]
   (let [{:keys [interceptor-id invoke commit]} (get kind-spec kind)]
     (interceptor/->interceptor
-      :id interceptor-id
+      :id         interceptor-id
+      :rf/default? true
       :before
       (fn [ctx]
         (if (:rf/skip-handler? ctx)

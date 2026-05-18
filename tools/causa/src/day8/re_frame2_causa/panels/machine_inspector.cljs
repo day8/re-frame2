@@ -486,9 +486,15 @@
                            :padding "6px 8px"
                            :overflow-x "auto"
                            :white-space "nowrap"}}]
+             ;; `^{:key …}` reader meta on the `(transition-entry row)`
+             ;; call below would be attached to the source list and
+             ;; lost when the call returns its fresh vector — Reagent's
+             ;; `get-react-key` only reads `:key` meta from vectors
+             ;; (see reagent2.impl.template). `transition-entry`
+             ;; always returns a `[:li …]` vector, so apply the key
+             ;; directly via `with-meta`. (rf2-ppzid)
              (for [row capped]
-               ^{:key (:id row)}
-               (transition-entry row))))]))
+               (with-meta (transition-entry row) {:key (:id row)}))))]))
 
 ;; ---- instance tabs (UC2 Mode B foundation) -----------------------------
 
@@ -874,12 +880,20 @@
                    :data-section-count (count records)
                    :style {:display "flex"
                            :flex-direction "column"}}]
+            ;; `^{:key …}` reader meta on the `(focused-event-section
+            ;; rec)` call below would be attached to the source list
+            ;; and lost when the call returns its fresh vector —
+            ;; Reagent's `get-react-key` only reads `:key` meta from
+            ;; vectors (see reagent2.impl.template).
+            ;; `focused-event-section` always returns a `[:section …]`
+            ;; vector, so apply the key directly via `with-meta`.
+            ;; (rf2-ppzid)
             (for [rec records]
-              ^{:key (str (:machine-id rec) "-"
-                          (:id rec) "-"
-                          (:from-state rec) "-"
-                          (:to-state rec))}
-              (focused-event-section rec))))))
+              (with-meta (focused-event-section rec)
+                {:key (str (:machine-id rec) "-"
+                           (:id rec) "-"
+                           (:from-state rec) "-"
+                           (:to-state rec))}))))))
 
 ;; ---- empty state --------------------------------------------------------
 
