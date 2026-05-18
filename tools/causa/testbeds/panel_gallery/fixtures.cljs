@@ -390,3 +390,136 @@
                       (cascade-evs dispatch-id ev (* (inc i) 50))))
        (mapcat identity)
        vec))
+
+;; ---- event-lens variants (rf2-zh2qc) -----------------------------------
+;;
+;; Builders that exercise the redesigned Event lens's 6-section layout
+;; under realistic combinations of substrate keys (rf2-twt7m): the
+;; dispatch-site coord on :event/dispatched, the :fx + :db-present?
+;; tags on :event/do-fx, and (in tests) the :rf/default? flag on
+;; framework-auto-wrapped interceptors.
+
+(defn event-lens-simple-buffer
+  "Happy-path Event lens fixture — call-site captured, :fx + :db
+  returned, two fx-handlers ran. Renders all 6 sections including
+  HANDLER (when the variant pre-registers the handler) and the
+  EFFECTS RETURNED summary."
+  []
+  (let [dispatch-id 100
+        id-base     50
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
+             :tags (assoc tag :event [:cart/add-item {:id 42 :qty 2}])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/cart/views.cljs" :line 127})
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-start)}
+     {:id (+ id-base 3) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 11)}
+     {:id (+ id-base 4) :op-type :event :operation :event/do-fx
+      :tags (assoc tag :fx [[:dispatch [:notify "added"]]]
+                       :db-present? true)}
+     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :dispatch :fx-args [[:notify "added"]]
+                       :duration-ms 0)}]))
+
+(defn event-lens-with-interceptors-buffer
+  "Event lens fixture with a user interceptor on the chain. Note: the
+  INTERCEPTORS section reads handler-meta off the registry at render
+  time, so this fixture pairs with a variant `:events` slot that
+  registers a real handler with the desired interceptor chain."
+  []
+  (event-lens-simple-buffer))
+
+(defn event-lens-many-fx-buffer
+  "Event lens fixture — six fx handlers ran in the cascade, including
+  one managed-fx (HTTP). Exercises the inline managed-fx mount under
+  §6."
+  []
+  (let [dispatch-id 200
+        id-base     200
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
+             :tags (assoc tag :event [:dashboard/refresh-all])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/dashboard/views.cljs" :line 88})
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 47)}
+     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+      :tags (assoc tag :fx [[:db nil] [:rf.http/get {:url "/api/stats"}]
+                            [:dispatch [:refresh-done]]]
+                       :db-present? true)}
+     {:id (+ id-base 4) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :db :duration-ms 1)}
+     {:id (+ id-base 5) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :rf.http/get :duration-ms 87
+                       :source :http :origin :app
+                       :fx-args [{:url "/api/stats"}])}
+     {:id (+ id-base 6) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :metrics :duration-ms 2)}
+     {:id (+ id-base 7) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :persist :duration-ms 3)}
+     {:id (+ id-base 8) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :navigate :duration-ms 1)}
+     {:id (+ id-base 9) :op-type :fx :operation :rf.fx/handled
+      :tags (assoc tag :fx-id :dispatch :fx-args [[:refresh-done]]
+                       :duration-ms 0)}]))
+
+(defn event-lens-handler-threw-buffer
+  "Event lens fixture — handler threw mid-run. §5 + §6 should be
+  ABSENT; the cascade-outcome glyph is ✗ red and the Issues-tab
+  footer is the only inline cross-reference."
+  []
+  (let [dispatch-id 300
+        id-base     300
+        tag         {:dispatch-id dispatch-id}]
+    [(assoc {:id (+ id-base 1) :op-type :event :operation :event/dispatched
+             :tags (assoc tag :event [:checkout/submit {:order-id 42}])
+             :source :ui :origin :app}
+            :rf.trace/call-site
+            {:file "src/checkout/views.cljs" :line 203})
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-start)}
+     {:id (+ id-base 3) :op-type :error :operation :rf.error/handler-exception
+      :tags (assoc tag :event-id :checkout/submit
+                       :exception-message "NullPointerException at checkout/submit-h:88"
+                       :severity :error)}]))
+
+(defn event-lens-hydration-completed-buffer
+  "Event lens fixture — a :rf.ssr/hydrated completion event. Renders
+  the SSR✓ outcome-line badge plus the hydration-outcome row inside
+  §5. With :mismatches 0 there's no jump-to-Issues affordance."
+  []
+  (let [dispatch-id 400
+        id-base     400
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
+      :tags (assoc tag :event [:rf.ssr/hydrated {:duration-ms 87
+                                                  :subs-ran 142
+                                                  :mismatches 0}])
+      :source :ssr :origin :app}
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 87)}
+     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+      :tags tag}
+     {:id (+ id-base 4) :op-type :event :operation :rf.ssr/hydration-outcome
+      :tags (assoc tag :duration-ms 87 :subs-ran 142 :mismatches 0)}]))
+
+(defn event-lens-hydration-mismatch-buffer
+  "Event lens fixture — hydration completed WITH mismatches. The
+  hydration-outcome row carries the jump-to-Issues affordance."
+  []
+  (let [dispatch-id 401
+        id-base     410
+        tag         {:dispatch-id dispatch-id}]
+    [{:id (+ id-base 1) :op-type :event :operation :event/dispatched
+      :tags (assoc tag :event [:rf.ssr/hydrated {:duration-ms 91 :mismatches 3}])
+      :source :ssr :origin :app}
+     {:id (+ id-base 2) :op-type :event :operation :event
+      :tags (assoc tag :phase :run-end :duration-ms 91)}
+     {:id (+ id-base 3) :op-type :event :operation :event/do-fx
+      :tags tag}
+     {:id (+ id-base 4) :op-type :event :operation :rf.ssr/hydration-outcome
+      :tags (assoc tag :duration-ms 91 :subs-ran 142 :mismatches 3)}]))
