@@ -429,6 +429,124 @@
           ":rf.causa/focus-cascade fired with the cascade's dispatch-id"))))
 
 ;; -------------------------------------------------------------------------
+;; (4b) L2 event-list polish — slim scrollbar + auto-scroll (rf2-ieg6d)
+;; -------------------------------------------------------------------------
+;;
+;; Bug 2 — the L2 container `:style` carries the Firefox standardised
+;; `scrollbar-width`/`scrollbar-color` props (the WebKit/Blink pseudo-
+;; element rules ship via a one-shot `<style>` injection — node-test
+;; has no `js/document` so we only assert the inline-style branch here).
+;;
+;; Bug 1 — in LIVE+head mode the focused row carries a `:ref` callback
+;; that calls `scrollIntoView` when the focused id transitions. The
+;; callback is suppressed in RETRO (user clicked → already visible)
+;; and in paused-LIVE (user inspecting a frozen cascade).
+
+(deftest event-list-carries-slim-scrollbar-style
+  (testing "rf2-ieg6d Bug 2 — the L2 container :style includes the
+            Firefox slim-scrollbar props. WebKit rules ship via a
+            <style> injection (DOM-side, not assertable in node-test)."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            list-el (find-by-testid tree "rf-causa-event-list")
+            style  (:style (second list-el))]
+        (is (some? list-el) "event-list container present")
+        (is (= "thin" (:scrollbar-width style))
+            ":scrollbar-width is thin (Firefox slim)")
+        (is (string? (:scrollbar-color style))
+            ":scrollbar-color is set (Firefox slim, thumb + track)")))))
+
+(deftest event-list-focused-row-carries-ref-in-live-head
+  (testing "rf2-ieg6d Bug 1 — in LIVE+head the focused row's hiccup
+            map carries a callable `:ref`. Cold-start auto-snaps to
+            head in :live mode (per spec/018 §4 Defaults), so the only
+            row rendered is also the focused-LIVE-head row."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [focus @(rf/subscribe [:rf.causa/focus])
+            tree  (shell/shell-view)
+            row   (find-by-testid tree "rf-causa-event-row-1")]
+        (is (= :live (:mode focus)) "spine starts in :live mode")
+        (is (:head? focus) "focus is on head")
+        (is (some? row) "focused row renders")
+        (is (fn? (:ref (second row)))
+            ":ref callback present on the LIVE+head focused row")))))
+
+(deftest event-list-focused-row-omits-ref-in-retro
+  (testing "rf2-ieg6d Bug 1 — clicking a row flips spine to :retro.
+            The focused row in RETRO must NOT carry a `:ref` callback
+            (the user clicked → already visible; scrolling would
+            steal the cursor)."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/focus-cascade 1]))
+    (rf/with-frame :rf/causa
+      (let [focus @(rf/subscribe [:rf.causa/focus])
+            tree  (shell/shell-view)
+            row   (find-by-testid tree "rf-causa-event-row-1")]
+        (is (= :retro (:mode focus)) "spine is in :retro after focus-cascade")
+        (is (some? row) "focused row renders")
+        (is (nil? (:ref (second row)))
+            ":ref absent on the RETRO focused row")))))
+
+(deftest event-list-non-focused-row-has-no-ref
+  (testing "rf2-ieg6d Bug 1 — only the focused row gets a `:ref`. Non-
+            focused rows must not carry one (would scroll on every
+            attachment cycle)."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:older/event]))
+    (trace-bus/collect-trace! (dispatch-trace-ev 2 [:newer/event]))
+    ;; Focus auto-snaps to head (id 2). Row 1 is the non-focused row.
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            row1 (find-by-testid tree "rf-causa-event-row-1")
+            row2 (find-by-testid tree "rf-causa-event-row-2")]
+        (is (some? row1) "row 1 present")
+        (is (some? row2) "row 2 (focused head) present")
+        (is (nil? (:ref (second row1)))
+            "non-focused row 1 carries no :ref")
+        (is (fn? (:ref (second row2)))
+            "focused-head row 2 carries the :ref callback")))))
+
+(deftest focused-row-ref-scrolls-on-focus-change-only
+  (testing "rf2-ieg6d Bug 1 — the ref callback fires `scrollIntoView`
+            once when called with a new id, no-ops when called with
+            the same id (so React's normal re-render cycles don't
+            re-scroll). Drive the callback directly with a stub DOM
+            element that records `scrollIntoView` calls."
+    (let [scroll-calls (atom 0)
+          stub-el      #js {:scrollIntoView (fn [_opts]
+                                              (swap! scroll-calls inc))}
+          ;; Reset the module-level atom so this test is hermetic.
+          _            (reset! @#'shell/last-scrolled-focus-id ::reset-marker)
+          ref-fn       (#'shell/focused-row-ref 42 true)]
+      (is (fn? ref-fn) "ref-fn is a function when auto-track? is true")
+      ;; First call → scroll.
+      (ref-fn stub-el)
+      (is (= 1 @scroll-calls) "first attachment scrolls")
+      ;; Second call with same id → no scroll.
+      (ref-fn stub-el)
+      (is (= 1 @scroll-calls) "repeat attachment for same id does NOT re-scroll")
+      ;; New focus id (simulating a fresh focused-row-ref for a new
+      ;; focus). The atom is shared; a different ref-fn for a new id
+      ;; should re-scroll.
+      (let [ref-fn-2 (#'shell/focused-row-ref 99 true)]
+        (ref-fn-2 stub-el)
+        (is (= 2 @scroll-calls) "new focus id triggers a fresh scroll")))))
+
+(deftest focused-row-ref-nil-when-not-auto-tracking
+  (testing "rf2-ieg6d Bug 1 — `focused-row-ref` returns nil when the
+            spine is NOT in the auto-tracking branch. The row's hiccup
+            map then omits `:ref` (cond->) and React attaches no
+            callback."
+    (is (nil? (#'shell/focused-row-ref 42 false))
+        "auto-track? false → nil ref")))
+
+;; -------------------------------------------------------------------------
 ;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
 ;; -------------------------------------------------------------------------
 ;;
