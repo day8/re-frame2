@@ -38,12 +38,28 @@
   ride a follow-on bead for the UI (drag-zoom on the time-axis,
   expression input).
 
+  ## Cascade-scope (rf2-ycoct)
+
+  Per spec/018 §6 every L4 panel is a lens on the spine's focused
+  event, not a global ribbon. The trace tab pre-filters its ribbon
+  to events in the focused cascade's window via the
+  `:rf.causa/focus` sub (composed by the spine in `spine.cljs`). User
+  chip filters AND with the cascade scope; the chip rows continue to
+  reflect user state only — the cascade-scope is a system-level
+  invariant, not a user narrowing. Clicking a different cascade in
+  the L2 event list re-binds the spine and the ribbon re-renders
+  with the new cascade's events.
+
   ## Empty states
 
   Per the bead's contract:
 
     :no-events   → 'No events.' Once the trace bus starts flowing
                    this clears immediately.
+    :no-focus    → defensive: buffer is non-empty but the spine has
+                   no `:dispatch-id`. Per rf2-639lc default-focus
+                   should always land on a real cascade, so this
+                   should never render in practice.
     :no-matches  → events exist but the active filters hide them
                    all. 'No events match current filters' + Clear.
 
@@ -414,6 +430,23 @@
                 :color  (:text-tertiary tokens)}}
     "No events."]])
 
+(defn- empty-state-no-focus
+  "Defensive empty-state — the buffer has events but the spine focus
+  has no `:dispatch-id`. Per rf2-639lc the default-focus rule should
+  always land on a real cascade, so this branch should never render
+  in practice; the terse copy + testid here let us spot a regression
+  when it does."
+  []
+  [:div {:data-testid "rf-causa-trace-empty-no-focus"
+         :style       {:padding     "24px"
+                       :font-family sans-stack
+                       :font-size   "13px"
+                       :line-height 1.5
+                       :color       (:text-secondary tokens)}}
+   [:p {:style {:margin 0
+                :color  (:text-tertiary tokens)}}
+    "No focused event."]])
+
 (defn- active-filter-pill
   "Per rf2-vu0mp — one pill in the no-matches empty state's 'narrowing
   on' strip. Clicking removes the axis from the filter map. Orphan
@@ -531,6 +564,7 @@
      [:div {:style {:flex 1 :overflow "auto"}}
       (case empty-kind
         :no-events  (empty-state-no-events)
+        :no-focus   (empty-state-no-focus)
         :no-matches (empty-state-no-matches {:active-filters active-filters})
         nil         (overflow/capped-list
                       rows
@@ -606,15 +640,37 @@
 
   ;; Composite — produces every slot the view consumes. Reactive
   ;; surface: trace-feed-state (incrementally maintained) + filter
-  ;; state. The helper's `project-feed-from-state` does the read-
-  ;; side work: a single reverse-then-filter walk over already-
-  ;; projected rows. Filter-only changes still O(rows) but with no
-  ;; per-event `project-row` cost.
+  ;; state + spine focus. The helper's `project-feed-from-state` does
+  ;; the read-side work: a single reverse-then-filter walk over
+  ;; already-projected rows. Filter-only changes still O(rows) but
+  ;; with no per-event `project-row` cost.
+  ;;
+  ;; ## Cascade-scope by default (rf2-ycoct)
+  ;;
+  ;; Per spec/018 §6 every L4 panel is a lens on the spine's focused
+  ;; event, not a global ribbon. The trace tab pre-filters to events
+  ;; in the focused cascade's window using the focus sub's
+  ;; `:dispatch-id` (which the spine composer auto-resolves to the
+  ;; head cascade in LIVE mode per rf2-s0s5x, or pins to the retro
+  ;; selection in RETRO mode). User chip filters still apply AND-wise
+  ;; on top of the cascade scope.
+  ;;
+  ;; The cascade-scope is a SYSTEM-level invariant (not a user
+  ;; narrowing), so the `:rf.causa/trace-filters` map and the chip
+  ;; rows continue to reflect user state only. A user click on a
+  ;; `:dispatch-id` chip becomes redundant when it matches the
+  ;; focused id (both filters yield the same set) and acts as an
+  ;; AND-wise narrower when it doesn't — but the typical workflow is
+  ;; to focus via L2 and let the panel auto-scope.
   (rf/reg-sub :rf.causa/trace-feed
     :<- [:rf.causa/trace-feed-state]
     :<- [:rf.causa/trace-filters]
-    (fn [[state filters] _query]
-      (h/project-feed-from-state state filters)))
+    :<- [:rf.causa/focus]
+    (fn [[state filters focus] _query]
+      (h/project-feed-from-state
+        state
+        filters
+        {:cascade-dispatch-id (:dispatch-id focus)})))
 
   ;; Set or clear one axis. Passing nil-value clears that axis;
   ;; setting a value replaces any existing value on that axis (the
