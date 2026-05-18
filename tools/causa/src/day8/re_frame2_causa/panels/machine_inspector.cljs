@@ -180,7 +180,7 @@
      (cond
        sim-active?
        (str (h/format-machine-id machine-id)
-            " — sim mode active; clicks walk the topology against a clone")
+            " — sim mode active")
 
        (zero? (or instance-count 0))
        (str (h/format-machine-id machine-id)

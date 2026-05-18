@@ -221,7 +221,7 @@
                              :font-size   "10px"
                              :font-weight 700
                              :text-align  "right"}
-               :title       "Over budget — click to inspect"}
+               :title       "Over budget"}
         "▲ over"]
        [:span {:style {:color     (:text-tertiary tokens)
                        :font-size "10px"
