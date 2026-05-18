@@ -24,20 +24,28 @@
 
   ## Ribbon clusters (L1)
 
-  Five clusters, fixed order left → right per spec/018 §3:
+  Four clusters, fixed order left → right per spec/018 §3 (Round-3
+  rf2-g9pee — the explicit `● LIVE` / `◐ RETRO` mode pill was dropped;
+  the spine's mode is already derivable from sticky-row selection +
+  the `[◀ ▶ ⏭]` cluster + the `:rf.causa/focus` sub. Space / L / G
+  keybindings preserve the toggle access the pill used to surface):
 
   - **Nav** (`◀ ▶ ⏭`) — back / forward / fast-forward through the
     spine. Dispatches `:rf.causa/focus-cascade-prev` / `-next` /
-    `:rf.causa/follow-head`.
+    `:rf.causa/follow-head`. Pressing `⏭` (or `Space` in paused-LIVE,
+    or `L` in RETRO) snaps focus back to head — the operations the
+    mode pill used to host.
   - **Frame picker** — single-select dropdown over the cascade list's
     distinct frames. Excludes `:rf/causa` by default per §8 I1.
   - **Filter pills** — IN (green, `+`) and OUT (magenta, `×`) pills
     + trailing `[+]` add-pill. Click any pill → edit popup.
-  - **Mode pill** — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` dual-
-    purpose indicator + toggle. Carries the REDACTED-count tooltip.
   - **Right icons** — `⚙` settings · `✕` close. (Pop-out is a
     programmatic API only — `(causa/popout!)` — no ribbon affordance
     until the second-window UX lands per spec/011-Launch-Modes.md.)
+
+  The REDACTED indicator (`[● REDACTED N]`) renders inline next to
+  the right-icons cluster when the suppressed-sensitive count is
+  positive, surfacing privacy state without a permanent ribbon slot.
 
   ## Event list (L2)
 
@@ -90,7 +98,8 @@
   Per rf2-tijr the view code is pure hiccup. The substrate adapter's
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
@@ -170,24 +179,6 @@
       []
       cascades)))
 
-(defn mode-pill-text
-  "Render text for the L1 mode pill per spec/018 §3 Mode pill click
-  behaviour. `focus` is the `:rf.causa/focus` sub value."
-  [{:keys [mode paused? head?]}]
-  (case mode
-    :live  (if paused? "● LIVE (paused)" "● LIVE")
-    :retro (if head? "● LIVE" "◐ RETRO")
-    "● LIVE"))
-
-(defn mode-pill-on-click
-  "Dispatcher for the mode-pill click — Space-equivalent when in LIVE,
-  L-equivalent when in RETRO. Per spec/018 §3 table 'Mode pill click
-  behaviour'."
-  [{:keys [mode]}]
-  (if (= mode :retro)
-    #(rf/dispatch [:rf.causa/follow-head] {:frame :rf/causa})
-    #(rf/dispatch [:rf.causa/toggle-live-pause] {:frame :rf/causa})))
-
 (defn event-id-of-cascade
   "Best-effort pluck of the event-id from a cascade's `:event` slot.
   The slot is the raw event vector ([:foo/bar …]); the first element
@@ -198,87 +189,70 @@
     (when (vector? ev)
       (first ev))))
 
-(def event-vector-inline-cap
-  "Max character count for the L2 row's inline event-vector rendering
-  (rf2-htik0). Cascades that pr-str longer than this collapse to
-  `<head>…]` so the row stays single-line. Click the row → the L4
-  Event tab shows the full vector (no truncation there).
+(defn render-event-id-only
+  "Render JUST the event-id keyword for the L2 row per Round-3
+  rf2-cmtkw — one-line minimal rows. The full event vector (args +
+  payload) and all dropped fields (datetime, sequence number, duration
+  tier, source coordinates) move to the row's hover tooltip + the
+  Event tab detail (which has plenty of room).
 
-  ~80 chars is enough for `[:cart/add-item {:item-id \"apple\" :qty 2}]`
-  plus a touch of slack for typical event-handler signatures, and
-  short enough to keep the L2 list scannable in a stack of rows."
-  80)
-
-(defn truncate-event-vector
-  "Truncate a pr-str'd event vector to `cap` chars with `…]` suffix
-  when over the cap. Pure string utility — caller already has the
-  pr-str result.
-
-  Always preserves the trailing `]` so the rendered form still reads
-  as a vector at a glance (e.g. `[:foo/bar {:a 1 :b 2 :c…]`)."
-  [s cap]
-  (if (<= (count s) cap)
-    s
-    (str (subs s 0 (max 0 (- cap 2))) "…]")))
-
-(defn render-event-vector-inline
-  "Render an event vector as `[event-id payload…]` hiccup for the L2
-  event-list row (rf2-htik0).
-
-  - Empty payload (1-element vector) renders as `[:counter/inc]` — no
-    map, no `{}` placeholder.
-  - Non-empty payload pr-str's the full vector then truncates to
-    `event-vector-inline-cap` with `…]` suffix so the row stays
-    single-line.
-  - `event-id` (the first element) gets the keyword accent colour so
-    it pops out of the row; the rest renders in the row's default
-    text colour.
-
-  Returns hiccup (a `[:span … ]` tree). When the cascade carries no
-  event vector, falls back to a `<no event>` chip in the secondary
-  text colour so unrouted cascades stay visible. (Note: per rf2-639lc
-  the L2 event list filters those cascades out via `cascade-has-event?`
-  before they reach this renderer, so the fallback is defence-in-depth
-  for any caller that does not pre-filter.)"
+  - `event-id` is the first element of the event vector.
+  - Renders in the accent-violet colour so it pops out of the row.
+  - When the cascade carries no event vector, falls back to a
+    `<no event>` chip in the secondary text colour. (Per rf2-639lc
+    the L2 event list filters those cascades out via
+    `cascade-has-event?`; the fallback is defence-in-depth.)"
   [event-vec]
-  (cond
-    (not (vector? event-vec))
-    [:span {:style {:color (:text-secondary tokens)
+  (if (vector? event-vec)
+    [:span {:style {:color       (:accent-violet tokens)
+                    :font-weight 500}}
+     (pr-str (first event-vec))]
+    [:span {:style {:color      (:text-secondary tokens)
                     :font-style "italic"}}
-     "<no event>"]
+     "<no event>"]))
 
-    (= 1 (count event-vec))
-    [:span {:style {:display "inline-flex" :align-items "baseline"}}
-     [:span {:style {:color (:text-tertiary tokens)}} "["]
-     [:span {:style {:color (:accent-violet tokens)}}
-      (pr-str (first event-vec))]
-     [:span {:style {:color (:text-tertiary tokens)}} "]"]]
+(defn row-tooltip-text
+  "Build the L2 row's hover tooltip per Round-3 rf2-cmtkw. The
+  minimal one-line row surfaces only `event-id + ⚠/🌐/🤖`; the
+  dropped fields (full event vector, sequence number, frame, source
+  coordinates, handler duration) appear in this tooltip + in the
+  Event tab detail panel on row click.
 
-    :else
-    (let [event-id   (first event-vec)
-          id-str     (pr-str event-id)
-          full-str   (pr-str event-vec)
-          truncated  (truncate-event-vector full-str event-vector-inline-cap)
-          ;; Strip the leading `[id-str ` from the truncated body so we
-          ;; can colour the event-id separately. When truncation chopped
-          ;; into the id (shouldn't happen with cap >> typical id), fall
-          ;; back to rendering the whole truncated string in default colour.
-          id-prefix  (str "[" id-str " ")
-          tail       (when (and (> (count truncated) (count id-prefix))
-                                (= id-prefix (subs truncated 0 (count id-prefix))))
-                       (subs truncated (count id-prefix)))]
-      (if tail
-        [:span {:style {:display "inline-flex" :align-items "baseline"
-                        :overflow "hidden" :text-overflow "ellipsis"}}
-         [:span {:style {:color (:text-tertiary tokens)}} "["]
-         [:span {:style {:color (:accent-violet tokens)}} id-str]
-         [:span {:style {:color (:text-primary tokens)
-                         :margin-left "4px"}}
-          tail]]
-        ;; Defensive fallback — render the whole truncated string in one
-        ;; span so a pathological event-id (with embedded space?) still
-        ;; surfaces something useful.
-        [:span {:style {:color (:text-primary tokens)}} truncated]))))
+  Pure data — JVM-runnable. nil-safe per cascade slot. Returns a
+  newline-joined string suitable for an HTML `:title` attribute.
+
+  Slot ordering (most useful first):
+    1. Full event vector (untruncated)
+    2. `#<dispatch-id>` (the sequence number)
+    3. `frame: <id>`
+    4. Source coordinate `<file>:<line>:<col>` (when `:rf.trace/call-site`
+       rode the `:event/dispatched` emit per rf2-twt7m Change 1)
+    5. `handler: <ms>ms` (when the cascade carried a `:handler` emit
+       with `:elapsed-ms`)
+    6. Trailing hint: `Click → open Event detail`"
+  [cascade]
+  (let [event-vec     (:event cascade)
+        dispatch-id   (:dispatch-id cascade)
+        frame-id      (:frame cascade)
+        dispatched    (:dispatched cascade)
+        call-site     (:rf.trace/call-site dispatched)
+        coord-str     (when (map? call-site)
+                        (let [{:keys [file line column]} call-site]
+                          (when file
+                            (cond-> file
+                              line   (str ":" line)
+                              column (str ":" column)))))
+        handler       (:handler cascade)
+        handler-ms    (or (:elapsed-ms handler)
+                          (get-in handler [:tags :elapsed-ms]))
+        lines (cond-> []
+                (vector? event-vec) (conj (pr-str event-vec))
+                (some? dispatch-id) (conj (str "#" dispatch-id))
+                (some? frame-id)    (conj (str "frame: " frame-id))
+                (some? coord-str)   (conj (str "source: " coord-str))
+                (some? handler-ms)  (conj (str "handler: " handler-ms "ms"))
+                true                (conj "Click → open Event detail"))]
+    (str/join "\n" lines)))
 
 (defn cascade-has-event?
   "True iff `cascade` carries a real `:event` vector (`(first :event)`
@@ -383,12 +357,16 @@
       "⏭"]]))
 
 (defn- ribbon-frame-picker
-  "Frame dropdown — single-select per spec/018 §3 Frame dropdown.
-  Excludes `:rf/causa` by default per §8 I1. When the only available
-  frame is the current selection, the dropdown collapses to a flat
-  label (no chevron — no click target).
+  "Frame dropdown — STRICTLY single-select per spec/018 §1 Non-goals
+  + §3 Frame dropdown + Round-3 rf2-i74n7. No 'All frames (merged)'
+  option; no `:multiple` attribute on the `<select>`; cross-frame
+  causality is reached via the Causality popover (`c` key), not via
+  a merged-frame view. Excludes `:rf/causa` by default per §8 I1.
+  When the only available frame is the current selection, the
+  dropdown collapses to a flat label (no chevron — no click target).
 
-  Writes via `:rf.causa/set-frame <frame-id>`."
+  Writes via `:rf.causa/set-frame <frame-id>` — single frame id, no
+  aggregate / merged value path."
   [{:keys [selected-frame frames]}]
   (let [label-style {:color       (:text-primary tokens)
                      :font-family sans-stack
@@ -427,44 +405,6 @@
   event-row context (add)."
   [{:keys [filters]}]
   [filter-pills/pills-view {:filters filters}])
-
-(defn- ribbon-mode-pill
-  "Mode pill — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` per spec/018
-  §3. Tooltip surfaces the REDACTED total. Click toggles per the
-  mode-pill click behaviour table."
-  [{:keys [focus redacted-count]}]
-  (let [pill-tone (case (:mode focus)
-                    :live  (if (:paused? focus)
-                             (:text-secondary tokens)
-                             (:green tokens))
-                    :retro (if (:head? focus)
-                             (:green tokens)
-                             (:cyan tokens))
-                    (:green tokens))
-        red-suffix (when (pos? redacted-count)
-                     (str " · ● REDACTED " redacted-count " (default-suppressed)"))
-        base-title (case (:mode focus)
-                     :live  (if (:paused? focus)
-                              "Resume LIVE feed (Space)"
-                              "Pause LIVE feed (Space)")
-                     :retro (if (:head? focus)
-                              "Pause LIVE feed (Space)"
-                              "Snap to LIVE (L)")
-                     "")
-        full-title (str base-title (or red-suffix ""))]
-    [:span {:data-testid "rf-causa-mode-pill"
-            :on-click    (mode-pill-on-click focus)
-            :title       full-title
-            :style       {:color         pill-tone
-                          :cursor        "pointer"
-                          :font-weight   600
-                          :padding       "2px 8px"
-                          :border        (str "1px solid " pill-tone)
-                          :border-radius "10px"
-                          :font-family   sans-stack
-                          :font-size     (:body type-scale)
-                          :white-space   "nowrap"}}
-     (mode-pill-text focus)]))
 
 (defn- ribbon-redacted-indicator
   "REDACTED indicator (rf2-azls9) — preserved next to the mode pill for
@@ -570,8 +510,15 @@
       "✕"]]))
 
 (rf/reg-view ribbon
-  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Five clusters left
-  to right: nav · frame · filters · mode pill · right icons.
+  "L1 ribbon — per spec/018 §3 Top ribbon anatomy. Four clusters left
+  to right: nav · frame · filters · right icons. The REDACTED
+  indicator surfaces on-demand next to the right-icons cluster when
+  the suppressed-sensitive count is positive.
+
+  Per Round-3 rf2-g9pee the explicit `● LIVE` / `◐ RETRO` mode pill
+  was dropped — the spine mode is already derivable from sticky-row
+  selection + the `[◀ ▶ ⏭]` nav cluster. Space / L / G keybindings
+  preserve the toggle access the pill used to surface.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -625,8 +572,7 @@
                            :frames frames}]
      [ribbon-filter-pills {:filters filters}]
      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-      [ribbon-redacted-indicator redacted-count]
-      [ribbon-mode-pill {:focus focus :redacted-count redacted-count}]]
+      [ribbon-redacted-indicator redacted-count]]
      [ribbon-right-icons]]))
 
 ;; ---- L2 event list -------------------------------------------------------
@@ -767,9 +713,31 @@
 
 (defn- event-row
   "One row in the L2 event list. Single line per spec/018 §4 Row
-  anatomy. Gutter glyph + event-id + right-anchored badge cluster +
-  trailing redaction marker (stub — uses spine's `:focus.dispatch-id`
-  to drive the focused-row gutter).
+  anatomy + Round-3 rf2-cmtkw — minimal default render.
+
+  ## Round-3 rf2-cmtkw — minimal default row
+
+  Default row content (ONE line only):
+
+      [gutter] :event-id  [⚠] [🌐] [🤖]
+
+  - **`:event-id`** — the bare event-id keyword (not the full event
+    vector). Args / payload move to the tooltip + Event tab detail.
+  - **`⚠`** — exception/error glyph (from `:other` carrying
+    `:op-type :error` / `:warning`, or `:errors` slot populated).
+  - **`🌐`** — managed-HTTP marker (from `:other` carrying an
+    `:operation` matching `:http/*` or `:rf.http/*`).
+  - **`🤖`** — state-machine marker (from `:other` carrying an
+    `:operation` matching `:machine`).
+
+  Dropped from the default view (moved to hover tooltip + Event
+  detail tab): the full event vector with args, the sequence
+  number (`#<dispatch-id>`), the duration tier, the source
+  coordinate.
+
+  The row's `:title` attribute carries those dropped fields so a
+  hover surfaces them without leaving L2. Clicking the row opens
+  the Event tab in L4 with the full untruncated content.
 
   Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
   event-row → context menu' into `:rf.causa/hide-event-type <event-
@@ -849,6 +817,12 @@
                                        (rf/dispatch
                                          [:rf.causa/hide-event-type ev-id]
                                          {:frame :rf/causa})))
+                  ;; Round-3 rf2-cmtkw — dropped fields (full event
+                  ;; vector with args, sequence number, frame, source
+                  ;; coord, handler duration) surface in this hover
+                  ;; tooltip + the L4 Event tab on click. Default row
+                  ;; body shows only `event-id + ⚠/🌐/🤖`.
+                  :title (row-tooltip-text cascade)
                   :data-rf-causa-in-focus (cond
                                             (not focus-active?) "n/a"
                                             in-focus?           "true"
@@ -910,14 +884,17 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
-     ;; Bug 3 (rf2-htik0): render the real event vector inline —
-     ;; `[:cart/add-item {:item-id "apple"}]`, NOT just `:cart/add-item`.
-     ;; Truncates at ~80 chars with `…]` suffix to keep the row single-line.
-     [:span {:data-testid "rf-causa-row-event-vector"
+     ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the
+     ;; bare event-id keyword (e.g. `:cart/add-item`). The full event
+     ;; vector with args moves to the row's hover tooltip + the L4
+     ;; Event tab detail (the panel that owns the room for it).
+     ;; Earlier rf2-htik0 Bug 3 inline-rendered the truncated full
+     ;; vector here — superseded by the Round-3 minimal-row contract.
+     [:span {:data-testid "rf-causa-row-event-id"
              :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
                      :min-width "0"}}
-      (render-event-vector-inline event-vec)]
+      (render-event-id-only event-vec)]
      (when (seq badges)
        [:span {:data-testid "rf-causa-row-badges"
                :style {:display "flex" :gap "4px" :flex-shrink 0

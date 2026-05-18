@@ -127,9 +127,11 @@
    })
 
 (def layout
-  "Causa shell layout dimensions (rf2-pcitk). Single source for the
-  density knob — narrowing the sidebar reclaims canvas width without
-  touching individual panels."
-  {:sidebar-width   "152px"   ; was 192px — between spec compact (160) and cosy (192)
-   :top-strip-height "56px"
-   :bottom-rail-height "40px"})
+  "Causa shell layout dimensions (rf2-pcitk + rf2-g9pee). Single source
+  for the chrome's fixed-height layer measurements.
+
+  The 4-layer chrome is L1 ribbon (top-strip) + L2 event list + L3
+  tab bar + L4 detail panel — no bottom rail, no sidebar (both dropped
+  in earlier Causa redesigns and the now-unused `:sidebar-width` /
+  `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee)."
+  {:top-strip-height "56px"})
