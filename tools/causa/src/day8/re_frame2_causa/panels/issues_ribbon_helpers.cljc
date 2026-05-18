@@ -427,6 +427,37 @@
      :filters           filters
      :empty-kind        empty-kind}))
 
+;; ---- :ungrouped escape-hatch projection (rf2-2f40y) --------------------
+
+(defn project-ungrouped-feed
+  "Top-level projection for the `:ungrouped` lane — issues emitted
+  outside any dispatch context (canonical example: `verify-hydration!`
+  firing `:rf.ssr/hydration-mismatch` with `:dispatch-id :ungrouped`).
+
+  Per rf2-u6dhp the main Issues feed is cascade-scoped, and per
+  rf2-fzbrw `:ungrouped` cascades are structurally unfocusable
+  (`compose-focus` snaps to the head of a real cascade). The two
+  invariants are individually correct but together create a navigation
+  hole: `:ungrouped` issues cannot be reached via L2/focus. This
+  projection is the deliberate surface that closes the gap (per the
+  rf2-2f40y operator decision — option (a), dedicated lane).
+
+  Returns:
+
+      {:issues   [<row> ...]   ;; newest first
+       :total    <int>}        ;; count of :ungrouped issues
+
+  Cascade chip-filter histograms are intentionally omitted — the lane
+  is a compact escape hatch, not a second filterable feed. Pure data →
+  data; JVM-testable."
+  [events]
+  (let [all          (project-issues events)
+        ungrouped    (filterv #(= :ungrouped (:dispatch-id %)) all)
+        ;; Newest first for display parity with the main feed.
+        sorted       (vec (reverse ungrouped))]
+    {:issues sorted
+     :total  (count ungrouped)}))
+
 ;; ---- selection ----------------------------------------------------------
 
 (defn find-issue

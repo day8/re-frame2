@@ -304,6 +304,7 @@ axis independent; empty / `nil` disables the axis.
 |---|---|
 | `:rf.causa/issues-filters` | `{:severities :prefixes :since-ms}` — single read for atomic re-render. |
 | `:rf.causa/issues-ribbon` | Composite — `{:issues :total :rendered :severity-counts :distinct-prefixes :filters :empty-kind}`. |
+| `:rf.causa.issues/ungrouped` | `{:issues [<row> ...] :total <int>}` — escape-hatch lane (rf2-2f40y) for issues whose `:dispatch-id` is the `:ungrouped` sentinel. The main feed is cascade-scoped (rf2-u6dhp) and `:ungrouped` cascades are structurally unfocusable (rf2-fzbrw); this sub feeds the dedicated lane the panel renders when current focus has no issues but `:ungrouped` does. Newest first. |
 
 ### Events
 

@@ -214,6 +214,44 @@ Two distinguished states:
 - **`:no-matches`** — issues exist but the active filters hide them
   all. Carries a `Clear filters` affordance.
 
+### `:ungrouped` escape-hatch lane (rf2-2f40y)
+
+The main feed is cascade-scoped (rf2-u6dhp) and `:ungrouped` cascades
+are structurally unfocusable (rf2-fzbrw — `compose-focus` snaps to the
+head of a real cascade). Together, the two invariants leave issues
+with `:dispatch-id :ungrouped` — issues emitted outside any dispatch
+context, e.g. `verify-hydration!` firing `:rf.ssr/hydration-mismatch`
+during SSR — un-navigable via L2/focus. Both invariants are
+individually correct; the gap was the missing surface.
+
+The Issues panel renders a dedicated **`:ungrouped` lane** below the
+cascade-scoped feed as the deliberate escape hatch. Per the rf2-2f40y
+operator decision (option (a), recorded in the bead notes) the lane
+preserves both invariants without relaxing `compose-focus` semantics.
+
+**Inputs:** `:rf.causa.issues/ungrouped` — a thin derivation off
+`:rf.causa/trace-buffer` returning `{:issues [<row> ...] :total <int>}`
+(newest first). No chip-filter histograms; the lane is a compact
+escape hatch, not a second filterable feed.
+
+**Visibility contract:** the lane is rendered iff
+- the cascade-scoped feed has no issues to surface (the panel's
+  `:empty-kind` is one of `:no-issues`, `:no-issues-for-event`, or
+  `:no-matches`), AND
+- at least one `:ungrouped` issue exists.
+
+While the focused cascade has its own issues the lane stays hidden
+so it doesn't compete with the user's current lens.
+
+**Visual treatment:** muted uppercase header `Issues outside any
+cascade` + a one-line clarifier (`Emitted outside any dispatch — no
+cascade to focus.`) above the per-issue rows. The rows reuse the same
+chrome as the cascade-scoped feed (`issue-row`); per-row click pivots
+are intentionally inert for `:ungrouped` (the existing `pivotable?`
+guard in `issue-row` checks `(not= :ungrouped dispatch-id)`), so the
+lane is a read-only surface — open-in-editor on the source-coord chip
+is the only outgoing affordance.
+
 ## Performance — dropped (see §Performance cross-link at top of file)
 
 The Performance panel is dropped from Causa. Use Chrome DevTools'
