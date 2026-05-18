@@ -3,11 +3,14 @@
 
   ## Three contracts under test
 
-  1. **Cascade list when nothing is selected.** With trace events in
-     the buffer but no selected dispatch-id, the panel's
-     `:rf.causa/event-detail` composite sub returns every cascade and
-     the view renders the empty-state list. Clicking a cascade row
-     fires `:rf.causa/select-dispatch-id`.
+  1. **Default-focus head cascade on cold start.** With trace events
+     in the buffer but no explicit selection (rf2-639lc Bug 2), the
+     panel's `:rf.causa/event-detail` composite sub defaults
+     `:selected-dispatch-id` to the head (most recent routed)
+     cascade so the view renders cascade DETAIL on first mount.
+     The pre-rf2-639lc landing-list behaviour was redundant under the
+     4-layer chrome — the L2 event list is always visible alongside
+     L4 so the panel-internal list never carried weight (rf2-lv9bc).
 
   2. **Cascade detail when something is selected.** With a selection
      set via `:rf.causa/select-dispatch-id`, the composite sub returns
@@ -15,8 +18,8 @@
      rows.
 
   3. **Clear selection.** Dispatching `:rf.causa/clear-selected-
-     dispatch-id` empties the selection and the view returns to the
-     cascade list.
+     dispatch-id` empties the explicit selection; the panel
+     default-focuses the head cascade again per (1).
 
   ## Pure-data scope
 
@@ -142,36 +145,61 @@
             node))
         (hiccup-seq tree)))
 
-;; ---- (1) empty state: cascade list --------------------------------------
+;; ---- (1) default-focus head cascade on cold start (rf2-639lc Bug 2) -----
 
-(deftest empty-state-renders-cascade-list
-  (testing "with cascades in the buffer but no selection, the panel
-            renders the cascade list"
+(deftest cold-start-default-focuses-head-cascade
+  (testing "with cascades in the buffer but no explicit selection
+            (rf2-639lc Bug 2), the panel default-focuses the HEAD
+            (most recent routed) cascade and renders its cascade
+            DETAIL — not the legacy panel-internal cascade list"
     (seed-buffer! (concat (cascade-evs 100 [:user/login {:id 42}] 0)
                           (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
+      ;; Composite sub: effective selection is the head's dispatch-id.
+      (let [data @(rf/subscribe [:rf.causa/event-detail])]
+        (is (= 200 (:selected-dispatch-id data))
+            "head cascade (200, latest) is the default selection"))
+      ;; View: cascade-detail container renders for the head, not the
+      ;; landing list.
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container present")
-        (is (some? (find-by-testid tree "rf-causa-cascade-list"))
-            "cascade list container present")
-        (is (some? (find-by-testid tree "rf-causa-cascade-row-100"))
-            "cascade 100 has a clickable row")
-        (is (some? (find-by-testid tree "rf-causa-cascade-row-200"))
-            "cascade 200 has a clickable row")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail container absent when no selection")))))
+        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail container present for the head cascade")
+        (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
+            "panel-internal cascade list NOT rendered on default-focus
+             — the L2 event list (rf-causa-event-list) is the list
+             affordance under the 4-layer chrome (rf2-lv9bc)")))))
 
-(deftest empty-state-renders-with-no-cascades
+(deftest cold-start-with-no-cascades-renders-empty-container
   (testing "with an empty buffer + no selection the panel still
-            renders the empty-state container"
+            renders the empty-state container (no cascade list)"
     (seed-buffer! [])
     (rf/with-frame :rf/causa
       (let [tree (event-detail/Panel)]
         (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
             "empty-state container present even with an empty buffer")
         (is (nil? (find-by-testid tree "rf-causa-cascade-list"))
-            "no cascade list when there are zero cascades")))))
+            "no cascade list when there are zero cascades")
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "no cascade-detail when there is nothing to default-focus")))))
+
+(deftest cold-start-default-focus-skips-ungrouped-bucket
+  (testing "per rf2-639lc Bug 1 the head-fallback ignores the
+            `:ungrouped` cascade (registry-time emits / frame
+            lifecycle outside a drain). Synthesise a trace with a
+            real cascade plus a stray registry-time emit (no
+            :dispatch-id tag — lands in the :ungrouped bucket); the
+            default focus must land on the real cascade's id."
+    (seed-buffer!
+      (concat (cascade-evs 100 [:user/login] 0)
+              ;; Stray emit with no :dispatch-id — group-cascades
+              ;; routes this to the :ungrouped bucket.
+              [{:id 50 :op-type :registry :operation :sub/registered
+                :tags {:sub-id :foo/bar}}]))
+    (rf/with-frame :rf/causa
+      (let [data @(rf/subscribe [:rf.causa/event-detail])]
+        (is (= 100 (:selected-dispatch-id data))
+            "default-focus picks the routed cascade (100), not the
+             :ungrouped bucket")))))
 
 ;; ---- (2) cascade-detail when a dispatch-id is selected ------------------
 
@@ -244,17 +272,21 @@
       (is (nil? (:selected-dispatch-id default-db))
           "selection did NOT leak into :rf/default"))))
 
-(deftest clear-selected-dispatch-id-returns-to-empty-state
-  (testing "after select + clear the panel renders the empty state"
-    (seed-buffer! (cascade-evs 100 [:user/login {:id 42}] 0))
+(deftest clear-selected-dispatch-id-falls-back-to-head-default-focus
+  (testing "after select + clear the panel default-focuses the head
+            cascade again (rf2-639lc Bug 2) — clearing the explicit
+            selection lets the composite's head-fallback fire."
+    (seed-buffer! (concat (cascade-evs 100 [:user/login] 0)
+                          (cascade-evs 200 [:user/logout] 100)))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (rf/dispatch-sync [:rf.causa/clear-selected-dispatch-id])
-      (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-empty"))
-            "empty-state container present after clear")
-        (is (nil? (find-by-testid tree "rf-causa-event-detail-cascade"))
-            "cascade-detail container absent after clear")))))
+      (let [data @(rf/subscribe [:rf.causa/event-detail])
+            tree (event-detail/Panel)]
+        (is (= 200 (:selected-dispatch-id data))
+            "after clear the default-focus snaps back to the head (200)")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-cascade"))
+            "cascade-detail container renders for the head after clear")))))
 
 ;; ---- (4) defaults / wiring ----------------------------------------------
 
