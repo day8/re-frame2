@@ -403,3 +403,122 @@
   (let [r (focus-sub)]
     (is (true? (:paused? r)))
     (is (= :live (:mode r)))))
+
+;; -------------------------------------------------------------------------
+;; (9) :epoch-id resolution — rf2-ak3ty
+;;
+;; Spec/018 §6 Spine events says `:rf.causa/focus-cascade <id>` MUST
+;; "compute `:epoch-id` from cascades". The reducer takes a resolved
+;; epoch-id (the event handler in `install!` resolves it from the
+;; Causa `:epoch-history` slot via `epoch-id-for-cascade`), then
+;; stamps both the `:focus :epoch-id` slot and the legacy
+;; `:selected-epoch-id` shim slot the App-db diff panel reads.
+;; -------------------------------------------------------------------------
+
+(defn- epoch
+  "Build a minimal `:rf/epoch-record` carrying the slots
+  `epoch-id-for-cascade` looks at — a `:trace-events` vector with one
+  dispatch-id-tagged event, plus the literal `:dispatch-id` slot the
+  test fallback honours."
+  [epoch-id dispatch-id]
+  {:epoch-id     epoch-id
+   :dispatch-id  dispatch-id
+   :trace-events [{:id 1 :op-type :event :operation :event/dispatched
+                   :tags {:dispatch-id dispatch-id}}]})
+
+(deftest epoch-id-for-cascade-walks-trace-events
+  (testing "resolves :epoch-id from an epoch's :trace-events :dispatch-id tag"
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]]
+      (is (= :e2 (spine/epoch-id-for-cascade history :c2)))
+      (is (= :e3 (spine/epoch-id-for-cascade history :c3))))))
+
+(deftest epoch-id-for-cascade-falls-back-to-literal-dispatch-id
+  (testing "synthetic test epochs without :trace-events resolve via
+            literal :dispatch-id slot"
+    (let [history [{:epoch-id :e1 :dispatch-id 7}
+                   {:epoch-id :e2 :dispatch-id 8}]]
+      (is (= :e2 (spine/epoch-id-for-cascade history 8))))))
+
+(deftest epoch-id-for-cascade-missing-returns-nil
+  (testing "no matching epoch → nil (cascade evicted from ring buffer,
+            or mid-build before its epoch record commits)"
+    (is (nil? (spine/epoch-id-for-cascade [] :c1)))
+    (is (nil? (spine/epoch-id-for-cascade [(epoch :e1 :c1)] :c-gone)))
+    (is (nil? (spine/epoch-id-for-cascade nil :c1)))
+    (is (nil? (spine/epoch-id-for-cascade [(epoch :e1 :c1)] nil)))))
+
+(deftest focus-cascade-reducer-4-arg-writes-epoch-id
+  (testing "the 4-arg reducer writes :epoch-id into the :focus slot AND
+            the legacy :selected-epoch-id shim slot — App-db pivots
+            from L2-list clicks once this lands (rf2-ak3ty)"
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default :e2)]
+      (is (= :e2 (get-in r [:focus :epoch-id])))
+      (is (= :e2 (:selected-epoch-id r))
+          "legacy slot the App-db panel reads pivots in lockstep")
+      (is (= :c2 (get-in r [:focus :dispatch-id])))
+      (is (= :c2 (:selected-dispatch-id r))))))
+
+(deftest focus-cascade-reducer-3-arg-leaves-epoch-id-nil
+  (testing "the back-compat 3-arg reducer leaves :epoch-id nil — the
+            focus sub still rebinds on :dispatch-id, but epoch-keyed
+            surfaces won't pivot until a 4-arg call lands"
+    (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
+      (is (nil? (get-in r [:focus :epoch-id])))
+      (is (nil? (:selected-epoch-id r))))))
+
+(deftest focus-cascade-event-resolves-epoch-id-from-history
+  (testing "the registered :rf.causa/focus-cascade event resolves
+            :epoch-id from the Causa app-db's :epoch-history slot —
+            end-to-end the spine focus now carries both ids in
+            lockstep (rf2-ak3ty)"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                         [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c2 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c2 (:dispatch-id r)))
+      (is (= :e2 (:epoch-id r))
+          "spine sub carries the resolved epoch-id — the
+           load-bearing prereq for rf2-w15el (Views) and the
+           App-db pivot fix"))))
+
+(deftest focus-cascade-event-writes-selected-epoch-id-legacy-slot
+  (testing "App-db's :rf.causa/selected-epoch-id sub pivots on L2-list
+            click — proves the spine writes through the legacy shim
+            so App-db (and Time-Travel highlight) rebind from a row
+            click without any per-panel change"
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                         [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default]))
+    (let [legacy (rf/with-frame :rf/causa
+                   @(rf/subscribe [:rf.causa/selected-epoch-id]))]
+      (is (= :e1 legacy)
+          "App-db's :selected-epoch-id sub rebinds to the focused
+           cascade's epoch — pivot now works from L2 list clicks"))))
+
+(deftest focus-step-reducer-4-arg-writes-epoch-id
+  (testing "step events resolve :epoch-id for the new dispatch-id"
+    (let [db       {:focus {:dispatch-id :c3 :mode :live}
+                    :selected-dispatch-id :c3}
+          history  [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
+          r        (spine/focus-step-reducer db fixture-cascades history -1)]
+      (is (= :c2 (get-in r [:focus :dispatch-id])))
+      (is (= :e2 (get-in r [:focus :epoch-id])))
+      (is (= :e2 (:selected-epoch-id r))))))
+
+(deftest follow-head-reducer-clears-selected-epoch-id
+  (testing "follow-head clears the App-db legacy slot in lockstep with
+            the dispatch-id slot — the panel returns to its landing
+            view"
+    (let [db {:focus                {:dispatch-id :c1 :epoch-id :e1
+                                     :mode :retro}
+              :selected-dispatch-id :c1
+              :selected-epoch-id    :e1}
+          r  (spine/follow-head-reducer db)]
+      (is (nil? (get-in r [:focus :epoch-id])))
+      (is (nil? (:selected-epoch-id r))))))
