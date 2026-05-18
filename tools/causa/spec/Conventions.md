@@ -206,6 +206,85 @@ Per `registry.cljs` the panels' `install!` calls run in alphabetical
 panel-id order. When you add a new panel facade, slot its `install!` into
 the alphabetical list and keep the comment in lockstep.
 
+## UI text
+
+Causa is an information-dense devtool. Every pixel of chrome competes
+with the data the developer is here to inspect. UI text is **silent by
+default**.
+
+### The rule
+
+Prose appears only when:
+
+1. An affordance is **genuinely non-obvious** AND has no iconographic
+   alternative.
+2. The user is in **a state they couldn't otherwise know about** (e.g.
+   "filter is hiding 12 events" — invisible from the data alone).
+
+### Banned phrasings
+
+- **Panel subheads** that restate the panel title.
+- **Empty-state explainers** ("X will appear here when Y happens" —
+  prefer terse "No X." or absent).
+- **"Click X to Y" narration** — every list is clickable; every chip is
+  interactive; users discover this. Narration wastes pixels and risks
+  lying (see PR #1435 for a confirmed broken claim that bit users).
+- **Roadmap text in chrome** ("future: ...", "v2 will add ...") — keep
+  vision in spec, not in ship-time UI (see PR #1436 for the Telemetry
+  section removal — chrome must not pretend to control something that
+  does not exist).
+- **Internal bead IDs / spec citations** in tooltips (see rf2-6lp7k).
+
+### Tooltip discipline
+
+Tooltips carry **shortcuts and disambiguation** — not descriptions.
+
+- Good: `"Re-run (R)"` — names the keybinding.
+- Good: `"Auto-filter pattern. Glob: my/* matches all keys under :my"` —
+  disambiguates the syntax.
+- Bad: `"Click this button to open the settings"` — narrates the obvious.
+
+### Empty-state pattern
+
+- **Tier 1 (preferred):** absent. Empty pane is the empty state.
+- **Tier 2:** one terse line ("No traces.") when complete absence is
+  jarring (e.g. zero-height panel).
+- **Tier 3 (banned):** narrated explainer.
+
+### When you must add text
+
+Three questions before shipping any UI prose:
+
+1. Would removing this line confuse a future reader who knows the data
+   model?
+2. Does the text describe something the user can't deduce from layout
+   + affordance + data?
+3. Does it survive the "earn its keep" test: deletion would create a
+   real comprehension gap?
+
+If you can't answer "yes" to ALL THREE, delete the text.
+
+### Audit cadence
+
+Per text-audit findings (`ai/findings/2026-05-18-causa-text-audit.md` —
+local-only working substrate; not committed), sweep recurring patterns
+when reviewing PRs:
+
+- New panel subhead? — flag.
+- "Click X to Y" string? — flag.
+- "X will appear here when Y happens" empty state? — flag.
+
+Cleanups under this policy: PR #1435 (back-link narration removal),
+PR #1436 (Telemetry section removal), PR #1437 (pre-spine cascade
+empty-state removal), PR #1439 (7-pattern text-audit cluster).
+
+### See also
+
+- [`Principles.md`](./Principles.md) — Causa's load-bearing principles;
+  silent-by-default is the UI-text expression of information-density.
+- [`000-Vision.md`](./000-Vision.md) — Causa's claim; the cascade you
+  can see, not the cascade you can read narration about.
+
 ## See also
 
 - `tools/causa/spec/017-Test-Coverage-Matrix.md` — feature-level coverage
