@@ -360,11 +360,7 @@
         [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
          (format-ms (:elapsed-ms r))]
         [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
-         (str "▾")]]
-       (when (and (= :rendered group) (= 1 (count invalidated-by)))
-         [:div {:style {:color (:text-tertiary tokens) :font-size "11px"
-                        :margin-top "2px"}}
-          "Click for inline drilldown"])]
+         (str "▾")]]]
       (when (= :rendered group)
         [:div {:style {:flex "1 1 60%" :min-width 0
                        :border-left (str "1px solid " (:border-subtle tokens))
