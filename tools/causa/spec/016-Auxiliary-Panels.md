@@ -2,8 +2,8 @@
 
 The normative home for the per-tab content contracts beyond the hero
 4-layer chrome architecture in
-[`018-Event-Spine.md`](./018-Event-Spine.md). The 6-tab inventory in
-[`000-Vision.md`](./000-Vision.md) §The 6-tab inventory is the
+[`018-Event-Spine.md`](./018-Event-Spine.md). The 7-tab inventory in
+[`000-Vision.md`](./000-Vision.md) §The 7-tab inventory is the
 top-level navigation map; this doc gives the per-tab implementation
 contract a one-shot implementer needs — inputs (subs / events
 consumed), main interactions, observable outputs — without having to
@@ -15,7 +15,7 @@ The per-tab content this doc covers:
 |---|---|---|
 | Event tab content (fattened) | `event-detail` | Phase 2 (rf2-op3bz) + folds in former Effects panel content |
 | Issues tab content | `issues-ribbon` | Phase 5 (rf2-d1p4o); unified feed per [`018-Event-Spine.md`](./018-Event-Spine.md) §5.4 |
-| Routes (lives in App-db tab + Trace tab) | `routes` | Phase 5 (rf2-6blai); see §Routes content below |
+| Routing tab content (7th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
 
 ### Performance — dropped (cross-link to Chrome DevTools)
@@ -229,26 +229,102 @@ Per-cascade tier dots + duration ms stay inline in:
 
 That's the entire Causa-side perf surface post-rewrite.
 
-## Routes content — folded into App-db tab + Trace tab
+## Routing tab — 7th L3 tab (rf2-nrbs9)
 
-The pre-rewrite Routes panel is GONE. Route state is a sub-tree of
-app-db; the navigation timeline is trace data. Both surfaces are
-reachable in their respective tabs:
+Per Mike's design call (2026-05-18) Routing was promoted from "lives
+in App-db + Trace" to its own L3 lens tab. The App-db panel was
+getting busy and routing is a cohesive sub-domain (route tree +
+current match + nav transitions); cohesive sub-domains earn their own
+lens tab rather than overloading App-db. Parallel to the Machines tab
+in posture — always-on registered topology + per-focused-event lens.
 
-- **Active route + params** — the focused frame's `:rf/route` slice
-  appears in the **App-db tab** under the path `[:rf/route]` (or
-  whatever the frame stores it at). Diff is rendered like any other
-  app-db slice. Pin via right-click → "Pin watch".
-- **Navigation history** — `:rf.route.nav-token/*` + `:rf.route/url-changed`
-  trace events appear in the **Trace tab** when the `event` chip is
-  ON (default).
-- **Registered routes overview** — reachable via the Cmd-K palette
-  under the `:route` source: route-id, path-pattern, `:doc`. No
-  standalone tab.
+### Inputs
 
-The transition FSM state (`:idle` / `:loading` / `:error`) is part of
-the app-db slice and renders inline with the same colour-with-glyph
-treatment as before.
+- `:rf.causa/registered-routes` — flat `{<route-id> <meta>}` map
+  sourced from `(rf/registrations :route)` (the framework's
+  registrar). Falls back to a test-only override slot for fixtures
+  + JVM tests.
+- `:rf.causa/current-route-slice` — composite over `:rf.causa/target-
+  frame-db` reading the `:rf/route` slice. Switching the L1 frame
+  picker re-binds the lens to the new frame's route slice.
+- `:rf.causa/cascades` — the shared cascade projection. The composite
+  scans the focused cascade's trace events for the routing-emit.
+- `:rf.causa/focus` — the spine's focused dispatch-id + epoch.
+- `:rf.causa/routing-tab-data` — view-facing composite folding all of
+  the above into `{:silent? :routes :current :from-id :to-id
+  :navigated?}` per `routing_helpers/project-data`.
+
+### Lens model
+
+Always-shown structure: the **full route tree** — every registered
+route, sorted by path so siblings under a common prefix render
+contiguously and the rendering is deterministic. The tree is the
+orientation surface — a Causa user can flip to the Routing tab and
+immediately read the app's routing topology without digging through
+code.
+
+Per-focused-event highlighting:
+
+| Marker | Trigger | Visual |
+|---|---|---|
+| `◆ HERE` | Current matched route — always when no navigation happened | Violet chip (`accent-violet`); left-border accent |
+| `◆ FROM` | Cascade caused navigation — the prior route | Cyan chip; left-border accent |
+| `◆ TO` | Cascade caused navigation — the new route | Green chip; left-border accent; replaces `◆ HERE` (TO is the new HERE) |
+
+When the focused cascade has no routing impact, only `◆ HERE`
+surfaces — orientation glyph.
+
+### Detection contract — how the panel knows the cascade caused navigation
+
+The composite scans the focused cascade's trace events for a
+`:rf.route.nav-token/allocated` emit (per
+[`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires
+inside both `:rf.route/navigate` and `:rf/url-changed`). Detection:
+
+- The emit's `:tags :route-id` is the **TO** (the new route).
+- The current `:rf/route` slice's `:id` (when different from TO) is
+  the **FROM**.
+- Same-route re-navigations (different params/query, same route-id)
+  collapse FROM to nil — surfacing a FROM equal to TO is noise.
+
+### Active route slice — params + query + fragment
+
+Below the tree the panel renders a labelled grid for the active
+slice:
+
+    Params:    {:order-id "ord-1234"}
+    Query:     {:source "cart"}
+    Fragment:  "#step-3"
+
+Absent slots render as `—` so the lens always shows the same
+skeleton (predictable scanning).
+
+### Empty state
+
+When the host app registers no routes the panel renders only the
+header + a terse `No routes registered.` one-liner. No `(none)`
+placeholder, no marketing copy — silent-by-default per rf2-g3ghh.
+
+### Pre-rewrite app-db / trace overlap
+
+The transition FSM state (`:idle` / `:loading` / `:error`) is still
+part of the app-db slice (Spec 012) and still visible in the App-db
+tab's diff. The Routing tab is the dedicated lens; the App-db tab
+shows the raw slice diff like any other key. Navigation trace events
+(`:rf.route.nav-token/*` + `:rf.route/url-changed`) continue to
+appear in the Trace tab when the `event` chip is ON (default) —
+the Routing tab does not duplicate the firehose, it projects the
+single nav-event that pertains to the focused cascade.
+
+### Vision (future)
+
+- **Nav-token timeline (swimlanes)** popover trigger from the tab.
+- **`:on-match` chain explicit** in the Event tab's "fx handlers
+  that ran" block when the focused cascade is a routing cascade
+  (already noted under §Event tab — `:on-match` event chain (Routes)
+  later in this doc).
+- **Route-chain visualiser** — the `:parent`-chain walk for nested
+  layouts.
 
 ## MCP Server panel — dropped
 
@@ -517,6 +593,12 @@ the App-db tab under a `[reserved]` group banner, always-expanded,
 with each sub-key on its own line. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.11.
 
+Note that the Routing tab (§Routing tab above, rf2-nrbs9) is the
+primary lens for routing — including the route tree, current match,
+and FROM/TO nav transitions. The App-db slice pin is the raw-data
+echo for users who want to inspect the slice alongside other app-db
+state.
+
 ### Settings popup — full 6-section catalogue
 
 v1 ships the Settings popup with **4 sections** (Theme, Density,
@@ -571,5 +653,8 @@ tooltips; machine-edge types. See
   surfaces.
 - [`spec/013-Flows.md`](../../../spec/013-Flows.md) — what the Views
   tab surfaces (under "Re-rendered" group).
-- [`spec/012-Routing.md`](../../../spec/012-Routing.md) — route slice
-  appears in App-db tab; navigation timeline in Trace tab.
+- [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
+  framework substrate the Routing tab projects: the registrar
+  (`reg-route` + `(rf/registrations :route)`), the `:rf/route` slice,
+  and the `:rf.route.nav-token/allocated` emit the panel scans for
+  the FROM/TO marker derivation.

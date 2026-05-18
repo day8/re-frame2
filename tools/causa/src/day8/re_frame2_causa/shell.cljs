@@ -13,7 +13,7 @@
       ├───────────────────────────────────────────────────────┤
       │ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
       ├───────────────────────────────────────────────────────┤
-      │ L3  Tab bar (40px) — 6 tabs                           │  projection selector
+      │ L3  Tab bar (40px) — 7 tabs                           │  projection selector
       ├───────────────────────────────────────────────────────┤
       │ L4  Detail panel (fills remaining canvas)             │  per-tab content
       └───────────────────────────────────────────────────────┘
@@ -49,21 +49,23 @@
 
   ## Tab bar (L3)
 
-  Six tabs, mnemonic letters per spec/018 §11:
+  Seven tabs, mnemonic letters per spec/018 §11:
 
-      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Issues (i)
+      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Routing (r) · Issues (i)
 
   Selection lives on `:rf.causa/selected-tab` and drives the L4
-  detail panel's case switch.
+  detail panel's case switch. Routing was promoted to its own tab
+  per rf2-nrbs9 (Mike's design call, 2026-05-18) — cohesive sub-
+  domains earn their own lens tab rather than overloading App-db.
 
   ## Detail panel (L4)
 
   Renders the active tab's projection of the focused event. Tabs
   reuse the existing per-panel views where possible (Event tab →
   `event-detail/Panel`, App-db → `app-db-diff/Panel`, Trace →
-  `trace/Panel`, Machines → `machine-inspector/Panel`, Issues →
-  `issues-ribbon/Panel`). The Views tab is a stub pending the §5.3
-  per-view content design.
+  `trace/Panel`, Machines → `machine-inspector/Panel`, Routing →
+  `routing/Panel`, Issues → `issues-ribbon/Panel`). The Views tab
+  is a stub pending the §5.3 per-view content design.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
@@ -96,6 +98,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
@@ -116,9 +119,14 @@
   #{:rf/causa :rf/pair2})
 
 (def ^:private tabs
-  "The six L3 tabs per spec/018 §5 The 6 tabs. Order is the canonical
+  "The seven L3 tabs per spec/018 §5 The 7 tabs. Order is the canonical
   left-to-right ribbon order; the `:mnem` letter is the keyboard
   mnemonic (spec/018 §11).
+
+  Per rf2-nrbs9 Routing was promoted from 'lives in App-db + Trace' to
+  its own L3 tab — cohesive sub-domains earn their own lens tab rather
+  than overloading App-db. The tab sits between Machines and Issues
+  (alphabetical adjacency keeps the ribbon scannable).
 
   Labels use spaces (`App DB` not `App-db`) so the rendered text
   carries no `-` glyphs — Playwright's `getByRole('button', {name:
@@ -130,6 +138,7 @@
    {:id :views    :label "Views"    :mnem "v"}
    {:id :trace    :label "Trace"    :mnem "t"}
    {:id :machines :label "Machines" :mnem "m"}
+   {:id :routing  :label "Routing"  :mnem "r"}
    {:id :issues   :label "Issues"   :mnem "i"}])
 
 (def ^:private default-tab :event)
@@ -879,7 +888,9 @@
      label]))
 
 (rf/reg-view tab-bar
-  "L3 tab bar — six tabs per spec/018 §5 The 6 tabs.
+  "L3 tab bar — seven tabs per spec/018 §5 The 7 tabs (Routing
+  promoted to its own tab per rf2-nrbs9; was previously folded into
+  App-db).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -911,7 +922,7 @@
 (rf/reg-view detail-panel
   "L4 detail panel — case-switch on `:rf.causa/selected-tab`. Reuses
   existing Panel views for Event / App-db / Trace / Machines /
-  Issues; Views is a stub pending follow-on impl.
+  Routing / Issues; Views is a stub pending follow-on impl.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`. The wrapping `<div>` paints `bg-2` as a contrast
@@ -936,6 +947,12 @@
        :views    [views/Panel]
        :trace    [trace/Panel]
        :machines [machine-inspector/Panel]
+       ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
+       ;; event over the registered-routes tree per spec/016 §Routing
+       ;; tab content. Mike's design call (2026-05-18): cohesive sub-
+       ;; domains earn their own lens tab rather than overloading
+       ;; App-db.
+       :routing  [routing/Panel]
        :issues   [issues-ribbon/Panel]
        [unknown-tab-stub selected])]))
 

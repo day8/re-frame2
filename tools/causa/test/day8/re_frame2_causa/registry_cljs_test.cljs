@@ -165,6 +165,12 @@
    :rf.causa/palette-query
    :rf.causa/palette-results
    :rf.causa/registered-machines
+   ;; rf2-nrbs9 — Routing tab (7th L3 tab) sub family.
+   :rf.causa/registered-routes
+   :rf.causa/registered-routes-override
+   :rf.causa/current-route-slice
+   :rf.causa/current-route-slice-override
+   :rf.causa/routing-tab-data
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -307,6 +313,9 @@
    :rf.causa/set-machine-definitions-override-for-test
    :rf.causa/set-machine-instances-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
+   ;; rf2-nrbs9 — Routing tab test-only override events.
+   :rf.causa/set-current-route-slice-override-for-test
+   :rf.causa/set-registered-routes-override-for-test
    :rf.causa/set-mode-c-cluster-by
    :rf.causa/set-mode-c-context-key
    ;; rf2-om6fa — Story-aware modal positioning opt.
@@ -443,8 +452,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 95  (count all-sub-names)))
-    (is (= 115 (count all-event-names)))
+    (is (= 100 (count all-sub-names)))
+    (is (= 117 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent

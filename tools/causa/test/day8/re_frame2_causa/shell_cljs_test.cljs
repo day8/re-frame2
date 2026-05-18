@@ -52,6 +52,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]))
 
@@ -241,27 +242,29 @@
           ":rf.causa/follow-head dispatched on ⏭ click"))))
 
 ;; -------------------------------------------------------------------------
-;; (3) L3 tab bar — six tabs, mnemonics, selection
+;; (3) L3 tab bar — seven tabs, mnemonics, selection
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-tab-ids
-  "Authoritative tab inventory per spec/018 §5 The 6 tabs."
-  [:event :app-db :views :trace :machines :issues])
+  "Authoritative tab inventory per spec/018 §5 The 7 tabs (Routing
+  promoted to its own L3 tab per rf2-nrbs9; was previously folded
+  into App-db)."
+  [:event :app-db :views :trace :machines :routing :issues])
 
-(deftest tab-bar-renders-six-tabs
-  (testing "spec/018 §5 — six tabs (Event / App-db / Views / Trace /
-            Machines / Issues)"
+(deftest tab-bar-renders-seven-tabs
+  (testing "spec/018 §5 — seven tabs (Event / App-db / Views / Trace /
+            Machines / Routing / Issues)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (shell/shell-view)
             tabs (find-all-by-testid-prefix tree "rf-causa-tab-")]
         ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 6 (count (filter (fn [n]
+        (is (= 7 (count (filter (fn [n]
                                   (let [t (:data-testid (second n))]
                                     (some #(= t (str "rf-causa-tab-" (name %)))
                                           expected-tab-ids)))
                                 tabs)))
-            "6 tab buttons render")
+            "7 tab buttons render")
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-causa-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
@@ -310,12 +313,15 @@
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
   `shell/detail-panel`. The Views tab routes to the full Views panel
-  per spec/012-Views.md (rf2-21ob3) — Subs panel is retired."
+  per spec/012-Views.md (rf2-21ob3) — Subs panel is retired. The
+  Routing tab routes to the new lens panel per rf2-nrbs9 — promoted
+  from 'lives in App-db + Trace'."
   {:event    event-detail/Panel
    :app-db   app-db-diff/Panel
    :views    views/Panel
    :trace    trace/Panel
    :machines machine-inspector/Panel
+   :routing  routing/Panel
    :issues   issues-ribbon/Panel})
 
 (deftest detail-panel-routes-each-tab-to-its-view-fn

@@ -1,7 +1,7 @@
 (ns panel-gallery.panel-views
   "Registered re-frame views referenced by Story variant `:component`
   slots in the Causa panel gallery (rf2-sszlr — rebuilt for the new
-  6-tab Causa shape).
+  7-tab Causa shape).
 
   Story canvas resolves `:component` to a registered re-frame view
   via `(rf/view <id>)` (per
@@ -16,9 +16,9 @@
   a card that sets a fixed-ish height so the variants-grid layout
   stays visually uniform.
 
-  ## The 6 L4 tabs
+  ## The 7 L4 tabs
 
-  Per spec/018-Event-Spine.md §5 the chrome surfaces six tabs whose
+  Per spec/018-Event-Spine.md §5 the chrome surfaces seven tabs whose
   bodies are existing per-panel Panel views:
 
     - **Event**    → `event-detail/Panel`
@@ -26,6 +26,7 @@
     - **Views**    → `views/Panel`
     - **Trace**    → `trace/Panel`
     - **Machines** → `machine-inspector/Panel`
+    - **Routing**  → `routing/Panel` (rf2-nrbs9 — 7th tab)
     - **Issues**   → `issues-ribbon/Panel`
 
   (Causality is NOT a tab — it's a `c`-key popover; gallery variants
@@ -57,6 +58,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.shell :as shell]
@@ -128,6 +130,14 @@
          :data-testid "panel-gallery-machines-card"}
    [machine-inspector/Panel]])
 
+(defn- routing-tab-panel
+  "Embedded mount of the Routing tab body — the routing panel
+  (rf2-nrbs9; spec/016 §Routing tab + spec/018 §5.6)."
+  [_args]
+  [:div {:style       card-style
+         :data-testid "panel-gallery-routing-card"}
+   [routing/Panel]])
+
 (defn- issues-tab-panel
   "Embedded mount of the Issues tab body — the issues-ribbon panel."
   [_args]
@@ -179,6 +189,7 @@
   (rf/reg-view* :panel-gallery.views/Panel    views-tab-panel)
   (rf/reg-view* :panel-gallery.trace/Panel    trace-tab-panel)
   (rf/reg-view* :panel-gallery.machines/Panel machines-tab-panel)
+  (rf/reg-view* :panel-gallery.routing/Panel  routing-tab-panel)
   (rf/reg-view* :panel-gallery.issues/Panel   issues-tab-panel)
   (rf/reg-view* :panel-gallery.chrome/Shell   chrome-shell)
   nil)

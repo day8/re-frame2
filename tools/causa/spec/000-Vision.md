@@ -66,9 +66,9 @@ parent → child, request → response, nav-1 → nav-2). These are the cases
 where stack traces are insufficient because the wall clock IS the bug
 surface.
 
-Causa does NOT fragment the chrome with per-area tabs (no Routes tab, no
-SSR tab, no managed-effects tab). Instead, each existing tab grows
-**deep specialised renderings** for the cross-cutting work that lands in it:
+Causa does NOT fragment the chrome with per-area tabs (no SSR tab, no
+managed-effects tab). Instead, each existing tab grows **deep specialised
+renderings** for the cross-cutting work that lands in it:
 
 - The Event tab grows a per-fx **wire-boundary diff** for managed effects
   (request → wire → response → handler → app-db slice).
@@ -79,6 +79,13 @@ SSR tab, no managed-effects tab). Instead, each existing tab grows
 - The Issues tab grows **nav-token timelines** (swimlanes), **hydration
   mismatch bisectors**, **server error projection traces**.
 - The Causality popover grows **machine-edge types** (spawn, final, join).
+
+The one exception — **Machines and Routing are themselves cohesive sub-
+domains** with a registered topology (state-chart / route tree) and per-event
+transitions, so they each earn a dedicated lens tab rather than landing in
+App-db (per Mike's design call 2026-05-18, rf2-nrbs9). The posture: cohesive
+sub-domains with a register-time topology AND a per-event transition story
+earn their own lens tab; everything else extends an existing tab.
 
 The five idioms — **wall-clock timelines · boundary diffs · cascade trees ·
 schema explanations · lifecycle accounting** — repeat across all four areas
@@ -178,18 +185,24 @@ Each row is "new in re-frame2 → new tooling story Causa tells."
 | **`register-epoch-cb!`** | The per-cascade listener routes the Event tab + Issues tab + Causality popover. |
 | **Schemas (Malli)** (Spec 010) | Schema-violation rows in the Issues tab; **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
 | **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Streaming SSR boundary timeline.** **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
-| **Routing** (Spec 012) | Route is a sub-tree of app-db — surfaced in App-db tab; **nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in Event tab**; **match-rank explainer**; **pending-navigation card**; **route-chain visualiser**. |
+| **Routing** (Spec 012) | Dedicated **Routing tab** carrying the full route tree as the orientation surface; per-focused-event lens with `◆ HERE` / `◆ FROM` / `◆ TO` glyphs (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in Event tab**; **match-rank explainer**; **pending-navigation card**; **route-chain visualiser**. |
 | **`:origin` opt on dispatch** | Filter by actor via ribbon IN/OUT pills. |
 | **Data classification** (Spec 015) | Path-marked sensitive + large rendering: `[● REDACTED N]` magenta opaque + `[● ELIDED N]` yellow drillable. See [`018-Event-Spine.md`](018-Event-Spine.md) §12 for the per-surface rendering contract. |
 | **Managed effects** (`spec/Managed-Effects.md` eight-property contract) | **Wire-boundary diff** in the Event tab's "fx handlers that ran" block — per fx, show request payload (post-elision) → wire transit (status / headers / timing waterfall) → response → handler dispatched → app-db slice touched. One template; five surfaces (HTTP, WebSocket, machine `:invoke`, SSR `:rf.server/*`, flows). **Active managed-effects dashboard** — Erlang-Observer for what the runtime is currently busy doing. **Stale-suppression badges** uniform across all four cross-cutting areas. |
 | **Production-elision verifier** | Causa runs `npm run test:elision` and warns before deploy if a dev sentinel leaked. |
 
-## The 6-tab inventory
+## The 7-tab inventory
 
-The legacy 16-panel sidebar is dead. Causa ships a **6-tab detail panel**
+The legacy 16-panel sidebar is dead. Causa ships a **7-tab detail panel**
 (Layer 3 of the 4-layer chrome). Each tab is one projection of the focused
 event; selection in the L2 event list rebinds every tab. Cross-cutting
 concerns extend each tab; they do NOT add new tabs.
+
+Per Mike's design call (2026-05-18, rf2-nrbs9) **Routing earned its own tab**
+— promoted from "lives in App-db + Trace" because the App-db panel was
+getting busy and the routing slice (route tree + current match + nav
+transitions) is a cohesive sub-domain. The rule that surfaced from the call:
+cohesive sub-domains earn their own lens tab rather than overloading App-db.
 
 | # | Tab | Mnem | What it shows | Spec |
 |---|---|---|---|---|
@@ -198,7 +211,8 @@ concerns extend each tab; they do NOT add new tabs.
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; **subs nested under each view row** showing return values; **per-sub invalidation-chain drill** (why did this sub re-run); replaces the legacy Subs panel. | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to the focused cascade; **wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals; trace-type toggle row + IN/OUT pills + sensible defaults. | [`013-Trace-Bus.md`](013-Trace-Bus.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.3 |
 | 5 | **Machines** | `m` | UC1 (definition + sim) + UC2 (Mode A/B/C dynamic instances); supervision tree; **`:after`-timer countdown rings**; **cancellation cascade visualiser**; **`:invoke-all` join inspector**; **per-instance "why am I stuck" trace strip**; **hierarchical cascade animator**; **shift-click divergence highlighter**; **per-instance mini-scrubber**. MachineChart is Causa-internal. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns + **flow cascade-halt alarms** + **open-redirect advisories** + **`:platforms` skip tallies** + **stale-suppression group**. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon + [`018-Event-Spine.md`](018-Event-Spine.md) §5.4 |
+| 6 | **Routing** | `r` | Always-on **route tree** (the orientation surface — every registered route). Per-focused-event lens: **`◆ HERE`** on the current matched route · **`◆ FROM` / `◆ TO`** when the focused cascade caused navigation · params + query for the active route. Silent when no routes registered. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab + [`018-Event-Spine.md`](018-Event-Spine.md) §5.6 |
+| 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns + **flow cascade-halt alarms** + **open-redirect advisories** + **`:platforms` skip tallies** + **stale-suppression group**. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon + [`018-Event-Spine.md`](018-Event-Spine.md) §5.4 |
 
 **Popovers** (transient overlays, invokable from any tab):
 

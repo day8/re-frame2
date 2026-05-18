@@ -14,7 +14,7 @@
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
-  ;; rf2-qy0nu — palette-panels now mirrors the 6 L3 tab ids. We use
+  ;; rf2-qy0nu / rf2-nrbs9 — palette-panels now mirrors the 7 L3 tab ids. We use
   ;; `:event` first (so the panel-items-shape test pins the first row's
   ;; action) and include `:trace` for the cross-source collision tests.
   ;; A third entry rounds out the panel-items-shape `(count items) = 3`
