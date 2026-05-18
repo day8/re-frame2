@@ -153,7 +153,7 @@ The pre-rewrite Flows panel is GONE. Flows surface where they actually
 matter: in the **Views tab** (tab 3 of 6) "Re-rendered" group, when a
 flow's downstream sub recomputed.
 
-When a flow's output sub appears in a view's "invalidated by" list
+When a flow's output sub appears in a view's "Rerendered because" list
 (per [`012-Views.md`](./012-Views.md) §Three-group layout
 Re-rendered), the sub-id renders with a `⊳` flow-glyph prefix to
 distinguish flow-output subs from hand-written subs. The flow's input

@@ -172,3 +172,149 @@
           header (#'view/header-block data)]
       (is (nil? (find-by-testid-in header "rf-causa-views-header-meta"))
           "metadata stays silent when there's no frame to print"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-87lkf — Views polish (Delta 1, 2, 3) regression guards
+;;
+;; Delta 1 — section header reads "Rerendered because" (developer-framed)
+;;           rather than "Invalidated by" (substrate-framed). Underlying
+;;           data shape (`:invalidated-by` slot) + test-contract testid
+;;           (`rf-causa-views-invalidated-by`) unchanged.
+;; Delta 2 — `✱` / `·` markers carry hover tooltips explaining their
+;;           meaning + amber/muted colour hierarchy; aria-labels for
+;;           screen readers; trigger glyph is bold + amber, non-trigger
+;;           is muted-grey.
+;; Delta 3 — drilldown for recomputed-but-equal subs covered in the
+;;           views-sub-diff test ns.
+;; ---------------------------------------------------------------------------
+
+(defn- collect-by-pred
+  "Walk the hiccup tree and collect every vector whose attr map (slot 1)
+  satisfies `pred`."
+  [tree pred]
+  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn tree))
+       (map expand-fn)
+       (keep (fn [node]
+               (when (and (vector? node)
+                          (map? (second node))
+                          (pred (second node)))
+                 node)))
+       (vec)))
+
+(deftest rerendered-because-header-text
+  (testing "Delta 1 — the right-column section header in a Re-rendered
+            row reads 'Rerendered because' (not 'Invalidated by')."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (let [item   {:kind  :single
+                  :render {:render-key   [::comp 0]
+                           :triggered-by ::sub
+                           :elapsed-ms   1.0}
+                  :invalidated-by [{:sub-id ::sub :trigger? true}]}
+          row    (#'view/single-row item :rendered false)
+          texts  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn row))
+                      (filter string?))]
+      (is (some #(= "Rerendered because" %) texts)
+          (str "expected 'Rerendered because' literal in the row; "
+               "found: " (pr-str (filter #(re-find #"by|because" (or % ""))
+                                         texts))))
+      (is (not-any? #(re-find #"Invalidated by" (or % "")) texts)
+          "no 'Invalidated by' UI text remaining in the rendered row"))))
+
+(deftest rerendered-because-list-marker-tooltips
+  (testing "Delta 2 — every marker in the list has a `title` hover
+            tooltip + `aria-label`. The trigger glyph carries the
+            'value changed' tooltip; non-trigger carries 'value
+            unchanged'."
+    (let [invalidated-by [{:sub-id ::sub-a :trigger? true}
+                          {:sub-id ::sub-b :trigger? false}
+                          {:sub-id ::sub-c :trigger? false}]
+          list-node (#'view/rerendered-because-list invalidated-by)
+          markers   (collect-by-pred
+                      list-node
+                      #(contains? % :data-marker))
+          trigger   (filter #(= "trigger" (:data-marker (second %)))
+                            markers)
+          non-trig  (filter #(= "non-trigger" (:data-marker (second %)))
+                            markers)]
+      (is (= 1 (count trigger))
+          (str "one trigger marker — got " (count trigger)))
+      (is (= 2 (count non-trig))
+          (str "two non-trigger markers — got " (count non-trig)))
+      (doseq [m markers]
+        (is (string? (:title (second m)))
+            (str "marker has a hover :title — got " (pr-str (second m))))
+        (is (string? (:aria-label (second m)))
+            (str "marker has an :aria-label — got " (pr-str (second m)))))
+      (is (re-find #"changed since last cascade"
+                   (:title (second (first trigger))))
+          "trigger tooltip mentions 'changed since last cascade'")
+      (is (re-find #"value unchanged"
+                   (:title (second (first non-trig))))
+          "non-trigger tooltip mentions 'value unchanged'"))))
+
+(deftest rerendered-because-list-marker-glyphs
+  (testing "Delta 2 — trigger glyph is `✱` (amber-weighted); non-trigger
+            glyph is `·` (muted)."
+    (let [list-node (#'view/rerendered-because-list
+                      [{:sub-id ::sub-a :trigger? true}
+                       {:sub-id ::sub-b :trigger? false}])
+          glyphs    (->> (tree-seq (some-fn vector? seq?) seq
+                                   (expand-fn list-node))
+                         (filter string?))]
+      (is (some #(= "✱" %) glyphs) "the `✱` glyph renders for triggers")
+      (is (some #(= "·" %) glyphs) "the `·` glyph renders for non-triggers"))))
+
+(deftest cluster-row-trigger-marker-has-tooltip
+  (testing "Delta 2 — the cluster row's single ✱ trigger marker also
+            carries the hover tooltip + aria-label."
+    (let [item   {:kind         :cluster
+                  :view-id      ::cell
+                  :triggered-by ::grid-data
+                  :count        50
+                  :total-ms     5.0
+                  :avg-ms       0.1
+                  :p95-ms       0.2
+                  :renders      []}
+          row    (#'view/cluster-row item :rendered false)
+          markers (collect-by-pred row
+                                   #(= "trigger" (:data-marker %)))]
+      (is (= 1 (count markers))
+          "exactly one trigger marker on a cluster row")
+      (is (string? (:title (second (first markers))))
+          "cluster trigger marker has a :title hover tooltip"))))
+
+(deftest no-invalidated-by-ui-text-in-row-rendering
+  (testing "Delta 1 — the rendered row tree has zero 'Invalidated by'
+            visible-text occurrences anywhere (including in cluster
+            rows). The kw `:invalidated-by` is structural — only UI
+            string text is in scope for this regression guard."
+    (let [single-item {:kind  :single
+                       :render {:render-key   [::comp 0]
+                                :triggered-by ::sub
+                                :elapsed-ms   1.0}
+                       :invalidated-by [{:sub-id ::sub :trigger? true}]}
+          cluster-item {:kind         :cluster
+                        :view-id      ::cell
+                        :triggered-by ::grid-data
+                        :count        50
+                        :total-ms     5.0
+                        :avg-ms       0.1
+                        :p95-ms       0.2
+                        :renders      []
+                        :invalidated-by [{:sub-id ::grid-data
+                                          :trigger? true
+                                          :clustered? true}]}
+          single-row  (#'view/single-row single-item :rendered false)
+          cluster-row (#'view/cluster-row cluster-item :rendered false)
+          all-texts (concat
+                      (->> (tree-seq (some-fn vector? seq?) seq
+                                     (expand-fn single-row))
+                           (filter string?))
+                      (->> (tree-seq (some-fn vector? seq?) seq
+                                     (expand-fn cluster-row))
+                           (filter string?)))]
+      (is (not-any? #(re-find #"(?i)invalidated by" %) all-texts)
+          (str "no 'Invalidated by' UI text left; offending strings: "
+               (pr-str (filter #(re-find #"(?i)invalidated by" %)
+                               all-texts)))))))
