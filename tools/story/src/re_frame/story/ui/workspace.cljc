@@ -13,9 +13,25 @@
 
   Stage 4 ships every layout's resolver as pure data (so JVM tests cover
   enumeration + filtering) and the Reagent renderer for `:grid`,
-  `:variants-grid`, and `:prose`. `:tabs` and `:custom` ship the
-  resolver; their renderers are simple variants of the `:grid`
-  pipeline.
+  `:variants-grid`, `:tabs`, and `:prose`. `:custom` ships the resolver;
+  its renderer is a simple variant of the `:grid` pipeline.
+
+  ## :tabs renderer (rf2-ktnl8)
+
+  `:tabs` renders ONE variant at a time, with a tab strip at the top
+  for switching. This is the load-bearing difference from `:grid`: when
+  a rendered view internally hardcodes a frame-provider (e.g. a view
+  that scopes itself to a chrome-supplied frame rather than the
+  variant-allocated frame), simultaneously-rendered cells share their
+  interior state — the last-seeded variant's state bleeds into all
+  cells. A genuine one-at-a-time renderer serialises mounting so each
+  visit re-seeds the active variant cleanly.
+
+  Tab selection is held in a per-mount `r/atom` (local to the tabs
+  component) — the workspace root already remounts on workspace swap
+  (workspace-id-keyed `<section>`, per rf2-kgn0c) so the local atom's
+  lifetime matches one workspace selection and no shell-state slot is
+  required.
 
   ## Pure layout resolution
 
@@ -361,6 +377,102 @@
        :custom  (str "c-" i)
        (str "?-" i))))
 
+;; ---- :tabs renderer (rf2-ktnl8) -----------------------------------------
+;;
+;; Per the docstring: `:tabs` MUST render one variant at a time. The prior
+;; implementation fell through to the `:else` `:grid` branch, rendering
+;; every variant cell simultaneously — which collapses to identical state
+;; across cells whenever the rendered view internally hardcodes a frame-
+;; provider (e.g. rf2-sszlr's `gallery_chrome.cljs`). Serialised rendering
+;; restores per-variant state isolation.
+
+#?(:cljs
+   (def ^:private tabs-styles
+     {:tabs-wrap   {:display        "flex"
+                    :flex-direction "column"
+                    :gap            "8px"}
+      :tab-strip   {:display        "flex"
+                    :flex-direction "row"
+                    :gap            "4px"
+                    :border-bottom  "1px solid #3c3c3c"
+                    :padding-bottom "4px"
+                    :flex-wrap      "wrap"}
+      :tab-button  {:background     "#2d2d2d"
+                    :border         "1px solid #3c3c3c"
+                    :border-radius  "3px 3px 0 0"
+                    :color          "#cccccc"
+                    :font-family    "monospace"
+                    :font-size      "11px"
+                    :padding        "4px 10px"
+                    :cursor         "pointer"}
+      :tab-active  {:background     "#252526"
+                    :border         "1px solid #569cd6"
+                    :border-bottom  "1px solid #252526"
+                    :color          "#9cdcfe"
+                    :font-weight    "bold"}
+      :tab-body    {:display "block"}}))
+
+#?(:cljs
+   (defn- tabs-renderer
+     "Reagent component for the `:tabs` workspace layout. Renders a tab
+     strip (one button per variant id) and a single body div that hosts
+     ONLY the selected variant's cell. Tab selection is held in a per-
+     mount `r/atom`; the workspace root remounts on workspace swap so
+     the local atom's lifetime matches one workspace selection.
+
+     Per rf2-ktnl8: load-bearing for views that internally hardcode a
+     frame-provider — simultaneous renders share their interior state,
+     and only one-at-a-time mounting restores per-variant isolation.
+
+     `cells` is the resolved cell vector from `resolve-layout`. Only
+     `:variant` cells are honoured for tabs (other cell types degrade
+     to a tab whose body renders nothing — tabs is variant-only in v1)."
+     [cells]
+     (r/with-let [selected (r/atom 0)]
+       (let [n           (count cells)
+             ;; Clamp the index defensively — if a hot reload shrank the
+             ;; cell vector under us, snap to the last available tab.
+             idx         (max 0 (min @selected (dec n)))
+             active-cell (nth cells idx nil)]
+         [:div {:style (:tabs-wrap tabs-styles)}
+          [:div {:style       (:tab-strip tabs-styles)
+                 :role        "tablist"
+                 :aria-label  "Workspace tabs"}
+           (for [[i cell] (map-indexed vector cells)
+                 :let     [label   (case (:type cell)
+                                     :variant (pr-str (:variant-id cell))
+                                     :prose   (str "prose " (inc i))
+                                     :custom  (str "custom " (inc i))
+                                     (str "tab " (inc i)))
+                           active? (= i idx)
+                           style   (merge (:tab-button tabs-styles)
+                                          (when active?
+                                            (:tab-active tabs-styles)))]]
+             ^{:key (str "tab:" i ":" label)}
+             [:button {:style         style
+                       :type          "button"
+                       :role          "tab"
+                       :aria-selected (str active?)
+                       :data-test-tab (str i)
+                       :on-click      #(reset! selected i)}
+              label])]
+          [:div {:style    (:tab-body tabs-styles)
+                 :role     "tabpanel"
+                 :data-test-tab-body (str idx)}
+           (when active-cell
+             (case (:type active-cell)
+               :variant
+               ^{:key (cell-key idx active-cell)}
+               [variant-cell (:variant-id active-cell)]
+               :prose
+               ^{:key (cell-key idx active-cell)}
+               [prose-block (:body active-cell)]
+               :custom
+               ^{:key (cell-key idx active-cell)}
+               [:div {:style (:cell styles)}
+                "custom render: " (pr-str (:render active-cell))]
+               nil))]]))))
+
 #?(:cljs
    (defn workspace-view
      "Render a workspace. Resolves the cells and dispatches per layout.
@@ -399,6 +511,16 @@
               (empty? cells)
               [:div {:style (:empty styles)}
                "no cells resolved — check the workspace body"]
+
+              ;; rf2-ktnl8: `:tabs` renders ONE variant at a time via a
+              ;; serialised tabs renderer. Previously fell through to the
+              ;; `:else` (grid) branch and rendered every variant cell
+              ;; simultaneously, which collapsed per-variant interior
+              ;; state to whichever cell was seeded last whenever a view
+              ;; hardcoded a frame-provider (see rf2-sszlr's
+              ;; `gallery_chrome.cljs`).
+              (= :tabs (:layout body))
+              [tabs-renderer cells]
 
               (= :prose (:layout body))
               [:div {:style (:prose-flow styles)}
