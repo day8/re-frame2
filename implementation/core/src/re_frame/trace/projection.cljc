@@ -97,10 +97,18 @@
 
 (def ^:private empty-cascade
   "Slot template for a cascade record. Per-cascade reduction starts here;
-  every key the consumer can rely on lives in the template."
+  every key the consumer can rely on lives in the template.
+
+  `:event` is the dispatched event VECTOR (the convenient
+  slim form most consumers need). `:dispatched` is the full
+  `:event/dispatched` trace EVENT — preserved so consumers (Causa's
+  Event lens) can read top-level hoisted slots like
+  `:rf.trace/call-site` (per rf2-twt7m Change 1) without reaching
+  back into the raw trace buffer."
   {:dispatch-id nil
    :frame       nil
    :event       nil
+   :dispatched  nil
    :handler     nil
    :fx          nil
    :effects     []
@@ -170,10 +178,16 @@
       [(cascade-frame frame-index ev) id])))
 
 (defn- absorb
-  "Fold one trace event into the per-cascade accumulator."
+  "Fold one trace event into the per-cascade accumulator.
+
+  The `:event` bucket lands the event VECTOR on `:event` (slim,
+  consumers' common case) AND the full trace event on `:dispatched`
+  (preserves top-level hoisted slots like `:rf.trace/call-site` per
+  rf2-twt7m Change 1)."
   [acc ev]
   (case (domino-bucket ev)
-    :event   (assoc acc :event (get-in ev [:tags :event]))
+    :event   (assoc acc :event      (get-in ev [:tags :event])
+                       :dispatched  ev)
     :handler (assoc acc :handler ev)
     :fx      (assoc acc :fx ev)
     :effect  (update acc :effects conj ev)
@@ -205,7 +219,12 @@
 
       {:dispatch-id <cascade-id-or-:ungrouped>
        :frame       <frame-id-or-nil>
-       :event       <event-vector or nil>     ;; from :event/dispatched
+       :event       <event-vector or nil>     ;; from :event/dispatched :tags
+       :dispatched  <trace-event or nil>      ;; the full :event/dispatched
+                                              ;;   trace event (top-level
+                                              ;;   :rf.trace/call-site,
+                                              ;;   :source, :origin per
+                                              ;;   rf2-twt7m Change 1)
        :handler     <trace-event or nil>      ;; the :run-end emit (last wins)
        :fx          <trace-event or nil>      ;; :event/do-fx
        :effects     [<trace-event> ...]       ;; :op-type :fx
