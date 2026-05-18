@@ -147,6 +147,41 @@
       (f data event {:state (:state snapshot) :meta (:meta snapshot)})
       (f data event))))
 
+;; ---- guard / action evaluation traces -------------------------------------
+;;
+;; Per Spec 009 §Instrumentation and rf2-2nwfd: every user-declared guard
+;; evaluation emits `:rf.machine/guard-evaluated`; every user-declared
+;; action invocation emits `:rf.machine/action-ran`. Both traces ride
+;; through the standard trace bus, so `*handler-scope*` auto-stamps
+;; `:dispatch-id` into `:tags` — downstream cascade-correlation (e.g.
+;; Causa's `:rf.causa/machine-transitions-for-focused-event` sub) groups
+;; them with the originating event without any explicit threading here.
+;;
+;; The synthesised `(constantly true)` returned by `resolve-guard` for a
+;; nil guard-ref, and the synthesised `(constantly nil)` returned by
+;; `resolve-action` for a nil action-ref, are NOT user-declared
+;; evaluations — `evaluate-guard` / `run-action` only emit when
+;; `guard-ref` / `action-ref` is non-nil.
+
+(defn- evaluate-guard
+  "Resolve and invoke a user-declared guard, emitting
+  `:rf.machine/guard-evaluated` for cascade-discoverability. Returns the
+  guard's boolean outcome. When `guard-ref` is nil the guard is the
+  synthesised always-true — skip the trace (it is not a user-declared
+  evaluation) and return true."
+  [machine guard-ref snapshot event]
+  (if (nil? guard-ref)
+    true
+    (let [g       (resolve-guard machine guard-ref)
+          outcome (boolean (call-guard g snapshot event))]
+      (trace/emit! :machine :rf.machine/guard-evaluated
+                   {:machine-id (or (:rf/parent-id machine) (:id machine))
+                    :guard-id   guard-ref
+                    :input      {:data  (:data snapshot)
+                                 :event event}
+                    :outcome    (if outcome :pass :fail)})
+      outcome)))
+
 ;; ---- spawn-id allocator (in-snapshot) -------------------------------------
 ;;
 ;; Per Spec 005 §Declarative :invoke (sugar over spawn) and rf2-gr8q: on
@@ -370,10 +405,7 @@
                  :current-epoch   current-epoch}
                 (let [tspec     (if (keyword? t) {:target t} t)
                       guard-ref (:guard tspec)
-                      pass?     (if guard-ref
-                                  (let [g (resolve-guard machine guard-ref)]
-                                    (boolean (call-guard g snapshot event)))
-                                  true)]
+                      pass?     (evaluate-guard machine guard-ref snapshot event)]
                   (if pass?
                     {:transition tspec
                      :decl-path  prefix
@@ -420,8 +452,8 @@
                         (or (get-in n [:on event-id])
                             (get-in n [:on :*])))
                 hit   (some (fn [t]
-                              (let [g (resolve-guard machine (:guard t))]
-                                (when (call-guard g snapshot event) t)))
+                              (when (evaluate-guard machine (:guard t) snapshot event)
+                                t))
                             cands)]
             (when hit
               {:transition hit :decl-path prefix})))))))
@@ -457,14 +489,35 @@
 (defn- run-action
   "Run one action ref and return either a plain effects map (success) or a
   `result/fail` Result (the action threw). Successful actions may return
-  `nil` (treated as `{}`)."
+  `nil` (treated as `{}`).
+
+  Per rf2-2nwfd: every user-declared action invocation emits
+  `:rf.machine/action-ran` with the action-ref, the canonical input
+  `{:data :event}`, and an outcome — the action's return value on
+  success (or `:ok` when the action returned nil), or
+  `:rf.error/action-threw` on the exceptional path. The synthesised
+  no-op for `nil` action-ref is not user-declared — skip the trace."
   [machine snap action-ref event]
   (if action-ref
-    (let [f (resolve-action machine action-ref)]
+    (let [f         (resolve-action machine action-ref)
+          parent-id (or (:rf/parent-id machine) (:id machine))]
       (try
         (let [r (call-action f snap event)]
+          (trace/emit! :machine :rf.machine/action-ran
+                       {:machine-id parent-id
+                        :action-id  action-ref
+                        :input      {:data  (:data snap)
+                                     :event event}
+                        :outcome    (if (nil? r) :ok r)})
           (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
+          (trace/emit! :machine :rf.machine/action-ran
+                       {:machine-id parent-id
+                        :action-id  action-ref
+                        :input      {:data  (:data snap)
+                                     :event event}
+                        :outcome    :rf.error/action-threw
+                        :exception  e})
           (result/fail {:action-ref action-ref
                         :exception  e}))))
     {}))
@@ -1096,8 +1149,8 @@
                      (vector? always) always
                      :else            [always])
             hit    (some (fn [t]
-                           (let [g (resolve-guard machine (:guard t))]
-                             (when (call-guard g snapshot nil) t)))
+                           (when (evaluate-guard machine (:guard t) snapshot nil)
+                             t))
                          always)]
         (when hit
           {:transition (assoc hit :decl-path prefix) :decl-path prefix})))))
