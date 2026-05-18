@@ -44,6 +44,7 @@
   future spine-aware list updates the legacy slots."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.focus-helpers :as fh]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -348,7 +349,15 @@
          ;; back from the CURRENT head rather than from a stale
          ;; stored id.
          current-id (:dispatch-id (compose-focus (get db :focus) cascades))
-         new-id     (step-dispatch-id focusable current-id delta)
+         ;; rf2-a1z3b — when a focus-set is active, step skips past
+         ;; out-of-focus cascades to the next/prev in-focus row. When
+         ;; no focus-set is active, fall through to the plain
+         ;; step-dispatch-id walk so the existing nav semantics are
+         ;; preserved exactly.
+         focus-set  (get db :focus-set)
+         new-id     (if focus-set
+                      (fh/step-in-focus-id focusable focus-set current-id delta)
+                      (step-dispatch-id focusable current-id delta))
          head-id    (head-dispatch-id focusable)]
      (if (or (nil? new-id)
              ;; rf2-fzbrw — boundary no-op. Stepping past either edge
@@ -425,6 +434,41 @@
     (-> db
         (assoc-in [:focus :previewing?] true)
         (assoc-in [:focus :dispatch-id] dispatch-id))))
+
+;; ---- focus-set reducers (rf2-a1z3b) -------------------------------------
+
+(defn set-focus-reducer
+  "Pure reducer for `:rf.causa/set-focus`. Writes a focus-set descriptor
+  `{:dimension <kw> :value <v> :pivot-id <dispatch-id>}` into the
+  `:focus-set` slot. The pivot id is the dispatch-id of the cascade
+  whose gutter was clicked — the L2 row uses it to render the filled
+  `⦿` pivot marker (vs the open `⦿` for other in-focus rows).
+
+  When the same pivot+dimension combo is set twice (gutter click on
+  the existing pivot), returns db with the slot CLEARED — the toggle-
+  off contract per the gesture model. Comparing dimension+value
+  (not pivot-id alone) means clicking a DIFFERENT in-focus row's
+  gutter rebuilds focus around that new pivot rather than toggling
+  off; only clicking the SAME pivot toggles.
+
+  Pure data; JVM-runnable."
+  [db dimension value pivot-id]
+  (let [current (get db :focus-set)]
+    (if (and current
+             (= dimension (:dimension current))
+             (= value (:value current))
+             (= pivot-id (:pivot-id current)))
+      (dissoc db :focus-set)
+      (assoc db :focus-set {:dimension dimension
+                            :value     value
+                            :pivot-id  pivot-id}))))
+
+(defn clear-focus-reducer
+  "Pure reducer for `:rf.causa/clear-focus`. Drops the `:focus-set` slot
+  unconditionally. Wired from the Esc keybind, the ribbon chip's `✕`,
+  and a body-click on an out-of-focus row."
+  [db]
+  (dissoc db :focus-set))
 
 ;; ---- registration --------------------------------------------------------
 
@@ -506,5 +550,27 @@
   (rf/reg-event-db :rf.causa/preview-cascade
     (fn [db [_ dispatch-id]]
       (preview-cascade-reducer db dispatch-id)))
+
+  ;; ---- focus-set (rf2-a1z3b) -----------------------------------------
+  ;;
+  ;; The focus-set is a lens NOT a filter — the L2 list keeps rendering
+  ;; every cascade, but rows that don't match the focus-set descriptor
+  ;; dim to ~40% opacity and the `[◀]` / `[▶]` nav buttons skip past
+  ;; them to the next/prev in-focus row. The focus-set rides centrally
+  ;; in the spine slot so cross-panel triggers (Machines panel click →
+  ;; focus-set on a machine; managed-fx row click → focus-set on the
+  ;; HTTP correlation id) all flow through the same write surface.
+
+  (rf/reg-sub :rf.causa/focus-set
+    (fn [db _query]
+      (get db :focus-set)))
+
+  (rf/reg-event-db :rf.causa/set-focus
+    (fn [db [_ dimension value pivot-id]]
+      (set-focus-reducer db dimension value pivot-id)))
+
+  (rf/reg-event-db :rf.causa/clear-focus
+    (fn [db _event]
+      (clear-focus-reducer db)))
 
   nil)

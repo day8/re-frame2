@@ -93,6 +93,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
+            [day8.re-frame2-causa.focus-helpers :as fh]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
@@ -484,6 +485,58 @@
                           :font-size   (:caption type-scale)}}
      (str "● REDACTED " redacted-count)]))
 
+(defn- ribbon-focus-chip
+  "Focus chip (rf2-a1z3b) — surfaces the active focus-set as
+  `🎯 <pivot-label> ✕`. Click `✕` clears focus; click the chip body
+  to scroll the pivot row into view (future). Renders nothing when
+  no focus-set is active.
+
+  Placement: directly after the nav cluster so the user's eye picks
+  it up next to `[◀][▶]` — those buttons step ONLY through the focus
+  subset while the chip is present, so the cluster reads naturally
+  as 'stepping inside this focus'."
+  [{:keys [focus-set]}]
+  (when focus-set
+    (let [label (fh/pivot-label focus-set)
+          tip   (str "Focus: " (fh/dimension-label focus-set)
+                     " (Esc to clear)")]
+      [:div {:data-testid "rf-causa-focus-chip"
+             :title       tip
+             :style       {:display        "inline-flex"
+                           :align-items    "center"
+                           :gap            "4px"
+                           :padding        "2px 6px 2px 8px"
+                           :background     (:bg-active tokens)
+                           :border         (str "1px solid " (:accent-violet tokens))
+                           :border-radius  "10px"
+                           :font-family    sans-stack
+                           :font-size      (:body type-scale)
+                           :color          (:text-primary tokens)
+                           :max-width      "240px"}}
+       [:span {:style {:color (:accent-violet tokens)
+                       :font-weight 600}}
+        "🎯"]                ;; 🎯 (UTF-16 surrogate pair for portability)
+       [:span {:data-testid "rf-causa-focus-chip-label"
+               :style {:overflow      "hidden"
+                       :text-overflow "ellipsis"
+                       :white-space   "nowrap"
+                       :max-width     "180px"
+                       :font-family   mono-stack
+                       :font-size     (:caption type-scale)}}
+        label]
+       [:button {:data-testid "rf-causa-focus-chip-clear"
+                 :on-click    #(rf/dispatch [:rf.causa/clear-focus] {:frame :rf/causa})
+                 :title       "Clear focus (Esc)"
+                 :aria-label  "Clear focus"
+                 :style       {:background    "transparent"
+                               :border        "none"
+                               :color         (:text-secondary tokens)
+                               :cursor        "pointer"
+                               :padding       "0 2px"
+                               :font-size     (:body type-scale)
+                               :line-height   "1"}}
+        "✕"]])))                  ;; ✕
+
 (defn- ribbon-right-icons
   "Right-icons cluster — `⚙` settings · `✕` close. Per spec/018 §3
   Right-icon behaviour the pop-out (`⛶`) slot is reserved for the
@@ -525,6 +578,7 @@
   [_props]
   (let [focus           @(rf/subscribe [:rf.causa/focus])
         cascades        @(rf/subscribe [:rf.causa/cascades])
+        focus-set       @(rf/subscribe [:rf.causa/focus-set])
         show-tool?      false   ; Hardcoded — Power-user toggle UI not built yet
         frames          (distinct-frames cascades show-tool?)
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
@@ -541,10 +595,17 @@
         ;; pin focus to the `:ungrouped` bucket and degrade the L4
         ;; panels into an aggregate-across-all-events render.
         event-cascades  (filterv cascade-has-event? cascades)
-        ids             (mapv :dispatch-id event-cascades)
+        ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
+        ;; ONLY the in-focus subset. Boundary predicates honour that
+        ;; so `[◀]` greys at the first in-focus row and `[▶]` greys at
+        ;; the last. When no focus-set is active, fall through to the
+        ;; existing full-stream boundary semantics.
+        ids             (if focus-set
+                          (fh/in-focus-ids event-cascades focus-set)
+                          (mapv :dispatch-id event-cascades))
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
-                            (nil? focused-id))
+                            (and (nil? focused-id) (not focus-set)))
         at-tail?        (or (empty? ids)
                             (= focused-id (first ids)))]
     [:div {:data-testid "rf-causa-ribbon"
@@ -559,6 +620,7 @@
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
+     [ribbon-focus-chip {:focus-set focus-set}]
      [ribbon-frame-picker {:selected-frame (:frame focus)
                            :frames frames}]
      [ribbon-filter-pills {:filters filters}]
@@ -681,6 +743,28 @@
         (do (reset! last-scrolled-focus-id id)
             (scroll-focused-row-into-view! el))))))
 
+(defn- focus-gesture-handler
+  "rf2-a1z3b — return the on-click handler for the L2 row's left
+  GUTTER. The gutter is the FOCUS surface (vs. the body, which is the
+  SELECTION surface). Click semantics:
+
+  - Out-of-focus row's gutter → set focus on the row's inferred
+    dimension (`fh/infer-dimension` picks first applicable from
+    machine / http / event-id / source-coord).
+  - Pivot row's gutter (same id, same dimension) → toggle focus OFF
+    (the `set-focus-reducer` recognises the duplicate and dissocs).
+  - In-focus non-pivot row's gutter → rebuild focus around this row
+    as the new pivot (dimension may stay the same or change).
+
+  Returns nil when no dimension can be inferred (`:ungrouped` /
+  unrouted cascade) — the gutter renders inert."
+  [cascade]
+  (when-let [{:keys [dimension value]} (fh/infer-dimension cascade)]
+    (fn [^js e]
+      (.stopPropagation e)
+      (rf/dispatch [:rf.causa/set-focus dimension value (:dispatch-id cascade)]
+                   {:frame :rf/causa}))))
+
 (defn- event-row
   "One row in the L2 event list. Single line per spec/018 §4 Row
   anatomy. Gutter glyph + event-id + right-anchored badge cluster +
@@ -694,40 +778,82 @@
   Pre-alpha the popup is the only context-menu surface (the rich
   multi-item menu lands behind a follow-on bead); preventing the
   browser context menu keeps the affordance discoverable on first
-  right-click."
-  [{:keys [cascade focused-id auto-track?]}]
-  (let [id        (:dispatch-id cascade)
-        focused?  (= id focused-id)
-        glyph     (gutter-glyph cascade focused-id)
-        badges    (row-badges cascade)
-        ev-id     (event-id-of-cascade cascade)
-        event-vec (:event cascade)
-        glyph-col (cond
-                    focused?                                (:cyan tokens)
-                    (= "x" glyph)                           (:red tokens)
-                    (= "▥" glyph)                           (:magenta tokens)
-                    :else                                   (:text-tertiary tokens))
-        bg        (if focused? (:bg-active tokens) "transparent")
-        border    (if focused?
-                    (str "1px solid " (:cyan tokens))
-                    "1px solid transparent")
+  right-click.
+
+  ## Focus gutter (rf2-a1z3b)
+
+  The leftmost ~14px is the FOCUS surface (gutter); the rest is the
+  SELECTION surface (body). Gutter click sets/toggles focus on the
+  row's inferred dimension; body click selects the cascade (and
+  CLEARS focus when the clicked row is out-of-focus). When a
+  focus-set is active, out-of-focus rows render at ~40% opacity and
+  the gutter renders an OPEN `⦿` marker; the pivot row renders a
+  FILLED `⦿` marker."
+  [{:keys [cascade focused-id auto-track? focus-set in-focus?]}]
+  (let [id          (:dispatch-id cascade)
+        focused?    (= id focused-id)
+        pivot?      (and focus-set (= id (:pivot-id focus-set)))
+        focus-active? (some? focus-set)
+        out-of-focus? (and focus-active? (not in-focus?))
+        glyph       (gutter-glyph cascade focused-id)
+        badges      (row-badges cascade)
+        ev-id       (event-id-of-cascade cascade)
+        event-vec   (:event cascade)
+        glyph-col   (cond
+                      focused?                                (:cyan tokens)
+                      (= "x" glyph)                           (:red tokens)
+                      (= "▥" glyph)                           (:magenta tokens)
+                      :else                                   (:text-tertiary tokens))
+        bg          (if focused? (:bg-active tokens) "transparent")
+        border      (if focused?
+                      (str "1px solid " (:cyan tokens))
+                      "1px solid transparent")
         ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
         ;; auto-tracking branch carries a ref. RETRO and non-focused rows
         ;; get nil (no DOM-side scroll work, no per-render cost).
-        ref-fn    (when focused? (focused-row-ref id auto-track?))]
+        ref-fn      (when focused? (focused-row-ref id auto-track?))
+        gutter-click (focus-gesture-handler cascade)
+        ;; rf2-a1z3b — clicking a row's body clears focus when the row
+        ;; is OUT-of-focus (the gesture model: body-click on dim row
+        ;; says 'I want to select this; abandon the focus lens'). When
+        ;; the row is IN-focus or no focus-set is active, body-click is
+        ;; pure selection per the existing contract.
+        body-click  (fn [_e]
+                      (when out-of-focus?
+                        (rf/dispatch [:rf.causa/clear-focus] {:frame :rf/causa}))
+                      (rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
+                                   {:frame :rf/causa}))
+        ;; Focus-aware gutter marker per rf2-a1z3b. The existing glyph
+        ;; (●/◉/x/▥) keeps semantics for the spine's selection +
+        ;; error/redacted state; an additional ⦿ marker rides ON TOP
+        ;; in the gutter when a focus-set is active to signal in-focus
+        ;; (open) vs pivot (filled). When no focus-set is active the
+        ;; gutter renders the legacy glyph only.
+        focus-marker (cond
+                       pivot?     "⦿"          ;; filled (pivot anchor)
+                       in-focus?  "◌"          ;; open marker for in-focus non-pivot rows
+                       :else      nil)
+        focus-marker-col (cond
+                           pivot?    (:accent-violet tokens)
+                           in-focus? (:accent-violet tokens)
+                           :else     (:text-tertiary tokens))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Causa is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
     ;; the same vertical budget the old 8 rows used.
     [:li (cond-> {:data-testid (str "rf-causa-event-row-" (str id))
-                  :on-click    #(rf/dispatch [:rf.causa/focus-cascade id (:frame cascade)]
-                                             {:frame :rf/causa})
+                  :on-click    body-click
                   :on-context-menu (fn [^js e]
                                      (when ev-id
                                        (.preventDefault e)
                                        (rf/dispatch
                                          [:rf.causa/hide-event-type ev-id]
                                          {:frame :rf/causa})))
+                  :data-rf-causa-in-focus (cond
+                                            (not focus-active?) "n/a"
+                                            in-focus?           "true"
+                                            :else               "false")
+                  :data-rf-causa-pivot    (if pivot? "true" "false")
                   :style {:display       "flex"
                           :align-items   "center"
                           :gap           "6px"
@@ -743,11 +869,47 @@
                           :color         (:text-primary tokens)
                           :white-space   "nowrap"
                           :overflow      "hidden"
-                          :text-overflow "ellipsis"}}
+                          :text-overflow "ellipsis"
+                          ;; rf2-a1z3b — out-of-focus rows dim to
+                          ;; `--rf-causa-row-dim-opacity` (default 0.4)
+                          ;; so the lens reads at a glance. Inline so
+                          ;; we don't need a stylesheet round-trip; the
+                          ;; CSS-var fallback keeps host overrides
+                          ;; possible.
+                          :opacity       (if out-of-focus?
+                                           "var(--rf-causa-row-dim-opacity, 0.4)"
+                                           1)}}
            ref-fn (assoc :ref ref-fn))
-     [:span {:style {:width "14px" :color glyph-col :flex-shrink 0
-                     :text-align "center"}}
-      glyph]
+     ;; Gutter — FOCUS surface (rf2-a1z3b). Click sets/toggles focus
+     ;; on the row's inferred dimension. The hit-area is the 14px
+     ;; gutter cell; stopPropagation prevents the body-click handler
+     ;; from also firing.
+     [:span (cond-> {:data-testid (str "rf-causa-row-gutter-" (str id))
+                     :style       {:width        "14px"
+                                   :flex-shrink  0
+                                   :display      "inline-flex"
+                                   :align-items  "center"
+                                   :justify-content "center"
+                                   :align-self   "stretch"
+                                   :cursor       (if gutter-click "pointer" "default")
+                                   :color        focus-marker-col
+                                   :font-size    "11px"}
+                     :title       (cond
+                                    pivot?
+                                    (str "Clear focus on " (fh/dimension-label focus-set))
+
+                                    (and focus-active? in-focus?)
+                                    (str "Re-anchor focus on this row ("
+                                         (fh/dimension-label focus-set) ")")
+
+                                    gutter-click
+                                    (str "Focus on " (fh/dimension-label (fh/infer-dimension cascade)))
+
+                                    :else
+                                    "")}
+              gutter-click (assoc :on-click gutter-click))
+      (or focus-marker
+          [:span {:style {:color glyph-col}} glyph])]
      ;; Bug 3 (rf2-htik0): render the real event vector inline —
      ;; `[:cart/add-item {:item-id "apple"}]`, NOT just `:cart/add-item`.
      ;; Truncates at ~80 chars with `…]` suffix to keep the row single-line.
@@ -810,6 +972,7 @@
   (inject-scrollbar-style!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
         focus          @(rf/subscribe [:rf.causa/focus])
+        focus-set      @(rf/subscribe [:rf.causa/focus-set])
         focused-id     (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
@@ -818,7 +981,11 @@
         auto-track?    (and (= :live (:mode focus))
                             (:head? focus)
                             (not (:paused? focus)))
-        event-cascades (filterv cascade-has-event? cascades)]
+        event-cascades (filterv cascade-has-event? cascades)
+        ;; rf2-a1z3b — precompute the focus predicate ONCE per render
+        ;; so the per-row work is a single fn call rather than a
+        ;; predicate rebuild per row.
+        focus-pred     (fh/build-focus-predicate focus-set)]
     [:div {:data-testid "rf-causa-event-list"
            :style {:height        "200px"   ; 8 rows × 22px + gaps + padding (rf2-htik0)
                    :min-height    "48px"    ; 2 rows minimum
@@ -848,7 +1015,9 @@
                ^{:key (str (:dispatch-id cascade))}
                [event-row {:cascade     cascade
                            :focused-id  focused-id
-                           :auto-track? auto-track?}])))]))
+                           :auto-track? auto-track?
+                           :focus-set   focus-set
+                           :in-focus?   (focus-pred cascade)}])))]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 
