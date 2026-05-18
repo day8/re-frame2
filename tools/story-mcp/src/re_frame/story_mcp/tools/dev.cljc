@@ -74,7 +74,7 @@
   Wire-egress posture (rf2-73wuj): the `:app-db` slot is routed
   through `re-frame.core/elide-wire-value`; the `:assertions` vec is
   filtered through `strip-sensitive`. Off-box defaults apply unless
-  the caller passes `:include-sensitive? true`."
+  the caller passes `:include-sensitive true`."
   [args]
   (h/with-variant args
     (fn [vk _body]
@@ -145,7 +145,7 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens

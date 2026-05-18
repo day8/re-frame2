@@ -48,8 +48,8 @@
                                clamped to `max-timeout-ms` (30000) per
                                rf2-g9fje so one slow request can't park
                                the single-threaded stdio loop.
-    :include-sensitive? optional — opt out of wire-egress redaction
-                                   (default false; rf2-73wuj)"
+    :include-sensitive optional — opt out of wire-egress redaction
+                                  (default false; rf2-73wuj)"
   [args]
   (h/with-variant args
     (fn [vk _body]
@@ -137,7 +137,7 @@
   scrubbed vec so the agent's view of green/red is consistent with
   the records it actually sees — a dropped sensitive failure doesn't
   quietly flip `:passing?` to true. Default off; opt out with
-  `:include-sensitive? true`."
+  `:include-sensitive true`."
   [args]
   (h/with-variant-id args
     (fn [vk]
@@ -159,7 +159,7 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -204,7 +204,7 @@
 
    {:name           "read-failures"
     :category       :testing
-    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive? true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
