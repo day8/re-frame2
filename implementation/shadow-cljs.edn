@@ -435,6 +435,27 @@
    :modules    {:main {:init-fn cart-total.core/run}}
    :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
+  ;; Multi-frame Causa testbed (rf2-2vgog) — three richly-domain'd
+  ;; frames (:cart-frame, :checkout-frame, :admin-frame) coexisting on
+  ;; one page; one cross-frame coordination scenario (cart's
+  ;; Send-to-checkout fans out to :checkout-frame via a bridge fx).
+  ;; Sources live under tools/causa/testbeds/multi_frame_causa/. The
+  ;; Causa preload is wired so the frame picker enumerates all three
+  ;; frames and a Causa user can step through scope-per-frame /
+  ;; cascade-isolation / cross-frame causality scenarios.
+  ;;
+  ;; Distinct from the top-level testbeds/multi_frame/ surface (build
+  ;; id `:testbeds/multi-frame` — rf2-kzcim shared framework-behavior
+  ;; testbed with three minimal counters). This Causa-owned variant
+  ;; is domain-rich and panel-rich; the shared one is stark and
+  ;; minimal-by-design (Causa, Story, and pair2-mcp all consume it).
+  :examples/multi-frame-causa
+  {:target     :browser
+   :output-dir "out/examples/multi-frame-causa"
+   :asset-path "."
+   :modules    {:main {:init-fn multi-frame-causa.core/run}}
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
+
   ;; Causa panel-gallery testbed (rf2-1o7mp) — visual gallery of Causa
   ;; panels under varying state magnitude. Sources live under
   ;; tools/causa/testbeds/panel_gallery/ alongside the stories ns.

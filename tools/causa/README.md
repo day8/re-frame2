@@ -271,10 +271,10 @@ coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage
 reports `covered` across every row at the unit/helper/view tier.
 
 Browser testbeds live under `tools/causa/testbeds/` — `cart_total`,
-`counter-driven`, `feature_matrix`, `inline_resize`, `panel_gallery`,
-`perf_counter`, `rigorous` — covering the shell, panels,
-sensitive/large redaction, performance, popout, and the
-production-elision probe.
+`counter-driven`, `feature_matrix`, `inline_resize`, `multi_frame_causa`,
+`panel_gallery`, `perf_counter`, `rigorous` — covering the shell,
+panels, sensitive/large redaction, performance, popout, multi-frame
+isolation + cross-frame coordination, and the production-elision probe.
 
 The sibling `tools/causa-mcp/` artefact ships the agent surface (18
 tools across five bands; catalogue formally pinned at

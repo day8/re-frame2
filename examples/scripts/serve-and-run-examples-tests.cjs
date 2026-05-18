@@ -132,6 +132,17 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'cart_total', 'index.html'),
     outDir: path.join(OUT_ROOT, 'cart-total'),
   },
+  // Multi-frame Causa testbed (rf2-2vgog) — three named frames
+  // (:cart-frame, :checkout-frame, :admin-frame) coexisting; one
+  // cross-frame coordination scenario. The companion spec at
+  // tools/causa/testbeds/multi_frame_causa/spec.cjs exercises frame
+  // scoping, cascade isolation, the cross-frame hop, and Causa's
+  // frame picker enumerating all three frames.
+  {
+    build: 'examples/multi-frame-causa',
+    htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'multi_frame_causa', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'multi-frame-causa'),
+  },
   {
     build: 'examples/temperature',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'temperature', 'temperature.html'),
