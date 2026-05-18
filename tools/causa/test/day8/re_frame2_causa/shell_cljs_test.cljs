@@ -201,6 +201,27 @@
         (is (some? (find-by-testid tree "rf-causa-ribbon-icons"))
             "right-icons cluster present")))))
 
+(deftest ribbon-omits-popout-button
+  (testing "rf2-u3qm1 — the right-icons cluster mounts only Settings +
+            Close. The legacy `⛶` pop-out (`rf-causa-icon-popout`) was
+            a broken-claim affordance (`title 'Pop out (o) — stubbed'`)
+            and is removed. Pop-out is programmatic-only via
+            `(causa/popout!)` until the second-window UX lands per
+            spec/011-Launch-Modes.md."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            icons (find-by-testid tree "rf-causa-ribbon-icons")]
+        (is (some? icons) "right-icons cluster still mounts")
+        (is (some? (find-by-testid tree "rf-causa-icon-settings"))
+            "Settings icon still present")
+        (is (some? (find-by-testid tree "rf-causa-icon-close"))
+            "Close icon still present")
+        (is (nil? (find-by-testid tree "rf-causa-icon-popout"))
+            "pop-out ribbon button is absent (silent-by-default)")
+        (is (not (re-find #"stubbed" (text-nodes icons)))
+            "no `stubbed` copy in the right-icons cluster")))))
+
 (deftest ribbon-nav-buttons-dispatch-spine-events
   (testing "spec/018 §3 — ribbon `◀ ▶ ⏭` dispatch focus-cascade-prev /
             -next / follow-head"

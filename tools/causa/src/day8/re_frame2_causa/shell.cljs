@@ -35,7 +35,9 @@
     + trailing `[+]` add-pill. Click any pill → edit popup.
   - **Mode pill** — `● LIVE` / `◐ RETRO` / `● LIVE (paused)` dual-
     purpose indicator + toggle. Carries the REDACTED-count tooltip.
-  - **Right icons** — `⚙` settings · `⛶` popout · `✕` close.
+  - **Right icons** — `⚙` settings · `✕` close. (Pop-out is a
+    programmatic API only — `(causa/popout!)` — no ribbon affordance
+    until the second-window UX lands per spec/011-Launch-Modes.md.)
 
   ## Event list (L2)
 
@@ -107,9 +109,9 @@
 (def ^:private internal-frames
   "Frames Causa filters out of the picker by default per spec/018 §8 I1.
   `:rf/causa` is Causa's own state; `:rf/pair2` is the future MCP-pair
-  frame. The Settings 'Show tool frames in picker' toggle re-includes
-  them under a `── Power user ──` divider (settings UI is stubbed
-  pending follow-on work)."
+  frame. A future Settings 'Show tool frames in picker' toggle will
+  re-include them under a `── Power user ──` divider; the toggle UI
+  is not built yet, so the picker is hardcoded to exclude them."
   #{:rf/causa :rf/pair2})
 
 (def ^:private tabs
@@ -361,12 +363,16 @@
      (str "● REDACTED " redacted-count)]))
 
 (defn- ribbon-right-icons
-  "Right-icons cluster — `⚙` settings · `⛶` popout · `✕` close per
-  spec/018 §3 Right-icon behaviour. Settings opens the Settings popup
-  modal (rf2-9poxq) via `:rf.causa/settings-open`; popout is stubbed
-  (popout dispatches the existing toggle for symmetry). Close
-  dispatches `:rf.causa/close-shell` (handled by mount.cljs in
-  production)."
+  "Right-icons cluster — `⚙` settings · `✕` close. Per spec/018 §3
+  Right-icon behaviour the pop-out (`⛶`) slot is reserved for the
+  second-window UX (spec/011-Launch-Modes.md); the ribbon affordance
+  is omitted until that lands rather than showing a broken-claim
+  button (silent-by-default — rf2-g3ghh / rf2-yn86j). The programmatic
+  `(causa/popout!)` API remains the supported pop-out path.
+
+  Settings opens the Settings popup modal (rf2-9poxq) via
+  `:rf.causa/settings-open`; close dispatches `:rf.causa/close-shell`
+  (handled by mount.cljs in production)."
   []
   (let [icon-style {:background     "transparent"
                     :border         "none"
@@ -382,11 +388,6 @@
                :on-click    #(rf/dispatch [:rf.causa/settings-open] {:frame :rf/causa})
                :style       icon-style}
       "⚙"]
-     [:button {:data-testid "rf-causa-icon-popout"
-               :title       "Pop out (o) — stubbed"
-               :on-click    #(rf/dispatch [:rf.causa/popout] {:frame :rf/causa})
-               :style       icon-style}
-      "⛶"]
      [:button {:data-testid "rf-causa-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :on-click    #(rf/dispatch [:rf.causa/close-shell] {:frame :rf/causa})
@@ -402,7 +403,7 @@
   [_props]
   (let [focus           @(rf/subscribe [:rf.causa/focus])
         cascades        @(rf/subscribe [:rf.causa/cascades])
-        show-tool?      false   ; Power-user toggle stubbed pending Settings modal
+        show-tool?      false   ; Hardcoded — Power-user toggle UI not built yet
         frames          (distinct-frames cascades show-tool?)
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])

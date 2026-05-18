@@ -250,17 +250,15 @@
 
     ;; Ribbon right-icon stubs — wired to events so the click round-
     ;; trips through the registry surface even though the user-facing
-    ;; modals / popout / close behaviours are follow-on work.
+    ;; close behaviour is follow-on work. Per rf2-u3qm1 the pop-out
+    ;; ribbon button + `:rf.causa/popout` stub are gone — pop-out is
+    ;; programmatic-only via `(causa/popout!)` until the second-window
+    ;; UX lands (spec/011-Launch-Modes.md). No broken-claim button in
+    ;; chrome (silent-by-default — rf2-g3ghh / rf2-yn86j).
     (rf/reg-event-db :rf.causa/open-settings
       (fn [db _event]
         ;; Settings popup lands behind rf2-pending-settings-modal.
         (assoc db :settings-open? true)))
-
-    (rf/reg-event-db :rf.causa/popout
-      (fn [db _event]
-        ;; Popout dispatch is symbolic until the popout window handle
-        ;; lands; the slot signals intent.
-        (assoc db :popout-requested? true)))
 
     (rf/reg-event-db :rf.causa/close-shell
       (fn [db _event]
