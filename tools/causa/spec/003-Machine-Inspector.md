@@ -199,6 +199,30 @@ structural template:
 
 Shift-click a third instance → tertiary focus (cyan); cap at 4 lanes.
 
+### Per-instance state-arc — v1 ships (rf2-nqw0v, Phase 5)
+
+The mini-scrubber's companion overlay. A thin SVG strip mounted ABOVE
+the chart that traces the focused instance's chronological
+state-trajectory:
+
+- **Origin** is the machine's initial state (`@idx 0`); each subsequent
+  point is one outer or microstep transition for the focused instance.
+- **Segments** fade between marker centres in the accent-violet palette
+  (matches the Causa brand violet; cyan / amber are reserved for
+  live-highlight / sim-mode respectively).
+- **Per-marker tooltip** is the browser-native SVG `<title>` element —
+  no Causa hover-tooltip machinery. Each title carries
+  `#<idx> <from> → <to> (<event>) @<ms>` so the developer reads the
+  trajectory by hovering markers in sequence.
+- **Trim semantics tied to scrubber position.** When the mini-scrubber
+  (below) is at `:present`, the arc renders the full trajectory; when
+  scrubbed to `idx N`, the arc trims to `[0..N]` so the strip mirrors
+  the chart's rewound state.
+
+Pure-data algebra (`machine_inspector_arc_helpers.cljc`) is
+JVM-runnable; the view module (`machine_inspector_arc.cljs`) is a
+thin CLJS renderer mounted via the chart primitive's overlay slot.
+
 ### Per-instance mini-scrubber
 
 When a machine instance is focused, an in-arc-strip mini-scrubber lets
@@ -215,6 +239,27 @@ This mini-scrubber is intra-tab content (inside the Machines tab); it
 is NOT related to the (now-dead) bottom rail / global scrubber. The
 global scrubber surface is the ribbon `[◀ ▶ ⏭]` cluster + the L2 event
 list per [`018-Event-Spine.md`](018-Event-Spine.md) §6.
+
+#### v1 ships — concrete widget shape (rf2-nqw0v, Phase 5)
+
+The shipped mini-scrubber is a horizontal `<input type="range">`
+beneath the chart (NOT the prose `◀ scrub ▶` widget — the spec text
+above is the user-facing mental model; the v1 mechanics use a native
+range input for keyboard-accessibility and OS-native drag semantics).
+
+- **Slider write surface.** Dragging dispatches
+  `:rf.causa/set-scrubber-position` into the per-slot reducer; the
+  chart's active-state highlight overrides to the scrubbed-to state;
+  the per-instance arc trims to `[0..idx]`.
+- **Domain.** `[0, max-idx]` where `max-idx` is the last transition
+  recorded for the focused instance.
+- **"⏭ present" button** sits next to the slider — snaps the position
+  back to head and re-engages live-tracking semantics. Equivalent to
+  setting position = `max-idx` AND re-arming the head-follow flag.
+- **Auto-flip to `:present` on max-idx drag.** Dragging the slider to
+  the right-edge max value auto-flips position state to `:present` so
+  head-tracking survives a future-tense scrub (vs. sticking at
+  numeric `max-idx` and silently lagging the next live transition).
 
 ## Spec 005 actor lifecycle — full XState parity
 
@@ -410,6 +455,49 @@ density makes the missing-orthogonal-router more visually jarring.
   a shared `chart/elk_loader.cljs`.
 
 ## Share affordance
+
+### v1 ships — share-URL (rf2-nqw0v, Phase 5)
+
+The v1 Share button is a `⤴ Share` chip in the panel header that
+opens a modal carrying a copyable URL encoding the current Machines-
+tab inspection posture. NOT the PNG / SVG / Mermaid copy-as
+sub-menu — that is the broader vision (preserved below as v1.1
+deferred work).
+
+Encoded slots, as a flat URL query-string:
+
+| Param | Source slot | Meaning |
+|---|---|---|
+| `causa-share=1` | sentinel | "this URL carries a Causa share." Without it the loader skips share-restore on mount. |
+| `machine=<id>` | `:focused-machine-id` | The machine the inspector is bound to. |
+| `pos=<int>` | `:scrubber-position` | The mini-scrubber's `[0, max-idx]` position (omitted when `:present`). |
+| `mode=<mode-x>` | `:view-mode` | UC2 dynamic mode pin (`mode-a`/`mode-b`/`mode-c`). |
+| `tab=<id>` | active L3 tab id | The L3 tab the recipient lands on (defaults to `machines`). |
+
+Encoded form is human-legible and trivially diff-friendly — `?causa-
+share=1&machine=auth/login&pos=3&mode=mode-b&tab=machines` — so the
+URL can be pasted into a PR comment, a code-review note, or a chat
+without explanation overhead.
+
+On load, `maybe-restore-from-location!` parses the query-string and
+dispatches `:rf.causa/restore-from-share-url` into the per-slot
+reducers. The dispatch is one-shot per page-load: subsequent
+in-session navigation does not re-read the URL.
+
+Lock #4 (no session export) is preserved by scope: the URL encodes
+only the **visible inspection posture** (which machine, which
+scrubber index, which view mode, which tab). It does NOT serialise
+the trace stream, the epoch buffer, or the app-db — the recipient
+sees the same inspector view against THEIR runtime state, not the
+sender's.
+
+The share modal itself mounts at the shell-view root (parallel to the
+palette / settings popup pattern); `share.cljs` + `share_modal.cljs`
+hold the URL parsing + the modal renderer; both are
+production-elided per [`Principles.md`](Principles.md) §Production
+elision is non-negotiable.
+
+### v1.1 deferred — Copy machine as PNG / SVG / Mermaid
 
 Right-click on the machine chart (or use the panel header's `⋯`
 overflow menu) surfaces a **Copy machine as…** sub-menu:
