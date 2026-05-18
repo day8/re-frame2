@@ -46,6 +46,44 @@
    [views/counter-card {:label "Count"}]
    [elision/elision-card]])
 
+;; -- rf2-r1uod — Causa 'Open in editor' project-root for the live testbed.
+;;
+;; Story testbeds register source-coords with classpath-relative `:file`
+;; slots (e.g. `"counter_with_stories/core.cljs"`); OS-side editor URI
+;; handlers (`vscode://file/<path>...` etc.) resolve `<path>` against the
+;; filesystem and reject relative paths. Mike's live testbed runs from
+;; the mayor checkout `C:/Users/miket/code/re-frame2`; the Story
+;; testbeds source-path under shadow-cljs is `../tools/story/testbeds`
+;; so the absolute on-disk root that prepends to a coord like
+;; `counter_with_stories/core.cljs:42` is the testbeds dir below.
+;;
+;; The value is plumbed via `story/configure! :project-root` and bridged
+;; into Causa's slot by `re-frame.story.causa-preset/propagate-project-
+;; root!` so both Story's own 'Open' chips and Causa-as-RHS's chips (the
+;; Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
+;; ribbon) resolve against the same root.
+;;
+;; Symmetric to shop's rf2-6jyf6; other hosts (CI, other devs) can
+;; override at runtime via the `?project-root=...` query string — no
+;; code change needed.
+
+(def ^:private default-project-root
+  "C:/Users/miket/code/re-frame2/tools/story/testbeds")
+
+(defn- query-param
+  "Return the named URL query param as a string, or nil when absent
+  / blank. Pure-data helper — kept private to this testbed since the
+  query-string override is a per-host knob (not a Story-API surface)."
+  [name]
+  (when (exists? js/window)
+    (let [params (-> js/window .-location .-search
+                     (js/URLSearchParams.))
+          v      (.get params name)]
+      (when (and (string? v) (seq v)) v))))
+
+(defn- resolve-project-root []
+  (or (query-param "project-root") default-project-root))
+
 ;; -- Routing between app and story shell ----------------------------------
 ;;
 ;; The live app and the Story shell each own their own React root on
@@ -97,7 +135,17 @@
   ;; Configure the global args layer (Layer 1 of the args-precedence
   ;; chain; see IMPL-SPEC §5.2). The stories layer their own args on
   ;; top via reg-story / reg-variant.
-  (story/configure! {:global-args {:locale :en}})
+  ;;
+  ;; rf2-r1uod — `:project-root` seeds Story's own 'Open' chips AND
+  ;; (via the causa-preset bridge) Causa-as-RHS's open-in-editor
+  ;; chips so the Event lens / Trace rows / Issues ribbon resolve
+  ;; their classpath-relative source-coord `:file` slots to absolute
+  ;; on-disk URIs the OS-side editor handler can stat. Symmetric to
+  ;; shop's rf2-6jyf6. The `?project-root=...` query string lets
+  ;; other hosts override the mayor-checkout default without a code
+  ;; change.
+  (story/configure! {:global-args  {:locale :en}
+                     :project-root (resolve-project-root)})
   ;; Seed the live app's `:count` slot.
   (rf/dispatch-sync [:counter/initialise 5])
   ;; Install the always-on event-emit listener. The listener prints

@@ -124,3 +124,30 @@
        (story/reg-variant :story.nilpre/v
          {:doc "v"})
        (is (nil? (causa-preset/apply-preset! :story.nilpre/v))))))
+
+;; ---- CLJS-only: project-root propagator (rf2-r1uod) ----------------------
+
+#?(:cljs
+   (deftest cljs-propagate-project-root-no-causa-no-op
+     (testing "propagate-project-root! is a no-op when Causa config is not on the classpath"
+       ;; Seed Story's project-root via configure! — exercises the
+       ;; whole configure! → set-project-root! → propagator pipeline.
+       (story/configure! {:project-root "C:/Users/me/code/my-app"})
+       ;; The test build has no Causa namespace loaded, so
+       ;; causa-config-available? is false and propagate-project-root!
+       ;; returns nil without touching the wire.
+       (is (false? (causa-preset/causa-config-available?))
+           "this test assumes Causa is NOT on the classpath")
+       (is (nil? (causa-preset/propagate-project-root!))
+           "no propagation when Causa is absent")
+       ;; Reset so subsequent tests don't see the seeded value.
+       (story/configure! {:project-root nil}))))
+
+#?(:cljs
+   (deftest cljs-propagate-project-root-nil-when-unset
+     (testing "propagate-project-root! returns nil when Story has no project-root configured"
+       ;; Clear any prior seed (the fixture resets registrar but not
+       ;; the config atom).
+       (story/configure! {:project-root nil})
+       (is (nil? (causa-preset/propagate-project-root!))
+           "no propagation when Story's project-root is nil"))))

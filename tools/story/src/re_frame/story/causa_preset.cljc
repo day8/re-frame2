@@ -110,6 +110,14 @@
      (some? (resolve-fn 'day8.re-frame2-causa.mount/open!))))
 
 #?(:cljs
+   (defn causa-config-available?
+     "True iff Causa's `configure!` surface is loaded — feature-detect
+     `day8.re-frame2-causa.config/configure!`. When false the
+     project-root propagator no-ops silently."
+     []
+     (some? (resolve-fn 'day8.re-frame2-causa.config/configure!))))
+
+#?(:cljs
    (defn filters-available?
      "True iff the Causa filters API (rf2-ak4ms, in flight) exposes a
      `configure!` fn. Feature-detect — when false the `:filters` step
@@ -141,6 +149,53 @@
      (when-let [open-fn (resolve-fn 'day8.re-frame2-causa.mount/open!)]
        (safe-call! "open!" open-fn))))
 
+;; ---- :project-root bridge (rf2-r1uod) ------------------------------------
+;;
+;; Symmetric to shop's rf2-6jyf6 (#1493): the source-coord chips in
+;; Causa-as-RHS need `causa-config/project-root` set, but Story testbeds
+;; configure only the Story side via `story/configure! {:project-root}`.
+;; Instead of asking every testbed to call BOTH configure surfaces, the
+;; preset (Story's Causa adapter) bridges the value one-way:
+;; `story/project-root → causa-config/project-root`.
+;;
+;; Single source of truth: the host sets `:project-root` once via
+;; `story/configure!`; the bridge propagates the value into Causa's slot
+;; so both Story's own 'Open' chips (rf2-zfy1e) and Causa-as-RHS's
+;; chips (rf2-5m5n2) resolve coords against the same on-disk root.
+;;
+;; Fires from two seams:
+;;   1. `story/configure!` after `set-project-root!` lands — the common
+;;      case (Causa's preload runs before the testbed `run` fn).
+;;   2. `ensure-causa-mounted!` — defense-in-depth for the (rare) case
+;;      where Causa's config ns loads AFTER `story/configure!` has
+;;      already fired (e.g. lazy loader / hot-reload edge).
+;;
+;; Idempotent: writing the same project-root twice is a no-op on
+;; Causa's `set-project-root!` (it's a plain reset!). Feature-detect-
+;; safe: when Causa is not on the classpath, the propagator returns
+;; nil without touching the wire.
+
+#?(:cljs
+   (defn propagate-project-root!
+     "Read Story's configured `:project-root` and propagate it into
+     Causa's config slot via `day8.re-frame2-causa.config/configure!`.
+     Returns the propagated value (or nil when there was nothing to do).
+
+     No-ops when:
+       - Causa's `configure!` is not on the classpath (preload absent).
+       - Story has no `:project-root` configured (the slot is nil).
+
+     The propagation is one-way Story → Causa; Causa-side edits do not
+     reflect back into Story's slot. Hosts that want to point Causa at
+     a different root from Story should call `causa-config/configure!`
+     directly AFTER `story/configure!` to override the bridge."
+     []
+     (when (and config/enabled? (causa-config-available?))
+       (when-let [root (config/get-project-root)]
+         (when-let [configure! (resolve-fn 'day8.re-frame2-causa.config/configure!)]
+           (safe-call! "config/configure!" configure! {:project-root root})
+           root)))))
+
 #?(:cljs
    (defn ensure-causa-mounted!
      "Always-on entry point used by the Story shell (rf2-sgdd3) to drive
@@ -152,9 +207,15 @@
      `mount/open!` finds the slot and mounts the Causa shell into it.
      Idempotent — Causa's own singleton state guarantees only one
      mount per process, subsequent calls flip visibility back to
-     visible if the user closed the shell."
+     visible if the user closed the shell.
+
+     rf2-r1uod: also propagates Story's configured `:project-root`
+     into Causa's config slot so the Causa-as-RHS source-coord chips
+     resolve absolute on-disk paths. The propagator is no-op-safe when
+     Story has no `:project-root` configured."
      []
      (when (and config/enabled? (causa-available?))
+       (propagate-project-root!)
        (apply-open!))))
 
 #?(:cljs
