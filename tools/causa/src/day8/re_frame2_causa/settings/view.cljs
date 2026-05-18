@@ -203,9 +203,7 @@
                              :color       (:text-secondary tokens)
                              :min-width   "32px"
                              :text-align  "right"}}
-        (str (or text-size 13) "px")]]
-      [:p {:style (hint-style)}
-       "Scales every Causa text surface. Slider range 10–18 px."]]
+        (str (or text-size 13) "px")]]]
 
      ;; ── Panel position radio ────────────────────────────────────
      [:div {:style (field-style)}
@@ -224,10 +222,7 @@
                   :checked     (= panel-position pos)
                   :on-change   #(rf/dispatch [:rf.causa/settings-update
                                               :general :panel-position pos])}]
-         label])
-      [:p {:style (hint-style)}
-       "Right-rail is the default inline mount; popout opens a window; "
-       "fullscreen mounts as an overlay."]]
+         label])]
 
      ;; ── Auto-open-on-error checkbox ─────────────────────────────
      [:div {:style (field-style)}
@@ -242,11 +237,7 @@
                                 [:rf.causa/settings-update
                                  :general :auto-open-on-error?
                                  (boolean (.. % -target -checked))])}]
-       "Auto-open Causa when an issue is observed"]
-      [:p {:style (hint-style)}
-       "When ON, Causa opens itself the first time the issues feed "
-       "carries a non-empty entry. Off by default — you're in your "
-       "app, not asking Causa to interrupt you."]]]))
+       "Auto-open Causa when an issue is observed"]]]))
 
 ;; ---- section: Filters ---------------------------------------------------
 
@@ -302,10 +293,7 @@
                   :on-change   #(rf/dispatch
                                   [:rf.causa/settings-update
                                    :theme nil t])}]
-         label])
-      [:p {:style (hint-style)}
-       "Light / dark only for v1. Accent picker arrives in a later "
-       "release."]]]))
+         label])]]))
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
 
