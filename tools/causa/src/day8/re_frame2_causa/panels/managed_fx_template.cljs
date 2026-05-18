@@ -121,7 +121,6 @@
   [correlation-id]
   (when correlation-id
     [:span {:data-testid "rf-causa-managed-fx-correlation"
-            :title "Correlation id — :request-id / :invoke-id / :flow-id. F.6 stale-response detection rides this slot."
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
                     :border-radius "3px"
@@ -162,7 +161,7 @@
   [stubbed?]
   (when stubbed?
     [:span {:data-testid "rf-causa-managed-fx-stub"
-            :title "An :fx-overrides redirect is active for this fx. Per Spec 002 §:fx-overrides."
+            :title "Stubbed — this effect is redirected by an :fx-overrides entry instead of running for real."
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
                     :border-radius "3px"
@@ -190,7 +189,6 @@
                           :font-size     "12px"
                           :color         (:text-primary tokens)}}
    [:span {:data-testid (str "rf-causa-managed-fx-surface-" (name surface))
-           :title (str "Managed-effects surface: " (name surface) ". Per spec/Managed-Effects.md")
            :style {:display       "inline-flex"
                    :align-items   "center"
                    :gap           "4px"
@@ -314,7 +312,7 @@
                     :font-family mono-stack
                     :font-size "11px"
                     :margin-bottom "4px"}}
-      "⚠ STATUS :ok but no app-db paths changed — possible F.4"]
+      "⚠ STATUS :ok but no app-db paths changed — app-db wasn't updated"]
      [:div {:style {:color (:text-tertiary tokens) :font-style "italic"}}
       "The handler dispatched but did not write a slice. Likely a "
       "missing :db assoc or a guard that no-op'd."]]

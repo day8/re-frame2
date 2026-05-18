@@ -142,23 +142,96 @@
 (deftest records-list-nil-for-empty-records
   (is (nil? (template/records-list []))))
 
-;; ---- F.4 highlight: OK status + empty paths-touched -------------------
+;; ---- "app-db wasn't updated" highlight: OK status + empty paths-touched ----
+
+(defn- visible-text
+  "Walk a hiccup tree and concatenate every string node. Used to
+  assert on the rendered prose without booting a DOM."
+  [node]
+  (let [acc  (atom [])
+        walk (fn walk [n]
+               (cond
+                 (string? n) (swap! acc conj n)
+                 (vector? n) (doseq [c (drop 1 n)] (walk c))
+                 (seq? n)    (doseq [c n] (walk c))))]
+    (walk node)
+    (apply str @acc)))
+
+(defn- tooltip-text
+  "Walk a hiccup tree and concatenate every :title / :aria-label /
+  :data-tooltip attribute value. Used to assert tooltips don't leak
+  internal references (bead IDs, spec citations, F-codes)."
+  [node]
+  (let [acc  (atom [])
+        walk (fn walk [n]
+               (cond
+                 (and (vector? n) (map? (second n)))
+                 (let [attrs (second n)]
+                   (doseq [k [:title :aria-label :data-tooltip]]
+                     (when-let [v (get attrs k)]
+                       (swap! acc conj v)))
+                   (doseq [c (drop 2 n)] (walk c)))
+
+                 (vector? n) (doseq [c (drop 1 n)] (walk c))
+                 (seq? n)    (doseq [c n] (walk c))))]
+    (walk node)
+    (str/join " " @acc)))
 
 (deftest app-db-section-flags-empty-slice-on-ok-status
-  (testing "Per spec/019 §2.4 F.4 — when status is :ok but
-            paths-touched is empty, the panel renders the F.4 warning
-            heuristic instead of the bare '(no changes)' caption"
-    (let [r   (record {:surface :http :fx-id :rf.http/managed
+  (testing "When status is :ok but paths-touched is empty, the panel
+            renders the 'app-db wasn't updated' warning instead of the
+            bare '(no changes)' caption."
+    (let [r        (record {:surface :http :fx-id :rf.http/managed
+                            :status :ok :http-status 200
+                            :paths []})
+          combined (visible-text (template/record-panel r))]
+      (is (str/includes? combined "app-db wasn't updated"))
+      ;; silent-by-default: no internal F-code in user-visible prose
+      (is (not (re-find #"F\.\d" combined))
+          "user-visible warning text leaks an internal F-code"))))
+
+;; ---- chrome leak guard: no bead IDs / spec citations in user-facing text ----
+;;
+;; Per rf2-6lp7k + the silent-by-default policy (Conventions.md
+;; §Silent-by-default), no internal reference (bead IDs `rf2-*`,
+;; F-codes `F.\d`, "Spec N" citations, "spec/0NN" paths) may appear
+;; in user-facing chrome (rendered text or tooltips). These tests
+;; render every surface variant + the canonical edge cases and
+;; assert the negative.
+
+(def ^:private internal-ref-patterns
+  [[#"rf2-[a-z0-9]+"  "bead id"]
+   [#"F\.\d"          "F-code"]
+   [#"Spec \d"        "Spec citation"]
+   [#"spec/0\d\d"     "spec-path citation"]])
+
+(defn- assert-no-internal-refs!
+  [label text]
+  (doseq [[pat kind] internal-ref-patterns]
+    (is (not (re-find pat text))
+        (str label " leaks an internal " kind ": " (pr-str (re-find pat text))))))
+
+(deftest user-facing-text-carries-no-internal-refs
+  (let [recs [(record {:surface :http :fx-id :rf.http/managed
                        :status :ok :http-status 200
-                       :paths []})
-          out (template/record-panel r)
-          ;; Walk the hiccup tree for the F.4 warning text
-          txt (atom [])
-          walk (fn walk [node]
-                 (cond
-                   (string? node) (swap! txt conj node)
-                   (vector? node) (doseq [c (drop 1 node)] (walk c))
-                   (seq? node)    (doseq [c node] (walk c))))]
-      (walk out)
-      (let [combined (apply str @txt)]
-        (is (str/includes? combined "F.4"))))))
+                       :handler [:user/loaded] :paths [[:users 42]]})
+              (record {:surface :http :fx-id :rf.http/managed
+                       :status :ok :http-status 200
+                       :paths []})   ;; app-db-wasn't-updated warning path
+              (assoc (record {:surface :http :fx-id :rf.http/managed
+                              :status :error :http-status 500})
+                     :failure {:kind :rf.http/http-5xx
+                               :tags {:status 500}})
+              (record {:surface :websocket :fx-id :rf.ws/connect :status :ok})
+              (record {:surface :machine-invoke :fx-id :rf.machine/spawn :status :ok})
+              (record {:surface :ssr-fx :fx-id :rf.server/set-status :status :ok})
+              (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
+              (-> (record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
+                  (assoc :stubbed? true))
+              (-> (record {:surface :http :fx-id :rf.http/managed :status :cancelled})
+                  (assoc :cancel-cause :upstream-cancelled))]]
+    (doseq [r recs]
+      (let [panel (template/record-panel r)
+            label (str (:surface r) "/" (:status r))]
+        (assert-no-internal-refs! (str "visible-text[" label "]") (visible-text panel))
+        (assert-no-internal-refs! (str "tooltip-text[" label "]") (tooltip-text panel))))))
