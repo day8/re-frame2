@@ -461,15 +461,25 @@
 ;; ---- chrome -------------------------------------------------------------
 
 (defn- header-block
+  "rf2-y8bik — the cascade-metadata `:p` (`Frame: … · cascade … ·
+  cascade ms: …`) ONLY renders when a cascade is actually focused.
+  Pre-fix the line surfaced whenever `(:frame data)` was truthy, but
+  `:frame` is populated from `:rf.causa/focus` (the spine's frame
+  slot) independent of focus state — so a frame-picker selection with
+  no focused cascade left the header advertising `:cart-frame ·
+  cascade 35 · cascade ms: 0µs` while the body read `No event
+  focused.` Silent-by-default: empty body → empty chrome header,
+  except the panel title which is part of the L4 tab affordance."
   [data]
   [:header {:style {:padding "16px 16px 8px 16px"}}
    [:h1 {:style {:font-size "16px" :font-weight 600 :margin 0
                  :color (:text-primary tokens)}}
     "Views"]
-   (when-let [frame (:frame data)]
-     [:p {:style {:font-size "11px" :color (:text-tertiary tokens)
+   (when (and (:has-cascade? data) (:frame data))
+     [:p {:data-testid "rf-causa-views-header-meta"
+          :style {:font-size "11px" :color (:text-tertiary tokens)
                   :margin "2px 0 0 0"}}
-      (str "Frame: " frame
+      (str "Frame: " (:frame data)
            (when-let [did (:dispatch-id data)]
              (str " · cascade " (pr-str did)))
            " · cascade ms: " (format-ms (:cascade-ms (:totals data))))])])

@@ -6,7 +6,7 @@
   and asserts the structural data-testid hooks ship: the panel root,
   the controls footer, the heatmap toggle, and the three-group
   container."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -113,3 +113,62 @@
       (is (some? (some-> (meta s) :key))
           (str "panel-loop section carries :key meta — got "
                (pr-str (meta s)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-y8bik — header-block silent-by-default regression guard
+;;
+;; The Views composite's `:frame` slot is populated from
+;; `:rf.causa/focus` (which carries the spine's `:frame` slot —
+;; written by the frame-picker via `:rf.causa/set-frame` and by
+;; `compose-focus` from the focused cascade) INDEPENDENT of whether a
+;; cascade is actually focused. Pre-fix the `header-block` rendered the
+;; cascade-metadata `:p` (`Frame: :cart-frame · cascade 35 · cascade
+;; ms: 0µs`) whenever `(:frame data)` was truthy. Mike's live testbed
+;; surfaced the contradictory shape — header advertised cascade
+;; metadata while the body read `No event focused.`
+;;
+;; Fix: the metadata `:p` ONLY renders when `:has-cascade?` is true —
+;; the panel title stays (it is part of the L4 tab affordance) but
+;; the cascade-metadata line stays silent when there is no focused
+;; cascade to describe.
+;; ---------------------------------------------------------------------------
+
+(defn- find-by-testid-in [tree testid]
+  (some (fn [node]
+          (and (vector? node)
+               (map? (second node))
+               (= testid (:data-testid (second node)))
+               node))
+        (->> (tree-seq (some-fn vector? seq?) seq (expand-fn tree))
+             (map expand-fn))))
+
+(deftest header-block-suppresses-cascade-meta-when-no-cascade-focused
+  (testing "no focused cascade → cascade-metadata `:p` is absent even
+            when `:frame` is set (frame-picker scoped, no event focused)."
+    (let [data   {:frame        :cart-frame
+                  :dispatch-id  35
+                  :totals       {:cascade-ms 0.0}
+                  :has-cascade? false}
+          header (#'view/header-block data)]
+      (is (nil? (find-by-testid-in header "rf-causa-views-header-meta"))
+          "cascade-metadata `:p` MUST NOT render when no cascade focused"))))
+
+(deftest header-block-renders-cascade-meta-when-cascade-focused
+  (testing "focused cascade present → cascade-metadata `:p` renders so
+            the user still sees frame / cascade-id / cascade-ms when
+            there IS something to describe."
+    (let [data   {:frame        :cart-frame
+                  :dispatch-id  35
+                  :totals       {:cascade-ms 1.2}
+                  :has-cascade? true}
+          header (#'view/header-block data)]
+      (is (some? (find-by-testid-in header "rf-causa-views-header-meta"))
+          "cascade-metadata `:p` renders when there's a cascade")))
+
+  (testing "no `:frame` at all (cold start) → metadata stays silent
+            even with `:has-cascade?` true, since there's nothing to
+            print."
+    (let [data   {:has-cascade? true}
+          header (#'view/header-block data)]
+      (is (nil? (find-by-testid-in header "rf-causa-views-header-meta"))
+          "metadata stays silent when there's no frame to print"))))
