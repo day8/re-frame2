@@ -373,12 +373,16 @@
       "⏭"]]))
 
 (defn- ribbon-frame-picker
-  "Frame dropdown — single-select per spec/018 §3 Frame dropdown.
-  Excludes `:rf/causa` by default per §8 I1. When the only available
-  frame is the current selection, the dropdown collapses to a flat
-  label (no chevron — no click target).
+  "Frame dropdown — STRICTLY single-select per spec/018 §1 Non-goals
+  + §3 Frame dropdown + Round-3 rf2-i74n7. No 'All frames (merged)'
+  option; no `:multiple` attribute on the `<select>`; cross-frame
+  causality is reached via the Causality popover (`c` key), not via
+  a merged-frame view. Excludes `:rf/causa` by default per §8 I1.
+  When the only available frame is the current selection, the
+  dropdown collapses to a flat label (no chevron — no click target).
 
-  Writes via `:rf.causa/set-frame <frame-id>`."
+  Writes via `:rf.causa/set-frame <frame-id>` — single frame id, no
+  aggregate / merged value path."
   [{:keys [selected-frame frames]}]
   (let [label-style {:color       (:text-primary tokens)
                      :font-family sans-stack

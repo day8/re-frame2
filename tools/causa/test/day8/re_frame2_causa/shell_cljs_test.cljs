@@ -1019,6 +1019,45 @@
       (is (= [:rf/default :app/main] (shell/distinct-frames cascades false))
           "nil frame is filtered out"))))
 
+(deftest frame-picker-is-strictly-single-select
+  (testing "Round-3 rf2-i74n7 + spec/018 §1 Non-goals — the frame
+            picker is strictly single-select. No 'All frames (merged)'
+            option; no `:multiple` attribute on the <select>; the
+            options list carries exactly one entry per distinct frame
+            in the cascade vector (no aggregate / merged synthetic
+            option). Cross-frame causality is reached via the
+            Causality popover (`c` key), not via a merged frame."
+    (causa-setup!)
+    ;; Seed two distinct frames so the picker collapses to the <select>
+    ;; branch (single-frame counts render the flat label).
+    (trace-bus/collect-trace!
+      (assoc-in (dispatch-trace-ev 1 [:cart/add])
+                [:tags :frame] :app/main))
+    (trace-bus/collect-trace!
+      (assoc-in (dispatch-trace-ev 2 [:cart/add])
+                [:tags :frame] :app/admin))
+    (rf/with-frame :rf/causa
+      (let [tree   (shell/shell-view)
+            picker (find-by-testid tree "rf-causa-ribbon-frame-picker")
+            attrs  (when picker (second picker))]
+        (is (some? picker) "picker renders as a <select> for multi-frame")
+        (is (= :select (first picker))
+            "picker is a <select> element (not a custom multi-select)")
+        (is (nil? (:multiple attrs))
+            "picker has no :multiple attribute — strictly single-select")
+        (is (not (re-find #"(?i)merged|all frames|all-frames"
+                          (text-nodes picker)))
+            "no 'All frames (merged)' / 'merged' / 'all-frames' option
+             surfaces in the picker text")
+        ;; Verify exactly one <option> per distinct frame — no extra
+        ;; aggregate / merged synthetic option.
+        (let [options (filterv (fn [node]
+                                 (and (vector? node)
+                                      (= :option (first node))))
+                               (hiccup-seq picker))]
+          (is (= 2 (count options))
+              "exactly one <option> per distinct frame — no extra aggregate"))))))
+
 ;; -------------------------------------------------------------------------
 ;; (7) Filter pills — add / remove round-trip
 ;; -------------------------------------------------------------------------
