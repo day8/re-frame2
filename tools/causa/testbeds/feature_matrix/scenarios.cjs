@@ -1416,76 +1416,67 @@ async function runLargeDispatcher(page, state) {
 }
 
 async function runHydration(page) {
-  await openCausa(page);
-  // Post rf2-xy4yb: the dedicated Hydration debugger panel was
-  // dropped. Per spec/018 §5 hydration mismatches now surface in the
-  // Issues tab as `:rf.ssr/*` rows (category-prefix "rf.ssr").
+  // ---- (1) verify-hydration! emitted the structured trace ------------
   //
-  // Per rf2-u6dhp the Issues feed is cascade-scoped: only issues
-  // whose `:dispatch-id` matches the focused cascade pass to the
-  // feed. The `:rf.ssr/hydration-mismatch` trace is emitted by
-  // `verify-hydration!` OUTSIDE any event-handler context — the
-  // projector buckets these as `:dispatch-id :ungrouped`. The L2
-  // event-list filters `:ungrouped` cascades out (per rf2-639lc) so
-  // the user can't click that pseudo-cascade; focus the ungrouped
-  // bucket via direct dispatch so the feed surfaces the row.
+  // Post rf2-xy4yb: the dedicated Hydration debugger panel was
+  // dropped. Per spec/018 §5 hydration mismatches surface as
+  // `:rf.ssr/*` rows (category-prefix "rf.ssr").
+  //
+  // Per rf2-u6dhp + rf2-g1pt8 + rf2-fzbrw the Causa-side surfacing
+  // chain has THREE invariants the user-facing panels uphold:
+  //
+  //   1. The Issues feed is cascade-scoped: only issues whose
+  //      `:dispatch-id` matches the focused cascade pass through
+  //      (rf2-u6dhp).
+  //   2. Causa-internal `:rf.causa/*` cascades are stripped from
+  //      `:rf.causa/cascades` (rf2-g1pt8) so the user never sees
+  //      Causa instrumenting itself.
+  //   3. The `:ungrouped` bucket is structurally unfocusable — the
+  //      spine's `compose-focus` snaps any `:ungrouped` slot to
+  //      head per rf2-fzbrw's no-aggregate-state invariant.
+  //
+  // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
+  // OUTSIDE any event-handler context (see testbed `core.cljs:188`),
+  // so the projector buckets it as `:dispatch-id :ungrouped`. With
+  // invariant (3) above, the user cannot pin the `:ungrouped`
+  // bucket, so this particular issue class CANNOT surface in the
+  // cascade-scoped feed — the Causa-side surfacing is a known gap
+  // for `verify-hydration!`-style traces (separate bead territory).
+  //
+  // What this scenario CAN verify end-to-end:
+  //
+  //   - the trace fired (testbed banner renders the projected
+  //     payload — proves `verify-hydration!` reached `emit-error!`)
+  //   - the Issues panel mounts cleanly when the focused cascade
+  //     carries no `:rf.ssr/*` issues (silent-by-default empty-state
+  //     branch — proves cascade-scoping doesn't crash the panel)
+  //
+  // Asserting the feed `<ul>` testid here would require pinning the
+  // `:ungrouped` bucket, which invariant (3) forbids.
+  const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
+  await expectVisible(mismatchBanner, 10000);
+  await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
+
+  // ---- (2) Causa Issues panel mounts cleanly under cascade scope ----
+  await openCausa(page);
   await clickTab(page, 'issues', 'rf-causa-issues-ribbon');
-  // Dispatch `:rf.causa/focus-cascade :ungrouped` directly through
-  // the CLJS interop surface (the L2 list filters `:ungrouped` rows
-  // out per rf2-639lc so we can't click them).
-  const focusResult = await page.evaluate(() => {
-    const cljs = window.cljs && window.cljs.core;
-    const rf = window.re_frame && window.re_frame.core;
-    const dispatch = rf && (rf.dispatch_STAR_ ||
-      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
-    if (!cljs || typeof dispatch !== 'function') {
-      return { ok: false, reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable' };
-    }
-    function keyword(s) {
-      const trimmed = String(s).replace(/^:/, '');
-      const parts = trimmed.split('/');
-      if (parts.length === 2) {
-        return cljs.keyword.call
-          ? cljs.keyword.call(null, parts[0], parts[1])
-          : cljs.keyword(parts[0], parts[1]);
-      }
-      return cljs.keyword.call
-        ? cljs.keyword.call(null, trimmed)
-        : cljs.keyword(trimmed);
-    }
-    const event = cljs.PersistentVector.fromArray([
-      keyword(':rf.causa/focus-cascade'),
-      keyword(':ungrouped'),
-    ], true);
-    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
-    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
-      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
-    } else {
-      dispatch(event, opts);
-    }
-    return { ok: true };
-  });
-  if (!focusResult.ok) {
-    failWithDetails('Could not focus :ungrouped cascade for hydration test', focusResult);
-  }
-  await expectVisible(page.locator('[data-testid="rf-causa-issues-feed"]'), 5000);
+  // Issues panel ribbon is up; the focused cascade (the L4 default-
+  // focuses head per rf2-639lc) carries no `:rf.ssr/*` issues so the
+  // panel renders the silent-by-default empty-state per rf2-g3ghh.
+  // Either the empty-state testid OR the feed `<ul>` is acceptable —
+  // both prove cascade-scoping is honoured without crashing.
+  const emptyForEvent = page.locator(
+    '[data-testid="rf-causa-issues-empty-no-issues-for-event"]',
+  );
+  const feed = page.locator('[data-testid="rf-causa-issues-feed"]');
   await waitForValue(
-    () => page.evaluate(() => {
-      const rows = Array.from(
-        document.querySelectorAll('[data-testid^="rf-causa-issues-row-"]'),
-      ).filter((el) => /^rf-causa-issues-row-\d+$/.test(el.getAttribute('data-testid') || ''));
-      return rows.some((row) => {
-        const cat = row.querySelector('[data-testid$="-category"]');
-        const desc = row.querySelector('[data-testid$="-description"]');
-        const catText = cat ? (cat.textContent || '').trim() : '';
-        const descText = desc ? (desc.textContent || '').trim() : '';
-        return catText.includes('rf.ssr') || descText.includes(':rf.ssr/');
-      });
-    }),
-    (found) => found === true,
+    async () => (
+      (await emptyForEvent.count()) + (await feed.count()) > 0
+    ),
+    (n) => n === true,
     {
       timeoutMs: 5000,
-      description: 'Issues feed surfaces an :rf.ssr/* hydration mismatch row',
+      description: 'Issues panel renders feed-or-empty-state under cascade scope',
     },
   );
 }
