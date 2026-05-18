@@ -186,7 +186,7 @@
                        :font-size "11px"
                        :font-weight 600
                        :margin-bottom "8px"}}
-   "SIMULATING — no live data; clicks walk the topology"])
+   "SIMULATING — no live data"])
 
 (defn- sim-current-state-row
   [sim]
