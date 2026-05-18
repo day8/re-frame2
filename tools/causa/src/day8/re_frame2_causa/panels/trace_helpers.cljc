@@ -627,43 +627,121 @@
   per-event `project-row` cost) and stops at `cap` matches so the
   view never sees more than its render-cap rows. The buffer's full
   size is reflected by `:total`; the panel's overflow indicator
-  surfaces 'hidden N' from the cap-rows helper downstream."
-  [state filters]
-  (let [normalised (normalise-filters filters)
-        passes?    (trace-bus/build-filter-predicate normalised)
-        rows       (:projected-rows state)
-        total      (:total state)
-        rev-rows   (rseq rows)
-        rendered+rows
-        (if (empty? normalised)
-          [(count rows) (vec rev-rows)]
-          (loop [remain rev-rows
-                 rendered 0
-                 acc      (transient [])]
-            (if (nil? (seq remain))
-              [rendered (persistent! acc)]
-              (let [row (first remain)
-                    ev  (:raw row)]
-                (if (passes? ev)
-                  (recur (next remain) (inc rendered) (conj! acc row))
-                  (recur (next remain) rendered acc))))))
-        [rendered display-rows] rendered+rows
-        empty-kind (cond
-                     (zero? total)    :no-events
-                     (zero? rendered) :no-matches
-                     :else            nil)
-        active-filters (active-filters-summary normalised (:seen state))]
-    {:rows           display-rows
-     :total          total
-     :rendered       rendered
-     :distinct       (effective-distinct (:distinct state)
-                                         (:seen state)
-                                         normalised)
-     :counts         (:counts state)
-     :filters        normalised
-     :any-filter?    (boolean (seq normalised))
-     :empty-kind     empty-kind
-     :active-filters active-filters}))
+  surfaces 'hidden N' from the cap-rows helper downstream.
+
+  ## Cascade-scope (rf2-ycoct)
+
+  The optional 3-arity takes `opts` with `:cascade-dispatch-id`. When
+  the spine has a focus, the projection pre-filters rows to those
+  belonging to the focused cascade — honouring spec/018 §6 (every L4
+  panel is a lens on the spine's focused event, not a global ribbon).
+  User chip filters still apply AND-wise on top of the cascade scope.
+
+  Scope semantics:
+
+    - `nil`         — no spine focus (cold start with an empty buffer
+                      or a broken default-focus rule). Empty buffer is
+                      classified `:no-events`; non-empty buffer with
+                      nil focus is the defensive `:no-focus` branch
+                      (rf2-639lc says default-focus should land on
+                      head, so this should never occur in practice).
+    - `:ungrouped`  — the projection's catch-all bucket for events
+                      without a dispatch-id (registry-time emits,
+                      frame lifecycle outside a drain). The scope
+                      matches rows whose `:dispatch-id` is nil — the
+                      same rows the `:ungrouped` cascade groups.
+    - `<id>`        — match rows whose `:dispatch-id` equals `<id>`.
+
+  Cascade-scope is independent of the user filter map (it is enforced
+  regardless of whether `:dispatch-id` is in the user's chip filter)
+  so `:any-filter?` / `:filters` continue to reflect the USER state
+  only — the cascade-scope is a system-level invariant, not a user
+  narrowing.
+
+  Returned shape adds:
+
+    :cascade-dispatch-id — the resolved scope value (nil when
+                           unscoped) — the view uses it to label the
+                           cascade-scope chip in the header.
+    :empty-kind          — adds the `:no-focus` branch on top of the
+                           existing `:no-events` / `:no-matches` /
+                           nil cases."
+  ([state filters]
+   (project-feed-from-state state filters nil))
+  ([state filters opts]
+   (let [{:keys [cascade-dispatch-id]} opts
+         ;; Spine wiring presence — the caller passing an `opts` map
+         ;; signals that the panel is now spine-aware. When `opts` is
+         ;; absent (the 2-arity bridge, callers that pre-date the
+         ;; rf2-ycoct cascade-scope wiring, headless test rigs that
+         ;; build state directly) we behave as a global ribbon — no
+         ;; cascade-scope, no `:no-focus` defensive branch.
+         spine-aware? (some? opts)
+         normalised (normalise-filters filters)
+         passes?    (trace-bus/build-filter-predicate normalised)
+         total      (:total state)
+         no-focus?  (and spine-aware?
+                         (nil? cascade-dispatch-id)
+                         (pos? total))
+         in-scope?  (cond
+                      no-focus?
+                      (constantly false)
+
+                      (= :ungrouped cascade-dispatch-id)
+                      (fn [row] (nil? (:dispatch-id row)))
+
+                      (some? cascade-dispatch-id)
+                      (fn [row] (= cascade-dispatch-id (:dispatch-id row)))
+
+                      :else
+                      (constantly true))
+         scoped?    (or no-focus? (some? cascade-dispatch-id))
+         no-user-filters? (empty? normalised)
+         rows       (:projected-rows state)
+         rev-rows   (rseq rows)
+         rendered+rows
+         (cond
+           ;; Defensive no-focus path: short-circuit to empty rows
+           ;; without walking the buffer.
+           no-focus?
+           [0 []]
+
+           ;; Fast path: no user filters AND no cascade-scope → every
+           ;; row passes; just reverse the vector.
+           (and no-user-filters? (not scoped?))
+           [(count rows) (vec rev-rows)]
+
+           :else
+           (loop [remain rev-rows
+                  rendered 0
+                  acc      (transient [])]
+             (if (nil? (seq remain))
+               [rendered (persistent! acc)]
+               (let [row (first remain)
+                     ev  (:raw row)]
+                 (if (and (in-scope? row)
+                          (or no-user-filters? (passes? ev)))
+                   (recur (next remain) (inc rendered) (conj! acc row))
+                   (recur (next remain) rendered acc))))))
+         [rendered display-rows] rendered+rows
+         empty-kind (cond
+                      (zero? total)    :no-events
+                      no-focus?        :no-focus
+                      (zero? rendered) :no-matches
+                      :else            nil)
+         active-filters (active-filters-summary normalised (:seen state))]
+     {:rows                display-rows
+      :total               total
+      :rendered            rendered
+      :distinct            (effective-distinct (:distinct state)
+                                               (:seen state)
+                                               normalised)
+      :counts              (:counts state)
+      :filters             normalised
+      :any-filter?         (boolean (seq normalised))
+      :empty-kind          empty-kind
+      :active-filters      active-filters
+      :cascade-dispatch-id cascade-dispatch-id})))
 
 ;; ---- React keys ---------------------------------------------------------
 
