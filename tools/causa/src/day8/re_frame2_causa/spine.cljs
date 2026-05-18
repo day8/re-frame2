@@ -85,6 +85,18 @@
   [cascades]
   (:dispatch-id (head-cascade cascades)))
 
+(defn focusable-head-id
+  "The `:dispatch-id` of the head focusable cascade — i.e. the latest
+  row the user actually sees in the L2 event list. Returns nil when
+  no focusable cascades exist.
+
+  Used for click-on-head detection (rf2-xzzih): clicking the visible
+  head event should stay LIVE; the raw `head-dispatch-id` would treat
+  an `:ungrouped` bucket as the head if it sorted last, which the
+  user never sees as a focusable row."
+  [cascades]
+  (head-dispatch-id (focusable-cascades cascades)))
+
 (defn cascade-by-id
   "Find a cascade in `cascades` by its `:dispatch-id`. Returns nil when
   no match (id refers to an evicted cascade, or a fresh session).
@@ -254,13 +266,22 @@
 
 (defn focus-cascade-reducer
   "Pure reducer for the `:rf.causa/focus-cascade <id>` event. Writes
-  `:dispatch-id` into the `:focus` slot, flips to `:retro` mode,
+  `:dispatch-id` into the `:focus` slot, picks the spine `:mode`,
   stamps `:epoch-id` (the cascade's settling epoch primary key per
   spec/018 §6 Spine events), and shims the legacy
   `:selected-dispatch-id` / `:selected-dispatch` / `:selected-epoch-
   id` slots so the existing event-detail / causality / machine-
   inspector / app-db / time-travel panels keep rendering without per-
   panel change.
+
+  ## Mode selection (rf2-xzzih)
+
+  When the caller supplies `head-id` (the 5-arg arity) the reducer
+  picks the new mode head-aware: clicking the head event keeps the
+  spine LIVE so new arrivals continue to auto-advance; clicking any
+  non-head event pins to RETRO. Without `head-id` (legacy 3-arg /
+  4-arg arities) the mode defaults to RETRO — preserves the rf2-
+  s0s5x Phase A contract for callers that don't yet pass the head.
 
   Per spec/018 §6 the spine sub `:rf.causa/focus` carries `:epoch-id`
   as a first-class slot; consumers (Views' focused-cascade-pair sub,
@@ -272,20 +293,23 @@
   rebinds on `:dispatch-id`, but the epoch-keyed surfaces will not
   pivot until a 4-arg call lands."
   ([db dispatch-id frame-id]
-   (focus-cascade-reducer db dispatch-id frame-id nil))
+   (focus-cascade-reducer db dispatch-id frame-id nil nil))
   ([db dispatch-id frame-id epoch-id]
-   (cond-> db
-     true       (update :focus (fnil assoc {})
-                        :dispatch-id dispatch-id
-                        :epoch-id    epoch-id
-                        :mode :retro
-                        :previewing? false)
-     frame-id   (assoc-in [:focus :frame] frame-id)
-     ;; Legacy shim — panels reading these slots stay live.
-     true       (assoc :selected-dispatch-id dispatch-id
-                       :selected-epoch-id    epoch-id
-                       :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
-                                               frame-id (assoc :frame frame-id))))))
+   (focus-cascade-reducer db dispatch-id frame-id epoch-id nil))
+  ([db dispatch-id frame-id epoch-id head-id]
+   (let [mode (if (and head-id (= dispatch-id head-id)) :live :retro)]
+     (cond-> db
+       true       (update :focus (fnil assoc {})
+                          :dispatch-id dispatch-id
+                          :epoch-id    epoch-id
+                          :mode        mode
+                          :previewing? false)
+       frame-id   (assoc-in [:focus :frame] frame-id)
+       ;; Legacy shim — panels reading these slots stay live.
+       true       (assoc :selected-dispatch-id dispatch-id
+                         :selected-epoch-id    epoch-id
+                         :selected-dispatch    (cond-> {:dispatch-id dispatch-id}
+                                                 frame-id (assoc :frame frame-id)))))))
 
 (defn focus-step-reducer
   "Pure reducer for `:rf.causa/focus-cascade-prev` / `-next`. Steps
@@ -404,13 +428,17 @@
 
 ;; ---- registration --------------------------------------------------------
 
-(defn- db->cascades
+(defn db->cascades
   "Read the cascade vector by re-running the projection against the
   Causa app-db's `:trace-buffer` slot (falling back to the trace-bus
   atom for pre-mount callers). Used by the step events that need to
   walk the cascade list inside an event-db handler — the equivalent
   reactive path inside the `:rf.causa/focus` sub uses the
-  `:rf.causa/cascades` chain."
+  `:rf.causa/cascades` chain.
+
+  Public so legacy spine-shim events (e.g. `:rf.causa/select-
+  dispatch-id` in event_detail.cljs) can reuse the same projection
+  when they need head-id (rf2-xzzih)."
   [db]
   (let [buffer (or (get db :trace-buffer) (trace-bus/buffer))]
     (projection/group-cascades buffer)))
@@ -450,8 +478,10 @@
 
   (rf/reg-event-db :rf.causa/focus-cascade
     (fn [db [_ dispatch-id frame-id]]
-      (let [epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
-        (focus-cascade-reducer db dispatch-id frame-id epoch-id))))
+      (let [cascades (db->cascades db)
+            head-id  (focusable-head-id cascades)
+            epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+        (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
 
   (rf/reg-event-db :rf.causa/focus-cascade-prev
     (fn [db _event]

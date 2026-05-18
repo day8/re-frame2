@@ -611,9 +611,15 @@
   ;; keeps reading what it always has — the shim is transparent.
   (rf/reg-event-db :rf.causa/select-dispatch-id
     (fn [db [_ dispatch-id frame-id]]
-      (let [history (get db :epoch-history [])
-            epoch-id (spine/epoch-id-for-cascade history dispatch-id)]
-        (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id))))
+      (let [history  (get db :epoch-history [])
+            epoch-id (spine/epoch-id-for-cascade history dispatch-id)
+            ;; rf2-xzzih: clicking the head cascade should stay LIVE
+            ;; (auto-follow new arrivals); only non-head clicks pin
+            ;; to RETRO. Compute head off the same focusable filter
+            ;; the L2 list uses so the spine's notion of 'head'
+            ;; agrees with what the user sees as the latest row.
+            head-id  (spine/focusable-head-id (spine/db->cascades db))]
+        (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
 
   ;; Programmatic clear of the focused cascade. Resets the spine focus
   ;; back to LIVE (head-tracking) per the rf2-s0s5x Phase A semantics —
