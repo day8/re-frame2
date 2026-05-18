@@ -328,44 +328,111 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Event tab content (the fattened Event tab)
+### §5.1 Event tab content — the 6-section Event lens
+
+Shipped layout per rf2-zh2qc (rewrite of the v1 'fattened Event tab').
+Top-of-panel: a single-line cascade-outcome summary; below: six stacked
+sections that read top-to-bottom as the developer scans.
 
 ```
-┌─ Event tab content (single scrollable column) ──────────────────────────────────────┐
-│ event       [:order/retry {:order-id 92 :attempt 2}]            ⏱ 11ms · tier ●     │
-│ source      src/cart/events.cljs:267  ↗ open in editor                              │
+┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
 │                                                                                      │
-│ handler     reg-event-fx :order/retry                                                │
-│   return    {:db <…> :fx [[:http/post …] [:dispatch [:notify "retrying"]]]}         │
+│ ▼ EVENT                                                                              │
+│   [:cart/add-item {:id 42 :qty 2}]                                                   │
 │                                                                                      │
-│ db writes (via :db key of return)                                                   │
-│   [:cart :order-status]  :idle   →  :retrying                                       │
-│   [:cart :attempt]       1       →  2                                               │
+│ ▼ DISPATCH SITE                                                                      │
+│   src/cart/views.cljs:127       [open ↗]                                             │
+│   via :ui · origin :app                                                              │
 │                                                                                      │
-│ fx (via :fx key of return)                                                          │
-│   [:http/post {:url "/orders/92/retry" :method :POST :body {…}}]                    │
-│   [:dispatch  [:notify "retrying"]]                                                 │
+│ ▼ INTERCEPTORS  (1)                                                                  │
+│   :auth/require-login          src/auth/interceptors.cljs:42   [open ↗]              │
 │                                                                                      │
-│ fx handlers that RAN  (= replacement for old Effects tab)                          │
-│   :http/post  ⏱ 87ms   → POST /orders/92/retry → 202 Accepted                       │
-│                          response { :queued-at "2026-05-17T16:42:16.602Z" }        │
-│   :dispatch   ⏱ <1ms   → queued [:notify "retrying"]  (ran as cascade #352)         │
+│ ▼ HANDLER                                                                            │
+│   reg-event-fx · src/cart/events.cljs:88                       [open ↗]              │
+│                                                                                      │
+│ ▼ EFFECTS RETURNED                                                                   │
+│   :db    <… changed; see App-db tab …>                                               │
+│   :fx    [[:http/post {…}] [:dispatch [:notify "added"]]]                            │
+│                                                                                      │
+│ ▼ EFFECTS HANDLERS RAN  (2)                                                          │
+│   :http/post   ⏱ 87ms  ✓ handled                                                     │
+│   ┌─ MANAGED FX [HTTP] · :http/post · 87ms ──────────────────────────────┐           │
+│   │ STATUS: ✓ 200 OK · correlation: c-abc12 · phase: completed           │           │
+│   │ ▼ REQUEST  ▼ WIRE TIMING  ▼ RESPONSE  ▼ HANDLER  ▼ APP-DB SLICE      │           │
+│   └────────────────────────────────────────────────────────────────────────┘         │
+│   :dispatch    ⏱ <1ms  ✓ handled  → queued [:notify "added"]                        │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Top-to-bottom content blocks:
+#### Cascade-outcome line (top-of-panel chrome)
 
-1. **Event vector + arg-map** — full event, expandable; perf tier dot + duration ms inline.
-2. **Source coords** — `src/path.cljs:N` chip; click → editor open via [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix (`o` key alias).
-3. **Handler registration** — `reg-event-db/fx/ctx` + handler name (disambiguates when multiple handlers compose).
-4. **Handler return value** — the raw `{:db … :fx [...]}` (or `:db` return for `-db`). Expandable.
-5. **db writes** — diff slice computed from `:db-before` vs return's `:db`. Path · before-value · after-value (via `inspect-diff`).
-6. **fx (declared)** — the `:fx` vector from the return.
-7. **fx handlers that RAN** — per-fx invocation row: handler-id · duration · result chip (HTTP → status+url; `:dispatch` → queued cascade-id) · expandable response/payload.
+`<event-id>   ✓/✗/⚠ <outcome> · <duration-ms> · cascade #<id> [· SSR✓]`
 
-All blocks use the §5 renderer. Long-keyword treatment (per [`007-UX-IA.md`](007-UX-IA.md)) applies to keyword leaves. Data-classification sentinels render per §12.
+- Glyph + colour: `✓ green` for success, `✗ red` for handler exception
+  / unhandled `:rf.error/*`, `⚠ amber` for partial outcomes
+  (`:rf.warning/depth-exceeded`, `:rf.warning/schema-violation-skipped`).
+- `SSR✓` orientation badge when the focused event is
+  `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
+  purely-client-side cascades.
 
-**Dropped from the Event tab:** subs ran (now in Views tab) · renders (now in Views tab). Both surfaces are reachable via tab switch (`v`).
+#### The 6 sections (Mike's verbatim order)
+
+1. **EVENT** — the dispatched event vector via `inspector/inspect`.
+   Always present.
+2. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
+   caption. Reads `:rf.trace/call-site` off the `:event/dispatched`
+   trace (rf2-twt7m Change 1). Renders an absent-placeholder when no
+   call-site was captured.
+3. **INTERCEPTORS** — non-standard chain only, **silent when zero**
+   (the section is ABSENT entirely, NOT '(none)'). Reads
+   `(rf/handler-meta :event id) :interceptors` and filters out anything
+   carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
+   auto-wrapper ids (`:rf/db-handler` / `:rf/fx-handler` /
+   `:rf/ctx-handler`) as a belt-and-braces fallback.
+4. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [open ↗]`. Per
+   Q2: does NOT duplicate the event-id (already shown in §1). Reads
+   `(rf/handler-meta :event id)`.
+5. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
+   was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
+   trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
+   `<… changed; see App-db tab …>` — the diff itself lives in the
+   App-db tab. When the focused event is `:rf.ssr/hydrated`, an
+   additional `:rf.ssr/hydration-outcome` row renders with the
+   `{:duration-ms :subs-ran :mismatches}` payload + (when mismatches
+   > 0) a `→ jump to Issues bisector` affordance.
+6. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
+   row per `:rf.fx/handled` (or override / skipped / exception) trace:
+   fx-id chip + perf-tier dot + status caption. For `:dispatch` the
+   queued child event renders inline as `→ queued [:foo …]`. For
+   managed-fx surfaces (`:rf.http/*`, `:rf.ws/*`, `:rf.machine/*`,
+   `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`
+   mounts INLINE beneath the row per §8.3 of the findings doc — NOT
+   in a trailing block.
+
+#### Edge cases
+
+- **No call-site captured** — DISPATCH SITE shows
+  `"source coord unavailable"`; no open chip rendered.
+- **No user interceptors** — INTERCEPTORS section ABSENT entirely.
+- **No effects returned** — EFFECTS RETURNED section ABSENT.
+- **No fx handlers ran** — EFFECTS HANDLERS RAN section ABSENT.
+- **Handler threw** — §5 + §6 are both absent (handler never
+  returned / fx walk never started); a small footer caption renders:
+  `Handler threw — see Issues tab ⚠ for the exception detail.` This
+  is the ONE inline cross-reference to another tab.
+
+#### What's dropped from the Event tab
+
+- **subs ran** → Views tab.
+- **renders** → Views tab.
+- **`:other` errors / warnings / machine transitions** → Issues tab
+  (errors), Machines tab (transitions), Trace tab (firehose).
+- **db writes diff** → App-db tab. §5 carries only the `:db` presence
+  marker; the actual diff is the App-db tab's job.
+
+All sections use the §5 renderer. Long-keyword treatment (per
+[`007-UX-IA.md`](007-UX-IA.md)) applies to keyword leaves. Data-
+classification sentinels render per §12.
 
 ### §5.2 App-db tab content (changed-slices-first)
 
