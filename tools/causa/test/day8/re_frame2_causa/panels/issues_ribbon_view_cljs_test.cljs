@@ -551,6 +551,123 @@
         (is (nil? (find-by-testid tree "rf-causa-issues-feed"))
             "no feed list rendered when the focused cascade has no issues")))))
 
+;; ---- :ungrouped escape-hatch lane (rf2-2f40y) --------------------------
+
+(deftest registry-installs-ungrouped-sub
+  (testing "register-causa-handlers! installs the :ungrouped escape-
+            hatch sub (rf2-2f40y)"
+    (registry/register-causa-handlers!)
+    (is (some? (registrar/handler :sub :rf.causa.issues/ungrouped))
+        ":rf.causa.issues/ungrouped sub registered")))
+
+(deftest ungrouped-sub-filters-to-ungrouped-only
+  (testing ":rf.causa.issues/ungrouped surfaces only issues whose
+            :dispatch-id is the :ungrouped sentinel"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.ssr/hydration-mismatch}))
+      (push-trace! (mk-issue {:id 2 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 3 :op-type :warning
+                              :operation :rf.warning/recoverable}))
+      (let [data @(rf/subscribe [:rf.causa.issues/ungrouped])]
+        (is (= 2 (:total data))
+            "two issues lack :dispatch-id → :ungrouped sentinel")
+        (is (= #{1 3} (set (map :id (:issues data))))
+            "cascade-attached issue id 2 stays out of the lane")))))
+
+(deftest ungrouped-lane-renders-when-focus-has-no-issues-but-ungrouped-exists
+  (testing "the :ungrouped lane surfaces when the focused cascade has
+            no issues but :ungrouped issues exist — the navigation
+            escape hatch for issues emitted outside any dispatch.
+
+            Seed a real focusable cascade (so cascade scope engages)
+            with no issues, plus an :ungrouped issue — the production
+            scenario the bead describes (e.g. `verify-hydration!` firing
+            `:rf.ssr/hydration-mismatch` outside any dispatch while the
+            user is focused on a real cascade)."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Real focusable cascade with no issues — so the user lands on
+      ;; the `:no-issues-for-event` branch.
+      (push-trace! {:id 99 :time 1000 :op-type :event
+                    :operation :event/dispatched
+                    :tags {:dispatch-id 99 :event [:noop]}})
+      (rf/dispatch-sync [:rf.causa/focus-cascade 99])
+      ;; :ungrouped issue — the escape-hatch case.
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.ssr/hydration-mismatch}))
+      (let [tree (issues-ribbon/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
+            ":ungrouped lane container rendered")
+        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane-header"))
+            ":ungrouped lane header rendered")
+        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane-feed"))
+            ":ungrouped lane feed rendered")
+        ;; The issue row uses the same per-row chrome as the main feed.
+        (is (some? (find-by-testid tree "rf-causa-issues-row-1"))
+            "the :ungrouped issue renders with the shared row chrome")))))
+
+(deftest ungrouped-lane-hidden-when-focused-cascade-has-issues
+  (testing "when the focused cascade carries issues the :ungrouped lane
+            stays hidden — it doesn't compete with the user's current
+            lens. The focused-cascade feed is the user's surface; the
+            lane is only the escape-hatch fallback."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; One in-cascade issue + one :ungrouped issue.
+      (push-trace! (mk-issue {:id 1 :op-type :error
+                              :operation :rf.error/handler-threw
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 2 :op-type :error
+                              :operation :rf.ssr/hydration-mismatch}))
+      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
+      (let [tree (issues-ribbon/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-issues-feed"))
+            "the cascade-scoped feed renders with focused-cascade issues")
+        (is (nil? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
+            ":ungrouped lane hidden while the focused cascade has issues")))))
+
+(deftest ungrouped-lane-hidden-when-no-ungrouped-issues
+  (testing "the :ungrouped lane stays hidden when no :ungrouped issues
+            exist — even when the focused cascade has no issues (the
+            'All clear' / 'No issues for this event' state)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; No :ungrouped issues; buffer is fully empty → :no-issues.
+      (let [tree (issues-ribbon/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-issues-empty-no-issues"))
+            "All-clear empty state present")
+        (is (nil? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
+            ":ungrouped lane hidden when no :ungrouped issues exist")))))
+
+(deftest ungrouped-lane-surfaces-on-no-matches-state
+  (testing "the lane also surfaces when chip filters hide every
+            cascade-scoped issue (:no-matches) — :no-matches is one of
+            the 'focus has nothing to show' branches the visibility
+            contract honours, distinct from :no-issues-for-event"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      ;; Focused cascade with one warning + an :ungrouped error.
+      (push-trace! (mk-issue {:id 1 :op-type :warning
+                              :operation :rf.warning/recoverable
+                              :dispatch-id 7}))
+      (push-trace! (mk-issue {:id 2 :op-type :error
+                              :operation :rf.ssr/hydration-mismatch}))
+      (rf/dispatch-sync [:rf.causa/focus-cascade 7])
+      ;; Toggle a severity the focused cascade's only issue doesn't carry —
+      ;; the cascade-scoped feed lands on :no-matches.
+      (rf/dispatch-sync [:rf.causa.issues/toggle-severity :advisory])
+      (let [data @(rf/subscribe [:rf.causa/issues-ribbon])
+            tree (issues-ribbon/Panel)]
+        (is (= :no-matches (:empty-kind data)))
+        (is (some? (find-by-testid tree "rf-causa-issues-ungrouped-lane"))
+            ":ungrouped lane surfaces alongside the :no-matches empty
+             state — the user can still navigate to :ungrouped issues
+             while filters hide everything else")))))
+
 ;; ---- (10) frame isolation ----------------------------------------------
 
 (deftest issues-filter-state-does-not-leak-into-default-frame

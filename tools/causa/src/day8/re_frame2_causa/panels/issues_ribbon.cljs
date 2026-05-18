@@ -324,6 +324,50 @@
                        :color       (:text-tertiary tokens)}}
    "No issues for this event."])
 
+;; ---- :ungrouped lane (rf2-2f40y) ---------------------------------------
+
+(defn- ungrouped-lane
+  "Dedicated surface for issues with `:dispatch-id :ungrouped` — issues
+  emitted outside any dispatch context (e.g. `verify-hydration!` firing
+  `:rf.ssr/hydration-mismatch`).
+
+  Per the rf2-2f40y operator decision (option (a)) this lane is the
+  escape hatch for the navigation hole that rf2-u6dhp (cascade-scoped
+  Issues feed) + rf2-fzbrw (`:ungrouped` cascades structurally
+  unfocusable) jointly opened. Both invariants are preserved; the lane
+  is a deliberate, scoped UI affordance for an explicit, scoped runtime
+  state.
+
+  Visibility contract (read by the public `Panel` view): rendered when
+  the focused cascade carries no issues AND `:ungrouped` issues exist.
+  When the focused cascade has its own issues the lane stays hidden so
+  it doesn't compete for attention with the user's current lens."
+  [ungrouped-issues]
+  [:section {:data-testid "rf-causa-issues-ungrouped-lane"
+             :style       {:border-top (str "1px solid " (:border-subtle tokens))
+                           :background (:bg-3 tokens)}}
+   [:header {:data-testid "rf-causa-issues-ungrouped-lane-header"
+             :style       {:padding     "8px 16px 4px 16px"
+                           :font-family sans-stack
+                           :font-size   "11px"
+                           :font-weight 600
+                           :letter-spacing "0.4px"
+                           :text-transform "uppercase"
+                           :color       (:text-tertiary tokens)}}
+    "Issues outside any cascade"]
+   [:p {:data-testid "rf-causa-issues-ungrouped-lane-help"
+        :style       {:margin      "0 16px 6px 16px"
+                      :font-family sans-stack
+                      :font-size   "11px"
+                      :color       (:text-tertiary tokens)
+                      :line-height 1.4}}
+    "Emitted outside any dispatch — no cascade to focus."]
+   (into [:ul {:data-testid "rf-causa-issues-ungrouped-lane-feed"
+               :style       {:list-style "none"
+                             :margin     0
+                             :padding    0}}]
+         (mapv issue-row ungrouped-issues))])
+
 (defn- empty-state-no-matches
   "Issues exist but the active filters hide them all. Carries a
   Clear filters affordance."
@@ -357,16 +401,33 @@
 
 (rf/reg-view Panel
   "The Issues ribbon panel's root view. Subscribes to
-  `:rf.causa/issues-ribbon` and renders the empty-state or the feed."
+  `:rf.causa/issues-ribbon` and renders the empty-state or the feed.
+
+  Per rf2-2f40y also subscribes to `:rf.causa.issues/ungrouped` and
+  renders the `:ungrouped` lane below the empty-state when the focused
+  cascade carries no issues but `:ungrouped` issues exist — the
+  navigation escape hatch for issues emitted outside any dispatch
+  context."
   []
   (let [{:keys [issues total rendered severity-counts distinct-prefixes
                 filters empty-kind]
          :as _data}
         @(rf/subscribe [:rf.causa/issues-ribbon])
+        {ungrouped-issues :issues
+         ungrouped-total  :total}
+        @(rf/subscribe [:rf.causa.issues/ungrouped])
         {:keys [severities prefixes since-ms]} filters
         any-filter? (boolean (or (seq severities)
                                  (seq prefixes)
-                                 (some? since-ms)))]
+                                 (some? since-ms)))
+        ;; The lane renders only when the focused cascade has no
+        ;; issues to show AND ungrouped issues exist — so it doesn't
+        ;; compete for attention with the user's current lens.
+        ;; `:empty-kind` discriminates the three "main feed is empty"
+        ;; branches; any of them qualifies as "focus has nothing to
+        ;; surface".
+        show-ungrouped-lane? (and (some? empty-kind)
+                                  (pos? ungrouped-total))]
     [:section {:data-testid "rf-causa-issues-ribbon"
                :style       {:height         "100%"
                              :display        "flex"
@@ -395,7 +456,9 @@
                                   :style       {:list-style "none"
                                                 :margin     0
                                                 :padding    0}}
-                       :row-fn   issue-row}))]]))
+                       :row-fn   issue-row}))
+      (when show-ungrouped-lane?
+        (ungrouped-lane ungrouped-issues))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -461,6 +524,20 @@
       (h/project-feed buffer
                       (assoc filters :focus-dispatch-id (:dispatch-id focus))
                       (h/now-ms))))
+
+  ;; :ungrouped escape-hatch lane (rf2-2f40y). The main feed is
+  ;; cascade-scoped (rf2-u6dhp) and `:ungrouped` cascades are
+  ;; structurally unfocusable (rf2-fzbrw) — together those invariants
+  ;; left issues with `:dispatch-id :ungrouped` (e.g. `verify-hydration!`
+  ;; firing `:rf.ssr/hydration-mismatch`) un-navigable. This sub feeds
+  ;; the dedicated lane the panel renders below the cascade-scoped
+  ;; feed when current focus has no issues but `:ungrouped` does.
+  ;;
+  ;; Shape: `{:issues [<row> ...] :total <int>}`. Newest first.
+  (rf/reg-sub :rf.causa.issues/ungrouped
+    :<- [:rf.causa/trace-buffer]
+    (fn [buffer _query]
+      (h/project-ungrouped-feed buffer)))
 
   ;; ---- Issues ribbon events --------------------------------------
 

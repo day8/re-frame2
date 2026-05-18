@@ -434,6 +434,52 @@
       (is (= 2 (:total feed)))
       (is (= 2 (:rendered feed))))))
 
+;; ---- :ungrouped escape-hatch lane (rf2-2f40y) ---------------------------
+
+(deftest project-ungrouped-feed-empty-stream
+  (testing "an empty stream produces an empty :ungrouped projection"
+    (let [feed (h/project-ungrouped-feed [])]
+      (is (= [] (:issues feed)))
+      (is (= 0  (:total feed))))))
+
+(deftest project-ungrouped-feed-keeps-only-ungrouped
+  (testing ":ungrouped lane surfaces only issues whose :dispatch-id is
+            the :ungrouped sentinel — issues attached to a real cascade
+            stay in the main cascade-scoped feed"
+    (let [stream [(error-ev   1 :rf.ssr/hydration-mismatch
+                              {:time 100})                 ;; no :dispatch-id → :ungrouped
+                  (error-ev   2 :rf.error/handler-exception
+                              {:time 200 :tags {:dispatch-id 7}})
+                  (warning-ev 3 :rf.warning/missing-doc
+                              {:time 300})]                ;; no :dispatch-id → :ungrouped
+          feed   (h/project-ungrouped-feed stream)]
+      (is (= 2 (:total feed)))
+      (is (= #{1 3} (set (map :id (:issues feed))))))))
+
+(deftest project-ungrouped-feed-newest-first
+  (testing ":ungrouped lane reverses the buffer so the newest-pushed
+            issue lands first — display parity with the main feed,
+            which also surfaces newest first."
+    ;; Stream is chronological (oldest first; mirrors the trace bus's
+    ;; collect order).
+    (let [stream [(error-ev   1 :rf.ssr/hydration-mismatch  {:time 100})
+                  (error-ev   2 :rf.error/handler-exception {:time 200})
+                  (warning-ev 3 :rf.warning/missing-doc     {:time 300})]
+          feed   (h/project-ungrouped-feed stream)]
+      (is (= [3 2 1] (mapv :id (:issues feed)))))))
+
+(deftest project-ungrouped-feed-ignores-success-traces
+  (testing "non-issue trace events never reach the :ungrouped lane —
+            success-path traces have their own panels"
+    (let [stream [{:id 1 :op-type :event :operation :event/dispatched
+                   :time 100 :tags {}}
+                  {:id 2 :op-type :fx :operation :rf.fx/handled
+                   :time 200 :tags {}}
+                  (error-ev 3 :rf.ssr/hydration-mismatch {:time 300})]
+          feed   (h/project-ungrouped-feed stream)]
+      (is (= 1 (:total feed)))
+      (is (= [3] (mapv :id (:issues feed)))))))
+
 ;; ---- (10) source-coord ------------------------------------------------
 
 (deftest source-coord-projection
