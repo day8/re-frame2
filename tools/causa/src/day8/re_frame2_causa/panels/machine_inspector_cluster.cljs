@@ -515,9 +515,7 @@
       (str (count clusters) " cluster"
            (when (not= 1 (count clusters)) "s")
            " · " (reduce + 0 (map :count clusters)) " instance"
-           (when (not= 1 (reduce + 0 (map :count clusters))) "s")
-           " · "
-           "Shift+click to compare")]
+           (when (not= 1 (reduce + 0 (map :count clusters))) "s"))]
      (if (empty? clusters)
        [:div {:data-testid "rf-causa-mode-c-empty"
               :style {:padding "12px"
@@ -525,7 +523,7 @@
                       :font-family sans-stack
                       :font-size "12px"
                       :font-style "italic"}}
-        "No instances for the selected cluster-by."]
+        "No instances for this cluster-by."]
        (into [:ul {:data-testid "rf-causa-mode-c-cluster-list"
                    :style {:list-style "none"
                            :margin 0

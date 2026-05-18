@@ -34,8 +34,7 @@
 
   Per the bead's contract:
 
-    :no-issues  → 'No issues observed in this session.' with the
-                  '✓ All clear' badge — the desired state.
+    :no-issues  → '✓ All clear' badge — the desired state.
     :no-matches → issues exist but the active filters hide them
                   all. Carries a 'Clear filters' affordance.
 
@@ -283,8 +282,8 @@
 ;; ---- empty states -------------------------------------------------------
 
 (defn- empty-state-no-issues
-  "Per the bead's contract — the desired state. 'No issues observed
-  in this session.' with the '✓ All clear' badge."
+  "Per the bead's contract — the desired state. The `✓ All clear`
+  badge alone is the line."
   []
   [:div {:data-testid "rf-causa-issues-empty-no-issues"
          :style       {:padding     "24px"
@@ -294,18 +293,14 @@
                        :color       (:text-secondary tokens)}}
    [:div {:style {:display "flex"
                   :align-items "center"
-                  :gap "10px"
-                  :margin-bottom "8px"}}
+                  :gap "10px"}}
     [:span {:style {:color       (:green tokens)
                     :font-size   "16px"
                     :font-weight 700}}
      "✓"]
     [:span {:style {:color       (:green tokens)
                     :font-weight 600}}
-     "All clear"]]
-   [:p {:style {:margin 0
-                :color  (:text-tertiary tokens)}}
-    "No issues observed in this session."]])
+     "All clear"]]])
 
 (defn- empty-state-no-matches
   "Issues exist but the active filters hide them all. Carries a

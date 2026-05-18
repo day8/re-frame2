@@ -203,9 +203,7 @@
        (graph/body payload layout)]
       ;; Footer
       [:div {:style (footer-style)}
-       (layout-toggle layout)
-       [:div {:style {:color (:text-tertiary tokens)}}
-        "Click a node to focus · Esc · c · click-outside to close"]]]]))
+       (layout-toggle layout)]]]))
 
 (rf/reg-view Popover
   "The Causality popover. Renders only when `:rf.causa/causality-

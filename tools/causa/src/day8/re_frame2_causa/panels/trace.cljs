@@ -42,8 +42,8 @@
 
   Per the bead's contract:
 
-    :no-events   → 'No events observed in this session.' Once the
-                   trace bus starts flowing this clears immediately.
+    :no-events   → 'No events.' Once the trace bus starts flowing
+                   this clears immediately.
     :no-matches  → events exist but the active filters hide them
                    all. 'No events match current filters' + Clear.
 
@@ -412,8 +412,7 @@
                        :color       (:text-secondary tokens)}}
    [:p {:style {:margin 0
                 :color  (:text-tertiary tokens)}}
-    "No events observed in this session. "
-    "Once the host app dispatches anything the ribbon will fill."]])
+    "No events."]])
 
 (defn- active-filter-pill
   "Per rf2-vu0mp — one pill in the no-matches empty state's 'narrowing
@@ -436,9 +435,9 @@
               :on-click    #(rf/dispatch [:rf.causa/set-trace-filter
                                           axis nil] {:frame :rf/causa})
               :title       (if present?
-                             (str "click to drop the " axis-name " filter")
+                             (str "Drop " axis-name " filter")
                              (str axis-name " = " value-str
-                                  " — value aged out of the buffer; click to drop"))
+                                  " — value aged out of the buffer"))
               :style       {:background    (if present?
                                              (:bg-active tokens)
                                              "transparent")
@@ -493,9 +492,6 @@
                             :align-items "baseline"}}]
             (for [{:keys [axis] :as pill} active-filters]
               ^{:key axis} [active-filter-pill pill]))])
-   [:p {:style {:margin "0 0 12px 0"
-                :color (:text-tertiary tokens)}}
-    "Click a pill above to drop that axis, or use Clear filters to widen the ribbon."]
    [:button {:data-testid "rf-causa-trace-empty-clear-filters"
              :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
              :style       {:background "transparent"

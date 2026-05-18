@@ -121,11 +121,7 @@
                    :color (:text-tertiary tokens)
                    :font-family sans-stack
                    :font-size "12px"}}
-     "No active route. Navigate the host app to populate "
-     [:code {:style {:font-family mono-stack
-                     :color       (:accent-violet tokens)}}
-      ":rf/route"]
-     "."]
+     "No active route."]
     (let [{:keys [route-id params query fragment transition]} active]
       [:div {:data-testid "rf-causa-routes-active"
              :style {:padding "10px 16px"
@@ -325,11 +321,7 @@
                           :color   (:text-tertiary tokens)
                           :font-family sans-stack
                           :font-size "12px"}}
-      "No navigations recorded yet. The feed populates on every "
-      [:code {:style {:font-family mono-stack
-                      :color       (:accent-violet tokens)}}
-       ":rf.route/navigate"]
-      " or browser back/forward event."]
+      "No navigations recorded yet."]
      (into [:ul {:style {:list-style "none"
                          :margin 0
                          :padding 0}}]
@@ -359,11 +351,7 @@
     [:code {:style {:font-family mono-stack
                     :color       (:accent-violet tokens)}}
      "rf/reg-route"]
-    " — the panel populates as routes register. See "
-    [:code {:style {:font-family mono-stack
-                    :color       (:accent-violet tokens)}}
-     "spec/012-Routing.md"]
-    "."]])
+    " to populate this panel."]])
 
 ;; ---- public view --------------------------------------------------------
 

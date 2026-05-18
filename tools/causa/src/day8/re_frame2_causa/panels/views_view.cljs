@@ -360,11 +360,7 @@
         [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
          (format-ms (:elapsed-ms r))]
         [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
-         (str "▾")]]
-       (when (and (= :rendered group) (= 1 (count invalidated-by)))
-         [:div {:style {:color (:text-tertiary tokens) :font-size "11px"
-                        :margin-top "2px"}}
-          "Click for inline drilldown"])]
+         (str "▾")]]]
       (when (= :rendered group)
         [:div {:style {:flex "1 1 60%" :min-width 0
                        :border-left (str "1px solid " (:border-subtle tokens))
@@ -462,18 +458,13 @@
    [:h1 {:style {:font-size "16px" :font-weight 600 :margin 0
                  :color (:text-primary tokens)}}
     "Views"]
-   [:p {:style {:font-size "12px" :color (:text-tertiary tokens)
-                :margin "4px 0 0 0"
-                :font-family sans-stack}}
-    (str "Per-view rows: mounted / re-rendered / unmounted. "
-         "Subs nest under each view (spec/012). "
-         "Cascade ms: " (format-ms (:cascade-ms (:totals data))))]
    (when-let [frame (:frame data)]
      [:p {:style {:font-size "11px" :color (:text-tertiary tokens)
                   :margin "2px 0 0 0"}}
       (str "Frame: " frame
            (when-let [did (:dispatch-id data)]
-             (str " · cascade " (pr-str did))))])])
+             (str " · cascade " (pr-str did)))
+           " · cascade ms: " (format-ms (:cascade-ms (:totals data))))])])
 
 (defn- bottom-controls
   [data]
@@ -520,11 +511,10 @@
                  :font-size "13px"}}
    (cond
      (nil? (:current (:focus data)))
-     [:p "Select an event in the list to inspect its views."]
+     [:p "No event focused."]
 
      :else
-     [:p "No views rendered this cascade. (The handler made no app-db "
-      "changes that any subscribed view depends on.)"])])
+     [:p "No views rendered this cascade."])])
 
 ;; ---- panel root --------------------------------------------------------
 
@@ -555,11 +545,7 @@
         (:heatmap? data)
         [:div {:style {:padding "12px 16px"}}
          (heatmap-bar (:segments (:heatmap data))
-                      (:total-ms (:heatmap data)))
-         [:p {:style {:margin "8px 0 0 0" :font-size "11px"
-                      :color (:text-tertiary tokens)}}
-          "Click a segment to filter the three groups and exit heatmap "
-          "mode. Hover for label."]]
+                      (:total-ms (:heatmap data)))]
 
         (zero? (+ (count (:mounted groups))
                   (count (:rendered groups))

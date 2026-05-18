@@ -399,7 +399,7 @@
           [:code {:style {:color (:accent-violet tokens)
                           :font-family mono-stack}}
            (str target-frame)]]
-         "No hydration mismatches recorded. This panel activates when SSR detects one.")]]
+         "No hydration mismatches recorded.")]]
      (cond
        (and has-mismatch? detail)
        [:div {:style {:flex 1 :display "flex" :flex-direction "column" :overflow "hidden"}}

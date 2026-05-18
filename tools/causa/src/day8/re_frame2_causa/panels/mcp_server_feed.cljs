@@ -113,18 +113,7 @@
      "⌬"]
     [:span {:style {:color       (:text-primary tokens)
                     :font-weight 600}}
-     "No agent activity"]]
-   [:p {:style {:margin "0 0 8px 0" :color (:text-tertiary tokens)}}
-    "Causa-MCP (the agent server) tags every operation it performs "
-    "with " [:code {:style {:font-family mono-stack
-                            :color (:causa-mcp-cyan tokens)}}
-             ":origin :causa-mcp"]
-    ". Nothing tagged that way has landed in the buffer this session."]
-   [:p {:style {:margin 0 :color (:text-tertiary tokens)
-                :font-size "12px"
-                :font-style "italic"}}
-    "Once an agent connects via the causa-mcp jar and performs an op, "
-    "this feed lights up."]])
+     "No agent activity."]]])
 
 (defn empty-state-no-matches
   "Events exist but the active filters hide them all."

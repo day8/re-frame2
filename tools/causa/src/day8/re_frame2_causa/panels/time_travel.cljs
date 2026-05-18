@@ -13,7 +13,7 @@
    "No epoch history for "
    [:code {:style {:color (:accent-violet tokens) :font-family mono-stack}}
     (str target-frame)]
-   " yet. Trigger a dispatch in the host app and the scrubber will populate."])
+   "."])
 
 (defn- chip-view
   [{:keys [pin attached] :as _chip-state}]

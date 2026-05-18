@@ -312,7 +312,7 @@
                           :color (:text-tertiary tokens)
                           :font-family sans-stack
                           :font-size "12px"}}
-      "No machine selected — nothing to chart."]
+      "No machine selected."]
 
      (nil? (:definition props))
      (chart-fallback props)
@@ -479,7 +479,7 @@
                       :color (:text-tertiary tokens)
                       :font-family sans-stack
                       :font-size "12px"}}
-        "No transitions recorded for this machine yet."]
+        "No transitions yet."]
        (into [:ul {:data-testid "rf-causa-machine-inspector-ribbon-list"
                    :style {:list-style "none"
                            :margin 0
@@ -660,8 +660,7 @@
     "Register a machine with "
     [:code {:style {:font-family mono-stack :color (:accent-violet tokens)}}
      "rf/reg-machine"]
-    " and it will appear here with its live state, transition history, "
-    "and any :after countdowns."]])
+    " to populate this panel."]])
 
 ;; ---- public view --------------------------------------------------------
 
@@ -753,11 +752,7 @@
                      :font-weight 600
                      :margin 0
                      :color (:text-primary tokens)}}
-        "Machine inspector"]
-       [:p {:style {:font-size "12px"
-                    :color     (:text-tertiary tokens)
-                    :margin    "4px 0 0 0"}}
-        "Pick a machine to inspect its current state and recent transitions."]]
+        "Machine inspector"]]
       ;; Share button — visible whenever the panel has more than empty
       ;; state. Empty-state branch hides the whole inner div below so
       ;; the button only appears when there's something to share.

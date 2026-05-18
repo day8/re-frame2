@@ -23,7 +23,7 @@
      (str target-frame)]
     " is at the boot value."]
    [:p {:style {:margin 0}}
-    "No diffs yet — every dispatch will land here with the slices it touched."]])
+    "No diffs yet."]])
 
 (defn- value-block
   [label value tone path]

@@ -50,11 +50,7 @@
                     :font-weight 600
                     :margin      0
                     :color       (:text-primary tokens)}}
-       "App-db diff"]
-      [:p {:style {:font-size "12px"
-                   :color     (:text-tertiary tokens)
-                   :margin    "4px 0 0 0"}}
-       "Structural diff for this epoch, grouped into path-headed sections."]]
+       "App-db diff"]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         focused-path
