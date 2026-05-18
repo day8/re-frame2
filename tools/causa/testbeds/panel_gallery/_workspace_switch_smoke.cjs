@@ -108,7 +108,7 @@ function waitForReady(url, timeoutMs) {
       { name: 'Workspace.causa.trace/all',           expectedAtLeast: 10 },
       { name: 'Workspace.causa.machines/all',        expectedAtLeast: 6  },
       { name: 'Workspace.causa.issues/all',          expectedAtLeast: 11 },
-      { name: 'Workspace.causa.settings-popup/all',  expectedAtLeast: 4  },
+      { name: 'Workspace.causa.settings-popup/all',  expectedAtLeast: 3  },
       { name: 'Workspace.causa.filters/all',         expectedAtLeast: 5  },
       { name: 'Workspace.causa.causality-popover/all', expectedAtLeast: 4 },
       { name: 'Workspace.causa.event/all',           expectedAtLeast: 12 }, // round-trip

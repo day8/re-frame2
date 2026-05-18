@@ -850,16 +850,17 @@ The browser feature gate that asserts I1 + I3 + I4 together is the canonical iso
 
 ### v1 ships
 
-**v1 ships four sections, NOT six** (rf2-9poxq): **General**,
-**Filters**, **Theme**, **Telemetry** — a top tab strip (not left-rail
-nav) drives which body section renders. Defaults: telemetry OFF
-(opt-in), auto-open-on-error OFF, panel-position `:right-rail`,
-theme `:dark`, text-size 13 px. Storage key
-`re-frame2.causa.settings.v1` (single nested map, one round-trip
-through `pr-str`). Full per-knob inventory + persistence rationale +
-auto-open-watcher semantics are in
+**v1 ships three sections, NOT six** (rf2-9poxq + rf2-jh9ws):
+**General**, **Filters**, **Theme** — a top tab strip (not left-rail
+nav) drives which body section renders. Defaults: auto-open-on-error
+OFF, panel-position `:right-rail`, theme `:dark`, text-size 13 px.
+Storage key `re-frame2.causa.settings.v1` (single nested map, one
+round-trip through `pr-str`). Full per-knob inventory + persistence
+rationale + auto-open-watcher semantics are in
 [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup
-— v1 ships.
+— v1 ships. (A Telemetry tab shipped briefly with the initial popup
+landing but was removed per rf2-jh9ws — Causa transmits no telemetry
+and the toggle was a broken affordance.)
 
 The Keybindings, Buffer, Popout, and Actions sections (the bottom
 four rows of the table above) are the **full §9 catalogue intent**

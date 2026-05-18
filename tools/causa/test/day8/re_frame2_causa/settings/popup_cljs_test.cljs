@@ -152,26 +152,15 @@
       (is (find-by-testid rendered "rf-causa-settings-theme-dark"))
       (is (find-by-testid rendered "rf-causa-settings-theme-light")))))
 
-(deftest telemetry-section-renders
-  (setup!)
-  (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/settings-open])
-    (rf/dispatch-sync [:rf.causa/settings-select-tab :telemetry]))
-  (rf/with-frame :rf/causa
-    (let [rendered (popup/Modal)]
-      (is (find-by-testid rendered "rf-causa-settings-section-telemetry"))
-      (is (find-by-testid rendered "rf-causa-settings-telemetry-opt-in")))))
-
 ;; ---- Tab switching ------------------------------------------------------
 
 (deftest tab-switching-changes-section
   (setup!)
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/settings-open]))
-  (doseq [[tab-id section-testid] [[:general   "rf-causa-settings-section-general"]
-                                   [:filters   "rf-causa-settings-section-filters"]
-                                   [:theme     "rf-causa-settings-section-theme"]
-                                   [:telemetry "rf-causa-settings-section-telemetry"]]]
+  (doseq [[tab-id section-testid] [[:general "rf-causa-settings-section-general"]
+                                   [:filters "rf-causa-settings-section-filters"]
+                                   [:theme   "rf-causa-settings-section-theme"]]]
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/settings-select-tab tab-id]))
     (rf/with-frame :rf/causa

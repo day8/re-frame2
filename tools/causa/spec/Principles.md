@@ -95,7 +95,10 @@ does not.
 The privacy bet beats the utility bet. The user's runtime may
 contain sensitive data; Causa stores nothing it doesn't need to.
 
-Settings → Telemetry has a section explaining we ship none.
+Causa ships no telemetry — nothing is sent to Day8, Anthropic, or
+anywhere. (A Settings tab labelled "Telemetry" briefly carried an
+opt-in toggle but was removed per rf2-jh9ws — chrome must not
+pretend to control something that does not exist.)
 
 ## Animation communicates, not decorates
 

@@ -281,12 +281,15 @@ backfills what v1 actually ships.
 | **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · "Auto-open Causa when an issue is observed" checkbox |
 | **Filters** | Pointer into the auto-filter pills feature. When the `day8.re-frame2-causa.filters` ns is on the classpath the tab renders an "Open auto-filter UI" button that dispatches `:rf.causa.filters/open`; otherwise it shows the "install the feature first" hint. The full pill management surface lives in the ribbon (per [`018-Event-Spine.md`](./018-Event-Spine.md) §7) — this tab is a discoverability handle. |
 | **Theme** | Dark (default) / Light radio. Toggles the `rf-causa-theme-{dark,light}` class on the shell root + `<html>`. Accent picker deferred. |
-| **Telemetry** | Single "Send anonymous usage telemetry" checkbox, **default OFF** (opt-in). No telemetry endpoint exists in v1 — the toggle round-trips to localStorage so a future endpoint lands with the user's preference already persisted. |
 
-**v1 ships:** four tabs (General / Filters / Theme / Telemetry). The
-fuller [`018-Event-Spine.md`](./018-Event-Spine.md) §9 catalogue
+**v1 ships:** three tabs (General / Filters / Theme). The fuller
+[`018-Event-Spine.md`](./018-Event-Spine.md) §9 catalogue
 (Keybindings, Buffer, Popout, Actions) is deferred to follow-on
-beads.
+beads. A Telemetry tab shipped briefly in the initial popup landing
+(rf2-9poxq) but was removed (rf2-jh9ws) — Causa transmits no
+telemetry, and a toggle pretending to control a non-existent
+endpoint was a broken affordance per the text audit (rf2-yn86j).
+When telemetry actually ships, the tab returns with real wiring.
 
 ### Defaults
 
@@ -296,7 +299,6 @@ beads.
 | `:general :panel-position` | `:right-rail` | Matches the existing `:layout/host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
 | `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Causa to interrupt them. |
 | `:theme` | `:dark` | Causa is a dev tool; the canvas-and-chrome palette in `theme/tokens.cljc` is the dark one. |
-| `:telemetry :opt-in?` | `false` | Opt-in; no payloads sent. |
 
 ### Persistence
 

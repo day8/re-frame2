@@ -29,11 +29,11 @@
 
   ## Active tab
 
-  The modal's left-rail navigation (General | Filters | Theme |
-  Telemetry) tracks `:settings-active-tab` in app-db. Default is
-  `:general`. `:rf.causa/settings-open` resets the tab to `:general`
-  so each reopen starts in a predictable place (the modal is
-  transient per spec/018 §9 — the user is not 'browsing' it)."
+  The modal's top tab strip (General | Filters | Theme) tracks
+  `:settings-active-tab` in app-db. Default is `:general`.
+  `:rf.causa/settings-open` resets the tab to `:general` so each
+  reopen starts in a predictable place (the modal is transient per
+  spec/018 §9 — the user is not 'browsing' it)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.settings.effects :as effects]))
@@ -84,8 +84,7 @@
   ;;
   ;; After the dual-write, the matching side-effect lands so the
   ;; user sees the change immediately (text-size CSS var, theme
-  ;; class, panel-position route). Telemetry has no v1 side-effect
-  ;; — the toggle is round-tripped only.
+  ;; class, panel-position route).
   (rf/reg-event-db :rf.causa/settings-update
     (fn [db [_ section key value]]
       (config/update-setting! section key value)

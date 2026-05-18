@@ -39,10 +39,6 @@
     would `(add-watch nil ...)` and throw under Story testbeds
     that never open Causa).
 
-  - **telemetry opt-in?** — no-op for v1. The setting still
-    round-trips so when the telemetry endpoint lands the value is
-    already persisted.
-
   ## Why a separate ns
 
   The popup's `events.cljs` writes through to the in-memory atom +

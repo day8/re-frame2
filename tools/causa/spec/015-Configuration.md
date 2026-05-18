@@ -182,9 +182,14 @@ the `default-settings` block in `config.cljc`:
 {:general   {:text-size           13          ; px; slider range 10–18
              :panel-position      :right-rail ; :right-rail | :popout | :fullscreen
              :auto-open-on-error? false}
- :theme     :dark                              ; :dark | :light
- :telemetry {:opt-in?             false}}
+ :theme     :dark}                             ; :dark | :light
 ```
+
+> Note (rf2-jh9ws): a `:telemetry` slot shipped briefly with the
+> initial popup landing (rf2-9poxq) but was removed — Causa
+> transmits no telemetry. Legacy `:telemetry` keys in persisted
+> payloads or in `(configure! {:settings ...})` calls are silently
+> dropped by the per-section merge.
 
 | Value | Meaning |
 |---|---|
