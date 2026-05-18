@@ -50,6 +50,7 @@
             [clojure.string :as str]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
+            [re-frame.story.ui.element-inspector :as element-inspector]
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]
@@ -379,6 +380,15 @@
      ;; tripped by viewport / background state.
      [viewport-switcher/chip-when-enabled]
      [backgrounds-switcher/chip-when-enabled]
+     ;; rf2-h0jc0 — element-level click-to-code inspector chip. Toggles
+     ;; the React-Devtools-style pick mode that hovers / highlights any
+     ;; rendered DOM element and opens its view-fn source on click.
+     ;; Lives between the viewport / backgrounds dropdowns and the REC
+     ;; chip so the chrome reads left-to-right as a "what you see, how
+     ;; you see it, who rendered it, what you do with it" cluster. Uses
+     ;; `aria-haspopup` (not `aria-pressed`) per rf2-zll4h convention so
+     ;; the reset gate is unaffected.
+     [element-inspector/inspect-chip]
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
      ;; affordance so the chrome-wide recorder is reachable regardless of
      ;; which variant the user has focused.
