@@ -660,3 +660,63 @@
               ":db-present? is NOT at top level"))
         (finally
           (rf/remove-trace-cb! ::top-level))))))
+
+;; ---- rf2-jhhqt: :coeffects stamp on :event/do-fx -------------------------
+;;
+;; Per rf2-jhhqt the user-injected subset of the handler's final
+;; coeffects map rides under `:tags :coeffects` on :event/do-fx.
+;; Mirrors the rf2-twt7m Change 2 stamping: substrate-side filter keeps
+;; the framework defaults (:db :event :frame :source :trace-id) out so
+;; the Event lens's COEFFECTS section reads a pre-filtered map.
+
+(deftest event-do-fx-stamps-user-injected-coeffects
+  (testing "a handler whose chain injects user coeffects (:now etc.)
+   sees them stamped under :tags :coeffects on :event/do-fx; the
+   framework defaults (:db :event :frame) are filtered out at the
+   substrate"
+    (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
+    (rf/reg-cofx :fx-test/now
+      (fn [ctx]
+        (assoc-in ctx [:coeffects :fx-test/now] "2026-05-18T19:00:00Z")))
+    (rf/reg-cofx :fx-test/locale
+      (fn [ctx]
+        (assoc-in ctx [:coeffects :fx-test/locale] :en-AU)))
+    (rf/reg-event-fx :fx-test/uses-user-cofx
+      [(rf/inject-cofx :fx-test/now)
+       (rf/inject-cofx :fx-test/locale)]
+      (fn [_ _] {:db {:k 1}
+                 :fx [[:fx-test/cofx-sink :go]]}))
+    (let [acc (collect-traces! ::user-cofx)]
+      (try
+        (rf/dispatch-sync [:fx-test/uses-user-cofx])
+        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+              cofx  (get-in dof [:tags :coeffects])]
+          (is (some? dof) ":event/do-fx fired")
+          (is (= {:fx-test/now    "2026-05-18T19:00:00Z"
+                  :fx-test/locale :en-AU}
+                 cofx)
+              "only the user-injected coeffects ride under :tags :coeffects")
+          (is (not (contains? cofx :db))    "framework :db NOT stamped")
+          (is (not (contains? cofx :event)) "framework :event NOT stamped")
+          (is (not (contains? cofx :frame)) "framework :frame NOT stamped"))
+        (finally
+          (rf/remove-trace-cb! ::user-cofx))))))
+
+(deftest event-do-fx-coeffects-stamp-absent-when-no-user-cofx
+  (testing "a handler with no inject-cofx has its :event/do-fx fire
+   WITHOUT a :coeffects stamp (silent-by-default — distinct from a
+   stamped empty map)"
+    (rf/reg-fx :fx-test/plain-sink (fn [_ _] :ok))
+    (rf/reg-event-fx :fx-test/no-user-cofx
+      (fn [_ _] {:db {:k 1}
+                 :fx [[:fx-test/plain-sink :go]]}))
+    (let [acc (collect-traces! ::no-cofx)]
+      (try
+        (rf/dispatch-sync [:fx-test/no-user-cofx])
+        (let [[dof] (filterv #(= :event/do-fx (:operation %)) @acc)
+              tags  (:tags dof)]
+          (is (some? dof) ":event/do-fx fired")
+          (is (not (contains? tags :coeffects))
+              ":coeffects key ABSENT on :tags when no user cofx injected"))
+        (finally
+          (rf/remove-trace-cb! ::no-cofx))))))

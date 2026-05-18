@@ -555,13 +555,20 @@
   `do-fx` (the 7-arity) so the terminating `:event/do-fx` trace
   marker can stamp `:fx` (the returned vector) and `:db-present?`
   (whether the handler returned a `:db` slot). The value of `:db`
-  is NOT stamped — App-db diff traces already carry slice changes."
-  [effects frame frame-record fx-overrides envelope]
+  is NOT stamped — App-db diff traces already carry slice changes.
+
+  Per rf2-jhhqt: the handler's final coeffects map is also threaded
+  to `do-fx` (the 8-arity) so the terminating `:event/do-fx` trace
+  marker can stamp `:coeffects` with the user-injected subset (the
+  framework defaults `:db` `:event` `:frame` `:source` `:trace-id`
+  are filtered out inside `do-fx`). Powers the Event lens's COEFFECTS
+  section without a second emit."
+  [effects coeffects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (or (get-in frame-record [:config :platform])
                               interop/platform)
           event           (:event envelope)]
-      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope effects))))
+      (fx/do-fx frame fx-vec active-platform fx-overrides event envelope effects coeffects))))
 
 ;; ---- process-event* phases ------------------------------------------------
 ;;
@@ -703,6 +710,7 @@
   inheritable keys onto child dispatches."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [effects   (:effects final-ctx)
+        coeffects (:coeffects final-ctx)
         error     (:rf/interceptor-error final-ctx)
         db-before (get-in final-ctx [:coeffects :db])]
     (when error
@@ -717,7 +725,7 @@
       ;; child dispatch on stale derived state — side effects (HTTP /
       ;; navigation / analytics) would escape.
       (when (run-flows! frame event event-id start-ms)
-        (run-fx-effects! effects frame frame-record fx-overrides envelope)))
+        (run-fx-effects! effects coeffects frame frame-record fx-overrides envelope)))
     error))
 
 (defn- emit-cascade-trailers!
