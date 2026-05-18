@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the twelve pair2
+via shadow-cljs to a single `.js` file) that exposes the fourteen pair2
 ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.
@@ -244,7 +244,7 @@ tools/pair2-mcp/
 ├── pilot/                                    ; pre-port toolchain pilot
 └── src/re_frame_pair2_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the twelve MCP tools (per-op + snapshot + get-path + subscribe/unsubscribe/subscription-info + get-pair2-instructions)
+    ├── tools.cljs                            ; the fourteen MCP tools (per-op + snapshot + get-path + subscribe/unsubscribe/subscription-info + get-pair2-instructions)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame_pair2_mcp/nrepl_test.cljs    ; bencode framing unit tests

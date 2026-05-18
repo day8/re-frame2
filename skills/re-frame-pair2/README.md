@@ -2,7 +2,7 @@
 
 > ↑ [`skills/`](../) — index of all six re-frame2 skills.
 
-> **Delivery path.** This skill ships an MCP server at [`tools/pair2-mcp/`](../../tools/pair2-mcp/) (npm: `@day8/re-frame-pair2-mcp`) — seven ops over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). The bash-shim transport that originally fronted these ops has been retired from the skill's `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness.
+> **Delivery path.** This skill ships an MCP server at [`tools/pair2-mcp/`](../../tools/pair2-mcp/) (npm: `@day8/re-frame-pair2-mcp`) — fourteen ops over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). The bash-shim transport that originally fronted these ops has been retired from the skill's `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness.
 
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
