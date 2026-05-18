@@ -75,6 +75,32 @@
   at 420px; 560px reads much better for the Event Detail panel)."
   "560px")
 
+(def default-panel-width-px
+  "Default panel width in pixels (rf2-x8h9y). Mirrors
+  `default-layout-host-width` (`\"560px\"`) without the unit so the
+  numeric Settings slot, the resize handle's drag math, and the
+  double-click reset can compose against one source of truth. The
+  resize handle writes the live value back through
+  `--rf-causa-inline-width` so the inline-host contract above (the
+  documented `var(--rf-causa-inline-width, 560px)` cascade) keeps
+  working unchanged — drag is simply a UX surface that drives that
+  same CSS custom property reactively."
+  560)
+
+(def min-panel-width-px
+  "Lower clamp for the resize handle (rf2-x8h9y). 320px matches the
+  inline-host snippet's `min-width: 320px` floor — below this the
+  L1 ribbon clusters start to wrap and the chrome becomes unusable."
+  320)
+
+(def max-panel-width-fraction
+  "Upper clamp for the resize handle expressed as a fraction of the
+  viewport width (rf2-x8h9y). 0.9 leaves a 10% sliver for the host
+  app so the user always has a visual anchor back to their content;
+  full-viewport coverage is the dedicated `:fullscreen` panel-position
+  rather than a side-effect of dragging the handle off the left edge."
+  0.9)
+
 (def default-accent-css-var
   "Name of the CSS custom property carrying Causa's brand-accent
   colour (the violet `#7C5CFF` from `theme/tokens.cljc` /
@@ -587,9 +613,25 @@
   the parent passes a new fn every time."
   {:general   {:text-size           13              ; px — slider range 10–18
                :panel-position      :right-rail     ; :right-rail | :popout | :fullscreen
+               :panel-width-px      default-panel-width-px ; rf2-x8h9y resize handle
                :auto-open-on-error? false}
    :theme     :dark                                  ; :dark | :light
    :diff      {:highlight-fn-ref-changes? false}})
+
+(defn clamp-panel-width-px
+  "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]
+  range (rf2-x8h9y). Pass `viewport-width-px` explicitly so the helper
+  stays CLJC-pure and JVM-testable (no implicit `window.innerWidth`
+  reach). Non-numeric input falls back to `default-panel-width-px` so
+  a malformed persisted payload never leaves the panel at an unusable
+  size."
+  [px viewport-width-px]
+  (if-not (number? px)
+    default-panel-width-px
+    (let [max-px (long (* (or viewport-width-px 2000) max-panel-width-fraction))
+          floor  min-panel-width-px
+          ceil   (max floor max-px)]
+      (long (-> px (max floor) (min ceil))))))
 
 (defonce
   ^{:doc "Atom holding the live settings map. Seeded with

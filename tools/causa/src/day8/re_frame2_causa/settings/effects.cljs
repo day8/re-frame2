@@ -169,6 +169,43 @@
         (try (.add cl klass) (catch :default _ nil)))))
   nil)
 
+;; ---- panel width (rf2-x8h9y resize handle) ------------------------------
+
+(def panel-width-css-var
+  "Name of the CSS custom property the resize handle drives. Mirrors
+  `config/default-layout-host-css-var` — the inline-host snippet
+  reads `var(--rf-causa-inline-width, 560px)` for its `flex-basis`,
+  so writing to this property on `:root` (and the host element)
+  resizes the panel in lockstep. Published here as a constant so the
+  apply fn + tests reference one spelling."
+  "--rf-causa-inline-width")
+
+(defn- layout-host-element
+  "Resolve the configured layout host element if Causa is mounted in
+  the right-rail. Falls back to nil under :overlay/:popout/test
+  runtimes — `apply-panel-width!` then writes to `:root` only, which
+  is harmless because the host element doesn't exist in those modes."
+  []
+  (when (and (exists? js/document) (.-querySelector js/document))
+    (try
+      (.querySelector js/document (config/get-layout-host-selector))
+      (catch :default _ nil))))
+
+(defn apply-panel-width!
+  "Write `px` as the value of `--rf-causa-inline-width` on both the
+  configured layout host (so the host's `flex-basis` re-evaluates
+  immediately) and the `<html>` root (so the cascade still resolves
+  for any consumer reading `var(--rf-causa-inline-width, 560px)`
+  further up the tree). No-op when neither element is present —
+  matches the apply-text-size! / apply-theme! pattern."
+  [px]
+  (let [value (str (long (or px config/default-panel-width-px)) "px")]
+    (when-let [host (layout-host-element)]
+      (.setProperty (.-style host) panel-width-css-var value))
+    (when-let [html (html-root-element)]
+      (.setProperty (.-style html) panel-width-css-var value)))
+  nil)
+
 ;; ---- panel position -----------------------------------------------------
 
 (defn apply-panel-position!
@@ -296,8 +333,14 @@
   individually no-op-safe pre-mount."
   []
   (let [s (config/get-settings)]
-    (apply-text-size! (get-in s [:general :text-size]))
-    (apply-theme!     (get s :theme))
+    (apply-text-size!  (get-in s [:general :text-size]))
+    (apply-theme!      (get s :theme))
+    ;; rf2-x8h9y — restore the persisted panel width so the user's
+    ;; saved drag survives reload BEFORE first paint. No-op-safe
+    ;; pre-mount (writes to `<html>` only when the layout host hasn't
+    ;; mounted yet; the host pickup happens at next paint via the
+    ;; var cascade).
+    (apply-panel-width! (get-in s [:general :panel-width-px]))
     ;; Panel-position is intentionally NOT applied at boot — the
     ;; preload's auto-open already handles the default `:right-rail`
     ;; case, and reopening into the saved position would surprise a

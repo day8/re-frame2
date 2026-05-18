@@ -32,11 +32,13 @@
   resolves `:<-` chains lazily at subscribe time, not register time."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.popover.causality :as causality-popover]
+            [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
@@ -177,6 +179,60 @@
       {:rf.trace/no-emit? true}
       (fn [db [_ positioning]]
         (assoc db :modal-positioning (or positioning :fixed))))
+
+    ;; ---- Panel width (rf2-x8h9y horizontal resize handle) -------
+    ;;
+    ;; The shell's left-edge resize handle drags the panel width.
+    ;; `:rf.causa/panel-width-px` reads from the settings map (the
+    ;; popup's `:rf.causa/setting` sub composes against the same
+    ;; slot — one source of truth); the value flows into the
+    ;; recommended `[data-rf-causa-host]` snippet via
+    ;; `--rf-causa-inline-width` (host CSS reads
+    ;; `var(--rf-causa-inline-width, 560px)` for its `flex-basis`).
+    ;;
+    ;; `:rf.causa/set-panel-width-px` is the drag handle's write
+    ;; surface — clamps to [min, viewport×0.9], persists through the
+    ;; same Settings round-trip every other `:rf.causa/settings-
+    ;; update` uses, AND applies the CSS var to the host immediately
+    ;; via `settings-effects/apply-panel-width!`. `:rf.trace/no-emit?`
+    ;; matches the modal-positioning handler — drag events fire at
+    ;; mousemove cadence (one dispatch per pixel of drag) and emitting
+    ;; them would flood the trace buffer with shape that no panel
+    ;; consumes. The clamp is applied at write-time so the persisted
+    ;; payload is always in-range — a future viewport-resize that
+    ;; would re-clamp would land on the next paint via the
+    ;; `panel-width-px` sub.
+    (rf/reg-sub :rf.causa/panel-width-px
+      (fn [db _query]
+        (or (get-in db [:settings :general :panel-width-px])
+            (config/get-setting :general :panel-width-px)
+            config/default-panel-width-px)))
+
+    (rf/reg-event-db :rf.causa/set-panel-width-px
+      {:rf.trace/no-emit? true}
+      (fn [db [_ px]]
+        (let [viewport (or (when (exists? js/window)
+                             (.-innerWidth js/window))
+                           2000)
+              clamped  (config/clamp-panel-width-px px viewport)]
+          ;; Dual-write: same pattern the settings-update event uses
+          ;; (config atom drives localStorage round-trip; app-db slot
+          ;; drives reactive re-render). Then push the CSS var so the
+          ;; layout host's `flex-basis` re-evaluates this paint.
+          (config/update-setting! :general :panel-width-px clamped)
+          (settings-effects/apply-panel-width! clamped)
+          (assoc-in db [:settings :general :panel-width-px] clamped))))
+
+    ;; Reset to default — bound to the resize handle's double-click.
+    ;; Routes through the same write surface so persistence + DOM
+    ;; cascade stay consistent. Separate event id so the palette /
+    ;; key-binding affordance can wire to it without re-implementing
+    ;; the clamp + persist logic.
+    (rf/reg-event-fx :rf.causa/reset-panel-width
+      {:rf.trace/no-emit? true}
+      (fn [_ _event]
+        {:fx [[:dispatch [:rf.causa/set-panel-width-px
+                          config/default-panel-width-px]]]}))
 
     ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
     ;;
