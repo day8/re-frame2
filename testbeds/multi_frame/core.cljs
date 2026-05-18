@@ -1,7 +1,7 @@
 (ns multi-frame.core
   "Shared framework-behavior testbed — three isolated frames living in
   the same page, with deliberate cross-frame dispatch. A consumer
-  (Causa, Story, pair2-mcp) observes that the framework keeps each
+  (Causa, Story, re-frame2-pair-mcp) observes that the framework keeps each
   frame's `app-db`, signal-graph cache, and epoch ring buffer cleanly
   partitioned — even when an event dispatched against frame A reaches
   in to dispatch against frame B during the same drain.

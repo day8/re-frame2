@@ -26,7 +26,7 @@ Do **not** use this skill for:
 - Writing application code on the CLJS reference → use [re-frame2](re-frame2.md).
 - Bootstrapping a greenfield app on the CLJS reference → use [re-frame2-setup](re-frame2-setup.md).
 - Migrating a v1 codebase → use [re-frame-migration](re-frame-migration.md).
-- Inspecting / debugging a running v2 app → use [re-frame-pair2](re-frame-pair2.md).
+- Inspecting / debugging a running v2 app → use [re-frame2-pair](re-frame2-pair.md).
 
 ## Kickoff
 

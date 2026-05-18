@@ -79,15 +79,15 @@ The `:rf.mcp/diff-from` marker key lives in [`vocab.md`](vocab.md); the same sha
       db-after)))   ; not diff-encoded; passthrough
 ```
 
-Both story-mcp and pair2-mcp implement this shape; the consumer-side decoder is ~20 lines.
+Both story-mcp and re-frame2-pair-mcp implement this shape; the consumer-side decoder is ~20 lines.
 
 ## Cross-platform
 
-Pure-data tree walk over the path-keyed grammar. Loads identically into JVM (story-mcp / causa-mcp) and CLJS (pair2-mcp). No transport, no runtime, no framework dep beyond `org.clojure/clojure` for `assoc-in` / `update-in` / `dissoc`.
+Pure-data tree walk over the path-keyed grammar. Loads identically into JVM (story-mcp / causa-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework dep beyond `org.clojure/clojure` for `assoc-in` / `update-in` / `dissoc`.
 
 ## Conformance posture
 
-The conformance harness at `tools/mcp-conformance/` drives epoch-shaped tool responses through the decoder and asserts `:db-after-decoded` equals the expected post-event app-db value. Cross-server: the same diff produced by story-mcp must decode to the same value when pair2-mcp emits it; the conformance corpus pins the diff shape in EDN.
+The conformance harness at `tools/mcp-conformance/` drives epoch-shaped tool responses through the decoder and asserts `:db-after-decoded` equals the expected post-event app-db value. Cross-server: the same diff produced by story-mcp must decode to the same value when re-frame2-pair-mcp emits it; the conformance corpus pins the diff shape in EDN.
 
 ## See also
 

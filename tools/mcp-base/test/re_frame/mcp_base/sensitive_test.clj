@@ -1,7 +1,7 @@
 (ns re-frame.mcp-base.sensitive-test
   "Tests for the spec/009 §Privacy default-suppress filter shared
   across the MCP triplet (rf2-vw4sq). The predicate and the filter
-  must stay byte-identical across pair2-mcp, story-mcp, and causa-mcp
+  must stay byte-identical across re-frame2-pair-mcp, story-mcp, and causa-mcp
   — these tests pin the contract."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.sensitive :as sensitive]))

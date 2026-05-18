@@ -2,7 +2,7 @@
   "Shared framework-behavior testbed — four trigger sites that each fail
   schema validation at a distinct check-point in the per-event order
   (per [spec/010 §Per-step recovery]). One button per :where surface so
-  a consumer (Causa, Story, pair2-mcp) observes the corresponding
+  a consumer (Causa, Story, re-frame2-pair-mcp) observes the corresponding
   :rf.error/schema-validation-failure shape emerge once per click.
 
   Triggered :where surfaces:

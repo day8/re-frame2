@@ -260,7 +260,7 @@ const ARTEFACTS = [
   // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
   // surface split off from re-frame.trace for production DCE). The
   // counter example never `:require`s `re-frame.trace.tooling`
-  // (test-support / Causa preload / Story / pair2-mcp do, but counter
+  // (test-support / Causa preload / Story / re-frame2-pair-mcp do, but counter
   // is the no-feature reference app). When this contract holds, the
   // tooling sibling's body is absent from the bundle entirely — the
   // `re-frame.trace/register-trace-cb!` etc. wrappers are thin
@@ -290,7 +290,7 @@ const ARTEFACTS = [
   // re-frame.subs.tooling (rf2-bmzq0 — `sub-topology` and
   // `sub-cache-snapshot` split off from re-frame.subs for production
   // DCE). Counter never `:require`s `re-frame.subs.tooling` (Causa /
-  // pair2-mcp / re-frame-10x do, but counter is the no-feature
+  // re-frame2-pair-mcp / re-frame-10x do, but counter is the no-feature
   // reference app). When this contract holds, the tooling sibling's
   // body is absent from the bundle entirely — the JVM-side aliases in
   // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated so

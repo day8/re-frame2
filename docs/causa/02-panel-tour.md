@@ -44,7 +44,7 @@ See the dedicated [chapter 3](03-time-travel.md).
 
 ## App-DB — slice-centric
 
-Not a full `app-db` tree dump. **The slices that changed in the current epoch**, plus any slices you've pinned with a *watch* gesture. Read-only — Causa never writes to `app-db` for you (use `re-frame-pair2` for that, or dispatch a real event).
+Not a full `app-db` tree dump. **The slices that changed in the current epoch**, plus any slices you've pinned with a *watch* gesture. Read-only — Causa never writes to `app-db` for you (use `re-frame2-pair` for that, or dispatch a real event).
 
 See [chapter 9](09-app-db-diff.md).
 

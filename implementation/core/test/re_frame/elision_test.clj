@@ -214,8 +214,8 @@
 ;; Per Tool-Pair §"Direct-read privacy posture for sub-cache and get-path",
 ;; a pair-shaped tool that ships a `sub-cache` surface MUST route the
 ;; returned `{query-v {:value v :ref-count n}}` map through
-;; `elide-wire-value` before egress. The pair2-mcp `snapshot` tool's
-;; `:sub-cache` slice does this (per `tools/pair2-mcp/src/.../tools/snapshot.cljs`).
+;; `elide-wire-value` before egress. The re-frame2-pair-mcp `snapshot` tool's
+;; `:sub-cache` slice does this (per `tools/re-frame2-pair-mcp/src/.../tools/snapshot.cljs`).
 ;;
 ;; These regressions pin the framework half of the contract: the walker
 ;; honours sensitive / large declarations against the walked path

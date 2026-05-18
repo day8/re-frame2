@@ -2,13 +2,13 @@
   "name": "@day8/re-frame2-mcp-conformance",
   "version": "0.1.0",
   "private": true,
-  "description": "End-to-end MCP-client conformance harness for re-frame2 MCP servers (pair2-mcp, story-mcp). Drives each server via the official @modelcontextprotocol/sdk Client so a real MCP-aware consumer (not a hand-rolled JSON-RPC shim) exercises the handshake, tool catalogue, and one canonical workflow per server.",
+  "description": "End-to-end MCP-client conformance harness for re-frame2 MCP servers (re-frame2-pair-mcp, story-mcp). Drives each server via the official @modelcontextprotocol/sdk Client so a real MCP-aware consumer (not a hand-rolled JSON-RPC shim) exercises the handshake, tool catalogue, and one canonical workflow per server.",
   "license": "MIT",
   "scripts": {
-    "test:pair2": "node test/end-to-end-pair2.cjs",
-    "test:pair2-live-overflow": "node test/live-pair2-overflow.cjs",
-    "test:pair2-live-subscribe": "node test/live-pair2-subscribe.cjs",
-    "test:pair2-live-overflow-hermetic": "node scripts/run-live-pair2-overflow-hermetic.cjs",
+    "test:re-frame2-pair": "node test/end-to-end-re-frame2-pair.cjs",
+    "test:re-frame2-pair-live-overflow": "node test/live-re-frame2-pair-overflow.cjs",
+    "test:re-frame2-pair-live-subscribe": "node test/live-re-frame2-pair-subscribe.cjs",
+    "test:re-frame2-pair-live-overflow-hermetic": "node scripts/run-live-re-frame2-pair-overflow-hermetic.cjs",
     "test:story": "node test/end-to-end-story.cjs",
     "test:exec-safety": "node --test test/exec-safety.test.cjs",
     "test": "node scripts/test-all.cjs"

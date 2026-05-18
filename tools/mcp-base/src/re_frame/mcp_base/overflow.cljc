@@ -11,7 +11,7 @@
   This namespace owns the SHAPE of the marker (so it stays byte-
   identical across the triplet); the cap-enforcement glue (counting
   tokens, replacing the payload) lives consumer-side because the
-  payload representation differs (CLJS JS object for pair2-mcp; CLJ
+  payload representation differs (CLJS JS object for re-frame2-pair-mcp; CLJ
   map for story-mcp/causa-mcp).
 
   ## Token rule

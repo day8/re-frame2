@@ -168,7 +168,7 @@ apps. Causa is built frame-first; single-frame apps degrade to
 ## No AI in the panel surface
 
 Causa is the human surface only. AI integration lives in the
-separate `tools/pair2-mcp/` jar. The Issues ribbon and the
+separate `tools/re-frame2-pair-mcp/` jar. The Issues ribbon and the
 schema-violation timeline are *passive* surfaces — they surface
 anomalies without an in-panel narrator. The previous AI co-pilot
 rail was removed under bead rf2-s3vx5; the cost / privacy / UX

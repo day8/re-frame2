@@ -4,7 +4,7 @@ A single Reagent-mounted handler whose `:fx` recursively dispatches
 itself. The runtime's run-to-completion drain halts the cascade when
 the frame's `:drain-depth` ceiling is reached and rolls the frame's
 `app-db` back atomically (per [spec/002 §Run-to-completion rule 3]).
-A consumer (Causa, Story, pair2-mcp) observes the
+A consumer (Causa, Story, re-frame2-pair-mcp) observes the
 `:rf.error/drain-depth-exceeded` shape, the rollback, and the
 `:halted-depth` epoch outcome (rf2-v0jwt).
 

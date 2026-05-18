@@ -80,7 +80,7 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 
 - Migrating to a different substrate (Reagent → UIx is O-13; never part of v1→v2).
 - Writing new application code on v2 — that's the `re-frame2` skill.
-- Live-runtime inspection of the running v2 app — that's `re-frame-pair2`.
+- Live-runtime inspection of the running v2 app — that's `re-frame2-pair`.
 - Greenfield project bootstrap — that's `re-frame2-setup`.
 - Authoring opt-in modernisations except when the author explicitly asks.
 - Editing `migration/from-re-frame-v1/README.md` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — see `skills/README.md` baseline.)

@@ -154,7 +154,7 @@ next variant registered" has to poll `run-variant` / `list-stories`
 repeatedly.
 
 **v2 sketch (not implemented).** Add `subscribe` / `unsubscribe`
-mirroring pair2-mcp's shape — same wire-protocol slot
+mirroring re-frame2-pair-mcp's shape — same wire-protocol slot
 (`notifications/progress` correlated by the call's
 `progressToken`), same idempotent `unsubscribe`, same
 `subscription-info` peer for the "what streams are open?"
@@ -172,14 +172,14 @@ Topics to expose:
 
 Open questions: how Story-side state changes (run-variant
 assertions, registrar mutations) surface as observable events
-without the runtime's epoch ring (pair2-mcp's substrate is rich;
+without the runtime's epoch ring (re-frame2-pair-mcp's substrate is rich;
 Story-MCP runs on the JVM with no equivalent today), whether the
-streaming machinery shares an abstraction with pair2-mcp's
+streaming machinery shares an abstraction with re-frame2-pair-mcp's
 `subscribe` (likely yes — extracting the queue + progress-callback
 plumbing into a shared `tools/mcp-base/streaming` ns is the
 implementation-first step), and what the wire-cap / dedup posture
 looks like for these payloads (assertion records and variant
-bodies are bounded, so the per-tick cap likely matches pair2-mcp's
+bodies are bounded, so the per-tick cap likely matches re-frame2-pair-mcp's
 5,000-token default without further per-tool tuning).
 
 ### `evaluate-cljs` (rf2-vilu3, deferred)
@@ -193,7 +193,7 @@ to file an RFE.
 **v2 sketch (not implemented).** Add `evaluate-cljs` /
 `evaluate-cljs-in-story` MCP tool. Bridges the JVM-side story-mcp
 through to a running CLJS Story session over the same nREPL
-transport pair2-mcp uses today. The same posture:
+transport re-frame2-pair-mcp uses today. The same posture:
 
 - Bounded — `max-tokens` cap, no `:tools/list` discoverability of
   the escape hatch in production deploys (gate on
@@ -209,7 +209,7 @@ Open questions: which Story session does the form attach to (the
 implicit "active variant frame"? all frames? caller picks?), how
 the JVM-standalone deploy degrades when no CLJS session is reachable
 (today: `list-substrates` returns `[]`; `evaluate-cljs` would need
-the same posture), and whether the existing pair2-mcp `eval-cljs`
+the same posture), and whether the existing re-frame2-pair-mcp `eval-cljs`
 satisfies the need when a session co-installs both servers (likely
 yes, which is the argument for keeping this deferred until the
 single-server need materialises in the wild).
@@ -279,7 +279,7 @@ The three tools that surface live frame state (`preview-variant`,
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
 §Direct-read privacy posture). Per the rf2-uaymx (b) decision that
 opt-in is itself gated by a server-side boot flag, mirroring the
-`--allow-eval` posture pair2-mcp uses for `eval-cljs` (rf2-zyoj2):
+`--allow-eval` posture re-frame2-pair-mcp uses for `eval-cljs` (rf2-zyoj2):
 
 The wire-key shape (`:include-sensitive`, no `?`) is the form the
 host accepts: the Anthropic Messages API enforces

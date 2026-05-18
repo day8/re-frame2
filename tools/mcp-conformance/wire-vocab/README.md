@@ -4,7 +4,7 @@
 
 ## What this is
 
-The three MCP servers under `tools/` — `pair2-mcp`, `story-mcp`, and
+The three MCP servers under `tools/` — `re-frame2-pair-mcp`, `story-mcp`, and
 `causa-mcp` (spec-only today) — share a reserved cross-server **wire
 vocabulary**: namespaced map keys that an agent recognises identically
 across every server it talks to.
@@ -38,14 +38,14 @@ This test is the conformance gate. It asserts:
    `wire_vocab_test.clj`, derived from
    [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../../spec/Spec-Schemas.md),
    [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"5 mechanisms"](../../causa-mcp/spec/004-Wire-Pipeline.md),
-   and [`tools/pair2-mcp/src/.../tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)
-   (pair2-mcp's `overflow-payload`, `tree-summary`, `dedup-value`,
+   and [`tools/re-frame2-pair-mcp/src/.../tools.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools.cljs)
+   (re-frame2-pair-mcp's `overflow-payload`, `tree-summary`, `dedup-value`,
    `diff-encode-db-after`).
 2. **Per-server fixtures all conform.** Each marker has a fixture
    representing each server's actual / spec'd emission shape. They
    MUST validate against the same schema.
 3. **Source-text vocabulary pin.** A grep against each server's source
-   (`pair2-mcp/src/`) and spec (`causa-mcp/spec/`) asserts the
+   (`re-frame2-pair-mcp/src/`) and spec (`causa-mcp/spec/`) asserts the
    canonical literal appears, and asserts that no near-miss spelling
    (snake_case, pluralised, namespace-with-underscores) appears.
 4. **story-mcp absence tripwire.** story-mcp does NOT currently emit

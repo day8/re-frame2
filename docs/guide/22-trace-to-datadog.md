@@ -15,7 +15,7 @@ re-frame2 ships two **always-on listener substrates** for exactly that, parallel
 
 Both substrates are **production-survivable** — they survive `:advanced` compilation with `goog.DEBUG=false`. Both apply `rf/elide-wire-value` to every record before fan-out. Both have zero cost when no listener is registered.
 
-> **What about the trace bus?** The trace bus you met in the [Causa welcome page](../causa/index.md) is dev-only. It dead-code-eliminates in production. It exists so Causa, pair2-mcp, and story can show you everything that happens — every sub recompute, every fx, every interceptor — at the cost of bundle size and hot-path overhead you don't want in shipped code. Production has no trace bus. Production has these two listener APIs instead — narrow shapes, always-on, observability-only.
+> **What about the trace bus?** The trace bus you met in the [Causa welcome page](../causa/index.md) is dev-only. It dead-code-eliminates in production. It exists so Causa, re-frame2-pair-mcp, and story can show you everything that happens — every sub recompute, every fx, every interceptor — at the cost of bundle size and hot-path overhead you don't want in shipped code. Production has no trace bus. Production has these two listener APIs instead — narrow shapes, always-on, observability-only.
 
 You'll know:
 
@@ -27,7 +27,7 @@ You'll know:
 
 ## Why production has no trace bus
 
-The trace bus is the right surface for dev tooling. It emits *everything*: every sub computation, every fx call, every machine transition, every interceptor step, every registration. Causa scrubs through it. pair2-mcp queries it. story plays it back. The fidelity is the point.
+The trace bus is the right surface for dev tooling. It emits *everything*: every sub computation, every fx call, every machine transition, every interceptor step, every registration. Causa scrubs through it. re-frame2-pair-mcp queries it. story plays it back. The fidelity is the point.
 
 That fidelity costs bundle bytes (the trace machinery itself) and hot-path cycles (every sub recompute emits a structured event). Production cannot afford either. So the trace bus dead-code-eliminates: when `goog.DEBUG=false`, the runtime calls that emit trace events evaporate at compile time, leaving zero overhead.
 
@@ -72,7 +72,7 @@ Same elision pass; same `:sensitive?` drop semantics; same `:large?` substitutio
 
 ## Registration
 
-Datadog is production-only. Dev gets Causa + pair2 + story. Your registration site should reflect that:
+Datadog is production-only. Dev gets Causa + re-frame2-pair + story. Your registration site should reflect that:
 
 ```clojure
 (when (and (= "production" (:env config))
@@ -265,6 +265,6 @@ The point: the framework owns the production-observability shape and tools own t
 
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
 - [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-emit-listener!`.
-- [Causa](../causa/index.md) — the dev-only trace bus and the devtool that paints it (sibling tools: [`re-frame-pair2`](../skills/re-frame-pair2.md) and [Story](../story/index.md) consume the same bus).
+- [Causa](../causa/index.md) — the dev-only trace bus and the devtool that paints it (sibling tools: [`re-frame2-pair`](../skills/re-frame2-pair.md) and [Story](../story/index.md) consume the same bus).
 - [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
 - [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the `:large?` half of the same machinery.

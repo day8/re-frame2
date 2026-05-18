@@ -1,0 +1,21 @@
+;; Pilot shadow-cljs build for re-frame2-pair-mcp.
+;;
+;; Goal: prove the toolchain end-to-end before the full port.
+;;   1. shadow-cljs compiles a :node-script target.
+;;   2. Compiled JS can require the npm MCP SDK and register one tool.
+;;   3. Compiled JS can require nrepl-client (or bencode) and round-trip
+;;      one nREPL eval against a local shadow-cljs nREPL.
+;;
+;; If both work cleanly, commit and move to ../src/.
+{:source-paths ["src"]
+ :dependencies [[applied-science/js-interop "0.4.2"]]
+ :builds {:pilot {:target     :node-script
+                  :output-to  "out/pilot.js"
+                  :main       re-frame2-pair-mcp.pilot/main
+                  :compiler-options {:optimizations :simple}}
+          ;; A second target so we can drive nREPL piecewise from the REPL
+          ;; without booting the full stdio loop.
+          :pilot-test {:target     :node-test
+                       :output-to  "out/pilot-test.js"
+                       :ns-regexp  "-test$"
+                       :autorun    true}}}

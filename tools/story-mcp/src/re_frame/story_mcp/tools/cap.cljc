@@ -25,7 +25,7 @@
   Sized via `overflow/token-estimate` (the `(quot (count s) 4)` rule
   aligned with Anthropic's character→token rule-of-thumb). The cap is
   cumulative across every `:text` slot in the response's `:content`
-  vector (multi-part responses share one budget, mirroring pair2-mcp).
+  vector (multi-part responses share one budget, mirroring re-frame2-pair-mcp).
 
   `:max-tokens` per-call override is read from `arguments`: integer
   cap, `0` disables (escape hatch when the caller has already
@@ -40,7 +40,7 @@
   "Tool-specific next-step hints for the overflow marker. Generic
   fallback (from `mcp-base.overflow`) when a tool isn't listed.
 
-  Mirrors pair2-mcp's local hint table — the hint is the agent's
+  Mirrors re-frame2-pair-mcp's local hint table — the hint is the agent's
   shortest path back into budget."
   {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
    "run-variant"       "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."

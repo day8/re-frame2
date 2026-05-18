@@ -3,7 +3,7 @@
 
   Pins the cross-server **argument-slot vocabulary** that an agent
   learns once and recognises identically across every MCP server in
-  the re-frame2 pair (pair2-mcp, story-mcp). (causa-mcp was dropped
+  the re-frame2 pair (re-frame2-pair-mcp, story-mcp). (causa-mcp was dropped
   in rf2-bu21t — causa now ships as a Clojars-only library, not an
   MCP server.)
 
@@ -30,7 +30,7 @@
 
   ... and the same vocabulary works on every server. Cross-server
   divergence on any of these slot names breaks the agent's mental
-  model in the cross-MCP workflow (chained pair2-mcp + story-mcp in
+  model in the cross-MCP workflow (chained re-frame2-pair-mcp + story-mcp in
   one session). The audit (rf2-m9yoi §TE2) called out that the
   cross-server promise was **unenforced** before this gate landed —
   multiple Principles.md sections claim identity but no test
@@ -113,15 +113,15 @@
 (def ^:private canonical-slots
   [{:slot     :include-sensitive
     :role     :opt-in-boolean
-    :servers  #{:pair2-mcp :story-mcp}
-    :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
-                           "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
+    :servers  #{:re-frame2-pair-mcp :story-mcp}
+    :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
+                           "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"]
                ;; story-mcp's `:include-sensitive` parsing lives in
                ;; `helpers.cljc` (rf2-73wuj — the cross-MCP `args/parse-
                ;; boolean` reader) and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
                ;; No `sensitive.cljc` (the path was a stale guess from
-               ;; the pair2-mcp shape that doesn't apply to story-mcp).
+               ;; the re-frame2-pair-mcp shape that doesn't apply to story-mcp).
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/helpers.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
@@ -135,16 +135,16 @@
 
    {:slot     :max-tokens
     :role     :override-integer
-    :servers  #{:pair2-mcp :story-mcp}
-    :sources  {;; pair2-mcp surfaces the slot as the Clojure keyword
+    :servers  #{:re-frame2-pair-mcp :story-mcp}
+    :sources  {;; re-frame2-pair-mcp surfaces the slot as the Clojure keyword
                ;; `:max-tokens` in the descriptor-splice helper
                ;; (`descriptors.cljs/with-budget-knob`) and reads the
                ;; JS-side `"max-tokens"` string off the args object in
                ;; `cap.cljs/max-tokens-arg`. The keyword form is the
                ;; canonical literal — the descriptor splice IS what
                ;; pins the wire-side name agents see in `tools/list`.
-               :pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
-                           "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"]
+               :re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
+                           "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_knobs.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
@@ -153,10 +153,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Historical note — the size-elision opt-out divergence pin
-;; (`:include-large?` vs pair2-mcp's `:elision`) lived here while
+;; (`:include-large?` vs re-frame2-pair-mcp's `:elision`) lived here while
 ;; causa-mcp shipped as an MCP server (rf2-8xzoe T-Insp cluster). The
 ;; rf2-bu21t drop reverted causa-mcp; the divergence collapsed to a
-;; single-server pair2-mcp `:elision` form. If a future MCP server
+;; single-server re-frame2-pair-mcp `:elision` form. If a future MCP server
 ;; adopts `:include-large?` (per the canonical reserved spelling in
 ;; `mcp-base/vocab.cljc`), restore the divergence pin so the
 ;; cross-server choice surfaces explicitly instead of drifting
@@ -251,7 +251,7 @@
   The `?`-suffix variant (rf2-ihq4d): for a slot whose canonical form
   has NO trailing `?` (e.g. the wire-key `:include-sensitive` per
   rf2-y710n), an added `?` is exactly the bug pattern that bricked
-  pair2-mcp's tool surface — Anthropic's tool-input-schema regex
+  re-frame2-pair-mcp's tool surface — Anthropic's tool-input-schema regex
   `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. Adding `:include-sensitive?`
   back into any wire-surface source today trips this near-miss check."
   [slot]
@@ -305,7 +305,7 @@
 ;; prefix of `:include-sensitive?`, so an `str/includes?` check passes
 ;; even when a server's wire-key still carries the trailing `?` —
 ;; exactly the rf2-y710n bug that the rf2-ihq4d worker surfaced as
-;; latent in pair2-mcp at the time of #1494. The full-token regex
+;; latent in re-frame2-pair-mcp at the time of #1494. The full-token regex
 ;; (via `fx/variant-regex`, the same keyword-extender-aware pattern
 ;; the near-miss gate uses) pins the literal as a complete keyword:
 ;; matched only when not immediately followed by a keyword-extender
@@ -349,14 +349,14 @@
         ;; which prose-reference the slots in passing and may mention
         ;; alternative names in resolution notes).
         impl-sources-by-server
-        {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/sensitive.cljs"
-                     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
-                     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
-                     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"
-                     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"]
+        {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
+                     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
+                     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_knobs.cljs"
+                     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/cap.cljs"
+                     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/elision.cljs"]
          ;; story-mcp's `:include-sensitive` parsing / schema lives in
          ;; `helpers.cljc` + `schemas.cljc` (no `sensitive.cljc` —
-         ;; that's pair2-mcp's shape). The other entries below are the
+         ;; that's re-frame2-pair-mcp's shape). The other entries below are the
          ;; full tools/ surface, covered for near-miss-variant defence.
          :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/cap.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
@@ -387,8 +387,8 @@
 ;; Gate 4 — divergence pin (HISTORICAL).
 ;;
 ;; This slot was the `:include-large?` (causa-mcp) vs `:elision`
-;; (pair2-mcp) divergence pin. With causa-mcp removed in rf2-bu21t,
-;; pair2-mcp is the sole live emitter; the divergence collapses to a
+;; (re-frame2-pair-mcp) divergence pin. With causa-mcp removed in rf2-bu21t,
+;; re-frame2-pair-mcp is the sole live emitter; the divergence collapses to a
 ;; single-server `:elision` spelling. The canonical
 ;; `:rf.size/include-large?` form remains reserved in
 ;; `mcp-base/vocab.cljc` for any future MCP server adoption — restore

@@ -566,7 +566,7 @@ consumes the same helper and will plumb its own knob in a follow-up.
 
 ##### Bridge to Causa-as-RHS (rf2-r1uod)
 
-When Causa is mounted as Story's RHS inspector (per [rf2-sgdd3](../README.md#stage-9-rf2-sgdd3-causa-as-rhs)),
+When Causa is mounted as Story's RHS inspector (per rf2-sgdd3),
 the Causa-side source-coord chips (Event lens Handler / Dispatch /
 Interceptors, Trace tab rows, Issues ribbon) read their on-disk root
 from Causa's `day8.re-frame2-causa.config/project-root` slot — NOT

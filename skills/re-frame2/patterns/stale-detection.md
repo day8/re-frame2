@@ -73,7 +73,7 @@ Three load-bearing points:
 
 - The `:key-typed` handler **advances** the epoch (writes `next-epoch` into `app-db`) and **captures** it into the reply event in the same drain. The reply will be compared against whatever the epoch is *at receive time*, which may be a later value if more keystrokes have arrived.
 - The reply handler reads the *current* epoch fresh from `db`, not from any closure capture. The carried epoch is a literal in the event vector; the current epoch lives where the container does.
-- On mismatch the handler emits a `:<feature>/stale-<reason>` trace event so tools (re-frame-pair2's epoch buffer, the trace timeline) see the family at a glance. The shape `:search/stale-result` follows the family-naming convention; the specific event name is owned by the feature.
+- On mismatch the handler emits a `:<feature>/stale-<reason>` trace event so tools (re-frame2-pair's epoch buffer, the trace timeline) see the family at a glance. The shape `:search/stale-result` follows the family-naming convention; the specific event name is owned by the feature.
 
 ## Trace-event naming
 

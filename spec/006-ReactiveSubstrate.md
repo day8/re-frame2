@@ -1034,7 +1034,7 @@ A cooperative rendering substrate — a rendering layer designed natively to coo
 
 - **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
 - **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with Reagent / UIx / Helix adapters.
-- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (causa / pair2 / story) needs scheduling hooks the React substrates can't surface.
+- **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (causa / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
 - **Out of scope for the bead.** Building the cooperative substrate itself — the bead tracks the *decision*, not the implementation. A separate bead is filed if the evaluation lands "yes".
 
 ### Multi-adapter coexistence (post-v1, rf2-uipko)

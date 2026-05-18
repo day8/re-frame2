@@ -71,7 +71,7 @@ jobs:
 
   # PR-time drift detection for the skill ↔ MCP tool-catalogue contract
   # (rf2-flzdp). Source: rf2-fvy7o audit, finding #6. When an MCP server
-  # adds a tool (e.g. pair2-mcp added `subscribe`/`unsubscribe` under
+  # adds a tool (e.g. re-frame2-pair-mcp added `subscribe`/`unsubscribe` under
   # rf2-hq49) the consumer skill's `allowed-tools` front-matter doesn't
   # auto-update; the agent host blocks the new tool even though the
   # server advertises it. The script in scripts/check_skill_mcp_drift.py
@@ -1357,11 +1357,11 @@ jobs:
             ${{ runner.os }}-clj-
 
       # tools/mcp-base ships as a `.cljc` library (rf2-vw4sq) shared
-      # across the MCP servers (pair2-mcp, story-mcp). The
+      # across the MCP servers (re-frame2-pair-mcp, story-mcp). The
       # algorithmic content (sensitive-filter, diff-encode, args
       # parsers, overflow shape, vocab constants) is platform-agnostic
       # — a JVM round-trip is the cheapest PR-time gate. Pair2-mcp's
-      # CLJS-side coverage (under `node-test-tools-pair2-mcp` below)
+      # CLJS-side coverage (under `node-test-tools-re-frame2-pair-mcp` below)
       # exercises the same primitives via the shadow-cljs compile
       # path; story-mcp's `jvm-tools-story-mcp` job covers the JVM
       # consumer.
@@ -1453,14 +1453,14 @@ jobs:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
-  node-test-tools-pair2-mcp:
-    name: Node tools/pair2-mcp (shadow-cljs :server-test)
+  node-test-tools-re-frame2-pair-mcp:
+    name: Node tools/re-frame2-pair-mcp (shadow-cljs :server-test)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: tools/pair2-mcp
+        working-directory: tools/re-frame2-pair-mcp
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1486,15 +1486,15 @@ jobs:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-cljs-tools-pair2-mcp-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json') }}
+          key: ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json') }}
           restore-keys: |
-            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
             ${{ runner.os }}-cljs-
 
       - name: npm install
         run: npm install
 
-      # tools/pair2-mcp ships as a Node binary on npm; its sources are
+      # tools/re-frame2-pair-mcp ships as a Node binary on npm; its sources are
       # CLJS compiled via shadow-cljs to a self-contained Node script.
       # The artefact is NOT on implementation/shadow-cljs.edn's
       # `:source-paths`, so the consolidated `:node-test` build does
@@ -1503,7 +1503,7 @@ jobs:
       # `out/server-test.js` under Node. The test suite covers the
       # bencode framing helpers (`nrepl_test`), the snapshot reader
       # (`snapshot_test`), and the subscribe surface (`subscribe_test`).
-      - name: Run shadow-cljs :server-test (tools/pair2-mcp artefact)
+      - name: Run shadow-cljs :server-test (tools/re-frame2-pair-mcp artefact)
         run: npm test
 
   node-test-tools-story-mcp:
@@ -1547,11 +1547,11 @@ jobs:
             ${{ runner.os }}-clj-
 
       # tools/story-mcp is a JVM artefact (Clojure-side stdio JSON-RPC
-      # server) — unlike pair2-mcp which is a self-contained Node script
+      # server) — unlike re-frame2-pair-mcp which is a self-contained Node script
       # compiled via shadow-cljs, story-mcp launches via
       # `clojure -M -m re-frame.story-mcp.server`. The JVM unit tests live
       # in the parallel `jvm-tools-story-mcp` job above; this job adds the
-      # pair2-mcp-parity integration tests landed by rf2-h8z5l:
+      # re-frame2-pair-mcp-parity integration tests landed by rf2-h8z5l:
       #
       #   - test/stdio-roundtrip.js — spawns the server, walks initialize
       #     → tools/list → tools/call across the canonical read-side tools,
@@ -1574,7 +1574,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # MCP-client conformance jobs (rf2-cum40).
   #
-  # The `node-test-tools-{pair2,story}-mcp` jobs above drive each server
+  # The `node-test-tools-{re-frame2-pair,story}-mcp` jobs above drive each server
   # via hand-rolled JSON-RPC on stdin/stdout. That catches server-side
   # bugs but cannot see protocol-mismatch bugs visible only when a real
   # MCP-aware consumer (Claude Code, Continue, …) attaches via the
@@ -1592,8 +1592,8 @@ jobs:
   # scope.
   # ---------------------------------------------------------------------------
 
-  mcp-conformance-pair2:
-    name: MCP conformance tools/pair2-mcp (rf2-cum40)
+  mcp-conformance-re-frame2-pair:
+    name: MCP conformance tools/re-frame2-pair-mcp (rf2-cum40)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_live == 'true'
     runs-on: ubuntu-latest
@@ -1620,9 +1620,9 @@ jobs:
           node-version: '24'
 
       # Single Maven/gitlibs cache that covers BOTH shadow-cljs boots in
-      # this job — the pair2-mcp server bundle compile AND the hermetic
+      # this job — the re-frame2-pair-mcp server bundle compile AND the hermetic
       # fixture watch (rf2-c565x). The fixture at
-      # `skills/re-frame-pair2/tests/fixture/` resolves core + reagent +
+      # `skills/re-frame2-pair/tests/fixture/` resolves core + reagent +
       # epoch as `:local/root` entries, so a cold-cache run pulls every
       # transitive dep of those three artefacts (Reagent, Malli, …)
       # before shadow-cljs can even write the nREPL port file.
@@ -1635,29 +1635,29 @@ jobs:
       # cache warm across runs that don't touch those files; the wider
       # `restore-keys` ladder still lets a partial hit land when only
       # one file changes.
-      - name: Cache Maven / gitlibs (shadow-cljs deps for pair2-mcp build + hermetic fixture)
+      - name: Cache Maven / gitlibs (shadow-cljs deps for re-frame2-pair-mcp build + hermetic fixture)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-mcp-conformance-pair2-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json', 'skills/re-frame-pair2/tests/fixture/deps.edn', 'skills/re-frame-pair2/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn') }}
+          key: ${{ runner.os }}-mcp-conformance-re-frame2-pair-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-mcp-conformance-pair2-
-            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-mcp-conformance-re-frame2-pair-
+            ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
             ${{ runner.os }}-cljs-
 
-      # The conformance harness drives the pair2-mcp Node bundle, so we
+      # The conformance harness drives the re-frame2-pair-mcp Node bundle, so we
       # need to compile that bundle first. Same shadow-cljs entry point
-      # as the node-test-tools-pair2-mcp job above. We don't run
-      # pair2-mcp's own tests here — that's the parallel job's
+      # as the node-test-tools-re-frame2-pair-mcp job above. We don't run
+      # re-frame2-pair-mcp's own tests here — that's the parallel job's
       # responsibility.
-      - name: Install pair2-mcp deps
-        working-directory: tools/pair2-mcp
+      - name: Install re-frame2-pair-mcp deps
+        working-directory: tools/re-frame2-pair-mcp
         run: npm install
 
-      - name: Compile pair2-mcp server bundle (shadow-cljs :server)
-        working-directory: tools/pair2-mcp
+      - name: Compile re-frame2-pair-mcp server bundle (shadow-cljs :server)
+        working-directory: tools/re-frame2-pair-mcp
         run: npx shadow-cljs compile server
 
       - name: Install mcp-conformance deps
@@ -1671,8 +1671,8 @@ jobs:
       - name: Run mcp-conformance exec-safety unit tests
         run: npm run test:exec-safety
 
-      - name: Run pair2-mcp end-to-end MCP-client conformance
-        run: npm run test:pair2
+      - name: Run re-frame2-pair-mcp end-to-end MCP-client conformance
+        run: npm run test:re-frame2-pair
 
       # Live-runtime variant (rf2-ynaoc): exercises the wire-cap
       # `:rf.mcp/overflow` marker under a real over-budget eval. Gated
@@ -1682,14 +1682,14 @@ jobs:
       # gating logic is exercised on every CI run and a regression that
       # broke the SKIP path (e.g. crashing on missing env) surfaces
       # here. The hermetic variant below runs the actual live path.
-      - name: Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)
-        run: npm run test:pair2-live-overflow
+      - name: Run re-frame2-pair-mcp live-overflow conformance (SKIPPED without nREPL)
+        run: npm run test:re-frame2-pair-live-overflow
 
       # Hermetic live-runtime variant (rf2-uw6d6): boots shadow-cljs
-      # against the pair2 fixture (`skills/re-frame-pair2/tests/fixture/`
-      # — a minimal counter with `re-frame-pair2.runtime` preloaded),
+      # against the re-frame2-pair fixture (`skills/re-frame2-pair/tests/fixture/`
+      # — a minimal counter with `re-frame2-pair.runtime` preloaded),
       # launches headless Chromium so the runtime sentinel lands, then
-      # runs the same `live-pair2-overflow.js` with
+      # runs the same `live-re-frame2-pair-overflow.js` with
       # SHADOW_CLJS_NREPL_PORT set to the spawned port. Tears
       # shadow-cljs + Chromium down on exit. Closes the CI-coverage gap
       # the SKIP-path leaves: cap-trigger threshold drift, marker shape
@@ -1704,8 +1704,8 @@ jobs:
         working-directory: implementation
         run: npx playwright install --with-deps chromium
 
-      - name: Run pair2-mcp live-overflow conformance (HERMETIC — spawns shadow-cljs)
-        run: npm run test:pair2-live-overflow-hermetic
+      - name: Run re-frame2-pair-mcp live-overflow conformance (HERMETIC — spawns shadow-cljs)
+        run: npm run test:re-frame2-pair-live-overflow-hermetic
 
   mcp-conformance-story:
     name: MCP conformance tools/story-mcp (rf2-cum40)
@@ -1763,7 +1763,7 @@ jobs:
   # `slot_name_test.clj` (tool-arg slot-name parity, rf2-zvv65) — pin
   # the cross-server vocabulary contracts that the artefact exists to
   # enforce. Pre-rf2-rto1l these tests had ZERO CI coverage: the
-  # sibling `mcp-conformance-{pair2,story}` jobs run only the
+  # sibling `mcp-conformance-{re-frame2-pair,story}` jobs run only the
   # Node-side `npm run test:...` scripts; no job ran `clojure -M:test`
   # from `wire-vocab/`. The contract gates fired only when Mike happened
   # to invoke them locally — every PR shipped without them.
@@ -1824,8 +1824,8 @@ jobs:
         with:
           bb: latest
 
-      - name: Run pair2 structural tests
-        working-directory: skills/re-frame-pair2
+      - name: Run re-frame2-pair structural tests
+        working-directory: skills/re-frame2-pair
         run: |
           set -euo pipefail
           bb tests/prompts/prompt_regression_test.clj

@@ -1,7 +1,7 @@
 # `args` — argument coercion helpers
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Parsers that take an ALREADY-RESOLVED raw value (extracted by the consumer from its platform-specific args object: a JS object for pair2-mcp, a Clojure map for story-mcp / causa-mcp) and normalise it into the Clojure-side type the tool body expects. Cross-MCP arg-vocabulary convention: an agent that learns `:dedup` defaults true on pair2-mcp must see the same default everywhere.
+> Parsers that take an ALREADY-RESOLVED raw value (extracted by the consumer from its platform-specific args object: a JS object for re-frame2-pair-mcp, a Clojure map for story-mcp / causa-mcp) and normalise it into the Clojure-side type the tool body expects. Cross-MCP arg-vocabulary convention: an agent that learns `:dedup` defaults true on re-frame2-pair-mcp must see the same default everywhere.
 
 This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
 
@@ -21,7 +21,7 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 
 ## Cross-server convention
 
-Argument names and default postures are a cross-MCP convention. An agent that learns `:dedup` defaults true on pair2-mcp must see the same default everywhere. These parsers encode the defaults so they can't drift across consumers.
+Argument names and default postures are a cross-MCP convention. An agent that learns `:dedup` defaults true on re-frame2-pair-mcp must see the same default everywhere. These parsers encode the defaults so they can't drift across consumers.
 
 The rejection posture (default-suppress vs default-allow) is named at the call-site by passing the appropriate `default` — the parser itself is policy-free.
 
@@ -60,7 +60,7 @@ The parser itself is policy-free. The call-site supplies the default that determ
 (parse-boolean v true)
 
 ;; bake the default once per call-site
-(defn arg-dedup [v] (parse-boolean v true))   ; pair2-mcp's :dedup default
+(defn arg-dedup [v] (parse-boolean v true))   ; re-frame2-pair-mcp's :dedup default
 ```
 
 This split keeps the parser pure data — no thread-local policy, no global config.

@@ -18,7 +18,7 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **Bundle isolation** (`test:bundle-isolation`, `test:reagent-slim:bundle-isolation`, `test:schemas-bundle`) | medium | Production bundles do not leak `tools/*` symbols; adapter-specific isolation invariants (UIx/Helix Reagent-free; Reagent-Slim without stock-Reagent impl). |
 | **Production-elision** (`test:elision`, `test:browser-prod-elision`, `test:browser-schemas-boundary-prod`) | medium | Non-negotiable production invariants: dev-time sentinels elided in release builds; schemas boundary warn-once contract. |
 | **MCP conformance — wire** (`tools/mcp-conformance` suite) | medium | MCP servers honour the strict `CallToolResultSchema`; trusted-PATH + symlink-safe-unlink helpers. |
-| **MCP conformance — live** (`test:pair2-live-overflow-hermetic`, `test:pair2-live-subscribe`) | expensive | Real pair2-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
+| **MCP conformance — live** (`test:re-frame2-pair-live-overflow-hermetic`, `test:re-frame2-pair-live-subscribe`) | expensive | Real re-frame2-pair-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
 | **Example smoke** (`test:examples`, `test:examples:realworld`) | expensive | Whole-example browser smoke for the runnable examples (cart, counter variants, RealWorld). |
 | **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. |
 | **Causa feature gates** (`test:causa-feature-gate`) | expensive | Causa panel-gallery feature matrix (4-layer chrome, tab navigation, modal/popover behaviour). |
@@ -35,7 +35,7 @@ where adapter / framework gates already carry the signal (rf2-eceuv).
 |---|---|---|
 | `examples/` | **Humans** — learning + demonstration. | **No.** Per-example smoke specs are intentionally absent. |
 | `implementation/adapters/<name>/testbed/` | Per-adapter smoke. One tiny standalone counter per adapter (Reagent / UIx / Helix). Proves the adapter wires up end-to-end (mount, subscribe, dispatch, re-render). | Yes — one `spec.cjs` per adapter. |
-| `testbeds/` (top-level) | Framework feature-matrix substrates. Cross-cutting fixtures consumed by multiple tools (Causa, Story, pair2-mcp). | Yes — per-testbed `spec.cjs` driving the matrix. |
+| `testbeds/` (top-level) | Framework feature-matrix substrates. Cross-cutting fixtures consumed by multiple tools (Causa, Story, re-frame2-pair-mcp). | Yes — per-testbed `spec.cjs` driving the matrix. |
 | `tools/causa/testbeds/` | Causa-rich demos (multi-frame, cart-total, panel gallery). | Yes — Causa-owned scenarios. |
 | `tools/story/testbeds/` | Story testbeds (counter-with-stories, login-form). | Yes — Story-owned scenarios. |
 | Framework tests (`clojure -M:test` per artefact) | The spec is the artefact; these protect contracts. | N/A (unit, not smoke). |
@@ -105,20 +105,20 @@ agent pre-checkin "narrow to the changed surface" workflow.
 
 | Command | Scope |
 |---|---|
-| `npm test` | Runs the full MCP-client conformance suite via `scripts/test-all.cjs` — pair2 degraded, story end-to-end, causa placeholder, and exec-safety unit tests, with live-overflow flagged SKIP/RUN by env. |
-| `npm run test:pair2` | Degraded-mode pair2-mcp conformance against the SDK's strict `CallToolResultSchema`. |
-| `npm run test:pair2-live-overflow` | Live-runtime overflow conformance — SKIPs cleanly without `$SHADOW_CLJS_NREPL_PORT`. |
-| `npm run test:pair2-live-overflow-hermetic` | Hermetic live overflow — boots shadow-cljs against the `skills/re-frame-pair2/tests/fixture/` counter and runs the live path with a real over-budget eval. Catches cap-trigger threshold drift, marker shape regressions, and SDK strict-schema rejection. |
-| `npm run test:pair2-live-subscribe` | Live-runtime subscribe/unsubscribe conformance. Gated on `$SHADOW_CLJS_NREPL_PORT`. |
+| `npm test` | Runs the full MCP-client conformance suite via `scripts/test-all.cjs` — re-frame2-pair degraded, story end-to-end, causa placeholder, and exec-safety unit tests, with live-overflow flagged SKIP/RUN by env. |
+| `npm run test:re-frame2-pair` | Degraded-mode re-frame2-pair-mcp conformance against the SDK's strict `CallToolResultSchema`. |
+| `npm run test:re-frame2-pair-live-overflow` | Live-runtime overflow conformance — SKIPs cleanly without `$SHADOW_CLJS_NREPL_PORT`. |
+| `npm run test:re-frame2-pair-live-overflow-hermetic` | Hermetic live overflow — boots shadow-cljs against the `skills/re-frame2-pair/tests/fixture/` counter and runs the live path with a real over-budget eval. Catches cap-trigger threshold drift, marker shape regressions, and SDK strict-schema rejection. |
+| `npm run test:re-frame2-pair-live-subscribe` | Live-runtime subscribe/unsubscribe conformance. Gated on `$SHADOW_CLJS_NREPL_PORT`. |
 | `npm run test:story` | End-to-end story-mcp MCP-client conformance. |
 | `npm run test:exec-safety` | Unit tests for the trusted-PATH-resolution and symlink-safe-unlink helpers shared with the hermetic orchestrator. |
 
-### `tools/pair2-mcp/package.json` (run from `tools/pair2-mcp/`)
+### `tools/re-frame2-pair-mcp/package.json` (run from `tools/re-frame2-pair-mcp/`)
 
 | Command | Scope |
 |---|---|
-| `npm run build` | Build the pair2-mcp server (`shadow-cljs compile server`). |
-| `npm test` | Compile + run the pair2-mcp `server-test` build under node. |
+| `npm run build` | Build the re-frame2-pair-mcp server (`shadow-cljs compile server`). |
+| `npm test` | Compile + run the re-frame2-pair-mcp `server-test` build under node. |
 | `npm run stdio-roundtrip` | Stdio JSON-RPC round-trip smoke against the built server. |
 
 ### Per-artefact JVM tests
@@ -168,9 +168,9 @@ boolean GitHub-Actions outputs per surface:
 | `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
-| `mcp_live` | Pair2-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
+| `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
 | `story_causa_browser` | `tools/story/*` or `tools/causa/*` runtime changed. Not set by the `-mcp` wrappers (they don't run in a browser). |
-| `skills_structural` | `skills/re-frame-pair2/*` or `skills/shared/*` changed. |
+| `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
 
 A few "blast-radius" inputs force the full sweep:
 
@@ -254,10 +254,10 @@ must re-run the matrix).
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
 | S11 | `tools/story/*`, `tools/causa/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
 | S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
-| S13 | `tools/pair2-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
+| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
 | S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
-| S15 | `skills/re-frame-pair2/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
-| S16 | `skills/re-frame-pair2/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
+| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at
@@ -274,8 +274,8 @@ PR time; one row per output here so the table stays scannable).
 | `examples_browser` | `examples-browser` (Playwright, testbeds + examples) |
 | `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
-| `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,pair2,wire-vocab,...}`) |
-| `mcp_live` | `mcp-conformance-pair2` (live + hermetic) |
+| `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
+| `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
 | `story_causa_browser` | `story-causa-browser` (feature gates, Playwright) |
 | `skills_structural` | `skills-structural` |
 
@@ -291,7 +291,7 @@ actually does today:
 |---|---|---|
 | Adapter JVM classpath probes (Reagent / Reagent Slim / UIx / Helix) | `jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix` | Adapter namespaces are `:cljs-only`. The job runs `clojure -M:test` with an `or-echo` fallback so a zero-test alias still proves the artefact's deps + classpath wiring stay green. Real adapter coverage is the browser counter + login specs (rf2-3yij / rf2-2qit Decision 7) under the examples-browser job, and per-adapter CLJS unit tests under the consolidated `node-test` build. |
 | `tools/causa` JVM probe | `jvm-tools-causa` | Causa ships two JVM tests today (`config_test.clj`, `trace_bus_test.clj`); an `or-echo` fallback keeps the job green if that set shrinks to zero on an intermediate cut. The CLJS surface is already covered by the consolidated `node-test` build (shadow-cljs.edn lists `tools/causa/test` as a source path). |
-| Pair2 live-overflow without nREPL | `mcp-conformance-pair2` — step `Run pair2-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:pair2-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:pair2-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame-pair2/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
+| Pair2 live-overflow without nREPL | `mcp-conformance-re-frame2-pair` — step `Run re-frame2-pair-mcp live-overflow conformance (SKIPPED without nREPL)` | The step runs `npm run test:re-frame2-pair-live-overflow` (no env). The script exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path is exercised on every CI run (a regression that broke the SKIP, e.g. crashing on missing env, surfaces here). Real live coverage is the hermetic step that follows: `npm run test:re-frame2-pair-live-overflow-hermetic` (which spawns shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`, sets `SHADOW_CLJS_NREPL_PORT`, and runs the same script). |
 
 Do not treat a skip-ok diagnostic as evidence that the underlying behaviour was
 covered. The real coverage is the changed-surface, nightly/manual, or release

@@ -43,7 +43,7 @@ re-frame2 makes a different choice: **all of your application's state goes in on
 
 Two smaller-but-useful affordances ride along on the same idea:
 
-- **You can `pprint` it; you can `diff` two app-dbs.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it; before and after an event, before and after a refactor, before and after a bug, the diff is the whole story. Tools (Causa, re-frame-pair2) show it to you live.
+- **You can `pprint` it; you can `diff` two app-dbs.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it; before and after an event, before and after a refactor, before and after a bug, the diff is the whole story. Tools (Causa, re-frame2-pair) show it to you live.
 
 - **No question of "where does this state go?"** The answer is always: somewhere in app-db, at a path your feature owns. When you add a `:cart`-feature, its state goes under `:cart`. When you add `:auth`, under `:auth`. The convention is the path.
 
@@ -66,7 +66,7 @@ This buys you three things:
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
-- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for [`re-frame-pair2`](../skills/re-frame-pair2.md) and [Causa](../causa/index.md) to read.
+- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for [`re-frame2-pair`](../skills/re-frame2-pair.md) and [Causa](../causa/index.md) to read.
 
 The lost flexibility — you can't sneak a mutation in from a corner of the app — is the point. Less flexibility, more inspectability.
 

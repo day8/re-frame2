@@ -21,7 +21,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 
 ### Non-goals
 
-- **No AI in Causa.** No co-pilot rail, no AI tab, no in-chrome LLM surface. AI access goes through `tools/pair2-mcp/` over raw nREPL — the agent reads the same instrumentation Causa reads, not a Causa-curated facade. (Causa is the human-only surface; pair2-mcp is the AI access path.)
+- **No AI in Causa.** No co-pilot rail, no AI tab, no in-chrome LLM surface. AI access goes through `tools/re-frame2-pair-mcp/` over raw nREPL — the agent reads the same instrumentation Causa reads, not a Causa-curated facade. (Causa is the human-only surface; re-frame2-pair-mcp is the AI access path.)
 - **No Causa-MCP.** The `tools/causa-mcp/` artefact is dropped entirely (separate PR). MCP server panel dies with it.
 - **No `:sensitive? true` event-handler annotation.** Reversed in favour of unified path-marked classification per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md). Causa CONSUMES that contract; this spec defines how the sentinels render in Causa's surfaces (§12).
 - **No writes to host runtime.** Causa stays read-only forever (Lock #3 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)).
@@ -106,7 +106,7 @@ The default contents are the host app's frames, single-select. Example with thre
 └────────────────────────┘
 ```
 
-**Excludes `:rf/causa` (and any future tool frames like `:rf/pair2`) by default.** See [§8 Frame-observation isolation invariants](#8-frame-observation-isolation-invariants).
+**Excludes `:rf/causa` (and any future tool frames like `:rf/re-frame2-pair`) by default.** See [§8 Frame-observation isolation invariants](#8-frame-observation-isolation-invariants).
 
 When the Settings "Show tool frames in picker" power-user toggle is on, tool frames are appended under a `── Power user ──` divider:
 
@@ -891,7 +891,7 @@ Every consumer (event list, scrubber, Issues badge counter, palette verbs) reads
 
 | # | Invariant | Enforcement |
 |---|---|---|
-| **I1** | **Frame picker excludes `:rf/causa`** from the inspectable-frame list by default. Internal frames (`:rf/causa`, future `:rf/pair2`) are filtered out at the `(rf/list-frames)` consumer in `panels/ribbon.cljs` frame-dropdown. | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Causa itself). |
+| **I1** | **Frame picker excludes `:rf/causa`** from the inspectable-frame list by default. Internal frames (`:rf/causa`, future `:rf/re-frame2-pair`) are filtered out at the `(rf/list-frames)` consumer in `panels/ribbon.cljs` frame-dropdown. | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Causa itself). |
 | **I2** | **No Causa UI view reads from `:rf/causa` for data purposes.** Subscribes inside a Causa view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.causa/focus.frame))` form). Subscribes targeting Causa's own state (selection, mode, filters, settings) are fine but never appear in the inspected-data panels (Event/App-db/Views/Trace/Machines/Issues). | Code review + dev-time lint: a predicate added to `tools/causa/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Causa-namespaced sub feeds an Event/App-db/Views/Trace/Machines/Issues render path. Throws useful error during dev mount; no-op in production. |
 | **I3** | **Views panel render-attribution is scoped to the selected frame ONLY.** The frame's per-cascade render projection must filter component-render entries to those whose owning frame matches `:rf.causa/focus.frame`. Causa's own React subtrees must not bleed in even when both frames mount under the same `react-dom` root. | Implementation: render tracker tags each component-render with `:owning-frame` at capture time; Views panel reads `(filter #(= (:owning-frame %) frame) renders)`. |
 | **I4** | **Test gate — Causa-self-observation is disallowed by CI.** Browser feature test: open Causa; select `:rf/default`; trigger a Causa-internal hover (a Causa-side hover-render); assert Views panel for `:rf/default` does NOT include any Causa-namespaced component. | Lives in `tools/causa/test/day8/re_frame2_causa/isolation_test.cljs` (new). Runs in `npm run test:browser`. **Failure blocks merge.** |
@@ -1000,7 +1000,7 @@ ribbon and re-implementing it in two places would invite drift.
 - **Section:** View (NOT Filters — it's about what the picker shows, which is a view concern).
 - **Sub-section:** Power user (visually separated by `── Power user ──` divider).
 - **Label:** "Show tool frames in picker" (literal).
-- **Sub-label:** "Reveals `:rf/causa` (and `:rf/pair2` etc.) in the ribbon's frame dropdown. Only useful when debugging Causa itself."
+- **Sub-label:** "Reveals `:rf/causa` (and `:rf/re-frame2-pair` etc.) in the ribbon's frame dropdown. Only useful when debugging Causa itself."
 - **Default:** OFF. Persists per host-app via localStorage. NOT included in factory-reset's standard reset (framework devs who turned it on will want it stable across resets) — separate "Reset power-user toggles" button.
 
 ### configure! API mapping

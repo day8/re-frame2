@@ -2,7 +2,7 @@
 ;; conformance test (rf2-j2z7o).
 ;;
 ;; A pure-JVM Clojure test that pins the **cross-server wire-marker
-;; vocabulary** shared by pair2-mcp, story-mcp, and causa-mcp:
+;; vocabulary** shared by re-frame2-pair-mcp, story-mcp, and causa-mcp:
 ;;
 ;;   :rf.mcp/overflow      — token-budget overflow (mechanism 1)
 ;;   :rf.mcp/summary       — tree-summary lazy mode (mechanism 4)

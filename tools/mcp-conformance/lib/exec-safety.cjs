@@ -43,7 +43,7 @@
 //     The JVM binary lives in `/usr/local/bin/clojure` (or wherever
 //     `setup-clojure` puts it on CI); the bare-name PATH walk is the
 //     accident class the helper gates.
-//   - **`pair2-mcp` harness** uses `process.execPath`. That's the
+//   - **`re-frame2-pair-mcp` harness** uses `process.execPath`. That's the
 //     currently-running Node binary, always an absolute path, always
 //     outside the workspace by construction (Node can't have launched
 //     from a workspace-internal copy without already trusting it).

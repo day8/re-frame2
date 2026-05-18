@@ -1,7 +1,7 @@
 (ns deliberate-throw.core
   "Shared framework-behavior testbed — four trigger sites that throw on
   `:on-click` dispatch. Each button is wired to a different layer of the
-  six-domino cascade so a consumer (Causa, Story, pair2-mcp) observes
+  six-domino cascade so a consumer (Causa, Story, re-frame2-pair-mcp) observes
   the corresponding :rf.error/* category emerge once per click.
 
   This is NOT a tutorial. The bodies are deliberately stark — no error

@@ -34,8 +34,8 @@ Find your skill, scan the audience section for lines tagged with it.
 | `re-frame2` | Building CLJS apps on the reference impl | `[app]` |
 | `re-frame2-setup` | Greenfield bootstrap on the reference impl | `[setup]` |
 | `re-frame-migration` | Porting a v1 codebase to v2 | `[mig]` |
-| `re-frame-pair2` | Live-runtime pair-programming | `[pair]` |
-| `re-frame-pair-retro2` | Pair-session retrospective (no URL deps) | — |
+| `re-frame2-pair` | Live-runtime pair-programming | `[pair]` |
+| `re-frame2-pair-retro` | Pair-session retrospective (no URL deps) | — |
 | `re-frame2-implementor` | Building a new impl in another host language | `[impl]` |
 
 ## Section 1 — Building with the reference implementation

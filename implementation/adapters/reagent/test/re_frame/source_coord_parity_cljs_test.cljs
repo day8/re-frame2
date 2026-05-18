@@ -10,7 +10,7 @@
   Reagent — divergent formats would silently break the source-mapping
   contract.
 
-  The parser fix in rf2-7g2q's pair2 work assumed both sides produce
+  The parser fix in rf2-7g2q's re-frame2-pair work assumed both sides produce
   the same `<ns>:<sym>:<line>:<col>` string for the same registration.
   No test exercises both paths against a single fixture to confirm.
   This file pins parity from the CLJS side (rf2-d4v7 sub-gap 3 /

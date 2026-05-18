@@ -143,7 +143,7 @@ deeper investigation is one tab away (`a` App-db · `v` Views · `t` Trace ·
 ## What it isn't
 
 - **Not the AI surface.** AI access to the running re-frame2 runtime goes
-  through `tools/pair2-mcp/` (raw nREPL over MCP). Two doors, no compromises;
+  through `tools/re-frame2-pair-mcp/` (raw nREPL over MCP). Two doors, no compromises;
   no in-Causa AI co-pilot panel, no Causa-MCP server, no LLM chat rail.
 - **Not a port of re-frame-10x.** The chrome is 10x-shaped at the layer
   level (events at top, detail at bottom, scrubber via ribbon+list,
@@ -161,7 +161,7 @@ deeper investigation is one tab away (`a` App-db · `v` Views · `t` Trace ·
 - **Not a mobile surface.** Desktop only; viewports below 600px refuse to
   mount (lock #5).
 - **Not a Chrome extension.** In-app DOM injection plus a same-browser
-  pop-out via `window.opener`. Remote-attach lives over pair2-mcp (lock #9).
+  pop-out via `window.opener`. Remote-attach lives over re-frame2-pair-mcp (lock #9).
 - **Not part of any production bundle.** Per the bundle-isolation contract
   in `tools/README.md`, dependency arrows flow tool → implementation; Causa
   is invisible to consumer apps after elision.
@@ -254,8 +254,8 @@ impressive.
   machine's `:exit` ripple through three abort traces in one vertical
   waterfall, not as a confusing flurry across the Trace firehose.
 - **The AI agent driving the runtime.** Doesn't open the UI; consumes the
-  same data through the same primitives via `tools/pair2-mcp/` over raw
-  nREPL. Causa and pair2-mcp are siblings; neither owns a registry; neither
+  same data through the same primitives via `tools/re-frame2-pair-mcp/` over raw
+  nREPL. Causa and re-frame2-pair-mcp are siblings; neither owns a registry; neither
   writes to app-db.
 
 ## Where Causa fits
@@ -268,7 +268,7 @@ instrumentation surface (the "two doors" split):
 │  HUMAN SURFACE                            AI / AGENT SURFACE          │
 │                                                                       │
 │  ┌────────────┐                          ┌────────────┐               │
-│  │   Causa    │                          │ pair2-mcp  │               │
+│  │   Causa    │                          │ re-frame2-pair-mcp  │               │
 │  │  (this)    │                          │ (raw nREPL)│               │
 │  └─────┬──────┘                          └──────┬─────┘               │
 │        │                                        │                     │
@@ -283,19 +283,19 @@ instrumentation surface (the "two doors" split):
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Causa and pair2-mcp are SIBLINGS.** Both read the same instrumentation;
+**Causa and re-frame2-pair-mcp are SIBLINGS.** Both read the same instrumentation;
 neither owns a registry; neither writes to app-db. The split is intentional
 and load-bearing:
 
 - **Causa = human surface.** Visual chrome, keyboard-first power-user UX,
   painted UI, virtualisation, animation. The five-canonical-questions
   answer themselves on first paint.
-- **pair2-mcp = AI surface.** Raw nREPL over MCP. Whatever the agent wants
+- **re-frame2-pair-mcp = AI surface.** Raw nREPL over MCP. Whatever the agent wants
   to do, it does by evaluating Clojure against the runtime — no curated
   AI-shaped facade in front.
 
 This kills the false middle: a curated *Causa-MCP* would be a tax on both
-surfaces (it duplicates pair2-mcp's responsibility and degrades Causa's
+surfaces (it duplicates re-frame2-pair-mcp's responsibility and degrades Causa's
 freedom to evolve its UI without breaking an AI contract). Drop it.
 
 **Story (`tools/story/`)** — the component playground — embeds Causa's

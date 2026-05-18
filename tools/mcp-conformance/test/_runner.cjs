@@ -1,7 +1,7 @@
 // Shared Node-side test runner for MCP-conformance harnesses.
 //
 // Every `tools/mcp-conformance/test/end-to-end-*.cjs` (and the
-// sibling `live-pair2-overflow.cjs`) repeats the same ceremony:
+// sibling `live-re-frame2-pair-overflow.cjs`) repeats the same ceremony:
 //
 //   - construct a `StdioClientTransport` with `stderr: 'pipe'`
 //   - pipe the child's stderr to ours with a `[server]` prefix
@@ -16,7 +16,7 @@
 // Source: rf2-sems4. The split was originally three near-identical
 // ~40-LoC blocks of pure framing code; centralising the framing here
 // shrinks each test body to the workflow steps that actually differ.
-// Adding another Node-side conformance test (a third pair2 variant)
+// Adding another Node-side conformance test (a third re-frame2-pair variant)
 // becomes ~30 LoC instead of ~110.
 //
 // ## Contract
@@ -122,7 +122,7 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
 // Pre-flight skip helper (rf2-i3ffz F-HYG-2).
 //
 // Conformance tests gate on environment / server-implementation status
-// (`live-pair2-overflow.cjs` requires `$SHADOW_CLJS_NREPL_PORT`;
+// (`live-re-frame2-pair-overflow.cjs` requires `$SHADOW_CLJS_NREPL_PORT`;
 // `end-to-end-causa.cjs` is a placeholder until causa-mcp's
 // implementation lands). Skipping cleanly means exiting 0 BEFORE
 // spawning a child or installing the watchdog — same pattern across

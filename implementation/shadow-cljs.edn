@@ -131,7 +131,7 @@
                 ;; (e.g. deliberate-throw.core) resolves under this
                 ;; source path. Per the testbeds split (rf2-96nb3),
                 ;; these are framework-behavior fixtures consumed by
-                ;; multiple tools (Causa, Story, pair2-mcp); the
+                ;; multiple tools (Causa, Story, re-frame2-pair-mcp); the
                 ;; sources are bundle-isolated from the examples
                 ;; surface (no example :requires anything under
                 ;; testbeds/, and vice versa).

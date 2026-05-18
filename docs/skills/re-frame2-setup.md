@@ -21,7 +21,7 @@ Do **not** use this skill for:
 
 - Writing application code in a project that's already on re-frame2 → use [re-frame2](re-frame2.md).
 - Migrating a re-frame v1 project → use [re-frame-migration](re-frame-migration.md).
-- Inspecting / debugging a running app → use [re-frame-pair2](re-frame-pair2.md).
+- Inspecting / debugging a running app → use [re-frame2-pair](re-frame2-pair.md).
 
 ## Kickoff
 

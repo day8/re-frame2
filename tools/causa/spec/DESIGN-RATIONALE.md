@@ -67,7 +67,7 @@ What does the re-frame-10x successor get called?
 
 **Reversed 2026-05-17 (Mike): drop entirely.** Earlier locks shipped a
 pull-only Q&A + slash-command rail at v1.0; that surface has been
-removed. AI integration lives in `tools/pair2-mcp/` instead; Causa is
+removed. AI integration lives in `tools/re-frame2-pair-mcp/` instead; Causa is
 the human surface only. Removal recorded under bead rf2-s3vx5.
 
 ---
@@ -223,7 +223,7 @@ Does Causa support mobile / tablet / phone viewports?
 ## Lock #6 — MCP timing
 
 **Locked 2026-05-12 (Mike).** **Ship at v1.0.** Via
-`tools/causa-mcp/`, mirroring the `tools/pair2-mcp/` pattern.
+`tools/causa-mcp/`, mirroring the `tools/re-frame2-pair-mcp/` pattern.
 
 ### Question
 
@@ -241,7 +241,7 @@ When does Causa's MCP server ship — v1.0 or v1.1?
 
 ### Why
 
-- `tools/pair2-mcp/` (rf2-5b8e #423, shipped 2026-05-12) is the
+- `tools/re-frame2-pair-mcp/` (rf2-5b8e #423, shipped 2026-05-12) is the
   template — fork the project, swap the tool catalogue for Causa's
   surfaces. Most of the implementation cost is already paid.
 - Enables remote-attach (one browser debugs another) as a v1.0
@@ -258,7 +258,7 @@ When does Causa's MCP server ship — v1.0 or v1.1?
 ### Date locked
 
 2026-05-12 (Mike). Originally deferred 2026-05-11 (per rf2-buor
-§10.7); reversed on 2026-05-12 once pair2-mcp shipped and the
+§10.7); reversed on 2026-05-12 once re-frame2-pair-mcp shipped and the
 template existed.
 
 ### Trail-of-thought citations
@@ -334,7 +334,7 @@ the UX design doc §4 reversed it; Mike locked the reversal
 
 **Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
 removed entirely (see Lock #2 reversal).** AI integration lives in
-`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
+`tools/re-frame2-pair-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -405,7 +405,7 @@ remote case.
 
 **Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
 removed entirely (see Lock #2 reversal).** AI integration lives in
-`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
+`tools/re-frame2-pair-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -472,7 +472,7 @@ explicit caller coord), what does it render?
 
 **Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
 removed entirely (see Lock #2 reversal).** AI integration lives in
-`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
+`tools/re-frame2-pair-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 
@@ -480,7 +480,7 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 
 **Superseded 2026-05-17 (Mike): the AI co-pilot rail has been
 removed entirely (see Lock #2 reversal).** AI integration lives in
-`tools/pair2-mcp/`. Removal recorded under bead rf2-s3vx5.
+`tools/re-frame2-pair-mcp/`. Removal recorded under bead rf2-s3vx5.
 
 ---
 

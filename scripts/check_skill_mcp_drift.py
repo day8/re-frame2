@@ -67,7 +67,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # skill path) triples that we cross-check. The MCP-host prefix is the
 # `mcp__<prefix>__<tool-name>` string the agent host generates when the
 # server is named in the host's mcp.json — it is conventionally the server's
-# advertised name minus a `-mcp` suffix (re-frame-pair2-mcp → re-frame-pair2).
+# advertised name minus a `-mcp` suffix (re-frame2-pair-mcp → re-frame2-pair).
 #
 # `intentional_server_only` is the escape hatch — names listed there are
 # exposed by the server but intentionally not consumed by the skill (e.g. a
@@ -107,20 +107,20 @@ _STORY_MCP_LEAVES = tuple(
 
 MAPPINGS: list[Mapping] = [
     Mapping(
-        name="pair2-mcp <-> re-frame-pair2",
+        name="re-frame2-pair-mcp <-> re-frame2-pair",
         # Post rf2-47g8l the eleven-tool catalogue data lives in a dedicated
         # `descriptors_data.cljs` leaf — the sibling `descriptors.cljs` is
         # now a slim splicer/façade with no `{:name "..."}` literals. Point
         # the gate at the data file.
-        server_src=(REPO_ROOT / "tools" / "pair2-mcp" / "src" / "re_frame_pair2_mcp" / "tools" / "descriptors_data.cljs",),
-        host_prefix="re-frame-pair2",
-        skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
+        server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
+        host_prefix="re-frame2-pair",
+        skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
     ),
     # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
     # 17-tool surface, split along the authoring vs live-runtime axis.
     # - re-frame2 (authoring) owns: get-story-instructions, list-*, get-*,
     #   variant->edn, preview-variant, register-variant, unregister-variant.
-    # - re-frame-pair2 (live-session) owns: run-variant, read-failures,
+    # - re-frame2-pair (live-session) owns: run-variant, read-failures,
     #   snapshot-identity, run-a11y, record-as-variant.
     # Each mapping marks the OTHER skill's tools as `intentional_server_only`
     # so the gate only fires when the canonical owner forgets a tool.
@@ -132,7 +132,7 @@ MAPPINGS: list[Mapping] = [
         host_prefix="re-frame2-story-mcp",
         skill_md=REPO_ROOT / "skills" / "re-frame2" / "SKILL.md",
         intentional_server_only=frozenset({
-            # Live-session tools — owned by re-frame-pair2.
+            # Live-session tools — owned by re-frame2-pair.
             "run-variant",
             "read-failures",
             "snapshot-identity",
@@ -141,10 +141,10 @@ MAPPINGS: list[Mapping] = [
         }),
     ),
     Mapping(
-        name="story-mcp <-> re-frame-pair2",
+        name="story-mcp <-> re-frame2-pair",
         server_src=_STORY_MCP_LEAVES,
         host_prefix="re-frame2-story-mcp",
-        skill_md=REPO_ROOT / "skills" / "re-frame-pair2" / "SKILL.md",
+        skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
         intentional_server_only=frozenset({
             # Authoring tools — owned by re-frame2.
             "get-story-instructions",
@@ -176,7 +176,7 @@ _BASELINE: set[tuple[str, str, str]] = set()
 # ---------------------------------------------------------------------------
 # Server-side extraction.
 #
-# Tool descriptors in both pair2-mcp (.cljs) and story-mcp (.cljc) sit
+# Tool descriptors in both re-frame2-pair-mcp (.cljs) and story-mcp (.cljc) sit
 # inside a top-level `def` of a vector-of-maps literal. Each tool's name
 # appears as `{:name "<dash-separated>"`. We don't try to evaluate Clojure
 # — we lex out the `:name "..."` pairs from the file. False positives are
@@ -251,7 +251,7 @@ def extract_server_tools(paths: tuple[Path, ...]) -> set[str]:
 # front-matter is delimited by `---` lines at the top of the file. We do
 # not depend on PyYAML — the format is constrained and we can lex it with
 # a small state machine. The list items can be either bare strings
-# (`- mcp__re-frame-pair2__discover-app`) or `Bash(bd *)`-style wrapped
+# (`- mcp__re-frame2-pair__discover-app`) or `Bash(bd *)`-style wrapped
 # entries. We only care about the `mcp__<prefix>__*` entries for the
 # given prefix.
 # ---------------------------------------------------------------------------

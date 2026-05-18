@@ -4,7 +4,7 @@
 
   ## What spec/009 mandates
 
-  Framework-published forwarders — Sentry / Honeybadger, pair2 server,
+  Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server,
   Story-MCP, Causa-MCP — MUST default-drop trace events whose
   registration declared `:sensitive? true`. The runtime stamps the
   flag at the top level of every emitted trace event inside such a
@@ -23,12 +23,12 @@
   predicate-style `?` is rejected there. The predicate FUNCTION name
   `include-sensitive?` retains its `?` (the idiom belongs on the
   predicate, not on a data key whose wire form disallows it).
-  story-mcp ships the renamed wire-key (rf2-y710n); pair2-mcp still
+  story-mcp ships the renamed wire-key (rf2-y710n); re-frame2-pair-mcp still
   carries `:include-sensitive?` pending rf2-ihq4d.
 
   ## Why this ns is zero-dep
 
-  Pair2-mcp is a CLJS Node bundle (no `re-frame.trace` on its
+  re-frame2-pair-mcp is a CLJS Node bundle (no `re-frame.trace` on its
   classpath); story-mcp / causa-mcp are JVM-side and DO have the
   framework primitive available. The predicate body
   (`(and (map? ev) (sensitive-stamp? (:sensitive? ev)))`) is
@@ -192,7 +192,7 @@
   `strip-sensitive` predicate (spec/009 §Privacy stamp check).
   Three-arity form `[snapshot include? strip-fn]` accepts a custom
   strip-fn matching the `[items include?] => [kept dropped]`
-  contract — pair2-mcp passes its union predicate that also catches
+  contract — re-frame2-pair-mcp passes its union predicate that also catches
   the epoch-level `:sensitive?` rollup (`sensitive-event? OR
   sensitive-epoch?`). The default arity preserves the
   trace-event-only filter for story-mcp / causa-mcp consumers."

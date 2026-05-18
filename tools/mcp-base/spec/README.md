@@ -4,7 +4,7 @@
 genuinely-cross-cutting primitives consumed by every MCP server in
 the re-frame2 tool triplet:
 
-- `tools/pair2-mcp/` (CLJS / Node — runs over nREPL to a browser app)
+- `tools/re-frame2-pair-mcp/` (CLJS / Node — runs over nREPL to a browser app)
 - `tools/story-mcp/` (JVM / Clojure — bridges to `tools/story/`)
 - `tools/causa-mcp/` (CLJS / Node — runs over nREPL to a browser app; eighteen-tool catalogue at `tools/causa-mcp/spec/004-Tools-Catalogue.md`)
 
@@ -47,7 +47,7 @@ per-namespace contract doc; the table below indexes them:
 | `cap` | 242 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu) + resource controls + token splitter. | [`cap.md`](cap.md) |
 
 All `.cljc`, so consumers compile them under their own platform —
-pair2-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
+re-frame2-pair-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
 classpath. The library's `deps.edn` carries only
 `org.clojure/clojure`; no consumer-side runtime deps.
 
@@ -58,15 +58,15 @@ identical across the triplet's wire / privacy / size surfaces.
 Three categories stay consumer-side:
 
 1. **Wire transport.** story-mcp uses Cheshire for JSON-RPC over
-   stdin/stdout; pair2-mcp uses the npm `@modelcontextprotocol/sdk`'s
+   stdin/stdout; re-frame2-pair-mcp uses the npm `@modelcontextprotocol/sdk`'s
    stdio transport. The framing is different by language; there's
    nothing useful to share here.
 
 2. **Cursor base64 codec.** The cursor *shape* (`{:v 1 :after-id ...
    :ms ... :until-ms ... :frame ...}`) is conventional — but
-   pair2-mcp uses `js/Buffer.from … "base64"` and a JVM consumer
+   re-frame2-pair-mcp uses `js/Buffer.from … "base64"` and a JVM consumer
    would use `java.util.Base64`. Factoring the codec means a
-   protocol-shaped helper per platform; pair2-mcp and causa-mcp
+   protocol-shaped helper per platform; re-frame2-pair-mcp and causa-mcp
    both run on Node and share `js/Buffer`, so a single codec helper
    here is not yet warranted.
 
@@ -122,8 +122,8 @@ A new shared primitive ships with:
 
 ## See also
 
-- [`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
-  — pair2-mcp's principles, downstream consumer of these primitives.
+- [`tools/re-frame2-pair-mcp/spec/Principles.md`](../../re-frame2-pair-mcp/spec/Principles.md)
+  — re-frame2-pair-mcp's principles, downstream consumer of these primitives.
 - [`tools/mcp-conformance/wire-vocab/`](../../mcp-conformance/wire-vocab/)
   — the JVM-side cross-MCP conformance corpus that pins the marker
   SHAPE across every consumer.

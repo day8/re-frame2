@@ -2,7 +2,7 @@
 
 These are **not CI-runnable.** They are document-shaped fixtures that
 a human or AI replays against a fresh agent invocation of the
-consuming skill (`re-frame2-improver` or `re-frame-pair-retro2`), then
+consuming skill (`re-frame2-improver` or `re-frame2-pair-retro`), then
 inspects the agent's behaviour against each fixture's §Expected
 behaviour section.
 
@@ -31,9 +31,9 @@ protocol or a consuming skill replays these by hand and confirms the
 locks still hold.
 
 This is the same posture the existing
-`skills/re-frame-pair2/tests/prompts/prompt_regression_test.clj` test
+`skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj` test
 takes ("structural substrate that catches the cheapest class of
-drift"); the difference is that pair2's prompts target file-level
+drift"); the difference is that re-frame2-pair's prompts target file-level
 recipe shape (which is statically checkable), while these target
 agent runtime behaviour (which is not).
 
@@ -42,7 +42,7 @@ agent runtime behaviour (which is not).
 1. Open a fresh chat with Claude Code.
 2. Type a request that activates the target skill — e.g. for the
    improver: *"review this snippet against the re-frame2 anti-pattern
-   catalogue."* For the retro: *"retro this pair2 session for me."*
+   catalogue."* For the retro: *"retro this re-frame2-pair session for me."*
 3. Paste the fixture's §Setup block into the conversation as the
    evidence the skill is reviewing.
 4. Let the agent respond.

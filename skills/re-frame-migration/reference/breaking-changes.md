@@ -50,7 +50,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `reg-flow` / `:rf.fx/reg-flow` (including post-M-21 `on-changes` rewrites) | **M-30** | A | Add `day8/re-frame2-flows` artefact; require `re-frame.flows` in any namespace using flow surfaces. |
 | `[:rf.http/managed ...]` fx, child-invokable HTTP machine | **M-31** | A | Add `day8/re-frame2-http` artefact; require `re-frame.http` in any namespace using managed HTTP. |
 | `render-to-string` (server-side SSR) | **M-32** | A | Add `day8/re-frame2-ssr` artefact; require `re-frame.ssr` server-side. |
-| `epoch-history`, `restore-epoch` | **M-33** | A | Add `day8/re-frame2-epoch` artefact; require `re-frame.epoch`. Mostly pulled transitively via `re-frame-pair2`. |
+| `epoch-history`, `restore-epoch` | **M-33** | A | Add `day8/re-frame2-epoch` artefact; require `re-frame.epoch`. Mostly pulled transitively via `re-frame2-pair`. |
 | Spawned-actor tracking that reads `[:data :pending]` | M-34 | A | Move to runtime-owned `[:rf/spawned ...]` path. Detail in MIGRATION.md. |
 | `:spawn` / `:destroy-machine` fx ids | M-35 | A | Rename to `:rf.machine/spawn` / `:rf.machine/destroy`. |
 | Drift sweep: `:rf/route` cross-spec — no user-side action | M-36 | — | Reconciled; informational only. |

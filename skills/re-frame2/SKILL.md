@@ -12,7 +12,7 @@ description: >
   states, managed HTTP, RemoteData lifecycles, writing tests for a
   re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2
   is not named explicitly. **Authoring only** (writing new code).
-  **Do not use** for: live-app inspection (use `re-frame-pair2`),
+  **Do not use** for: live-app inspection (use `re-frame2-pair`),
   greenfield project bootstrap (use `re-frame2-setup`), v1→v2 migration
   (use `re-frame-migration`), or porting re-frame2 itself (use
   `re-frame2-implementor`).
@@ -23,7 +23,7 @@ allowed-tools:
   - Grep
   - Glob
   # story-mcp authoring-side tools (rf2-1v7tu HYBRID): re-frame2 owns the
-  # authoring loop (write/refine variant); re-frame-pair2 owns the run side
+  # authoring loop (write/refine variant); re-frame2-pair owns the run side
   # (run-variant / read-failures / record-as-variant). Per
   # tools/story-mcp/spec/002-Tool-Registry.md.
   - mcp__re-frame2-story-mcp__get-story-instructions

@@ -128,7 +128,7 @@ If you see a blank page, open the browser console. Most failures land there with
 **Setup is done.** From here, **switch skills**:
 
 - **Writing more code (events, subs, machines, schemas, frames, fx, flows, routing, SSR)** — load the **`re-frame2`** skill. It covers the API surface in modular files; you can load just the pieces relevant to what you're building.
-- **Inspecting the running app live from the REPL** — install the **`re-frame-pair2`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL is a remote-evaluation surface: keep it dev-only and bound to localhost (shadow-cljs's default). Never expose the nREPL port on `0.0.0.0` or a shared / public interface — anything that can connect can evaluate arbitrary code in the running JVM.
+- **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL is a remote-evaluation surface: keep it dev-only and bound to localhost (shadow-cljs's default). Never expose the nREPL port on `0.0.0.0` or a shared / public interface — anything that can connect can evaluate arbitrary code in the running JVM.
 
 Both skills are independent of this one and can be loaded individually.
 

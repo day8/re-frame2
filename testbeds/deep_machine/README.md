@@ -2,7 +2,7 @@
 
 One Reagent-mounted state machine that, in a single registration,
 exercises every grammar surface from [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md)
-a tool (Causa, Story, pair2-mcp) needs to discriminate when
+a tool (Causa, Story, re-frame2-pair-mcp) needs to discriminate when
 visualising hierarchy and transition cascades. The buttons drive the
 machine through each capability one at a time.
 

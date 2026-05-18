@@ -25,7 +25,7 @@ nothing the framework didn't already expose. The 16 panels are
 *presentation* of an already-structured runtime.
 
 A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP
-tools for AI agents — same architecture as `tools/pair2-mcp/`,
+tools for AI agents — same architecture as `tools/re-frame2-pair-mcp/`,
 different tool catalogue (18 tools across five bands). Contract at
 [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md);
 catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md).

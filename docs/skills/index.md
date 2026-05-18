@@ -20,8 +20,8 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
 | [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in a different host language or substrate. Two-phase workflow — Phase 1 locks the decisions; Phase 2 walks the spec corpus with conformance as the acceptance test. |
-| [**re-frame-pair2**](re-frame-pair2.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
-| [**re-frame-pair-retro2**](re-frame-pair-retro2.md) | Retrospect a `re-frame-pair2` session. Surfaces friction; proposes targeted improvements; routes upstream beads to re-frame2 when the cause is framework-shaped. |
+| [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
+| [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream beads to re-frame2 when the cause is framework-shaped. |
 
 ## Picking the right one
 
@@ -31,8 +31,8 @@ A quick decision flow:
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Building a NEW re-frame2 implementation in a different host language or substrate?** → `re-frame2-implementor`.
-- **Debugging or pairing with a running v2 app?** → `re-frame-pair2`.
-- **Just finished a pairing session and noticed friction?** → `re-frame-pair-retro2`.
+- **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
+- **Just finished a pairing session and noticed friction?** → `re-frame2-pair-retro`.
 
 If a question spans more than one skill, pick the one whose **entry trigger** matches and let it route — every skill has a *"when NOT to use this"* table that hands off cleanly.
 
@@ -44,7 +44,7 @@ If a question spans more than one skill, pick the one whose **entry trigger** ma
 | `re-frame2-setup` | [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) |
 | `re-frame-migration` | [`skills/re-frame-migration/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |
 | `re-frame2-implementor` | [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor) |
-| `re-frame-pair2` | [`skills/re-frame-pair2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) |
-| `re-frame-pair-retro2` | [`skills/re-frame-pair-retro2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2) |
+| `re-frame2-pair` | [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) |
+| `re-frame2-pair-retro` | [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) |
 
 Each sub-page on this tab is a brief discoverability entry-ramp — pitch, triggers, kickoff shape, link to the skill's own `SKILL.md`. The authoritative content always lives in the skill's source tree.

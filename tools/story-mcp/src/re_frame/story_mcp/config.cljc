@@ -20,7 +20,7 @@
   - `allow-sensitive-reads?` — atom holding the sensitive-read gate. Read
     by the wire-egress scrubbers (`helpers/include-sensitive?`); a `false`
     value forces redaction regardless of any per-call `:include-sensitive`
-    arg. Symmetric with `--allow-eval` in pair2-mcp (rf2-zyoj2): arbitrary
+    arg. Symmetric with `--allow-eval` in re-frame2-pair-mcp (rf2-zyoj2): arbitrary
     code execution + raw sensitive-state reads are operator-only opt-ins,
     not caller-controlled toggles.
   - `set-allow-sensitive-reads!` — write helper. Same three input paths
@@ -135,7 +135,7 @@
   ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. Per
          the rf2-uaymx (b) decision the per-call `:include-sensitive`
          arg is honoured ONLY when this atom is also `true`. Symmetric
-         with `allow-eval?` in pair2-mcp."}
+         with `allow-eval?` in re-frame2-pair-mcp."}
   allow-sensitive-reads?
   (atom false))
 

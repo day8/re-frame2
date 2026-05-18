@@ -53,7 +53,7 @@ Most apps use **inline (default)**. Reach for the others only when the trigger f
 | Want a second monitor for Causa | **Inline + pop-out** | Inline mount as above, then `(causa/popout!)` from CLJS or `window.day8.re_frame2_causa.popout_BANG_()` from a devtools console. Same JS realm via `window.opener`. |
 | Tool-only page that can't reserve right-column real estate (Story-only canvas, internal config UI) | **Suppress auto-open** | `(causa-config/configure! {:launch/auto-open? false})` before `rf/init!`. Causa stays installed; explicit `open!` still works and still warns on missing host. |
 | Want to embed a single Causa panel inside the app's own layout (e.g. an embedded epoch scrubber in a debug screen) | **Declarative embedding via Spec 008** | See `tools/causa/spec/008-Embedding-Contract.md` for the `Panel` component shape. Not for "I want the whole panel"; only for "I want one slice of Causa as an app component." |
-| Want an AI agent to read / time-travel the running re-frame2 app programmatically | **pair2-mcp** | Configure the `tools/pair2-mcp/` server in the agent host (`re-frame-pair2-mcp`). Raw nREPL pair-programming companion. UI may or may not be open in the browser. |
+| Want an AI agent to read / time-travel the running re-frame2 app programmatically | **re-frame2-pair-mcp** | Configure the `tools/re-frame2-pair-mcp/` server in the agent host (`re-frame2-pair-mcp`). Raw nREPL pair-programming companion. UI may or may not be open in the browser. |
 
 Cross-machine debugging and mobile launch are out of scope at v1.0 (see Spec 011 §Default summary, locks #5 and #9).
 
@@ -109,7 +109,7 @@ The default inline mount competes with the app for screen real estate. Pop out t
 
 - You want a second monitor for Causa.
 - The app's own layout is narrow enough that the inline column is uncomfortable.
-- You're pairing with a live runtime (`re-frame-pair2`) and want Causa visible while the app gets full window width.
+- You're pairing with a live runtime (`re-frame2-pair`) and want Causa visible while the app gets full window width.
 
 Pop-out uses `window.open` whose JS realm connects to the opener's via `window.opener` — **same atoms, same listeners, same registrar, no protocol cost**. Constraints: same-origin only, no `noopener`/`noreferrer`, closes orphan-cleanly if the opener window closes (Spec 011 §Pop-out for the full handling).
 

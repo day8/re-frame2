@@ -6,7 +6,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame2-setup` skill at `skills/re-frame2-setup/`. The skill helps an author **bootstrap a fresh re-frame2 ClojureScript project** from nothing (or close to it) — adds the artefact deps, writes a minimal `shadow-cljs.edn`, lays down a canonical entry namespace with `rf/init!` + the Reagent adapter, and walks the author through their first mounted counter. After the counter mounts, the author switches to `skills/re-frame2/` for code-writing or `skills/re-frame-pair2/` for live pair-programming.*
+> *I'm re-authoring the `re-frame2-setup` skill at `skills/re-frame2-setup/`. The skill helps an author **bootstrap a fresh re-frame2 ClojureScript project** from nothing (or close to it) — adds the artefact deps, writes a minimal `shadow-cljs.edn`, lays down a canonical entry namespace with `rf/init!` + the Reagent adapter, and walks the author through their first mounted counter. After the counter mounts, the author switches to `skills/re-frame2/` for code-writing or `skills/re-frame2-pair/` for live pair-programming.*
 >
 > *Read these first (in this order):*
 >
@@ -64,7 +64,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > *- **L8 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L10 — Routing-on-exit table at the end of SKILL.md.** Every adjacent skill listed by name. The author leaves this skill confidently for the next one.*
 >
-> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every greenfield-trigger phrase: "start a re-frame2 project", "scaffold re-frame2", "how do I set up re-frame2", "add re-frame2 to my repo", "give me a hello-world re-frame2 app". The description explicitly carves out the exit routes (after setup → `re-frame2` for code-writing, `re-frame-pair2` for pair-programming).*
+> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every greenfield-trigger phrase: "start a re-frame2 project", "scaffold re-frame2", "how do I set up re-frame2", "add re-frame2 to my repo", "give me a hello-world re-frame2 app". The description explicitly carves out the exit routes (after setup → `re-frame2` for code-writing, `re-frame2-pair` for pair-programming).*
 >
 > *Voice: tight, declarative, recipe-shaped. Use tables for routing; use code blocks for canonical shapes (deps.edn, shadow-cljs.edn, core.cljs). Inline Troubleshooting at the end of SKILL.md for the four most common build failures (classpath miss, missing react, missing `rf/init!`, missing `<div id="app">`).*
 >
@@ -79,7 +79,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > *- Don't write a verification leaf or verify-before-done hard rule.*
 > *- Don't include bead-ids in user-facing leaves.*
 >
-> *Open the PR with title `feat(skills): re-frame2-setup — greenfield bootstrap skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the relationship to the adjacent skills (`re-frame2` for code-writing, `re-frame-pair2` for pair-programming, `re-frame-migration` for v1→v2 migrants, `re-frame2-implementor` for porters).*
+> *Open the PR with title `feat(skills): re-frame2-setup — greenfield bootstrap skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the relationship to the adjacent skills (`re-frame2` for code-writing, `re-frame2-pair` for pair-programming, `re-frame-migration` for v1→v2 migrants, `re-frame2-implementor` for porters).*
 
 ## Notes on the reauthoring contract
 

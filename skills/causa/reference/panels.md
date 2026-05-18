@@ -57,7 +57,7 @@ Slice-centric, not full-tree. Renders changed slices for the selected
 epoch + pinned live slices + a `[runtime] — reserved app-db keys`
 section for the `:rf/*` slots + "Show me when this changed" results
 for focused paths. Read-only — App-db edits happen in source or via
-the [`re-frame-pair2`](../../re-frame-pair2/SKILL.md) skill.
+the [`re-frame2-pair`](../../re-frame2-pair/SKILL.md) skill.
 
 **Open when:** "what changed in app-db?", "show me when `[:cart :items]`
 last moved", "what's in the `:rf/route` slot right now?"

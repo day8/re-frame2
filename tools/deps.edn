@@ -3,12 +3,12 @@
 ;; The published artefacts are
 ;;   - causa/       (day8/re-frame2-causa)
 ;;   - mcp-base/    (day8/re-frame2-mcp-base)
-;;   - pair2-mcp/   (@day8/re-frame-pair2-mcp, npm only)
+;;   - re-frame2-pair-mcp/   (@day8/re-frame2-pair-mcp, npm only)
 ;;   - story/       (day8/re-frame2-story)
 ;;   - story-mcp/   (day8/re-frame2-story-mcp)
 ;;   - template/    (day8/clj-template.re-frame2)
 ;; see tools/causa/deps.edn, tools/mcp-base/deps.edn,
-;; tools/pair2-mcp/deps.edn, tools/story/deps.edn,
+;; tools/re-frame2-pair-mcp/deps.edn, tools/story/deps.edn,
 ;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
 ;;
 ;; Other tool directories (machines-viz-mcp/, mcp-conformance/) are
@@ -26,7 +26,7 @@
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every tool artefact onto a single
 ;; classpath for aggregate test runs and for the shadow-cljs builds (see
-;; tools/shadow-cljs.edn) that exercise pair2-mcp end-to-end. Per-tool
+;; tools/shadow-cljs.edn) that exercise re-frame2-pair-mcp end-to-end. Per-tool
 ;; JVM tests run via the per-tool deps.edn directly.
 ;;
 ;; ## Why template is NOT in the base :deps map
@@ -49,7 +49,7 @@
 {:paths []
  :deps  {day8/re-frame2-causa     {:local/root "causa"}
          day8/re-frame2-mcp-base  {:local/root "mcp-base"}
-         day8/re-frame-pair2-mcp  {:local/root "pair2-mcp"}
+         day8/re-frame2-pair-mcp  {:local/root "re-frame2-pair-mcp"}
          day8/re-frame2-story     {:local/root "story"}
          day8/re-frame2-story-mcp {:local/root "story-mcp"}}
 
@@ -64,8 +64,8 @@
   ;;   - tools/causa/ — CLJS-side only (DOM + Reagent shell). Its tests
   ;;     run under the implementation/shadow-cljs.edn :node-test build,
   ;;     not on the JVM.
-  ;;   - tools/pair2-mcp/ — CLJS Node-script. Its tests run under
-  ;;     tools/pair2-mcp/shadow-cljs.edn :server-test (mirrored in
+  ;;   - tools/re-frame2-pair-mcp/ — CLJS Node-script. Its tests run under
+  ;;     tools/re-frame2-pair-mcp/shadow-cljs.edn :server-test (mirrored in
   ;;     tools/shadow-cljs.edn).
   :test
   {:extra-deps  {;; template lives on the JVM-only path — see the

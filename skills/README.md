@@ -65,7 +65,7 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
 
 ### Live-runtime pair programming
 
-- **[`re-frame-pair2/`](./re-frame-pair2/)** — pair-program with a live
+- **[`re-frame2-pair/`](./re-frame2-pair/)** — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
   inspect `app-db`, dispatch events, hot-swap handlers, trace the six
   dominoes, walk the per-frame epoch history, time-travel via
@@ -74,13 +74,13 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   consumer apps via shadow-cljs `:devtools :preloads` (per rf2-7dvg);
   there is no per-session cljs-eval inject step.
 
-- **[`re-frame-pair-retro2/`](./re-frame-pair-retro2/)** — meta-skill
-  for `re-frame-pair2`. Retrospects on a pair-programming session,
+- **[`re-frame2-pair-retro/`](./re-frame2-pair-retro/)** — meta-skill
+  for `re-frame2-pair`. Retrospects on a pair-programming session,
   identifies friction and wasted effort, and proposes improvements to
-  `re-frame-pair2` itself (or routes upstream beads to re-frame2 when
+  `re-frame2-pair` itself (or routes upstream beads to re-frame2 when
   the friction is framework-shaped rather than tool-shaped). Activates
   on explicit pull ("retro on this pair session", "review my pair
-  session") or on a post-error within a live pair2 session.
+  session") or on a post-error within a live re-frame2-pair session.
 
 ## Picking the right one
 
@@ -94,9 +94,9 @@ re-frame2 ships **seven** skills, grouped by the situation they cover:
   "any improvements?")?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in a different host language
   or substrate?** → `re-frame2-implementor`.
-- **Debugging or pairing with a running v2 app?** → `re-frame-pair2`.
+- **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
 - **Just finished a pairing session and noticed friction (or hit an
-  error mid-session and want a post-mortem)?** → `re-frame-pair-retro2`.
+  error mid-session and want a post-mortem)?** → `re-frame2-pair-retro`.
 
 ## Skill routing — single source
 
@@ -113,25 +113,25 @@ of duplicating.
 | Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](./re-frame2-setup/) |
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](./re-frame2/) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](./re-frame-migration/) |
-| Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame-pair2/`](./re-frame-pair2/) |
-| Retrospect on a `re-frame-pair2` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame-pair2` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame-pair2 session", "draft a bead about that"), OR a post-error post-mortem trigger fires within a live pair2 session | [`re-frame-pair-retro2/`](./re-frame-pair-retro2/) |
+| Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](./re-frame2-pair/) |
+| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft a bead about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](./re-frame2-pair-retro/) |
 | Build a **new re-frame2 implementation** in a different host language or substrate (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, ReScript, Python, Rust, native UI, terminal, …) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](./re-frame2-implementor/) |
 | Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns" — **and** a body of re-frame2 source is in scope (read, edited, or supplied as a snippet) | [`re-frame2-improver/`](./re-frame2-improver/) |
 | Read re-frame2's full API reference, EP design rationale, principles, conventions, or spec corpus | spec / architecture / design discussion without a running app or active authoring task | [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) |
 
 ### Disqualifiers (vocabulary alone is not enough)
 
-- Vocabulary matches without context don't justify activation. *"retro"*, *"what went wrong"*, *"improve workflow"*, *"any improvements?"* don't unlock `re-frame-pair-retro2` unless a real `re-frame-pair2` session has occurred in the conversation (or the user supplies a recap).
-- Spec-reading, architecture questions, design discussion belong to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — not to `re-frame-pair2` (no runtime) and not to `re-frame2` (not authoring).
-- Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame-pair-retro2` — there is no pair-tool surface to improve.
-- Mid-session pair work stays in `re-frame-pair2`; switch to `re-frame-pair-retro2` only when the user explicitly asks for a retro, or for a post-error post-mortem within the pair2 session — not as a default mode during routine pair work.
+- Vocabulary matches without context don't justify activation. *"retro"*, *"what went wrong"*, *"improve workflow"*, *"any improvements?"* don't unlock `re-frame2-pair-retro` unless a real `re-frame2-pair` session has occurred in the conversation (or the user supplies a recap).
+- Spec-reading, architecture questions, design discussion belong to [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) — not to `re-frame2-pair` (no runtime) and not to `re-frame2` (not authoring).
+- Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope for `re-frame2-pair-retro` — there is no pair-tool surface to improve.
+- Mid-session pair work stays in `re-frame2-pair`; switch to `re-frame2-pair-retro` only when the user explicitly asks for a retro, or for a post-error post-mortem within the re-frame2-pair session — not as a default mode during routine pair work.
 - "Adding re-frame2 to an existing app with other state management or non-trivial code" is an authoring task — route to `re-frame2/`, not `re-frame2-setup/`. Setup is greenfield-only and exits once the counter mounts.
 
 ### Routing for friction found mid-pair retro
 
-`re-frame-pair-retro2` proposals route as follows:
+`re-frame2-pair-retro` proposals route as follows:
 
-- **Pair-tool friction** (SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior) → bead against `re-frame-pair2`.
+- **Pair-tool friction** (SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior) → bead against `re-frame2-pair`.
 - **Framework / Tool-Pair contract friction** (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings) → bead against `re-frame2` (upstream).
 
 ## Layout convention
@@ -148,7 +148,7 @@ Skills do not run independently of re-frame2's CI; their workflows have
 been removed in favour of release coordination through re-frame2's own
 release pipeline. See each skill's `RELEASING.md` (where present) for
 historical npm publish mechanics. Deterministic structural tests for
-`re-frame-pair2/` and `shared/` are wired into `.github/workflows/test.yml`
+`re-frame2-pair/` and `shared/` are wired into `.github/workflows/test.yml`
 only when those skill paths change; behavioural replay fixtures remain
 manual/diagnostic and are not required PR coverage.
 
@@ -163,7 +163,7 @@ Single source of truth for the per-leaf size ceiling — per-skill
   load.
 - `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400).
 - No SKILL → A → B chains; routing is one level deep.
-- Catalogue-shaped leaves (e.g. `re-frame-pair2/references/recipes.md`)
+- Catalogue-shaped leaves (e.g. `re-frame2-pair/references/recipes.md`)
   may exceed the ceiling if splitting would multiply file-handle overhead
   without reducing tokens-per-session. Test: would splitting reduce total
   tokens loaded per session?
@@ -214,20 +214,20 @@ attacks.
   Single-quoted here-doc delimiter (`<<'EOF'`) so the shell doesn't
   expand `$`, `` ` ``, or `\` inside the body. The skill files
   affected by this pattern are the retro / improvement-filing skills
-  (`re-frame-pair-retro2`, `re-frame2-implementor`).
+  (`re-frame2-pair-retro`, `re-frame2-implementor`).
 
-### Test-fixture discipline — only `re-frame-pair2/` and `shared/` ship tests
+### Test-fixture discipline — only `re-frame2-pair/` and `shared/` ship tests
 
-Of the skills in this corpus, **only [`re-frame-pair2/`](./re-frame-pair2/)
+Of the skills in this corpus, **only [`re-frame2-pair/`](./re-frame2-pair/)
 and [`shared/`](./shared/) ship a `tests/` directory** (see
-[`re-frame-pair2/tests/`](./re-frame-pair2/tests/) —
+[`re-frame2-pair/tests/`](./re-frame2-pair/tests/) —
 `e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/` —
 and [`shared/tests/`](./shared/tests/) —
 `retro_protocol_test.clj` + `fixtures/`). The asymmetry is intentional,
 not an oversight. Future skill-authors: do not add a `tests/` dir to a
 pure-doc skill on cargo-cult grounds.
 
-**Why pair2 is the exception.** `re-frame-pair2` is the only skill that
+**Why re-frame2-pair is the exception.** `re-frame2-pair` is the only skill that
 drives a **live runtime** — it attaches to a running shadow-cljs nREPL,
 mutates `app-db`, dispatches events, hot-swaps handlers, and reads from
 the epoch buffer. That behaviour is testable in the conventional sense:

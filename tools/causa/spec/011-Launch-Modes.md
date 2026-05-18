@@ -780,31 +780,31 @@ in parallel. The panel surfaces the agent's actions (the `:origin
 |---|---|
 | Working locally; want to inspect the runtime | In-app panel (`Ctrl+Shift+C`) |
 | Want a second monitor for Causa | In-app panel + `(causa/popout!)` |
-| Want my AI to inspect / time-travel programmatically | **pair2-mcp** (raw nREPL over MCP) |
+| Want my AI to inspect / time-travel programmatically | **re-frame2-pair-mcp** (raw nREPL over MCP) |
 | Want to debug a colleague's browser | Out of scope at v1.0 |
 | Want to debug a mobile browser | Out of scope at v1.0 |
 
 The 95% of cases — local development with in-app inspection — is
-solved by the in-app true-inline panel. **pair2-mcp** (raw nREPL over
-MCP, sibling artefact at `tools/pair2-mcp/`) covers the agent-driven
+solved by the in-app true-inline panel. **re-frame2-pair-mcp** (raw nREPL over
+MCP, sibling artefact at `tools/re-frame2-pair-mcp/`) covers the agent-driven
 case. The remaining 5% (cross-machine, mobile) is explicitly out of
 scope at v1.0.
 
 Note: the **Causa-MCP** path (`tools/causa-mcp/`) was dropped per
 [`000-Vision.md`](000-Vision.md) §What it isn't ("two doors, no
-compromises"). Agents access the runtime through pair2-mcp (raw
+compromises"). Agents access the runtime through re-frame2-pair-mcp (raw
 nREPL); Causa is the human-only observability surface. The split is
 intentional and load-bearing.
 
-## Vision — pair2 raw-nREPL launch path
+## Vision — re-frame2-pair raw-nREPL launch path
 
-When a `pair2-mcp` session is active against the same shadow-cljs
+When a `re-frame2-pair-mcp` session is active against the same shadow-cljs
 build that loaded Causa's preload, the agent can dispatch (via raw
 Clojure eval) commands that drive Causa's panel through the existing
 `day8.re-frame2-causa.core` namespace:
 
 ```clojure
-;; Agent eval, via pair2-mcp:
+;; Agent eval, via re-frame2-pair-mcp:
 (require '[day8.re-frame2-causa.core :as causa])
 (causa/open!)
 (causa/target-frame :app/main)
@@ -815,7 +815,7 @@ Clojure eval) commands that drive Causa's panel through the existing
 The agent uses the same primitives Causa's chrome uses. No curated
 `causa-mcp` facade in front; whatever the agent wants to do, it does
 by evaluating Clojure against the runtime. This is the **two doors**
-split in practice — Causa is the human surface; pair2-mcp is the AI
+split in practice — Causa is the human surface; re-frame2-pair-mcp is the AI
 access path; both read the same instrumentation; neither owns a
 curated middle layer.
 

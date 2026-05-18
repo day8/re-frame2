@@ -113,11 +113,11 @@
 
 (def ^:private internal-frames
   "Frames Causa filters out of the picker by default per spec/018 §8 I1.
-  `:rf/causa` is Causa's own state; `:rf/pair2` is the future MCP-pair
+  `:rf/causa` is Causa's own state; `:rf/re-frame2-pair` is the future MCP-pair
   frame. A future Settings 'Show tool frames in picker' toggle will
   re-include them under a `── Power user ──` divider; the toggle UI
   is not built yet, so the picker is hardcoded to exclude them."
-  #{:rf/causa :rf/pair2})
+  #{:rf/causa :rf/re-frame2-pair})
 
 (def ^:private tabs
   "The seven L3 tabs per spec/018 §5 The 7 tabs. Order is the canonical

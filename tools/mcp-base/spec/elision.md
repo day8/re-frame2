@@ -46,7 +46,7 @@ The counter is non-negative integer; 0 means nothing was elided. The slot itself
 
 ## Cross-platform
 
-Pure-data tree walk; loads identically into JVM (story-mcp / causa-mcp) and CLJS (pair2-mcp). No transport, no runtime, no framework dep. The walker uses only:
+Pure-data tree walk; loads identically into JVM (story-mcp / causa-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework dep. The walker uses only:
 
 - `map?` / `coll?` host predicates.
 - `contains?` membership.

@@ -86,7 +86,7 @@
 
 (deftest auth-sign-in-carries-sensitive-flag
   (testing "The :auth/sign-in handler registered by elision-demo carries
-            `:sensitive? true` in its registry-meta — Causa / pair2 /
+            `:sensitive? true` in its registry-meta — Causa / re-frame2-pair /
             error-monitor forwarders read this off `(rf/handler-meta
             :event :auth/sign-in)` and apply tool-side policy."
     (let [m (rf/handler-meta :event :auth/sign-in)]
@@ -134,7 +134,7 @@
             "marker carries a :bytes count")
         (is (= "Avatar PDF blob" (:hint marker))
             "the schema's :hint propagated verbatim into the marker
-             — AI consumers (pair2-mcp, Causa) see this without
+             — AI consumers (re-frame2-pair-mcp, Causa) see this without
              drilling into the blob")))))
 
 ;; ---- 4. unschema'd inline event payloads are not size-elided -------------

@@ -44,11 +44,11 @@
     routes through an existing `re-frame.core/*` surface. We add no
     new dispatch types, no new effect substrates, no new component
     substrates.
-  - Not a pair2-mcp port. Causa-MCP's tool catalogue (eighteen) is
-    distinct from pair2-mcp's (fourteen); the accessor surface is
+  - Not a re-frame2-pair-mcp port. Causa-MCP's tool catalogue (eighteen) is
+    distinct from re-frame2-pair-mcp's (fourteen); the accessor surface is
     shaped to the Causa tools, not the pair-flow tools. The shape of
     the runtime ns (session sentinel, dynamic origin var, install
-    hook, no listener registrations) mirrors pair2's idiom; the
+    hook, no listener registrations) mirrors re-frame2-pair's idiom; the
     accessor names and signatures don't.
   - Not a streaming substrate. The four streaming-band tools
     (`subscribe`, `unsubscribe`, `list-subscriptions`) fan through
@@ -115,7 +115,7 @@
 (defonce ^:private install-global-sentinel!
   ;; `js-obj` (not `#js`) so the file remains readable by bb's reader
   ;; for any future structural test that runs bb-side (parallels the
-  ;; pair2 runtime idiom). Side-effect deliberately conditional on
+  ;; re-frame2-pair runtime idiom). Side-effect deliberately conditional on
   ;; `debug-enabled?` so a stray production load is a no-op.
   (do (when (and interop/debug-enabled? (exists? js/globalThis))
         (aset js/globalThis global-marker-key
@@ -677,7 +677,7 @@
   :frames <vec> :ambiguous-frame? <bool>
   :coord-annotation-enabled? <bool>}`.
 
-  Side-effect-free — unlike pair2's `health` we install no listeners
+  Side-effect-free — unlike re-frame2-pair's `health` we install no listeners
   here (Causa-the-panel's preload owns the trace + epoch listeners
   per `preload.cljs`)."
   []

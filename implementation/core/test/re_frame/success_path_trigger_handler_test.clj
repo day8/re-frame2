@@ -205,13 +205,13 @@
 ;; fn): the sub's coord". The `:sub/run` success-trace emits inside the
 ;; sub's recompute scope, so it carries the sub's own registration coord
 ;; (not the enclosing event handler's, even when the recompute fires
-;; inside a dispatch's drain). Causa's event-detail panel + pair2's
+;; inside a dispatch's drain). Causa's event-detail panel + re-frame2-pair's
 ;; jump-to-source UX render click-to-jump links from this slot on every
 ;; trace in a cascade, including sub recomputes.
 
 (deftest sub-run-carries-sub-trigger
   (testing ":sub/run rides the sub's own registration coord — Causa /
-   pair2 want jump-to-source to land on the reg-sub site of the sub
+   re-frame2-pair want jump-to-source to land on the reg-sub site of the sub
    that recomputed, not the upstream event handler whose db change
    caused the recompute"
     (rf/reg-sub :rf2-npm2p/n

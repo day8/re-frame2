@@ -21,7 +21,7 @@ Do **not** use this skill for:
 
 - Greenfield project setup → use [re-frame2-setup](re-frame2-setup.md).
 - Migrating a v1 codebase → use [re-frame-migration](re-frame-migration.md).
-- Inspecting a *running* app → use [re-frame-pair2](re-frame-pair2.md).
+- Inspecting a *running* app → use [re-frame2-pair](re-frame2-pair.md).
 - Reading the full API or EP rationale → follow [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md).
 
 ## Kickoff

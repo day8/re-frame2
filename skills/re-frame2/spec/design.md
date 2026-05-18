@@ -45,7 +45,7 @@ Application keywords use the app's own namespace (`:cart/`, `:auth/`); `:rf/*` a
 
 ### L7 — `reg-*` macros over `register-*` functions
 
-The macros capture source-coords that Causa and re-frame-pair2 rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
+The macros capture source-coords that Causa and re-frame2-pair rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
 
 ### L8 — Frames before globals
 
@@ -78,7 +78,7 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 - **Framework implementation** (how the registrar dispatches, how the machine compiler works) — routes through `SKILL-REDIRECT.md` to EP design.
 - **Greenfield project setup** — `skills/re-frame2-setup/`.
 - **v1→v2 migration** — `skills/re-frame-migration/`.
-- **Live-runtime inspection** — `skills/re-frame-pair2/`.
+- **Live-runtime inspection** — `skills/re-frame2-pair/`.
 - **Building re-frame2 in a different host** — `skills/re-frame2-implementor/`.
 - **Non-CLJS hosts** — the spec is host-agnostic; the skill is not.
 
@@ -109,7 +109,7 @@ Each reference / pattern / decision-tree leaf is ≤250 lines, target ~150. A ty
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame-pair2`, `re-frame2-setup`) so the AI routes correctly.
+The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
 
 ## 7. Anti-patterns the skill explicitly resists
 

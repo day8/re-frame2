@@ -1010,7 +1010,7 @@
 (deftest trace-group-cascades-classifies
   (testing "group-cascades splits trace events into six-domino slots.
             Per rf2-wvzgd the projection lives in
-            `re-frame.trace.projection` — consumers (Causa, pair2)
+            `re-frame.trace.projection` — consumers (Causa, re-frame2-pair)
             require that namespace directly. Per rf2-sgdd3 Story no
             longer ships a built-in trace panel; Causa's Trace tab is
             the RHS replacement. Event shapes here track the

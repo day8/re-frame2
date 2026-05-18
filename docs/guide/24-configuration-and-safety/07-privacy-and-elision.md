@@ -8,7 +8,7 @@ The reference for the underlying machinery already lives in [ch.23a — Privacy]
 
 ## Why this exists
 
-re-frame2's third pillar is one trace surface that every tool reads — Causa for the cascade graph, pair2-mcp for AI pairing, story for playgrounds, the Datadog shipper from [ch.22](../22-trace-to-datadog.md) for production observability. That uniformity is the killer feature when you're debugging. It is also the killer threat: every event your app dispatches and every `app-db` snapshot the runtime captures rides the same bus. If the bus goes off-box without privacy honouring, your customer's card number lands in five places at once.
+re-frame2's third pillar is one trace surface that every tool reads — Causa for the cascade graph, re-frame2-pair-mcp for AI pairing, story for playgrounds, the Datadog shipper from [ch.22](../22-trace-to-datadog.md) for production observability. That uniformity is the killer feature when you're debugging. It is also the killer threat: every event your app dispatches and every `app-db` snapshot the runtime captures rides the same bus. If the bus goes off-box without privacy honouring, your customer's card number lands in five places at once.
 
 The framework's stance is **declare once at the source of truth, every consumer honours the declaration**. You write a flag on one line; the runtime substitutes a sentinel everywhere that flag's path appears. No per-consumer plumbing.
 
@@ -41,7 +41,7 @@ Without any declaration, here is what every consumer of the trace bus sees the m
  ...}
 ```
 
-Datadog now has the PAN. The Causa cascade graph has the PAN. The pair2-mcp agent attached to your debug session has the PAN. The story recorder you used to capture the bug yesterday has the PAN baked into the saved scenario file. You did nothing wrong — you just hadn't told the framework which field was sensitive.
+Datadog now has the PAN. The Causa cascade graph has the PAN. The re-frame2-pair-mcp agent attached to your debug session has the PAN. The story recorder you used to capture the bug yesterday has the PAN baked into the saved scenario file. You did nothing wrong — you just hadn't told the framework which field was sensitive.
 
 Declare it once on the schema:
 
@@ -72,7 +72,7 @@ Now here is what every consumer sees:
  ...}
 ```
 
-Three slots redacted. `:postcode` rides through because you didn't flag it. The trace event also picked up a top-level `:sensitive? true` so the Datadog shipper from [ch.22](../22-trace-to-datadog.md) can drop the whole event with one boolean check; the pair2-mcp egress walker swaps `:rf/redacted` in before sending; the on-box Causa panel shows a `[● REDACTED]` chip where the PAN used to render. One flag; five consumers; no extra wiring.
+Three slots redacted. `:postcode` rides through because you didn't flag it. The trace event also picked up a top-level `:sensitive? true` so the Datadog shipper from [ch.22](../22-trace-to-datadog.md) can drop the whole event with one boolean check; the re-frame2-pair-mcp egress walker swaps `:rf/redacted` in before sending; the on-box Causa panel shows a `[● REDACTED]` chip where the PAN used to render. One flag; five consumers; no extra wiring.
 
 If you're curious how the framework knew to walk those exact paths, the short version is: at boot the runtime extracts every `:sensitive?` claim from every registered schema into a reserved registry under `[:rf/elision :declarations]` in `app-db`, and the wire-boundary walker consults that registry on every trace emit. You don't see that machinery from where you sit. You write the flag; the platform does the wiring. [Chapter 23a](../23a-privacy-secrets.md) has the full mechanism if you want it.
 
@@ -117,7 +117,7 @@ Note that handler-meta is the *only* escape hatch you should reach for. If a sin
 
 The next feature is a profile-photo uploader. The user picks an image; you base64-encode it client-side, store the result in `app-db` so the preview can render it, and POST it to a thumbnail-generation endpoint. A typical image is 800 KB after encoding. A scanned legal document is 5 MB.
 
-There is nothing sensitive about a profile photo — but you can't ship 5 MB inline as a trace `:app-db-after` payload. Datadog rejects the upload. The Causa panel locks up rendering it as text. The pair2-mcp agent's context window OOMs. The trace bus assumes every payload can ride the wire; once one slot is megabytes, the assumption breaks.
+There is nothing sensitive about a profile photo — but you can't ship 5 MB inline as a trace `:app-db-after` payload. Datadog rejects the upload. The Causa panel locks up rendering it as text. The re-frame2-pair-mcp agent's context window OOMs. The trace bus assumes every payload can ride the wire; once one slot is megabytes, the assumption breaks.
 
 This is what `:large?` is for. Same schema surface, different verb:
 
@@ -152,7 +152,7 @@ After the user uploads, the `:event/db-changed` trace event looks like this:
  ...}
 ```
 
-The 5 MB string is gone. A 200-byte marker took its place — and the marker still tells you where the slot lived, how big it was, what kind it was, and why it was elided. The `:handle` is the opt-in fetch path: if the pair2-mcp agent decides it really does need the blob to answer the user's question, it calls `get-path` with the handle and the framework fetches the live value (subject to a cap-check so a hostile fetch can't shovel 5 GB through the agent).
+The 5 MB string is gone. A 200-byte marker took its place — and the marker still tells you where the slot lived, how big it was, what kind it was, and why it was elided. The `:handle` is the opt-in fetch path: if the re-frame2-pair-mcp agent decides it really does need the blob to answer the user's question, it calls `get-path` with the handle and the framework fetches the live value (subject to a cap-check so a hostile fetch can't shovel 5 GB through the agent).
 
 The handler that wrote the blob never knew the marker existed. The handler body sees the real 5 MB string and operates on it; the trace surface, the on-box dev panels, and the off-box shippers all see the marker. [Chapter 23b](../23b-large-blobs.md) has the full marker schema and the consumer-side fetch flow.
 
@@ -189,7 +189,7 @@ For everything in tiers 1-3 the right answer is "write the schema flag". For thi
                     (update :db-after  dissoc :imports/staging)))})
 ```
 
-The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-cb!` listener you've installed, and every off-box egressor (Causa-MCP, pair2-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
+The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-cb!` listener you've installed, and every off-box egressor (Causa-MCP, re-frame2-pair-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
 
 Three things worth knowing before you reach for this:
 
@@ -203,7 +203,7 @@ The hook composes with everything in tiers 1-3. The `:rf.epoch/sensitive?` rollu
 
 ## How the tiers compose — Tool-Pair and observability
 
-The four tiers cover every wire-egress boundary the framework owns. The Causa cascade graph, the story playground recorder, and the pair2-mcp AI surface all consume the same elided records. The Datadog shipper from [ch.22](../22-trace-to-datadog.md) runs `rf/elide-wire-value` over every event before fan-out. The Tool-Pair surface used by pair2-mcp and Causa-MCP routes every direct-read response (`get-app-db`, `get-path`, `watch-epochs`) through the wire-elision walker with off-box defaults (`:include-sensitive? false`, `:include-large? false`).
+The four tiers cover every wire-egress boundary the framework owns. The Causa cascade graph, the story playground recorder, and the re-frame2-pair-mcp AI surface all consume the same elided records. The Datadog shipper from [ch.22](../22-trace-to-datadog.md) runs `rf/elide-wire-value` over every event before fan-out. The Tool-Pair surface used by re-frame2-pair-mcp and Causa-MCP routes every direct-read response (`get-app-db`, `get-path`, `watch-epochs`) through the wire-elision walker with off-box defaults (`:include-sensitive? false`, `:include-large? false`).
 
 The two on-box dev panels — Causa and Story — render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the view tree. The reader clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the only way a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide.
 

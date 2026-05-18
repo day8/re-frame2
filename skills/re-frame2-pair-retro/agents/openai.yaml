@@ -1,0 +1,4 @@
+interface:
+  display_name: "re-frame2-pair retro"
+  short_description: "Retrospect on a re-frame2-pair session and surface friction."
+  default_prompt: "Use $re-frame2-pair-retro to review this session, identify where re-frame2-pair made the workflow harder than it should have been, and propose concrete improvements before drafting any bead."

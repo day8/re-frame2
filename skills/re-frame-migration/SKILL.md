@@ -12,7 +12,7 @@ description: >
   re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys).
   **Do not use** for: greenfield bootstrap (use `re-frame2-setup`),
   writing v2 application code (use `re-frame2`), live v2-app inspection
-  (use `re-frame-pair2`), or porting re-frame2 itself (use
+  (use `re-frame2-pair`), or porting re-frame2 itself (use
   `re-frame2-implementor`).
 allowed-tools:
   - Bash(rg *)
@@ -88,7 +88,7 @@ For delegating the migration to a fresh Claude session: [`reference/kickoff-prom
 - [ ] Migration report (per `MIGRATION.md` Part 2 / `reference/output-format.md`) produced and shared.
 - [ ] Items flagged for human review are explicitly listed in the report.
 
-Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame-pair2`** for live inspection. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
+Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
 
 ## Reference files (all one level deep)
 

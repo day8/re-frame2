@@ -112,7 +112,7 @@
     ;; `:event/run-start` emit — that is the canonical "a cascade
     ;; started inside this drain" signal. When present, commit a
     ;; partial `:halted-destroy` record so devtools (Causa,
-    ;; re-frame-pair2) receive the cascade context for the destroyed-
+    ;; re-frame2-pair) receive the cascade context for the destroyed-
     ;; mid-drain case. We can't read the frame's container here
     ;; (destroy-frame!'s step 6 already dissoc'd the frame record);
     ;; the partial record's `:db-before` / `:db-after` slots are nil

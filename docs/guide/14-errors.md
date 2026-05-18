@@ -146,7 +146,7 @@ Two patterns that show up often:
 ;; @errors is a vector of every error/warning since boot.
 ```
 
-This is exactly how Causa and re-frame-pair2 build their "errors" panel — same listener shape, same filter, richer rendering. The library writes nothing the framework doesn't surface; the trace event *is* the contract.
+This is exactly how Causa and re-frame2-pair build their "errors" panel — same listener shape, same filter, richer rendering. The library writes nothing the framework doesn't surface; the trace event *is* the contract.
 
 ## Frame-scoped error policy: `:on-error`
 
@@ -463,9 +463,9 @@ The same shape applies to every `:rf.error/*` category: register a listener, do 
 
 For a test fixture that resets per-frame error listeners across tests, see the `reset-runtime` fixture in [`implementation/core/test/re_frame/cofx_test.clj`](../../implementation/core/test/re_frame/cofx_test.clj) — that's the canonical test harness shape the framework's own suite uses.
 
-## What you'll see in Causa and re-frame-pair2
+## What you'll see in Causa and re-frame2-pair
 
-The dev tools — [Causa](../causa/index.md) and [re-frame-pair2](../skills/re-frame-pair2.md) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — [Causa](../causa/index.md) and [re-frame2-pair](../skills/re-frame2-pair.md) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
 Causa's epoch buffer groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 

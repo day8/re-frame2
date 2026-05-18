@@ -1,7 +1,7 @@
 # tools/mcp-conformance
 
 End-to-end **MCP-client** conformance harness for the re-frame2 MCP
-servers — `pair2-mcp`, `story-mcp`, and (when its implementation lands)
+servers — `re-frame2-pair-mcp`, `story-mcp`, and (when its implementation lands)
 `causa-mcp`. Source: rf2-cum40.
 
 This artefact has four surfaces:
@@ -59,26 +59,26 @@ on the server side surfaces as an SDK parse-error.
 ## Files
 
 - `package.json` — depends on `@modelcontextprotocol/sdk` only
-- `test/end-to-end-pair2.cjs` — pair2-mcp conformance (degraded mode,
-  no nREPL needed — same shape as pair2-mcp's stdio-roundtrip)
-- `test/live-pair2-overflow.cjs` — pair2-mcp **live**-runtime variant
+- `test/end-to-end-re-frame2-pair.cjs` — re-frame2-pair-mcp conformance (degraded mode,
+  no nREPL needed — same shape as re-frame2-pair-mcp's stdio-roundtrip)
+- `test/live-re-frame2-pair-overflow.cjs` — re-frame2-pair-mcp **live**-runtime variant
   (rf2-ynaoc) that exercises the wire-cap `:rf.mcp/overflow` marker
   under a real over-budget eval. **Gated on `$SHADOW_CLJS_NREPL_PORT`**:
   unset = clean SKIP (degraded mode can't trip the cap naturally),
   set = full live-runtime cap-trigger conformance against the
   canonical `OverflowBody` schema pinned by `wire-vocab/`.
-- `test/live-pair2-subscribe.cjs` — pair2-mcp **live**-runtime variant
+- `test/live-re-frame2-pair-subscribe.cjs` — re-frame2-pair-mcp **live**-runtime variant
   (rf2-zb5z6) that exercises the `notifications/progress` streaming
   wire surface. Subscribes to `:trace`, dispatches a known event,
   collects every progress frame the server emits, and validates each
-  against the canonical `Pair2ProgressNotificationParams` schema
+  against the canonical `ReFrame2PairProgressNotificationParams` schema
   pinned by `wire-vocab/`. Gated on `$SHADOW_CLJS_NREPL_PORT` (same
   posture as the overflow variant).
-- `scripts/run-live-pair2-overflow-hermetic.cjs` — hermetic
-  orchestrator (rf2-uw6d6) that boots shadow-cljs against the pair2
-  fixture (`skills/re-frame-pair2/tests/fixture/`), launches headless
+- `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` — hermetic
+  orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
+  fixture (`skills/re-frame2-pair/tests/fixture/`), launches headless
   Chromium so the runtime preload lands, then runs both
-  `live-pair2-overflow.cjs` and `live-pair2-subscribe.cjs` against
+  `live-re-frame2-pair-overflow.cjs` and `live-re-frame2-pair-subscribe.cjs` against
   the spawned `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap
   the SKIP path leaves on each.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
@@ -93,10 +93,10 @@ From this directory:
 ```bash
 npm install
 
-# pair2-mcp: requires the server bundle on disk at
-# ../pair2-mcp/out/server.js. Build it first with:
-#   cd ../pair2-mcp && npx shadow-cljs compile server
-npm run test:pair2
+# re-frame2-pair-mcp: requires the server bundle on disk at
+# ../re-frame2-pair-mcp/out/server.js. Build it first with:
+#   cd ../re-frame2-pair-mcp && npx shadow-cljs compile server
+npm run test:re-frame2-pair
 
 # story-mcp: requires `clojure` on PATH (override via
 # $STORY_MCP_CMD if non-default). No pre-build step — the server is
@@ -106,13 +106,13 @@ npm run test:story
 # causa-mcp: currently a SKIPPED no-op (see comment in the file).
 npm run test:causa
 
-# All three (pair2 must be pre-built):
+# All three (re-frame2-pair must be pre-built):
 npm test
 ```
 
 ## What each test covers
 
-### `end-to-end-pair2.cjs`
+### `end-to-end-re-frame2-pair.cjs`
 
 1. Connect — full SDK handshake against the freshly spawned bundle
 2. `tools/list` — confirm the twelve advertised tools match the pinned
@@ -126,7 +126,7 @@ npm test
 Runs without an nREPL on `$SHADOW_CLJS_NREPL_PORT`, so it's
 self-contained and reproducible.
 
-### `live-pair2-overflow.cjs`  (rf2-ynaoc)
+### `live-re-frame2-pair-overflow.cjs`  (rf2-ynaoc)
 
 Live-runtime variant — fills the gap left by the degraded-mode
 sibling above. Gated on `$SHADOW_CLJS_NREPL_PORT`; unset = clean
@@ -145,7 +145,7 @@ SKIP. When attached:
    `:tool` and `:hint`.
 6. Pin per-tool facts: `:cap-tokens = 5000` (default), `:tool =
    "eval-cljs"`, `:hint` contains "Slice" (per-tool entry from
-   pair2-mcp's `overflow-hints` table).
+   re-frame2-pair-mcp's `overflow-hints` table).
 7. Recursion-safety: the marker itself fits under the cap.
 8. Clean `Client.close()`.
 
@@ -155,25 +155,25 @@ shapes the SDK's strict `CallToolResultSchema` doesn't yet
 recognise; keyword renames (`:cap-tokens` → `:cap_tokens`,
 `:rf.mcp/overflow` → `:rf.mcp/overflows`) at the live emission site.
 
-### `scripts/run-live-pair2-overflow-hermetic.cjs`  (rf2-uw6d6)
+### `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`  (rf2-uw6d6)
 
 Hermetic orchestrator that makes the live path above run on CI
 without any external nREPL.
 
-1. Wipes any stale `target/shadow-cljs/nrepl.port` under the pair2
-   fixture (`skills/re-frame-pair2/tests/fixture/`).
+1. Wipes any stale `target/shadow-cljs/nrepl.port` under the re-frame2-pair
+   fixture (`skills/re-frame2-pair/tests/fixture/`).
 2. `npm install` in the fixture (idempotent — skipped if
    `node_modules/` already exists).
 3. Spawns `shadow-cljs watch app` against the fixture (a minimal
-   counter with `re-frame-pair2.runtime` already wired as a
+   counter with `re-frame2-pair.runtime` already wired as a
    `:devtools :preloads` entry).
 4. Polls for the nREPL port file, then the nREPL TCP listener, then
    the dev-http on `:8030`.
 5. Launches headless Chromium (Playwright, resolved from
    `tools/mcp-conformance` or `implementation/`), navigates to the
-   fixture URL, waits for `window.__re_frame_pair2_runtime` to land
-   so pair2-mcp's `ensure-runtime!` will pass.
-6. Runs `test/live-pair2-overflow.cjs` with
+   fixture URL, waits for `window.__re_frame2_pair_runtime` to land
+   so re-frame2-pair-mcp's `ensure-runtime!` will pass.
+6. Runs `test/live-re-frame2-pair-overflow.cjs` with
    `SHADOW_CLJS_NREPL_PORT` set to the spawned port.
 7. Tears down browser + shadow-cljs in `finally` (and on SIGINT /
    SIGTERM / SIGHUP).
@@ -182,14 +182,14 @@ Exit codes: `0` = green; `1` = conformance failure (forwarded from
 the inner test); `2` = orchestration failure (shadow-cljs didn't
 boot, runtime didn't preload, watchdog elapsed).
 
-Watchdog: 360s for the whole hermetic run. The pair2-mcp server
+Watchdog: 360s for the whole hermetic run. The re-frame2-pair-mcp server
 bundle must already be compiled — the script bails with a structured
-error if `tools/pair2-mcp/out/server.js` is missing.
+error if `tools/re-frame2-pair-mcp/out/server.js` is missing.
 
 #### Fixture dependency install — supported pattern (rf2-o0tpo)
 
-The hermetic orchestrator's step 2 (`npm install` inside the pair2
-fixture at `skills/re-frame-pair2/tests/fixture/`) is the **supported
+The hermetic orchestrator's step 2 (`npm install` inside the re-frame2-pair
+fixture at `skills/re-frame2-pair/tests/fixture/`) is the **supported
 pattern** for this artefact, confirmed by rf2-o0tpo (pragmatic stance,
 2026-05-14). Rationale:
 
@@ -230,19 +230,19 @@ documents the expected shape.
 ## CI
 
 `.github/workflows/test.yml` runs each of the three scripts in its own
-`mcp-conformance-{pair2,story,causa}` job, parallel to the existing
-`node-test-tools-{pair2,story}-mcp` jobs. Same Node 24 + JDK 21 setup
+`mcp-conformance-{re-frame2-pair,story,causa}` job, parallel to the existing
+`node-test-tools-{re-frame2-pair,story}-mcp` jobs. Same Node 24 + JDK 21 setup
 as those jobs.
 
-The `mcp-conformance-pair2` job runs three steps in sequence:
+The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
 
-1. **`test:pair2`** — degraded-mode conformance against the SDK's
+1. **`test:re-frame2-pair`** — degraded-mode conformance against the SDK's
    strict schemas.
-2. **`test:pair2-live-overflow`** — the gated live variant. Runs
+2. **`test:re-frame2-pair-live-overflow`** — the gated live variant. Runs
    without `$SHADOW_CLJS_NREPL_PORT` so the SKIP path is exercised
    on every CI run (a regression that broke SKIP would surface here).
-3. **`test:pair2-live-overflow-hermetic`** (rf2-uw6d6) — boots
-   shadow-cljs against the pair2 fixture and runs the live overflow
+3. **`test:re-frame2-pair-live-overflow-hermetic`** (rf2-uw6d6) — boots
+   shadow-cljs against the re-frame2-pair fixture and runs the live overflow
    path with a real over-budget eval. This is the path that catches
    cap-trigger threshold drift, marker shape regressions on real
    payloads, and SDK strict-schema rejection of cap-marker shapes
@@ -290,7 +290,7 @@ already lives, by construction, in three other places:
 
 3. **The servers being verified.** Per-tool input / output / error
    contracts are owned by each server's own `spec/`
-   ([`tools/pair2-mcp/spec/`](../pair2-mcp/spec/),
+   ([`tools/re-frame2-pair-mcp/spec/`](../re-frame2-pair-mcp/spec/),
    [`tools/story-mcp/spec/`](../story-mcp/spec/), and — when its
    implementation lands —
    [`tools/causa-mcp/spec/`](../causa-mcp/spec/)). Duplicating that

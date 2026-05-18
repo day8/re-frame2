@@ -1,7 +1,7 @@
 (ns re-frame.mcp-base.vocab
   "Cross-MCP wire-vocabulary constants. One place to learn — and pin —
   the namespaced keys that the agent learns once and recognises across
-  every MCP tool in the re-frame2 triplet (pair2-mcp, story-mcp,
+  every MCP tool in the re-frame2 triplet (re-frame2-pair-mcp, story-mcp,
   causa-mcp).
 
   ## Why a vocab ns
@@ -9,7 +9,7 @@
   Every wire mechanism (overflow cap, cursor pagination, structural
   dedup, diff-encode, size-elision) decorates the payload with a
   marker key. The marker keys MUST stay byte-identical across the
-  triplet — an agent that learns `:rf.mcp/overflow` on pair2-mcp must
+  triplet — an agent that learns `:rf.mcp/overflow` on re-frame2-pair-mcp must
   see the same key shape from story-mcp / causa-mcp. Defining the
   keys here, once, prevents per-consumer drift and gives a single
   search target when the vocabulary grows.
@@ -39,7 +39,7 @@
 
   Per JSON-RPC 2.0 §5.1 and MCP's reuse of them — the same numeric
   codes apply across the triplet. Story-mcp emits them via Cheshire;
-  pair2-mcp would emit them via the npm MCP SDK if it surfaced
+  re-frame2-pair-mcp would emit them via the npm MCP SDK if it surfaced
   JSON-RPC-level errors directly (today it uses the SDK's
   `isError: true` tool-result shape, but the codes still pin the
   cross-consumer protocol if a future bead lifts them).")
@@ -50,7 +50,7 @@
 
 (def overflow-key
   "Top-level marker on a response that exceeded the per-call token cap.
-  Shape (per pair2-mcp's `apply-cap`):
+  Shape (per re-frame2-pair-mcp's `apply-cap`):
     `{:rf.mcp/overflow {:limit :reached :token-count N :cap-tokens M
                         :tool \"<name>\" :hint \"...\"}}`.
   Per rf2-rvyzy."
@@ -145,7 +145,7 @@
 (def include-sensitive-opt
   "The framework opt that controls whether sensitive payloads emit
   the marker. Surfaced by MCP servers as the `:include-sensitive`
-  arg (story-mcp; pair2-mcp still uses `:include-sensitive?` — see
+  arg (story-mcp; re-frame2-pair-mcp still uses `:include-sensitive?` — see
   rf2-ihq4d). Per the Anthropic tool-input-schema regex
   `^[a-zA-Z0-9_.-]{1,64}$`, wire-keys MUST omit the trailing `?`.
   The walker option keyword (this one, `:rf.size/include-sensitive?`)

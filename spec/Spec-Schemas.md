@@ -2338,7 +2338,7 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 #### Outcomes (rf2-v0jwt)
 
-The runtime commits an epoch record on every drain boundary — both clean settles and halted drains. `:outcome` discriminates so devtools (Causa, re-frame-pair2) can render failing cascades with the partial-information shape they actually carry.
+The runtime commits an epoch record on every drain boundary — both clean settles and halted drains. `:outcome` discriminates so devtools (Causa, re-frame2-pair) can render failing cascades with the partial-information shape they actually carry.
 
 | `:outcome` | When the runtime commits | `:db-before` | `:db-after` |
 |---|---|---|---|

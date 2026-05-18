@@ -15,7 +15,7 @@ The scrubber sits at the bottom of every panel — it doesn't go away when you s
 Three controls:
 
 - **Drag the cursor backwards** — *passive scrub*. The other panels retarget at the historical epoch, but the live `app-db` is unchanged. You're previewing.
-- **Click *restore*** — *active rewind*. The runtime calls `restore-epoch`, the host frame's `app-db` swaps to the historical `:db-after`, and the live views re-render against it. The runtime emits a `:rf.epoch/restored` trace event so other tools (your own listeners, `re-frame-pair2`, an in-house APM bridge) see it land.
+- **Click *restore*** — *active rewind*. The runtime calls `restore-epoch`, the host frame's `app-db` swaps to the historical `:db-after`, and the live views re-render against it. The runtime emits a `:rf.epoch/restored` trace event so other tools (your own listeners, `re-frame2-pair`, an in-house APM bridge) see it land.
 - **Click *jump-to-event*** — when you know the *event* you want to rewind past, you don't have to find the epoch by index; you type the event-id and the scrubber positions to the most recent matching cascade.
 
 Passive scrub is the one you reach for most. It's read-only — you can run the entire investigation without ever mutating live state.
@@ -31,7 +31,7 @@ Every drain-to-empty produces one epoch record. The record carries:
 - `:effects` — every fx that fired, with `:outcome` ∈ `{:ok :error :skipped-on-platform}`
 - `:trace-events` — the raw trace slice, optionally
 
-This is what tools route diagnostics off — Causa's epoch-grouping, `re-frame-pair2`'s "show me the last five cascades" command, the post-mortem path that captures a session for review. Same record, three consumers.
+This is what tools route diagnostics off — Causa's epoch-grouping, `re-frame2-pair`'s "show me the last five cascades" command, the post-mortem path that captures a session for review. Same record, three consumers.
 
 The default buffer depth is 50 epochs per frame. To deepen:
 
@@ -87,7 +87,7 @@ Causa renders the synthetic epoch differently in the scrubber — a small star m
 
 Two cases where you'd reach for something else:
 
-1. **You want to debug the cascade *as it happens*, not after.** Time-travel rewinds; it doesn't pause. For pause-on-event behaviour, hot-swap the relevant handler with a `js/debugger` line via `re-frame-pair2` and replay the event.
+1. **You want to debug the cascade *as it happens*, not after.** Time-travel rewinds; it doesn't pause. For pause-on-event behaviour, hot-swap the relevant handler with a `js/debugger` line via `re-frame2-pair` and replay the event.
 2. **You want to reproduce a bug a customer saw in production.** Time-travel works on the *current* runtime's epoch history. Customer sessions are off-box; you'd need their epoch record exported, then imported into a local frame via `reset-frame-db!`. That round-trip is the [Story](../story/index.md) playground's job — it can mount any `app-db` snapshot as a variant.
 
 Next: [the trace stream](04-trace-stream.md) — the raw bus underneath everything you've seen so far.

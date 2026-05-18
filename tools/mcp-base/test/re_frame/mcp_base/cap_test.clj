@@ -2,7 +2,7 @@
   "Unit tests for the cross-MCP cap pipeline (rf2-eyelu).
 
   Exercises the algorithm via a mock `ResultIO` reifying the protocol
-  over CLJ maps. The per-server IO instances (pair2-mcp's JS-object
+  over CLJ maps. The per-server IO instances (re-frame2-pair-mcp's JS-object
   reify, story-mcp's CLJ-map reify) are exercised against the real
   pipeline in their respective test suites; the unit tests here pin
   the algorithm itself."

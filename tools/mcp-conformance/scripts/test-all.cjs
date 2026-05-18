@@ -8,8 +8,8 @@
  * Why an orchestrator: the historical `npm test` was
  *
  *     node --test test/exec-safety.test.cjs
- *     && node test/end-to-end-pair2.cjs
- *     && node test/live-pair2-overflow.cjs
+ *     && node test/end-to-end-re-frame2-pair.cjs
+ *     && node test/live-re-frame2-pair-overflow.cjs
  *     && node test/end-to-end-story.cjs
  *
  * compressed into one quoted JSON string. Failure attribution required
@@ -39,7 +39,7 @@ const ROOT = path.resolve(HERE, '..');
 
 // One row per conformance test. Order matters: cheap unit tests first
 // so a typo in the exec-safety helpers fails before we spawn an MCP
-// server. SKIP-by-default tests (live-pair2-overflow) live near
+// server. SKIP-by-default tests (live-re-frame2-pair-overflow) live near
 // the end so a green run reads as "real conformance passed, one
 // gracefully skipped".
 const TESTS = [
@@ -48,16 +48,16 @@ const TESTS = [
     argv: ['--test', 'test/exec-safety.test.cjs'],
   },
   {
-    name: 'pair2-mcp end-to-end',
-    argv: ['test/end-to-end-pair2.cjs'],
+    name: 're-frame2-pair-mcp end-to-end',
+    argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },
   {
-    name: 'pair2-mcp live-overflow (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-pair2-overflow.cjs'],
+    name: 're-frame2-pair-mcp live-overflow (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-overflow.cjs'],
   },
   {
-    name: 'pair2-mcp live-subscribe (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-pair2-subscribe.cjs'],
+    name: 're-frame2-pair-mcp live-subscribe (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-subscribe.cjs'],
   },
   {
     name: 'story-mcp end-to-end',

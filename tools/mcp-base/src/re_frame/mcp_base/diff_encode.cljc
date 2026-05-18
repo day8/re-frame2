@@ -86,7 +86,7 @@
 
   Validation is soft-pass when Malli is not resolvable on the runtime
   classpath: mcp-base does not pull Malli into its own deps (consumers
-  bring their own — pair2-mcp/story-mcp/causa-mcp all have Malli on the
+  bring their own — re-frame2-pair-mcp/story-mcp/causa-mcp all have Malli on the
   classpath via the implementation deps or the story artefact). On
   CLJS the validation branch sits behind a `goog-define`'d
   `validate-patches?` flag so a production build with

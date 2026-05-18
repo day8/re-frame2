@@ -1,6 +1,6 @@
 (ns large-dispatcher.core
   "Shared framework-behavior testbed — events whose payloads exceed the
-  wire-elision threshold. A consumer (Causa, Story, pair2-mcp)
+  wire-elision threshold. A consumer (Causa, Story, re-frame2-pair-mcp)
   observes the runtime's wire-boundary walker substitute a value with
   the `:rf.size/large-elided` marker (per [spec/009 §Size elision in
   traces] / [API.md §`rf/elide-wire-value`]).

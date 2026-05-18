@@ -33,7 +33,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When you dispatch `:rf.http/managed`. |
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
-| `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame-pair2`). |
+| `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch` (also pulled in transitively by `re-frame2-pair`). |
 
 **Greenfield day-one minimum: just `day8/re-frame2` + `day8/re-frame2-reagent`.** Resist adding the others until the author writes code that actually uses them — they're optional by design so apps that don't use them don't pay the classpath cost.
 
@@ -106,6 +106,6 @@ The seven per-feature artefacts are pay-as-you-go. Add them **at the moment** th
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
 | `(rf/epoch-history ...)` or `(rf/restore-epoch ...)` directly | `day8/re-frame2-epoch` |
 
-(The `re-frame-pair2` skill pulls `-epoch` in transitively so live-inspection time-travel works; if the app uses `re-frame-pair2` but doesn't call the epoch surface itself, the author still doesn't need to add `-epoch` to their own `deps.edn` — the skill injects its runtime over nREPL.)
+(The `re-frame2-pair` skill pulls `-epoch` in transitively so live-inspection time-travel works; if the app uses `re-frame2-pair` but doesn't call the epoch surface itself, the author still doesn't need to add `-epoch` to their own `deps.edn` — the skill injects its runtime over nREPL.)
 
 Each artefact registers its own load-time hooks on require, so the only extra step beyond the dep is a `:require` of the artefact's primary namespace from your entry ns or wherever you first call into its API. See the leaf for each feature in the main `re-frame2` skill for the canonical require shape.

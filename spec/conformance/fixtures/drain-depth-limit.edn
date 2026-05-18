@@ -7,7 +7,7 @@
 ;;
 ;; Per rf2-v0jwt (§Outcomes): the runtime ALSO commits a partial
 ;; :rf/epoch-record with :outcome :halted-depth so devtools (Causa,
-;; re-frame-pair2) receive cascade context for the failing cascade.
+;; re-frame2-pair) receive cascade context for the failing cascade.
 ;; :db-after equals :db-before (atomic rollback) and :halt-reason
 ;; carries the structured halt descriptor. The fixture's
 ;; :epoch-records assertion pins the partial-record shape.

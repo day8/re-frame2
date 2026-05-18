@@ -1,5 +1,5 @@
 ;; day8/re-frame2-mcp-base — shared primitives for the re-frame2 MCP
-;; tool triplet (pair2-mcp, story-mcp, causa-mcp). Filed under rf2-vw4sq.
+;; tool triplet (re-frame2-pair-mcp, story-mcp, causa-mcp). Filed under rf2-vw4sq.
 ;;
 ;; ## Why this artefact exists
 ;;
@@ -23,7 +23,7 @@
 ;;                        keyword reading) used by every MCP tool.
 ;;   - `diff_encode.cljc` — path-keyed structural diff for epoch
 ;;                          records (rf2-1wdzp, used at the wire
-;;                          boundary inside pair2-mcp; the encoding
+;;                          boundary inside re-frame2-pair-mcp; the encoding
 ;;                          contract is a cross-MCP convention).
 ;;                          Pinned via Malli `patch-schema` /
 ;;                          `patches-schema` at the encoder boundary
@@ -33,9 +33,9 @@
 ;;
 ;; What deliberately does NOT live here:
 ;;   - Wire-transport code (cheshire JSON for story-mcp's JVM-side;
-;;     applied-science.js-interop / npm MCP SDK for pair2-mcp's
+;;     applied-science.js-interop / npm MCP SDK for re-frame2-pair-mcp's
 ;;     CLJS-side). Each consumer terminates its own transport.
-;;   - Cursor base64 encoding — `js/Buffer` (pair2-mcp) vs `Base64`
+;;   - Cursor base64 encoding — `js/Buffer` (re-frame2-pair-mcp) vs `Base64`
 ;;     (story-mcp would use java.util.Base64 if it had cursors). The
 ;;     EDN-cursor SHAPE is conventional; the base64 codec is
 ;;     consumer-side.
@@ -54,7 +54,7 @@
 ;;
 ;; Sources are `.cljc` so they load identically into the JVM
 ;; classpath (story-mcp, causa-mcp) and the shadow-cljs CLJS build
-;; (pair2-mcp). The tests target Clojure (test runner via
+;; (re-frame2-pair-mcp). The tests target Clojure (test runner via
 ;; cognitect-labs/test-runner) — the algorithmic content is platform-
 ;; agnostic, so a JVM round-trip is the cheapest gate.
 ;;
@@ -74,7 +74,7 @@
  ;; runtime via `requiring-resolve` / `resolve` and soft-passes when
  ;; Malli is absent. The test alias here puts Malli on the classpath so
  ;; the diff-encode tests can hard-assert schema acceptance and
- ;; rejection. Consumers (pair2-mcp, story-mcp, causa-mcp) bring Malli
+ ;; rejection. Consumers (re-frame2-pair-mcp, story-mcp, causa-mcp) bring Malli
  ;; themselves via their implementation deps; production CLJS bundles
  ;; can flip the goog-define `validate-patches?` to false to DCE the
  ;; validation branch outright. Pinning the same version used by

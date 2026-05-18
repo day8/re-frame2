@@ -23,7 +23,7 @@
      responses are replaced with a fresh result carrying the marker.
 
   Until rf2-eyelu this pipeline was duplicated near-identically in
-  pair2-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and
+  re-frame2-pair-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and
   story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped
   results). The only structural difference between the two
   implementations was the SHAPE of the result map and the platform-
@@ -57,7 +57,7 @@
   ## Cross-platform
 
   Pure CLJC. The `ResultIO` protocol resolves identically into the
-  JVM (story-mcp / causa-mcp) and CLJS (pair2-mcp) — `defprotocol`
+  JVM (story-mcp / causa-mcp) and CLJS (re-frame2-pair-mcp) — `defprotocol`
   reads the same way on both sides. mcp-base stays free of
   platform-specific deps (`js-interop`, JVM reflection, etc); those
   live in the consumer's IO instance."
@@ -69,9 +69,9 @@
 
 (defprotocol ResultIO
   "Per-consumer accessors over the MCP `tools/call` result shape. Each
-  MCP server (pair2-mcp, story-mcp, causa-mcp) reifies this protocol
+  MCP server (re-frame2-pair-mcp, story-mcp, causa-mcp) reifies this protocol
   once over its native result shape — `#js {:content #js [...]}` for
-  pair2-mcp's npm-SDK JS objects, `{:content [...]}` CLJ maps for
+  re-frame2-pair-mcp's npm-SDK JS objects, `{:content [...]}` CLJ maps for
   story-mcp / causa-mcp. The cap pipeline is then algorithm-only and
   shape-agnostic."
 
@@ -103,7 +103,7 @@
   not a number.
 
   Each consumer extracts the raw value from its platform-specific args
-  object — pair2-mcp uses `(j/get args \"max-tokens\")` against a JS
+  object — re-frame2-pair-mcp uses `(j/get args \"max-tokens\")` against a JS
   object; story-mcp uses `(get args :max-tokens)` against a CLJ map —
   and feeds the result here. The coercion rules (zero disables,
   non-number falls back to default) are the cross-MCP convention.

@@ -66,7 +66,7 @@ as build coordinators across the tool tier, matching the pattern in
 dep and exposes a `:test` alias that aggregates every JVM-runnable
 tool's `test/` tree; running `clojure -M:test` from `tools/` exercises
 the aggregated suite. `tools/shadow-cljs.edn` mirrors the per-tool CLJS
-builds (today: `pair2-mcp/server` and `pair2-mcp/server-test`) so
+builds (today: `re-frame2-pair-mcp/server` and `re-frame2-pair-mcp/server-test`) so
 `shadow-cljs compile <build>` works from `tools/` as well as from each
 tool's directory. Per-tool invocations remain valid — the coordinators
 compose the per-tool builds, they do not replace them. CLJS-only tools
@@ -94,7 +94,7 @@ wired into the build, and consumers can use it today.
   [`tools/causa/spec/000-Vision.md`](./causa/spec/000-Vision.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP servers (`pair2-mcp`, `story-mcp`): seven
+  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): seven
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
@@ -106,7 +106,7 @@ wired into the build, and consumers can use it today.
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
 - **`tools/mcp-conformance/`** — End-to-end MCP-client conformance
-  harness for the re-frame2 MCP servers (`pair2-mcp`, `story-mcp`).
+  harness for the re-frame2 MCP servers (`re-frame2-pair-mcp`, `story-mcp`).
   Pure Node test fixtures: drives each server through the official
   `@modelcontextprotocol/sdk` `Client` so SDK-strict schema
   regressions surface before a real consumer attaches. Also hosts
@@ -123,19 +123,19 @@ wired into the build, and consumers can use it today.
   Node-side only). See
   [`tools/mcp-conformance/README.md`](./mcp-conformance/README.md).
 
-- **`tools/pair2-mcp/`** — `@day8/re-frame-pair2-mcp`. A Node-based
+- **`tools/re-frame2-pair-mcp/`** — `@day8/re-frame2-pair-mcp`. A Node-based
   stdio JSON-RPC **MCP server** (compiled from ClojureScript via
   shadow-cljs) that pair-programs with a live re-frame2 app over a
   persistent nREPL socket. Structural successor to the bash-shim →
-  babashka → nREPL chain under `skills/re-frame-pair2/scripts/`.
+  babashka → nREPL chain under `skills/re-frame2-pair/scripts/`.
   Fourteen tools (`discover-app`, `eval-cljs`, `dispatch`,
   `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
   `get-path`, the streaming triad `subscribe` / `unsubscribe` /
   `subscription-info`, the registrar-introspection pair
-  `handler-meta` / `registry-list`, and `get-pair2-instructions`);
+  `handler-meta` / `registry-list`, and `get-re-frame2-pair-instructions`);
   per-op latency drops from ~700ms to ~5–50ms. Published to npm as
-  `@day8/re-frame-pair2-mcp`. See
-  [`tools/pair2-mcp/README.md`](./pair2-mcp/README.md).
+  `@day8/re-frame2-pair-mcp`. See
+  [`tools/re-frame2-pair-mcp/README.md`](./re-frame2-pair-mcp/README.md).
 
 - **`tools/story/`** — `day8/re-frame2-story`. A Storybook-class
   component playground for re-frame2, implementing
@@ -222,7 +222,7 @@ of the framework's spec.
 
 Where a contract surface is *shared across the tool tier* — typical
 example: the cross-MCP wire vocabulary, privacy filter, and token-
-budget cap pipeline shared by `pair2-mcp` and `story-mcp` — its
+budget cap pipeline shared by `re-frame2-pair-mcp` and `story-mcp` — its
 **canonical home stays with the tool artefact**
 (`tools/mcp-base/spec/`) rather than being lifted into
 the project-level `spec/`. This is the [`spec/README.md` §Canonical

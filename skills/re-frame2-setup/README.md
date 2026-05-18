@@ -9,7 +9,7 @@ This is the **greenfield bootstrap** companion to the main [`re-frame2`](../re-f
 - The main `re-frame2` skill teaches the re-frame2 **API** — events, subs, machines, schemas, frames, fx, flows, routing, SSR. The content there is stable across re-frame2 releases.
 - Setup, by contrast, moves: artefact versions change, shadow-cljs versions change, React versions change. Pinning that content in the main skill would stale it. `re-frame2-setup` is the home for the moving target, so the main skill can stay clean.
 
-Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame-pair2`](../re-frame-pair2/) (for live-runtime pair-programming).
+Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame2-pair`](../re-frame2-pair/) (for live-runtime pair-programming).
 
 ## Relationship to the generator template
 
@@ -26,7 +26,7 @@ not redundant:
 
 Either way you end up at the same canonical shape — the skill walks the
 seven-step path manually; the template performs it for you. After the
-counter mounts, the same handoff to `re-frame2` / `re-frame-pair2`
+counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
 applies.
 
 ## What it covers
@@ -44,14 +44,14 @@ The canonical seven-step greenfield path:
 ## What it deliberately does NOT cover
 
 - Re-frame2's API surface (events, subs, machines, schemas, ...) — that's the main `re-frame2` skill.
-- Live REPL inspection of the running app — that's [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2).
+- Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
 - Anything beyond Reagent + shadow-cljs. UIx, Helix, and other build tools are noted only as "swap the adapter ns / pick a different build tool"; the canonical path is Reagent + shadow-cljs.
 
 ## Status
 
-Pre-alpha. The skill is authored; it has not yet been exercised against a fresh project end-to-end. The structure mirrors the `re-frame-pair2` skill in this same repo. The content is grounded against the canonical example in `examples/reagent/counter/core.cljs` and the deps shapes from `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, and `implementation/shadow-cljs.edn`.
+Pre-alpha. The skill is authored; it has not yet been exercised against a fresh project end-to-end. The structure mirrors the `re-frame2-pair` skill in this same repo. The content is grounded against the canonical example in `examples/reagent/counter/core.cljs` and the deps shapes from `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, and `implementation/shadow-cljs.edn`.
 
 ## Layout
 
@@ -138,7 +138,7 @@ When all seven steps are done and the counter is visible, Claude says so and poi
 
 - [re-frame2](https://github.com/day8/re-frame2) — the framework itself.
 - [re-frame2 main skill](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — the API-writing companion skill that takes over once setup is done.
-- [re-frame-pair2](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) — live-runtime pair-programming skill for an already-running re-frame2 app.
+- [re-frame2-pair](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — live-runtime pair-programming skill for an already-running re-frame2 app.
 - [Examples directory](https://github.com/day8/re-frame2/tree/main/examples/reagent) — worked re-frame2 apps (counter, login, todomvc, 7GUIs, realworld, ssr, routing).
 - [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) — canonical pointer table to the full spec corpus, guide, API reference, migration guide.
 

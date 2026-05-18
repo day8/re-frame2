@@ -196,7 +196,7 @@
      ;; populate it at their registration sites, but flows historically
      ;; stored the body under `:output` only — so `(not= nil nil)` was
      ;; the answer for every flow re-registration and `:different-fn?`
-     ;; was always `false` (re-frame-10x's flow panel / Causa / pair2
+     ;; was always `false` (re-frame-10x's flow panel / Causa / re-frame2-pair
      ;; missed every real body swap). The `:output` slot is preserved
      ;; for the flow-eval site that reads it; the additional
      ;; `:handler-fn` stamp aligns the cross-kind hot-reload trace
@@ -460,7 +460,7 @@
 
   Per rf2-mb65w: resets BOTH atoms in lockstep. Pre-fix, the function
   cleared only `flows` and left `last-inputs` standing. A test fixture
-  / pair2 / Causa harness calling `reset-flows!` standalone (the
+  / re-frame2-pair / Causa harness calling `reset-flows!` standalone (the
   function's name suggests \"reset all flow state\") then re-registered
   the same flow-id would silently no-op the first evaluation when
   new-inputs `=`-equalled a leftover entry. The two-atom reset is the

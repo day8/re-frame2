@@ -1,7 +1,7 @@
 # `vocab` — wire-vocabulary constants
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> The single source of truth for the marker keys an agent learns once and recognises across every MCP server in the re-frame2 triplet — `pair2-mcp`, `story-mcp`, `causa-mcp`. A rename here is a wire-protocol break; the cross-MCP conformance gate under `tools/mcp-conformance/wire-vocab/` fails loud when that happens.
+> The single source of truth for the marker keys an agent learns once and recognises across every MCP server in the re-frame2 triplet — `re-frame2-pair-mcp`, `story-mcp`, `causa-mcp`. A rename here is a wire-protocol break; the cross-MCP conformance gate under `tools/mcp-conformance/wire-vocab/` fails loud when that happens.
 
 This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
 
@@ -67,7 +67,7 @@ The same numeric codes apply across the triplet. Owned constants:
 - `code-invalid-params` (-32602)
 - `code-internal-error` (-32603)
 
-Story-mcp emits them via Cheshire; pair2-mcp emits via the npm MCP SDK's `isError: true` tool-result shape, but the codes still pin the cross-consumer protocol surface.
+Story-mcp emits them via Cheshire; re-frame2-pair-mcp emits via the npm MCP SDK's `isError: true` tool-result shape, but the codes still pin the cross-consumer protocol surface.
 
 ## Conformance posture
 

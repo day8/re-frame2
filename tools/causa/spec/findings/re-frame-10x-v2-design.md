@@ -463,13 +463,13 @@ Causa exposes the **embedded epoch panel** at v1.0. The embedded causality graph
 
 The contract: `machines-viz` exports a `MachineChart` component that accepts a machine-id and a frame-id, renders the chart, handles the live-highlight. Causa's machine inspector panel is a thin wrapper that adds the transition-history ribbon and the source-coord jump affordance. machines-viz can be used without Causa (programmer who only wants a chart); Causa *depends* on machines-viz for the chart rendering.
 
-### re-frame-pair2 overlap
+### re-frame2-pair overlap
 
-re-frame-pair2 is AI-driven (an LLM integration via nREPL). Causa is human-driven with an embedded AI co-pilot. **Where they meet:**
+re-frame2-pair is AI-driven (an LLM integration via nREPL). Causa is human-driven with an embedded AI co-pilot. **Where they meet:**
 
 - Both consume the same Spec 009 / Tool-Pair surfaces. Neither depends on the other.
-- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/registrations ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-cb!`. The difference is the user surface: Causa lives in the browser; pair2 lives in the editor / REPL.
-- A future enhancement: Causa's co-pilot delegates to a running pair2 nREPL session if one is detected. The co-pilot becomes a thin chat shell over the pair tool's full capability. v2 commitment (per §10.8, still open), not v1.
+- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/registrations ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-cb!`. The difference is the user surface: Causa lives in the browser; re-frame2-pair lives in the editor / REPL.
+- A future enhancement: Causa's co-pilot delegates to a running re-frame2-pair nREPL session if one is detected. The co-pilot becomes a thin chat shell over the pair tool's full capability. v2 commitment (per §10.8, still open), not v1.
 
 ### MCP surface
 
@@ -486,7 +486,7 @@ re-frame-pair2 is AI-driven (an LLM integration via nREPL). Causa is human-drive
 
 This is largely **the same surface as `tools/story-mcp/`**, because Story's MCP and Causa's MCP both ultimately surface the Tool-Pair contract. The split exists for jar-bundle isolation and per-tool release cadence; the tools converge on a common MCP-tool vocabulary. v1.1.
 
-We *don't* duplicate the pair tool's MCP — re-frame-pair2's MCP (if it ships one) is editor-focused; 10x's MCP is debugger-focused. Both can coexist; agents pick the one their workflow needs.
+We *don't* duplicate the pair tool's MCP — re-frame2-pair's MCP (if it ships one) is editor-focused; 10x's MCP is debugger-focused. Both can coexist; agents pick the one their workflow needs.
 
 ---
 
@@ -522,9 +522,9 @@ Each as a §X.Y with my recommendation + the alternative.
 
 **Deferred 2026-05-11.** Decision punted to a later read.
 
-### §10.8 Pair2 delegation in co-pilot
+### §10.8 re-frame2-pair delegation in co-pilot
 
-**Open.** With co-pilot back (§10.2), this is on the table again. Recommendation: defer to v2 — the co-pilot has its own chat via direct LLM API; pair2 delegation is an "if a pair2 nREPL session is running, route through it" optimisation, not blocking for v1. Awaiting Mike's call.
+**Open.** With co-pilot back (§10.2), this is on the table again. Recommendation: defer to v2 — the co-pilot has its own chat via direct LLM API; re-frame2-pair delegation is an "if a re-frame2-pair nREPL session is running, route through it" optimisation, not blocking for v1. Awaiting Mike's call.
 
 ### §10.9 Mobile / phone form factor
 
@@ -556,7 +556,7 @@ Explicit non-goals at v1.0: Chrome extension, standalone HTML viewer / remote-at
 
 ### v2.0 — "the editor partner"
 
-- Pair2 delegation in the co-pilot (per §10.8, still open).
+- re-frame2-pair delegation in the co-pilot (per §10.8, still open).
 - Editor-driven debugging (Cursor / Claude Code can request Causa to focus a frame, run a query, via the MCP channel when it ships).
 - Programmable saved-filter library (write your own filter functions, save them, share them).
 - Differential `app-db` snapshots — a "this app-db diverges from baseline" mode for property testing.

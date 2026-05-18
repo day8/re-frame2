@@ -892,7 +892,7 @@
 
   Per rf2-v0jwt §Outcomes: a depth-exceeded drain is a *partial*
   drain — commit a `:halted-depth` epoch record so devtools (Causa,
-  re-frame-pair2) receive the cascade context. The record's `:db-after`
+  re-frame2-pair) receive the cascade context. The record's `:db-after`
   equals `db-before` (the rolled-back state) and `:halt-reason` carries
   the structured descriptor of the depth-exceed. Listeners receive the
   record like any other; `restore-epoch` refuses non-`:ok` targets."
@@ -1070,7 +1070,7 @@
       ;; Per rf2-v0jwt: the just-completed event already ran in full
       ;; (run-to-completion), so the partial-cascade record commits
       ;; with `:outcome :halted-destroy`. Devtools (Causa, re-frame-
-      ;; pair2) need the cascade context for the failing/interrupted
+      ;; re-frame2-pair) need the cascade context for the failing/interrupted
       ;; drain — silently discarding the record (the pre-rf2-v0jwt
       ;; behaviour) hid exactly the cascades developers most need to
       ;; inspect. `restore-epoch` refuses these records, preserving

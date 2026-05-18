@@ -101,7 +101,7 @@ Reverse cross-links (this skill → the application-side skills) live in SKILL.m
 - Writing application code on the CLJS reference — that's `skills/re-frame2/`.
 - Bootstrapping a greenfield app on the reference — that's `skills/re-frame2-setup/`.
 - Migrating a v1 codebase to the reference — that's `skills/re-frame-migration/`.
-- Live-runtime inspection of a running v2 app — that's `skills/re-frame-pair2/`.
+- Live-runtime inspection of a running v2 app — that's `skills/re-frame2-pair/`.
 - Proposing a *different* pattern — re-frame2's pattern is specified; engineers proposing alternatives need a different conversation.
 - Editing `spec/` — gaps file GitHub issues against `day8/re-frame2`; the skill never patches `spec/` inline.
 
@@ -185,7 +185,7 @@ These remain open at authoring time:
 
 ### OQ4 — Skill `name` — is `re-frame2-implementor` Anthropic-compliant?
 
-Anthropic's current best-practices doc says "consider using" gerund form. `re-frame2-implementor` is a noun phrase. Compliance is "consider," not "must"; the description does the discovery heavy lifting; the noun phrase matches the project-name pattern (`re-frame2`, `re-frame2-setup`, `re-frame-migration`, `re-frame-pair2`). **Recommendation: keep `re-frame2-implementor`.** Status: Mike's call.
+Anthropic's current best-practices doc says "consider using" gerund form. `re-frame2-implementor` is a noun phrase. Compliance is "consider," not "must"; the description does the discovery heavy lifting; the noun phrase matches the project-name pattern (`re-frame2`, `re-frame2-setup`, `re-frame-migration`, `re-frame2-pair`). **Recommendation: keep `re-frame2-implementor`.** Status: Mike's call.
 
 ### OQ5 — Will the skill stale-detect against the spec corpus?
 

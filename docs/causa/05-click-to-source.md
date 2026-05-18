@@ -16,7 +16,7 @@ Open any re-frame2 app in dev mode and inspect any rendered element:
 
 Four colon-separated segments: `<ns>:<sym>:<line>:<col>`. Public, parseable, forward-compatible. Tools split on the colon and recover the four pieces directly. Every `reg-view`-rendered DOM element has one. **Click any pixel in your app, walk back to the line of code that put it there.**
 
-This isn't a Causa feature. It's a framework feature. Causa is just one of several tools that consume the attribute — `re-frame-pair2` reads it through nREPL to scope a `dom/source-at` query; Playwright specs in test runs use it to assert "this rendered element came from view `:cart/total`"; future tools nobody's built yet can do the same.
+This isn't a Causa feature. It's a framework feature. Causa is just one of several tools that consume the attribute — `re-frame2-pair` reads it through nREPL to scope a `dom/source-at` query; Playwright specs in test runs use it to assert "this rendered element came from view `:cart/total`"; future tools nobody's built yet can do the same.
 
 ## The Causa gesture
 
@@ -78,7 +78,7 @@ Like `data-rf2-source-coord`, the stamping is gated on debug-enabled and elides 
 
 The framework commits to the attribute format and the index shape — both are parseable public contracts. The framework does **not** ship `dom-source-at` / `find-by-src` / `fire-click-at-src` helpers; those depend on host-specific DOM access that re-frame2 the framework doesn't assume.
 
-Causa ships its own pick-mode helper, its own coord-to-editor handler, its own batch "highlight every node from this view" toggle. `re-frame-pair2` ships its own helpers over the same attribute. They could diverge in implementation; they can't diverge in contract — the attribute is the wire.
+Causa ships its own pick-mode helper, its own coord-to-editor handler, its own batch "highlight every node from this view" toggle. `re-frame2-pair` ships its own helpers over the same attribute. They could diverge in implementation; they can't diverge in contract — the attribute is the wire.
 
 ## Two recent landmarks
 
