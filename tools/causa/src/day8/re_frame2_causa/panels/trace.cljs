@@ -412,8 +412,7 @@
                        :color       (:text-secondary tokens)}}
    [:p {:style {:margin 0
                 :color  (:text-tertiary tokens)}}
-    "No events observed in this session. "
-    "Once the host app dispatches anything the ribbon will fill."]])
+    "No events."]])
 
 (defn- active-filter-pill
   "Per rf2-vu0mp — one pill in the no-matches empty state's 'narrowing
