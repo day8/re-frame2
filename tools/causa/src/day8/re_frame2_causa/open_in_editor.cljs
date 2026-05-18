@@ -9,7 +9,7 @@
     1. `open-chip` — render an `<a>` hiccup chip for a source-coord.
        Used by demo surfaces + any panel that wants the chip's exact
        presentation. The `:on-click` fires the OS scheme handler
-       directly via `window.location`.
+       directly via `Location.assign` (per rf2-muvs8).
 
     2. `:rf.causa/open-in-editor` reg-event-fx — the panel-side
        dispatch shape (`[:rf.causa/open-in-editor coord]` or
@@ -22,10 +22,10 @@
 
     3. `:rf.editor/open` reg-fx — the side-effectful launcher. Resolves
        the URI from the source-coord against `config/get-editor`,
-       applies the rf2-cm93v positive allowlist, then sets
-       `window.location.href`. Standalone so non-Causa callers (e.g. a
-       future test-mode shortcut, MCP-side open-uri replay) can share
-       the gate.
+       applies the rf2-cm93v positive allowlist, then calls
+       `Location.assign` (per rf2-muvs8). Standalone so non-Causa
+       callers (e.g. a future test-mode shortcut, MCP-side open-uri
+       replay) can share the gate.
 
   Per rf2-g5q8d (P0 — the panel chip was a no-op previously). The
   earlier wiring routed clicks to a stub `reg-event-db` that recorded
@@ -154,9 +154,44 @@
         uri))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
+;;
+;; Per rf2-muvs8: the navigator seam is held in an atom so tests can swap
+;; it without trying to override `window.location` (which is non-
+;; configurable in modern browsers and throws under `defineProperty`).
+;; Production code uses the default `default-navigator!`; tests rebind
+;; via `set-navigator!` to a capturing stub.
+
+(defn- default-navigator!
+  "Default navigation seam: `(.assign js/window.location uri)`.
+
+  Uses `(.assign location uri)` rather than
+  `(set! (.-location js/window) uri)` (the original implementation).
+  Both should be semantically equivalent — the property-setter on
+  `window.location` calls `Location.assign` internally per the HTML
+  spec — but per rf2-muvs8 some Chromium builds on Windows have been
+  observed to silently no-op the property-assignment form for non-
+  http(s) schemes while honouring the explicit `.assign` call from
+  the same click handler. `.assign` is the more reliable seam."
+  [uri]
+  (.assign (.-location js/window) uri))
+
+(defonce ^:private navigator
+  ;; Held in an atom so tests can swap (`set-navigator!`). Production
+  ;; code never reassigns it. Per rf2-muvs8.
+  (atom default-navigator!))
+
+(defn set-navigator!
+  "Replace the navigation seam used by `open!`. Returns the previous
+  seam so tests can restore it. Test-only — production callers MUST
+  NOT call this. Per rf2-muvs8."
+  [f]
+  (let [prev @navigator]
+    (reset! navigator f)
+    prev))
 
 (defn open!
-  "Set `window.location.href` to `uri`. Custom URI schemes hand off to
+  "Navigate `js/window.location` to `uri` via the configured navigator
+  seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
 
   Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
@@ -169,11 +204,25 @@
   `(when uri ...)` earlier guard handles the absent case; the
   allowlist handles the shaped-but-disallowed case).
 
+  Per rf2-muvs8: emits a `console.log` of the URI before navigation so
+  developers can diagnose silent OS-handler failures (relative paths,
+  unregistered protocol handlers, etc.) without needing a debugger
+  break. The log is a single line per click — low noise.
+
+  Per rf2-muvs8: navigation goes through `@navigator` (the atom-held
+  seam, default `default-navigator!`) rather than a direct
+  `(.assign js/window.location uri)` call — `(set! ...)` was the
+  original implementation and the bug it caused (silent click on
+  Windows + VSCode) is what rf2-muvs8 fixed. The atom seam lets
+  tests stub the navigation without mutating `js/window.location`
+  (which is non-configurable in modern browsers).
+
   Public so the `:rf.editor/open` reg-fx (registered in `install!`) can
   share the exact same gate the in-DOM chip uses."
   [uri]
-  (when (and uri (editor-uri/allowed-uri? uri) (exists? js/window))
-    (set! (.-location js/window) uri)
+  (when (and uri (editor-uri/allowed-uri? uri))
+    (js/console.log "[rf.causa/open-in-editor] navigating to:" uri)
+    (@navigator uri)
     nil))
 
 ;; ---- public: the open-in-editor chip ------------------------------------

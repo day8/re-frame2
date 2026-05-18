@@ -200,3 +200,134 @@
                    {:file "src/x.cljs" :line 1 :column 1})]
       (is (= "idea://open?file=/abs/code/src/x.cljs&line=1&column=1"
              (:href (second hiccup)))))))
+
+;; ---- click-time navigation (rf2-muvs8) ----------------------------------
+;;
+;; The bead: Mike clicked the chip on Windows + Chrome and VSCode never
+;; opened, despite the chip rendering with a well-formed `vscode://...`
+;; href. Root cause hypothesis: `(set! (.-location js/window) uri)`
+;; (the CLJS form for `window.location = uri`) was being silently no-
+;; op'd by the browser for custom URI schemes in some Chromium builds,
+;; while the explicit `Location.assign(uri)` from the same click
+;; handler reliably fires OS handoff.
+;;
+;; The fix replaced the `set!` form with `Location.assign`, routed the
+;; navigation through a swappable atom-held seam (`set-navigator!`)
+;; so tests can capture calls without mutating `js/window.location`
+;; (which is non-configurable in modern browsers and throws under
+;; `defineProperty`), and added a `console.log` of the URI so silent
+;; OS-handler failures (relative paths, unregistered protocol
+;; handlers) are diagnosable from devtools without a debugger break.
+;;
+;; These tests pin the click-time contract: clicking the chip invokes
+;; the navigator with the same URI carried in the :href.
+
+(defn- with-stub-navigator
+  "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
+  Restores the original navigator afterward (even on throw)."
+  [stub-fn body-fn]
+  (let [prev (open-in-editor/set-navigator! stub-fn)]
+    (try
+      (body-fn)
+      (finally
+        (open-in-editor/set-navigator! prev)))))
+
+(defn- capturing-navigator
+  "Build a navigator fn that pushes its URI argument onto the shared
+  `calls` atom. Returns `[navigator-fn, calls-atom]`."
+  []
+  (let [calls (atom [])
+        nav   (fn [uri] (swap! calls conj uri))]
+    [nav calls]))
+
+(deftest click-handler-calls-navigator-with-uri
+  (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
+            with the same URI carried in the :href"
+    (let [hiccup       (open-in-editor/open-chip
+                         {:file "src/x.cljs" :line 42 :column 7})
+          props        (second hiccup)
+          href         (:href props)
+          on-click     (:on-click props)
+          fake-evt     #js {:preventDefault (fn [])}
+          [nav calls]  (capturing-navigator)]
+      (with-stub-navigator nav
+        #(on-click fake-evt))
+      (is (= ["vscode://file/src/x.cljs:42:7"]
+             @calls)
+          "navigator called exactly once with the chip's href URI")
+      (is (= href (first @calls))
+          "the navigation URI is identical to the rendered href"))))
+
+(deftest click-handler-prevents-default
+  (testing "rf2-muvs8 — the click handler preventDefaults so the
+            browser doesn't double-navigate (once via the <a href>
+            native click, once via the JS Location.assign call)"
+    (let [hiccup       (open-in-editor/open-chip
+                         {:file "src/x.cljs" :line 1})
+          on-click     (:on-click (second hiccup))
+          prevented?   (atom false)
+          fake-evt     #js {:preventDefault (fn [] (reset! prevented? true))}
+          [nav _]      (capturing-navigator)]
+      (with-stub-navigator nav
+        #(on-click fake-evt))
+      (is @prevented?
+          "the click handler must call e.preventDefault()"))))
+
+(deftest click-handler-hides-chip-for-disallowed-scheme
+  (testing "rf2-muvs8 / rf2-cm93v — the chip's render-time gate hides
+            the chip entirely for URIs whose scheme is outside
+            `editor-uri/allowed-editor-uri-schemes`, so the click
+            never wires up at all. Pins that the user can never click
+            an unsafe URI to navigation."
+    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"}))
+        "render-time gate hides chip for disallowed scheme")))
+
+;; ---- Windows-path URI shape regression (rf2-muvs8) ----------------------
+;;
+;; The bead repro path: panel-gallery testbed on Windows 11. Without
+;; `:project-root` configured, the chip would build `vscode://file/
+;; panel_gallery/event_detail_stories.cljs:115:3` (a relative path) and
+;; VSCode would silently fail to open. With `:project-root` set to the
+;; on-disk root, the URI becomes absolute and VSCode resolves it.
+;;
+;; The matrix below pins URI shapes for the common Windows + Mac/Linux
+;; path combinations — guarding against a future refactor regressing
+;; the project-root prefix semantics.
+
+(deftest windows-path-uri-shape
+  (testing "rf2-muvs8 — Windows project-root + relative source-coord
+            produces a URI VSCode's OS handler can resolve"
+    (config/set-project-root! "C:/Users/miket/code/re-frame2")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "tools/story/src/re_frame/story/ui/open_in_editor.cljs"
+                    :line 92
+                    :column 5})]
+      (is (= (str "vscode://file/"
+                  "C:/Users/miket/code/re-frame2/"
+                  "tools/story/src/re_frame/story/ui/open_in_editor.cljs:92:5")
+             (:href (second hiccup)))
+          "absolute Windows URI shape — drive letter + forward slashes
+           per VSCode's documented format"))))
+
+(deftest posix-path-uri-shape
+  (testing "rf2-muvs8 — POSIX project-root + relative source-coord
+            produces a URI VSCode/Cursor's OS handler can resolve"
+    (config/set-project-root! "/home/me/code/myapp")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 1 :column 1})]
+      (is (= "vscode://file//home/me/code/myapp/src/app/views.cljs:1:1"
+             (:href (second hiccup)))
+          "POSIX URI shape — double-slash after `file` because the root
+           starts with `/`"))))
+
+(deftest windows-backslash-path-uri-shape
+  (testing "rf2-muvs8 — Windows project-root with trailing backslash
+            still produces a valid URI (trailing separators stripped)"
+    (config/set-project-root! "C:\\Users\\me\\code\\myapp\\")
+    (let [hiccup (open-in-editor/open-chip
+                   {:file "src/app/views.cljs" :line 1 :column 1})]
+      (is (= "vscode://file/C:\\Users\\me\\code\\myapp/src/app/views.cljs:1:1"
+             (:href (second hiccup)))
+          "trailing separator stripped; backslashes inside the root
+           preserved (VSCode accepts both on Windows)"))))

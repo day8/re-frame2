@@ -6,15 +6,40 @@
   The component reads the user's editor preference from
   `re-frame.story.config/editor` (set at boot via `story/configure!`)
   and consults `re-frame.source-coords.editor-uri/editor-uri` to build
-  the URI. Click sets `window.location.href` — the OS handler chain
-  dispatches the URI to the registered editor.
+  the URI. Click calls `(.assign js/window.location uri)` — the OS
+  handler chain dispatches the URI to the registered editor.
 
-  ## Why `window.location.href` rather than `window.open`
+  ## Why `Location.assign` rather than `window.open`
 
   Custom URI schemes don't open new windows; they hand off to the OS
   handler. `window.open(\"vscode://...\")` opens a blank popup which
-  the user has to close manually. `set-href!` triggers the same OS
-  dispatch without leaving an orphaned window.
+  the user has to close manually. `Location.assign(...)` triggers the
+  same OS dispatch without leaving an orphaned window.
+
+  ## Why `.assign` rather than `(set! .-location)` (rf2-muvs8)
+
+  The two should be semantically equivalent — the property setter on
+  `window.location` calls `Location.assign` internally per the HTML
+  spec. In practice some Chromium builds on Windows have been observed
+  to silently no-op the property assignment for non-http(s) schemes
+  while honouring the explicit `.assign` call from the same click
+  handler. `.assign` is the more reliable seam; `(set! ...)` was the
+  original implementation and the bug it caused (silent click on
+  Windows + VSCode) is what rf2-muvs8 fixed.
+
+  ## Diagnostic logging (rf2-muvs8)
+
+  `open!` emits a single-line `console.log` of the URI before each
+  navigation. The log is the lowest-friction observability seam for
+  diagnosing silent OS-handler failures — a developer who clicks the
+  chip and sees nothing happen can open devtools, click again, and
+  confirm: 'the URI shipped X; the OS handler didn't pick it up'.
+  Common silent failures the log unblocks:
+
+    - Relative path in URI (host didn't plumb `:project-root`).
+    - VSCode/Cursor URI scheme not registered with the OS.
+    - Spaces / non-ASCII in path tripping the OS resolver.
+    - User on a custom editor whose template produced a malformed URI.
 
   ## When it renders nothing
 
@@ -73,9 +98,44 @@
                :display         "inline-block"}})
 
 ;; ---- side-effect: open the editor ----------------------------------------
+;;
+;; Per rf2-muvs8: the navigator seam is held in an atom so tests can swap
+;; it without trying to override `window.location` (which is non-
+;; configurable in modern browsers and throws under `defineProperty`).
+;; Production code uses the default `default-navigator!`; tests rebind
+;; via `set-navigator!` to a capturing stub.
+
+(defn- default-navigator!
+  "Default navigation seam: `(.assign js/window.location uri)`.
+
+  Uses `(.assign location uri)` rather than
+  `(set! (.-location js/window) uri)` (the original implementation).
+  Both should be semantically equivalent — the property-setter on
+  `window.location` calls `Location.assign` internally per the HTML
+  spec — but per rf2-muvs8 some Chromium builds on Windows have been
+  observed to silently no-op the property-assignment form for non-
+  http(s) schemes while honouring the explicit `.assign` call from
+  the same click handler. `.assign` is the more reliable seam."
+  [uri]
+  (.assign (.-location js/window) uri))
+
+(defonce ^:private navigator
+  ;; Held in an atom so tests can swap (`set-navigator!`). Production
+  ;; code never reassigns it. Per rf2-muvs8.
+  (atom default-navigator!))
+
+(defn set-navigator!
+  "Replace the navigation seam used by `open!`. Returns the previous
+  seam so tests can restore it. Test-only — production callers MUST
+  NOT call this. Per rf2-muvs8."
+  [f]
+  (let [prev @navigator]
+    (reset! navigator f)
+    prev))
 
 (defn- open!
-  "Set `window.location.href` to `uri`. Custom URI schemes hand off to
+  "Navigate `js/window.location` to `uri` via the configured navigator
+  seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
 
   Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
@@ -86,10 +146,24 @@
   that a `{:custom ...}` template could otherwise resolve to. A
   rejected URI is a click-time no-op (no navigation, no console noise
   — the chip's `(when uri ...)` earlier guard handles the absent
-  case; the allowlist handles the shaped-but-disallowed case)."
+  case; the allowlist handles the shaped-but-disallowed case).
+
+  Per rf2-muvs8: emits a `console.log` of the URI before navigation so
+  developers can diagnose silent OS-handler failures (relative paths,
+  unregistered protocol handlers, etc.) without needing a debugger
+  break. The log is a single line per click — low noise.
+
+  Per rf2-muvs8: navigation goes through `@navigator` (the atom-held
+  seam, default `default-navigator!`) rather than a direct
+  `(.assign js/window.location uri)` call — `(set! ...)` was the
+  original implementation and the bug it caused (silent click on
+  Windows + VSCode) is what rf2-muvs8 fixed. The atom seam lets
+  tests stub the navigation without mutating `js/window.location`
+  (which is non-configurable in modern browsers)."
   [uri]
-  (when (and uri (editor-uri/allowed-uri? uri) js/window)
-    (set! (.-location js/window) uri)
+  (when (and uri (editor-uri/allowed-uri? uri))
+    (js/console.log "[rf.story/open-in-editor] navigating to:" uri)
+    (@navigator uri)
     nil))
 
 ;; ---- public: the open-in-editor chip ------------------------------------
