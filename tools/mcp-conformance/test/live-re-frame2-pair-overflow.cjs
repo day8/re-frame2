@@ -357,6 +357,6 @@ runWithWatchdog(
     );
 
     // 8. Clean disconnect — runner handles client.close() on success.
-    console.log('\nPAIR2-MCP LIVE OVERFLOW CONFORMANCE GREEN');
+    console.log('\nRE-FRAME2-PAIR-MCP LIVE OVERFLOW CONFORMANCE GREEN');
   },
 );

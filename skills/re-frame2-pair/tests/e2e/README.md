@@ -50,8 +50,8 @@ npx shadow-cljs watch app
 
 # 2. run the e2e suite (in another terminal)
 cd skills/re-frame2-pair
-PAIR2_FIXTURE_DIR="$(pwd)/tests/fixture" \
-PAIR2_FIXTURE_URL="http://localhost:8030" \
+RE_FRAME2_PAIR_FIXTURE_DIR="$(pwd)/tests/fixture" \
+RE_FRAME2_PAIR_FIXTURE_URL="http://localhost:8030" \
 node tests/e2e/run.cjs
 ```
 
@@ -66,7 +66,7 @@ re-frame2-pair's test surfaces.
 
 ## Status
 
-Scaffolded — runs cleanly when `PAIR2_FIXTURE_URL` is set and the
+Scaffolded — runs cleanly when `RE_FRAME2_PAIR_FIXTURE_URL` is set and the
 fixture is up. When neither is set, the runner exits 0 with a
 `skipped — fixture not available` notice so the suite is safe to wire
 into CI on non-e2e jobs without false failures.

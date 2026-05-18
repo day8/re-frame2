@@ -288,10 +288,10 @@ unparseable values fall back to the default silently.
 
 | Cap                          | Default | CLI flag                          | Env var                                          |
 |------------------------------|---------|-----------------------------------|--------------------------------------------------|
-| max-concurrent-streams       | 10      | `--max-concurrent-streams=N`      | `RE_FRAME_PAIR2_MCP_MAX_STREAMS`                 |
-| max-events-per-sec           | 100     | `--max-events-per-sec=N`          | `RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC`          |
-| abuse-overflow-threshold     | 50      | `--abuse-overflow-threshold=N`    | `RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD`    |
-| abuse-window-ms              | 10000   | `--abuse-window-ms=N`             | `RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS`             |
+| max-concurrent-streams       | 10      | `--max-concurrent-streams=N`      | `RE_FRAME2_PAIR_MCP_MAX_STREAMS`                 |
+| max-events-per-sec           | 100     | `--max-events-per-sec=N`          | `RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC`          |
+| abuse-overflow-threshold     | 50      | `--abuse-overflow-threshold=N`    | `RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD`    |
+| abuse-window-ms              | 10000   | `--abuse-window-ms=N`             | `RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS`             |
 
 ### Concurrent-stream cap
 

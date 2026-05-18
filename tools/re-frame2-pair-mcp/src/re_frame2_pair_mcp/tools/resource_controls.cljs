@@ -78,13 +78,13 @@
 
   This namespace adds:
     - `max-concurrent-streams` (`--max-concurrent-streams` /
-      `RE_FRAME_PAIR2_MCP_MAX_STREAMS`)
+      `RE_FRAME2_PAIR_MCP_MAX_STREAMS`)
     - `max-events-per-sec` (`--max-events-per-sec` /
-      `RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC`)
+      `RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC`)
     - `abuse-overflow-threshold` (`--abuse-overflow-threshold` /
-      `RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD`)
+      `RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD`)
     - `abuse-window-ms` (`--abuse-window-ms` /
-      `RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS`)
+      `RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS`)
 
   The boolean flags above are opt-in (default OFF, operator must pass
   the flag); these integer caps are opt-OUT (default values active,
@@ -378,10 +378,10 @@
 (def ^:private env->key
   "Map of env-var name → config key. Symmetric with `flag->key` — same
   four gates, different config surface."
-  {"RE_FRAME_PAIR2_MCP_MAX_STREAMS"              :max-concurrent-streams
-   "RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC"       :max-events-per-sec
-   "RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD" :abuse-overflow-threshold
-   "RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS"          :abuse-window-ms})
+  {"RE_FRAME2_PAIR_MCP_MAX_STREAMS"              :max-concurrent-streams
+   "RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC"       :max-events-per-sec
+   "RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD" :abuse-overflow-threshold
+   "RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS"          :abuse-window-ms})
 
 (defn- parse-flag-value
   "Parse one CLI-flag string of the form `--name=value`. Returns

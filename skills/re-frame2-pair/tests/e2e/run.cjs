@@ -4,7 +4,7 @@
  *
  * Sequenced:
  *
- *   1. Skip if PAIR2_FIXTURE_URL is unset and the default localhost
+ *   1. Skip if RE_FRAME2_PAIR_FIXTURE_URL is unset and the default localhost
  *      probe fails — the suite is e2e-only by design; the runtime/shim
  *      surfaces cover everything that doesn't need a browser.
  *   2. For each *.e2e.cjs spec next to this file: spawn it as a child,
@@ -45,13 +45,13 @@ async function pingFixture(url, timeoutMs = 1500) {
 }
 
 function pickFixtureDir() {
-  if (process.env.PAIR2_FIXTURE_DIR) return process.env.PAIR2_FIXTURE_DIR;
+  if (process.env.RE_FRAME2_PAIR_FIXTURE_DIR) return process.env.RE_FRAME2_PAIR_FIXTURE_DIR;
   const guess = path.join(SKILL_ROOT, 'tests', 'fixture');
   return fs.existsSync(path.join(guess, 'shadow-cljs.edn')) ? guess : null;
 }
 
 function pickFixtureUrl() {
-  return process.env.PAIR2_FIXTURE_URL || 'http://localhost:8030';
+  return process.env.RE_FRAME2_PAIR_FIXTURE_URL || 'http://localhost:8030';
 }
 
 async function main() {
@@ -67,7 +67,7 @@ async function main() {
     console.log(
       '[re-frame2-pair-e2e] skipped — fixture not available at ' +
         fixtureUrl +
-        ' (set PAIR2_FIXTURE_URL to override; start the fixture with '
+        ' (set RE_FRAME2_PAIR_FIXTURE_URL to override; start the fixture with '
         + '`cd tests/fixture && npx shadow-cljs watch app`).',
     );
     process.exit(0);

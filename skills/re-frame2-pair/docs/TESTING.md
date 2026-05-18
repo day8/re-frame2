@@ -95,7 +95,7 @@ cd tests/fixture && npx shadow-cljs watch app
 
 # 2. run e2e (in a sibling terminal)
 cd skills/re-frame2-pair
-PAIR2_FIXTURE_URL=http://localhost:8030 node tests/e2e/run.cjs
+RE_FRAME2_PAIR_FIXTURE_URL=http://localhost:8030 node tests/e2e/run.cjs
 ```
 
 Future specs to add: `dom/source-at` against the annotated DOM,

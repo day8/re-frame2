@@ -243,10 +243,10 @@
 
 (deftest read-resource-env-parses-each-var
   ;; Pass a stubbed env-obj — same JS-object shape `process.env` has.
-  (let [env-obj #js {:RE_FRAME_PAIR2_MCP_MAX_STREAMS              "15"
-                     :RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC       "150"
-                     :RE_FRAME_PAIR2_MCP_ABUSE_OVERFLOW_THRESHOLD "75"
-                     :RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS          "15000"}
+  (let [env-obj #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS              "15"
+                     :RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC       "150"
+                     :RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD "75"
+                     :RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS          "15000"}
         cfg (resource/read-resource-env env-obj)]
     (is (= 15    (:max-concurrent-streams cfg)))
     (is (= 150   (:max-events-per-sec cfg)))
@@ -257,9 +257,9 @@
   (is (empty? (resource/read-resource-env #js {}))))
 
 (deftest read-resource-env-skips-non-positive
-  (let [env-obj #js {:RE_FRAME_PAIR2_MCP_MAX_STREAMS        "0"
-                     :RE_FRAME_PAIR2_MCP_MAX_EVENTS_PER_SEC "not-a-number"
-                     :RE_FRAME_PAIR2_MCP_ABUSE_WINDOW_MS    ""}]
+  (let [env-obj #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS        "0"
+                     :RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC "not-a-number"
+                     :RE_FRAME2_PAIR_MCP_ABUSE_WINDOW_MS    ""}]
     (is (empty? (resource/read-resource-env env-obj)))))
 
 (deftest merge-config-flags-win-over-env

@@ -31,8 +31,8 @@ const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 
-const PAIR2_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
-const SERVER = path.join(PAIR2_MCP_DIR, 'out', 'server.js');
+const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
+const SERVER = path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js');
 
 // Canonical tool-name list — sourced from re-frame2-pair-mcp's own fixture
 // (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so this conformance
@@ -40,7 +40,7 @@ const SERVER = path.join(PAIR2_MCP_DIR, 'out', 'server.js');
 // agree on the expected `tools/list` response without two hand-
 // maintained lists drifting. A registry change updates one file.
 const EXPECTED_TOOLS = JSON.parse(
-  fs.readFileSync(path.join(PAIR2_MCP_DIR, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
+  fs.readFileSync(path.join(RE_FRAME2_PAIR_MCP_DIR, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;
 
 // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
@@ -254,6 +254,6 @@ runWithWatchdog(
     // exit; the SDK closes the transport which kills the child
     // process. If the server hangs on shutdown the runner's watchdog
     // catches it.
-    console.log('\nPAIR2-MCP MCP-CLIENT CONFORMANCE GREEN');
+    console.log('\nRE-FRAME2-PAIR-MCP MCP-CLIENT CONFORMANCE GREEN');
   },
 );

@@ -263,6 +263,6 @@ runWithWatchdog(
       'OK   every frame validates against ReFrame2PairProgressNotificationParams',
     );
 
-    console.log('\nPAIR2-MCP LIVE SUBSCRIBE CONFORMANCE GREEN');
+    console.log('\nRE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN');
   },
 );

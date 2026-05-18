@@ -84,7 +84,7 @@ const FIXTURE_DIR = path.join(
   'tests',
   'fixture',
 );
-const PAIR2_MCP_DIR = path.join(REPO_ROOT, 'tools', 're-frame2-pair-mcp');
+const RE_FRAME2_PAIR_MCP_DIR = path.join(REPO_ROOT, 'tools', 're-frame2-pair-mcp');
 const {
   createDiagnosticBuffer,
   isVerboseTests,
@@ -449,9 +449,9 @@ async function main() {
       throw new Error(`live test missing: ${test.path}`);
     }
   }
-  if (!exists(path.join(PAIR2_MCP_DIR, 'out', 'server.js'))) {
+  if (!exists(path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js'))) {
     throw new Error(
-      `re-frame2-pair-mcp server bundle missing: ${path.join(PAIR2_MCP_DIR, 'out', 'server.js')}. ` +
+      `re-frame2-pair-mcp server bundle missing: ${path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js')}. ` +
         'Compile with `npx shadow-cljs compile server` in tools/re-frame2-pair-mcp first.',
     );
   }
@@ -722,7 +722,7 @@ async function main() {
         throw err;
       }
     }
-    log('PAIR2-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
+    log('RE-FRAME2-PAIR-MCPLIVE HERMETIC CONFORMANCE GREEN (' +
       INNER_TESTS.length + ' inner tests)');
   } finally {
     cleanup();
@@ -743,7 +743,7 @@ main()
   .then(() => {
     clearTimeout(watchdog);
     console.log(
-      `PAIR2-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
+      `RE-FRAME2-PAIR-MCPlive hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
     );
     process.exit(0);
   })

@@ -11,7 +11,7 @@
   `re-frame.story.config/get-editor` — every consumer of
   `re-frame.source-coords.editor-uri/editor-uri` reads its preference
   from a per-tool atom so hosts can run multiple tools side-by-side
-  with different editors. Pair2-mcp's user is the AI agent on the
+  with different editors. Re-frame2-pair-mcp's user is the AI agent on the
   other end of the stdio channel; the chosen editor governs the URI
   shape the agent renders as a clickable link.
 
@@ -22,12 +22,12 @@
   ## Configuration surface
 
   Hosts pick the editor once at server start via the
-  `RE_FRAME_PAIR2_MCP_EDITOR` env var (read at namespace load) or
+  `RE_FRAME2_PAIR_MCP_EDITOR` env var (read at namespace load) or
   programmatically via `set-editor!`. The env-var path is the
   expected onboarding flow — an MCP launcher script that already
   wires `SHADOW_CLJS_BUILD_ID` adds one line:
 
-      RE_FRAME_PAIR2_MCP_EDITOR=cursor
+      RE_FRAME2_PAIR_MCP_EDITOR=cursor
 
   ## Accepted values
 
@@ -38,16 +38,16 @@
   (:require [applied-science.js-interop :as j]))
 
 (def ^:private env-editor
-  "Editor keyword read from the `RE_FRAME_PAIR2_MCP_EDITOR` env var at
+  "Editor keyword read from the `RE_FRAME2_PAIR_MCP_EDITOR` env var at
   namespace load. Returns nil when unset / blank so the atom's default
   (`:vscode`) wins."
-  (let [raw (j/get-in js/process [:env :RE_FRAME_PAIR2_MCP_EDITOR])]
+  (let [raw (j/get-in js/process [:env :RE_FRAME2_PAIR_MCP_EDITOR])]
     (when (and (string? raw) (seq raw))
       (keyword raw))))
 
 (defonce
   ^{:doc "Atom holding re-frame2-pair-mcp's 'Open in editor' preference. Default
-         `:vscode` (overridable via `RE_FRAME_PAIR2_MCP_EDITOR` at
+         `:vscode` (overridable via `RE_FRAME2_PAIR_MCP_EDITOR` at
          server start). Accepts the keywords `:vscode` / `:cursor` /
          `:windsurf` / `:zed` / `:idea` plus the
          `{:custom \"<uri-template>\"}` form (see
