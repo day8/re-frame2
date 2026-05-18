@@ -441,6 +441,259 @@
           (str "workspace-root key MUST embed the workspace id; got "
                (pr-str k))))))
 
+;; ---- :tabs serialises rendering (rf2-ktnl8) -----------------------------
+;;
+;; Pre-fix, `:tabs` fell through to the `:else` (grid) branch in
+;; `workspace-view` and rendered every variant cell simultaneously. For
+;; views that internally hardcode a frame-provider (rf2-sszlr's
+;; `gallery_chrome.cljs` is the canonical example) simultaneous cells
+;; collapsed their interior state — the last-seeded variant's app-db
+;; bled into every other cell.
+;;
+;; Post-fix: a dedicated `tabs-renderer` mounts ONE cell at a time. A
+;; tab strip switches the active tab; only the active variant's
+;; `variant-cell` appears in the rendered tree. Per-variant state
+;; isolation is therefore intrinsic — distinct mounts share nothing.
+;;
+;; These tests pin the render shape without depending on Reagent
+;; lifecycle. The workspace-view returns a hiccup tree containing the
+;; tabs-renderer as a child component vector `[tabs-renderer cells]`;
+;; we extract the renderer fn from that vector and invoke it directly
+;; so we can walk the rendered output.
+
+(defn- find-tabs-renderer-call
+  "Walk `tree` for a hiccup vector of the shape `[fn cells-vec]` where
+  cells-vec is a non-empty vector of cell maps. Returns
+  `{:fn renderer :cells cells}` or nil. The workspace-view mounts
+  `:tabs` as `[tabs-renderer cells]` so this is the unambiguous shape
+  of the tabs branch."
+  [tree]
+  (->> (tree-seq coll? seq tree)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (= 2 (count node))
+                      (fn? (first node))
+                      (vector? (second node))
+                      (seq (second node))
+                      (every? map? (second node))
+                      (every? #(contains? % :type) (second node)))))
+       first
+       (#(when % {:fn (first %) :cells (second %)}))))
+
+(defn- count-variant-cells-in
+  "Count `[variant-cell vid]` invocations in a hiccup tree —
+  `[fn namespaced-keyword]` vectors. Mirrors `collect-cell-keys`."
+  [tree]
+  (->> (tree-seq coll? seq tree)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (= 2 (count node))
+                      (fn? (first node))
+                      (keyword? (second node))
+                      (some? (namespace (second node))))))
+       count))
+
+(defn- tab-buttons-in
+  "Collect every tab-strip `:button` element from a hiccup tree.
+  Tab buttons carry `:role \"tab\"` on their props map."
+  [tree]
+  (->> (tree-seq coll? seq tree)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (= :button (first node))
+                      (map? (second node))
+                      (= "tab" (:role (second node))))))
+       vec))
+
+(deftest tabs-layout-delegates-to-tabs-renderer-rf2-ktnl8
+  (testing ":tabs workspace dispatches to the tabs-renderer rather than
+            falling through to the grid pipeline (per rf2-ktnl8 — pre-
+            fix `:tabs` collapsed to grid and rendered every cell
+            simultaneously)"
+    (story/reg-variant :story.rf2-ktnl8/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8/c {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8/a
+                  :story.rf2-ktnl8/b
+                  :story.rf2-ktnl8/c]})
+    (let [tree (workspace/workspace-view :Workspace.rf2-ktnl8/t)]
+      (is (boolean (some #(and (string? %)
+                               (re-find #"\(tabs\)" %))
+                         (tree-seq coll? seq tree)))
+          "workspace title MUST advertise the :tabs layout")
+      (is (some? (find-tabs-renderer-call tree))
+          (str "workspace-view MUST mount a tabs-renderer node "
+               "(of shape `[fn cells-vec]`) for `:layout :tabs`")))))
+
+(deftest tabs-renderer-mounts-only-the-selected-cell-rf2-ktnl8
+  (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
+            simultaneous-render bleed (rf2-ktnl8) cannot occur because
+            non-active cells are not present in the rendered tree"
+    (story/reg-variant :story.rf2-ktnl8.only/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.only/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.only/c {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.only/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8.only/a
+                  :story.rf2-ktnl8.only/b
+                  :story.rf2-ktnl8.only/c]})
+    (let [{:keys [fn cells]} (find-tabs-renderer-call
+                               (workspace/workspace-view
+                                 :Workspace.rf2-ktnl8.only/t))
+          rendered            (fn cells)
+          n                   (count-variant-cells-in rendered)]
+      (is (= 1 n)
+          (str "exactly ONE variant-cell MUST appear in the tabs-"
+               "renderer's output (got " n "). Multiple cells means "
+               "the renderer is rendering all variants simultaneously "
+               "— the rf2-ktnl8 bleed bug is back.")))))
+
+(deftest tabs-renderer-emits-button-per-variant-rf2-ktnl8
+  (testing "tabs-renderer renders a tab strip with one tab button per
+            variant — the UI affordance for switching tabs"
+    (story/reg-variant :story.rf2-ktnl8.btn/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.btn/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.btn/c {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.btn/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8.btn/a
+                  :story.rf2-ktnl8.btn/b
+                  :story.rf2-ktnl8.btn/c]})
+    (let [{:keys [fn cells]} (find-tabs-renderer-call
+                               (workspace/workspace-view
+                                 :Workspace.rf2-ktnl8.btn/t))
+          rendered (fn cells)
+          buttons  (tab-buttons-in rendered)
+          labels   (mapv #(nth % 2) buttons)]
+      (is (= 3 (count buttons))
+          (str "expected 3 tab buttons (one per variant); got "
+               (count buttons) ": " (pr-str labels)))
+      (is (every? (set labels)
+                  [":story.rf2-ktnl8.btn/a"
+                   ":story.rf2-ktnl8.btn/b"
+                   ":story.rf2-ktnl8.btn/c"])
+          (str "every variant id MUST appear as a tab label; "
+               "labels=" (pr-str labels))))))
+
+(deftest tabs-renderer-isolates-non-active-variants-rf2-ktnl8
+  (testing "non-active variants MUST NOT appear in the rendered tree —
+            bleed-free isolation requires that non-selected variants
+            are absent, not merely hidden via CSS. (This is the load-
+            bearing assertion for rf2-ktnl8: the bleed in rf2-sszlr's
+            gallery_chrome.cljs happens because simultaneous cells
+            mount the SAME view in the SAME render tree; if only ONE
+            cell mounts at a time, the bleed cannot occur.)"
+    (story/reg-variant :story.rf2-ktnl8.iso/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.iso/b {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.iso/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8.iso/a
+                  :story.rf2-ktnl8.iso/b]})
+    (let [{:keys [fn cells]} (find-tabs-renderer-call
+                               (workspace/workspace-view
+                                 :Workspace.rf2-ktnl8.iso/t))
+          rendered  (fn cells)
+          ;; Use a hash-set of namespaced keywords found anywhere in
+          ;; the tree. The active variant-cell is mounted as
+          ;; `[variant-cell :story.rf2-ktnl8.iso/a]`; its keyword
+          ;; therefore appears in the flattened tree. The non-active
+          ;; variant's keyword must NOT appear (no cell mounted).
+          kws       (->> (tree-seq coll? seq rendered)
+                         (filter keyword?)
+                         set)]
+      (is (contains? kws :story.rf2-ktnl8.iso/a)
+          "the default-active variant's id MUST appear in the tree")
+      (is (not (contains? kws :story.rf2-ktnl8.iso/b))
+          (str "the non-active variant's id MUST NOT appear — its "
+               "cell is not mounted. Found keywords: "
+               (pr-str (filter #(re-find #"rf2-ktnl8" (str %)) kws)))))))
+
+(deftest tabs-renderer-buttons-carry-onclick-and-aria-rf2-ktnl8
+  (testing "each tab button carries an on-click (the switch affordance)
+            and aria-selected reflecting the active tab"
+    (story/reg-variant :story.rf2-ktnl8.aria/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.aria/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.aria/c {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.aria/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8.aria/a
+                  :story.rf2-ktnl8.aria/b
+                  :story.rf2-ktnl8.aria/c]})
+    (let [{:keys [fn cells]} (find-tabs-renderer-call
+                               (workspace/workspace-view
+                                 :Workspace.rf2-ktnl8.aria/t))
+          rendered (fn cells)
+          buttons  (tab-buttons-in rendered)
+          props    (mapv second buttons)]
+      (is (= 3 (count buttons)))
+      (is (every? fn? (map :on-click props))
+          "every tab button MUST carry an on-click handler")
+      (is (= "true" (:aria-selected (first props)))
+          "tab 0 MUST be selected by default (aria-selected=true)")
+      (is (every? #(= "false" (:aria-selected %)) (rest props))
+          "non-selected tabs MUST carry aria-selected=false"))))
+
+(deftest tabs-renderer-onclick-is-callable-without-error-rf2-ktnl8
+  (testing "invoking a tab button's on-click MUST be safe (it's the
+            switch affordance; clicking a tab updates the local-atom-
+            held selection). We can't observe the cross-render state
+            change outside a React render context (Reagent's
+            `r/with-let` re-allocates bindings on each non-React call),
+            so this test pins the handler's structural invariant: it
+            is callable, takes no args, and does not throw."
+    (story/reg-variant :story.rf2-ktnl8.click/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.click/b {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.click/t
+      {:layout   :tabs
+       :variants [:story.rf2-ktnl8.click/a
+                  :story.rf2-ktnl8.click/b]})
+    (let [{:keys [fn cells]} (find-tabs-renderer-call
+                               (workspace/workspace-view
+                                 :Workspace.rf2-ktnl8.click/t))
+          tree    (fn cells)
+          buttons (tab-buttons-in tree)
+          handler (-> buttons (nth 1) second :on-click)]
+      (is (fn? handler))
+      (is (= 1 (handler))
+          (str "the on-click handler MUST execute without error and "
+               "the `reset!` returns the new selection index (1 = tab 1, "
+               "the tab whose button we drove)")))))
+
+(deftest tabs-and-grid-layouts-produce-different-cell-counts-rf2-ktnl8
+  (testing "a workspace with 3 variants renders 3 variant-cells under
+            `:grid` but exactly 1 under `:tabs` — pins the contract
+            that the two layouts mount different numbers of cells.
+            Without this guard a future refactor could silently re-
+            collapse `:tabs` to `:grid` (the rf2-ktnl8 starting state)."
+    (story/reg-variant :story.rf2-ktnl8.gt/a {:events []})
+    (story/reg-variant :story.rf2-ktnl8.gt/b {:events []})
+    (story/reg-variant :story.rf2-ktnl8.gt/c {:events []})
+    (story/reg-workspace :Workspace.rf2-ktnl8.gt/grid
+      {:layout :grid
+       :variants [:story.rf2-ktnl8.gt/a
+                  :story.rf2-ktnl8.gt/b
+                  :story.rf2-ktnl8.gt/c]})
+    (story/reg-workspace :Workspace.rf2-ktnl8.gt/tabs
+      {:layout :tabs
+       :variants [:story.rf2-ktnl8.gt/a
+                  :story.rf2-ktnl8.gt/b
+                  :story.rf2-ktnl8.gt/c]})
+    (let [grid-tree  (workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid)
+          grid-n     (count-variant-cells-in grid-tree)
+          {tabs-fn :fn tabs-cells :cells}
+                     (find-tabs-renderer-call
+                       (workspace/workspace-view :Workspace.rf2-ktnl8.gt/tabs))
+          tabs-tree  (tabs-fn tabs-cells)
+          tabs-n     (count-variant-cells-in tabs-tree)]
+      (is (= 3 grid-n)
+          (str ":grid layout MUST mount one cell per variant (got "
+               grid-n ")"))
+      (is (= 1 tabs-n)
+          (str ":tabs layout MUST mount exactly one cell at a time "
+               "(got " tabs-n ")")))))
+
 ;; ---- workspace cells re-run on full run-key (rf2-c56hr) -----------------
 ;;
 ;; Sibling to rf2-kgn0c (variant-id-keyed React identity) and rf2-z4fza
