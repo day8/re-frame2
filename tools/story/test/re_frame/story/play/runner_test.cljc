@@ -55,7 +55,11 @@
     (is (true?  (runner/step-arity-ok? [:assert-db [:k] 1])))
     (is (true?  (runner/step-arity-ok? [:assert-db [:a :b] nil])))
     (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred 'my-ns/pos-int?])))
-    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym"])))
+    ;; rf2-inbad: fn-direct is the advanced-CLJS-safe authoring path.
+    (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred pos?])))
+    (is (true?  (runner/step-arity-ok? [:assert-db [:k] :pred (fn [_] true)])))
+    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym-or-fn"])))
+    (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred 42])))
     (is (false? (runner/step-arity-ok? [:assert-db [:k]])))
     (is (false? (runner/step-arity-ok? [:assert-db "not-a-vec" 1])))
     (is (false? (runner/step-arity-ok? [:assert-db [:k] :pred])))))
@@ -220,6 +224,10 @@
   (is (= "assert-db [:k] = 1" (runner/step-summary [:assert-db [:k] 1])))
   (is (= "assert-db [:k] :pred my/pred?"
          (runner/step-summary [:assert-db [:k] :pred 'my/pred?])))
+  ;; rf2-inbad: fn-direct refs render as <fn> so messages don't leak
+  ;; compiler-munged identifiers under advanced CLJS.
+  (is (= "assert-db [:k] :pred <fn>"
+         (runner/step-summary [:assert-db [:k] :pred pos?])))
   (is (= "assert-dom \"sel\" visible"
          (runner/step-summary [:assert-dom "sel" :visible])))
   (is (= "click \"sel\""  (runner/step-summary [:click "sel"])))
@@ -282,8 +290,15 @@
 (deftest step-assert-db-decomposition
   (is (= {:path [:k] :mode :equals :expected 1}
          (runner/step-assert-db [:assert-db [:k] 1])))
-  (is (= {:path [:a :b] :mode :pred :pred-sym 'my/pos?}
-         (runner/step-assert-db [:assert-db [:a :b] :pred 'my/pos?]))))
+  (testing "symbol ref decomposes to :pred-ref + :pred-fn? false"
+    (is (= {:path [:a :b] :mode :pred :pred-ref 'my/pos? :pred-fn? false}
+           (runner/step-assert-db [:assert-db [:a :b] :pred 'my/pos?]))))
+  (testing "fn ref decomposes to :pred-ref + :pred-fn? true (rf2-inbad)"
+    (let [decomp (runner/step-assert-db [:assert-db [:a :b] :pred pos?])]
+      (is (= [:a :b] (:path decomp)))
+      (is (= :pred (:mode decomp)))
+      (is (true? (:pred-fn? decomp)))
+      (is (identical? pos? (:pred-ref decomp))))))
 
 (deftest step-assert-dom-decomposition
   (is (= {:selector "x" :mode :visible}

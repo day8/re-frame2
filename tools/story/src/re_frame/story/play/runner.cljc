@@ -30,7 +30,7 @@
   | `[:dispatch-sync event-vec]`       | `rf/dispatch-sync` (synchronous) into the frame               |
   | `[:wait ms]`                       | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM)            |
   | `[:assert-db path value]`          | Assert `(= (get-in @app-db path) value)`                      |
-  | `[:assert-db path :pred fn-sym]`   | Assert custom predicate (resolve via the framework registrar) |
+  | `[:assert-db path :pred fn-or-sym]`| Assert custom predicate — `fn` is preferred (works under advanced CLJS); `symbol` is the JVM/dev escape hatch (resolved at run time, fragile under advanced CLJS munging) |
   | `[:assert-dom selector :visible]`  | Assert selector resolves to a visible DOM node                |
   | `[:assert-dom selector :hidden]`   | Assert selector resolves to nothing (or hidden node)          |
   | `[:assert-dom selector :text txt]` | Assert selector's text-content matches `txt`                  |
@@ -112,10 +112,14 @@
                       (and (>= (count step) 3)
                            (vector? (nth step 1))
                            (or
-                             ;; :pred form is 4-arity: [:assert-db path :pred fn-sym]
+                             ;; :pred form is 4-arity: [:assert-db path :pred ref]
+                             ;; where `ref` is EITHER a fn (preferred — works
+                             ;; under advanced CLJS) OR a symbol (JVM escape
+                             ;; hatch via `requiring-resolve`).
                              (and (= 4 (count step))
                                   (= :pred (nth step 2))
-                                  (symbol? (nth step 3)))
+                                  (let [r (nth step 3)]
+                                    (or (fn? r) (symbol? r))))
                              ;; equality form is 3-arity: [:assert-db path value]
                              ;; ANY value (including nil) is legal — but :pred is
                              ;; reserved as a discriminator and would be ambiguous.
@@ -461,8 +465,13 @@
     :wait           (str "wait " (second step) "ms")
     :assert-db      (cond
                       (and (= 4 (count step)) (= :pred (nth step 2)))
-                      (str "assert-db " (pr-str (second step))
-                           " :pred " (pr-str (nth step 3)))
+                      (let [ref (nth step 3)]
+                        (str "assert-db " (pr-str (second step))
+                             " :pred "
+                             (cond
+                               (symbol? ref) (pr-str ref)
+                               (fn? ref)     "<fn>"
+                               :else         (pr-str ref))))
                       :else
                       (str "assert-db " (pr-str (second step))
                            " = " (pr-str (nth step 2))))
@@ -547,13 +556,22 @@
 
 (defn step-assert-db
   "Decompose an `:assert-db` step into `{:path <vec> :mode :equals|:pred
-  :expected <val> :pred-sym <sym>}`. The `:pred` form is 4-arity
-  (`[:assert-db path :pred fn-sym]`); the equality form is 3-arity."
+  :expected <val> :pred-ref <fn-or-sym> :pred-fn? <bool>}`.
+
+  The `:pred` form is 4-arity (`[:assert-db path :pred ref]`) where
+  `ref` is EITHER a fn (preferred — works under advanced CLJS) OR a
+  symbol (resolved via `requiring-resolve` on JVM, best-effort
+  `goog.global` walk on CLJS — fragile under advanced). The
+  equality form is 3-arity (`[:assert-db path value]`).
+
+  `:pred-fn?` discriminates so the runner can skip resolution when the
+  caller already handed in a callable."
   [step]
   (when (= :assert-db (step-type step))
     (let [path (nth step 1)]
       (if (and (= 4 (count step)) (= :pred (nth step 2)))
-        {:path path :mode :pred   :pred-sym (nth step 3)}
+        (let [ref (nth step 3)]
+          {:path path :mode :pred :pred-ref ref :pred-fn? (fn? ref)})
         {:path path :mode :equals :expected (nth step 2)}))))
 
 (defn step-assert-dom
