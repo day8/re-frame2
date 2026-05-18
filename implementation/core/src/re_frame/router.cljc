@@ -1228,23 +1228,33 @@
   when set. Without this, a Causa-style bookkeeping handler would
   have its enqueue trace delivered to listeners (re-entering the
   consumer's trace-cb) before the handler-scope binding ever took
-  effect."
+  effect.
+
+  Per rf2-twt7m Change 1: hoist `:rf.trace/call-site` onto this
+  success-path emit too. The envelope's `:call-site` was stamped by
+  the surface `dispatch` / `dispatch-sync` macro (rf2-ts1a); we
+  publish it through `trace/with-call-site` so `build-event` hoists
+  it onto the trace event via the existing scope-driven hoist path
+  (same machinery the error path uses). Without this, the Event lens
+  redesign (rf2-zh2qc) and any consumer building click-to-source UX
+  on the enqueue trace would lose the dispatch-site coord."
   [envelope sync?]
   (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
         handler-meta (when event-id (registrar/lookup :event event-id))
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
-      (trace/emit! :event :event/dispatched
-                   (cond-> {:event    event
-                            :frame    (:frame envelope)
-                            :origin   (:origin envelope)
-                            :source   (:source envelope)
-                            :sync?    sync?}
-                     (:dispatch-id envelope)
-                     (assoc :dispatch-id (:dispatch-id envelope))
-                     (:parent-dispatch-id envelope)
-                     (assoc :parent-dispatch-id (:parent-dispatch-id envelope)))))))
+      (trace/with-call-site (:call-site envelope)
+        (trace/emit! :event :event/dispatched
+                     (cond-> {:event    event
+                              :frame    (:frame envelope)
+                              :origin   (:origin envelope)
+                              :source   (:source envelope)
+                              :sync?    sync?}
+                       (:dispatch-id envelope)
+                       (assoc :dispatch-id (:dispatch-id envelope))
+                       (:parent-dispatch-id envelope)
+                       (assoc :parent-dispatch-id (:parent-dispatch-id envelope))))))))
 
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:

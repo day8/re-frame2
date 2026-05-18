@@ -213,7 +213,15 @@
   `*handler-scope*`). `op-type` discriminates the success vs error
   paths — see Spec 009 §Core fields and §Error event shape for the
   hoist contract (`:source` / `:recovery` / `:rf.trace/trigger-handler`
-  / `:rf.trace/call-site` / `:sensitive?`)."
+  / `:rf.trace/call-site` / `:sensitive?`).
+
+  Per rf2-twt7m Change 1: `:rf.trace/call-site` rides BOTH error and
+  success-path emits when the in-scope cascade was kicked off by a
+  call-site-capturing macro (`rf/dispatch` / `rf/dispatch-sync` /
+  `rf/subscribe` / `rf/inject-cofx`). Previously gated to errors
+  only; widened so consumers (Event lens, Causa, Story) can render
+  jump-to-source links from every event in a cascade, not just
+  errors."
   [op-type operation tags]
   (let [scope       *handler-scope*
         trigger     (some-> scope :trigger-handler)
@@ -224,7 +232,7 @@
         recovery    (if error?
                       (:recovery tags :no-recovery)
                       (:recovery tags))
-        call-site   (when error? (some-> scope :call-site))
+        call-site   (some-> scope :call-site)
         ;; Strip hoisted slots from `:tags` so they don't double-up at
         ;; the top level. Exception: the error path KEEPS `:source`
         ;; under `:tags` because boundary-interceptor / error-emit
@@ -246,7 +254,10 @@
       ;; error path always stamps (defaulting to :no-recovery above).
       (or error? recovery) (assoc :recovery recovery)
       trigger              (assoc :rf.trace/trigger-handler trigger)
-      ;; `:rf.trace/call-site` rides error traces only.
+      ;; `:rf.trace/call-site` rides BOTH error and success-path
+      ;; emits (rf2-twt7m Change 1). Hoisted from the in-scope
+      ;; cascade's call-site (envelope's macro-stamped coord or a
+      ;; `with-call-site` wrapper around a surface-macro body).
       call-site            (assoc :rf.trace/call-site call-site)
       ;; Top-level `:sensitive? true` stamp. Absent (not `false`)
       ;; when not sensitive — consumers treat absent as false.
