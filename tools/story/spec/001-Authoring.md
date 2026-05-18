@@ -94,18 +94,57 @@ and reject with `:rf.error/variant-shape` on miss.
 Body:
 
 ```clojure
-{:doc      "..."
- :layout   :grid | :prose | :variants-grid | :tabs | :custom
- :variants [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs
- :content  [{:type :prose :body "md..."} ...]    ; for :prose
- :render   <view-id>                              ; for :custom (a registered view)
- :modes    #{<mode-id> ...}}
+{:doc       "..."
+ :layout    :grid | :prose | :variants-grid | :tabs | :custom
+ :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs
+ :content   [{:type :prose :body "md..."} ...]    ; for :prose
+ :render    <view-id>                              ; for :custom (a registered view)
+ :modes     #{<mode-id> ...}                       ; future-reserved — see below
+ :isolation :isolated | :shared}                   ; rf2-gqid4 — :variants-grid only
 ```
 
 The `:variants-grid` layout (per Phase 2 SOTA refinement) renders
 every variant of a single parent story side-by-side; it differs from
 `:grid` (which renders an explicit `:variants` list) by enumerating
 variants from the registry.
+
+#### Workspace `:modes` slot — future-reserved (v1) (rf2-q5e36)
+
+The workspace body's `:modes` slot is **declared but not honoured by
+the runtime in v1**. Workspaces inherit the chrome's `:active-modes`
+selection (the chrome-level toolbar, per
+[`010-Toolbar.md`](010-Toolbar.md)). Workspace-local mode scoping
+(override / union / cell fan-out matrix) is a v2 follow-up; the slot
+is reserved so existing bodies don't break when the runtime starts
+honouring it. **This paragraph is authoritative** for the workspace
+`:modes` slot semantics. The chrome-level toolbar is the only path
+that affects rendering today; see
+[`010-Toolbar.md`](010-Toolbar.md) §State location for the
+`:active-modes` slot every workspace render consumes via
+`re-frame.story.ui.state/shell-state-atom`.
+
+#### Workspace `:isolation` slot — `:variants-grid` mount strategy (rf2-gqid4)
+
+The optional `:isolation` slot tunes how `:variants-grid` mounts its
+cells. Two values:
+
+| Value       | Mount strategy                                         | When to use                                                                                                                                                                                                                                            |
+|-------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `:isolated` | **(default)** every cell mounts in parallel, each scoped to its variant-allocated frame via `frame-provider-ns-safe`. Baseline frame-isolation contract. | Most stories. The decorator + frame-provider pipeline keeps each cell's app-db / subscribes independent.                                                                                                                                              |
+| `:shared`   | cells mount ONE at a time with a prev/next navigator (◀ N/total ▶). Same serialised-mount strategy as `:tabs`. | Views whose `:component` internally hardcodes a frame-provider (e.g. `gallery_chrome.cljs` / rf2-sszlr). Parallel cells of such views share interior state because the last-seeded cell's app-db clobbers siblings — serialised mount restores per-variant state. |
+
+Only `:variants-grid` honours `:isolation`; other layouts ignore it.
+`:tabs` already serialises by construction.
+
+```clojure
+(story/reg-workspace :Workspace.gallery/all
+  {:layout    :variants-grid
+   :isolation :shared})    ; render cells serially with prev/next nav
+```
+
+Belt-and-braces to the Causa modal-positioning fix (rf2-om6fa);
+together they cover the full-viewport modal stack symptom *and* the
+remaining interior state-bleed.
 
 ### `(reg-decorator id metadata)`
 

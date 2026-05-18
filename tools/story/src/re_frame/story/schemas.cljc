@@ -493,15 +493,27 @@
 
 (def Workspace
   "Schema for the body of `reg-workspace`. Per IMPL-SPEC §3.1.
-  Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`."
+  Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
+
+  The optional `:isolation` slot (rf2-gqid4) tunes how `:variants-grid`
+  mounts its cells. `:isolated` (the default) mounts every variant
+  cell in parallel, each scoped to its own variant frame — the
+  baseline frame-isolation contract. `:shared` mounts ONE cell at a
+  time with a prev/next navigator, serialising the renderer. This is
+  the load-bearing affordance for views that internally hardcode a
+  frame-provider (the rf2-sszlr / `gallery_chrome.cljs` pattern):
+  parallel cells of such views share their interior state because the
+  last-seeded cell's app-db clobbers the others. Only honoured by
+  `:variants-grid`; ignored on other layouts."
   [:and
    [:map
-    [:doc      {:optional true} :string]
-    [:layout   [:enum :grid :prose :variants-grid :tabs :custom]]
-    [:variants {:optional true} [:vector :keyword]]
-    [:content  {:optional true} [:vector WorkspaceContentItem]]
-    [:render   {:optional true} :keyword]
-    [:modes    {:optional true} ModeRefSet]]
+    [:doc       {:optional true} :string]
+    [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
+    [:variants  {:optional true} [:vector :keyword]]
+    [:content   {:optional true} [:vector WorkspaceContentItem]]
+    [:render    {:optional true} :keyword]
+    [:modes     {:optional true} ModeRefSet]
+    [:isolation {:optional true} [:enum :isolated :shared]]]
    ;; Layout-specific requirements. :grid / :variants-grid / :tabs need
    ;; :variants; :prose needs :content; :custom needs :render.
    [:fn {:error/message

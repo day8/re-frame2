@@ -59,6 +59,29 @@ variant of a single parent story side-by-side; it differs from `:grid`
 (which renders an explicit `:variants` list) by enumerating variants
 from the registry.
 
+### `:variants-grid :isolation` (rf2-gqid4)
+
+The workspace body's optional `:isolation` slot tunes the mount
+strategy for `:variants-grid`:
+
+- `:isolated` (default) — every cell mounts in parallel; each wraps
+  its rendered view in a per-variant frame-provider. Baseline
+  frame-isolation contract.
+- `:shared` — cells mount ONE at a time with a prev/next navigator
+  (◀ N/total ▶). Same serialised-mount strategy `:tabs` (rf2-ktnl8)
+  uses, scoped to the implicit `:variants-grid` enumeration.
+
+`:shared` is the affordance for views that internally hardcode a
+frame-provider (e.g. `gallery_chrome.cljs` / rf2-sszlr): parallel
+cells of such views share interior state because the last-seeded
+cell's app-db clobbers siblings. Serialised mount restores per-
+variant state without forcing the author to flip the workspace to
+`:tabs` (which loses the devcards `:variants-grid` semantic of
+enumerating variants from the registry).
+
+The normative slot definition lives in
+[`001-Authoring.md`](001-Authoring.md) §reg-workspace.
+
 ## Shell lifecycle
 
 ```clojure

@@ -596,6 +596,36 @@
   (testing "unknown layouts degrade gracefully"
     (is (= [] (workspace/resolve-layout :Workspace.x/y {:layout :weird})))))
 
+;; ---- rf2-gqid4 :isolation slot ------------------------------------------
+
+(deftest variants-grid-isolation-default-is-isolated
+  (testing "absent :isolation slot resolves cells identically to baseline (data-shape)"
+    (story/reg-variant :story.iso-a/a {:events []})
+    (story/reg-variant :story.iso-a/b {:events []})
+    (let [baseline (workspace/resolve-layout
+                     :Workspace.iso-a/all
+                     {:layout :variants-grid})
+          explicit (workspace/resolve-layout
+                     :Workspace.iso-a/all
+                     {:layout :variants-grid :isolation :isolated})]
+      ;; :isolation is a mount-strategy slot; cell-resolution is identical.
+      (is (= baseline explicit))
+      (is (= 2 (count baseline))))))
+
+(deftest variants-grid-isolation-shared-preserves-cell-resolution
+  (testing ":isolation :shared resolves the same cell vector as :isolated"
+    (story/reg-variant :story.iso-b/x {:events []})
+    (story/reg-variant :story.iso-b/y {:events []})
+    (let [isolated (workspace/resolve-layout
+                     :Workspace.iso-b/all
+                     {:layout :variants-grid :isolation :isolated})
+          shared   (workspace/resolve-layout
+                     :Workspace.iso-b/all
+                     {:layout :variants-grid :isolation :shared})]
+      ;; The slot tunes mount strategy, not enumeration.
+      (is (= isolated shared))
+      (is (= 2 (count shared))))))
+
 ;; ---- docs mode (rf2-rodx) -----------------------------------------------
 
 (deftest docs-parent-story-id
