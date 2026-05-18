@@ -98,6 +98,23 @@
   [cascades]
   (head-dispatch-id (focusable-cascades cascades)))
 
+(defn focusable-head-frame-id
+  "The `:frame` of the head focusable cascade — i.e. the frame whose
+  most recent event is the latest L2-visible row. Returns nil when no
+  focusable cascade exists (cold start; buffer-cleared; only the
+  `:ungrouped` bucket present).
+
+  Used at first-mount seeding time (rf2-boyc2): `compose-focus` derives
+  the panel-observed frame from this same head cascade, so seeding the
+  Causa app-db's `:target-frame` + `:epoch-history` from the same axis
+  closes the initial-mount race where the App-DB panel renders the
+  boot empty-state for `:cart-frame` (the observed frame) because
+  `:epoch-history` was seeded from `:rf/default` (the legacy default).
+  Picker-driven `set-frame-reducer` already aligns the same two axes
+  on a frame change; this helper extends that alignment to mount."
+  [cascades]
+  (:frame (head-cascade (focusable-cascades cascades))))
+
 (defn cascade-by-id
   "Find a cascade in `cascades` by its `:dispatch-id`. Returns nil when
   no match (id refers to an evicted cascade, or a fresh session).

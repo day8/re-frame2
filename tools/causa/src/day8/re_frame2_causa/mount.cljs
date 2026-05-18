@@ -46,11 +46,13 @@
   toggles are no-ops on this axis."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
+            [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- mount state ---------------------------------------------------------
@@ -294,25 +296,53 @@
     `:rf.causa/note-trace-event` into `:rf/causa` so the sub fires
     IMMEDIATELY on every push.
 
-  - `:epoch-history` — seeded from `(rf/epoch-history target)`
-    (rf2-1barg). Pre-mount epoch settles fire the
-    `:rf.causa/epoch-collector` cb but it short-circuits when
-    `:rf/causa` is not yet registered (host-side records would
-    otherwise route into a non-existent frame). The seed lifts the
-    accumulated history into Causa's reactive slot at first
-    Ctrl+Shift+C; later settles flow through the cb's dispatch path
-    on the standard reactive surface. Target frame defaults to
-    `:rf/default` per `defaults/default-target-frame` until a frame
-    picker lands."
+  - `:epoch-history` + `:target-frame` (rf2-1barg + rf2-boyc2) —
+    seeded together via `:rf.causa/set-target-frame` so the slot is
+    keyed on the frame the user will be observing on first paint.
+    Pre-rf2-boyc2 the seed was hardcoded to `:rf/default` — but
+    `compose-focus` derives the panel-observed frame from the head
+    focusable cascade in the trace buffer, so an app whose pre-mount
+    events ran on `:cart-frame` rendered the App-DB panel against
+    `:cart-frame` (the observed frame) while `:epoch-history` carried
+    the empty `:rf/default` ring. The composite's `:history-empty?`
+    resolved true → the panel rendered the boot empty-state
+    'app-db for :cart-frame is at the boot value. No diffs yet.'
+    EVEN WITH cascades from `:cart-frame` already in the buffer
+    (the Mike report). Frame-switch round-trip resolved it because
+    `set-frame-reducer` aligns the two axes; the first-mount path
+    had to do the same. The seed-frame is the head focusable
+    cascade's `:frame` (via `spine/focusable-head-frame-id` over the
+    same cascade projection panels read off), falling back to
+    `defaults/default-target-frame` when no focusable cascade exists
+    (cold start; only the `:ungrouped` bucket present). The
+    `:rf.causa/set-target-frame` event writes `:target-frame` and
+    re-seeds `:epoch-history` from `(rf/epoch-history seed-frame)`
+    in lockstep — symmetric with the picker path and the public
+    `core/set-target-frame!` API."
   []
   (rf/reg-frame :rf/causa {})
   ;; Seed the frame's app-db with whatever the trace-bus atom + the
   ;; framework's epoch ring buffer have accumulated so far. The host
   ;; may have driven dispatches before the user opened Causa.
-  (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])
-    (rf/dispatch-sync [:rf.causa/sync-epoch-history
-                       (vec (rf/epoch-history defaults/default-target-frame))]))
+  (let [buffer     (trace-bus/buffer)
+        ;; Project the pre-mount trace buffer through the same pipeline
+        ;; the `:rf.causa/cascades` sub uses — projection + Causa-
+        ;; internal hard-filter — so the seed-frame matches what
+        ;; `compose-focus` will resolve on first paint. Without the
+        ;; internal filter a tool-frame cascade could be chosen as
+        ;; the head, which the user never sees in the L2 list.
+        cascades   (into [] (remove trace-bus/causa-internal-cascade?)
+                         (projection/group-cascades buffer))
+        seed-frame (or (spine/focusable-head-frame-id cascades)
+                       defaults/default-target-frame)]
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer])
+      ;; rf2-boyc2 — seed via `:rf.causa/set-target-frame` so
+      ;; `:target-frame` + `:epoch-history` move in lockstep keyed on
+      ;; the frame the user will be observing on first paint (the
+      ;; head focusable cascade's frame). Mirrors the picker-driven
+      ;; `set-frame-reducer` path and `core/set-target-frame!`.
+      (rf/dispatch-sync [:rf.causa/set-target-frame seed-frame])))
   ;; Hydrate the auto-filter pills (rf2-ak4ms). The preload-time
   ;; `filters/install!` call ran BEFORE the `:rf/causa` frame was
   ;; registered, so its hydrate attempt no-op'd; re-running here

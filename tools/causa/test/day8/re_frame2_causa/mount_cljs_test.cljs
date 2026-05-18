@@ -826,6 +826,144 @@
                 (is (= [1 2] (mapv :id buf))
                     "seed preserves oldest-first ordering")))))))))
 
+;; -------------------------------------------------------------------------
+;; rf2-boyc2 — first-mount `:epoch-history` + `:target-frame` align with the
+;; observed frame (the head focusable cascade's frame).
+;; -------------------------------------------------------------------------
+;;
+;; Pre-fix the mount path hardcoded the seed frame to `:rf/default` via
+;; `(rf/epoch-history defaults/default-target-frame)` then dispatched
+;; `:rf.causa/sync-epoch-history`. But `compose-focus` derives the
+;; panel-observed frame from the head cascade in the trace buffer — so an
+;; app whose pre-mount events ran on `:cart-frame` rendered the App-DB
+;; panel against `:cart-frame` (observed) while `:epoch-history` was
+;; keyed on the empty `:rf/default` ring. `:history-empty?` resolved
+;; true; the panel rendered the boot empty-state for `:cart-frame` even
+;; with cascades from that frame in the buffer. Frame-switch round-trip
+;; resolved it (`set-frame-reducer` aligns the two axes); the first-
+;; mount path had to do the same. Fix: `ensure-causa-frame!` computes
+;; the seed frame via `spine/focusable-head-frame-id` over the same
+;; cascade projection panels read off and dispatches
+;; `:rf.causa/set-target-frame seed-frame` so `:target-frame` +
+;; `:epoch-history` move in lockstep.
+
+(defn- pre-mount-dispatch-event
+  "Build a trace event the projection groups into a cascade for the
+  given frame. Matches the shape produced by `event/dispatched` in the
+  framework's emit layer — enough for `projection/group-cascades` to
+  bucket the event into its dispatch-id-keyed cascade with `:frame`."
+  [id dispatch-id frame-id event-id]
+  {:id        id
+   :op-type   :event
+   :operation :event/dispatched
+   :tags      {:dispatch-id dispatch-id
+               :frame       frame-id
+               :event       [event-id]}})
+
+(deftest first-open!-seeds-target-frame-from-head-focusable-cascade-frame
+  (testing "rf2-boyc2 — first open! reads the trace-bus buffer, projects
+            it through the same `group-cascades` + Causa-internal filter
+            the `:rf.causa/cascades` sub uses, and seeds `:target-frame`
+            from the head focusable cascade's `:frame`. This closes the
+            initial-mount race where the App-DB panel rendered the boot
+            empty-state for an observed frame whose `:epoch-history`
+            slot was still keyed on `:rf/default`."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)
+              cart-records [{:epoch-id     :e-1
+                             :frame        :cart-frame
+                             :db-before    {:cart {:items []}}
+                             :db-after     {:cart {:items [{:id 7}]}}
+                             :trigger-event [:cart/add-item]
+                             :event-id     :cart/add-item
+                             :trace-events []}]]
+          (with-redefs [substrate-adapter/render render-fn
+                        ;; Stub `rf/epoch-history` so the `:rf.causa/
+                        ;; set-target-frame` event handler's
+                        ;; `(rf/epoch-history target)` read returns the
+                        ;; pre-mount `:cart-frame` records the test wants
+                        ;; the panel to see. In production the framework's
+                        ;; epoch ring would already carry these.
+                        rf/epoch-history (fn [frame-id]
+                                           (case frame-id
+                                             :cart-frame cart-records
+                                             []))]
+            ;; Pre-mount: the host has dispatched events on :cart-frame
+            ;; while Causa was unmounted. The trace-bus atom accumulates
+            ;; the trace events; the framework's epoch ring (stubbed
+            ;; above) carries the corresponding :rf/epoch-record values.
+            (trace-bus/collect-trace!
+              (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
+            (trace-bus/collect-trace!
+              (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
+            (mount/open!)
+            (rf/with-frame :rf/causa
+              (is (= :cart-frame @(rf/subscribe [:rf.causa/target-frame]))
+                  "`:target-frame` seeds from the head focusable cascade's
+                   `:frame` — NOT the hardcoded `:rf/default`. Pre-fix
+                   the slot was `:rf/default` regardless of pre-mount
+                   cascades.")
+              (is (= cart-records @(rf/subscribe [:rf.causa/epoch-history]))
+                  "`:epoch-history` re-seeds from `(rf/epoch-history
+                   :cart-frame)` so the App-DB panel's
+                   `:rf.causa/selected-epoch-diff` returns the picked
+                   frame's diff body rather than `:history-empty? true`."))))))))
+
+(deftest first-open!-seeds-default-frame-when-no-pre-mount-cascades
+  (testing "rf2-boyc2 — cold start: no pre-mount cascades in the trace
+            buffer → `spine/focusable-head-frame-id` returns nil →
+            seed-frame falls back to `defaults/default-target-frame`
+            (`:rf/default`). Preserves the pre-fix cold-start behaviour
+            so the existing empty-history landing experience is
+            unchanged."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn
+                        rf/epoch-history (fn [_] [])]
+            (mount/open!)
+            (rf/with-frame :rf/causa
+              (is (= :rf/default @(rf/subscribe [:rf.causa/target-frame]))
+                  "cold start (no pre-mount cascades) → seed frame is
+                   the default `:rf/default`. Same surface as pre-fix."))))))))
+
+(deftest first-open!-ignores-causa-internal-cascades-when-picking-seed-frame
+  (testing "rf2-boyc2 — the seed-frame projection applies the same
+            Causa-internal hard-filter the `:rf.causa/cascades` sub
+            uses (per rf2-g1pt8). Without the filter a Causa-internal
+            tool-frame cascade could be chosen as the head, but those
+            are invisible in the L2 list — picking that frame as the
+            seed would be inconsistent with what the panel will
+            observe."
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)
+              cart-records [{:epoch-id :e-cart :frame :cart-frame
+                             :db-before {} :db-after {:k 1}
+                             :trigger-event [:cart/add] :event-id :cart/add
+                             :trace-events []}]]
+          (with-redefs [substrate-adapter/render render-fn
+                        rf/epoch-history (fn [frame-id]
+                                           (case frame-id
+                                             :cart-frame cart-records
+                                             []))]
+            ;; A real :cart-frame cascade (visible in L2) followed by a
+            ;; Causa-internal cascade (filtered from L2). Without the
+            ;; internal filter the latter would sort as head and the
+            ;; seed-frame would be wrong.
+            (trace-bus/collect-trace!
+              (pre-mount-dispatch-event 1 200 :cart-frame :cart/add))
+            (trace-bus/collect-trace!
+              (pre-mount-dispatch-event 2 201 :rf/causa
+                                        :rf.causa/select-tab))
+            (mount/open!)
+            (rf/with-frame :rf/causa
+              (is (= :cart-frame @(rf/subscribe [:rf.causa/target-frame]))
+                  "head L2-visible cascade is :cart-frame — the Causa-
+                   internal cascade is filtered out of the projection
+                   the way the `:rf.causa/cascades` sub filters it"))))))))
+
 (deftest open!-is-idempotent-on-causa-frame-registration
   (testing "subsequent open!s after the frame is registered surgical-
             update the frame's config (reg-frame contract per Spec 002
