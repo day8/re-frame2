@@ -66,9 +66,9 @@
 
   ;; ----- 1. empty cascade buffer ---------------------------------------
   (story/reg-variant :story.causa.event/empty-cascade
-    {:doc        "No cascades in the buffer. Panel renders the
-                 'No cascades yet' empty-state copy alongside the
-                 cascade-list container."
+    {:doc        "No cascades in the buffer. Panel renders the silent
+                 empty-state container (rf2-b9f6z — no prose; the L2
+                 event-list is the focus surface)."
      :events     [[:rf.causa/sync-trace-buffer (fixtures/empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})

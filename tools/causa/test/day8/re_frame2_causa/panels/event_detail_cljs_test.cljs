@@ -318,14 +318,16 @@
 (deftest no-selection-empty-buffer-renders-default-landing-view
   (testing "per spec/007-UX-IA.md §Default landing view, the panel's
             initial state (no selection, no events) renders the empty-
-            state container with the 'no cascades yet' placeholder copy"
+            state container silently — per rf2-b9f6z the panel reflects
+            the L2 event-list focus like every other panel, so the
+            empty container carries no prose"
     (seed-buffer! [])
     (rf/with-frame :rf/causa
       (let [tree    (event-detail/Panel)
             empty   (find-by-testid tree "rf-causa-event-detail-empty")
             ;; Flatten every text node under the empty-state container
-            ;; so the assertion is agnostic to the placeholder paragraph's
-            ;; exact hiccup nesting.
+            ;; so the silent-by-default assertion is agnostic to the
+            ;; container's exact hiccup nesting.
             text    (->> (hiccup-seq empty)
                          (filter string?)
                          (apply str))]
@@ -337,8 +339,9 @@
             "no cascade-detail container in the initial state")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-orphaned"))
             "no orphaned-state container in the initial state")
-        (is (re-find #"No cascades yet" text)
-            "placeholder copy guides the user to trigger a dispatch")))))
+        (is (= "" text)
+            "silent-by-default — empty-state container carries no prose
+             (rf2-b9f6z: drop pre-spine 'pick from cascade list' wording)")))))
 
 (deftest sensitive-redacted-cascade-renders-orphaned-and-bumps-count
   (testing "when the privacy gate drops a :sensitive? cascade entirely,
