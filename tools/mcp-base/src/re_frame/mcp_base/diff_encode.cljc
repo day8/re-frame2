@@ -1,5 +1,6 @@
 (ns re-frame.mcp-base.diff-encode
-  "Path-keyed structural diff for epoch records (rf2-1wdzp).
+  "Path-keyed structural diff for epoch records (rf2-1wdzp) projected
+  into path-headed cluster sections (rf2-qeous).
 
   ## What this does
 
@@ -8,18 +9,43 @@
   structural sharing, so on the wire the pair is roughly 2× app-db
   per epoch; a 50-epoch default `:epochs` slice ⇒ up to 100× app-db.
 
-  The transform replaces `:db-after` with a path-keyed structural diff
-  against `:db-before`:
+  The transform replaces `:db-after` with a path-headed cluster
+  projection of a path-keyed structural diff against `:db-before`:
 
       {:db-before <full>
        :db-after  {:rf.mcp/diff-from :db-before
-                   :patches [[<path> :assoc <new-value>]
-                             [<path> :dissoc]]}}
+                   :sections [{:section-path [:cart :items]
+                               :section-kind :modified
+                               :patches      [[<path> :assoc <new-value>]
+                                              [<path> :dissoc]]}
+                              {:section-path [:checkout :state]
+                               :section-kind :modified
+                               :patches      [...]}]}}
 
-  A patch is a 2- or 3-element vector — `[path :assoc v]` for new /
+  Each section heads N patches with a breadcrumb path + a kind
+  summary (`:added` / `:removed` / `:modified`). A patch inside a
+  section is a 2- or 3-element vector — `[path :assoc v]` for new /
   changed leaves, `[path :dissoc]` for keys that disappeared. The
-  decoder applies each patch in order via `assoc-in` / `update-in` to
-  reconstruct `:db-after`.
+  decoder flattens sections back to a patch list and applies each
+  patch in order via `assoc-in` / `update-in` to reconstruct
+  `:db-after`.
+
+  ## Why sections-per-cluster (rf2-qeous)
+
+  Agent queries like 'what did this cascade do?' want scoped
+  cluster summaries — the path breadcrumb signals 'these N changes
+  belong together'. The flat patch list (the predecessor shape)
+  forced agents to re-cluster mentally. The sections projection
+  mirrors Causa's panel `sections-per-cluster` decomposition
+  (rf2-gfxmk Phase 1 of rf2-abts7) — same path-headed clusters; only
+  the per-section body shape differs (patches here vs annotated
+  subtree there).
+
+  The patch list is preserved per-section as the round-trip
+  primitive: concatenating every section's `:patches` reproduces
+  the flattened patch list, which `apply-patches` replays
+  losslessly. See `section_grouping.cljc/sections->patches` for the
+  inverse projection.
 
   ## Self-contained records
 
@@ -69,7 +95,8 @@
   via Closure DCE. JVM consumers run validation unconditionally — JVM
   paths are dev/server-side, the cost is invisible against the
   surrounding tree-walk."
-  (:require [re-frame.mcp-base.vocab :as vocab]))
+  (:require [re-frame.mcp-base.section-grouping :as sg]
+            [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Patch grammar — the Malli schema pinned at the encoder boundary.
@@ -105,6 +132,31 @@
   validation walks the whole emission once rather than once per
   tuple."
   [:sequential patch-schema])
+
+(def section-schema
+  "Malli schema for one section in the path-headed cluster projection
+  (rf2-qeous).
+
+  Shape:
+
+      {:section-path [<key>...]            ; the cluster breadcrumb
+       :section-kind :added|:removed|:modified
+       :patches      [<patch>...]}         ; subset of the flat patch list
+
+  Published as a public def so downstream decoders (causa-mcp's
+  forthcoming Wire-Pipeline schema, the cross-MCP wire-vocab
+  conformance test) can consume the canonical schema rather than
+  re-stating the grammar."
+  [:map
+   [:section-path [:vector :any]]
+   [:section-kind [:enum :added :removed :modified]]
+   [:patches      patches-schema]])
+
+(def sections-schema
+  "Malli schema for the full sections vector — sequential of
+  `section-schema`. Convenience alias used at the encoder boundary
+  so validation walks the whole emission once."
+  [:sequential section-schema])
 
 ;; ---------------------------------------------------------------------------
 ;; Validation gate — soft-pass when Malli is absent; goog-define-elidable
@@ -153,6 +205,21 @@
                         {:rf.error/code  :rf.error/bad-diff-patches
                          :schema         patches-schema
                          :patches        patches})))))
+  nil)
+
+(defn- validate-sections!
+  "Validate `sections` against `sections-schema` and throw ex-info on
+  mismatch. Soft-pass when Malli is absent, mirrors
+  `validate-patches!`. Called by `diff-encode-db-after` at the wire
+  boundary after the section-grouping pass (rf2-qeous)."
+  [sections]
+  (when validate-patches?
+    (when-let [validate (resolve-malli-validate)]
+      (when-not (validate sections-schema sections)
+        (throw (ex-info "diff-encode section grammar violated"
+                        {:rf.error/code :rf.error/bad-diff-sections
+                         :schema        sections-schema
+                         :sections      sections})))))
   nil)
 
 (declare collect-patches-into)
@@ -266,9 +333,16 @@
     patches))
 
 (defn diff-encode-db-after
-  "Replace an epoch's `:db-after` with a path-keyed structural diff
-  against its own `:db-before`. Returns the epoch with `:db-after`
-  shaped as `{:rf.mcp/diff-from :db-before :patches [...]}`.
+  "Replace an epoch's `:db-after` with a path-headed cluster
+  projection of a path-keyed structural diff against its own
+  `:db-before` (rf2-qeous). Returns the epoch with `:db-after`
+  shaped as
+  `{:rf.mcp/diff-from :db-before :sections [{...}{...}]}`.
+
+  Each section bundles the patches inside one path-headed cluster —
+  the agent reads `:section-path` + `:section-kind` for cluster
+  intent and drills into `:patches` for leaf detail. See
+  `re-frame.mcp-base.section-grouping` for the cluster algorithm.
 
   When `:db-before` is missing (older epoch from a runtime that pruned
   it, or a synthetic record), the function leaves the epoch unchanged
@@ -279,27 +353,32 @@
                (contains? epoch :db-before)
                (contains? epoch :db-after))
     epoch
-    (let [patches (collect-patches (:db-before epoch) (:db-after epoch) [])]
-      (validate-patches! patches)
+    (let [patches  (collect-patches (:db-before epoch) (:db-after epoch) [])
+          _        (validate-patches! patches)
+          sections (sg/group-patches-into-sections patches)
+          _        (validate-sections! sections)]
       (assoc epoch :db-after
              {vocab/diff-from-key :db-before
-              :patches            patches}))))
+              :sections           sections}))))
 
 (defn decode-db-after
   "Reverse `diff-encode-db-after`. Given an epoch whose `:db-after` is
-  a `{:rf.mcp/diff-from :db-before :patches [...]}` marker, reconstruct
-  the full `:db-after` from the epoch's `:db-before` and the patch list.
-  Idempotent on already-full epochs (the marker check returns the input
-  unchanged when `:db-after` isn't a diff). Provided for agent-host
-  round-trip parity and for the unit tests."
+  a `{:rf.mcp/diff-from :db-before :sections [...]}` marker,
+  reconstruct the full `:db-after` from the epoch's `:db-before` and
+  the per-section patch lists (flattened in section order).
+
+  Idempotent on already-full epochs (the marker check returns the
+  input unchanged when `:db-after` isn't a diff). Provided for
+  agent-host round-trip parity and for the unit tests."
   [epoch]
   (let [da (when (map? epoch) (:db-after epoch))]
     (if-not (and (map? da)
                  (= :db-before (get da vocab/diff-from-key)))
       epoch
-      (let [patches   (:patches da)
+      (let [sections  (:sections da)
+            patches   (sg/sections->patches (or sections []))
             db-before (:db-before epoch)
-            rebuilt   (apply-patches db-before (or patches []))]
+            rebuilt   (apply-patches db-before patches)]
         (assoc epoch :db-after rebuilt)))))
 
 (defn diff-encode-epochs

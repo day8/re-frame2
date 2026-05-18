@@ -824,14 +824,8 @@ module.exports = {
     );
 
     // ====================================================================
-    // 10. Trace panel — six-domino capture on dispatch
+    // 10. Canvas inc click — retained as anchor for §12 (a11y)
     // ====================================================================
-    //
-    // The trace panel registers a listener against the variant's frame
-    // on selection (see shell.cljs `ensure-listeners-for-variant!`).
-    // Clicking the canvas's "+" button dispatches `:counter/inc` —
-    // the trace listener buckets it into a cascade and the panel's
-    // title bumps its event count above zero.
     //
     // Per rf2-9la06: scope all main-pane selectors via the
     // `data-test-variant` anchor that canvas.cljs stamps on the active
@@ -839,13 +833,7 @@ module.exports = {
     // can resolve to a stale workspace cell that's still mounted under
     // <main> because §§5/6 selected a workspace and §7's variant click
     // doesn't clear `:selected-workspace` (selection slots are
-    // independent — see tools/story state.cljc). When the workspace
-    // is still mounted, `main.locator('[data-test="inc"]').first()`
-    // picks the alphabetically-first cell (`:story.counter/clicked-
-    // three-times`, count=3 after :play), the click bumps it to 4,
-    // and the §11 scrubber assertion (driven against the right-pane
-    // slider, which IS scoped to the active variant) reports "still
-    // 4" — the canonical signature of this flake.
+    // independent — see tools/story state.cljc).
     const main = page.getByRole('main');
     const loadedCanvas = main.locator(
       '[data-test-variant=":story.counter/loaded"]',
@@ -853,28 +841,20 @@ module.exports = {
     await loadedCanvas.waitFor({ state: 'visible', timeout: 5000 });
     await loadedCanvas.locator('[data-test="inc"]').first().click();
 
-    // The trace panel's title is "Trace <variant-id> — N events, M cascades".
-    // We wait until the count is non-zero.
-    await page
-      .getByText(/Trace .* — [1-9][0-9]* events/i)
-      .first()
-      .waitFor({ state: 'visible', timeout: 5000 });
-
     // ====================================================================
-    // 10b / 11 / 11b — Actions panel + scrubber + trace cross-reference
+    // 10b / 11 / 11b — Trace panel + scrubber + actions panel — RETIRED
     // ====================================================================
     //
-    // Retired per rf2-sgdd3 alongside the Story-side scrubber / trace /
-    // actions panels. Causa is the RHS primary inspector now (L1 ribbon
-    // [◀ ▶ ⏭] + L2 event list replace the scrubber; Trace tab replaces
-    // the trace panel; Event-tab cascade view replaces the actions
-    // panel). Equivalent coverage belongs in tools/causa/ — a Story-
-    // aware Causa testbed scenario is the right home and is out of
-    // scope for this PR.
+    // Retired per rf2-sgdd3 (PR #1478) alongside the Story-side RHS
+    // Trace / scrubber / actions panel deletion. Causa is the RHS
+    // primary inspector now (L1 ribbon [◀ ▶ ⏭] + L2 event list replace
+    // the scrubber; Trace tab replaces the trace panel; Event-tab
+    // cascade view replaces the actions panel). Equivalent coverage
+    // lives in tools/story/testbeds/causa_rhs_smoke/spec.cjs
+    // (rf2-drprn PR #1484).
     //
     // The §10 inc click above is retained because §12 (a11y panel)
-    // still anchors on it; the time-travel + cross-reference
-    // assertions specific to the deleted panels are gone.
+    // still anchors on it.
 
     // ====================================================================
     // 12. A11y panel — clicking "run" reports zero loaded-variant violations
@@ -1115,9 +1095,9 @@ module.exports = {
     // JS context, so the +1 click at step 1 (which bumped :count to 6)
     // does NOT survive into this final section — `core.cljs` re-runs
     // `(rf/dispatch-sync [:counter/initialise 5])` on the reloaded page
-    // and the count is back at 5. The trace-panel click at step 10
-    // operates on the Story shell's variant frame, not the live app's
-    // frame, so it doesn't move the live app's :count either.
+    // and the count is back at 5. The §10 canvas click operates on
+    // the Story shell's variant frame, not the live app's frame, so
+    // it doesn't move the live app's :count either.
     //
     // We therefore assert the post-reload starting value (5), then click
     // +1 to confirm the inc handler is still wired in the re-mounted

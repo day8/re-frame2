@@ -17,11 +17,15 @@
                               (pair2-mcp `tools.cljs` `tree-summary`)
   - `:rf.mcp/dedup-table`   — structural-dedup wrapper
                               (pair2-mcp `tools.cljs` `dedup-value`)
-  - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker
-                              (pair2-mcp `tools.cljs`
-                               `diff-encode-db-after`; cross-MCP
-                               vocabulary per pair2-mcp Principles
-                               §\"Cross-MCP vocabulary\")
+  - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker; the
+                              body slot is `:sections` — a vector of
+                              path-headed cluster sections, each with
+                              `:section-path` + `:section-kind` +
+                              `:patches` (rf2-qeous, cross-MCP
+                              vocabulary per pair2-mcp Principles
+                              §\"Cross-MCP vocabulary\"; canonical
+                              encoder
+                              `re-frame.mcp-base.diff-encode/diff-encode-db-after`)
   - `:rf.size/large-elided` — size-elision wire marker
                               (spec/Spec-Schemas §`:rf/elision-marker`,
                                pair2-mcp Principles §\"Size-elision\")
@@ -183,26 +187,43 @@
   [:map [:rf.mcp/dedup-table :map]])
 
 (def DiffFromBody
-  "An epoch's `:db-after` slot, diff-encoded against `:db-before`.
+  "An epoch's `:db-after` slot, diff-encoded against `:db-before` and
+  projected into path-headed cluster sections (rf2-qeous).
 
-  Per pair2-mcp `tools.cljs/diff-encode-db-after` and pair2-mcp
-  Principles §\"Cross-MCP vocabulary\". Shape:
+  Per `re-frame.mcp-base.diff-encode/diff-encode-db-after` and
+  pair2-mcp Principles §\"Cross-MCP vocabulary\". Shape:
 
       {:rf.mcp/diff-from :db-before
-       :patches [[<path> :assoc <new-value>]
-                 [<path> :dissoc]
-                 ...]}
+       :sections [{:section-path [<key>...]
+                   :section-kind :added|:removed|:modified
+                   :patches      [[<path> :assoc <new-value>]
+                                  [<path> :dissoc]
+                                  ...]}
+                  ...]}
 
   The `:rf.mcp/diff-from` value is a keyword naming the
   diff-against slot — `:db-before` is the only conformant value
   today (an epoch's `:db-after` diff-encodes against the SAME
-  record's `:db-before`)."
+  record's `:db-before`).
+
+  Each section heads N patches with a breadcrumb path + a kind
+  summary. The agent reads `:section-path` + `:section-kind` for
+  cluster intent; decoding flattens sections' `:patches` and
+  replays them via `apply-patches` to reconstruct `:db-after`.
+
+  Pre-rf2-qeous shape carried a flat `:patches` slot directly under
+  the marker. This is a clean break (pre-alpha, no back-compat);
+  the marker key `:rf.mcp/diff-from` is unchanged."
   [:map
    [:rf.mcp/diff-from [:enum :db-before]]
-   [:patches [:sequential
-              [:or
-               [:tuple [:vector :any] [:= :assoc] :any]
-               [:tuple [:vector :any] [:= :dissoc]]]]]])
+   [:sections [:sequential
+               [:map
+                [:section-path [:vector :any]]
+                [:section-kind [:enum :added :removed :modified]]
+                [:patches [:sequential
+                           [:or
+                            [:tuple [:vector :any] [:= :assoc] :any]
+                            [:tuple [:vector :any] [:= :dissoc]]]]]]]]])
 
 (def ElisionMarkerBody
   "`{:rf.size/large-elided {...}}` body — the size-elision marker.
@@ -431,14 +452,20 @@
                                     2 {:event-id :baz}}}}}
 
    {:key      :rf.mcp/diff-from
-    :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:patches :any]]
+    :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:sections :any]]
     ;; pair2-mcp specs / emits today. The schema and the marker are
     ;; reserved in the cross-MCP family per pair2-mcp Principles §
-    ;; \"Cross-MCP vocabulary\".
+    ;; \"Cross-MCP vocabulary\". The body slot is the
+    ;; sections-per-cluster projection (rf2-qeous) — same
+    ;; `:rf.mcp/diff-from` marker key, new `:sections` body.
     :servers  #{:pair2-mcp}
     :fixtures {:pair2-mcp {:rf.mcp/diff-from :db-before
-                           :patches          [[[:cart :items] :assoc [{:sku "abc"}]]
-                                              [[:tmp]          :dissoc]]}}}
+                           :sections [{:section-path [:cart :items]
+                                       :section-kind :modified
+                                       :patches      [[[:cart :items] :assoc [{:sku "abc"}]]]}
+                                      {:section-path [:tmp]
+                                       :section-kind :removed
+                                       :patches      [[[:tmp] :dissoc]]}]}}}
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker

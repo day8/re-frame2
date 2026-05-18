@@ -115,7 +115,7 @@ function waitForReady(url, timeoutMs) {
         id:          'machines',
         workspaceRe: /Workspace\.causa\.machines\/all/,
         cardTestid:  'panel-gallery-machines-card',
-        expectedAtLeast: 6,
+        expectedAtLeast: 7,
       },
       {
         id:          'issues',

@@ -64,6 +64,7 @@
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]
+            [day8.re-frame2-causa.theme.section :as section]
             [day8.re-frame2-causa.theme.perf-tier :as perf-tier]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]))
 
@@ -303,47 +304,11 @@
      :db-present? db-present?
      :present?    (or db-present? (seq fx))}))
 
-;; ---- section primitive --------------------------------------------------
-
-(defn- section-header
-  "Uppercased section label with optional count + collapse glyph.
-  Mirrors `managed_fx_template/section-header` for visual consistency."
-  [{:keys [label count* testid]}]
-  [:div {:data-testid testid
-         :style       {:display       "flex"
-                       :align-items   "center"
-                       :gap           "6px"
-                       :padding       "4px 0"
-                       :font-family   sans-stack
-                       :font-size     "11px"
-                       :font-weight   600
-                       :letter-spacing "0.6px"
-                       :text-transform "uppercase"
-                       :color         (:text-secondary tokens)}}
-   [:span {:style {:color (:text-tertiary tokens)
-                   :font-family mono-stack}}
-    "▼"]
-   label
-   (when count*
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-weight 400
-                     :font-family mono-stack}}
-      (str "(" count* ")")])])
-
-(defn- section
-  "One stacked section. `label` upper-cases; `body` is hiccup."
-  [{:keys [label count* testid]} body]
-  [:div {:data-testid testid
-         :style       {:padding "8px 12px"
-                       :border-bottom (str "1px dotted " (:border-subtle tokens))}}
-   (section-header {:label label :count* count*
-                    :testid (str testid "-header")})
-   [:div {:data-testid (str testid "-body")
-          :style       {:padding "6px 0 0 18px"
-                        :font-family mono-stack
-                        :font-size "12px"
-                        :color (:text-primary tokens)}}
-    body]])
+;; Section rhythm hoisted to `theme/section.cljc` per rf2-pie8q —
+;; identical visual contract is shared with
+;; `panels/managed_fx_template`. The Event lens panel uses the
+;; primitive's defaults: body always expanded (the lens does not
+;; collapse), `:container-padding` defaults to "8px 12px".
 
 ;; ---- tier-dot (reused from v1, survives) -------------------------------
 
@@ -427,11 +392,12 @@
 
 (defn- event-section
   [event-vec]
-  (section {:label "EVENT"
-            :testid "rf-causa-event-detail-section-event"}
-           [:div {:data-testid "rf-causa-event-detail-event-vector"
-                  :style {:font-weight 600}}
-            (inspector/inspect event-vec "event-detail/event")]))
+  (section/section-row
+    {:label "EVENT"
+     :testid "rf-causa-event-detail-section-event"}
+    [:div {:data-testid "rf-causa-event-detail-event-vector"
+           :style {:font-weight 600}}
+     (inspector/inspect event-vec "event-detail/event")]))
 
 ;; ---- §2 DISPATCH SITE --------------------------------------------------
 
@@ -464,30 +430,31 @@
   (let [coord            (dispatch-call-site cascade)
         [source origin]  (dispatch-source+origin cascade)
         display          (format-coord-display coord)]
-    (section {:label "DISPATCH SITE"
-              :testid "rf-causa-event-detail-section-dispatch"}
-             [:div
-              [:div {:style {:display "flex" :align-items "center"}}
-               (if display
-                 [:span {:data-testid "rf-causa-event-detail-dispatch-coord"
-                         :style {:color (:text-primary tokens)}}
-                  display]
-                 [:span {:data-testid "rf-causa-event-detail-dispatch-coord-absent"
-                         :style {:color (:text-tertiary tokens)
-                                 :font-style "italic"}}
-                  "source coord unavailable"])
-               (coord-chip coord "rf-causa-event-detail-dispatch-open-chip")]
-              (when (or source origin)
-                [:div {:data-testid "rf-causa-event-detail-dispatch-caption"
-                       :style {:color (:text-tertiary tokens)
-                               :font-family sans-stack
-                               :font-size "11px"
-                               :margin-top "4px"}}
-                 (cond-> "via "
-                   source (str source)
-                   (and source origin) (str " · origin ")
-                   (and (not source) origin) (str "origin ")
-                   origin (str origin))])])))
+    (section/section-row
+      {:label "DISPATCH SITE"
+       :testid "rf-causa-event-detail-section-dispatch"}
+      [:div
+       [:div {:style {:display "flex" :align-items "center"}}
+        (if display
+          [:span {:data-testid "rf-causa-event-detail-dispatch-coord"
+                  :style {:color (:text-primary tokens)}}
+           display]
+          [:span {:data-testid "rf-causa-event-detail-dispatch-coord-absent"
+                  :style {:color (:text-tertiary tokens)
+                          :font-style "italic"}}
+           "source coord unavailable"])
+        (coord-chip coord "rf-causa-event-detail-dispatch-open-chip")]
+       (when (or source origin)
+         [:div {:data-testid "rf-causa-event-detail-dispatch-caption"
+                :style {:color (:text-tertiary tokens)
+                        :font-family sans-stack
+                        :font-size "11px"
+                        :margin-top "4px"}}
+          (cond-> "via "
+            source (str source)
+            (and source origin) (str " · origin ")
+            (and (not source) origin) (str "origin ")
+            origin (str origin))])])))
 
 ;; ---- §3 INTERCEPTORS ---------------------------------------------------
 
@@ -533,18 +500,19 @@
   `user-interceptors` (test-level helper) before invoking this fn."
   [user-icpts]
   (when (seq user-icpts)
-    (section {:label "INTERCEPTORS"
-              :count* (count user-icpts)
-              :testid "rf-causa-event-detail-section-interceptors"}
-             (into [:div]
-                   ;; Per rf2-ppzid: `^{:key ...}` reader-meta on a fn
-                   ;; CALL FORM (a list) is lost — the fn returns a
-                   ;; fresh vector; `get-react-key` only reads :key
-                   ;; meta off the returned vector. `with-meta` on
-                   ;; the fn return preserves the key correctly.
-                   (for [icpt user-icpts]
-                     (with-meta (interceptor-row icpt)
-                                {:key (pr-str (:id icpt))}))))))
+    (section/section-row
+      {:label "INTERCEPTORS"
+       :count* (count user-icpts)
+       :testid "rf-causa-event-detail-section-interceptors"}
+      (into [:div]
+            ;; Per rf2-ppzid: `^{:key ...}` reader-meta on a fn
+            ;; CALL FORM (a list) is lost — the fn returns a
+            ;; fresh vector; `get-react-key` only reads :key
+            ;; meta off the returned vector. `with-meta` on
+            ;; the fn return preserves the key correctly.
+            (for [icpt user-icpts]
+              (with-meta (interceptor-row icpt)
+                         {:key (pr-str (:id icpt))}))))))
 
 ;; ---- §4 HANDLER --------------------------------------------------------
 
@@ -562,28 +530,29 @@
                   :fx  "reg-event-fx"
                   :ctx "reg-event-ctx"
                   (if kind (str "reg-event-" (name kind)) "reg-event-?"))]
-    (section {:label "HANDLER"
-              :testid "rf-causa-event-detail-section-handler"}
-             [:div {:style {:display "flex" :align-items "center"}}
-              [:span {:data-testid "rf-causa-event-detail-handler-flavour"
-                      :style {:color (:cyan tokens)
-                              :font-weight 600
-                              :margin-right "8px"}}
-               flavour]
-              [:span {:style {:color (:text-tertiary tokens)
-                              :margin-right "8px"}}
-               "·"]
-              (if display
-                [:span {:data-testid "rf-causa-event-detail-handler-coord"
-                        :style {:color (:text-primary tokens)}}
-                 display]
-                [:span {:data-testid "rf-causa-event-detail-handler-coord-absent"
-                        :style {:color (:text-tertiary tokens)
-                                :font-style "italic"}}
-                 (if event-id
-                   (str "no registration found for " (pr-str event-id))
-                   "no handler registered")])
-              (coord-chip coord "rf-causa-event-detail-handler-open-chip")])))
+    (section/section-row
+      {:label "HANDLER"
+       :testid "rf-causa-event-detail-section-handler"}
+      [:div {:style {:display "flex" :align-items "center"}}
+       [:span {:data-testid "rf-causa-event-detail-handler-flavour"
+               :style {:color (:cyan tokens)
+                       :font-weight 600
+                       :margin-right "8px"}}
+        flavour]
+       [:span {:style {:color (:text-tertiary tokens)
+                       :margin-right "8px"}}
+        "·"]
+       (if display
+         [:span {:data-testid "rf-causa-event-detail-handler-coord"
+                 :style {:color (:text-primary tokens)}}
+          display]
+         [:span {:data-testid "rf-causa-event-detail-handler-coord-absent"
+                 :style {:color (:text-tertiary tokens)
+                         :font-style "italic"}}
+          (if event-id
+            (str "no registration found for " (pr-str event-id))
+            "no handler registered")])
+       (coord-chip coord "rf-causa-event-detail-handler-open-chip")])))
 
 ;; ---- §5 EFFECTS RETURNED -----------------------------------------------
 
@@ -654,9 +623,10 @@
                      (hydration-issues-jump-button))
         rows       (filterv some? [db-row fx-row hyd-row jump-row])]
     (when (or present? hydration)
-      (section {:label "EFFECTS RETURNED"
-                :testid "rf-causa-event-detail-section-effects-returned"}
-               (into [:div] rows)))))
+      (section/section-row
+        {:label "EFFECTS RETURNED"
+         :testid "rf-causa-event-detail-section-effects-returned"}
+        (into [:div] rows)))))
 
 ;; ---- §6 EFFECTS HANDLERS RAN -------------------------------------------
 
@@ -726,16 +696,17 @@
   (let [rows    (effects-handlers-ran cascade)
         records (managed-fx-h/cascade->managed-fx-records cascade)]
     (when (seq rows)
-      (section {:label "EFFECTS HANDLERS RAN"
-                :count* (count rows)
-                :testid "rf-causa-event-detail-section-effects-ran"}
-               (into [:div]
-                     ;; Per rf2-ppzid — `with-meta` on the fn return,
-                     ;; not `^{:key ...}` on the call form.
-                     (for [{:keys [id] :as row} rows]
-                       (with-meta
-                         (fx-handler-row row (managed-fx-record-for-row records id))
-                         {:key id})))))))
+      (section/section-row
+        {:label "EFFECTS HANDLERS RAN"
+         :count* (count rows)
+         :testid "rf-causa-event-detail-section-effects-ran"}
+        (into [:div]
+              ;; Per rf2-ppzid — `with-meta` on the fn return,
+              ;; not `^{:key ...}` on the call form.
+              (for [{:keys [id] :as row} rows]
+                (with-meta
+                  (fx-handler-row row (managed-fx-record-for-row records id))
+                  {:key id})))))))
 
 ;; ---- handler-threw footnote --------------------------------------------
 

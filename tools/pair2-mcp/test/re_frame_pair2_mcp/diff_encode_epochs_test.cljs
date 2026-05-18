@@ -111,11 +111,19 @@
                   :user {:id 7}}})
 
 (deftest diff-encode-db-after-replaces-db-after-with-marker
+  ;; rf2-qeous: the wire shape is path-headed cluster sections, not a
+  ;; flat patch list. The `:rf.mcp/diff-from` marker stays the same;
+  ;; the body slot moves from `:patches` to `:sections`.
   (let [enc (diff/diff-encode-db-after fixture-epoch)
         da  (:db-after enc)]
     (is (= :db-before (:rf.mcp/diff-from da))
         "Diff marker carries the source-slot key")
-    (is (vector? (:patches da)))))
+    (is (vector? (:sections da)))
+    (is (every? (every-pred map? #(contains? % :section-path)
+                            #(contains? % :section-kind)
+                            #(contains? % :patches))
+                (:sections da))
+        "every section carries :section-path + :section-kind + :patches")))
 
 (deftest diff-encode-db-after-leaves-db-before-untouched
   (let [enc (diff/diff-encode-db-after fixture-epoch)]
@@ -143,13 +151,14 @@
         "encode→decode round-trips the full epoch unchanged")))
 
 (deftest round-trip-identical-db-before-and-db-after
-  ;; Degenerate case: no change. Patch list is empty; decoder returns
-  ;; :db-before unchanged.
+  ;; Degenerate case: no change. Sections list is empty (per the
+  ;; rf2-qeous shape — empty patches → empty sections); decoder
+  ;; returns :db-before unchanged.
   (let [epoch (assoc fixture-epoch :db-after (:db-before fixture-epoch))
         enc   (diff/diff-encode-db-after epoch)
         dec   (diff/decode-db-after enc)]
     (is (= epoch dec))
-    (is (= [] (-> enc :db-after :patches)))))
+    (is (= [] (-> enc :db-after :sections)))))
 
 (deftest round-trip-all-keys-changed
   ;; Degenerate case: no overlap. Every key in :db-before is dissoc'd
@@ -164,25 +173,33 @@
 
 (deftest round-trip-deeply-nested-leaf-change
   ;; The load-bearing efficiency case: one tiny change in a deeply
-  ;; nested tree.
+  ;; nested tree. Per rf2-qeous the wire shape is now sections-per-
+  ;; cluster — the encoded :db-after carries the section wrapper
+  ;; (~60-80 chars constant overhead per cluster) plus the patches
+  ;; themselves. The win still scales: when the unchanged parts
+  ;; truly dwarf the change, the encoded :db-after is a small
+  ;; fraction of the full one.
   (let [;; Build a wide map so the unchanged parts dwarf the change.
-        wide (into {} (for [i (range 50)] [(keyword (str "k" i)) (str "v" i)]))
+        ;; 200 keys × ~30 chars each ≈ 6KB of unchanged context.
+        wide (into {} (for [i (range 200)]
+                        [(keyword (str "k" i))
+                         (apply str (repeat 30 (char (+ 97 (mod i 26)))))]))
         epoch {:db-before {:user {:auth {:tokens {:access "abc"
                                                   :refresh "def"}}}
                             :wide wide
-                            :cart {:items (vec (range 100))}}
+                            :cart {:items (vec (range 200))}}
                :db-after  {:user {:auth {:tokens {:access "xyz"
                                                   :refresh "def"}}}
                             :wide wide
-                            :cart {:items (vec (range 100))}}}
+                            :cart {:items (vec (range 200))}}}
         enc   (diff/diff-encode-db-after epoch)
         dec   (diff/decode-db-after enc)]
     (is (= epoch dec))
-    ;; Efficiency check: encoded :db-after should be tiny relative to
-    ;; the full db-after.
+    ;; Efficiency check: encoded :db-after should be a small fraction
+    ;; of the full db-after for a tiny change in a large tree.
     (let [full-size (count (pr-str (:db-after epoch)))
           enc-size  (count (pr-str (:db-after enc)))]
-      (is (< enc-size (/ full-size 10))
+      (is (< enc-size (/ full-size 20))
           (str "Encoded :db-after (" enc-size " chars) should be << full ("
                full-size " chars) for a single-leaf change. Ratio: "
                (/ enc-size full-size 1.0))))))
@@ -191,10 +208,17 @@
   (let [epoch {:db-before {:a 1 :b 2 :c 3}
                :db-after  {:a 1 :c 3}}
         enc   (diff/diff-encode-db-after epoch)
-        dec   (diff/decode-db-after enc)]
+        dec   (diff/decode-db-after enc)
+        sections (-> enc :db-after :sections)]
     (is (= epoch dec))
-    (is (= [[[:b] :dissoc]] (-> enc :db-after :patches))
-        ":b was removed → surfaces as a :dissoc patch")))
+    (is (= 1 (count sections)) "one removed key → one section")
+    (let [s (first sections)]
+      (is (= [:b] (:section-path s))
+          "top-level singleton keeps its full path as the breadcrumb")
+      (is (= :removed (:section-kind s))
+          "all-:dissoc section → :section-kind :removed")
+      (is (= [[[:b] :dissoc]] (:patches s))
+          ":b was removed → surfaces as a :dissoc patch inside the section"))))
 
 (deftest round-trip-vector-reordering
   ;; Vectors are leaves — a reorder triggers a wholesale :assoc.
@@ -210,7 +234,7 @@
         enc   (diff/diff-encode-db-after epoch)
         dec   (diff/decode-db-after enc)]
     (is (= epoch dec))
-    (is (= [] (-> enc :db-after :patches)))))
+    (is (= [] (-> enc :db-after :sections)))))
 
 (deftest round-trip-scalar-app-db
   ;; A pathological app-db that's a scalar — rare but valid. The
