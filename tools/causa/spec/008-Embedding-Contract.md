@@ -52,7 +52,7 @@ The panel **knows it's embedded** via the `:compact?` flag.
 
 When a host mounts the **full Causa shell** (not a single panel) as
 its right-hand-side observability surface — Story does this per
-[`tools/story/spec/Tool-Pair.md`](../../story/spec/Tool-Pair.md) §RHS —
+[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) §RHS —
 the host MUST surrender Causa's global keybinding capture so its own
 shortcuts (typically `Cmd/Ctrl+K` for the host's command palette) are
 not swallowed by Causa's capture-phase listener:
