@@ -147,3 +147,62 @@
               "no :epoch-id resolution for an evicted/unknown cascade")
           (is (= 31 (:epoch-id (:current pair)))
               "fallback to head when focus can't be resolved"))))))
+
+;; -------------------------------------------------------------------------
+;; rf2-thodq — picker change resets :epoch-history, re-seed via
+;; :rf.causa/sync-epoch-history surfaces the picked-frame cascade
+;; -------------------------------------------------------------------------
+;;
+;; Per `set-frame-reducer`'s docstring (rf2-ug1r6 + rf2-thodq) the
+;; picker now clears the `:epoch-history` slot and aligns
+;; `:target-frame` with `[:focus :frame]`. After the picker change, the
+;; framework's `epoch-recorded` callback re-pumps records into the slot
+;; per-frame — but in tests we drive that surface via
+;; `:rf.causa/sync-epoch-history`.
+;;
+;; This guard asserts that, post-picker-change + post-history-reseed,
+;; the Views composite's `:has-cascade?` resolves to true and the
+;; current cascade is the picked frame's head — the body MUST NOT show
+;; "No event focused." when an event in the picked frame IS focused
+;; (the rf2-thodq report).
+
+(deftest focused-cascade-pair-resolves-after-picker-change
+  (testing "Picker switches to :cart-frame; then the framework re-seeds
+            `:epoch-history` with that frame's records via
+            `:rf.causa/sync-epoch-history`. The composite MUST surface
+            the picked-frame cascade as `:current` so `:has-cascade?`
+            is true and the body renders the cascade — not the empty-
+            state. Pre-fix the picker left `:epoch-history` keyed to
+            the previous (likely empty) frame, the composite returned
+            `current = nil`, `:has-cascade? = false`, and the body
+            rendered 'No event focused.' even with an event focused."
+    (seed-causa!)
+    (let [cart-cascade (epoch {:epoch-id     50
+                               :dispatch-id  500
+                               :event-id     :cart/add
+                               :renders      [{:render-key [:cart/badge :tok-Z]
+                                               :elapsed-ms 4}]})]
+      (rf/with-frame :rf/causa
+        ;; User picks :cart-frame. Reducer also re-seeds
+        ;; :epoch-history (empty in the test fixture since the
+        ;; framework's epoch artefact isn't installed).
+        (rf/dispatch-sync [:rf.causa/set-frame :cart-frame])
+        (is (= [] @(rf/subscribe [:rf.causa/epoch-history]))
+            "post-picker-change the slot is reset to the picked
+             frame's history (empty here)")
+        (is (= :cart-frame @(rf/subscribe [:rf.causa/target-frame]))
+            ":target-frame follows the picker so :epoch-recorded
+             will deliver future records into the correct slot")
+        ;; Framework records a new epoch on :cart-frame — in
+        ;; production `:rf.causa/epoch-recorded` re-reads
+        ;; `(rf/epoch-history :cart-frame)` and writes the slot. The
+        ;; test seam dispatches the wholesale-overwrite event.
+        (rf/dispatch-sync [:rf.causa/sync-epoch-history [cart-cascade]])
+        (rf/dispatch-sync [:rf.causa/focus-cascade 500 :cart-frame])
+        (let [pair @(rf/subscribe [:rf.causa/views-focused-cascade-pair])]
+          (is (some? (:current pair))
+              "`:current` is non-nil → :has-cascade? true → body
+               renders the cascade, not the 'No event focused.'
+               empty-state (rf2-thodq)")
+          (is (= 50 (:epoch-id (:current pair)))
+              "the surfaced cascade is the picked frame's record"))))))

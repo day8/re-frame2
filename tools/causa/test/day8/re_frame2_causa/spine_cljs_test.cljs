@@ -326,6 +326,55 @@
         "frame switch snaps to new frame's head")
     (is (= :live (get-in r [:focus :mode])))))
 
+;; -------------------------------------------------------------------------
+;; rf2-ug1r6 + rf2-thodq — picker also drives :target-frame +
+;; :epoch-history so every per-frame composite reads the picked frame's
+;; epochs. See `set-frame-reducer` docstring for the shared root cause.
+;; -------------------------------------------------------------------------
+
+(deftest set-frame-reducer-writes-target-frame
+  (testing "the picker IS the user's 'observe this frame' gesture —
+            align the legacy :target-frame slot with the new
+            [:focus :frame] axis so every per-frame composite reads
+            off one consistent frame identity."
+    (let [db {:focus {:dispatch-id :c1 :frame :rf/default :mode :live}
+              :target-frame :rf/default}
+          r  (spine/set-frame-reducer db :cart-frame)]
+      (is (= :cart-frame (:target-frame r))
+          ":target-frame follows the picker selection"))))
+
+(deftest set-frame-reducer-reseeds-epoch-history-with-resolved-vector
+  (testing "the 3-arg arity takes the resolved per-frame epoch history
+            and overwrites the slot — the App-DB Diff selected-epoch-*
+            chain + the Views focused-cascade-pair both pivot on this
+            slot, so a stale `:rf/default`-history slot is what caused
+            both panels to render empty-state after a picker change."
+    (let [cart-history [{:epoch-id 10 :dispatch-id 100
+                         :db-before {:k 1} :db-after {:k 2}}
+                        {:epoch-id 11 :dispatch-id 101
+                         :db-before {:k 2} :db-after {:k 3}}]
+          db           {:epoch-history [{:epoch-id 1}]   ; stale :rf/default head
+                        :target-frame  :rf/default}
+          r            (spine/set-frame-reducer db :cart-frame cart-history)]
+      (is (= cart-history (:epoch-history r))
+          ":epoch-history is the picked frame's ring contents")
+      (is (= :cart-frame (:target-frame r))
+          ":target-frame switches in lockstep")
+      (is (= :cart-frame (get-in r [:focus :frame]))
+          "[:focus :frame] still tracks the picker"))))
+
+(deftest set-frame-reducer-default-arity-clears-epoch-history
+  (testing "the 2-arg arity (back-compat for callers that don't have
+            the framework's per-frame ring handy) writes an empty
+            history — preserves the per-frame invariant rather than
+            leaving the slot stale across the switch."
+    (let [db {:epoch-history [{:epoch-id 1}]
+              :target-frame  :rf/default}
+          r  (spine/set-frame-reducer db :cart-frame)]
+      (is (= [] (:epoch-history r))
+          "no resolved history → slot cleared, never left stale")
+      (is (= :cart-frame (:target-frame r))))))
+
 (deftest preview-cascade-reducer-sets-previewing-true
   (let [db {}
         r  (spine/preview-cascade-reducer db :c2)]
