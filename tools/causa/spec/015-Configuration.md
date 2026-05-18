@@ -27,11 +27,12 @@ distinct from the persisted Settings shape per [`API.md`](./API.md)
 (require '[day8.re-frame2-causa.config :as causa-config])
 
 (causa-config/configure!
-  {:editor                :cursor
-   :project-root          "C:/Users/me/code/my-app"
-   :layout/host-selector  "[data-rf-causa-host]"
-   :launch/auto-open?     true
-   :trace/show-sensitive? false})
+  {:editor                       :cursor
+   :project-root                 "C:/Users/me/code/my-app"
+   :layout/host-selector         "[data-rf-causa-host]"
+   :launch/auto-open?            true
+   :launch.keybinding/enabled?   true
+   :trace/show-sensitive?        false})
 ```
 
 `configure!` MUST accept a map and MUST return `nil`. Keys not listed
@@ -172,6 +173,41 @@ Hosts that set this to `false` SHOULD do so before `rf/init!`, so the
 preload's adapter-ready probe sees the final launch posture before it
 would otherwise diagnose a missing host. The missing-host diagnostic is
 unchanged for the default path and for explicit opens.
+
+### `:launch.keybinding/enabled?`
+
+(The dot in the namespace portion nests the slot under the `:launch`
+family; Clojure keywords accept only one `/`, so nested namespaces
+spell as `launch.keybinding`. Read as `launch ▸ keybinding ▸
+enabled?`.)
+
+Controls whether `keybinding/attach!` installs Causa's global,
+capture-phase `keydown` listener. The listener handles Causa's
+spec-published shortcuts: `Ctrl+Shift+C` (shell toggle), `Cmd/Ctrl+K`
+(command palette), and the unmodified spine bindings
+(`Space` / `L` / `j` / `k` / `G` / `c` / `Esc`). It calls
+`stopPropagation()` for the keys it consumes so host bindings further
+down the propagation path don't double-fire.
+
+| Value | Meaning |
+|---|---|
+| `true` | Default. `keybinding/attach!` installs the listener; the standalone Causa shell behaves exactly as it did pre-rf2-4eyik. |
+| `false` | Suppress installation entirely. `keybinding/attach!` short-circuits to a no-op; the sentinel does not flip; no listener lands on `js/document`. |
+| `nil` | Reset to default (`true`). |
+
+Hosts MUST set this BEFORE the Causa preload runs (the preload calls
+`keybinding/attach!` at adapter-ready time). Setting it afterwards is
+a no-op on the already-attached listener unless the host explicitly
+calls `keybinding/detach!`.
+
+The slot exists for embed hosts (per
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — Story
+mounts Causa as its right-hand-side panel) whose own global
+keybindings collide with Causa's. Story's command-palette
+(`Cmd/Ctrl+K`) is the canonical collision: without the toggle, Causa's
+capture-phase listener consumes the keypress before Story's handler
+fires. Per rf2-4eyik (rf2-q7who Thread A) — the embed-contract gap
+discovered via rf2-drprn.
 
 ### `:settings`
 
@@ -318,9 +354,10 @@ Theme tab or `(configure! {:settings {:theme :light}})`.
 
 ## Vision — full configure! key inventory (30+ keys)
 
-v1 ships ~5 host-supplied keys (`:editor` / `:project-root` /
-`:layout/host-selector` / `:launch/auto-open?` / `:trace/show-sensitive?`)
-plus the `:filters` seed slot. The full destination per
+v1 ships ~6 host-supplied keys (`:editor` / `:project-root` /
+`:layout/host-selector` / `:launch/auto-open?` /
+`:launch.keybinding/enabled?` / `:trace/show-sensitive?`) plus the
+`:filters` seed slot. The full destination per
 [`ai/findings/2026-05-17-10x-config-options-for-causa.md`](#findings)
 absorbs every re-frame-10x configuration option that translates plus
 several Causa-native additions. The full list, grouped by phase

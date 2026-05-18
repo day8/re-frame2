@@ -48,6 +48,29 @@ When embedded (`:compact? true`), the panel:
 
 The panel **knows it's embedded** via the `:compact?` flag.
 
+### Full-shell embed contract (Causa-as-Story-RHS)
+
+When a host mounts the **full Causa shell** (not a single panel) as
+its right-hand-side observability surface — Story does this per
+[`tools/story/spec/Tool-Pair.md`](../../story/spec/Tool-Pair.md) §RHS —
+the host MUST surrender Causa's global keybinding capture so its own
+shortcuts (typically `Cmd/Ctrl+K` for the host's command palette) are
+not swallowed by Causa's capture-phase listener:
+
+```clojure
+(causa-config/configure! {:launch.keybinding/enabled? false})
+```
+
+The slot is documented in [`015-Configuration.md`](./015-Configuration.md)
+§`:launch.keybinding/enabled?`. Per rf2-4eyik (rf2-q7who Thread A —
+embed-contract gap discovered via rf2-drprn). With the slot at `false`
+Causa's `keybinding/attach!` short-circuits and no global listener
+lands on `js/document`; the host's own bindings reach their handlers
+unimpeded. Causa's other surfaces — the in-shell ribbon buttons,
+explicit `(mount/open!)` / `(mount/toggle!)` calls, the `:rf.causa/*`
+event surface — remain fully usable; only the window-level keystroke
+capture is suppressed.
+
 ## Scoping
 
 The `:scope` prop narrows the observation window:
