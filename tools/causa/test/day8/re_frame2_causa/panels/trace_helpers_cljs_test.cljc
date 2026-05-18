@@ -288,7 +288,10 @@
     (is (contains? (:distinct feed) :op-type))
     (is (contains? (:distinct feed) :severity))
     (is (contains? (:distinct feed) :origin))
-    (is (contains? (:distinct feed) :frame))))
+    (is (not (contains? (:distinct feed) :frame))
+        ":frame is not enumerated as a chip-row axis post-rf2-ycoct
+         (the Trace tab is cascade-scoped so every visible row
+         already shares the focused event's frame)")))
 
 (deftest project-feed-filters-pass-through-normalised
   (let [feed (h/project-feed (events-fixture)
@@ -376,17 +379,26 @@
 
 (deftest filter-axes-cover-the-bead-contract
   (testing "the panel surfaces every named axis from Spec 009
-            §Filter vocabulary that has a chip-row presentation"
+            §Filter vocabulary that has a chip-row presentation.
+
+            Note: `:frame` is intentionally NOT in `filter-axes` —
+            post-rf2-ycoct the Trace tab is cascade-scoped, so the
+            focused event has exactly one frame and a frame chip on
+            top of the scope is redundant. The underlying algebra in
+            `trace-bus/build-filter-predicate` still accepts `:frame`
+            as a vocabulary primitive (covered by `filter-by-frame`
+            below); we just don't enumerate it as a chip-row axis."
     (let [axes (set h/filter-axes)]
       (is (contains? axes :op-type))
       (is (contains? axes :severity))
       (is (contains? axes :source))
       (is (contains? axes :origin))
-      (is (contains? axes :frame))
       (is (contains? axes :operation))
       (is (contains? axes :event-id))
       (is (contains? axes :handler-id))
-      (is (contains? axes :dispatch-id)))))
+      (is (contains? axes :dispatch-id))
+      (is (not (contains? axes :frame))
+          ":frame is not a chip-row axis post-rf2-ycoct cascade-scope"))))
 
 ;; ---- (13) row-key — rf2-z4fza (sibling of rf2-kgn0c) -------------------
 ;;
@@ -526,21 +538,21 @@
 (deftest active-filters-summary-marks-present-and-orphaned
   (let [seen-map {:op-type #{:event :error}
                   :source  #{:ui}
-                  :frame   #{:rf/default}}
+                  :origin  #{:app}}
         summary  (h/active-filters-summary
                    {:op-type :error
                     :source  :timer    ;; orphan
-                    :frame   :rf/default}
+                    :origin  :app}
                    seen-map)]
     (testing "every active axis has an entry"
       (is (= 3 (count summary))))
     (testing "iteration follows filter-axes order (op-type, severity,
-              source, origin, frame, ...)"
-      (is (= [:op-type :source :frame] (mapv :axis summary))))
+              source, origin, ...)"
+      (is (= [:op-type :source :origin] (mapv :axis summary))))
     (testing "present? is true when value is in seen"
       (is (true?  (:present? (some #(when (= :op-type (:axis %)) %) summary))))
       (is (false? (:present? (some #(when (= :source  (:axis %)) %) summary))))
-      (is (true?  (:present? (some #(when (= :frame   (:axis %)) %) summary)))))
+      (is (true?  (:present? (some #(when (= :origin  (:axis %)) %) summary)))))
     (testing "value is preserved verbatim for the empty-state render"
       (is (= :timer (:value (some #(when (= :source (:axis %)) %) summary)))))))
 

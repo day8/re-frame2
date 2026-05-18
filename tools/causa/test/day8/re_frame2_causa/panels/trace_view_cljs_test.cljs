@@ -264,7 +264,7 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame :rf/default])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :origin :app])
       (rf/dispatch-sync [:rf.causa/clear-trace-filters])
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))
           "every filter axis cleared"))))
@@ -312,13 +312,13 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (push-trace! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                              :source :ui    :frame :rf/default :dispatch-id 1}))
+                              :source :ui    :origin :app  :dispatch-id 1}))
       (push-trace! (mk-trace {:id 2 :op-type :event :operation :event/dispatched
-                              :source :ui    :frame :rf/causa   :dispatch-id 1}))
+                              :source :ui    :origin :pair :dispatch-id 1}))
       (push-trace! (mk-trace {:id 3 :op-type :event :operation :event/dispatched
-                              :source :timer :frame :rf/default :dispatch-id 1}))
+                              :source :timer :origin :app  :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/default])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :origin :app])
       (let [feed @(rf/subscribe [:rf.causa/trace-feed])]
         (is (= 1 (:rendered feed))
             "only the row matching both axes survives")
@@ -630,10 +630,10 @@
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                             :source :ui :frame :rf/default
+                             :source :ui :origin :app
                              :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :timer])
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame :rf/missing])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :origin :rf/missing-origin])
       (let [dispatches (atom [])]
         (with-redefs [rf/dispatch* (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
@@ -650,32 +650,37 @@
 (deftest empty-state-active-filter-pill-marks-present-vs-orphan
   (testing "rf2-vu0mp: a present axis pill (the value still exists in
             the buffer) is styled differently from an orphan pill — the
-            data-driven marker on the chip label. Event carries
+            data-driven marker on the chip label.
+
+            Post-rf2-ycoct `:frame` is no longer a chip-row axis (the
+            Trace tab is cascade-scoped so the focused event already
+            pins one frame). We exercise the orphan path with `:origin`
+            instead — same algebra; different axis. Event carries
             `:dispatch-id 1` so the spine has a focusable cascade
             (rf2-fzbrw)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       ;; Push :ui-sourced events; then add TWO filters: source = :ui
       ;; (present, but combined with the second filter renders zero
-      ;; rows) AND frame = :rf/missing (orphan).
+      ;; rows) AND origin = :rf/missing-origin (orphan).
       (sync-push! (mk-trace {:id 1 :op-type :event :operation :event/dispatched
-                             :source :ui :frame :rf/default
+                             :source :ui :origin :app
                              :dispatch-id 1}))
       (rf/dispatch-sync [:rf.causa/set-trace-filter :source :ui])
-      (rf/dispatch-sync [:rf.causa/set-trace-filter :frame  :rf/missing])
+      (rf/dispatch-sync [:rf.causa/set-trace-filter :origin :rf/missing-origin])
       (let [tree         (trace/Panel)
             source-pill  (find-by-testid tree "rf-causa-trace-empty-active-source")
-            frame-pill   (find-by-testid tree "rf-causa-trace-empty-active-frame")
+            origin-pill  (find-by-testid tree "rf-causa-trace-empty-active-origin")
             label-of     (fn [node]
                            (->> (hiccup-seq node)
                                 (filter string?)
                                 (apply str)))]
         (is (some? source-pill) "present axis pill renders")
-        (is (some? frame-pill)  "orphan axis pill renders")
+        (is (some? origin-pill)  "orphan axis pill renders")
         (testing "present pill has no orphan marker"
           (is (not (re-find #"orphaned" (label-of source-pill)))))
         (testing "orphan pill carries the orphan marker"
-          (is (re-find #"orphaned" (label-of frame-pill))))))))
+          (is (re-find #"orphaned" (label-of origin-pill))))))))
 
 ;; ---- (10) incremental projection wiring — rf2-44vzy --------------------
 ;;
