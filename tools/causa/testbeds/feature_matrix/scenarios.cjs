@@ -703,19 +703,31 @@ async function pushSyntheticTraceEvents(page, count) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
+    // Post rf2-ycoct: the Trace tab is cascade-scoped — it only
+    // renders rows belonging to the spine's focused cascade. To stress
+    // the per-cascade 200-row DOM budget we push every synthetic event
+    // under a SINGLE shared :dispatch-id so the buffer holds one
+    // focusable cascade containing all `eventCount` rows; LIVE mode
+    // auto-snaps focus to that head cascade and the trace ribbon ends
+    // up trying to render all 1000 — which the DOM budget then caps at
+    // 200 with the overflow indicator. (The earlier shape allocated a
+    // distinct :dispatch-id per event, producing 1000 single-row
+    // cascades; under cascade-scoping only the head cascade — a single
+    // row — would render, missing the budget assertion entirely.)
+    const sharedDispatchId = 500000;
     const now = Date.now();
     for (let i = 0; i < eventCount; i += 1) {
-      const dispatchId = 500000 + i;
+      const eventId = sharedDispatchId + i;
       const tags = cljs.hash_map(
         keyword(':frame'), keyword(':rf/default'),
         keyword(':event-id'), keyword(':causa.synthetic/load'),
         keyword(':event'), cljs.PersistentVector.fromArray([keyword(':causa.synthetic/load'), i], true),
-        keyword(':dispatch-id'), dispatchId,
+        keyword(':dispatch-id'), sharedDispatchId,
         keyword(':origin'), keyword(':app'),
         keyword(':source'), keyword(':synthetic'),
       );
       const ev = cljs.hash_map(
-        keyword(':id'), dispatchId,
+        keyword(':id'), eventId,
         keyword(':time'), now + i,
         keyword(':operation'), keyword(':event/dispatched'),
         keyword(':op-type'), keyword(':info'),
