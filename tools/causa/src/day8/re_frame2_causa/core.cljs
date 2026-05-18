@@ -163,34 +163,6 @@
     (rf/dispatch [:rf.causa/set-target-frame frame-id]))
   nil)
 
-;; ---- panel picker -------------------------------------------------------
-
-(defn active-panel
-  "Return the panel id currently selected in Causa's sidebar — one of
-  `:event-detail` / `:time-travel` / `:app-db-diff` / etc. Defaults to
-  `:event-detail` (the hero panel per `spec/007-UX-IA.md` §The default
-  landing view + §10 Lock 7).
-
-  (Causality removed with rf2-dqnuu — it is now a c-key triggered
-  popover, not a sidebar tab; see `popover/causality.cljs`.)
-
-  One-shot read; does NOT register the caller for reactive re-render.
-  Reactive consumers subscribe to `:rf.causa/selected-panel` directly."
-  []
-  (rf/with-frame :rf/causa
-    (rf/subscribe-once [:rf.causa/selected-panel])))
-
-(defn set-active-panel!
-  "Select a panel programmatically. Dispatches `:rf.causa/select-panel`
-  into the `:rf/causa` frame; the `:rf.causa/selected-panel` sub
-  re-fires and the shell's canvas switches.
-
-  Returns nothing."
-  [panel-id]
-  (rf/with-frame :rf/causa
-    (rf/dispatch [:rf.causa/select-panel panel-id]))
-  nil)
-
 ;; ---- TBD-impl stubs -----------------------------------------------------
 ;;
 ;; `load-theme` is promised by `spec/API.md` §Public CLJS API but the

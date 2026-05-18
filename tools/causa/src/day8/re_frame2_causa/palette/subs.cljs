@@ -36,30 +36,21 @@
 
 ;; ---- canonical panel list ------------------------------------------------
 ;;
-;; Single source of truth for both the sidebar (shell.cljs) and the
-;; palette source aggregator. Mirrors `shell/sidebar-items` minus the
-;; sidebar's `:dormant?` marker (the palette surfaces every panel
-;; regardless of activity — a Hydration row shows up even when the
-;; dormant glyph would otherwise hide it).
+;; Single source of truth for the palette source aggregator. The ids
+;; mirror the 6 L3 tab ids in `shell.cljs` (per spec/018 §5); selecting
+;; a row dispatches `:rf.causa/select-tab` so the visible tab flips.
+;;
+;; Causality removed (rf2-dqnuu) — it is now a popover, not a tab; per
+;; spec/018 §10 + §11. The palette surfaces it via the dedicated
+;; `:causality-popover-open` command (handled by the popover events
+;; ns) rather than as a panel row.
 (def palette-panels
-  ;; Causality removed (rf2-dqnuu) — it is now a popover, not a tab;
-  ;; per spec/018 §10 + §11. The palette surfaces it via the dedicated
-  ;; `:causality-popover-open` command (handled by the popover events
-  ;; ns) rather than as a sidebar panel.
-  [{:id :event-detail :label "Event detail"}
-   {:id :time-travel  :label "Time travel"}
-   {:id :app-db       :label "App-db"}
-   {:id :views        :label "Views"}
-   {:id :fx           :label "Effects"}
-   {:id :trace        :label "Trace"}
-   {:id :machines     :label "Machines"}
-   {:id :flows        :label "Flows"}
-   {:id :routes       :label "Routes"}
-   {:id :performance  :label "Performance"}
-   {:id :issues       :label "Issues"}
-   {:id :schemas      :label "Schemas"}
-   {:id :hydration    :label "Hydration"}
-   {:id :mcp-server   :label "MCP"}])
+  [{:id :event    :label "Event"}
+   {:id :app-db   :label "App DB"}
+   {:id :views    :label "Views"}
+   {:id :trace    :label "Trace"}
+   {:id :machines :label "Machines"}
+   {:id :issues   :label "Issues"}])
 
 (defn- handler-entries
   "Flat seq of `{:id :kind :doc :file :line}` rows from the framework

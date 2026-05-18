@@ -25,9 +25,17 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.annotated-tree :as at]
             [day8.re-frame2-causa.diff.section-grouping :as sg]
-            [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
-            [day8.re-frame2-causa.panels.time-travel-helpers
-             :as tt-helpers]))
+            [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]))
+
+(defn- find-epoch-in-history
+  "Return the `:rf/epoch-record` in `history` whose `:epoch-id` matches
+  `epoch-id`, or nil if absent. Pure data → record-or-nil. Inlined
+  here when the Time Travel panel was deleted (rf2-qy0nu) — App-DB
+  Diff was the only remaining consumer."
+  [history epoch-id]
+  (when (some? epoch-id)
+    (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
+          history)))
 
 (defonce diff-cache
   ;; Per-`:epoch-id` cache for the diff triples computed by the
@@ -55,7 +63,7 @@
     :<- [:rf.causa/selected-epoch-id]
     (fn [[history selected-id] _query]
       (when selected-id
-        (tt-helpers/find-epoch-in-history history selected-id))))
+        (find-epoch-in-history history selected-id))))
 
   ;; Per rf2-drf32 — the diff sub falls back to `(peek history)` when
   ;; the selected epoch is absent from history. The selection slot is
@@ -71,7 +79,7 @@
     :<- [:rf.causa/selected-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
-                         (tt-helpers/find-epoch-in-history history selected-id))
+                         (find-epoch-in-history history selected-id))
                        (peek history))]
         (when record
           (let [epoch-id (:epoch-id record)
@@ -101,7 +109,7 @@
     :<- [:rf.causa/selected-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
-                         (tt-helpers/find-epoch-in-history history selected-id))
+                         (find-epoch-in-history history selected-id))
                        (peek history))]
         (when record
           (let [epoch-id (:epoch-id record)

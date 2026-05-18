@@ -217,7 +217,11 @@
           :on-click    (fn []
                          (when pivotable?
                            (rf/dispatch [:rf.causa/select-dispatch-id dispatch-id] {:frame :rf/causa})
-                           (rf/dispatch [:rf.causa/select-panel :event-detail] {:frame :rf/causa})))
+                           ;; Flip the visible tab to Event so the row
+                           ;; jump lands in event-detail. The legacy
+                           ;; `:rf.causa/select-panel` slot is no longer
+                           ;; read by the 4-layer shell (rf2-qy0nu).
+                           (rf/dispatch [:rf.causa/select-tab :event] {:frame :rf/causa})))
           :style       {:display       "grid"
                         :grid-template-columns "84px 18px minmax(120px, 1fr) 2fr auto"
                         :gap           "10px"
