@@ -216,6 +216,62 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- 13. event-lens 6-section happy path (rf2-zh2qc) -------------
+  (story/reg-variant :story.causa.event/lens-simple
+    {:doc        "Event lens 6-section default: EVENT + DISPATCH SITE
+                 + HANDLER + EFFECTS RETURNED + EFFECTS HANDLERS RAN
+                 all populated. INTERCEPTORS absent (silent-by-default
+                 — no user interceptors on the chain). Exercises the
+                 rf2-twt7m substrate keys end-to-end."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/event-lens-simple-buffer)]
+                  [:rf.causa/select-dispatch-id 100 nil]]
+     :tags       #{:dev :state/small}
+     :substrates #{:reagent}})
+
+  ;; ----- 14. event-lens with many fx + inline managed-fx ---------------
+  (story/reg-variant :story.causa.event/lens-many-fx
+    {:doc        "Event lens with six fx-handlers in §6 EFFECTS
+                 HANDLERS RAN, one of them a managed HTTP fx that
+                 mounts its record-panel INLINE beneath the row per
+                 §8.3 of the findings doc."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/event-lens-many-fx-buffer)]
+                  [:rf.causa/select-dispatch-id 200 nil]]
+     :tags       #{:dev :state/medium}
+     :substrates #{:reagent}})
+
+  ;; ----- 15. event-lens handler-threw -----------------------------------
+  (story/reg-variant :story.causa.event/lens-handler-threw
+    {:doc        "Handler threw mid-run. §5 EFFECTS RETURNED + §6
+                 EFFECTS HANDLERS RAN are ABSENT; the cascade-outcome
+                 glyph is ✗ red and the Issues-tab footer is the ONE
+                 inline cross-reference per §7.5."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/event-lens-handler-threw-buffer)]
+                  [:rf.causa/select-dispatch-id 300 nil]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 16. event-lens hydration completed (no mismatches) ------------
+  (story/reg-variant :story.causa.event/lens-hydration-completed
+    {:doc        ":rf.ssr/hydrated event — outcome line carries the
+                 SSR✓ badge; §5 carries the dedicated hydration-
+                 outcome row with :duration-ms / :subs-ran /
+                 :mismatches 0 (no jump-to-Issues affordance)."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/event-lens-hydration-completed-buffer)]
+                  [:rf.causa/select-dispatch-id 400 nil]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 17. event-lens hydration with mismatches ----------------------
+  (story/reg-variant :story.causa.event/lens-hydration-mismatches
+    {:doc        ":rf.ssr/hydrated event with :mismatches 3 — §5
+                 hydration-outcome row carries the jump-to-Issues
+                 affordance so the developer can pivot to the
+                 bisector."
+     :events     [[:rf.causa/sync-trace-buffer (fixtures/event-lens-hydration-mismatch-buffer)]
+                  [:rf.causa/select-dispatch-id 401 nil]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; ----- workspace --------------------------------------------------
 
   (story/reg-workspace :Workspace.causa.event/all

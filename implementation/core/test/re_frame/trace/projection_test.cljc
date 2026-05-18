@@ -162,9 +162,29 @@
             collection-shaped defaults"
     (let [[c] (p/group-cascades [{:id 1 :op-type :event :operation :event/dispatched
                                   :tags {:dispatch-id 1 :event [:e]}}])]
-      (is (= #{:dispatch-id :frame :event :handler :fx :effects :subs :renders :other}
+      (is (= #{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other}
              (set (keys c))))
       (is (vector? (:effects c)))
       (is (vector? (:subs c)))
       (is (vector? (:renders c)))
       (is (vector? (:other c))))))
+
+(deftest group-cascades-dispatched-slot-carries-full-trace-event
+  (testing "the :dispatched slot preserves the full :event/dispatched
+            trace so consumers (Causa Event lens) can read top-level
+            hoisted slots like :rf.trace/call-site (rf2-twt7m Change 1)
+            without scanning the raw buffer"
+    (let [evs [{:id 1 :op-type :event :operation :event/dispatched
+                :tags {:dispatch-id 42 :event [:cart/add-item]}
+                :rf.trace/call-site {:file "src/views.cljs" :line 127}
+                :source :ui :origin :app}]
+          [c] (p/group-cascades evs)]
+      (is (some? (:dispatched c))
+          ":dispatched slot is populated with the trace event")
+      (is (= {:file "src/views.cljs" :line 127}
+             (:rf.trace/call-site (:dispatched c)))
+          "the call-site (rf2-twt7m Change 1) rides through the projection")
+      (is (= :ui (:source (:dispatched c)))
+          "the :source slot rides through the projection")
+      (is (= [:cart/add-item] (:event c))
+          ":event slot still holds the slim event vector"))))
