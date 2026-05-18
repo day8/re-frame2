@@ -510,6 +510,106 @@
         (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
 
 ;; -------------------------------------------------------------------------
+;; (4a-bis) rf2-fzbrw — ribbon nav at the boundary is a TRUE no-op
+;;
+;; The bead: 'When I'm on the first event and I click [<] I am still
+;; taken to a state where I see all subs, all handlers, etc.' Three
+;; fix layers in concert:
+;;   (A) ribbon's at-tail? / at-head? predicates walk the user-visible
+;;       (event-only) cascade vector, not the raw projection that
+;;       includes the :ungrouped bucket — so a buffer of 1 real event
+;;       plus :ungrouped still reports at-tail? = true on the only row.
+;;   (B) the disabled button drops its `:on-click` entirely AND carries
+;;       `cursor: not-allowed` + `aria-disabled` — defense in depth on
+;;       top of the native `:disabled` block.
+;;   (C) (covered in spine-cljs-test §10) — the spine reducer is a true
+;;       no-op at the edge so a keyboard j/k that bypasses the ribbon
+;;       cannot bypass the invariant either.
+;; -------------------------------------------------------------------------
+
+(deftest ribbon-prev-disabled-on-single-event-with-ungrouped-bucket
+  (testing "rf2-fzbrw — buffer has 1 real event PLUS the :ungrouped
+            bucket (registry-time emits, lifecycle, REPL evals). The
+            ribbon's at-tail? predicate must align with the user-visible
+            L2 list (which filters :ungrouped) — clicking [<] on the
+            only event must NOT pin focus to the :ungrouped bucket."
+    (causa-setup!)
+    ;; one real cascade …
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    ;; … plus an :ungrouped trace event (no :dispatch-id tag)
+    (trace-bus/collect-trace! {:id 50 :op-type :registry
+                               :operation :sub/registered
+                               :tags {:sub-id :foo/bar}})
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)]
+        (is (nav-prev-disabled? tree)
+            "◀ DISABLED — focus is on the only real event; :ungrouped
+             is not a step target")
+        (is (nav-next-disabled? tree)
+            "▶ DISABLED — focus is also at head (single real event)")))))
+
+(deftest ribbon-prev-disabled-button-has-no-onclick-and-not-allowed-cursor
+  (testing "rf2-fzbrw — the disabled button drops its :on-click and
+            paints cursor: not-allowed plus aria-disabled. The native
+            :disabled attribute already blocks clicks at the DOM layer
+            but the visual + a11y signal must match the functional
+            signal — silent-by-default the user must NOT see a hand
+            cursor on a button that won't fire."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            prev (find-by-testid tree "rf-causa-nav-prev")
+            attrs (second prev)]
+        (is (true? (:disabled attrs)) "native :disabled set")
+        (is (true? (:aria-disabled attrs)) "aria-disabled set for a11y")
+        (is (nil? (:on-click attrs))
+            "no :on-click handler attached — pure no-op")
+        (is (= "not-allowed" (get-in attrs [:style :cursor]))
+            "cursor: not-allowed telegraphs the no-op")))))
+
+(deftest ribbon-prev-click-on-first-event-does-not-dispatch
+  (testing "rf2-fzbrw — exercise the disabled-button no-op path. Even
+            if a synthetic click somehow fires the on-click slot, it
+            must not dispatch any spine event because the slot is nil."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [tree (shell/shell-view)
+                prev (find-by-testid tree "rf-causa-nav-prev")
+                handler (:on-click (second prev))]
+            (is (nil? handler)
+                "disabled prev button has no on-click slot")
+            (when handler (handler nil)))))
+      (is (empty? (filter #(or (= [:rf.causa/focus-cascade-prev] %)
+                               (= :rf.causa/focus-cascade-prev (first %)))
+                          @dispatches))
+          "no :rf.causa/focus-cascade-prev dispatched"))))
+
+(deftest ribbon-prev-keyboard-equivalent-on-first-event-is-noop
+  (testing "rf2-fzbrw layer C — keyboard j (the [<] equivalent) routes
+            through the spine reducer. At the boundary the reducer
+            returns db unchanged, so focus persists on the first event
+            and never slides into nil / :ungrouped."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    ;; Spine auto-snaps focus to the only event in :live mode.
+    (rf/with-frame :rf/causa
+      (let [focus-before @(rf/subscribe [:rf.causa/focus])]
+        (is (= 1 (:dispatch-id focus-before)) "focus on the only event")
+        ;; Fire the keyboard-equivalent event — must be a no-op.
+        (rf/dispatch-sync [:rf.causa/focus-cascade-prev])
+        (let [focus-after @(rf/subscribe [:rf.causa/focus])]
+          (is (= 1 (:dispatch-id focus-after))
+              "focus unchanged — boundary no-op")
+          (is (some? (:dispatch-id focus-after))
+              "focus never goes nil with a non-empty buffer"))))))
+
+;; -------------------------------------------------------------------------
 ;; (4b) Row density + inline event-vector rendering — rf2-htik0 Bug 2 + 3
 ;; -------------------------------------------------------------------------
 
