@@ -478,7 +478,7 @@ SCENES.push({
     await page.getByRole('button', { name: '+' }).click();
     await openCausa(page);
     // The co-pilot cue is rendered in the shell's bottom rail; click it
-    // to slide the rail open. The rigorous spec exercises this path.
+    // to slide the rail open.
     await page.locator('[data-testid="rf-causa-copilot-cue"]').click();
     await page.locator('[data-testid="rf-causa-copilot-rail"]')
       .waitFor({ state: 'visible', timeout: 5000 });

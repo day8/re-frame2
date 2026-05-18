@@ -95,7 +95,7 @@ debug without re-running under a debugger:
 | Gate | Scope |
 |---|---|
 | `tools/causa` unit gate | CLJ/CLJS helper, registry, config, shell, trace bus, and panel view tests. Intended default local/CI coverage for Causa internals. |
-| Causa browser smoke gate | Existing lightweight browser coverage from `tools/causa/testbeds/counter-driven`, `tools/causa/testbeds/rigorous`, `tools/causa/testbeds/parallel_frames`, and `tools/causa/testbeds/perf_counter`. Intended default browser smoke coverage. |
+| Causa browser smoke gate | Existing lightweight browser coverage from `tools/causa/testbeds/parallel_frames` and `tools/causa/testbeds/perf_counter`. Intended default browser smoke coverage. |
 | Causa browser feature gate | New deterministic feature matrix gate described by this spec. It owns direct and failure paths for each matrix row. It can be sharded by panel but should report one matrix. |
 | Causa 20-event/load gate | Explicit or pre-commit/pre-PR stress gate only. It is not default CI. It reuses the feature testbed and runs the row-specific 20-event/load checks. |
 | Production elision gate | Existing implementation production-elision probes plus any Causa-specific release probe proving preload, keybinding, pill, trace collector, and shell are absent under `goog.DEBUG=false`. |
@@ -105,18 +105,19 @@ debug without re-running under a debugger:
 Tier-1 (rf2-160di + rf2-gdqm1) promoted the per-panel rows above to
 `covered`; Tier-2 (rf2-5aw5v.9 / .10 / .11 / .12 / .14) deepens the
 cross-cutting framework contracts that sit BETWEEN panels and the
-host. The Tier-2 scenarios live in
-`tools/causa/testbeds/rigorous/spec.cjs` §12–16 alongside the Tier-1
-deepening; each section is self-contained, restores state on exit,
-and does NOT change any source-side panel.
+host. After rf2-qd5r6 deleted the sidebar-era rigorous testbed (it
+was already skipped under rf2-xy4yb because §12's panel sweep
+targeted the pre-spec/018 16-panel chrome) the Tier-2 scenarios that
+pin contracts not covered elsewhere were rehomed onto the surviving
+canonical surfaces:
 
-| Tier-2 bead | Surface | Spec | Pins |
+| Tier-2 bead | Surface | Spec | Home + status |
 |---|---|---|---|
-| `rf2-5aw5v.12` (L-12) | Embedding-contract Panel surface across every tab namespace; frame isolation; registry-key namespacing | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) | 6 `Panel` reg-views present (one per tab); tab-bar case-table parity; no `:rf.causa/*` keys in host `:rf/default` db; Causa registrations live under `:rf.causa/*` |
-| `rf2-5aw5v.9` (L-9) | Pop-out / inline-host launch-mode duality; opener-close diagnostic | [`011-Launch-Modes.md`](./011-Launch-Modes.md) | inline auto-mount; `popout!` opens a same-origin shell with shared trace; opener-gone overlay revealed via watchdog; teardown clears every singleton |
-| `rf2-5aw5v.14` (L-14) | Multi-frame isolation through the panel layer (rf2-tijr Option-C lock) | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §State isolation | `set-target-frame!` round-trips; target-frame app-db diff projection isolates per-frame; cross-frame cascade traces tag correctly without leaking selection state across frames |
-| `rf2-5aw5v.10` (L-10) | Shell auto-mount, missing-host diagnostic, settings reset, keybindings, config knobs, production elision probe | [`011-Launch-Modes.md`](./011-Launch-Modes.md) + [`015-Configuration.md`](./015-Configuration.md) | inline mount on `[data-rf-causa-host]`; `Ctrl+Shift+C` toggle; auto-open disable round-trip; layout-host-selector swap; missing-host inspectable diagnostic; `configure!` partial-update semantics |
-| `rf2-5aw5v.11` (L-11) | 20-event/load stress invariant — caps + virtualisation + no duplicate dominoes | This file §20-event/load gate | 20 representative dispatches; trace buffer cap ≤ 1000; no duplicate cascade-row testids; per-row `data-over-budget` shape; render duration summary captured. Runs ONLY when `CAUSA_RIGOROUS_RUN_L11=1` is set (non-default CI); the canonical heavyweight equivalent stays under `npm run test:causa-feature-gate`'s `runTwentyEventLoad` / `runTraceBudgetSaturation` / `runLaunchModesTwentyEventLoad` scenarios |
+| `rf2-5aw5v.12` (L-12) | Embedding-contract Panel surface across every tab namespace; frame isolation; registry-key namespacing | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) | **Covered by Tier-1.** The current 4-layer chrome's 6 L3 tabs + L4 detail-panel handoff is covered by `tools/causa/testbeds/parallel_frames/spec.cjs` (mount + tabs + isolation) and `tools/causa/testbeds/feature_matrix/scenarios.cjs §runShellFeatureSweep` (per-panel handoff sweep). |
+| `rf2-5aw5v.9` (L-9) | Pop-out / inline-host launch-mode duality; opener-close diagnostic | [`011-Launch-Modes.md`](./011-Launch-Modes.md) | **Covered.** `tools/causa/testbeds/feature_matrix/scenarios.cjs §runLaunchModesTwentyEventLoad` pins overlay + popout shared-runtime across 20 host dispatches. The opener-gone watchdog overlay is not specifically exercised post-rf2-qd5r6; file a follow-on if a regression surfaces. |
+| `rf2-5aw5v.14` (L-14) | Multi-frame isolation through the panel layer (rf2-tijr Option-C lock) | [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §State isolation | **Rehomed.** `tools/causa/testbeds/parallel_frames/spec.cjs §5` exercises `:rf.causa/set-target-frame` + `:rf.causa/target-frame-db` against the canonical `:above` / `:below` frames; asserts target-frame round-trips, per-frame `:counter` projection, and Causa-side isolation (no `:counter` slot leak into `:rf/causa`'s app-db). |
+| `rf2-5aw5v.10` (L-10) | Shell auto-mount, missing-host diagnostic, settings reset, keybindings, config knobs, production elision probe | [`011-Launch-Modes.md`](./011-Launch-Modes.md) + [`015-Configuration.md`](./015-Configuration.md) | **Rehomed.** `tools/causa/testbeds/feature_matrix/scenarios.cjs §runConfigurePartialUpdate` pins `configure!` multi-key + partial-update semantics plus `set-auto-open!(null)` / `set-layout-host-selector!(null)` reset round-trips. Inline auto-mount + `Ctrl+Shift+C` toggle + missing-host diagnostic are covered by `runShellFeatureSweep` + the production-elision gate. |
+| `rf2-5aw5v.11` (L-11) | 20-event/load stress invariant — caps + virtualisation + no duplicate dominoes | This file §20-event/load gate | **Covered.** The canonical heavyweight equivalent lives under `npm run test:causa-feature-gate`'s `runTwentyEventLoad` / `runTraceBudgetSaturation` / `runLaunchModesTwentyEventLoad` scenarios (the matrix's explicit pre-PR gate). |
 
 `rf2-5aw5v.13` (L-13 Clojars publish probe) is excluded from the
 Tier-2 cluster — it depends on a release decision and is tracked as
