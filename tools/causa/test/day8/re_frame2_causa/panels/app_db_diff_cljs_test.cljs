@@ -669,3 +669,79 @@
           (is (not (str/includes? rendered-text ":rf/default"))
               "empty-state does NOT show the hardcoded default frame
                when the picker has selected a different frame"))))))
+
+;; ---- rf2-ug1r6 — picker change resets epoch-history slot ----------------
+;;
+;; rf2-fvplw wired `:rf.causa/observed-frame` + `:rf.causa/target-frame-
+;; db` to follow the picker, but the App-DB Diff panel's
+;; selected-epoch-* sub chain (the diff triples + annotated tree +
+;; sections) read off `:rf.causa/epoch-history` — a Causa-side slot
+;; keyed on the legacy `:target-frame` axis the picker did NOT touch.
+;; After a picker change the slot stayed on the previous (likely
+;; empty `:rf/default`) frame's history, so:
+;;
+;;   :rf.causa/selected-epoch-diff → (peek <empty>) → nil → composite's
+;;   :history-empty? → true → the panel rendered the boot empty-state
+;;   "app-db for :cart-frame is at the boot value. No diffs yet."
+;;   EVEN WITH a focused cascade in the picked frame (the Mike report).
+;;
+;; The fix in `spine/set-frame-reducer` aligns the two axes — picker
+;; now also writes `:target-frame` and re-seeds `:epoch-history` from
+;; the framework's per-frame ring. This regression guard asserts the
+;; alignment.
+
+(deftest set-frame-aligns-target-frame-and-resets-epoch-history
+  (testing "rf2-ug1r6 — picker writes `:target-frame` + clears the
+            `:epoch-history` slot so future `:rf.causa/epoch-recorded`
+            callbacks pump the picked frame's epochs into the right
+            slot. Pre-fix the slot stayed keyed to the legacy
+            target frame and the App-DB diff panel rendered empty-
+            state with a focused cascade present."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :cart-frame {})
+    (rf/with-frame :rf/causa
+      ;; Seed the slot with stale `:rf/default` history; user picks
+      ;; `:cart-frame`; the slot MUST reset so the wrong-frame epochs
+      ;; do not bleed into the picked-frame panel.
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                         [(mk-record :stale-e [:default/event] {} {})]])
+      (is (= 1 (count @(rf/subscribe [:rf.causa/epoch-history])))
+          "stale slot present pre-picker")
+      (rf/dispatch-sync [:rf.causa/set-frame :cart-frame])
+      (is (= :cart-frame @(rf/subscribe [:rf.causa/target-frame]))
+          ":target-frame follows picker so :rf.causa/epoch-recorded
+           delivers future cart-frame epochs into the slot")
+      (is (= [] @(rf/subscribe [:rf.causa/epoch-history]))
+          "stale `:rf/default` history MUST clear so the wrong-frame
+           records do not leak into the picked-frame panel"))))
+
+(deftest app-db-diff-renders-cart-frame-diff-after-picker-and-seed
+  (testing "rf2-ug1r6 — post-picker-change + post-history-reseed, the
+            App-DB Diff composite reports the cart-frame's diff (not
+            the boot empty-state). This is the structural inverse of
+            Mike's bug report: with the alignment in place, focused
+            cascades in the picked frame produce a real diff."
+    (registry/register-causa-handlers!)
+    (frame/reg-frame :rf/causa {})
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :cart-frame {})
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-frame :cart-frame])
+      ;; Framework's `:rf.causa/epoch-recorded` cb re-pumps the
+      ;; cart-frame's ring into the slot; tests drive the wholesale
+      ;; overwrite directly.
+      (let [rec (-> (mk-record :cart-e [:cart/add]
+                               {:cart {:items []}}
+                               {:cart {:items [{:id 7}]}})
+                    (assoc :frame :cart-frame))]
+        (rf/dispatch-sync [:rf.causa/sync-epoch-history [rec]]))
+      (let [data @(rf/subscribe [:rf.causa/app-db-diff])]
+        (is (false? (:history-empty? data))
+            "history present for the picked frame → composite's
+             :history-empty? is false → panel renders the diff body
+             rather than the boot empty-state (rf2-ug1r6)")
+        (is (= :cart-frame (:target-frame data))
+            "composite's :target-frame surface reflects the picker
+             selection (rf2-fvplw — preserved post-rf2-ug1r6)")))))

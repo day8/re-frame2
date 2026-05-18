@@ -438,13 +438,53 @@
 (defn set-frame-reducer
   "Pure reducer for `:rf.causa/set-frame <frame-id>`. Writes `:frame`
   into the `:focus` slot and clears `:dispatch-id` so the spine snaps
-  to the new frame's head."
-  [db frame-id]
-  (-> db
-      (update :focus (fnil assoc {})
-              :frame frame-id
-              :dispatch-id nil
-              :mode :live)))
+  to the new frame's head.
+
+  ## rf2-ug1r6 + rf2-thodq — picker also drives `:target-frame` + reseeds
+  ## `:epoch-history`
+
+  The Causa app-db carries a single `:epoch-history` slot keyed by the
+  legacy `:target-frame`. Every per-frame composite (App-DB Diff's
+  selected-epoch-diff / sections / annotated-tree; Views' focused-
+  cascade-pair; the views-sub-diff records; the machine-inspector
+  scrubber) reads off that slot. Pre-fix the slot stayed on whatever
+  `:target-frame` was at boot (`:rf/default`) even when the user picked
+  a different frame in the ribbon picker — so:
+
+    - App-DB Diff's `:rf.causa/selected-epoch-diff` falls through to
+      `(peek history)` against the WRONG frame's history. If the boot
+      target had no epochs, `history-empty?` was true and the panel
+      rendered the 'app-db for :cart-frame is at the boot value. No
+      diffs yet.' empty-state EVEN WITH a focused cascade (rf2-ug1r6).
+    - Views' `:rf.causa/views-focused-cascade-pair` reads the same
+      wrong-frame history; `find-cascade-index` returns nil for the
+      focused `:epoch-id` (which was itself never resolved because
+      `epoch-id-for-cascade` walks the same wrong slot), the fallback
+      `(dec (count history))` returns nil for an empty boot-frame
+      history, `:has-cascade?` resolves to false, and the body renders
+      'No event focused.' EVEN WITH a focused cascade (rf2-thodq).
+
+  Both bugs share the same root: the picker writes only `[:focus :frame]`
+  but every per-frame composite reads off a slot keyed on a DIFFERENT
+  axis. The fix aligns the two axes — the picker IS the user's 'observe
+  this frame' gesture, identical in intent to `core/set-target-frame!`.
+
+  This reducer now also writes `:target-frame` and re-seeds the
+  `:epoch-history` slot from `epoch-history-for-frame` so every per-
+  frame sub re-fires off the standard app-db-write reactive path with
+  the correct frame's epochs. The pure 2-arg arity takes the resolved
+  history as a parameter (JVM-runnable); the event handler in
+  `install!` resolves it via `rf/epoch-history` at dispatch time."
+  ([db frame-id]
+   (set-frame-reducer db frame-id []))
+  ([db frame-id epoch-history-for-frame]
+   (-> db
+       (update :focus (fnil assoc {})
+               :frame frame-id
+               :dispatch-id nil
+               :mode :live)
+       (assoc :target-frame  frame-id
+              :epoch-history (vec epoch-history-for-frame)))))
 
 (defn preview-cascade-reducer
   "Pure reducer for `:rf.causa/preview-cascade <id>`. Sets `:previewing?
@@ -567,7 +607,12 @@
 
   (rf/reg-event-db :rf.causa/set-frame
     (fn [db [_ frame-id]]
-      (set-frame-reducer db frame-id)))
+      ;; rf2-ug1r6 + rf2-thodq — re-seed `:epoch-history` from the
+      ;; framework's per-frame ring at picker-change time so every
+      ;; per-frame composite (App-DB Diff, Views, machine-inspector)
+      ;; reads the picked frame's epochs immediately. See the reducer
+      ;; docstring for the shared root cause.
+      (set-frame-reducer db frame-id (rf/epoch-history frame-id))))
 
   (rf/reg-event-db :rf.causa/preview-cascade
     (fn [db [_ dispatch-id]]
