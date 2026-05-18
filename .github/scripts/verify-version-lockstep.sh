@@ -22,7 +22,7 @@
 # lockstep — every Clojars-publishable tool (causa, story, story-mcp,
 # template) carries :clein/build :version "../../VERSION" and must not
 # hand-edit a literal :mvn/version for any day8/re-frame2-* artefact.
-# tools/pair2-mcp/ ships as a Node binary on npm and carries no
+# tools/re-frame2-pair-mcp/ ships as a Node binary on npm and carries no
 # :clein/build alias, so it is intentionally excluded.
 #
 # This script is the single source of truth for the lockstep contract;
@@ -197,8 +197,8 @@ done
 # down from the repo root (tools/<name>/), same depth as
 # implementation/<name>/, so :version "../../VERSION" is correct.
 #
-# tools/pair2-mcp/ is deliberately excluded: it ships as a Node binary
-# on npm (@day8/re-frame-pair2-mcp) and carries no :clein/build alias —
+# tools/re-frame2-pair-mcp/ is deliberately excluded: it ships as a Node binary
+# on npm (@day8/re-frame2-pair-mcp) and carries no :clein/build alias —
 # there is no Clojars publish path for it to drift on. Per its
 # deps.edn header it has no :local/root dep on implementation/ either.
 declare -A TOOLS_PATHS=(

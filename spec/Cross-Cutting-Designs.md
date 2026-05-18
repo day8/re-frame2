@@ -22,7 +22,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 **Consumers.**
 - [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
-- `tools/pair2-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
+- `tools/re-frame2-pair-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/causa/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
 - `implementation/schemas/` — publishes `extract-large-paths-from-schema` / `extract-sensitive-paths-from-schema` through the late-bind hook table; `re-frame.elision` consumes them to populate the unified registry (Option A per rf2-ynnq0 — schemas owns the deep walker, elision owns the app-db write).
@@ -31,40 +31,40 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 
 ## 2. Retro protocol
 
-**Design problem.** Multiple skills produce structured critiques of a body of evidence — `re-frame-pair-retro2` retrospects on a `re-frame-pair2` session; `re-frame2-improver` critiques a body of re-frame2 source code; future skills will follow (error-trace retros, schema-violation post-mortems). Each shares the same workflow shape — read evidence, classify against a catalogue, route findings to the layer where the fix lives, offer fixes / draft beads only with opt-in — but each carries a *different domain catalogue*. The protocol must be extracted once so new retro-style skills inherit the discipline without re-deriving it.
+**Design problem.** Multiple skills produce structured critiques of a body of evidence — `re-frame2-pair-retro` retrospects on a `re-frame2-pair` session; `re-frame2-improver` critiques a body of re-frame2 source code; future skills will follow (error-trace retros, schema-violation post-mortems). Each shares the same workflow shape — read evidence, classify against a catalogue, route findings to the layer where the fix lives, offer fixes / draft beads only with opt-in — but each carries a *different domain catalogue*. The protocol must be extracted once so new retro-style skills inherit the discipline without re-deriving it.
 
 **Canonical home.**
 - [`skills/shared/retro-protocol.md`](../skills/shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules (consuming tool / upstream re-frame2 / the author's code / both), opt-in bead protocol, and output shape (seven slots: `Goal/Scope`, `Observed`, `Causes`, `Improvements`, `Bolder ideas`, `Bead candidates`, `Other possibilities`).
 
 **Consumers.**
-- [`skills/re-frame-pair-retro2/`](../skills/re-frame-pair-retro2/) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
+- [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro/) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
 - [`skills/re-frame2-improver/`](../skills/re-frame2-improver/) — code-shaped consumer; supplies its own catalogue under `references/`.
 
-**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free. Extracted under rf2-dhe9v from the locked decisions originally embedded in `re-frame-pair-retro2/spec/design.md`.
+**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free. Extracted under rf2-dhe9v from the locked decisions originally embedded in `re-frame2-pair-retro/spec/design.md`.
 
 ## 3. Token budgets
 
-**Design problem.** MCP tool responses are expensive in the agent's context window — anywhere from 5x to 10x larger in tokens than the equivalent CLI output. A single oversized response burns the budget the agent needs across the whole task. Multiple MCP servers (pair2-mcp, story-mcp) each face the same set of decisions: where in the stack does the cap live; how is it configured per-call; what shape does an over-budget response take; how do per-tool trim mechanisms (pagination, lazy summary, path slicing, diff encoding, dedup, size elision) compose with the cap.
+**Design problem.** MCP tool responses are expensive in the agent's context window — anywhere from 5x to 10x larger in tokens than the equivalent CLI output. A single oversized response burns the budget the agent needs across the whole task. Multiple MCP servers (re-frame2-pair-mcp, story-mcp) each face the same set of decisions: where in the stack does the cap live; how is it configured per-call; what shape does an over-budget response take; how do per-tool trim mechanisms (pagination, lazy summary, path slicing, diff encoding, dedup, size elision) compose with the cap.
 
 **Canonical homes.**
-- [`tools/pair2-mcp/spec/Principles.md` §Tight token budget per response](../tools/pair2-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
-- [`tools/pair2-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/pair2-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record (rf2-rvyzy): egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
+- [`tools/re-frame2-pair-mcp/spec/Principles.md` §Tight token budget per response](../tools/re-frame2-pair-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
+- [`tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record (rf2-rvyzy): egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
 
 **Consumers.**
-- `tools/pair2-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
+- `tools/re-frame2-pair-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
 - `tools/story-mcp/` — enforces the cap in `tools/cap.cljc` at the `invoke-tool` egress (rf2-zavp5); nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
 **The result.** Cross-MCP, the token-cap shape is one decision applied uniformly. New MCP tools land against the catalogued cap (5K default), the catalogued override slot (`:max-tokens` per-call, `0` to disable), and the catalogued overflow marker shape (`{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}`). The mechanisms above the cap (path slicing, lazy summary, dedup, pagination) shape the response so the cap rarely trips; the cap stays the backstop.
 
 ## 4. Naming (verbs across MCP tools)
 
-**Design problem.** The re-frame2 MCP servers (pair2-mcp, story-mcp) expose ~33 tools today (14 + 19), trending upwards. An agent host with both servers attached sees the union as one surface. The verb a tool uses is the first signal the agent parses; verb drift across siblings (`snapshot` in pair2 vs `snapshot-identity` in story) makes that signal lossy and pushes the agent towards trial-and-error rather than pattern-match.
+**Design problem.** The re-frame2 MCP servers (re-frame2-pair-mcp, story-mcp) expose ~33 tools today (14 + 19), trending upwards. An agent host with both servers attached sees the union as one surface. The verb a tool uses is the first signal the agent parses; verb drift across siblings (`snapshot` in re-frame2-pair vs `snapshot-identity` in story) makes that signal lossy and pushes the agent towards trial-and-error rather than pattern-match.
 
 **Canonical home.**
 - [`tools/mcp-conformance/NAMING.md`](../tools/mcp-conformance/NAMING.md) — the cross-MCP verb table with semantics and examples per verb (`get-` / `list-` / `read-` / `discover-` / `dispatch` / `eval-cljs` / `restore-` / `reset-` / `register-` / `unregister-` / `run-` / `preview-` / `record-as-` / `subscribe` / `unsubscribe` / `tail-` / bare-name mega-ops); the explicitly-rejected verbs (`fetch-`, `query-`, `find-`, `lookup-`, `update-`, `set-`, `enumerate-`, `call-`, `invoke-`, `stream-`, `observe-`); the catalogued bare-noun and `->edn` exceptions; and a per-server audit table.
 
 **Consumers.**
-- `tools/pair2-mcp/` — 14 tools, audited as fully conformant.
+- `tools/re-frame2-pair-mcp/` — 14 tools, audited as fully conformant.
 - `tools/story-mcp/` — 19 tools, audited; two named deviations (`variant->edn`, `snapshot-identity`) catalogued as accepted exceptions.
 - [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
 
@@ -79,7 +79,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [009-Instrumentation.md §Origin tagging: `:origin`](009-Instrumentation.md) — the trace lift: the runtime promotes the dispatch opt onto every `:event/dispatched` event under `:tags :origin`; example values (`:pair`, `:claude`, `:story`, `:test`); the filter axis it enables.
 
 **Consumers.**
-- `tools/pair2-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :pair2-mcp` (per its NAMING.md row).
+- `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
 - `tools/causa/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.

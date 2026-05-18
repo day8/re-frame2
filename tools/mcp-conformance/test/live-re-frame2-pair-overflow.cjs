@@ -1,10 +1,10 @@
-// Live-pair2 MCP-client conformance variant exercising the wire-cap
+// Live-re-frame2-pair MCP-client conformance variant exercising the wire-cap
 // overflow marker (:rf.mcp/overflow) under real over-budget conditions.
 // Source: rf2-ynaoc, follow-on from rf2-cum40 (PR #702).
 //
 // ## What this test guards
 //
-// The sibling `end-to-end-pair2.cjs` runs pair2-mcp in *degraded* mode
+// The sibling `end-to-end-re-frame2-pair.cjs` runs re-frame2-pair-mcp in *degraded* mode
 // (no nREPL on $SHADOW_CLJS_NREPL_PORT) and validates the protocol
 // shape against the SDK's strict CallToolResultSchema. That harness
 // never actually trips the wire-cap because every degraded response is
@@ -13,7 +13,7 @@
 // This variant fills that gap. With a real nREPL connected:
 //
 //   1. The cap-trigger code path (`apply-cap` in
-//      `tools/pair2-mcp/src/.../tools.cljs`) runs against a *real* live
+//      `tools/re-frame2-pair-mcp/src/.../tools.cljs`) runs against a *real* live
 //      tool response — not a synthetic fixture.
 //
 //   2. The emitted `{:rf.mcp/overflow ...}` envelope passes through
@@ -46,7 +46,7 @@
 // naturally (every response is the same tiny error envelope). On CI
 // the gate is unset by default → the script exits 0 with a SKIP
 // marker. Locally, Mike's running shadow-cljs sets the env, the
-// pair2-mcp server attaches, and this test runs the real-overflow
+// re-frame2-pair-mcp server attaches, and this test runs the real-overflow
 // path.
 //
 // A follow-on bead (filed by rf2-ynaoc) tracks the "live overflow via
@@ -60,15 +60,15 @@
 //
 //     (apply str (repeat 25000 "x"))
 //
-// which evaluates to a 25,000-char string. The pair2-mcp wire-cap
+// which evaluates to a 25,000-char string. The re-frame2-pair-mcp wire-cap
 // uses `token-estimate = (quot chars 4)`, so the serialised response
 // estimate is ~6,250 tokens — comfortably over the 5,000-token
 // default cap. The server's `apply-cap` at the egress boundary
 // replaces the payload with the canonical `:rf.mcp/overflow` marker
 // before it crosses the wire. No fixture; no synthetic cap.
 //
-// Run with: `node test/live-pair2-overflow.cjs` from this directory.
-// Requires `cd ../pair2-mcp && shadow-cljs compile server` first
+// Run with: `node test/live-re-frame2-pair-overflow.cjs` from this directory.
+// Requires `cd ../re-frame2-pair-mcp && shadow-cljs compile server` first
 // (same as the sibling harness). Exits 0 on success or SKIP. Exits 1
 // on any conformance violation.
 
@@ -77,9 +77,9 @@ const os = require('node:os');
 const { parseEDNString } = require('edn-data');
 const { runWithWatchdog } = require('./_runner.cjs');
 
-const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
+const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
-// Default cap pinned by tools/pair2-mcp/src/.../tools.cljs
+// Default cap pinned by tools/re-frame2-pair-mcp/src/.../tools.cljs
 // `default-max-tokens`. Sourced here as a compile-time constant so a
 // future bump to the default surfaces as a test-failure forcing the
 // reviewer to update both pins in lockstep (re. the bead description's
@@ -89,7 +89,7 @@ const DEFAULT_MAX_TOKENS = 5000;
 // Payload generator: a CLJS form that evaluates to a string large
 // enough to push the response over the default cap.
 //
-// Sizing rationale: pair2-mcp's token-estimate is `(quot chars 4)`,
+// Sizing rationale: re-frame2-pair-mcp's token-estimate is `(quot chars 4)`,
 // so an N-char string is ~N/4 tokens. We want >5000 tokens with
 // margin against the EDN-quoting overhead of pr-str. 25,000 chars ⇒
 // 6,250 token-estimate ⇒ 1.25× over cap. Safe for both directions
@@ -107,12 +107,12 @@ const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
 // silent acceptance of an evolution it wasn't designed for.
 const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
 
-// Required-field table for `:rf.mcp/overflow` (pair2-mcp shape). Each
-// row pins one Malli `Pair2OverflowBody` field, the expected value
+// Required-field table for `:rf.mcp/overflow` (re-frame2-pair-mcp shape). Each
+// row pins one Malli `ReFrame2PairOverflowBody` field, the expected value
 // shape, and a description for the error message. Adding / removing a
 // row MUST stay in lockstep with the Malli schema in
-// `wire-vocab/test/.../wire_vocab_test.clj` (`Pair2OverflowBody`); the
-// cross-encoding grep gate (`js-assertOverflowBody-pins-every-pair2-
+// `wire-vocab/test/.../wire_vocab_test.clj` (`ReFrame2PairOverflowBody`); the
+// cross-encoding grep gate (`js-assertOverflowBody-pins-every-re-frame2-pair-
 // overflow-required-field`) reads this same data table by name so a
 // drift in either direction trips the JVM-side test.
 const REQUIRED_FIELDS = [
@@ -124,7 +124,7 @@ const REQUIRED_FIELDS = [
 ];
 
 // Validate the parsed `:rf.mcp/overflow` body against the canonical
-// `Pair2OverflowBody` shape (rf2-i3ffz F-HYG-4 data-driven refactor).
+// `ReFrame2PairOverflowBody` shape (rf2-i3ffz F-HYG-4 data-driven refactor).
 function assertOverflowBody(body, ctx) {
   if (!body || typeof body !== 'object') {
     throw new Error(ctx + ': overflow body is not a map: ' + JSON.stringify(body));
@@ -134,7 +134,7 @@ function assertOverflowBody(body, ctx) {
       throw new Error(
         ctx + ': :' + field + ' MUST be ' + desc +
           '; got ' + JSON.stringify(body[field]) +
-          '. (Schema: Pair2OverflowBody.' + field + ' : ' + desc + ')',
+          '. (Schema: ReFrame2PairOverflowBody.' + field + ' : ' + desc + ')',
       );
     }
   }
@@ -149,7 +149,7 @@ function assertOverflowBody(body, ctx) {
   }
 }
 
-// Parse the canonical pair2-mcp overflow marker from response text
+// Parse the canonical re-frame2-pair-mcp overflow marker from response text
 // (rf2-i3ffz F-CORR-2). The hand-rolled ~120-LoC tokeniser this
 // replaces was technically correct for today's shape but fragile under
 // nested-map / escape-sequence evolution; `edn-data` (~30KB, zero
@@ -179,10 +179,10 @@ function parseOverflowMarker(text) {
 // `SKIP <reason>` banner and exits 0.
 if (!process.env.SHADOW_CLJS_NREPL_PORT) {
   runWithWatchdog.skip(
-    'live-pair2-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
+    'live-re-frame2-pair-overflow: $SHADOW_CLJS_NREPL_PORT not set.\n' +
       '      This variant requires a live shadow-cljs nREPL — without\n' +
       '      one the server runs degraded and the wire-cap cannot be\n' +
-      '      tripped naturally. The sibling end-to-end-pair2.cjs covers\n' +
+      '      tripped naturally. The sibling end-to-end-re-frame2-pair.cjs covers\n' +
       '      degraded-mode protocol conformance; this variant adds\n' +
       '      cap-marker conformance under real over-budget conditions.',
   );
@@ -193,10 +193,10 @@ if (!process.env.SHADOW_CLJS_NREPL_PORT) {
 runWithWatchdog(
   {
     watchdogMs: 60000,
-    clientName: 'mcp-conformance-pair2-live-overflow',
+    clientName: 'mcp-conformance-re-frame2-pair-live-overflow',
     transportSpec: {
       command: process.execPath,
-      // `--allow-eval` opts the spawned pair2-mcp server into the
+      // `--allow-eval` opts the spawned re-frame2-pair-mcp server into the
       // eval-cljs tool, which is default-OFF in published builds per
       // rf2-cxx5s (cascade from rf2-czv3p). Without the flag,
       // eval-cljs returns `{:ok? false :reason :rf.error/eval-cljs-disabled}`
@@ -205,7 +205,7 @@ runWithWatchdog(
       // produced. This live-overflow harness's *whole purpose* is to
       // trip the cap on a real eval response, so it must opt in. The
       // default-OFF security contract is pinned by the unit fixture
-      // `:eval-cljs/disabled-default` in tools/pair2-mcp's conformance
+      // `:eval-cljs/disabled-default` in tools/re-frame2-pair-mcp's conformance
       // corpus — that's the right layer for the gate; here we want the
       // post-gate logical path.
       args: [SERVER, '--allow-eval'],
@@ -268,7 +268,7 @@ runWithWatchdog(
 
     // 5. Schema-validate the marker body against the canonical
     // OverflowBody shape pinned by wire-vocab. This is the
-    // cross-server vocabulary assertion: pair2-mcp's wire emission
+    // cross-server vocabulary assertion: re-frame2-pair-mcp's wire emission
     // MUST satisfy the same shape as the wire-vocab fixture.
     const body = parseOverflowMarker(text);
     if (!body) {
@@ -300,7 +300,7 @@ runWithWatchdog(
           DEFAULT_MAX_TOKENS +
           ' (no per-call override sent); got ' +
           body['cap-tokens'] +
-          '. If the default has changed in pair2-mcp `tools.cljs`, ' +
+          '. If the default has changed in re-frame2-pair-mcp `tools.cljs`, ' +
           'update DEFAULT_MAX_TOKENS in this file and refresh the spec ' +
           '§"Tight token budget per response" reference together.',
       );
@@ -311,13 +311,13 @@ runWithWatchdog(
       );
     }
     if (!body['hint'] || !body['hint'].includes('Slice')) {
-      // The pair2-mcp `overflow-hints` table maps "eval-cljs" → "Slice
+      // The re-frame2-pair-mcp `overflow-hints` table maps "eval-cljs" → "Slice
       // the value at the call-site (`get-in`, `take`, project to fewer
       // keys) before returning." A rename of the per-tool hint surfaces
       // here. We match on a stable substring rather than the whole
       // hint string so a copy-edit doesn't break the test.
       throw new Error(
-        ':hint MUST contain "Slice" (per-tool pair2-mcp hint for ' +
+        ':hint MUST contain "Slice" (per-tool re-frame2-pair-mcp hint for ' +
           'eval-cljs); got ' +
           JSON.stringify(body['hint']),
       );

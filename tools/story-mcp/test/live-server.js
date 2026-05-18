@@ -3,7 +3,7 @@
 // write surface enabled.
 //
 // Story-MCP is JVM-side (a Clojure subprocess speaking JSON-RPC on
-// stdio). Unlike pair2-mcp's live-nrepl.js (which connects out to a
+// stdio). Unlike re-frame2-pair-mcp's live-nrepl.js (which connects out to a
 // separate shadow-cljs runtime over bencode), this artefact is
 // self-contained — the same process that terminates stdin/stdout also
 // holds the Story registrar, so a single boot suffices for the entire

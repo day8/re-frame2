@@ -8,7 +8,7 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 - The `index.html` that loads the bundle
 - `:devtools` block (optional, for hot-reload)
 - Production build (`release`)
-- nREPL — only if you'll use `re-frame-pair2`
+- nREPL — only if you'll use `re-frame2-pair`
 - What re-frame2 does NOT need
 
 ---
@@ -114,9 +114,9 @@ re-frame2 itself **does not need a preload** for hot-reload. shadow-cljs's defau
 
 re-frame2's `:advanced`-compile elision contract (Spec 009) automatically strips dev-only diagnostics (`trace`, `epoch-history`, schema validation at boundary) when `goog.DEBUG` is false — which it is under `:advanced`. The author gets the elision for free; nothing to configure.
 
-## nREPL — only if you'll use `re-frame-pair2`
+## nREPL — only if you'll use `re-frame2-pair`
 
-If the author plans to attach `re-frame-pair2` (the live-inspection skill) to the running app, shadow-cljs's dev build needs nREPL enabled. shadow-cljs **enables nREPL by default** when you run `shadow-cljs watch <build>` — no config change required. The port is written to `target/shadow-cljs/nrepl.port` (or `.shadow-cljs/nrepl.port` depending on version), which is where `re-frame-pair2`'s `discover-app.sh` looks for it.
+If the author plans to attach `re-frame2-pair` (the live-inspection skill) to the running app, shadow-cljs's dev build needs nREPL enabled. shadow-cljs **enables nREPL by default** when you run `shadow-cljs watch <build>` — no config change required. The port is written to `target/shadow-cljs/nrepl.port` (or `.shadow-cljs/nrepl.port` depending on version), which is where `re-frame2-pair`'s `discover-app.sh` looks for it.
 
 If you want to pin the port explicitly (e.g. for editor integrations), add a top-level `:nrepl {:port 7002}` to `shadow-cljs.edn`. Not required for greenfield.
 

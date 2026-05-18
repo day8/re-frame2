@@ -19,7 +19,7 @@ The re-frame2 mental model has one source of truth per frame: `app-db`. Subs pro
 
 - **Invisible to subs** — sibling components must `require` the view's namespace just to deref the atom, coupling otherwise-independent views.
 - **Invisible to events** — handlers cannot consult the value as part of their decision (they'd have to reach into the view module, breaking the data-flow direction).
-- **Invisible to tools** — Causa's panels and re-frame-pair2's `app-db` inspector/time-travel surfaces see only `app-db` plus the runtime trace/epoch surfaces. A view-side atom is dark to every diagnostic.
+- **Invisible to tools** — Causa's panels and re-frame2-pair's `app-db` inspector/time-travel surfaces see only `app-db` plus the runtime trace/epoch surfaces. A view-side atom is dark to every diagnostic.
 - **Invisible to SSR / story / replay** — the story artefact serialises `app-db`; the view-atom is reconstructed only when the view mounts, and its value at render time is not what produced the snapshot.
 - **Not testable** — `compute-sub` and `compute-event` operate on `app-db` values; a test for "what does the view show when state is X" requires mounting the view to set the atom.
 
@@ -79,5 +79,5 @@ Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source 
 
 - **Genuinely render-local UI** — hover state, focus-within bookkeeping, drag-and-drop in-flight offsets, transient animation values that no other component consults. These can stay as `reagent/atom` or `useState`.
 - **Performance-critical render-loop state** that would cause `app-db` churn at every frame (60fps animation cursors). Promote to `app-db` only when another part of the app needs to read it.
-- **Form-draft state in tightly-scoped one-shot forms** that don't need Causa/pair2 debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](../../re-frame2/patterns/forms.md).
+- **Form-draft state in tightly-scoped one-shot forms** that don't need Causa/re-frame2-pair debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](../../re-frame2/patterns/forms.md).
 - **Component-local refs to DOM nodes** (`useRef`, `(r/create-ref)`) — these hold a *handle*, not domain state. Not in scope.

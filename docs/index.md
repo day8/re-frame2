@@ -10,4 +10,4 @@ By part:
 
 We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
-You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration.md) for you-know-what, then [re-frame-pair2](skills/re-frame-pair2.md) for coding. Finally, use [re-frame-pair-retro2](skills/re-frame-pair-retro2.md) to do a session retrospective and file an issue if you find friction.
+You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration.md) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair.md) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro.md) to do a session retrospective and file an issue if you find friction.

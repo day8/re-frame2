@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /*
- * Hermetic orchestrator for the live-pair2-overflow conformance test
+ * Hermetic orchestrator for the live-re-frame2-pair-overflow conformance test
  * (rf2-uw6d6, follow-on from rf2-ynaoc).
  *
- * The sibling test (`test/live-pair2-overflow.cjs`) is gated on
+ * The sibling test (`test/live-re-frame2-pair-overflow.cjs`) is gated on
  * $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with a SKIP
- * marker because the pair2-mcp server runs degraded — no real eval, no
+ * marker because the re-frame2-pair-mcp server runs degraded — no real eval, no
  * cap-trigger, no overflow marker.
  *
  * This script makes the live path *actually* fire on CI by:
  *
- *   1. Spawning `shadow-cljs watch app` against the pair2 fixture at
- *      `skills/re-frame-pair2/tests/fixture/` — a tiny re-frame2 counter
- *      with `re-frame-pair2.runtime` already wired as a `:devtools
+ *   1. Spawning `shadow-cljs watch app` against the re-frame2-pair fixture at
+ *      `skills/re-frame2-pair/tests/fixture/` — a tiny re-frame2 counter
+ *      with `re-frame2-pair.runtime` already wired as a `:devtools
  *      :preloads` entry. The shadow-cljs build also serves an
  *      http-server on :8030.
  *   2. Waiting for the nREPL port file to land (shadow-cljs 3.x writes
@@ -24,15 +24,15 @@
  *      gate on the Content-Type being JS).
  *   4. Launching headless Chromium (Playwright) at
  *      http://localhost:8030 so the bundle loads and the runtime
- *      preload sets `window.__re_frame_pair2_runtime`.
+ *      preload sets `window.__re_frame2_pair_runtime`.
  *   5. Waiting for the runtime sentinel to be present in the browser
  *      AND for shadow-cljs's `:app` runtime to be addressable via
- *      `cljs-eval` over nREPL (so pair2-mcp's `ensure-runtime!` probe
+ *      `cljs-eval` over nREPL (so re-frame2-pair-mcp's `ensure-runtime!` probe
  *      sees the runtime — that probe `.catch`es shadow's
  *      "no-runtime-connected" error to `false`, surfacing as a false
  *      `:runtime-not-preloaded`).
  *   6. Setting SHADOW_CLJS_NREPL_PORT=<port> and spawning
- *      `node test/live-pair2-overflow.cjs`.
+ *      `node test/live-re-frame2-pair-overflow.cjs`.
  *   7. Tearing down browser + shadow-cljs cleanly on success, failure,
  *      or signal.
  *
@@ -80,11 +80,11 @@ const REPO_ROOT = path.resolve(MCP_CONFORMANCE_ROOT, '..', '..');
 const FIXTURE_DIR = path.join(
   REPO_ROOT,
   'skills',
-  're-frame-pair2',
+  're-frame2-pair',
   'tests',
   'fixture',
 );
-const PAIR2_MCP_DIR = path.join(REPO_ROOT, 'tools', 'pair2-mcp');
+const PAIR2_MCP_DIR = path.join(REPO_ROOT, 'tools', 're-frame2-pair-mcp');
 const {
   createDiagnosticBuffer,
   isVerboseTests,
@@ -101,7 +101,7 @@ const DIAGNOSTICS = createDiagnosticBuffer();
 // Shadow-cljs writes its nREPL port file under whichever cache-root
 // the build is configured for. Default in 3.x is `.shadow-cljs/`; older
 // configs used `target/shadow-cljs/`; nrepl itself drops `.nrepl-port`.
-// pair2-mcp's runtime probe (`re_frame_pair2_mcp/nrepl.cljs`
+// re-frame2-pair-mcp's runtime probe (`re_frame2_pair_mcp/nrepl.cljs`
 // `port-file-candidates`) walks the same list — keep them in lockstep.
 // Per rf2-kp1d8: the orchestrator previously only watched the legacy
 // `target/shadow-cljs/nrepl.port` path; shadow-cljs 3.4.10 wrote to
@@ -122,7 +122,7 @@ const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 // boot 360s so the first cold-cache run of the day (no `~/.m2`
 // restore hit at all) still has headroom while Maven resolves the
 // fixture's :local/root deps (core + reagent + epoch + Reagent/Malli
-// trees). The CI workflow's `mcp-conformance-pair2` job hashes those
+// trees). The CI workflow's `mcp-conformance-re-frame2-pair` job hashes those
 // inputs into its actions/cache key (rf2-c565x), so this stopgap only
 // kicks in on the truly cold path; warm-cache runs still bind the
 // nREPL port in <60s.
@@ -144,7 +144,7 @@ const POLL_MS = 100;
 // and the live path fires. Run sequentially against the same booted
 // runtime — the cold-boot cost amortises across every test.
 //
-// Per rf2-i3ffz F-GAP-1: `live-pair2-subscribe.cjs` joined the suite
+// Per rf2-i3ffz F-GAP-1: `live-re-frame2-pair-subscribe.cjs` joined the suite
 // to pin the `notifications/progress` streaming wire surface
 // (rf2-zb5z6). The orchestrator's name keeps `overflow` for backward
 // compatibility with the workflow YAML's script reference; the
@@ -152,11 +152,11 @@ const POLL_MS = 100;
 const INNER_TESTS = [
   {
     name: 'live overflow conformance',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-overflow.cjs'),
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-overflow.cjs'),
   },
   {
     name: 'live subscribe / notifications/progress conformance',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-pair2-subscribe.cjs'),
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-subscribe.cjs'),
   },
 ];
 
@@ -178,7 +178,7 @@ function recordChunk(prefix, chunk, stream = 'stdout') {
 
 function flushDiagnostics() {
   if (VERBOSE_TESTS || DIAGNOSTICS.isEmpty()) return;
-  console.error('--- pair2 hermetic diagnostics ---');
+  console.error('--- re-frame2-pair hermetic diagnostics ---');
   DIAGNOSTICS.flush({
     stdout: (line) => console.error(line),
     stderr: (line) => console.error(line),
@@ -297,18 +297,18 @@ function probeBundleReady(port, hostname = '127.0.0.1') {
 // successfully — which only happens once the browser-side runtime has
 // registered with shadow via the devtools WebSocket.
 //
-// Why this is necessary: pair2-mcp's `runtime-preloaded?` (in
+// Why this is necessary: re-frame2-pair-mcp's `runtime-preloaded?` (in
 // `tools/probe.cljs`) wraps `cljs-eval` in a `.catch` that swallows
 // every error to `false`, including the transient "No application has
 // connected to the REPL server" error that shadow throws between
 // page-load and runtime-registration. Without this gate the live-test
-// fires while the runtime isn't yet addressable and pair2-mcp's first
+// fires while the runtime isn't yet addressable and re-frame2-pair-mcp's first
 // `eval-cljs` call surfaces as `:runtime-not-preloaded` — a false
 // negative on the actual hermetic conformance.
 //
 // One bencode round-trip on a fresh socket; we don't try to share the
 // connection with the live test because the live test fork-execs the
-// pair2-mcp server (which opens its own nREPL connection).
+// re-frame2-pair-mcp server (which opens its own nREPL connection).
 function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
   return new Promise((resolve) => {
     const sock = net.connect({ host: hostname, port: nreplPort, timeout: 2000 });
@@ -323,10 +323,10 @@ function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
     sock.on('connect', () => {
       // Bencode-encoded nREPL eval op: route through
       // `shadow.cljs.devtools.api/cljs-eval` on build `:app`. Probe the
-      // same runtime sentinel pair2-mcp checks so this gate cannot pass
+      // same runtime sentinel re-frame2-pair-mcp checks so this gate cannot pass
       // before the preload is visible through the nREPL eval path.
       const code =
-        '(shadow.cljs.devtools.api/cljs-eval :app "(some? (and (exists? js/globalThis) (.-__re_frame_pair2_runtime js/globalThis)))" {})';
+        '(shadow.cljs.devtools.api/cljs-eval :app "(some? (and (exists? js/globalThis) (.-__re_frame2_pair_runtime js/globalThis)))" {})';
       // Minimal bencode hand-encode (avoid adding a dep). Op fields:
       // {"op": "eval", "code": <code>, "id": "rt-probe"}
       const dict =
@@ -343,7 +343,7 @@ function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
       // Look for a `:results` frame with the sentinel expression's
       // boolean `true`. A successful trivial eval is not enough: the
       // runtime can be addressable before the preload marker is visible,
-      // which makes pair2-mcp's first `ensure-runtime!` fail with a
+      // which makes re-frame2-pair-mcp's first `ensure-runtime!` fail with a
       // false `:runtime-not-preloaded`.
       if (txt.includes(':results') && txt.includes('true') && !txt.includes('No application')) {
         finish(true);
@@ -451,8 +451,8 @@ async function main() {
   }
   if (!exists(path.join(PAIR2_MCP_DIR, 'out', 'server.js'))) {
     throw new Error(
-      `pair2-mcp server bundle missing: ${path.join(PAIR2_MCP_DIR, 'out', 'server.js')}. ` +
-        'Compile with `npx shadow-cljs compile server` in tools/pair2-mcp first.',
+      `re-frame2-pair-mcp server bundle missing: ${path.join(PAIR2_MCP_DIR, 'out', 'server.js')}. ` +
+        'Compile with `npx shadow-cljs compile server` in tools/re-frame2-pair-mcp first.',
     );
   }
 
@@ -624,20 +624,20 @@ async function main() {
     log('page loaded');
 
     // ---- Wait for the runtime sentinel ----------------------------------
-    // The preload mirrors itself onto js/globalThis.__re_frame_pair2_runtime
-    // at load time. This is exactly what pair2-mcp probes via
+    // The preload mirrors itself onto js/globalThis.__re_frame2_pair_runtime
+    // at load time. This is exactly what re-frame2-pair-mcp probes via
     // ensure-runtime!; if it's not present, eval-cljs returns
     // :reason :runtime-not-preloaded and the overflow path never trips.
     await page.waitForFunction(
-      () => typeof window.__re_frame_pair2_runtime !== 'undefined',
+      () => typeof window.__re_frame2_pair_runtime !== 'undefined',
       undefined,
       { timeout: RUNTIME_PRELOAD_TIMEOUT_MS },
     );
-    const sentinel = await page.evaluate(() => window.__re_frame_pair2_runtime);
+    const sentinel = await page.evaluate(() => window.__re_frame2_pair_runtime);
     log(`runtime preload sentinel = ${JSON.stringify(sentinel)}`);
 
     // ---- Wait for shadow to register the browser runtime ----------------
-    // pair2-mcp routes its preload-probe through `shadow.cljs.devtools.api/
+    // re-frame2-pair-mcp routes its preload-probe through `shadow.cljs.devtools.api/
     // cljs-eval :app ...` over the nREPL. Shadow dispatches that to
     // whichever CLJS runtime is currently connected for the build. The
     // browser's runtime registers via the shadow devtools WebSocket on
@@ -647,7 +647,7 @@ async function main() {
     // JS environment has loaded your compiled ClojureScript code." —
     // which `runtime-preloaded?` catches and surfaces as
     // `:runtime-not-preloaded` (the .catch in `tools/probe.cljs`
-    // swallows the underlying nREPL error). Poll the same probe pair2-mcp
+    // swallows the underlying nREPL error). Poll the same probe re-frame2-pair-mcp
     // uses until it returns true, so we hand off to the live test only
     // after the runtime is actually addressable. Per rf2-kp1d8.
     log('waiting for shadow :app runtime to register');
@@ -752,7 +752,7 @@ main()
     logErr('FAIL: ' + (err && err.message ? err.message : err));
     if (err && err.stack) logErr(err.stack);
     flushDiagnostics();
-    // err.exitCode is set when the inner live-pair2-overflow.cjs itself
+    // err.exitCode is set when the inner live-re-frame2-pair-overflow.cjs itself
     // exited non-zero — surface it so CI distinguishes conformance
     // failure (1) from orchestration failure (2).
     process.exit(err && typeof err.exitCode === 'number' ? err.exitCode : 2);

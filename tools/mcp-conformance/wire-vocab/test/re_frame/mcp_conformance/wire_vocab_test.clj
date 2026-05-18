@@ -1,8 +1,8 @@
 (ns re-frame.mcp-conformance.wire-vocab-test
   "Cross-MCP wire-vocabulary conformance (rf2-j2z7o).
 
-  Two MCP servers ship under `tools/`: pair2-mcp and story-mcp.
-  pair2-mcp owns the reserved cross-server **wire vocabulary** —
+  Two MCP servers ship under `tools/`: re-frame2-pair-mcp and story-mcp.
+  re-frame2-pair-mcp owns the reserved cross-server **wire vocabulary** —
   namespaced map keys an agent recognises identically across every
   server that adopts it. (causa-mcp was dropped in rf2-bu21t — causa
   now ships as a Clojars-only library, not an MCP server.)
@@ -12,23 +12,23 @@
   not a standalone marker; pinned via the elision-marker body schema):
 
   - `:rf.mcp/overflow`      — token-budget overflow marker
-                              (pair2-mcp `tools.cljs` `overflow-payload`)
+                              (re-frame2-pair-mcp `tools.cljs` `overflow-payload`)
   - `:rf.mcp/summary`       — tree-summary lazy-mode marker
-                              (pair2-mcp `tools.cljs` `tree-summary`)
+                              (re-frame2-pair-mcp `tools.cljs` `tree-summary`)
   - `:rf.mcp/dedup-table`   — structural-dedup wrapper
-                              (pair2-mcp `tools.cljs` `dedup-value`)
+                              (re-frame2-pair-mcp `tools.cljs` `dedup-value`)
   - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker; the
                               body slot is `:sections` — a vector of
                               path-headed cluster sections, each with
                               `:section-path` + `:section-kind` +
                               `:patches` (rf2-qeous, cross-MCP
-                              vocabulary per pair2-mcp Principles
+                              vocabulary per re-frame2-pair-mcp Principles
                               §\"Cross-MCP vocabulary\"; canonical
                               encoder
                               `re-frame.mcp-base.diff-encode/diff-encode-db-after`)
   - `:rf.size/large-elided` — size-elision wire marker
                               (spec/Spec-Schemas §`:rf/elision-marker`,
-                               pair2-mcp Principles §\"Size-elision\")
+                               re-frame2-pair-mcp Principles §\"Size-elision\")
   - `:rf.elision/at`        — size-elision fetch-handle tag, embedded
                               inside the `:rf.size/large-elided` body's
                               `:handle` slot per `ElisionMarkerBody`
@@ -50,12 +50,12 @@
      shape MUST validate against the canonical schema.
 
   2. **Per-server fixture coverage.** Each marker has at least one
-     pair2-mcp fixture exercising the schema. When a future MCP
+     re-frame2-pair-mcp fixture exercising the schema. When a future MCP
      server adopts the marker, a parallel fixture asserts the shared
      contract.
 
   3. **Source-text vocabulary pin.** A grep against each server's
-     source (pair2-mcp `src/`) asserts the canonical literal appears
+     source (re-frame2-pair-mcp `src/`) asserts the canonical literal appears
      AND no near-miss variant (e.g. `:rf.mcp/overflows`,
      `:rf.mcp/dedup_table`, the underscore form) appears. A rename
      in any server surfaces here.
@@ -104,8 +104,8 @@
 ;; rule is what makes the vocabulary cross-server.
 ;; ---------------------------------------------------------------------------
 
-(def Pair2OverflowBody
-  "pair2-mcp's `:rf.mcp/overflow` body shape (per
+(def ReFrame2PairOverflowBody
+  "re-frame2-pair-mcp's `:rf.mcp/overflow` body shape (per
   `mcp-base/overflow.cljc/overflow-payload`). Every emit carries
   `:cap-tokens` + `:token-count` + `:tool` + `:hint` plus the `:limit
   :reached` sentinel. Required-not-optional — an emit missing any of
@@ -121,10 +121,10 @@
 (def OverflowBody
   "`{:rf.mcp/overflow {...}}` body — the token-budget overflow marker.
 
-  Per pair2-mcp `mcp-base/overflow.cljc/overflow-payload`. The shape
+  Per re-frame2-pair-mcp `mcp-base/overflow.cljc/overflow-payload`. The shape
   pins required fields:
 
-  - **pair2-mcp shape:** `:limit :reached` + `:cap-tokens` +
+  - **re-frame2-pair-mcp shape:** `:limit :reached` + `:cap-tokens` +
     `:token-count` + `:tool` + `:hint`. Hyphen-separated child names;
     `:cap-tokens` is the cap, `:token-count` is the over-budget count.
 
@@ -138,7 +138,7 @@
   with a different field name set, extend this as `[:or Pair2Body
   OtherBody]` (the historical pattern from when causa-mcp was an MCP
   server, dropped in rf2-bu21t)."
-  Pair2OverflowBody)
+  ReFrame2PairOverflowBody)
 
 (def Overflow
   "`{:rf.mcp/overflow OverflowBody}` — the wrapper shape."
@@ -147,12 +147,12 @@
 (def SummaryBody
   "`{:rf.mcp/summary {...}}` body — the lazy tree-summary marker.
 
-  Per pair2-mcp `tools.cljs/tree-summary`. `:type` ∈ {:map :vector
+  Per re-frame2-pair-mcp `tools.cljs/tree-summary`. `:type` ∈ {:map :vector
   :set :seq :scalar}; map summaries carry `:keys` + `:count` +
   `:bytes`; vector/set/seq summaries carry `:count` + `:bytes`;
   scalar summaries carry `:value` + `:bytes`. Large maps add
   `:keys-truncated? true` when `:keys` is clamped to
-  `summary-keys-cap` (pair2-mcp pins 64; the spec doesn't pin).
+  `summary-keys-cap` (re-frame2-pair-mcp pins 64; the spec doesn't pin).
 
   `:counts` (a per-top-key map) is permitted as an alternate
   per-key shape: a single marker MUST carry `:count` or `:counts`,
@@ -178,7 +178,7 @@
   "`{:rf.mcp/dedup-table <flat-cache>}` — the structural-dedup wrapper.
 
   The body is the day8/de-dupe cache map: `{:de-dupe.cache/cache-0
-  <root> :de-dupe.cache/cache-N <subtree> ...}`. pair2-mcp's actual
+  <root> :de-dupe.cache/cache-N <subtree> ...}`. re-frame2-pair-mcp's actual
   cache uses the de-dupe library's namespaced-keyword form; integer-
   keyed examples (`{1 {...} 2 {...}}`) are also permitted — the
   load-bearing claim is the top-level `:rf.mcp/dedup-table` marker
@@ -191,7 +191,7 @@
   projected into path-headed cluster sections (rf2-qeous).
 
   Per `re-frame.mcp-base.diff-encode/diff-encode-db-after` and
-  pair2-mcp Principles §\"Cross-MCP vocabulary\". Shape:
+  re-frame2-pair-mcp Principles §\"Cross-MCP vocabulary\". Shape:
 
       {:rf.mcp/diff-from :db-before
        :sections [{:section-path [<key>...]
@@ -246,7 +246,7 @@
 
 (def CacheHitBody
   "`{:rf.mcp/cache-hit {...}}` body — per-session response-cache hit
-  marker. Per `mcp-base/vocab.cljc/cache-hit-key` and pair2-mcp
+  marker. Per `mcp-base/vocab.cljc/cache-hit-key` and re-frame2-pair-mcp
   `cache.cljs/cache-hit-payload`. The agent host correlates by `:hash`
   and re-uses the prior `tools/call` payload for the same `(tool,
   args)` pair — the marker itself is content-free (no fresh state
@@ -257,7 +257,7 @@
   `:precheck` (rf2-36xod) short-circuited the eval entirely. Same
   vocabulary, different cost saved.
 
-  Single-server today (pair2-mcp); the `:rf.mcp/*` namespace reserves
+  Single-server today (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
   it cross-MCP per Conventions §Reserved namespaces — a future MCP
   server adopting a session cache ships the same shape."
   [:map
@@ -272,8 +272,8 @@
   "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape."
   [:map [:rf.mcp/cache-hit CacheHitBody]])
 
-(def Pair2ProgressNotificationParams
-  "Canonical `notifications/progress` params shape for pair2-mcp's
+(def ReFrame2PairProgressNotificationParams
+  "Canonical `notifications/progress` params shape for re-frame2-pair-mcp's
   `subscribe` streaming tool (per `tools/subscribe.cljs/
   progress-payload`).
 
@@ -294,7 +294,7 @@
   `:max-buffered-bytes` per rf2-ho4ve) or null when no overflow tripped
   this tick.
 
-  Pinned cross-server today as a pair2-mcp-only shape; if a future
+  Pinned cross-server today as a re-frame2-pair-mcp-only shape; if a future
   MCP server ships a `subscribe`/`unsubscribe` pair (per NAMING.md),
   its emit MUST satisfy this schema or extend it as a `[:or ...]`
   (same posture as OverflowBody)."
@@ -316,7 +316,7 @@
 (def CursorStaleResult
   "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
   signals the cursor's epoch-id is no longer in the runtime ring (per
-  `mcp-base/vocab.cljc/cursor-stale-reason` and pair2-mcp
+  `mcp-base/vocab.cljc/cursor-stale-reason` and re-frame2-pair-mcp
   `tools/cursor.cljs/cursor-stale-result`).
 
   Unlike the other markers in this file, `:rf.mcp/cursor-stale` is NOT
@@ -328,7 +328,7 @@
   slots (`:requested-id`, `:head-id`, `:tool`, `:hint`) are open
   per-server.
 
-  Single-server today (pair2-mcp); the reason value is reserved
+  Single-server today (re-frame2-pair-mcp); the reason value is reserved
   cross-MCP for any future pagination surface."
   [:map
    {:closed false}
@@ -384,14 +384,14 @@
   `:servers` mentions the marker key literally."
   [{:key      :rf.mcp/overflow
     :schema   Overflow
-    :servers  #{:pair2-mcp}                                    ;; not :story-mcp
-    :fixtures {:pair2-mcp {:rf.mcp/overflow
+    :servers  #{:re-frame2-pair-mcp}                                    ;; not :story-mcp
+    :fixtures {:re-frame2-pair-mcp {:rf.mcp/overflow
                            {:limit       :reached
                             :token-count 12400
                             :cap-tokens  5000
                             :tool        "snapshot"
                             :hint        "Narrow scope: pass `path [:k1 :k2]` to slice ..."}}
-               :pair2-mcp-keyword-hint {:rf.mcp/overflow
+               :re-frame2-pair-mcp-keyword-hint {:rf.mcp/overflow
                                         {:limit       :reached
                                          :token-count 12400
                                          :cap-tokens  5000
@@ -400,39 +400,39 @@
 
    {:key      :rf.mcp/summary
     :schema   Summary
-    :servers  #{:pair2-mcp}
-    :fixtures {:pair2-mcp-map     {:rf.mcp/summary
+    :servers  #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp-map     {:rf.mcp/summary
                                    {:type  :map
                                     :keys  [:user :cart :ui]
                                     :count 3
                                     :bytes 1200}}
-               :pair2-mcp-vector  {:rf.mcp/summary
+               :re-frame2-pair-mcp-vector  {:rf.mcp/summary
                                    {:type  :vector
                                     :count 50
                                     :bytes 900}}
-               :pair2-mcp-set     {:rf.mcp/summary
+               :re-frame2-pair-mcp-set     {:rf.mcp/summary
                                    {:type  :set
                                     :count 12
                                     :bytes 80}}
-               :pair2-mcp-seq     {:rf.mcp/summary
+               :re-frame2-pair-mcp-seq     {:rf.mcp/summary
                                    {:type  :seq
                                     :count 17
                                     :bytes 110}}
-               :pair2-mcp-scalar  {:rf.mcp/summary
+               :re-frame2-pair-mcp-scalar  {:rf.mcp/summary
                                    {:type  :scalar
                                     :value 42
                                     :bytes 2}}
-               :pair2-mcp-clamped {:rf.mcp/summary
+               :re-frame2-pair-mcp-clamped {:rf.mcp/summary
                                    {:type             :map
                                     :keys             (vec (range 64))
                                     :count            128
                                     :bytes            5000
                                     :keys-truncated?  true}}
                ;; Per-key counts variant — schema permits :counts
-               ;; alongside :count; pinned with a pair2-shaped fixture
+               ;; alongside :count; pinned with a re-frame2-pair-shaped fixture
                ;; so the alternate slot stays schema-validated even
                ;; without a second server contributing one.
-               :pair2-mcp-counts  {:rf.mcp/summary
+               :re-frame2-pair-mcp-counts  {:rf.mcp/summary
                                    {:type   :map
                                     :keys   [:cart :user :ui]
                                     :counts {:cart 47 :user 3 :ui 12}
@@ -440,26 +440,26 @@
 
    {:key      :rf.mcp/dedup-table
     :schema   DedupTable
-    :servers  #{:pair2-mcp}
-    :fixtures {:pair2-mcp         {:rf.mcp/dedup-table
+    :servers  #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp         {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
                                     :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
                ;; Integer-keyed example variant — both forms validate
                ;; against the schema; pinned to keep the alternate
                ;; keying schema-validated even without a second server.
-               :pair2-mcp-integer {:rf.mcp/dedup-table
+               :re-frame2-pair-mcp-integer {:rf.mcp/dedup-table
                                    {1 {:event-id :foo :handler-id :bar}
                                     2 {:event-id :baz}}}}}
 
    {:key      :rf.mcp/diff-from
     :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:sections :any]]
-    ;; pair2-mcp specs / emits today. The schema and the marker are
-    ;; reserved in the cross-MCP family per pair2-mcp Principles §
+    ;; re-frame2-pair-mcp specs / emits today. The schema and the marker are
+    ;; reserved in the cross-MCP family per re-frame2-pair-mcp Principles §
     ;; \"Cross-MCP vocabulary\". The body slot is the
     ;; sections-per-cluster projection (rf2-qeous) — same
     ;; `:rf.mcp/diff-from` marker key, new `:sections` body.
-    :servers  #{:pair2-mcp}
-    :fixtures {:pair2-mcp {:rf.mcp/diff-from :db-before
+    :servers  #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp {:rf.mcp/diff-from :db-before
                            :sections [{:section-path [:cart :items]
                                        :section-kind :modified
                                        :patches      [[[:cart :items] :assoc [{:sku "abc"}]]]}
@@ -469,13 +469,13 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; pair2-mcp emits today. Two
+    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. Two
     ;; fixtures below represent two distinct emission shapes —
     ;; schema/string vs schema/map-with-digest (the schema-driven
     ;; nomination path is the only nomination path post Path-D /
     ;; rf2-w3n5u).
-    :servers  #{:pair2-mcp}
-    :fixtures {:pair2-mcp-schema-string
+    :servers  #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp-schema-string
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]
                  :bytes  102400
@@ -483,7 +483,7 @@
                  :reason :schema
                  :hint   "User-uploaded PDF; fetch via get-path."
                  :handle [:rf.elision/at [:user :uploaded-pdf]]}}
-               :pair2-mcp-schema-with-digest
+               :re-frame2-pair-mcp-schema-with-digest
                {:rf.size/large-elided
                 {:path   [:cofx :db]
                  :bytes  524288
@@ -495,19 +495,19 @@
 
    {:key      :rf.mcp/cache-hit
     :schema   CacheHit
-    ;; pair2-mcp emits today (rf2-3rt1f result-hash + rf2-36xod precheck
+    ;; re-frame2-pair-mcp emits today (rf2-3rt1f result-hash + rf2-36xod precheck
     ;; paths in `cache.cljs/cache-hit-payload`). The literal lives in
     ;; `mcp-base/vocab.cljc` as `cache-hit-key`, where every cross-MCP
     ;; marker is canonicalised. Per rf2-i3ffz F-GAP-4.
-    :servers  #{:pair2-mcp}
-    :fixtures {:pair2-mcp-result-hash
+    :servers  #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp-result-hash
                {:rf.mcp/cache-hit
                 {:hash            -1234567890
                  :unchanged-since 1715760000000
                  :tool            "snapshot"
                  :via             :result-hash
                  :hint            "Payload byte-identical to the prior tools/call ..."}}
-               :pair2-mcp-precheck
+               :re-frame2-pair-mcp-precheck
                {:rf.mcp/cache-hit
                 {:hash            42
                  :unchanged-since 1715760123456
@@ -519,7 +519,7 @@
 ;; Fixture conformance — every authored fixture validates against the
 ;; canonical schema for its marker. The primary conformance assertion:
 ;; per-server fixture shapes all conform to the same single schema. With
-;; pair2-mcp as the sole live emitter today, per-marker fixture variants
+;; re-frame2-pair-mcp as the sole live emitter today, per-marker fixture variants
 ;; (e.g. `:counts` vs `:count`, integer vs namespaced-keyword keys) pin
 ;; the schema's alternate shapes so a future second MCP server adopting
 ;; them validates without surprise.
@@ -536,7 +536,7 @@
 
 (deftest every-canonical-marker-has-at-least-two-fixtures
   ;; Every marker MUST carry >=1 fixture; multi-server markers MUST
-  ;; carry >=2. Single-server today (all markers are pair2-mcp-only
+  ;; carry >=2. Single-server today (all markers are re-frame2-pair-mcp-only
   ;; post rf2-bu21t), so the >=1 floor applies; the >=2 path stays
   ;; live for any future MCP server adoption.
   (doseq [{:keys [key fixtures servers]} canonical-markers]
@@ -555,21 +555,21 @@
   ;; `OverflowBody` schema marked every slot except `:limit` `{:optional
   ;; true}`, so an emit shaped as `{:rf.mcp/overflow {:limit :reached}}`
   ;; alone validated. That under-constrained the cross-server contract:
-  ;; an emit MUST carry pair2-mcp's shape (`:cap-tokens` + `:token-count`
+  ;; an emit MUST carry re-frame2-pair-mcp's shape (`:cap-tokens` + `:token-count`
   ;; + `:tool` + `:hint`). The schema now requires every field; this
   ;; gate pins the regression directly.
   (testing "empty body (only :limit :reached) fails validation"
     (is (not (m/validate Overflow {:rf.mcp/overflow {:limit :reached}}))
-        "Overflow schema must reject an emit with only :limit :reached — the pair2 shape requires more fields."))
-  (testing "missing-required-pair2 fields fail validation"
-    ;; pair2 shape lacks :token-count
+        "Overflow schema must reject an emit with only :limit :reached — the re-frame2-pair shape requires more fields."))
+  (testing "missing-required-re-frame2-pair fields fail validation"
+    ;; re-frame2-pair shape lacks :token-count
     (is (not (m/validate Overflow
                          {:rf.mcp/overflow
                           {:limit      :reached
                            :tool       "snapshot"
                            :cap-tokens 5000
                            :hint       "..."}}))
-        "pair2-shape emit missing :token-count must fail")))
+        "re-frame2-pair-shape emit missing :token-count must fail")))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in
@@ -594,7 +594,7 @@
 ;; The pre-rf2-vj8y3 pin grepped `tools.cljs` + `Principles.md` +
 ;; `003-Tool-Catalogue.md` with `some`, which passed because the spec
 ;; docs prose-referenced every marker — even though four of five
-;; literals did not appear in any pair2-mcp source code AT ALL (they
+;; literals did not appear in any re-frame2-pair-mcp source code AT ALL (they
 ;; were imported via `re-frame.mcp-base.vocab/<key>`). A rename inside
 ;; `mcp-base/vocab.cljc` (the canonical home of every literal) didn't
 ;; trip the gate. The new emit-side pin closes that hole.
@@ -606,19 +606,19 @@
   per-marker basis and grepped against the file's text AFTER
   `strip-comments-and-strings` has neutered docstring/comment mentions.
 
-  For pair2-mcp the canonical literal home is `mcp-base/vocab.cljc` —
+  For re-frame2-pair-mcp the canonical literal home is `mcp-base/vocab.cljc` —
   every wire marker keyword is declared once there (`overflow-key`,
   `summary-key`, `dedup-table-key`, `diff-from-key`,
-  `large-elided-key`) and pair2-mcp consumes the symbol, not the
+  `large-elided-key`) and re-frame2-pair-mcp consumes the symbol, not the
   literal. A rename to ANY of those `def` values trips this pin
-  regardless of which pair2-mcp tool source emits the marker — which
+  regardless of which re-frame2-pair-mcp tool source emits the marker — which
   is the right invariant; emit-sites that import from vocab.cljc
   cannot drift independently of the canonical declaration.
 
   story-mcp does not emit any cross-MCP markers today — its
   `:servers` membership is empty in `canonical-markers`, so its
   emit-source set is empty by construction."
-  {:pair2-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
+  {:re-frame2-pair-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
    :story-mcp []})
 
 (def ^:private doc-source-files
@@ -627,8 +627,8 @@
   match — a raw `str/includes?` suffices; docs may rearrange prose
   without tripping the gate. Drift here means the docs lag, not that
   the emit broke."
-  {:pair2-mcp ["tools/pair2-mcp/spec/Principles.md"
-               "tools/pair2-mcp/spec/003-Tool-Catalogue.md"]
+  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/spec/Principles.md"
+               "tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md"]
    :story-mcp []})
 
 (def ^:private all-source-files
@@ -674,7 +674,7 @@
   ;; contracted to emit MUST appear as DATA (not docstring/comment) in
   ;; at least one of the registered emit-source files. The
   ;; `strip-comments-and-strings` walker is applied before the grep so
-  ;; a rename inside the canonical declaration site (pair2-mcp's
+  ;; a rename inside the canonical declaration site (re-frame2-pair-mcp's
   ;; `mcp-base/vocab.cljc`) trips the gate even if old docstrings still
   ;; mention the prior name.
   ;;
@@ -721,22 +721,22 @@
                    ". (No emit-sources registered; spec-text coverage "
                    "is the impl-not-landed stand-in.)")))))))
 
-(deftest marker-literal-appears-in-pair2-mcp-doc-sources
-  ;; Defence-in-depth: pair2-mcp's spec/descriptor docs SHOULD also
+(deftest marker-literal-appears-in-re-frame2-pair-mcp-doc-sources
+  ;; Defence-in-depth: re-frame2-pair-mcp's spec/descriptor docs SHOULD also
   ;; carry each emitted-marker literal for human readers. Looser pin —
   ;; raw `str/includes?` allows docstring mentions; the load-bearing
   ;; check is the emit-source pin above. Drift here means the docs
   ;; lag, not that the emit shape broke.
   (doseq [{:keys [key servers]} canonical-markers
-          :when                 (contains? servers :pair2-mcp)]
-    (testing (str "marker " key " literal in pair2-mcp doc-sources")
+          :when                 (contains? servers :re-frame2-pair-mcp)]
+    (testing (str "marker " key " literal in re-frame2-pair-mcp doc-sources")
       (let [literal   (marker-key->literal key)
-            doc-files (get doc-source-files :pair2-mcp)]
+            doc-files (get doc-source-files :re-frame2-pair-mcp)]
         (is (some (fn [rel]
                     (str/includes? (fx/read-source rel) literal))
                   doc-files)
             (str "Literal " literal
-                 " missing from pair2-mcp doc-sources " doc-files
+                 " missing from re-frame2-pair-mcp doc-sources " doc-files
                  ". The docs may have re-organised the prose; either "
                  "restore the mention or update `doc-source-files`."))))))
 
@@ -760,13 +760,13 @@
 ;; ---------------------------------------------------------------------------
 ;; JS-vs-Malli `OverflowBody` cross-encoding sanity (rf2-0zqox).
 ;;
-;; `test/live-pair2-overflow.cjs` hand-rolls `assertOverflowBody` as a JS
-;; re-encoding of `Pair2OverflowBody`. The two encodings must agree on
+;; `test/live-re-frame2-pair-overflow.cjs` hand-rolls `assertOverflowBody` as a JS
+;; re-encoding of `ReFrame2PairOverflowBody`. The two encodings must agree on
 ;; the same contract — that's the whole point of pinning a vocabulary
 ;; conformance gate; a drift between the encodings is a vocabulary bug
 ;; (a marker shape the Malli side considers valid that the JS side
 ;; rejects, or vice versa). Before this gate landed, divergence could
-;; ship silently: a tightening to `Pair2OverflowBody` (e.g. promoting
+;; ship silently: a tightening to `ReFrame2PairOverflowBody` (e.g. promoting
 ;; `:cap-tokens` from optional to required, which rf2-kn8cj just did)
 ;; could pass the Malli side while the JS side hadn't been updated.
 ;;
@@ -785,20 +785,20 @@
 ;; means adding one entry here; the friction is correct.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private live-pair2-overflow-js-rel
+(def ^:private live-re-frame2-pair-overflow-js-rel
   "Relative path to the hand-rolled JS assertion. Single source of truth
   — drift here surfaces against the slurp below."
-  "tools/mcp-conformance/test/live-pair2-overflow.cjs")
+  "tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs")
 
-(def ^:private pair2-overflow-js-required-grep-markers
+(def ^:private re-frame2-pair-overflow-js-required-grep-markers
   "Substrings the JS `assertOverflowBody` MUST contain to pin every
-  required field on `Pair2OverflowBody`. Each entry is `[malli-field
+  required field on `ReFrame2PairOverflowBody`. Each entry is `[malli-field
   js-substring]` — the field for error reporting, the substring as the
-  grep target. A field added to `Pair2OverflowBody` MUST add a row
-  here; a field removed from `Pair2OverflowBody` MUST remove a row.
+  grep target. A field added to `ReFrame2PairOverflowBody` MUST add a row
+  here; a field removed from `ReFrame2PairOverflowBody` MUST remove a row.
   Drift surfaces as a test failure naming the missing field.
 
-  Per rf2-i3ffz F-CORR-2/F-HYG-4 (`live-pair2-overflow.cjs` rewrite
+  Per rf2-i3ffz F-CORR-2/F-HYG-4 (`live-re-frame2-pair-overflow.cjs` rewrite
   around `edn-data` + a data-driven `REQUIRED_FIELDS` table): the JS
   side now parses EDN keywords as bare strings (no `:` prefix) and the
   required-field assertions live in one table rather than five typeof
@@ -831,23 +831,23 @@
    ["token-count > cap-tokens invariant"
     "body['token-count'] <= body['cap-tokens']"]])
 
-(deftest js-assertOverflowBody-pins-every-pair2-overflow-required-field
+(deftest js-assertOverflowBody-pins-every-re-frame2-pair-overflow-required-field
   ;; The cross-encoding sanity gate. For every required field on the
-  ;; Malli `Pair2OverflowBody` schema, the JS `assertOverflowBody`
+  ;; Malli `ReFrame2PairOverflowBody` schema, the JS `assertOverflowBody`
   ;; function MUST carry a substring that asserts the same shape.
   ;; Missing fields trip this gate with the field name in the error.
-  (let [js-src (fx/read-source live-pair2-overflow-js-rel)]
-    (doseq [[field grep-pattern] pair2-overflow-js-required-grep-markers]
+  (let [js-src (fx/read-source live-re-frame2-pair-overflow-js-rel)]
+    (doseq [[field grep-pattern] re-frame2-pair-overflow-js-required-grep-markers]
       (testing (str "JS assertOverflowBody pins field " field)
         (is (str/includes? js-src grep-pattern)
             (str "Field `" field
-                 "` (Malli `Pair2OverflowBody`) is not pinned by the "
-                 "JS `assertOverflowBody` in " live-pair2-overflow-js-rel
+                 "` (Malli `ReFrame2PairOverflowBody`) is not pinned by the "
+                 "JS `assertOverflowBody` in " live-re-frame2-pair-overflow-js-rel
                  ". Looked for substring: " (pr-str grep-pattern)
-                 ".\nIf you tightened `Pair2OverflowBody`, mirror the "
+                 ".\nIf you tightened `ReFrame2PairOverflowBody`, mirror the "
                  "change in the JS assertion; if you loosened it, "
                  "remove the entry from "
-                 "`pair2-overflow-js-required-grep-markers`."))))))
+                 "`re-frame2-pair-overflow-js-required-grep-markers`."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server-coverage pin. The set of servers each marker is contracted
@@ -945,18 +945,18 @@
   parity is the round-2 audit fix this gate enforces)."
   [{:slot     :dropped-sensitive
     :schema   DroppedSensitive
-    :emitters #{:pair2-mcp}
-    :fixtures {:pair2-mcp-trace-window
+    :emitters #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp-trace-window
                {:ok? true :epochs [] :dropped-sensitive 3}
-               :pair2-mcp-snapshot
+               :re-frame2-pair-mcp-snapshot
                {:ok? true :snapshot {} :dropped-sensitive 1}}}
 
    {:slot     :elided-large
     :schema   ElidedLarge
-    :emitters #{:pair2-mcp}
-    :fixtures {:pair2-mcp-snapshot
+    :emitters #{:re-frame2-pair-mcp}
+    :fixtures {:re-frame2-pair-mcp-snapshot
                {:ok? true :snapshot {} :elided-large 2}
-               :pair2-mcp-get-path
+               :re-frame2-pair-mcp-get-path
                {:ok? true :exists? true :path [:user :pdf] :value
                 {:rf.size/large-elided
                  {:path [:user :pdf]
@@ -981,29 +981,29 @@
   Restricted to the actual tool source — the spec/docs files may
   mention the slots without emitting them.
 
-  Post-rf2-vrbwx split: pair2-mcp's envelope-slot emit point is the
+  Post-rf2-vrbwx split: re-frame2-pair-mcp's envelope-slot emit point is the
   centralised `wire/with-indicators` helper (rf2-dfk28); the literals
   live in `wire.cljs`. Per-tool routing through the helper is pinned
   in detail by `indicator_field_test.clj`; this gate just asserts the
   two literals appear in the canonical helper location."
-  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs"]
+  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"]
    :story-mcp []})        ;; doesn't walk tree-typed payloads today
 
-(deftest envelope-slot-parity-in-pair2-mcp
+(deftest envelope-slot-parity-in-re-frame2-pair-mcp
   ;; MUST-level pin (Conventions rf2-2499j, Spec 009 §Indicator field
   ;; on tool responses): every server that emits one slot MUST emit
   ;; the other. The round-2 alignment audit (rf2-zjqh8) caught
-  ;; pair2-mcp emitting only `:dropped-sensitive`; this gate locks
+  ;; re-frame2-pair-mcp emitting only `:dropped-sensitive`; this gate locks
   ;; in the parity so the regression can't return silently.
-  (let [files (get envelope-emitter-source-files :pair2-mcp)]
+  (let [files (get envelope-emitter-source-files :re-frame2-pair-mcp)]
     (is (seq files)
-        "No source files registered for pair2-mcp envelope emit sites.")
+        "No source files registered for re-frame2-pair-mcp envelope emit sites.")
     (doseq [rel files]
       (let [src (fx/read-source rel)]
-        (testing (str "pair2-mcp " rel " — :dropped-sensitive literal")
+        (testing (str "re-frame2-pair-mcp " rel " — :dropped-sensitive literal")
           (is (str/includes? src ":dropped-sensitive")
               (str ":dropped-sensitive literal missing from " rel)))
-        (testing (str "pair2-mcp " rel " — :elided-large literal")
+        (testing (str "re-frame2-pair-mcp " rel " — :elided-large literal")
           (is (str/includes? src ":elided-large")
               (str ":elided-large literal missing from " rel
                    " — parity break per Conventions rf2-2499j.")))))))
@@ -1049,13 +1049,13 @@
 ;;
 ;; The pin shape mirrors the wrapper-marker pins above:
 ;;   1. fixture validates against `CursorStaleResult` schema.
-;;   2. literal appears in pair2-mcp's emit-source (mcp-base/vocab.cljc).
-;;   3. literal appears in pair2-mcp's doc-sources (003-Tool-Catalogue.md).
+;;   2. literal appears in re-frame2-pair-mcp's emit-source (mcp-base/vocab.cljc).
+;;   3. literal appears in re-frame2-pair-mcp's doc-sources (003-Tool-Catalogue.md).
 ;;   4. no near-miss spelling co-exists in any conformance-tracked file.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private cursor-stale-fixture
-  "Canonical pair2-mcp emission shape from `tools/cursor.cljs/
+  "Canonical re-frame2-pair-mcp emission shape from `tools/cursor.cljs/
   cursor-stale-result`. The envelope-specific slots (`:tool`,
   `:requested-id`, `:head-id`, `:hint`) are open per-server; the
   load-bearing contract is `:ok? false` + `:reason :rf.mcp/cursor-stale`."
@@ -1082,7 +1082,7 @@
                        {:ok? false :reason :rf.mcp/cursor-stales}))
       "CursorStaleResult MUST reject the pluralised near-miss"))
 
-(deftest cursor-stale-literal-in-pair2-mcp-emit-source
+(deftest cursor-stale-literal-in-re-frame2-pair-mcp-emit-source
   ;; The canonical declaration lives in mcp-base/vocab.cljc — same
   ;; emit-source as the wrapper markers. Stripped before grep so a
   ;; rename trips the gate even if the old name still appears in a
@@ -1099,13 +1099,13 @@
              "declaration moved — update this test or restore the "
              "literal."))))
 
-(deftest cursor-stale-literal-in-pair2-mcp-doc-sources
+(deftest cursor-stale-literal-in-re-frame2-pair-mcp-doc-sources
   ;; Doc-source pin — looser, raw includes? against the prose docs
   ;; that catalogue pagination semantics.
   (let [literal ":rf.mcp/cursor-stale"
-        files   (get doc-source-files :pair2-mcp)]
+        files   (get doc-source-files :re-frame2-pair-mcp)]
     (is (some (fn [rel] (str/includes? (fx/read-source rel) literal)) files)
-        (str literal " missing from pair2-mcp doc-sources " files))))
+        (str literal " missing from re-frame2-pair-mcp doc-sources " files))))
 
 (deftest cursor-stale-no-near-miss-in-any-server-source
   ;; Defence-in-depth: a rename to a near-miss form (snake_case,
@@ -1124,29 +1124,29 @@
 ;; ---------------------------------------------------------------------------
 ;; `notifications/progress` streaming gate (rf2-i3ffz F-GAP-1).
 ;;
-;; pair2-mcp's `subscribe` streaming tool emits exactly one
+;; re-frame2-pair-mcp's `subscribe` streaming tool emits exactly one
 ;; `notifications/progress` per matching batch (per `NAMING.md`
 ;; §"subscribe / unsubscribe"). Before this gate landed:
 ;;
-;;   - `end-to-end-pair2.cjs` exercised `subscribe` only in degraded
+;;   - `end-to-end-re-frame2-pair.cjs` exercised `subscribe` only in degraded
 ;;     mode (returns `isError: true` with `:nrepl-port-not-found`); the
 ;;     streaming wire-shape was never asserted.
-;;   - `live-pair2-overflow.cjs` only exercised `eval-cljs`.
+;;   - `live-re-frame2-pair-overflow.cjs` only exercised `eval-cljs`.
 ;;   - No test observed a real `notifications/progress` frame.
 ;;
 ;; The pin shape mirrors the OverflowBody cross-encoding posture above:
 ;;
-;;   1. fixture validates against `Pair2ProgressNotificationParams`.
-;;   2. literal `"notifications/progress"` appears in pair2-mcp's emit
+;;   1. fixture validates against `ReFrame2PairProgressNotificationParams`.
+;;   2. literal `"notifications/progress"` appears in re-frame2-pair-mcp's emit
 ;;      site (`tools/subscribe.cljs`).
 ;;   3. the JS-side hand-rolled assertion in
-;;      `live-pair2-subscribe.cjs` carries a substring for every
+;;      `live-re-frame2-pair-subscribe.cjs` carries a substring for every
 ;;      required field on the Malli schema (the cross-encoding gate;
 ;;      a tightening on one side without the other trips this test).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private pair2-progress-fixture
-  "Canonical pair2-mcp `notifications/progress` params shape — what
+(def ^:private re-frame2-pair-progress-fixture
+  "Canonical re-frame2-pair-mcp `notifications/progress` params shape — what
   `subscribe` emits per tick. The `:message` slot is the EDN-printed
   batch (variable per-tick); `:_meta.data` carries the structured
   counts + overflow-reason slot."
@@ -1157,53 +1157,53 @@
                           :dropped-bytes   0
                           :overflow-reason nil}}})
 
-(deftest pair2-progress-fixture-conforms-to-schema
-  (is (m/validate Pair2ProgressNotificationParams pair2-progress-fixture)
+(deftest re-frame2-pair-progress-fixture-conforms-to-schema
+  (is (m/validate ReFrame2PairProgressNotificationParams re-frame2-pair-progress-fixture)
       (str "Fixture for notifications/progress failed schema validation:\n"
            (me/humanize
-             (m/explain Pair2ProgressNotificationParams pair2-progress-fixture)))))
+             (m/explain ReFrame2PairProgressNotificationParams re-frame2-pair-progress-fixture)))))
 
-(deftest pair2-progress-overflow-reason-variant-conforms
+(deftest re-frame2-pair-progress-overflow-reason-variant-conforms
   ;; The :overflow-reason slot is `[:maybe :string]` — it carries
   ;; either a pr-str'd keyword (`:max-buffered-events` /
   ;; `:max-buffered-bytes`) or nil. Validate both shapes.
   (is (m/validate
-        Pair2ProgressNotificationParams
-        (assoc-in pair2-progress-fixture
+        ReFrame2PairProgressNotificationParams
+        (assoc-in re-frame2-pair-progress-fixture
                   [:_meta :data :overflow-reason]
                   ":max-buffered-events"))
       "overflow-reason as pr-str'd keyword MUST validate")
   (is (m/validate
-        Pair2ProgressNotificationParams
-        (assoc-in pair2-progress-fixture
+        ReFrame2PairProgressNotificationParams
+        (assoc-in re-frame2-pair-progress-fixture
                   [:_meta :data :overflow-reason]
                   ":max-buffered-bytes"))
       "overflow-reason as pr-str'd keyword (bytes) MUST validate"))
 
-(deftest pair2-progress-rejects-missing-required-slots
+(deftest re-frame2-pair-progress-rejects-missing-required-slots
   ;; Tightening: an emit missing `:progressToken`, `:progress`, or
   ;; `:_meta.data` MUST fail. The slot is the load-bearing contract; a
   ;; future regression that drops one would silently break agent-host
   ;; correlation (progressToken) or polling cadence (progress).
-  (is (not (m/validate Pair2ProgressNotificationParams
-                       (dissoc pair2-progress-fixture :progressToken)))
+  (is (not (m/validate ReFrame2PairProgressNotificationParams
+                       (dissoc re-frame2-pair-progress-fixture :progressToken)))
       "missing :progressToken MUST fail")
-  (is (not (m/validate Pair2ProgressNotificationParams
-                       (dissoc pair2-progress-fixture :progress)))
+  (is (not (m/validate ReFrame2PairProgressNotificationParams
+                       (dissoc re-frame2-pair-progress-fixture :progress)))
       "missing :progress MUST fail")
-  (is (not (m/validate Pair2ProgressNotificationParams
-                       (dissoc pair2-progress-fixture :_meta)))
+  (is (not (m/validate ReFrame2PairProgressNotificationParams
+                       (dissoc re-frame2-pair-progress-fixture :_meta)))
       "missing :_meta MUST fail")
-  (is (not (m/validate Pair2ProgressNotificationParams
-                       (update-in pair2-progress-fixture [:_meta] dissoc :data)))
+  (is (not (m/validate ReFrame2PairProgressNotificationParams
+                       (update-in re-frame2-pair-progress-fixture [:_meta] dissoc :data)))
       "missing :_meta.data MUST fail")
-  (is (not (m/validate Pair2ProgressNotificationParams
-                       (update-in pair2-progress-fixture [:_meta :data] dissoc :dropped-events)))
+  (is (not (m/validate ReFrame2PairProgressNotificationParams
+                       (update-in re-frame2-pair-progress-fixture [:_meta :data] dissoc :dropped-events)))
       "missing :_meta.data.dropped-events MUST fail"))
 
-(deftest pair2-progress-emit-literal-in-source
+(deftest re-frame2-pair-progress-emit-literal-in-source
   ;; Source-text pin: the literal `"notifications/progress"` MUST
-  ;; appear in pair2-mcp's `subscribe.cljs` emit site. The MCP spec
+  ;; appear in re-frame2-pair-mcp's `subscribe.cljs` emit site. The MCP spec
   ;; pins the method name; a regression that emitted
   ;; `"notifications/progressing"` or moved the emit to a non-streaming
   ;; method would surface here.
@@ -1215,21 +1215,21 @@
   ;; against the source is the right tool: docstrings on this file do
   ;; not mention the method name, so a false positive from a comment
   ;; cannot happen.
-  (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"
+  (let [rel "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"
         src (fx/read-source rel)]
     (is (str/includes? src "\"notifications/progress\"")
         (str "literal \"notifications/progress\" missing from " rel
              ". The emit moved or the method name drifted."))))
 
-(def ^:private live-pair2-subscribe-js-rel
+(def ^:private live-re-frame2-pair-subscribe-js-rel
   "Relative path to the hand-rolled JS `notifications/progress`
-  assertion. Mirrors `live-pair2-overflow-js-rel` for the OverflowBody
+  assertion. Mirrors `live-re-frame2-pair-overflow-js-rel` for the OverflowBody
   cross-encoding gate."
-  "tools/mcp-conformance/test/live-pair2-subscribe.cjs")
+  "tools/mcp-conformance/test/live-re-frame2-pair-subscribe.cjs")
 
-(def ^:private pair2-progress-js-required-grep-markers
+(def ^:private re-frame2-pair-progress-js-required-grep-markers
   "Substrings the JS `assertProgressParams` MUST contain to pin every
-  required field on `Pair2ProgressNotificationParams`. Each entry is
+  required field on `ReFrame2PairProgressNotificationParams`. Each entry is
   `[malli-path js-substring]` — the path for error reporting, the
   substring as the grep target. Mirrors the OverflowBody table above:
   a field added to the Malli schema MUST add a row here; a field
@@ -1251,23 +1251,23 @@
    [":_meta.data.overflow-reason : maybe-string"
     "'overflow-reason'"]])
 
-(deftest js-assertProgressParams-pins-every-pair2-progress-required-field
+(deftest js-assertProgressParams-pins-every-re-frame2-pair-progress-required-field
   ;; Cross-encoding sanity gate (rf2-i3ffz F-GAP-1, mirrors rf2-0zqox
   ;; for OverflowBody). For every required field on the Malli
-  ;; `Pair2ProgressNotificationParams` schema, the JS
+  ;; `ReFrame2PairProgressNotificationParams` schema, the JS
   ;; `assertProgressParams` function MUST carry a substring that
   ;; asserts the same shape. Missing fields trip this gate with the
   ;; field name in the error.
-  (let [js-src (fx/read-source live-pair2-subscribe-js-rel)]
-    (doseq [[field grep-pattern] pair2-progress-js-required-grep-markers]
+  (let [js-src (fx/read-source live-re-frame2-pair-subscribe-js-rel)]
+    (doseq [[field grep-pattern] re-frame2-pair-progress-js-required-grep-markers]
       (testing (str "JS assertProgressParams pins field " field)
         (is (str/includes? js-src grep-pattern)
             (str "Field `" field
-                 "` (Malli `Pair2ProgressNotificationParams`) is not "
+                 "` (Malli `ReFrame2PairProgressNotificationParams`) is not "
                  "pinned by the JS `assertProgressParams` in "
-                 live-pair2-subscribe-js-rel
+                 live-re-frame2-pair-subscribe-js-rel
                  ". Looked for substring: " (pr-str grep-pattern)
                  ".\nIf you tightened the Malli schema, mirror the "
                  "change in the JS assertion; if you loosened it, "
                  "remove the entry from "
-                 "`pair2-progress-js-required-grep-markers`."))))))
+                 "`re-frame2-pair-progress-js-required-grep-markers`."))))))

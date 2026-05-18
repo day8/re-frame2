@@ -23,7 +23,7 @@ Do **not** use this skill for:
 
 - Greenfield setup → use [re-frame2-setup](re-frame2-setup.md).
 - Writing v2 application code → use [re-frame2](re-frame2.md).
-- Inspecting / debugging a running v2 app → use [re-frame-pair2](re-frame-pair2.md).
+- Inspecting / debugging a running v2 app → use [re-frame2-pair](re-frame2-pair.md).
 
 ## Kickoff
 

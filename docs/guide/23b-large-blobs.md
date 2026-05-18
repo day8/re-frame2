@@ -37,7 +37,7 @@ Both elision flags live on the same surface: a Malli slot's per-slot props map. 
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the elided shape; the value never leaves the trust boundary unless a consumer explicitly fetches it via the marker's handle.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Causa-MCP — sees the elided shape; the value never leaves the trust boundary unless a consumer explicitly fetches it via the marker's handle.
 
 What `:large? true` does:
 
@@ -111,7 +111,7 @@ If the value really is below the threshold *most* of the time and only spikes oc
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, pair2-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:large? true` on `[:user :pdf-preview]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body substitutes the `:rf.size/large-elided` marker for the slot's value. The platform handles the rest.
 
@@ -127,7 +127,7 @@ At boot, the runtime walks every registered schema and extracts the per-slot `:s
    :handle [:rf.elision/at [:user :uploaded-pdf]]}}  ;; EDN, passable to get-path
 ```
 
-The `:handle` is **a normal EDN vector**, not a tagged literal — agents pattern-match on the leading `:rf.elision/at` keyword and pass the handle straight to the pair2-mcp `get-path` tool to fetch the elided value (subject to that tool's own cap check; an over-cap fetch fails with `:rf.mcp/overflow`). One round-trip per elided value the consumer actually needs.
+The `:handle` is **a normal EDN vector**, not a tagged literal — agents pattern-match on the leading `:rf.elision/at` keyword and pass the handle straight to the re-frame2-pair-mcp `get-path` tool to fetch the elided value (subject to that tool's own cap check; an over-cap fetch fails with `:rf.mcp/overflow`). One round-trip per elided value the consumer actually needs.
 
 The marker shape is **the same across every wire emit-site**. Story panels, MCP transports, Datadog payloads, schema-validation traces — every consumer sees the same five keys and uses them the same way. There is no per-consumer marker dialect.
 
@@ -154,7 +154,7 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 
 | Consumer | `:include-large?` default | Off-box? |
 |---|---|---|
-| pair2-mcp (AI surface) | `false` | Yes |
+| re-frame2-pair-mcp (AI surface) | `false` | Yes |
 | story-mcp (story playgrounds) | `false` | Yes |
 | Causa-MCP (cascade graph) | `false` | Yes |
 | Story panel (on-box dev UI) | `false` | No |

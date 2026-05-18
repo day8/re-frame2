@@ -59,7 +59,7 @@ Every numeric default the reference ships, with its config slot, its purpose, an
 | `re-frame.debug` system property (JVM) | unset → gate `true` | JVM-side dev-flag override; SSR / long-running JVMs set `false` | n/a (gate) |
 | `RE_FRAME_DEBUG` environment variable (JVM) | unset → gate `true` | Equivalent to `re-frame.debug` for env-var-driven deployments | n/a (gate) |
 | `goog.DEBUG` (CLJS) | `true` in dev, `false` in `:advanced` | Closure-constant gate for the trace surface; DCE folds gated branches in production | n/a (gate) |
-| `--allow-eval` MCP launch flag (pair2-mcp) | absent → `eval-cljs` DISABLED | One-time opt-in for the arbitrary-code-execution authority class | n/a (gate; tool unavailable until launch-flag set) |
+| `--allow-eval` MCP launch flag (re-frame2-pair-mcp) | absent → `eval-cljs` DISABLED | One-time opt-in for the arbitrary-code-execution authority class | n/a (gate; tool unavailable until launch-flag set) |
 | MCP server bind address | `127.0.0.1` (localhost) | Default-localhost-bind for published MCP servers | n/a (gate; remote access requires explicit launch flag) |
 
 The Conventions doc carries the reserved-config-slot table ([Conventions.md](../spec/Conventions.md)); this table cross-references it with the *concrete numeric* the reference ships.
@@ -178,7 +178,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | Bead | Call | Rationale |
 |---|---|---|
 | rf2-czv3p (part 1) | Named-mutation tools ungated; `eval-cljs` separate authority class | Programmer-friction matters; named mutations are the debugging primitive. `eval-cljs` is qualitatively different — arbitrary code execution. |
-| rf2-cxx5s | pair2-mcp `eval-cljs` ships disabled; `--allow-eval` (or similar) launch-flag opt-in | Published servers default-safe. One-time per server launch, transparent, documented. |
+| rf2-cxx5s | re-frame2-pair-mcp `eval-cljs` ships disabled; `--allow-eval` (or similar) launch-flag opt-in | Published servers default-safe. One-time per server launch, transparent, documented. |
 | rf2-hpkkx | MCP servers default localhost-bind | Remote access is explicit opt-in; rules out the casual cross-network reach. |
 | rf2-3rt1f | Per-session app-db cache keyed on root hash | Cache invalidation is keyed on the actual app-db identity — cache poisoning by mismatched session is structurally impossible. |
 

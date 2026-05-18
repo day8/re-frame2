@@ -863,7 +863,7 @@
 ;; convenience aliases in `re-frame.subs` keep the legacy
 ;; `subs/<name>` shape working; this ns mirrors them so the
 ;; `rf/sub-topology` / `rf/sub-cache` public API is unchanged. CLJS
-;; consumers needing the surface (Causa, pair2-mcp, re-frame-10x,
+;; consumers needing the surface (Causa, re-frame2-pair-mcp, re-frame-10x,
 ;; conformance tests) call `re-frame.subs.tooling/<name>` directly so
 ;; production counter bundles DCE the bodies.
 
@@ -882,7 +882,7 @@
        subscription — what each sub depends on, computed from its
        registration (NOT from the live runtime cache). JVM-only convenience
        alias for `re-frame.subs.tooling/sub-topology` (rf2-bmzq0). CLJS
-       consumers (Causa, pair2-mcp, re-frame-10x, conformance tests) call
+       consumers (Causa, re-frame2-pair-mcp, re-frame-10x, conformance tests) call
        the tooling ns directly so production bundles DCE the body.
        Per Spec 002 §The public registrar query API."}
        sub-topology subs/sub-topology)))
@@ -971,7 +971,7 @@
 ;; aliases here mirror. CLJS deliberately omits the aliases so
 ;; production counter bundles DCE the tooling sibling wholesale; CLJS
 ;; consumers that need the listener / buffer surface (test fixtures,
-;; dev preloads, Causa / Story / pair2-mcp / re-frame-10x, SSR error-
+;; dev preloads, Causa / Story / re-frame2-pair-mcp / re-frame-10x, SSR error-
 ;; projection) call `re-frame.trace.tooling/<name>` directly. Listener
 ;; observability in a production CLJS build is meaningless anyway:
 ;; `trace/emit!` is gated on `interop/debug-enabled?` and elides at

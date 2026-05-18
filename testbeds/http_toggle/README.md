@@ -4,7 +4,7 @@ A single Reagent button + outcome dropdown that drives a
 `:rf.http/managed` request through one of the eight failure categories
 in Spec 014 (plus the success path). One click + one selection emits
 the corresponding `:rf.http/*` event(s) on the trace stream so a
-consumer (Causa, Story, pair2-mcp) verifies category attribution
+consumer (Causa, Story, re-frame2-pair-mcp) verifies category attribution
 end-to-end.
 
 | Outcome | `data-testid` (option) | Strategy | Reply `:kind` / `:failure :kind` |

@@ -1,7 +1,7 @@
 (ns re-frame.subs.tooling
   "Subs tooling sibling of `re-frame.subs` — carries the two tool-facing
   introspection fns (`sub-topology`, `sub-cache-snapshot`) that pair
-  tools (Causa, pair2-mcp, re-frame-10x) query but no production
+  tools (Causa, re-frame2-pair-mcp, re-frame-10x) query but no production
   application code reads.
 
   Per rf2-bmzq0 (audit rf2-53tcf §Part 4 P2): keeping these fns in

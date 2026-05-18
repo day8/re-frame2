@@ -4,7 +4,7 @@ A multi-second cascade of `app-db` writes that drive a three-flow
 topology, with a configurable mid-flow failure injection. The
 single Start click produces a visible ~5-second stream of
 `:rf.flow/computed` / `:rf.flow/failed` / `:rf.error/flow-eval-exception`
-traces that a consumer (Causa, Story, pair2-mcp) reads to verify the
+traces that a consumer (Causa, Story, re-frame2-pair-mcp) reads to verify the
 four-rule flow-failure contract from
 [`spec/013-Flows.md` §Failure semantics](../../spec/013-Flows.md)
 (rf2-hrqvg).

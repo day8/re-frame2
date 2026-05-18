@@ -44,7 +44,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **10. Subs recompute.** The substrate's reaction graph fires off the container change. Layer-1 subs that read changed paths recompute by `=`; layer-2+ subs cascade topologically. Unchanged-by-`=` values short-circuit cascades.
 
-**11. Views re-render.** Reagent components subscribed to dirty subs re-render. Source-coord metadata captured by `reg-view` lets Causa / re-frame-pair2 point at the originating Var.
+**11. Views re-render.** Reagent components subscribed to dirty subs re-render. Source-coord metadata captured by `reg-view` lets Causa / re-frame2-pair point at the originating Var.
 
 **12. Drain continues.** Any `[:dispatch ...]` entries from step 9 are now on the queue. Drain loops until queue is empty (`router.cljc`). Run-to-completion: one dispatch fully settles before the next outside event starts.
 
@@ -108,7 +108,7 @@ Every `:rf.error/*` trace event emitted from inside a running handler — event,
 
 `:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-event`, where no handler is yet in scope. It is **not elided in production** — production debugging benefits most.
 
-Tooling (Causa, re-frame-pair2) renders click-to-jump links straight to the offending handler off this field; in tests / REPL the same field surfaces in `(rf/trace-buffer {:op-type :error})`.
+Tooling (Causa, re-frame2-pair) renders click-to-jump links straight to the offending handler off this field; in tests / REPL the same field surfaces in `(rf/trace-buffer {:op-type :error})`.
 
 ## Common gotchas
 
@@ -120,7 +120,7 @@ Tooling (Causa, re-frame-pair2) renders click-to-jump links straight to the offe
 
 ## Deeper material
 
-Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame-pair2, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract**.
+Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2-pair, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract**.
 
 ---
 

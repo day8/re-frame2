@@ -2,7 +2,7 @@
   "Shared framework-behavior testbed — a single handler that recursively
   dispatches itself in its `:fx`, with a configurable depth ceiling
   registered on the frame via `:drain-depth`. A consumer (Causa, Story,
-  pair2-mcp) observes the runtime's run-to-completion drain hitting
+  re-frame2-pair-mcp) observes the runtime's run-to-completion drain hitting
   the depth limit and the atomic rollback (per [spec/002
   §Run-to-completion rule 3] / [spec/009 §Error catalogue]):
 

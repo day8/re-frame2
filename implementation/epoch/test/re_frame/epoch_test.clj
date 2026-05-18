@@ -848,7 +848,7 @@
 
 (deftest depth-exceeded-commits-halted-record
   (testing "a depth-exceeded drain commits a :halted-depth epoch record so
-            devtools (Causa, re-frame-pair2) receive cascade context for
+            devtools (Causa, re-frame2-pair) receive cascade context for
             the failing cascade. :db-after equals :db-before (atomic
             rollback per Spec 002 §Run-to-completion §Rules rule 3) and
             :halt-reason carries the depth-exceeded descriptor."

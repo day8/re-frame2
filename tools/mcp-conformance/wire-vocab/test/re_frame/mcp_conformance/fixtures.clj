@@ -24,7 +24,7 @@
     loudly via `slurp`'s IOException if the path doesn't resolve;
     that's the right signal — a moved/removed file under conformance
     needs the test to surface it.
-  - **`known-servers`** — the canonical `#{:pair2-mcp :story-mcp}`
+  - **`known-servers`** — the canonical `#{:re-frame2-pair-mcp :story-mcp}`
     pair. A typo in any test's `:servers` set surfaces against this.
     (causa-mcp was dropped in rf2-bu21t — causa now ships as a
     Clojars-only library, not an MCP server.)
@@ -104,7 +104,7 @@
 
   causa-mcp was dropped in rf2-bu21t — `tools/causa-mcp/` is no longer
   in the repo; causa now ships as a Clojars-only library."
-  #{:pair2-mcp :story-mcp})
+  #{:re-frame2-pair-mcp :story-mcp})
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text helper. Conformance tests grep .cljs/.cljc/.md files for

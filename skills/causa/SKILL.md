@@ -9,7 +9,7 @@ description: >
   "which Causa panel shows…", "Ctrl+Shift+C", "Causa hotkey",
   "Causa popout", "Causa hydration debugger", "Causa schema timeline",
   "Causa machine inspector", and similar. **Do not use** for: driving
-  Causa programmatically from a live REPL (that's `re-frame-pair2`),
+  Causa programmatically from a live REPL (that's `re-frame2-pair`),
   authoring the host app (`re-frame2`), bootstrapping a new project
   (`re-frame2-setup`), or implementing Causa itself (no skill yet — the
   `causa-implementor` sibling is deferred to post-alpha). This skill
@@ -58,9 +58,9 @@ Tool-Pair epoch history, the registrar query API) — it adds nothing the
 framework didn't already expose. The 16 panels are *presentation* of an
 already-structured runtime.
 
-For an AI agent surface against the running app, use `tools/pair2-mcp/`
+For an AI agent surface against the running app, use `tools/re-frame2-pair-mcp/`
 — the raw nREPL pair-programming companion. Causa is the human-facing
-panel; pair2-mcp is the AI-facing surface.
+panel; re-frame2-pair-mcp is the AI-facing surface.
 
 ---
 
@@ -74,7 +74,7 @@ situation.
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-causa-host]` column in the app layout. Causa auto-opens on page load. |
 | Put Causa on a second monitor with the app full-screen | **Pop-out window** | `(causa/popout!)` from CLJS, or `window.day8.re_frame2_causa.popout_BANG_()` from devtools. |
 | Mount Causa from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(causa/init! opts)` after `rf/init!`. Idempotent. |
-| Have an AI agent inspect the runtime | **pair2-mcp** | Configure `tools/pair2-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/pair2-mcp/`](../../tools/pair2-mcp/). |
+| Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
@@ -129,7 +129,7 @@ state, activity badges, deeper "open it when…" guidance — see
 | **MCP** | Live feed of MCP-server activity: tool calls in flight, recent results, per-origin colouring. | "What is my agent doing right now?" / "Did the MCP call land?" |
 
 The hero on first open is **Event detail**. AI integration lives in
-the separate `tools/pair2-mcp/` jar — Causa itself is the human
+the separate `tools/re-frame2-pair-mcp/` jar — Causa itself is the human
 surface only.
 
 ---
@@ -148,8 +148,8 @@ short of improvising.
   iteration may codify these as recipes; today the spec is the answer.
 - **Driving Causa programmatically** (hot-swap a sub via REPL, time-
   travel from CLJS, dispatch into the runtime from a tool). Route to
-  the [`re-frame-pair2`](../re-frame-pair2/SKILL.md) skill — Causa
-  owns the *seeing*; pair2 owns the *driving*.
+  the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Causa
+  owns the *seeing*; re-frame2-pair owns the *driving*.
 - **Implementing Causa** (panel-facade/leaf split, mount lifecycle
   internals, frame-provider isolation, the epoch pump's contract).
   Source of truth:
@@ -175,7 +175,7 @@ short of improvising.
   is normative for the future, not for "what works in your build right
   now."
 - **Route, don't blur.** If the user wants to drive Causa, point at
-  `re-frame-pair2`; if they want to implement it, point at the spec
+  `re-frame2-pair`; if they want to implement it, point at the spec
   and note that no implementor skill exists yet. This skill is a tour.
 
 ---

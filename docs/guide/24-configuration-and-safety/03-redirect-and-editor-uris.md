@@ -57,7 +57,7 @@ cursor://file/path/to/foo.cljs:42:7
 idea://open?file=path/to/foo.cljs&line=42&column=7
 ```
 
-Each tool that surfaces source-coords (Story, Causa, pair2-mcp) lets you pick your editor at boot:
+Each tool that surfaces source-coords (Story, Causa, re-frame2-pair-mcp) lets you pick your editor at boot:
 
 ```clojure
 {:rf.story/editor :vscode}     ;; one of :vscode / :cursor / :windsurf / :zed / :idea
@@ -112,6 +112,6 @@ What you *do* have to handle is the allowlist of return URLs — the framework c
 
 - [§02 — HTTP safety primitives](02-http-safety.md) — the broader CRLF fail-fast story; `:rf.server/redirect` inherits its CRLF check from there.
 - [Chapter 11 — The server side](../11-server-side.md) — `:rf.server/*` fx narrative.
-- [Chapter 15 — Tooling](../../causa/) — where click-to-source surfaces live (Story, Causa, pair2-mcp).
+- [Chapter 15 — Tooling](../../causa/) — where click-to-source surfaces live (Story, Causa, re-frame2-pair-mcp).
 - [Security.md §Editor URI scheme allowlist](../../../spec/Security.md) — the normative description (and the rf2-vwcsq + rf2-cm93v decisions).
 - [Security.md §CRLF injection at HTTP-response boundaries](../../../spec/Security.md#crlf-injection-at-http-response-boundaries) — the redirect's CRLF check site.

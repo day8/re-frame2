@@ -18,7 +18,7 @@
   populate values inside the payload, the slots summarise suppression
   totals on the envelope.
 
-  Coverage gap closed (per audit `ai/findings/refactor-audit-tools-pair2-mcp-2026-05-14.md`
+  Coverage gap closed (per audit `ai/findings/refactor-audit-tools-re-frame2-pair-mcp-2026-05-14.md`
   §TE8):
 
   - (a) Every tool that walks a tree-typed payload routes its envelope
@@ -36,7 +36,7 @@
 
   ## Why pure-Clojure simulation (not live-server)
 
-  The helper (`tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs`)
+  The helper (`tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs`)
   is CLJS — it can't be `require`d from a JVM test. The contract is
   tiny enough (one `cond->` with two arms) that a pure-Clojure
   reproduction inside this test is the right shape: the test is the
@@ -44,8 +44,8 @@
   helper-source pin below).
 
   The alternative — exercising the contract through a live
-  pair2-mcp/story-mcp server — is the job of `test/end-to-end-*.js`
-  (protocol conformance) and the live-pair2-overflow path (runtime
+  re-frame2-pair-mcp/story-mcp server — is the job of `test/end-to-end-*.js`
+  (protocol conformance) and the live-re-frame2-pair-overflow path (runtime
   cap-trigger conformance). This file's gate is at the wire-shape
   layer, same posture as `wire_vocab_test.clj`.
 
@@ -59,7 +59,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
-;; (rf2-113ti). `io` is still required below for the `pair2-mcp-source-files`
+;; (rf2-113ti). `io` is still required below for the `re-frame2-pair-mcp-source-files`
 ;; walker.
 ;; ---------------------------------------------------------------------------
 
@@ -86,7 +86,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Helper simulation. Mirror of
-;; `tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs/with-indicators`.
+;; `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs/with-indicators`.
 ;; The CLJS implementation:
 ;;
 ;;   (defn with-indicators
@@ -220,7 +220,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Gate (a) — tree-walking-tool routing pin.
 ;;
-;; The catalogue below lists every pair2-mcp tool that walks a
+;; The catalogue below lists every re-frame2-pair-mcp tool that walks a
 ;; tree-typed payload (per Spec 009:1411 — "one MUST-level row per
 ;; consumer-facing tool that walks a tree-typed payload"). Each MUST
 ;; route its envelope through the centralised `wire/with-indicators`
@@ -230,21 +230,21 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private tree-walking-tool-sources
-  "Per-tool source files for pair2-mcp's tree-walking tools. Each
+  "Per-tool source files for re-frame2-pair-mcp's tree-walking tools. Each
   source MUST contain at least one `wire/with-indicators` call —
   that's the centralised emit-path the contract pins. Adding a new
   tree-walking tool means extending this list AND wiring the helper
   call; the new entry without the wiring fails this gate."
-  {:snapshot     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/snapshot.cljs"
-   :get-path     "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/get_path.cljs"
-   :trace-window "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/trace_window.cljs"
-   :watch-epochs "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/watch_epochs.cljs"
+  {:snapshot     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/snapshot.cljs"
+   :get-path     "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/get_path.cljs"
+   :trace-window "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/trace_window.cljs"
+   :watch-epochs "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/watch_epochs.cljs"
    ;; subscribe-emit owns BOTH the streaming progress payload AND the
    ;; final summary payload for `subscribe` — they each splice the
    ;; helper independently (per Conventions:159 — "Streaming payloads.
    ;; Subscribe-style notifications ... carry the same two slots on
    ;; each progress payload and on the final summary").
-   :subscribe    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"})
+   :subscribe    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"})
 
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
@@ -265,7 +265,7 @@
   ;; splice would silently ship per-tick payloads without indicator
   ;; counts on the streaming path while still showing them on the
   ;; final summary — invisible to single-payload conformance.
-  (let [rel "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"
+  (let [rel "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"
         src (fx/read-source rel)
         n   (count (re-seq #"wire/with-indicators" src))]
     (is (>= n 2)
@@ -284,7 +284,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private helper-source-rel
-  "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs")
+  "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs")
 
 (deftest helper-source-shape-matches-simulation
   (let [src (fx/read-source helper-source-rel)]
@@ -304,7 +304,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Inline-emit anti-pin — neither slot literal may appear inline in any
-;; pair2-mcp source file OTHER than the helper itself (and the
+;; re-frame2-pair-mcp source file OTHER than the helper itself (and the
 ;; descriptors / subscribe-tool internal-state file, both whitelisted
 ;; below). A tool that bypasses the helper to `(assoc envelope
 ;; :dropped-sensitive N)` directly violates the MUST-level parity rule
@@ -330,13 +330,13 @@
                          an emitted envelope. The emit happens in
                          `subscribe.cljs` and goes through the
                          helper."
-  #{"tools/pair2-mcp/src/re_frame_pair2_mcp/tools/wire.cljs"
-    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"
-    "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/subscribe.cljs"})
+  #{"tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"
+    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"
+    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"})
 
 (defn- mcp-source-files
   "Walk `src-rel` (a repo-relative subdir) and return every `.cljs`
-  file as a repo-relative path string. Used by the pair2-mcp
+  file as a repo-relative path string. Used by the re-frame2-pair-mcp
   `tools/<server>/src/` walker — the inline-emit gate applies the
   same shape to any tree-walking MCP surface."
   [src-rel]
@@ -352,11 +352,11 @@
                       (subs 1))))                                ;; strip leading "/"
            sort))))
 
-(defn- pair2-mcp-source-files
-  "Walk `tools/pair2-mcp/src/` and return every `.cljs` file as a
+(defn- re-frame2-pair-mcp-source-files
+  "Walk `tools/re-frame2-pair-mcp/src/` and return every `.cljs` file as a
   repo-relative path string."
   []
-  (mcp-source-files "tools/pair2-mcp/src"))
+  (mcp-source-files "tools/re-frame2-pair-mcp/src"))
 
 (deftest no-inline-indicator-slot-emit-outside-the-helper
   ;; The grep is applied AFTER `fx/strip-comments-and-strings` neuters
@@ -378,9 +378,9 @@
   ;; false-positive-trip the gate on the prefix match. Same pattern
   ;; as `slot_name_test.clj`'s near-miss-variant grep.
   (let [slot-literals [":dropped-sensitive" ":elided-large"]
-        srcs          (pair2-mcp-source-files)]
+        srcs          (re-frame2-pair-mcp-source-files)]
     (is (seq srcs)
-        "Expected to find pair2-mcp source files; classpath walk returned empty.")
+        "Expected to find re-frame2-pair-mcp source files; classpath walk returned empty.")
     (doseq [rel srcs
             slot slot-literals
             :when (not (contains? inline-emit-whitelist rel))]
@@ -411,6 +411,6 @@
 ;; surface to pin here. If a future MCP server reintroduces a
 ;; tree-walking surface, extend `tree-walking-tool-sources` and
 ;; `inline-emit-whitelist` above (or add a parallel pair) to cover
-;; it; the helper-source pin and the pair2-mcp gates are the live
+;; it; the helper-source pin and the re-frame2-pair-mcp gates are the live
 ;; reference.
 ;; ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ This doc is one of seven per-namespace contracts indexed from [`README.md`](READ
 `overflow` does NOT own:
 
 - The cap-enforcement algorithm — that's [`cap.md`](cap.md).
-- The per-tool hint table — that lives consumer-side (pair2-mcp ships `overflow-hints`; story-mcp ships its own; the convention is the *shape*, not the text).
+- The per-tool hint table — that lives consumer-side (re-frame2-pair-mcp ships `overflow-hints`; story-mcp ships its own; the convention is the *shape*, not the text).
 - The `:rf.mcp/overflow` marker key — that's pinned in [`vocab.md` §Marker catalogue (`:rf.mcp/*`)](vocab.md#marker-catalogue-rfmcp).
 
 ## Surface
@@ -63,7 +63,7 @@ The shape is the wire-protocol contract; the slot names are pinned by the confor
 
 ## Hint table
 
-Per-tool overflow hints live with the consumer (pair2-mcp ships its `overflow-hints` table, story-mcp ships its own). The builder delegates to the consumer's hint resolver via a small adapter; the shape (a `tool→hint` map with `overflow-hint-fallback` as the fallback) is the convention. The cross-MCP conformance gate (`wire-vocab/`) pins the marker SHAPE; the hint text is consumer-authored.
+Per-tool overflow hints live with the consumer (re-frame2-pair-mcp ships its `overflow-hints` table, story-mcp ships its own). The builder delegates to the consumer's hint resolver via a small adapter; the shape (a `tool→hint` map with `overflow-hint-fallback` as the fallback) is the convention. The cross-MCP conformance gate (`wire-vocab/`) pins the marker SHAPE; the hint text is consumer-authored.
 
 Example consumer registration:
 
@@ -95,7 +95,7 @@ The cross-MCP conformance gate at `tools/mcp-conformance/wire-vocab/` pins the c
    [:hint        :string]]]]
 ```
 
-Every server's cap-trigger fixture asserts the response matches this schema. The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts the marker shape parity.
+Every server's cap-trigger fixture asserts the response matches this schema. The conformance harness at `tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts the marker shape parity.
 
 ## See also
 

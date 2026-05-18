@@ -1,15 +1,15 @@
-// Live-pair2 MCP-client conformance variant exercising the
+// Live-re-frame2-pair MCP-client conformance variant exercising the
 // `notifications/progress` streaming wire surface.
 // Source: rf2-zb5z6 (rf2-i3ffz F-GAP-1 follow-on).
 //
 // ## What this test guards
 //
-// The sibling `end-to-end-pair2.cjs` runs `subscribe` only in
+// The sibling `end-to-end-re-frame2-pair.cjs` runs `subscribe` only in
 // *degraded* mode (no nREPL → every response is the same
 // `:nrepl-port-not-found` error envelope). The live overflow harness
-// (`live-pair2-overflow.cjs`) only exercises `eval-cljs`. Before this
+// (`live-re-frame2-pair-overflow.cjs`) only exercises `eval-cljs`. Before this
 // gate landed, **no test ever observed a real
-// `notifications/progress` frame from the server** — pair2-mcp's
+// `notifications/progress` frame from the server** — re-frame2-pair-mcp's
 // streaming surface (per NAMING.md §"subscribe / unsubscribe": one
 // progress frame per matching batch) had zero wire conformance.
 //
@@ -26,10 +26,10 @@
 //      back through subscribe's drain loop and produces at least one
 //      `notifications/progress` tick.
 //   4. We assert the collected progress frames pass the canonical
-//      `Pair2ProgressNotificationParams` shape pinned by `wire-vocab/`
+//      `ReFrame2PairProgressNotificationParams` shape pinned by `wire-vocab/`
 //      (the JVM-side schema). A drift between the JS-side assertion
 //      below and the Malli schema trips the cross-encoding gate in
-//      `wire_vocab_test.clj/js-assertProgressParams-pins-every-pair2-
+//      `wire_vocab_test.clj/js-assertProgressParams-pins-every-re-frame2-pair-
 //      progress-required-field`.
 //
 // ## Catches
@@ -46,23 +46,23 @@
 // ## Gating
 //
 // **Skipped unless `$SHADOW_CLJS_NREPL_PORT` is set.** Same posture as
-// `live-pair2-overflow.cjs`: without a live nREPL the server runs
+// `live-re-frame2-pair-overflow.cjs`: without a live nREPL the server runs
 // degraded and `subscribe` returns `isError: true` rather than
 // streaming. On CI the gate is unset by default → exits 0 with a SKIP
 // marker. The hermetic orchestrator
-// (`scripts/run-live-pair2-overflow-hermetic.cjs`) wires the env when
+// (`scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`) wires the env when
 // run as part of the hermetic suite.
 
 const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog } = require('./_runner.cjs');
 
-const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.js');
+const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
 // Topic to subscribe to. `:trace` is the universal bus — every
 // `dispatch` lands on it, so we get a guaranteed emission without
 // needing to wait for the runtime to push an unrelated frame. Per
-// pair2-mcp's spec the four valid topics are `trace | epoch | fx | error`.
+// re-frame2-pair-mcp's spec the four valid topics are `trace | epoch | fx | error`.
 const TOPIC = 'trace';
 
 // Subscribe duration. Short enough that the harness completes well
@@ -73,9 +73,9 @@ const TOPIC = 'trace';
 const MAX_MS = 1500;
 
 // Required-field table for `notifications/progress` params. Each row
-// pins one slot on the Malli `Pair2ProgressNotificationParams` schema
+// pins one slot on the Malli `ReFrame2PairProgressNotificationParams` schema
 // in `wire_vocab_test.clj`; the cross-encoding gate
-// `js-assertProgressParams-pins-every-pair2-progress-required-field`
+// `js-assertProgressParams-pins-every-re-frame2-pair-progress-required-field`
 // greps for each row's literal source form. A row renamed/deleted
 // trips the JVM gate.
 const REQUIRED_PARAMS = [
@@ -99,7 +99,7 @@ function assertProgressParams(params, ctx) {
       throw new Error(
         ctx + ': params.' + field + ' MUST be ' + desc +
           '; got ' + JSON.stringify(params[field]) +
-          '. (Schema: Pair2ProgressNotificationParams.' + field + ')',
+          '. (Schema: ReFrame2PairProgressNotificationParams.' + field + ')',
       );
     }
   }
@@ -107,7 +107,7 @@ function assertProgressParams(params, ctx) {
   if (!data || typeof data !== 'object') {
     throw new Error(
       ctx + ': params._meta.data MUST be map; got ' + JSON.stringify(data) +
-        '. (Schema: Pair2ProgressNotificationParams._meta.data)',
+        '. (Schema: ReFrame2PairProgressNotificationParams._meta.data)',
     );
   }
   for (const [field, ok, desc] of REQUIRED_DATA) {
@@ -115,7 +115,7 @@ function assertProgressParams(params, ctx) {
       throw new Error(
         ctx + ': params._meta.data.' + field + ' MUST be ' + desc +
           '; got ' + JSON.stringify(data[field]) +
-          '. (Schema: Pair2ProgressNotificationParams._meta.data.' + field + ')',
+          '. (Schema: ReFrame2PairProgressNotificationParams._meta.data.' + field + ')',
       );
     }
   }
@@ -131,13 +131,13 @@ function assertProgressParams(params, ctx) {
   }
 }
 
-// Pre-flight SKIP — same posture as live-pair2-overflow.cjs.
+// Pre-flight SKIP — same posture as live-re-frame2-pair-overflow.cjs.
 if (!process.env.SHADOW_CLJS_NREPL_PORT) {
   runWithWatchdog.skip(
-    'live-pair2-subscribe: $SHADOW_CLJS_NREPL_PORT not set.\n' +
+    'live-re-frame2-pair-subscribe: $SHADOW_CLJS_NREPL_PORT not set.\n' +
       '      This variant requires a live shadow-cljs nREPL — without\n' +
       '      one subscribe runs degraded and no notifications/progress\n' +
-      '      frame ever fires. The sibling end-to-end-pair2.cjs covers\n' +
+      '      frame ever fires. The sibling end-to-end-re-frame2-pair.cjs covers\n' +
       "      degraded-mode protocol conformance; this variant adds the\n" +
       '      streaming wire-shape under real dispatch traffic.',
   );
@@ -146,10 +146,10 @@ if (!process.env.SHADOW_CLJS_NREPL_PORT) {
 runWithWatchdog(
   {
     watchdogMs: 30000,
-    clientName: 'mcp-conformance-pair2-live-subscribe',
+    clientName: 'mcp-conformance-re-frame2-pair-live-subscribe',
     transportSpec: {
       command: process.execPath,
-      // pair2-mcp's subscribe tool itself is not gated behind
+      // re-frame2-pair-mcp's subscribe tool itself is not gated behind
       // `--allow-eval`; we boot without that flag because the dispatch
       // event we fire below does NOT exercise the eval surface. The
       // streaming bus surface is the load-bearing test target.
@@ -199,7 +199,7 @@ runWithWatchdog(
 
     const dispatchPromise = client.callTool({
       name: 'dispatch',
-      // Per pair2-mcp's `dispatch` schema the arg slot is `event` (a
+      // Per re-frame2-pair-mcp's `dispatch` schema the arg slot is `event` (a
       // single EDN-vector string, parsed server-side per rf2-vflrg).
       // An earlier draft used `event-v` (the runtime-side `pair-dispatch!`
       // ARG name); that doesn't match the MCP tool's `inputSchema` —
@@ -253,14 +253,14 @@ runWithWatchdog(
     );
 
     // Every frame MUST satisfy the cross-MCP shape pinned by
-    // `Pair2ProgressNotificationParams` in wire-vocab. The SDK
+    // `ReFrame2PairProgressNotificationParams` in wire-vocab. The SDK
     // already gates protocol-shape (method name, envelope wrapper);
     // this gate pins the params slot vocabulary.
     for (let i = 0; i < frames.length; i++) {
       assertProgressParams(frames[i], 'progress frame #' + i);
     }
     console.log(
-      'OK   every frame validates against Pair2ProgressNotificationParams',
+      'OK   every frame validates against ReFrame2PairProgressNotificationParams',
     );
 
     console.log('\nPAIR2-MCP LIVE SUBSCRIBE CONFORMANCE GREEN');

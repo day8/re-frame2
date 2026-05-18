@@ -65,7 +65,7 @@
   ;; the same path, the later one wins — `reduce` over the patch
   ;; sequence applies them in order so a later `:assoc` overrides an
   ;; earlier one, and a `:dissoc` after an `:assoc` clears the value.
-  ;; pair2-mcp's diff_encode_epochs_test pinned this; the base's own
+  ;; re-frame2-pair-mcp's diff_encode_epochs_test pinned this; the base's own
   ;; test set didn't. Mirror the contract here so any future encoder
   ;; refactor that flips the iteration order trips this gate before
   ;; reaching the consumers.

@@ -5,7 +5,7 @@ in [spec/009 §Size elision in traces](../../spec/009-Instrumentation.md).
 Three buttons write to schema-declared `:large?` slots and one button
 writes to an undeclared slot to exercise the
 `:rf.warning/large-value-unschema'd` dev-mode advisory. A consumer
-(Causa, Story, pair2-mcp) reads the surface to verify the
+(Causa, Story, re-frame2-pair-mcp) reads the surface to verify the
 wire-boundary walker substitutes the `:rf.size/large-elided`
 marker on the appropriate slot.
 
@@ -81,7 +81,7 @@ needs:
   surface stays on the default `false` so the marker shape is
   minimal and stable across runs.
 - **No off-box wire egress in the surface itself.** The MCP wire
-  is exercised by the consuming tool (pair2-mcp); this surface
+  is exercised by the consuming tool (re-frame2-pair-mcp); this surface
   produces the in-process elision shape that the wire reads.
 - **No state-machine snapshots.** Machine snapshots elide via the
   same walker (per [spec/005 §Wire-boundary elision]); conflating

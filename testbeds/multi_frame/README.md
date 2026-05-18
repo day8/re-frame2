@@ -5,7 +5,7 @@ A three-frame Reagent app — two counter frames (`:counter/a`,
 button whose handler runs on `:counter/a` and fans out a cross-frame
 `:dispatch` to `:counter/b` and `:log` in a single drain.
 
-The point: a consumer (Causa, Story, pair2-mcp) observes that the
+The point: a consumer (Causa, Story, re-frame2-pair-mcp) observes that the
 framework keeps each frame's `app-db`, signal-graph cache, and epoch
 ring buffer cleanly partitioned — even when a single click produces
 events that route to three distinct frames.

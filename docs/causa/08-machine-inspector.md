@@ -45,7 +45,7 @@ When the machine transitions out of the state that owns an invoke, the runtime a
 
 ## Driving a machine from the panel
 
-There's no *send-event* affordance on the panel. Driving the machine is what your app does; Causa observes. If you want to drive a machine to test a transition path, that's `re-frame-pair2`'s job — open a pair session, dispatch the event, watch the diagram paint.
+There's no *send-event* affordance on the panel. Driving the machine is what your app does; Causa observes. If you want to drive a machine to test a transition path, that's `re-frame2-pair`'s job — open a pair session, dispatch the event, watch the diagram paint.
 
 This is a deliberate split: the panel is a *read* tool. The runtime exposes the state-chart query and the trace stream; the panel renders both. *Writing* — driving transitions, hot-swapping guards, resetting state — is the pair tool's domain because writes need allowlists, session context, and explicit gates.
 

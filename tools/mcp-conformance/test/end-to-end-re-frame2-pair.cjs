@@ -1,6 +1,6 @@
-// End-to-end MCP-client conformance test for tools/pair2-mcp.
+// End-to-end MCP-client conformance test for tools/re-frame2-pair-mcp.
 //
-// Unlike tools/pair2-mcp/test/stdio-roundtrip.js (which hand-rolls the
+// Unlike tools/re-frame2-pair-mcp/test/stdio-roundtrip.js (which hand-rolls the
 // JSON-RPC framing on stdin/stdout), this harness drives the server
 // through the official @modelcontextprotocol/sdk `Client` — the same
 // library a real MCP-aware consumer (Claude Code, Continue, …) would
@@ -18,8 +18,8 @@
 //     result; this harness asserts the SDK accepts what the server
 //     sends)
 //
-// Run with: `node test/end-to-end-pair2.cjs` from this directory after
-// `cd ../pair2-mcp && shadow-cljs compile server`. Exits 0 on success.
+// Run with: `node test/end-to-end-re-frame2-pair.cjs` from this directory after
+// `cd ../re-frame2-pair-mcp && shadow-cljs compile server`. Exits 0 on success.
 //
 // The test runs in degraded mode (no nREPL on $SHADOW_CLJS_NREPL_PORT)
 // — same shape as the upstream stdio-roundtrip — so it stays
@@ -31,12 +31,12 @@ const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog, assertJsonRpcErrorCodes } = require('./_runner.cjs');
 
-const PAIR2_MCP_DIR = path.resolve(__dirname, '..', '..', 'pair2-mcp');
+const PAIR2_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
 const SERVER = path.join(PAIR2_MCP_DIR, 'out', 'server.js');
 
-// Canonical tool-name list — sourced from pair2-mcp's own fixture
+// Canonical tool-name list — sourced from re-frame2-pair-mcp's own fixture
 // (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so this conformance
-// harness and the upstream `tools/pair2-mcp/test/stdio-roundtrip.js`
+// harness and the upstream `tools/re-frame2-pair-mcp/test/stdio-roundtrip.js`
 // agree on the expected `tools/list` response without two hand-
 // maintained lists drifting. A registry change updates one file.
 const EXPECTED_TOOLS = JSON.parse(
@@ -44,7 +44,7 @@ const EXPECTED_TOOLS = JSON.parse(
 ).names;
 
 // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
-// a tmpdir so the port-file probe misses. Same setup as the pair2-mcp
+// a tmpdir so the port-file probe misses. Same setup as the re-frame2-pair-mcp
 // upstream stdio-roundtrip.
 const env = { ...process.env };
 delete env.SHADOW_CLJS_NREPL_PORT;
@@ -52,7 +52,7 @@ delete env.SHADOW_CLJS_NREPL_PORT;
 runWithWatchdog(
   {
     watchdogMs: 60000,
-    clientName: 'mcp-conformance-pair2',
+    clientName: 'mcp-conformance-re-frame2-pair',
     transportSpec: {
       command: process.execPath,
       args: [SERVER],
@@ -213,7 +213,7 @@ runWithWatchdog(
     console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
 
     // 3c. subscription-info — added by rf2-zjz9q as a dedicated MCP
-    // wrapper around `re-frame-pair2.runtime/subscription-info` so AI
+    // wrapper around `re-frame2-pair.runtime/subscription-info` so AI
     // clients can list active streaming subscriptions without an
     // eval-cljs round-trip. Pure-read tool, no required arguments —
     // optional :topic / :sub-id filters narrow the result. In degraded
@@ -242,7 +242,7 @@ runWithWatchdog(
     );
 
     // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts
-    // pair2-mcp emits the canonical codes from `mcp-base/vocab.cljc`
+    // re-frame2-pair-mcp emits the canonical codes from `mcp-base/vocab.cljc`
     // for unknown-method + malformed-params. The runner-side helper
     // pins the shared contract; same call appears in end-to-end-story.
     await assertJsonRpcErrorCodes(client);

@@ -283,7 +283,7 @@
       `open!` (which applies the rf2-cm93v allowlist + writes
       `window.location.href`). Lives under the `:rf.editor/*` prefix
       rather than `:rf.causa.fx/*` because the gate is editor-related,
-      not Causa-specific — a future Story / pair2 caller can fire
+      not Causa-specific — a future Story / re-frame2-pair caller can fire
       `[:rf.editor/open {:uri ...}]` and share the same allowlist
       seam.
 

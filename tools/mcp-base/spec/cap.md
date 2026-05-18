@@ -1,7 +1,7 @@
 # `cap` — wire-boundary token-budget cap pipeline (rf2-eyelu)
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Owns the ALGORITHM that drives the overflow marker into a result. Until rf2-eyelu this pipeline was duplicated near-identically in pair2-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped results). The only structural difference between the two implementations was the SHAPE of the result map and the platform-appropriate accessor used to read its `:text` slots — algorithm identical.
+> Owns the ALGORITHM that drives the overflow marker into a result. Until rf2-eyelu this pipeline was duplicated near-identically in re-frame2-pair-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped results). The only structural difference between the two implementations was the SHAPE of the result map and the platform-appropriate accessor used to read its `:text` slots — algorithm identical.
 
 This doc is one of seven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`overflow.md`](overflow.md).
 
@@ -58,10 +58,10 @@ Each consumer reifies `ResultIO` with two methods:
 
 The cap pipeline calls these two methods; everything else is shared. Adding a third consumer is a single reify, not a code copy.
 
-### Example reify — pair2-mcp (CLJS, JS-object results)
+### Example reify — re-frame2-pair-mcp (CLJS, JS-object results)
 
 ```clojure
-(deftype Pair2ResultIO []
+(deftype ReFrame2PairResultIO []
   ResultIO
   (content-texts [_ result]
     (->> (j/get result :content)
@@ -93,7 +93,7 @@ Both reifies are ~10 lines each. The cap algorithm is unchanged.
 
 The overflow marker itself MUST fit under the cap. If the marker grew large enough to exceed `:max-tokens` it would trigger another cap, recursing infinitely.
 
-The conformance harness (`tools/mcp-conformance/test/live-pair2-overflow.cjs`) asserts this on every cap-trigger; if a future bead grows the marker (a new slot, a longer hint, a verbose recovery message), the test surfaces the regression before it ships.
+The conformance harness (`tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs`) asserts this on every cap-trigger; if a future bead grows the marker (a new slot, a longer hint, a verbose recovery message), the test surfaces the regression before it ships.
 
 The structural guarantee comes from the marker shape — `:limit`, `:token-count`, `:cap-tokens`, `:tool`, `:hint` are all small scalars; the marker can grow only by adding new keys. Adding a new key triggers the conformance test, which catches the regression before merge.
 
@@ -108,7 +108,7 @@ The default-ON posture matches the agent-ergonomics threat model: a stock instal
 
 ## Conformance posture
 
-The conformance harness at `tools/mcp-conformance/test/live-pair2-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts:
+The conformance harness at `tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts:
 
 1. The response carries the `:rf.mcp/overflow` marker.
 2. The marker's `:cap-tokens` slot equals 100.
@@ -123,4 +123,4 @@ Parity across servers is asserted by running the same fixture against each consu
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`overflow.md`](overflow.md) — the marker shape this algorithm produces.
 - [`vocab.md` §Marker catalogue (`:rf.mcp/*`)](vocab.md#marker-catalogue-rfmcp) — the `:rf.mcp/overflow` key.
-- rf2-eyelu — the bead that lifted this algorithm out of pair2-mcp / story-mcp into the shared library.
+- rf2-eyelu — the bead that lifted this algorithm out of re-frame2-pair-mcp / story-mcp into the shared library.

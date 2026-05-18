@@ -175,11 +175,11 @@ else
         tools_jvm=true
         mcp_conformance=true
         ;;
-      tools/pair2-mcp/*|tools/mcp-base/*)
+      tools/re-frame2-pair-mcp/*|tools/mcp-base/*)
         # rf2-os0c1 — mcp-base is .cljc shared by every MCP server (rf2-vw4sq),
-        # and pair2-mcp ships as a Node binary plus a JVM mcp-base consumer.
+        # and re-frame2-pair-mcp ships as a Node binary plus a JVM mcp-base consumer.
         # tools_jvm picks up jvm-tools-mcp-base; mcp_conformance fires the
-        # node + wire-vocab gates; mcp_live fires the pair2 live conformance.
+        # node + wire-vocab gates; mcp_live fires the re-frame2-pair live conformance.
         tools_jvm=true
         mcp_conformance=true
         mcp_live=true
@@ -193,12 +193,12 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      skills/re-frame-pair2/tests/fixture/*)
+      skills/re-frame2-pair/tests/fixture/*)
         skills_structural=true
         mcp_conformance=true
         mcp_live=true
         ;;
-      skills/re-frame-pair2/*|skills/shared/*)
+      skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
     esac

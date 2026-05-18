@@ -20,7 +20,7 @@
     4. **Frame resolution.** `resolve-frame` (exercised via the public
        accessors) picks the sole registered frame; returns nil under
        ambiguity rather than guessing.
-    5. **`health` is side-effect-free.** Unlike pair2's `health` which
+    5. **`health` is side-effect-free.** Unlike re-frame2-pair's `health` which
        installs trace + epoch listeners, Causa-the-panel's preload
        owns those — the runtime's `health` reads only.
 
@@ -202,7 +202,7 @@
           "health surfaces the bound origin (default `:causa-mcp`)"))))
 
 (deftest health-installs-no-listeners
-  (testing "unlike pair2's `health`, the Causa runtime's `health` does
+  (testing "unlike re-frame2-pair's `health`, the Causa runtime's `health` does
             NOT register trace or epoch callbacks — Causa-the-panel
             owns those (`preload.cljs`'s register-trace-collector! /
             register-epoch-collector!). Two `health` calls in a row
@@ -254,7 +254,7 @@
 
 (deftest dispatch-refuses-non-vector
   (testing "non-vector `event` shapes refuse structurally — the same
-            kind of guard pair2-mcp's `dispatch.cljs` enforces at the
+            kind of guard re-frame2-pair-mcp's `dispatch.cljs` enforces at the
             wire layer (rf2-vflrg precedent)"
     (let [result (runtime/dispatch! :not-a-vector)]
       (is (false? (:ok? result)))

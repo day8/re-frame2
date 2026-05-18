@@ -12,7 +12,7 @@ main read**.
 
 - **[000-Vision.md](000-Vision.md)** — The claim. Causa shows you what
   happens when an event fires. The five canonical questions; the audience;
-  the "two doors" split (Causa = human; pair2-mcp = AI); the 6-tab
+  the "two doors" split (Causa = human; re-frame2-pair-mcp = AI); the 6-tab
   inventory.
 - **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the

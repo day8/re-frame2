@@ -2,7 +2,7 @@
 
 Regression suite for [`../retro-protocol.md`](../retro-protocol.md) —
 the shared retro protocol consumed by `re-frame2-improver` and
-`re-frame-pair-retro2`.
+`re-frame2-pair-retro`.
 
 Closes audit Finding 4 from
 `ai/findings/skills-shared-audit-verification-2026-05-15.md` (filed as
@@ -22,9 +22,9 @@ file contents). The behavioural fixtures are document-runnable; see
 
 ## Why this directory exists
 
-The corpus convention is that **only `re-frame-pair2/` ships a
+The corpus convention is that **only `re-frame2-pair/` ships a
 `tests/` directory** — see `skills/README.md` §"Test-fixture
-discipline." `re-frame-pair2/` is the exception because it drives a
+discipline." `re-frame2-pair/` is the exception because it drives a
 live runtime (nREPL attach, app-db mutation, epoch reads).
 
 `skills/shared/retro-protocol.md` warrants the second exception for a
@@ -69,10 +69,10 @@ coverage.
 
 - [`../retro-protocol.md`](../retro-protocol.md) — the protocol leaf under test.
 - [`../../README.md`](../../README.md) §"Test-fixture discipline" —
-  documents why `re-frame-pair2/` is the only other skill with a
+  documents why `re-frame2-pair/` is the only other skill with a
   `tests/` dir, and the carve-out this directory takes for security
   boundaries.
-- `skills/re-frame-pair2/tests/prompts/prompt_regression_test.clj` —
+- `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj` —
   the corpus's other prose-regression suite (recipe-shape drift
   detector); this suite mirrors its substrate.
 - rf2-g6auh — original `skills/shared/` security audit.

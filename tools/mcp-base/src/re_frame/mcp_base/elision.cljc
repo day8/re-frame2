@@ -30,7 +30,7 @@
   ## Cross-platform
 
   Pure-data tree walk; loads identically into JVM (story-mcp /
-  causa-mcp) and CLJS (pair2-mcp). No transport, no runtime, no
+  causa-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no
   framework dep — the walker only inspects the wire shape."
   (:require [re-frame.mcp-base.vocab :as vocab]))
 

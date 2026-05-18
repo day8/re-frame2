@@ -421,7 +421,7 @@ Some tests want to capture a frame's `app-db` and replay it later (golden-master
 - **Foundation in v1.** `machine-transition` is pure and JVM-runnable; `:guards` and `:actions` are machine-scoped fns the harness can call directly; the corpus shape per [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) is locked.
 - **Scope deferred.** The packaged library (`rf/test/machine-paths`, `rf/test/shortest-path-to`, coverage strategy selectors, EDN fixture emitter) ships as `re-frame.machines.test` post-v1.
 - **Reconsideration trigger.** Either an AI-implementor needs the coverage corpus for cross-language conformance, or app-side machines start exhibiting edge-case bugs that hand-written tests miss.
-- **Out of scope for the bead.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (causa/pair2).
+- **Out of scope for the bead.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (causa/re-frame2-pair).
 - **Cross-link.** See [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) for the substrate-side framing.
 
 Sketch of the surface:

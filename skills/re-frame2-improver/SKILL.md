@@ -12,9 +12,9 @@ description: >
   must be in scope (read or edited in this conversation, or supplied
   as a snippet) — vocabulary alone is not enough. **Do not use** for
   scaffolding new projects (use `re-frame2-setup`), for live-runtime
-  pair programming or `app-db` inspection (use `re-frame-pair2`), for
-  retrospecting on a finished `re-frame-pair2` session (use
-  `re-frame-pair-retro2`), for authoring new application code (use
+  pair programming or `app-db` inspection (use `re-frame2-pair`), for
+  retrospecting on a finished `re-frame2-pair` session (use
+  `re-frame2-pair-retro`), for authoring new application code (use
   `re-frame2`), for spec / architecture / design discussion (use
   `SKILL-REDIRECT.md`), or for inline mid-edit anti-pattern
   interruption — this skill is critique-on-request only. For the full
@@ -31,7 +31,7 @@ allowed-tools:
 
 Critique-mode for existing re-frame2 code. Reads a body of source files, detects re-frame2 anti-patterns from a small catalogue, surfaces findings with concrete file/line evidence, cross-links to the canonical idiom under `skills/re-frame2/patterns/`, and — subject to the Edit-gate split below — may propose or apply an inline fix via `Edit`.
 
-This skill **does not write new code from scratch** (that's `re-frame2`), **does not operate on a live runtime** (that's `re-frame-pair2`), and **does not retro on tool sessions** (that's `re-frame-pair-retro2`). It is **explicit-pull-only**: the user asks for a review, the skill activates, the skill exits when findings have been presented (and optional fixes applied).
+This skill **does not write new code from scratch** (that's `re-frame2`), **does not operate on a live runtime** (that's `re-frame2-pair`), and **does not retro on tool sessions** (that's `re-frame2-pair-retro`). It is **explicit-pull-only**: the user asks for a review, the skill activates, the skill exits when findings have been presented (and optional fixes applied).
 
 ## When NOT to use
 
@@ -39,8 +39,8 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 - **Greenfield / scaffolding** — empty directory or empty CLJS project, no re-frame2 wiring yet → [`re-frame2-setup/`](../re-frame2-setup/).
 - **Writing new application code** on a working v2 project — events, subs, fx, frames, machines, schemas, stories, routing → [`re-frame2/`](../re-frame2/).
-- **Live-runtime pair work** — attach to a running shadow-cljs build, inspect `app-db`, dispatch, hot-swap handlers, walk epochs, time-travel → [`re-frame-pair2/`](../re-frame-pair2/).
-- **Retrospecting on a `re-frame-pair2` session** — friction analysis of the pair-tool itself, opt-in bead drafts against `re-frame-pair2` or upstream `re-frame2` → [`re-frame-pair-retro2/`](../re-frame-pair-retro2/).
+- **Live-runtime pair work** — attach to a running shadow-cljs build, inspect `app-db`, dispatch, hot-swap handlers, walk epochs, time-travel → [`re-frame2-pair/`](../re-frame2-pair/).
+- **Retrospecting on a `re-frame2-pair` session** — friction analysis of the pair-tool itself, opt-in bead drafts against `re-frame2-pair` or upstream `re-frame2` → [`re-frame2-pair-retro/`](../re-frame2-pair-retro/).
 - **v1 → v2 migration** of an existing codebase → [`re-frame-migration/`](../re-frame-migration/).
 - **Spec / architecture / design discussion** without an active authoring or critique task → [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md).
 - **Inline mid-edit anti-pattern interruption** — never. This skill is critique-on-request only. The interruption budget is too expensive during authoring; mid-flight code is incomplete; false-positives erode trust permanently. If a recurring anti-pattern proves stable in the catalogue, revisit the trigger surface — until then, wait for the pull.
@@ -82,7 +82,7 @@ If 1 holds but 2 doesn't: ask for a snippet or a directory to read. Decline rath
    - Higher-leverage redesigns always stay as suggestions — present the option, let the user decide.
 6. **Surface findings** in the output shape below.
 
-The diagnosis-first discipline, evidence-citation rules, layer-routing heuristics, untrusted-evidence boundary, universal-redaction rules, and opt-in bead / Edit protocol are shared with `re-frame-pair-retro2` — load the shared leaf at [`../shared/retro-protocol.md`](../shared/retro-protocol.md). The workflow above is the consuming view; the protocol leaf is the normative source for the Edit-gate split.
+The diagnosis-first discipline, evidence-citation rules, layer-routing heuristics, untrusted-evidence boundary, universal-redaction rules, and opt-in bead / Edit protocol are shared with `re-frame2-pair-retro` — load the shared leaf at [`../shared/retro-protocol.md`](../shared/retro-protocol.md). The workflow above is the consuming view; the protocol leaf is the normative source for the Edit-gate split.
 
 ## Output format
 
@@ -110,4 +110,4 @@ If the in-scope code is too thin for findings, say so plainly and ask for a wide
 ## Reference files
 
 - [`references/`](references/) — anti-pattern catalogue (6 leaves at launch; populated by rf2-bquci). Each leaf carries: detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, cross-link to `skills/re-frame2/patterns/` or `spec/`.
-- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame-pair-retro2`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame2-pair-retro`.

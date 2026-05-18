@@ -994,12 +994,12 @@
     (let [cascades [{:dispatch-id 1 :frame :rf/default}
                     {:dispatch-id 2 :frame :rf/causa}
                     {:dispatch-id 3 :frame :app/main}
-                    {:dispatch-id 4 :frame :rf/pair2}]
+                    {:dispatch-id 4 :frame :rf/re-frame2-pair}]
           default-frames (shell/distinct-frames cascades false)
           power-frames   (shell/distinct-frames cascades true)]
       (is (= [:rf/default :app/main] default-frames)
-          "default — :rf/causa and :rf/pair2 are excluded")
-      (is (= [:rf/default :rf/causa :app/main :rf/pair2] power-frames)
+          "default — :rf/causa and :rf/re-frame2-pair are excluded")
+      (is (= [:rf/default :rf/causa :app/main :rf/re-frame2-pair] power-frames)
           "power-user — tool frames included in first-seen order"))))
 
 (deftest distinct-frames-drops-nil-frame-cascades

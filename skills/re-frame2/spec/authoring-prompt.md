@@ -6,7 +6,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame2` skill at `skills/re-frame2/`. The skill teaches an AI to write working re-frame2 ClojureScript application code while spending as little context as possible. It is **authoring-only** — writing new code on the CLJS reference. Adjacent skills handle setup (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`), live-app inspection (`re-frame-pair2`), and porting re-frame2 itself (`re-frame2-implementor`).*
+> *I'm re-authoring the `re-frame2` skill at `skills/re-frame2/`. The skill teaches an AI to write working re-frame2 ClojureScript application code while spending as little context as possible. It is **authoring-only** — writing new code on the CLJS reference. Adjacent skills handle setup (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`), live-app inspection (`re-frame2-pair`), and porting re-frame2 itself (`re-frame2-implementor`).*
 >
 > *Read these first (in this order):*
 >
@@ -87,7 +87,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *- **L10 — No bead-ids in user-facing skill content.** `SKILL.md` + `reference/` + `patterns/` + `decision-trees/` carry no `rf2-XXXX` references.*
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
 >
-> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame-pair2`, `re-frame2-setup`) explicitly so the AI routes correctly.*
+> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) explicitly so the AI routes correctly.*
 >
 > *Voice: tight, declarative, recipe-shaped. Use tables for routing; use code blocks for canonical shapes. Cite `implementation/<file>:<line>` in leaves where a surface claim might surprise an AI working from training memory.*
 >
@@ -100,7 +100,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *- Don't write a verification leaf or a verify-before-done hard rule.*
 > *- Don't include bead-ids in user-facing leaves — only in `spec/` (workflow tracking).*
 >
-> *Open the PR with title `feat(skills): re-frame2 — authoring-only skill for writing re-frame2 CLJS code`. PR body lists: the skill structure, the file LoC table, the locks applied, the relationship to the adjacent skills (setup / migration / pair2 / implementor).*
+> *Open the PR with title `feat(skills): re-frame2 — authoring-only skill for writing re-frame2 CLJS code`. PR body lists: the skill structure, the file LoC table, the locks applied, the relationship to the adjacent skills (setup / migration / re-frame2-pair / implementor).*
 
 ## Notes on the reauthoring contract
 

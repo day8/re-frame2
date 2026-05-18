@@ -96,8 +96,8 @@
   `{:ns :handler-id :line :col}` or nil. Per Spec 006 §Attribute value
   format — `<ns>:<sym>:<line>:<col>`, with `?` for missing coords.
 
-  Mirrors the parser in `skills/re-frame-pair2/.../runtime.cljs` (the
-  pair2 nREPL consumer that does the same DOM → id walk). Returns nil
+  Mirrors the parser in `skills/re-frame2-pair/.../runtime.cljs` (the
+  re-frame2-pair nREPL consumer that does the same DOM → id walk). Returns nil
   for malformed input (too few / too many segments, empty ns or
   handler-id, non-string input). Never throws."
   [attr-val]

@@ -440,7 +440,7 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 
 ### Trace-emission opt-out (per-handler metadata)
 
-Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag (rf2-qsjda). When set, the runtime suppresses **every** trace emission and event-emit record within the handler's scope — the handler runs invisibly to the trace surface, the event-emit substrate, and (transitively) the epoch buffer. Used by framework-internal bookkeeping handlers (Causa, Story, pair2-mcp, story-mcp) that would otherwise saturate the trace stream. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) the `:rf.trace/*` namespace is framework-owned.
+Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag (rf2-qsjda). When set, the runtime suppresses **every** trace emission and event-emit record within the handler's scope — the handler runs invisibly to the trace surface, the event-emit substrate, and (transitively) the epoch buffer. Used by framework-internal bookkeeping handlers (Causa, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) the `:rf.trace/*` namespace is framework-owned.
 
 | Metadata key | Where | Value | Default | Effect |
 |---|---|---|---|---|
@@ -483,7 +483,7 @@ Trace events emitted by epoch-history machinery:
 
 > Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) — `elide-wire-value` is named there as the **single normative emission site** for the `:rf/redacted` sentinel. Every off-box egress (trace forwarders, MCP servers, error monitors) routes through this walker; the trust-boundary surfaces catalogued in [Security.md](Security.md) compose against this primitive.
 
-The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Consumed by every tool that emits wire data (the off-box error-monitor forwarders, the Causa-MCP / pair2-mcp / story-mcp servers per [Tool-Pair.md](Tool-Pair.md), the on-box dev panels). The walker is the **single normative emission site** for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` marker; per-tool reimplementation is prohibited.
+The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Consumed by every tool that emits wire data (the off-box error-monitor forwarders, the Causa-MCP / re-frame2-pair-mcp / story-mcp servers per [Tool-Pair.md](Tool-Pair.md), the on-box dev panels). The walker is the **single normative emission site** for the `:rf/redacted` sensitive sentinel and the `:rf.size/large-elided` marker; per-tool reimplementation is prohibited.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -509,7 +509,7 @@ Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateM
 
 > Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the two composition sites (`with-redacted` + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md).
 
-Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, pair2 server, Causa, Story, story-mcp, pair2-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
+Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, re-frame2-pair server, Causa, Story, story-mcp, re-frame2-pair-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|

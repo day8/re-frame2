@@ -18,7 +18,7 @@ You'll know:
 
 ## Why the framework cares
 
-Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (pair2-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch.22](22-trace-to-datadog.md) reads `:tags :event`. The Sentry bridge in [ch.14](14-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
+Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (re-frame2-pair-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch.22](22-trace-to-datadog.md) reads `:tags :event`. The Sentry bridge in [ch.14](14-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
 
 The framework's answer is *not* "filter at the consumer". Consumers are written by humans (you, the app writer) and AI agents and ops engineers — humans who forget, agents who don't know which slot is sensitive without being told. The framework's answer is **the registration declares the truth, the walker enforces it, the consumer reads the result**. Three pieces; one is yours.
 
@@ -48,7 +48,7 @@ Both elision flags live on the same surface: a Malli slot's per-slot props map. 
 
 That's the declaration. Nothing else.
 
-Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — pair2-mcp, Datadog shipper, Causa-MCP — sees the redacted shape; the value never leaves the trust boundary.
+Boot-time, the runtime walks every registered schema and writes the verdict into the reserved `[:rf/elision :declarations]` slot of `app-db`. Every wire-boundary emit consults that slot. Every off-box consumer — re-frame2-pair-mcp, Datadog shipper, Causa-MCP — sees the redacted shape; the value never leaves the trust boundary.
 
 What `:sensitive? true` does:
 
@@ -145,7 +145,7 @@ The same composition rule binds the schema-validation emit-site (per [§Schema-v
 
 The schema is the input; the elision pipeline is the output. The framework does the wiring between the two — you don't see it from the app-writer side, but the one paragraph is worth knowing:
 
-At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, pair2-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
+At boot, the runtime walks every registered schema and extracts the per-slot `:sensitive?` / `:large?` claims into the reserved `[:rf/elision :declarations]` slot in `app-db`. At every wire-boundary emit, the `rf/elide-wire-value` walker consults that slot once per visited path. Tools like Causa, re-frame2-pair-mcp, story-mcp, and the Datadog shipper from [ch.22](22-trace-to-datadog.md) consume the walker's output, not your schema directly; they don't need to know how the declarations got into the registry, just that they're there.
 
 **One declaration; every consumer honours it.** If you declare `:sensitive? true` on `[:user :credit-card]`, every off-box ship, every on-box dev-panel render, every `:rf.http/*` request body, every schema-validation error trace substitutes `:rf/redacted` for the slot's value. The platform handles the rest.
 
@@ -216,7 +216,7 @@ Writer-side is half the picture. The other half is the *consumer*'s elision poli
 
 | Consumer | `:include-sensitive?` default | `:include-large?` default | Off-box? |
 |---|---|---|---|
-| pair2-mcp (AI surface) | `false` | `false` | Yes |
+| re-frame2-pair-mcp (AI surface) | `false` | `false` | Yes |
 | story-mcp (story playgrounds) | `false` | `false` | Yes |
 | Causa-MCP (cascade graph) | `false` | `false` | Yes |
 | Story panel (on-box dev UI) | `false` | `false` | No |

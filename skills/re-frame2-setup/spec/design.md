@@ -76,7 +76,7 @@ SKILL.md ends with an explicit "When the author asks anything beyond setup" rout
 
 - Migrating from re-frame v1 → `skills/re-frame-migration/`.
 - Authoring application code beyond the first counter → `skills/re-frame2/`.
-- Live-runtime debugging → `skills/re-frame-pair2/`.
+- Live-runtime debugging → `skills/re-frame2-pair/`.
 - Building re-frame2 in a different host language → `skills/re-frame2-implementor/`.
 - Non-Reagent substrates (UIx, Helix) at greenfield — the skill scaffolds against Reagent; substrate-switch is a separate conversation.
 - Writing tests, registering events, subs, machines, schemas — all the main `re-frame2` skill's job.
@@ -105,7 +105,7 @@ SKILL.md (~170) + 4 reference leaves (~450) + 3 spec files (~250) ≈ ~870 LoC a
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists every greenfield-trigger phrase: *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"add re-frame2 to my repo"*, *"give me a hello-world re-frame2 app"*. The description explicitly handles off-task routing: once the counter mounts, the author switches to `re-frame2` for code-writing or `re-frame-pair2` for live pair-programming.
+The `description` is "pushy" and lists every greenfield-trigger phrase: *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"add re-frame2 to my repo"*, *"give me a hello-world re-frame2 app"*. The description explicitly handles off-task routing: once the counter mounts, the author switches to `re-frame2` for code-writing or `re-frame2-pair` for live pair-programming.
 
 ## 7. Anti-patterns the skill explicitly resists
 

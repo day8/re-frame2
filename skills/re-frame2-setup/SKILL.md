@@ -13,7 +13,7 @@ description: >
   traces to missing `re-frame.core` / `re-frame.adapter.reagent` wiring.
   Exits once the counter mounts. **Do not use** for writing app code
   on an already-bootstrapped project (use `re-frame2`), v1→v2 migration
-  (use `re-frame-migration`), live-app inspection (use `re-frame-pair2`),
+  (use `re-frame-migration`), live-app inspection (use `re-frame2-pair`),
   or porting re-frame2 itself (use `re-frame2-implementor`). For the
   full disqualifier list and routing to sibling skills, see
   `skills/README.md` §Skill routing — single source.
@@ -52,7 +52,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 3. **Only add per-feature artefacts the author actually uses.** Core + adapter are mandatory; `-schemas` / `-machines` / `-routing` / `-flows` / `-http` / `-ssr` / `-epoch` are pay-as-you-go.
 4. **Reagent adapter is the default reference substrate.** Unless the author explicitly says UIx or Helix, scaffold against Reagent.
 5. **Don't write tests for the author.** This skill stops at "the counter mounts."
-6. **nREPL is dev-only and bound to localhost.** Anywhere this skill mentions nREPL (shadow-cljs's default REPL, `re-frame-pair2` attachment), it must remind the author: nREPL is a remote-evaluation surface — never expose it on `0.0.0.0` or a public interface. shadow-cljs binds to localhost by default; do not override that without an isolated, trusted-network reason.
+6. **nREPL is dev-only and bound to localhost.** Anywhere this skill mentions nREPL (shadow-cljs's default REPL, `re-frame2-pair` attachment), it must remind the author: nREPL is a remote-evaluation surface — never expose it on `0.0.0.0` or a public interface. shadow-cljs binds to localhost by default; do not override that without an isolated, trusted-network reason.
 
 ## Canonical greenfield path (seven steps)
 
@@ -74,7 +74,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 - [ ] `shadow-cljs watch <build-id>` compiles cleanly.
 - [ ] Browser shows the counter and `+`/`-` updates it.
 
-Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/schemas/frames/fx. For live REPL inspection, install **`re-frame-pair2`**."*
+Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/schemas/frames/fx. For live REPL inspection, install **`re-frame2-pair`**."*
 
 ## Troubleshooting (common build failures)
 

@@ -12,7 +12,7 @@
   - **Pure data** (JVM + CLJS):
     - `parse-coord` round-trips the `<ns>:<sym>:<line>:<col>` DOM
       attribute into `{:ns :handler-id :line :col}` with malformed-
-      input safety (mirror of skills/re-frame-pair2's parser tests so
+      input safety (mirror of skills/re-frame2-pair's parser tests so
       format drift surfaces here too).
     - `coord->handler-keyword` reconstructs the registered view id.
 

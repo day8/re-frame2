@@ -94,7 +94,7 @@ runWithWatchdog(
     console.log('OK   tools/list -> ' + names.length + ' tools advertised');
 
     // Tighten the inputSchema spot-check past "is an object" (rf2-i3ffz
-    // F-GAP-2). See `end-to-end-pair2.cjs` for the cross-MCP rationale:
+    // F-GAP-2). See `end-to-end-re-frame2-pair.cjs` for the cross-MCP rationale:
     //   - `type === 'object'` — every tool's input shape is a map.
     //   - `properties['max-tokens']` — TOKEN-BUDGETS.md MUST.
     for (const t of listed.tools) {
@@ -214,7 +214,7 @@ runWithWatchdog(
     console.log('OK   unregister-variant -> teardown verified by subsequent get-variant -> not-found');
 
     // 7. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Mirrors
-    // the assertion in end-to-end-pair2.cjs — story-mcp MUST emit the
+    // the assertion in end-to-end-re-frame2-pair.cjs — story-mcp MUST emit the
     // same canonical codes from `mcp-base/vocab.cljc` for unknown-method
     // + malformed-params (its JVM transport reuses the same SDK
     // server-side framing).

@@ -1,14 +1,14 @@
 (ns re-frame.mcp-base.args
   "Argument-coercion helpers for MCP tools. The parsers in this ns
   take an ALREADY-RESOLVED raw value (extracted by the consumer from
-  its platform-specific args object: a JS object for pair2-mcp, a
+  its platform-specific args object: a JS object for re-frame2-pair-mcp, a
   Clojure map for story-mcp/causa-mcp) and normalise it into the
   Clojure-side type the tool body expects.
 
   ## Cross-server convention
 
   Argument names and default postures are a cross-MCP convention. An
-  agent that learns `:dedup` defaults true on pair2-mcp must see the
+  agent that learns `:dedup` defaults true on re-frame2-pair-mcp must see the
   same default everywhere. These parsers encode the defaults so they
   can't drift across consumers."
   (:refer-clojure :exclude [parse-boolean])
@@ -208,7 +208,7 @@
   ALREADY bounded the allocation by some other gate:
 
     - An operator-gated write path (story-mcp's `--allow-writes` flag,
-      pair2-mcp's read-side frame-id coercion against a runtime-bounded
+      re-frame2-pair-mcp's read-side frame-id coercion against a runtime-bounded
       frame registry).
     - A registrar that enforces a grammar over the id (e.g.
       `:story.<path>/<name>` in `assert-id!`) — this constrains the

@@ -192,7 +192,7 @@ One keybinding ships in `tools/causa/src/day8/re_frame2_causa/keybinding.cljs` t
 
 The earlier `Ctrl+Shift+/` co-pilot keybinding has been removed —
 the AI co-pilot rail no longer ships; AI integration lives in
-`tools/pair2-mcp/`.
+`tools/re-frame2-pair-mcp/`.
 
 ---
 

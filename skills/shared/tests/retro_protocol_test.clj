@@ -23,7 +23,7 @@
 ;;;; yet).
 ;;;;
 ;;;; Mirrors the shape of
-;;;; `skills/re-frame-pair2/tests/prompts/prompt_regression_test.clj`
+;;;; `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj`
 ;;;; (the only other prose-regression test in the corpus).
 ;;;;
 ;;;; Run:    bb tests/retro_protocol_test.clj
@@ -58,10 +58,10 @@
   (delay (slurp-rel skills-root "re-frame2-improver/SKILL.md")))
 
 (def ^:private pair-retro2-skill-md
-  (delay (slurp-rel skills-root "re-frame-pair-retro2/SKILL.md")))
+  (delay (slurp-rel skills-root "re-frame2-pair-retro/SKILL.md")))
 
 ;; ---------------------------------------------------------------------------
-;; Section extraction — like the pair2 prompt-regression substrate, each
+;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
 ;; assertion targets the *section* the lock belongs in, so a sloppy edit
 ;; that moves a phrase out of its normative home is still caught.
 ;; ---------------------------------------------------------------------------
@@ -319,9 +319,9 @@
              "has to enforce it."))))
 
 (deftest pair-retro2-loads-shared-protocol
-  (testing "re-frame-pair-retro2/SKILL.md links to ../shared/retro-protocol.md"
+  (testing "re-frame2-pair-retro/SKILL.md links to ../shared/retro-protocol.md"
     (is (str/includes? @pair-retro2-skill-md "../shared/retro-protocol.md")
-        (str "re-frame-pair-retro2 no longer links to the shared "
+        (str "re-frame2-pair-retro no longer links to the shared "
              "retro-protocol. If a copy-paste was deliberate, the "
              "single-source assumption is broken and this regression "
              "suite no longer covers the consumer."))))

@@ -80,7 +80,7 @@ Who cares about novelty? I just want a feature-rich, excellent, productive frame
 Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
 
   - **[Causa](https://day8.github.io/re-frame2/causa/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
-  - **[re-frame-pair2](skills/re-frame-pair2/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
+  - **[re-frame2-pair](skills/re-frame2-pair/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
   - **[Story](https://day8.github.io/re-frame2/story/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/17-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
   - **[SSR](https://day8.github.io/re-frame2/guide/11-server-side/)** — server-side rendering and hydration that doesn't require a different mental model. Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server needed). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
@@ -89,7 +89,7 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
   - **[Security](https://day8.github.io/re-frame2/guide/23a-privacy-secrets/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here. There is also a spec-level [Security Contract](spec/Security.md).
   - **Large Things** — PDF blobs and other large things shouldn't accidentally get logged to Datadog. There are mechanisms for that too.
-  - **MCP servers** — two Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
+  - **MCP servers** — two Model Context Protocol servers ([re-frame2-pair-mcp](tools/re-frame2-pair-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
 
 ## The Reference Implementation
 
@@ -112,7 +112,7 @@ By part:
 
 We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
-You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame-pair2](skills/re-frame-pair2/) for coding. Finally, use [re-frame-pair-retro2](skills/re-frame-pair-retro2/) to do a session retrospective and file an issue if you find friction.
+You should absolutely not use it yet — there could be dragons and there is still a chance of change. If you are a daredevil, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. And use the Skills, Luke: [re-frame-migration](skills/re-frame-migration/) for you-know-what, then [re-frame2-pair](skills/re-frame2-pair/) for coding. Finally, use [re-frame2-pair-retro](skills/re-frame2-pair-retro/) to do a session retrospective and file an issue if you find friction.
 
 
 ## AI-first
@@ -125,7 +125,7 @@ Here's how AI-first shows up in practice:
 
 1. **The pattern is one-shot-able.** The spec in this repo is complete enough that an AI can one-shot the implementation. The corollary is that the spec is the durable artefact; the implementation is downstream and replaceable. Don't like the spec? Fork it, change it, generate your own framework. That's a real workflow now, and I think it's going to be more important than people realise.
 
-2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. The successor to v1's nREPL-attached `re-frame-pair` ships in this repo as the `re-frame-pair2` Claude skill, with an MCP companion (`pair2-mcp`) on the runtime side.
+2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. The successor to v1's nREPL-attached `re-frame-pair` ships in this repo as the `re-frame2-pair` Claude skill, with an MCP companion (`re-frame2-pair-mcp`) on the runtime side.
 
 3. **Migration is AI-driven**. re-frame2 contains breaking changes from v1. I am not happy about this. To soften the blow, the repo ships a complete migration prompt for an AI — currently 40+ rules, mechanical where the rewrite can be mechanical, flagged-for-human-review in the rare cases where the rewrite depends on intent. And to the Clojurists reading: I apologise for the breakage. It hurts my soul too. Please, please don't tell Mr Hickey.
 
@@ -236,7 +236,7 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
   story/                       day8/re-frame2-story — Storybook-flavoured playground
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
-  pair2-mcp/                   day8/re-frame2-pair2-mcp — MCP agent surface for the re-frame-pair2
+  re-frame2-pair-mcp/                   day8/re-frame2-re-frame2-pair-mcp — MCP agent surface for the re-frame2-pair
                                nREPL companion
   causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
                                the structural successor to re-frame-10x
@@ -251,8 +251,8 @@ skills/                        Claude skills
   re-frame2-setup/             Greenfield-app scaffolding skill
   re-frame2-implementor/       Skill for porting re-frame2 to a new host language
   re-frame2-improver/          Critique-mode skill for existing re-frame2 code
-  re-frame-pair2/              Runtime pair-programming skill (nREPL + MCP companion)
-  re-frame-pair-retro2/        Retrospective skill — reviews pair sessions, drafts improvements
+  re-frame2-pair/              Runtime pair-programming skill (nREPL + MCP companion)
+  re-frame2-pair-retro/        Retrospective skill — reviews pair sessions, drafts improvements
   re-frame-migration/          re-frame v1.x → re-frame2 migration skill
   shared/                      Cross-skill protocols (retro-protocol, evidence discipline)
 ```

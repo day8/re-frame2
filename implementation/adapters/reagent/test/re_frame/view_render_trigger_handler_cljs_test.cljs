@@ -9,7 +9,7 @@
   `emit-render-trace!` fires `:view/render` from inside that binding.
   The trace event therefore carries the view's registration coord on
   the top-level `:rf.trace/trigger-handler` slot — Causa's event-detail
-  panel and pair2's jump-to-source UX render click-to-jump links from
+  panel and re-frame2-pair's jump-to-source UX render click-to-jump links from
   this field for every trace in a cascade, including view renders.
 
   Locked shape (per rf2-3nn8 / rf2-lf84g):
@@ -70,7 +70,7 @@
 
 (deftest view-render-carries-trigger-handler
   (testing ":view/render rides the view's own registration coord —
-   Causa / pair2 want jump-to-source on a view render trace to land
+   Causa / re-frame2-pair want jump-to-source on a view render trace to land
    on the reg-view site, the same way fx-handled / sub-run / machine-
    transition tests already pin"
     (let [traces (record-traces!)]

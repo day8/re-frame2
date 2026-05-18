@@ -50,8 +50,8 @@ from `day8/re-frame2-story`. The split is load-bearing:
 
 The pattern mirrors `tools/machines-viz/` vs.
 `tools/machines-viz-mcp/` (per [`tools/README.md`](../../README.md))
-and is the same shape pair2 takes (`re-frame-pair2` runtime vs.
-`re-frame-pair2-mcp` adapter).
+and is the same shape re-frame2-pair takes (`re-frame2-pair` runtime vs.
+`re-frame2-pair-mcp` adapter).
 
 ## MCP-over-stdio, not an IDE plugin
 
@@ -236,7 +236,7 @@ single op blow the session.
 Tool names in story-mcp's catalogue pick from the verb table at
 [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
-shared with pair2-mcp and causa-mcp. The shared verbs the
+shared with re-frame2-pair-mcp and causa-mcp. The shared verbs the
 triplet pins are `get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
 `preview-` / `record-as-` / `tail-` plus the bare universals

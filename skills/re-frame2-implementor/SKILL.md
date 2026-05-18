@@ -13,7 +13,7 @@ description: >
   **Do not use** for: writing apps on the CLJS reference (use
   `re-frame2`), greenfield bootstrap (use `re-frame2-setup`), v1→v2
   migration (use `re-frame-migration`), or live-app inspection (use
-  `re-frame-pair2`).
+  `re-frame2-pair`).
 allowed-tools:
   - Bash(gh issue *)
   - Bash(gh pr *)

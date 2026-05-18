@@ -50,13 +50,13 @@ Causa rendering surface.
 The MCP Server panel is dropped from Causa. The `tools/causa-mcp/`
 artefact is dropped entirely (separate PR); there is no Causa-curated
 MCP surface to render. AI access to the running re-frame2 runtime
-goes through `tools/pair2-mcp/` over raw nREPL — see
+goes through `tools/re-frame2-pair-mcp/` over raw nREPL — see
 [`000-Vision.md`](./000-Vision.md) §Where Causa fits.
 
 ### AI co-pilot — dropped
 
 The AI co-pilot panel is dropped from Causa. Causa is the human-only
-observability surface; AI access is via `tools/pair2-mcp/`. The
+observability surface; AI access is via `tools/re-frame2-pair-mcp/`. The
 collapsed-rail cue glyph + the right-rail co-pilot panel + all
 co-pilot panel namespaces (`panels/ai_co_pilot*`) die in a separate
 deletion PR.
@@ -369,15 +369,15 @@ single nav-event that pertains to the focused cascade.
 The MCP Server panel is dropped from Causa. The `tools/causa-mcp/`
 artefact is dropped entirely (separate PR); there is no Causa-curated
 MCP surface to render. AI access to the running re-frame2 runtime
-goes through `tools/pair2-mcp/` over raw nREPL — see
+goes through `tools/re-frame2-pair-mcp/` over raw nREPL — see
 [`000-Vision.md`](./000-Vision.md) §Where Causa fits.
 
-Trace events tagged `:origin :pair2-mcp` (the new agent-origin tag)
+Trace events tagged `:origin :re-frame2-pair-mcp` (the new agent-origin tag)
 appear in the **Trace tab** like any other tagged trace event — visible
 when the `event` chip is ON. No special-purpose tab; the Trace tab's
 filter-pill UX (per [`018-Event-Spine.md`](./018-Event-Spine.md) §5.3)
 covers "show me only what the agent did" via an IN pill on `:origin
-pair2-mcp`.
+re-frame2-pair-mcp`.
 
 ## Settings popup — v1 ships
 

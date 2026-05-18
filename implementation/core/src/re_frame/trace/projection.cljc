@@ -3,7 +3,7 @@
 
   Per Spec 009 §Subscription / consumption, the trace stream is
   event-at-a-time. Pair-shaped tools (Story's trace panel, Causa's
-  event-detail panel and causality graph, re-frame-pair2's
+  event-detail panel and causality graph, re-frame2-pair's
   `cascade-of`) all want the same higher-level shape — one row per
   cascade with the six-domino slots already populated. This namespace
   ships that projection as a pure data function so each tool can stop
@@ -46,7 +46,7 @@
   - Causa (rf2-5aw5v) will consume `group-cascades` in its event-detail
     panel and causality-graph node renderer; the `:ungrouped` slot covers
     free-floating traces (e.g. registry events emitted at app boot).
-  - re-frame-pair2's `cascade-of` MCP op currently walks
+  - re-frame2-pair's `cascade-of` MCP op currently walks
     `:event/dispatched` traces in a slimmer form; it migrates to this
     projection so 'show me every fx in this cascade' becomes one slice
     of the returned record.")

@@ -126,7 +126,7 @@ This is **static** — no runtime, no live cache, no Reagent. It reads off the r
 The framework commits to stable data shapes and query APIs; tools own presentation, orchestration, and host integration. Outside the framework, in separate artefacts:
 
 - Causa itself — the in-app devtools panel, this tutorial's subject.
-- [`re-frame-pair2`](../skills/re-frame-pair2.md) — the AI pair-programming skill that attaches over nREPL.
+- [`re-frame2-pair`](../skills/re-frame2-pair.md) — the AI pair-programming skill that attaches over nREPL.
 - [Story](../story/index.md) — the Storybook-class component playground.
 - The `story-mcp` JVM server packaging the Story surface as MCP tools for AI agents.
 - APM-shipper wiring — see [Guide 22 — Trace to Datadog](../guide/22-trace-to-datadog.md).

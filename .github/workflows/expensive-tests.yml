@@ -145,18 +145,18 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/pair2-mcp/shadow-cljs.edn', 'tools/pair2-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame-pair2/tests/fixture/deps.edn', 'skills/re-frame-pair2/tests/fixture/shadow-cljs.edn') }}
+          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn') }}
           restore-keys: |
             ${{ runner.os }}-expensive-mcp-live-
-            ${{ runner.os }}-cljs-tools-pair2-mcp-
+            ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
             ${{ runner.os }}-clj-
 
-      - name: Install pair2-mcp deps
-        working-directory: tools/pair2-mcp
+      - name: Install re-frame2-pair-mcp deps
+        working-directory: tools/re-frame2-pair-mcp
         run: npm install
 
-      - name: Compile pair2-mcp server bundle
-        working-directory: tools/pair2-mcp
+      - name: Compile re-frame2-pair-mcp server bundle
+        working-directory: tools/re-frame2-pair-mcp
         run: npx shadow-cljs compile server
 
       - name: Install mcp-conformance deps
@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:exec-safety
-          npm run test:pair2
+          npm run test:re-frame2-pair
           npm run test:story
           npm run test:causa
 
@@ -178,5 +178,5 @@ jobs:
         working-directory: implementation
         run: npx playwright install --with-deps chromium
 
-      - name: Run pair2 live-overflow conformance
-        run: npm run test:pair2-live-overflow-hermetic
+      - name: Run re-frame2-pair live-overflow conformance
+        run: npm run test:re-frame2-pair-live-overflow-hermetic

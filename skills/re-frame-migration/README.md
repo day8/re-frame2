@@ -25,7 +25,7 @@ The six-phase migration workflow:
 
 - The re-frame2 API itself (`reg-event-*`, `reg-sub`, `reg-machine`, frames, schemas, ...) — that's the main `re-frame2` skill.
 - Greenfield setup — that's `re-frame2-setup`.
-- Live-runtime inspection of the running v2 app — that's `re-frame-pair2`.
+- Live-runtime inspection of the running v2 app — that's `re-frame2-pair`.
 - Substrate migration (Reagent → UIx / Helix) — never part of a v1→v2 migration; opt-in via O-13 / O-14.
 - Stylistic refactoring, naming changes, or any rewriting the author didn't ask for.
 - Running the author's tests — that's general software practice, not migration-specific (per the Q14 lock from the `re-frame2` skill design).

@@ -1,7 +1,7 @@
 # Testbeds — shared framework-behavior surfaces
 
 > **Type:** Test fixture (framework-behavior).
-> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Causa, Story, pair2-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
+> Not a tutorial. The apps here deliberately error, deliberately leak, deliberately blow budgets — every line exists to give a tool (Causa, Story, re-frame2-pair-mcp) something concrete to observe. Read [`examples/`](../examples/) for tutorial-shaped apps; read here when you need to know what a panel/recorder/MCP wire is *supposed* to do when a `:rf.error/*`, `:rf.http/*`, or `:rf.flow/*` event flies past.
 
 The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in **rf2-96nb3**. Top-level structure:
 
@@ -54,7 +54,7 @@ Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed
 
 ## Which tools consume what
 
-| Surface | Causa scenarios | Story scenarios | pair2-mcp scenarios |
+| Surface | Causa scenarios | Story scenarios | re-frame2-pair-mcp scenarios |
 |---|---|---|---|
 | `deliberate_throw/` | Handler exception surfaces as `:effects` outcome `:error` on epoch record; `:rf.error/handler-exception` highlighted in trace stream; partial epoch on flow throw; structured trace in Story `:play` replay | Recorder captures the click, plays it back, repro is identical; `:rf.assert/*` envelope around the trigger | Trace event arrives over the wire with `:rf.error/*` :op-type intact; `:dispatch` MCP call surfaces the error in the response envelope |
 | `schema_violation/` | Schema-validation-failure trace + `:rollback?` flag visible in trace panel; `:where` tag is one of `:event / :app-db / :cofx / :fx-args`; recovery (`:rollback?`, `:skipped`, `:replaced-with-default`) matches the per-step table | Recorder redacts post-`:sensitive?` events; the variant under `app-db` validation triggers the rollback path observable in subscribed views | Schema-validation-failure event arrives with `:path`, `:value`, `:explain` carried verbatim; `:rollback?` flag visible |

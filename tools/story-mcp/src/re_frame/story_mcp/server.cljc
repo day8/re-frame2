@@ -216,7 +216,7 @@
     `apply-config!` only when the absent default was already
     `false`).
   - `--allow-sensitive-reads` — presence opens the sensitive-read gate
-    (rf2-g9fje). Symmetric with `--allow-writes` and with pair2-mcp's
+    (rf2-g9fje). Symmetric with `--allow-writes` and with re-frame2-pair-mcp's
     `--allow-eval`: operator-only opt-in, no `=value` variant. Default
     off; when off, the wire-egress scrubbers silently ignore any
     `:include-sensitive true` per-call arg and `tools/list` omits the
@@ -249,7 +249,7 @@
      (log! "booted; allow-writes?=" (config/writes-allowed?)
            " protocol=" config/protocol-version
            " server=" config/server-name)
-     ;; rf2-g9fje — one-line boot signal mirroring pair2-mcp's
+     ;; rf2-g9fje — one-line boot signal mirroring re-frame2-pair-mcp's
      ;; `eval-cljs:` line. Operators inspecting the launch stderr can
      ;; confirm the posture at a glance.
      (log! "Sensitive reads:"

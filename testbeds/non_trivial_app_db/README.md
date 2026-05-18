@@ -3,7 +3,7 @@
 A Reagent-mounted surface whose `app-db` carries 55 leaves across 6
 top-level keys at depths 1 through 5. Six buttons drive six
 structurally distinct diff shapes. A consumer (Causa, Story,
-pair2-mcp) uses this surface to verify its diff visualisation
+re-frame2-pair-mcp) uses this surface to verify its diff visualisation
 renders realistic state without collapsing detail or re-rendering
 unchanged subtrees.
 
@@ -123,4 +123,4 @@ lands in `implementation/out/testbeds/non-trivial-app-db/`.
 
 - [`spec/009-Instrumentation.md` §Trace event for app-db changes](../../spec/009-Instrumentation.md) — the `:event/db-changed` shape this surface's clicks emit, with `:tags :app-db-before` / `:tags :app-db-after` consumers diff against.
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record`](../../spec/Spec-Schemas.md) — the epoch record's `:db-before` / `:db-after` slots carrying the 55-leaf shape per cascade.
-- [`spec/Tool-Pair.md` §Time-travel](../../spec/Tool-Pair.md) — the pair2-mcp time-travel contract a diff visualisation rides.
+- [`spec/Tool-Pair.md` §Time-travel](../../spec/Tool-Pair.md) — the re-frame2-pair-mcp time-travel contract a diff visualisation rides.

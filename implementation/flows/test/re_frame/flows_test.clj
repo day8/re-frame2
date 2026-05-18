@@ -982,7 +982,7 @@
 ;; flows registration site stored the body under `:output` only — so
 ;; both reads were nil for every flow re-registration and
 ;; `:different-fn?` was always `false`. Tools (re-frame-10x's flow
-;; panel, Causa, pair2) branching on `:different-fn? true` missed every
+;; panel, Causa, re-frame2-pair) branching on `:different-fn? true` missed every
 ;; real flow-body change. Fix: `reg-flow` now stamps `:handler-fn`
 ;; alongside `:output` so the cross-kind registrar trace surface Spec
 ;; 001 standardises works for flows too.

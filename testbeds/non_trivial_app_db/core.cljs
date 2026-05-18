@@ -1,7 +1,7 @@
 (ns non-trivial-app-db.core
   "Shared framework-behavior testbed — an app-db with ~5 levels of nesting
   and ~50 leaf paths, deliberately shaped to exercise a consumer
-  (Causa, Story, pair2-mcp) diffing visualisation under realistic
+  (Causa, Story, re-frame2-pair-mcp) diffing visualisation under realistic
   depth. Each button mutates a different slot at a different depth so
   the consumer's diff renderer must:
 

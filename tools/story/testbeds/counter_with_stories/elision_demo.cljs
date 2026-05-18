@@ -28,7 +28,7 @@
      `rf/elide-wire-value` walks an app-db payload that includes
      this slot at its declared path, the value is replaced with a
      `{:rf.size/large-elided {:bytes … :path … :hint …}}` marker.
-     The `:hint` propagates verbatim — AI consumers (pair2-mcp,
+     The `:hint` propagates verbatim — AI consumers (re-frame2-pair-mcp,
      Causa) see the orienting string without drilling into the
      blob.
 
