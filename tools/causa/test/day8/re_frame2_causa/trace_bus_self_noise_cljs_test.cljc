@@ -188,3 +188,79 @@
           :tags {:sub-id :user/some-sub :frame :rf/default}})
        (is (= 1 (count (trace-bus/buffer)))
            "non-Causa :sub/run events flow through normally"))))
+
+;; ---- causa-internal event-id guard (rf2-g1pt8) --------------------------
+;;
+;; Pure-data sibling of `causa-internal-event?`. The ingest filter above
+;; catches every trace event emitted INSIDE `(rf/with-frame :rf/causa
+;; ...)`. The data-layer filter below catches every CASCADE whose
+;; event-id is in the `rf.causa` namespace — covering :rf.causa/* events
+;; dispatched WITHOUT `:frame :rf/causa` (those land on the host frame
+;; and slip past the ingest filter; the data-layer guard at the
+;; `:rf.causa/cascades` sub closes the hole structurally).
+;;
+;; Predicate tests run under both CLJ + CLJS (pure data, no
+;; collect-trace! plumbing).
+
+(deftest causa-internal-event-id?-keyword-namespace
+  (testing "true iff event-id is a keyword in the `rf.causa` namespace"
+    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/focus-cascade)))
+    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/select-tab)))
+    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/open-settings)))
+    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/select-panel)))
+    (is (true?  (trace-bus/causa-internal-event-id? :rf.causa/sync-trace-buffer)))
+    (testing "user-app events stay false"
+      (is (false? (trace-bus/causa-internal-event-id? :cart/add-item)))
+      (is (false? (trace-bus/causa-internal-event-id? :checkout/start)))
+      (is (false? (trace-bus/causa-internal-event-id? :user/click))))
+    (testing "framework + sibling reserved namespaces stay false"
+      ;; The filter is narrow: only `rf.causa`. Sibling reserved
+      ;; namespaces (`:rf/init`, `:rf.epoch/*`) are NOT Causa-internal
+      ;; — they're framework / epoch surface and must remain visible
+      ;; in the user-facing cascade list.
+      (is (false? (trace-bus/causa-internal-event-id? :rf/init)))
+      (is (false? (trace-bus/causa-internal-event-id? :rf.epoch/begin)))
+      (is (false? (trace-bus/causa-internal-event-id? :rf.story/something))))
+    (testing "nil-safe + non-keyword inputs"
+      (is (false? (trace-bus/causa-internal-event-id? nil)))
+      (is (false? (trace-bus/causa-internal-event-id? "rf.causa/foo")))
+      (is (false? (trace-bus/causa-internal-event-id? :unnamespaced)))
+      (is (false? (trace-bus/causa-internal-event-id? 42))))
+    (testing "namespace prefix collision guard"
+      ;; A keyword whose namespace STARTS with `rf.causa` but is not
+      ;; exactly `rf.causa` (e.g. `:rf.causal/x`, `:rf.causal-link/y`)
+      ;; must NOT match. The contract is namespace equality, not
+      ;; prefix matching.
+      (is (false? (trace-bus/causa-internal-event-id? :rf.causal/x)))
+      (is (false? (trace-bus/causa-internal-event-id? :rf.causal-link/y))))))
+
+(deftest causa-internal-cascade?-event-vector-head
+  (testing "true iff the cascade's :event vector's head is causa-internal"
+    (is (true?  (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 1
+                   :event       [:rf.causa/focus-cascade 99]})))
+    (is (true?  (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 2
+                   :event       [:rf.causa/select-tab :event]})))
+    (is (true?  (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 3
+                   :event       [:rf.causa/open-settings]}))
+        "single-element event vector (no payload) still classifies"))
+  (testing "user-app cascades stay false"
+    (is (false? (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 4
+                   :event       [:cart/add-item {:item-id "apple"}]})))
+    (is (false? (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 5
+                   :event       [:user/click]}))))
+  (testing ":ungrouped + event-less cascades stay false"
+    ;; `cascade-has-event?` (rf2-639lc) handles the :ungrouped bucket
+    ;; at the L2 boundary; the causa-internal filter sits orthogonal.
+    (is (false? (trace-bus/causa-internal-cascade?
+                  {:dispatch-id :ungrouped :event nil})))
+    (is (false? (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 6 :event []}))))
+  (testing "malformed shapes don't throw"
+    (is (false? (trace-bus/causa-internal-cascade? {})))
+    (is (false? (trace-bus/causa-internal-cascade?
+                  {:dispatch-id 7 :event "not-a-vector"})))))

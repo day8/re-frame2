@@ -260,10 +260,27 @@
     ;; downstream composite declares the dependency via `:<-` so the
     ;; reactive graph stays correct (and idle composites still don't pay
     ;; for the projection).
+    ;;
+    ;; Per rf2-g1pt8 the projection ALSO hard-filters Causa-internal
+    ;; cascades (any cascade whose event-id is in the `rf.causa`
+    ;; namespace) at this single point so every downstream consumer
+    ;; — `:rf.causa/filtered-cascades`, the L2 event list, the spine,
+    ;; the causality popover, the Trace / Issues / Event / Views
+    ;; tabs — inherits the filter automatically. The ingest-side
+    ;; `trace-bus/causa-internal-event?` guard (rf2-xs8vu) catches
+    ;; self-emitted sub-reads + view-renders inside Causa's frame
+    ;; scope, but `:rf.causa/*` events dispatched WITHOUT a
+    ;; `{:frame :rf/causa}` option (palette quick-actions, the
+    ;; causality popover's node click, headless helpers) land on the
+    ;; host frame and slip past the ingest filter. This filter
+    ;; closes that hole structurally without forcing every call site
+    ;; to thread `:frame`. Pre-alpha posture: no opt-out toggle —
+    ;; Causa's internals are not user-facing.
     (rf/reg-sub :rf.causa/cascades
       :<- [:rf.causa/trace-buffer]
       (fn [buffer _query]
-        (projection/group-cascades buffer)))
+        (let [cascades (projection/group-cascades buffer)]
+          (into [] (remove trace-bus/causa-internal-cascade?) cascades))))
 
     ;; Cross-panel sidebar selection. Legacy slot kept alive for tests
     ;; that still address the pre-refactor sidebar contract.
