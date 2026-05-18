@@ -45,7 +45,17 @@
   ;; can ship with. Locale defaults to :en; the editor preference
   ;; doesn't matter because the open-in-editor affordance is dev-only
   ;; (file:// hrefs in a published site are not actionable).
-  (story/configure! {:global-args {:locale :en}})
+  ;;
+  ;; rf2-r1uod — `:project-root` is plumbed here for parity with
+  ;; the dev-flavoured `core.cljs` entry. In a published static build
+  ;; the open-in-editor chip is effectively dev-only (custom URI
+  ;; schemes don't resolve from a published HTML page), so the slot
+  ;; is harmless in this entry; mirroring the dev entry's wiring
+  ;; keeps the two `run` fns structurally identical and makes future
+  ;; "live-on-static" experiments (e.g. a published site that links
+  ;; back into the author's editor) trivial.
+  (story/configure! {:global-args  {:locale :en}
+                     :project-root "C:/Users/miket/code/re-frame2/tools/story/testbeds"})
   ;; Seed the live-app's :count slot so any embedded `counter-card`
   ;; view that renders under the variant canvas starts from a
   ;; deterministic value rather than `nil`.

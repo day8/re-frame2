@@ -76,6 +76,12 @@
             ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
+            ;; rf2-r1uod — Story → Causa `:project-root` bridge. `configure!`
+            ;; calls `causa-preset/propagate-project-root!` so Causa-as-RHS
+            ;; source-coord chips resolve coords against the same on-disk
+            ;; root Story uses. CLJS-only require because the propagator
+            ;; is CLJS-only (it feature-detects Causa via `find-ns-obj`).
+            #?(:cljs [re-frame.story.causa-preset :as causa-preset])
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
@@ -476,6 +482,14 @@
   (no prefix; source-coord file ships verbatim — useful when the
   classpath already resolves to absolute paths, and for tests).
 
+  Per rf2-r1uod the value is also bridged into Causa's `:project-root`
+  slot via `re-frame.story.causa-preset/propagate-project-root!` so
+  Causa-as-RHS source-coord chips (open-in-editor on the Handler /
+  Dispatch / Interceptor chips, Trace tab rows, Issues ribbon) resolve
+  against the same on-disk root. The bridge is one-way; hosts that want
+  Causa pointed at a different root call `causa-config/configure!`
+  directly AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
+
   `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
   true` trace events per Spec 009 §Privacy (rf2-bclgj). Defaults to
   `false` — Story's per-variant trace-buffer listener (consumed by
@@ -493,7 +507,11 @@
   (when (some? editor)
     (config/set-editor! editor))
   (when (contains? opts :project-root)
-    (config/set-project-root! project-root))
+    (config/set-project-root! project-root)
+    ;; rf2-r1uod — bridge into Causa's `:project-root` slot so
+    ;; Causa-as-RHS source-coord chips share the same on-disk root.
+    ;; Feature-detect-safe (no-op when Causa is not on the classpath).
+    #?(:cljs (causa-preset/propagate-project-root!)))
   (when (contains? opts :trace/show-sensitive?)
     (config/set-show-sensitive! show-sensitive?))
   nil)

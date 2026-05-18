@@ -126,7 +126,7 @@ into `:assertions` rather than throwing — see
 | Var / fn | Notes |
 |---|---|
 | `goog-define :rf.story/enabled?` | Compile-time DCE flag; `true` in dev, `false` in `:advanced`. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
-| `configure!` | `(configure! {:global-args {...}})` — set global args at boot. |
+| `configure!` | `(configure! {:global-args {...} :editor :vscode :project-root "..." :trace/show-sensitive? false})` — set global config at boot. `:project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
 
 ## Cross-references
 

@@ -564,6 +564,32 @@ absolute coord isn't double-prefixed. The prefix lives in the shared
 `re-frame.source-coords.editor-uri/editor-uri` 3-arg form; Causa
 consumes the same helper and will plumb its own knob in a follow-up.
 
+##### Bridge to Causa-as-RHS (rf2-r1uod)
+
+When Causa is mounted as Story's RHS inspector (per [rf2-sgdd3](../README.md#stage-9-rf2-sgdd3-causa-as-rhs)),
+the Causa-side source-coord chips (Event lens Handler / Dispatch /
+Interceptors, Trace tab rows, Issues ribbon) read their on-disk root
+from Causa's `day8.re-frame2-causa.config/project-root` slot — NOT
+from Story's `re-frame.story.config/project-root`. To keep `:project-
+root` a single-source-of-truth setting the host only writes once,
+`(story/configure! {:project-root <path>})` is bridged into Causa's
+slot by `re-frame.story.causa-preset/propagate-project-root!`:
+
+- The propagator fires from two seams: (1) `story/configure!` after
+  `set-project-root!` lands (the common case — Causa's preload runs
+  before the testbed `run` fn), and (2) `causa-preset/ensure-causa-
+  mounted!` as defense-in-depth (lazy-load / hot-reload edge).
+- One-way (`story → causa`). Hosts that want Causa pointed at a
+  different on-disk root than Story call `causa-config/configure!`
+  directly AFTER `story/configure!` to override the bridge.
+- Feature-detect-safe: when Causa is not on the classpath the
+  propagator returns nil without touching the wire.
+
+Symmetric to shop's [rf2-6jyf6](https://github.com/day8/re-frame2/pull/1493) —
+Causa's standalone testbeds (shop) seed `:project-root` directly via
+`causa-config/configure!`; Story testbeds with Causa-as-RHS seed via
+`story/configure! :project-root` and let the bridge propagate.
+
 The shared URI builder lives at `re-frame.source-coords.editor-uri`
 under the core artefact and is CLJC-portable; Causa's mirror
 affordance (`day8.re-frame2-causa.open-in-editor`) consumes the same

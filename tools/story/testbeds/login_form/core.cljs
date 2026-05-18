@@ -53,6 +53,35 @@
     " flip green."]])
 
 ;; ---------------------------------------------------------------------------
+;; rf2-r1uod — Causa-as-RHS open-in-editor project-root for the live
+;; testbed. Story testbeds register source-coords with classpath-
+;; relative `:file` slots; OS-side editor URI handlers reject relative
+;; paths. The Story testbeds source-path under shadow-cljs is
+;; `../tools/story/testbeds` so the on-disk root that prepends to a
+;; coord like `login_form/stories.cljs:42` is the testbeds dir below.
+;; Plumbed via `story/configure! :project-root` and bridged into
+;; Causa's slot by `causa-preset/propagate-project-root!`. Symmetric
+;; to shop's rf2-6jyf6.
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-project-root
+  "C:/Users/miket/code/re-frame2/tools/story/testbeds")
+
+(defn- query-param
+  "Return the named URL query param as a string, or nil when absent /
+  blank. Pure-data helper — kept private to this testbed since the
+  query-string override is a per-host knob (not a Story-API surface)."
+  [name]
+  (when (exists? js/window)
+    (let [params (-> js/window .-location .-search
+                     (js/URLSearchParams.))
+          v      (.get params name)]
+      (when (and (string? v) (seq v)) v))))
+
+(defn- resolve-project-root []
+  (or (query-param "project-root") default-project-root))
+
+;; ---------------------------------------------------------------------------
 ;; Hash-routing between the live app and the Story shell
 ;; ---------------------------------------------------------------------------
 
@@ -91,6 +120,10 @@
   (causa-config/configure! {:launch/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   (story/install-canonical-vocabulary!)
+  ;; rf2-r1uod — `:project-root` plumbed through Story; the
+  ;; `causa-preset` bridge propagates it into Causa's slot so the
+  ;; Causa-as-RHS open-in-editor chips resolve absolute on-disk paths.
+  (story/configure! {:project-root (resolve-project-root)})
   ;; The live page wires `:rf.http/managed` to a demo override so
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`
