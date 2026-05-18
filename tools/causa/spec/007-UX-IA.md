@@ -139,6 +139,29 @@ as `day8.re-frame2-causa.config/default-layout-host-css-var` /
 without forking the string. Full contract + drag mechanics in
 [`011-Launch-Modes.md`](./011-Launch-Modes.md).
 
+### Resize affordance
+
+Causa's panel SHALL be horizontally resizable via a drag handle on the
+panel's outer edge (left edge when docked `:right-rail`; the default per
+`Settings → General → Panel position`). The handle SHALL:
+
+- Show `cursor: col-resize` on hover
+- Drag-to-update width with global mouse-capture
+- Clamp width to `[320px, 90vw]`
+- Persist via `configure! :settings :general :panel-width-px`
+  (see [`015-Configuration.md`](./015-Configuration.md))
+- Reset to default width on double-click
+
+No textual affordance accompanies the handle (cursor change is sufficient
+signal per [`Conventions.md`](./Conventions.md) §UI text — silent by
+default). The resize handle is a worked example of "non-obvious
+affordance with iconographic alternative": discovery is via cursor
+change on edge hover, not via prose label.
+
+In `:popout` panel-position the browser's window controls govern size
+(no in-panel handle renders). In `:fullscreen` position the handle is
+suppressed — the panel fills the viewport.
+
 ## The L1 ribbon
 
 Five clusters, fixed order left to right:

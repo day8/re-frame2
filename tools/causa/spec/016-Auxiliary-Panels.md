@@ -278,7 +278,7 @@ backfills what v1 actually ships.
 
 | Tab | What it carries |
 |---|---|
-| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · "Auto-open Causa when an issue is observed" checkbox |
+| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · Panel-width-px slot (number; default 480; written by the resize handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance); no in-popup widget — the panel's drag handle is the affordance) · "Auto-open Causa when an issue is observed" checkbox |
 | **Filters** | Pointer into the auto-filter pills feature. When the `day8.re-frame2-causa.filters` ns is on the classpath the tab renders an "Open auto-filter UI" button that dispatches `:rf.causa.filters/open`; otherwise it shows the "install the feature first" hint. The full pill management surface lives in the ribbon (per [`018-Event-Spine.md`](./018-Event-Spine.md) §7) — this tab is a discoverability handle. |
 | **Theme** | Dark (default) / Light radio. Toggles the `rf-causa-theme-{dark,light}` class on the shell root + `<html>`. Accent picker deferred. |
 
@@ -297,6 +297,7 @@ When telemetry actually ships, the tab returns with real wiring.
 |---|---|---|
 | `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. |
 | `:general :panel-position` | `:right-rail` | Matches the existing `:layout/host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
+| `:general :panel-width-px` | `480` | Matches the default inline-host `--rf-causa-inline-width` band. Clamped `[320, 0.9 × viewport-width-px]` on every write. Set by the drag handle (rf2-x8h9y); double-click resets to this default. |
 | `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Causa to interrupt them. |
 | `:theme` | `:dark` | Causa is a dev tool; the canvas-and-chrome palette in `theme/tokens.cljc` is the dark one. |
 

@@ -221,6 +221,13 @@ Prose appears only when:
 2. The user is in **a state they couldn't otherwise know about** (e.g.
    "filter is hiding 12 events" — invisible from the data alone).
 
+Worked example of "non-obvious affordance with iconographic alternative":
+the panel resize handle (rf2-x8h9y; spec at
+[`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance))
+ships with no label, no tooltip, no "drag to resize" prose. Discovery is
+via `cursor: col-resize` on hover — the cursor change is the
+iconographic signal, and prose would be redundant chrome.
+
 ### Banned phrasings
 
 - **Panel subheads** that restate the panel title.

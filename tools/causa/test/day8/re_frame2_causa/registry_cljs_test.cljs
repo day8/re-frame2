@@ -333,7 +333,6 @@
    :rf.causa/palette-toggle
    :rf.causa/pin-current
    :rf.causa/pin-slice
-   :rf.causa/popout
    :rf.causa/preview-cascade
    :rf.causa/remove-filter
    :rf.causa/rename-pin
@@ -586,8 +585,12 @@
     ;;   views-set-component-filter, views-set-group-by,
     ;;   views-set-heatmap?, views-toggle-cluster, views-toggle-heatmap,
     ;;   views-toggle-row.
-    ;; + 6 4-layer chrome (rf2-xy4yb): select-tab + add-filter +
-    ;;   remove-filter + open-settings + popout + close-shell
+    ;; + 5 4-layer chrome (rf2-xy4yb): select-tab + add-filter +
+    ;;   remove-filter + open-settings + close-shell
+    ;;   (popout dropped per rf2-u3qm1 — the ribbon `⛶` button + its
+    ;;   stub `:rf.causa/popout` event were broken-claim chrome; pop-
+    ;;   out is programmatic-only via `(causa/popout!)` until the
+    ;;   second-window UX lands).
     ;; + 6 sim sub-mode (rf2-v869p Phase 2):
     ;;   :rf.causa/sim-start / sim-step / sim-reset / sim-stop /
     ;;   sim-set-pending-event / sim-set-pending-data
@@ -632,7 +635,7 @@
     ;; + 2 resize handle (rf2-x8h9y):
     ;;   :rf.causa/set-panel-width-px (drag live update) +
     ;;   :rf.causa/reset-panel-width (double-click reset).
-    (is (= 146 (count all-event-names)))
+    (is (= 145 (count all-event-names)))
     ;; 4 baseline (`:rf.causa.fx/copy-to-clipboard`,
     ;; `:rf.causa.fx/reset-frame-db!`, `:rf.causa.fx/restore-epoch`,
     ;; `:rf.editor/open`) + 1 palette (`:rf.causa.palette.fx/popout`,
