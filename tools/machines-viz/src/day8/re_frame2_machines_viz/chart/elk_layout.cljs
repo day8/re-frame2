@@ -156,7 +156,7 @@
                       (catch :default _ nil))]
               (if (and p (.-then p))
                 (-> p
-                    (.then (fn [mod]
+                    (.then (fn [^js mod]
                              (let [Ctor (or (.-default mod) (.-ELK mod) (.-elk mod))]
                                (if Ctor
                                  (let [inst (Ctor.)]
