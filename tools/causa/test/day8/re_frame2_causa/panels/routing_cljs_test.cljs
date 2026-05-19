@@ -1,34 +1,32 @@
 (ns day8.re-frame2-causa.panels.routing-cljs-test
-  "CLJS-side wiring + view tests for Causa's Routes tab (rf2-nrbs9,
-  reshaped per rf2-lq0ef).
+  "CLJS-side wiring + view tests for Causa's Runtime Routing tab —
+  the focused-event lens (rf2-o5f5f.3 narrows from rf2-lq0ef).
 
-  ## What's under test (in addition to the pure-data tests in
-  `routing_helpers_cljs_test.cljc`)
+  ## Scope (post-narrow)
 
-    1. **Registry wires the subs** — every sub the panel reads gets
-       installed by `register-causa-handlers!`, plus the new UI-state
-       subs/events (`:rf.causa.routing/query`,
-       `:rf.causa.routing/sim-url`, `:rf.causa.routing/expanded`,
-       `:rf.causa.routing/toggle-row`, etc.) — and the `:routing` tab
-       id is in the L3 tabs vector + the palette panel list.
+  Per Mike's two-verbs-two-homes decision (2026-05-19), the Runtime
+  Routing tab is a focused-event lens: it surfaces the routing slice
+  of the focused event's cascade — FROM/TO chips when navigation
+  fired; otherwise an empty state pointing to Static Routes for the
+  browse verb.
 
-    2. **Render contract** — root container + header + search box +
-       Simulate-URL section + flat list (or empty state).
+  The browse + search + Simulate-URL surface was promoted to the
+  Static Routes panel (see
+  `static/routes/panel_cljs_test.cljs`).
 
-    3. **Silent state** — when no routes are registered the panel
-       renders the empty body (`No routes registered.`), no list, no
-       search.
+  ## What's under test
 
-    4. **Orientation HERE marker** — when routes are registered and
-       a current route slice exists, the current row carries the
-       `:here` marker.
+    1. **Registry wires the lens subs** — every sub the panel reads
+       gets installed by `register-causa-handlers!`. The promoted
+       browse / search / Simulate-URL slots (now under
+       `:rf.causa.static.routes/*`) are NOT registered by
+       `routing/install!` anymore.
 
-    5. **FROM / TO markers** — when the focused cascade carries a
-       `:rf.route.nav-token/allocated` trace event the corresponding
-       rows carry `:from` / `:to` markers.
+    2. **Empty / oriented states** — no-nav focused event renders the
+       empty state; nav-allocated focused cascade renders the FROM/TO
+       chip row + slice detail.
 
-    6. **Frame isolation** — every read targets `:rf/causa`'s frame;
-       the panel never reads the host frame's app-db directly."
+    3. **Frame isolation** — every read targets `:rf/causa`'s frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -78,14 +76,6 @@
             node))
         (hiccup-seq tree)))
 
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (some-> (:data-testid (second node))
-                         (.startsWith prefix))))
-          (hiccup-seq tree)))
-
 (defn- setup-causa-frame! []
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
@@ -108,11 +98,11 @@
 
 ;; ---- (1) registry wiring + tab inventory --------------------------------
 
-(deftest registry-installs-routing-subs
-  (testing "register-causa-handlers! installs every Routes-tab sub"
+(deftest registry-installs-routing-lens-subs
+  (testing "register-causa-handlers! installs the focused-event lens subs"
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/registered-routes))
-        ":rf.causa/registered-routes sub registered")
+        ":rf.causa/registered-routes sub registered (shared with Static)")
     (is (some? (registrar/handler :sub :rf.causa/registered-routes-override))
         "test-only override sub registered")
     (is (some? (registrar/handler :sub :rf.causa/current-route-slice))
@@ -120,23 +110,26 @@
     (is (some? (registrar/handler :sub :rf.causa/current-route-slice-override))
         "test-only override sub registered")
     (is (some? (registrar/handler :sub :rf.causa/routing-tab-data))
-        "view-facing composite sub registered")
-    (is (some? (registrar/handler :sub :rf.causa.routing/query))
-        ":rf.causa.routing/query sub registered (search input)")
-    (is (some? (registrar/handler :sub :rf.causa.routing/sim-url))
-        ":rf.causa.routing/sim-url sub registered (Simulate-URL input)")
-    (is (some? (registrar/handler :sub :rf.causa.routing/expanded))
-        ":rf.causa.routing/expanded sub registered (row expansion)")
-    (is (some? (registrar/handler :event :rf.causa.routing/set-query))
-        "search-input event registered")
-    (is (some? (registrar/handler :event :rf.causa.routing/set-sim-url))
-        "Simulate-URL event registered")
-    (is (some? (registrar/handler :event :rf.causa.routing/toggle-row))
-        "toggle-row event registered")
+        "view-facing focused-event-lens composite sub registered")
     (is (some? (registrar/handler :event :rf.causa/set-registered-routes-override-for-test))
         "test-only override event registered")
     (is (some? (registrar/handler :event :rf.causa/set-current-route-slice-override-for-test))
-        "test-only override event registered")))
+        "test-only override event registered"))
+  (testing "rf2-o5f5f.3 — browse + search + Simulate-URL slots NO LONGER live
+            under :rf.causa.routing/* (promoted to :rf.causa.static.routes/*)"
+    (registry/register-causa-handlers!)
+    (is (nil? (registrar/handler :sub :rf.causa.routing/query))
+        ":rf.causa.routing/query removed (moved to static.routes/query)")
+    (is (nil? (registrar/handler :sub :rf.causa.routing/sim-url))
+        ":rf.causa.routing/sim-url removed (moved to static.routes/sim-url)")
+    (is (nil? (registrar/handler :sub :rf.causa.routing/expanded))
+        ":rf.causa.routing/expanded removed (moved to static.routes/expanded)")
+    (is (nil? (registrar/handler :event :rf.causa.routing/set-query))
+        ":rf.causa.routing/set-query removed (moved to static.routes/set-query)")
+    (is (nil? (registrar/handler :event :rf.causa.routing/set-sim-url))
+        ":rf.causa.routing/set-sim-url removed (moved to static.routes/set-sim-url)")
+    (is (nil? (registrar/handler :event :rf.causa.routing/toggle-row))
+        ":rf.causa.routing/toggle-row removed (moved to static.routes/toggle-row)")))
 
 (deftest palette-includes-routing
   (testing "the palette's canonical panel list carries the :routing entry"
@@ -145,13 +138,16 @@
       (is (= 7 (count palette-subs/palette-panels))
           "exactly 7 entries — Event / App DB / Views / Trace / Machines / Routing / Issues"))))
 
-;; ---- (2) silent state ---------------------------------------------------
+;; ---- (2) empty state ---------------------------------------------------
 
-(deftest panel-renders-silent-state-when-no-routes
-  (testing "no routes registered → empty-state body, no list, no search"
+(deftest panel-renders-empty-state-without-nav-cascade
+  (testing "no focused-event nav → empty orientation pointing to Static Routes"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test {}]
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
+                         {:id :route/cart :params {} :query {}}]
                         {:frame :rf/causa})
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-causa-routing"))
@@ -159,64 +155,64 @@
         (is (some? (find-by-testid tree "rf-causa-routing-header"))
             "header always renders")
         (is (some? (find-by-testid tree "rf-causa-routing-empty"))
-            "silent state body present")
+            "empty orientation rendered when focused event did not navigate")
+        (is (nil? (find-by-testid tree "rf-causa-routing-nav-row"))
+            "FROM/TO row NOT rendered without nav cascade")
+        ;; Promoted browse surfaces MUST NOT be present anymore
         (is (nil? (find-by-testid tree "rf-causa-routing-list"))
-            "flat list NOT rendered")
+            "flat list NOT rendered (promoted to Static Routes)")
         (is (nil? (find-by-testid tree "rf-causa-routing-search"))
-            "search NOT rendered in silent state")
+            "search NOT rendered (promoted to Static Routes)")
         (is (nil? (find-by-testid tree "rf-causa-routing-sim"))
-            "simulator NOT rendered in silent state")))))
+            "Simulate-URL NOT rendered (promoted to Static Routes)")))))
 
-;; ---- (3) flat-list rendering + chrome ----------------------------------
-
-(deftest panel-renders-flat-list-when-routes-present
-  (testing "routes present → flat list + search + simulator + slice detail"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-list"))
-            "flat list rendered")
-        (is (some? (find-by-testid tree "rf-causa-routing-search"))
-            "search box rendered")
-        (is (some? (find-by-testid tree "rf-causa-routing-sim"))
-            "Simulate-URL section rendered")
-        (is (some? (find-by-testid tree "rf-causa-routing-slice-detail"))
-            "slice detail rendered for active slice")
-        (is (nil? (find-by-testid tree "rf-causa-routing-empty"))
-            "empty state NOT rendered when routes present")))))
-
-;; ---- (4) orientation HERE marker ----------------------------------------
-
-(deftest panel-renders-here-marker-without-navigation
-  (testing "current slice present + no nav cascade → HERE on the active row"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)
-            cart-row (find-by-testid tree "rf-causa-routing-row-route/cart")]
-        (is (some? cart-row) "current route row renders")
-        (is (= "here" (:data-marker (second cart-row)))
-            "current route row carries the HERE marker")
-        (is (some? (find-by-testid tree "rf-causa-routing-marker-here"))
-            "HERE chip text rendered")))))
-
-;; ---- (5) FROM / TO markers ---------------------------------------------
+;; ---- (3) FROM / TO chip row when focused cascade navigated -------------
 
 (deftest panel-renders-from-to-when-cascade-navigated
-  (testing "focused cascade with nav-token emit → FROM + TO markers"
+  (testing "focused cascade with nav-token emit → FROM + TO chip row + slice detail"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/causa})
+      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
+                         {:id     :route/confirm
+                          :params {:order-id "ord-1234"}
+                          :query  {:source "cart"}}]
+                        {:frame :rf/causa})
+      (let [nav-event (nav-allocated :route/confirm)
+            buffer [{:id 99 :op-type :event :operation :event/dispatched
+                     :tags {:dispatch-id 99
+                            :event [:rf.route/navigate :route/confirm]}}
+                    (assoc nav-event :tags
+                           (assoc (:tags nav-event) :dispatch-id 99))]]
+        (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer]
+                          {:frame :rf/causa})
+        (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))
+      (let [tree (routing/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-routing-nav-row"))
+            "FROM/TO chip row rendered")
+        ;; FROM cell does NOT render here — no prior slice id distinct
+        ;; from confirm, so from-to-from-cascade collapses :from-id.
+        ;; The TO cell + nav marker chips MUST render.
+        (is (some? (find-by-testid tree "rf-causa-routing-to-cell"))
+            "TO cell rendered")
+        (is (some? (find-by-testid tree "rf-causa-routing-marker-to"))
+            "TO marker chip text rendered")
+        (is (some? (find-by-testid tree "rf-causa-routing-nav-summary"))
+            "header nav summary surfaces the TO id")
+        (is (some? (find-by-testid tree "rf-causa-routing-slice-detail"))
+            "slice detail grid rendered alongside nav row")
+        (is (nil? (find-by-testid tree "rf-causa-routing-empty"))
+            "empty state NOT rendered when navigation triggered")))))
+
+(deftest panel-renders-from-and-to-when-prior-slice-differs
+  (testing "focused cascade with nav-token emit + distinct prior slice → FROM + TO"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/causa})
+      ;; Prior slice = :route/cart (will be the FROM after the nav lands on
+      ;; :route/confirm).
       (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
                          {:id :route/cart :params {} :query {}}]
                         {:frame :rf/causa})
@@ -229,129 +225,12 @@
         (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer]
                           {:frame :rf/causa})
         (rf/dispatch-sync [:rf.causa/focus-cascade 99 nil] {:frame :rf/causa}))
-
-      (let [tree (routing/Panel)
-            cart-row    (find-by-testid tree "rf-causa-routing-row-route/cart")
-            confirm-row (find-by-testid tree "rf-causa-routing-row-route/confirm")]
-        (is (some? cart-row)    "cart row present")
-        (is (some? confirm-row) "confirm row present")
-        (is (= "from" (:data-marker (second cart-row)))
-            "cart row carries the FROM marker")
-        (is (= "to" (:data-marker (second confirm-row)))
-            "confirm row carries the TO marker")
+      (let [tree (routing/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-routing-from-cell"))
+            "FROM cell rendered (prior slice = :route/cart)")
         (is (some? (find-by-testid tree "rf-causa-routing-marker-from"))
-            "FROM chip text rendered")
+            "FROM marker chip rendered")
+        (is (some? (find-by-testid tree "rf-causa-routing-to-cell"))
+            "TO cell rendered (nav destination = :route/confirm)")
         (is (some? (find-by-testid tree "rf-causa-routing-marker-to"))
-            "TO chip text rendered")
-        (is (some? (find-by-testid tree "rf-causa-routing-nav-summary"))
-            "header nav summary surfaces the TO id")))))
-
-;; ---- (6) metadata badges + parent annotation ---------------------------
-
-(deftest panel-renders-meta-badges
-  (testing "routes carrying :on-match / :parent surface their badges"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)
-            confirm-row (find-by-testid tree "rf-causa-routing-row-route/confirm")]
-        (is (some? confirm-row) "confirm row renders")
-        ;; :route/confirm carries both :on-match and :parent
-        (let [on-match-badges (find-all-by-testid-prefix
-                                tree "rf-causa-routing-badge-on-match")
-              parent-badges   (find-all-by-testid-prefix
-                                tree "rf-causa-routing-badge-parent")
-              parent-ptrs     (find-all-by-testid-prefix
-                                tree "rf-causa-routing-parent-ptr")]
-          (is (pos? (count on-match-badges))
-              "at least one :on-match badge renders (confirm has :on-match)")
-          (is (pos? (count parent-badges))
-              "at least one :parent badge renders (confirm has :parent)")
-          (is (pos? (count parent-ptrs))
-              "the compact ↑ parent pointer annotation renders"))))))
-
-;; ---- (7) substring search filters the list -----------------------------
-
-(deftest panel-search-filters-the-list
-  (testing "set-query event narrows the catalogue"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa.routing/set-query "checkout"]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)
-            rows (find-all-by-testid-prefix tree "rf-causa-routing-row-")]
-        (is (= #{"rf-causa-routing-row-route/checkout"
-                 "rf-causa-routing-row-route/payment"
-                 "rf-causa-routing-row-route/confirm"}
-               (set (map #(:data-testid (second %)) rows)))
-            "only routes whose haystack contains \"checkout\" render")))))
-
-;; ---- (8) Simulate-URL surface ------------------------------------------
-
-(deftest panel-simulates-url-and-surfaces-candidates
-  (testing "set-sim-url populates the simulator result with ranked candidates"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa.routing/set-sim-url "/cart"]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-sim-result"))
-            "simulator result rendered")
-        (is (some? (find-by-testid tree "rf-causa-routing-sim-candidate-route/cart"))
-            "matching candidate row rendered"))))
-
-  (testing "no match — result block reports zero candidates"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa.routing/set-sim-url "/nope-not-here"]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-sim-result"))
-            "simulator result rendered even on no-match")))))
-
-;; ---- (9) row expand toggle ---------------------------------------------
-
-(deftest panel-row-expand-toggle
-  (testing "toggle-row event opens the meta-expander surface"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      ;; Initial render — no expander visible.
-      (let [tree (routing/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-routing-meta-route/cart"))
-            "meta expander NOT present before toggle"))
-      (rf/dispatch-sync [:rf.causa.routing/toggle-row :route/cart]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-meta-route/cart"))
-            "meta expander rendered after toggle"))
-      (rf/dispatch-sync [:rf.causa.routing/toggle-row :route/cart]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (nil? (find-by-testid tree "rf-causa-routing-meta-route/cart"))
-            "meta expander hidden after second toggle (toggle behaviour)")))))
-
-;; ---- (10) slice detail rendering ---------------------------------------
-
-(deftest panel-renders-slice-detail
-  (testing "params + query + fragment grid rendered when current slice present"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/causa})
-      (rf/dispatch-sync [:rf.causa/set-current-route-slice-override-for-test
-                         {:id     :route/confirm
-                          :params {:order-id "ord-1234"}
-                          :query  {:source "cart"}}]
-                        {:frame :rf/causa})
-      (let [tree (routing/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-routing-slice-detail"))
-            "slice detail grid present")))))
+            "TO marker chip rendered")))))
