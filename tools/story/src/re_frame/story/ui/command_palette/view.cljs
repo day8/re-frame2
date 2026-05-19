@@ -5,7 +5,8 @@
             [re-frame.story.config :as config]
             [re-frame.story.ui.command-palette :as palette]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.toolbar :as toolbar]))
+            [re-frame.story.ui.toolbar :as toolbar]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]))
 
 (defn shortcut-event?
   "True when `event` is Story's global command-palette shortcut."
@@ -82,7 +83,7 @@
                  :border-radius "12px"
                  :box-shadow "0 24px 80px rgba(0, 0, 0, 0.5)"
                  :overflow "hidden"
-                 :font-family "ui-monospace, SFMono-Regular, Consolas, monospace"
+                 :font-family mono-stack
                  :color "#f2f2f2"}
    :input-wrap  {:border-bottom "1px solid #3b3b42"
                  :padding "12px"}
@@ -105,14 +106,14 @@
                  :border-radius "8px"
                  :cursor "pointer"}
    :row-active  {:background "#3a3a43"}
-   :kind        {:font-size "11px"
+   :kind        {:font-size (:caption typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.08em"
                  :color "#aeb4c0"
                  :padding-top "2px"}
-   :id          {:font-size "13px"
+   :id          {:font-size (:body typography/type-scale)
                  :color "#ffffff"}
-   :doc         {:font-size "12px"
+   :doc         {:font-size (:body-tight typography/type-scale)
                  :color "#b8b8c0"
                  :line-height "1.35"
                  :margin-top "2px"
@@ -122,7 +123,7 @@
    :empty       {:padding "24px"
                  :text-align "center"
                  :color "#9a9aa3"
-                 :font-size "13px"}})
+                 :font-size (:body typography/type-scale)}})
 
 (defn- result-row [entry active? on-hover on-select]
   ^{:key [(:kind entry) (:id entry)]}

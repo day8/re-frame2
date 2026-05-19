@@ -28,7 +28,10 @@
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]))
 
 ;; ---- namespace-preserving frame-provider --------------------------------
 ;;
@@ -68,39 +71,68 @@
 
 (def ^:private styles
   {:wrap     {:padding "16px"
-              :background "#1e1e1e"
+              :background (:bg-canvas colors/tokens)
               :flex "1"
               :min-height "200px"
               :overflow "auto"
-              :color "#ddd"
-              :font-family "system-ui, sans-serif"}
-   :frame    {:background "#252526"
-              :border "1px solid #3c3c3c"
-              :border-radius "4px"
-              :padding "12px"}
-   :empty    {:color "#9a9a9a"
+              :color (:text-primary colors/tokens)
+              :font-family sans-stack}
+   :frame    {;; rf2-ypd6h: the workshop region. Atmospheric amber-halo
+              ;; backdrop + amber inset edge so the variant render lifts
+              ;; visibly above the surrounding chrome — the user's eye
+              ;; lands here automatically.
+              :background (:canvas-frame depth/backdrops)
+              :border "1px solid transparent"
+              :border-radius "6px"
+              :padding "16px"
+              :box-shadow (:canvas-edge depth/shadows)}
+   :empty    {:color (:text-tertiary colors/tokens)
               :font-style "italic"
               :text-align "center"
               :padding "32px"}
+   ;; Title row: flex so the variant id + view-id consume the left
+   ;; portion and the trailing affordances (open-in-editor chip, share
+   ;; button) sit anchored to the right. `flex-wrap` keeps the row from
+   ;; cramping on narrow canvases, but the share-button container is
+   ;; pinned to the right edge so the popover (anchored from share-button
+   ;; via `right: 0`) always extends INTO the canvas — never leftward
+   ;; into the sidebar's screen-x range, which Playwright's hit-testing
+   ;; flags as a pointer-events intercept (see Tools/Story PR #1554 CI
+   ;; trace: with default fallback fonts on Linux, the natural inline
+   ;; flow wraps the title and pushes share-button to the left of line 2,
+   ;; placing the popover's close button under the sidebar).
    :title    {:font-weight "bold"
               :margin-bottom "8px"
-              :color "#9cdcfe"
-              :font-family "monospace"
-              :font-size "12px"}
-   :error    {:background "#5a1d1d"
+              :color (:info colors/tokens)
+              :font-family mono-stack
+              :font-size (:body-tight typography/type-scale)
+              :display "flex"
+              :align-items "center"
+              :flex-wrap "wrap"
+              :gap "4px"}
+   ;; The trailing-affordance cluster (open-in-editor + share). Pushed
+   ;; to the right via `margin-left: auto` so the popover always anchors
+   ;; from the canvas's right edge rather than wherever inline flow
+   ;; happens to land in CI font-fallback conditions.
+   :title-trailing {:margin-left "auto"
+                    :display "inline-flex"
+                    :align-items "center"
+                    :gap "8px"
+                    :flex-shrink "0"}
+   :error    {:background (:danger-bg colors/tokens)
               :border "1px solid #be4040"
-              :color "#fdd"
+              :color (:danger colors/tokens)
               :padding "8px"
               :margin-top "8px"
-              :font-family "monospace"
-              :font-size "11px"
+              :font-family mono-stack
+              :font-size (:caption typography/type-scale)
               :border-radius "3px"}
    :assertion {:padding "4px 8px"
                :border-left "3px solid #be4040"
                :margin "2px 0"
-               :font-family "monospace"
-               :font-size "11px"
-               :background "#332"}})
+               :font-family mono-stack
+               :font-size (:caption typography/type-scale)
+               :background (:danger-bg colors/tokens)}})
 
 ;; ---- variant view resolution --------------------------------------------
 
@@ -146,14 +178,14 @@
        [:div {:style {:margin-top "4px"}}
         (str (.-message e))]
        (when-let [ids (seq (keep :id hiccup-decorators))]
-         [:div {:style {:margin-top "4px" :color "#fbb"}}
+         [:div {:style {:margin-top "4px" :color (:danger colors/tokens)}}
           (str "decorators in stack: "
                (str/join ", " (map pr-str ids)))])
        ;; Render the variant body itself uncoated so the user still sees
        ;; *something* — the page never blanks on a decorator failure.
        [:div {:style {:margin-top "8px"
                       :padding "8px"
-                      :background "#1e1e1e"
+                      :background (:bg-canvas colors/tokens)
                       :border "1px dashed #555"}}
         view-hiccup]])))
 
@@ -266,23 +298,31 @@
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
       (when view-id
-        [:span {:style {:color "#9a9a9a" :margin-left "8px"}}
+        [:span {:style {:color (:text-tertiary colors/tokens)}}
          (str "→ " (pr-str view-id))])
       (when multi?
-        [:span {:style {:color "#b0b0b0" :margin-left "8px"
-                        :font-size "10px" :font-weight "normal"}}
+        [:span {:style {:color (:text-secondary colors/tokens)
+                        :font-size (:micro typography/type-scale) :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])
-      ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
-      ;; off the variant body and routes through the user's configured
-      ;; editor URI scheme. Renders nothing when no source-coord was
-      ;; captured at registration.
+      ;; Trailing-affordance cluster: open-in-editor chip + share popover
+      ;; trigger. Pinned to the right end of the title row via the
+      ;; `:title-trailing` style's `margin-left: auto`. This anchors the
+      ;; share popover (which positions `right: 8px` against its inline-
+      ;; block parent) so it always extends LEFTWARD INTO the canvas, not
+      ;; off the canvas's left edge into the sidebar's screen-x range —
+      ;; which the CI Playwright run flagged as a pointer-events intercept
+      ;; when the title wrapped under default Linux fallback fonts.
       (when variant-id
-        (open-in-editor/open-chip-for-variant variant-body))
-      ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
-      (when variant-id
-        [share/share-button variant-id])]
+        [:span {:style (:title-trailing styles)}
+         ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
+         ;; off the variant body and routes through the user's configured
+         ;; editor URI scheme. Renders nothing when no source-coord was
+         ;; captured at registration.
+         (open-in-editor/open-chip-for-variant variant-body)
+         ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
+         [share/share-button variant-id]])]
      ;; rf2-9jthx: share-import hint surfaces a non-blocking note when
      ;; a hydrated share URL dropped one or more overrides (variant
      ;; args refactored/renamed/removed). Renders nil when nothing

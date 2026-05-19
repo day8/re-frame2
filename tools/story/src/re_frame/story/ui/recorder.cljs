@@ -68,7 +68,9 @@
             [re-frame.story.recorder.dom-capture         :as recorder-dom]
             [re-frame.story.review-dialog                :as review-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
-            [re-frame.story.ui.state                     :as state]))
+            [re-frame.story.ui.state                     :as state]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reagent mirror of the recorder state
@@ -128,13 +130,13 @@
                  :align-items     "center"
                  :gap             "5px"
                  :padding         "3px 10px"
-                 :background      "#37373d"
-                 :color           "#cccccc"
+                 :background      (:bg-3 colors/tokens)
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :chip-active {:display         "inline-flex"
@@ -146,8 +148,8 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :font-weight     "bold"
                  :letter-spacing  "0.4px"
@@ -156,13 +158,13 @@
                  :align-items     "center"
                  :gap             "5px"
                  :padding         "3px 10px"
-                 :background      "#2d2d30"
+                 :background      (:bg-2 colors/tokens)
                  :color           "#777"
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "not-allowed"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :dot         {:width        "8px"
@@ -176,11 +178,11 @@
                  :z-index      1600
                  :background   "#1f1f1f"
                  :border       "1px solid #b91c1c"
-                 :color        "#fdd"
+                 :color        (:danger colors/tokens)
                  :padding      "6px 10px"
                  :border-radius "4px"
-                 :font-family  "monospace"
-                 :font-size    "11px"
+                 :font-family  mono-stack
+                 :font-size    (:caption typography/type-scale)
                  :box-shadow   "0 4px 10px rgba(0,0,0,0.6)"
                  :display      "flex"
                  :align-items  "center"
@@ -192,33 +194,33 @@
                  :gap "8px"
                  :justify-content "flex-end"}
    :btn         {:padding "5px 12px"
-                 :background "#0e639c"
+                 :background (:accent-amber colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
-                 :font-size "11px"}
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
-                 :color "#cccccc"
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
-                 :font-size "11px"}
-   :hint        {:color "#9a9a9a"
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)}
+   :hint        {:color (:text-tertiary colors/tokens)
                  :font-style "italic"
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    ;; Mid-recording assertion picker (rf2-39u9e)
    :assert-btn  {:padding "3px 9px"
-                 :background "#0e639c"
+                 :background (:accent-amber colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
-                 :font-size "11px"}
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)}
    :picker-back {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :background "rgba(0,0,0,0.55)"
@@ -229,68 +231,68 @@
    :picker      {:width "520px"
                  :max-width "90vw"
                  :max-height "80vh"
-                 :background "#1e1e1e"
-                 :color "#ddd"
+                 :background (:bg-canvas colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :border-radius "6px"
                  :padding "14px"
-                 :font-family "monospace"
-                 :font-size "12px"
+                 :font-family mono-stack
+                 :font-size (:body-tight typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "10px"
                  :overflow "auto"
                  :box-shadow "0 12px 32px rgba(0,0,0,0.7)"}
    :picker-title {:font-weight "bold"
-                  :color "#9cdcfe"
-                  :font-size "13px"}
+                  :color (:info colors/tokens)
+                  :font-size (:body typography/type-scale)}
    :picker-grid {:display "grid"
                  :grid-template-columns "1fr 1fr"
                  :gap "6px"}
    :picker-row  {:padding "6px 8px"
-                 :background "#252526"
-                 :color "#ddd"
+                 :background (:bg-2 colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #333"
                  :border-radius "3px"
                  :cursor "pointer"
                  :text-align "left"
-                 :font-family "monospace"
-                 :font-size "11px"
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "2px"}
-   :picker-row-id    {:color "#9cdcfe"
+   :picker-row-id    {:color (:info colors/tokens)
                       :font-weight "bold"}
-   :picker-row-hint  {:color "#9a9a9a"
-                      :font-size "10px"
+   :picker-row-hint  {:color (:text-tertiary colors/tokens)
+                      :font-size (:micro typography/type-scale)
                       :font-style "italic"}
    :field-row   {:display "flex"
                  :flex-direction "column"
                  :gap "3px"}
-   :field-label {:color "#9cdcfe"
-                 :font-size "11px"}
+   :field-label {:color (:info colors/tokens)
+                 :font-size (:caption typography/type-scale)}
    :field-input {:padding "5px 7px"
-                 :background "#252526"
+                 :background (:bg-2 colors/tokens)
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
-                 :font-family "monospace"
-                 :font-size "12px"
+                 :font-family mono-stack
+                 :font-size (:body-tight typography/type-scale)
                  :width "100%"
                  :box-sizing "border-box"}
    :field-error {:color "#f08080"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :font-style "italic"}
    :preview     {:background "#0e0e10"
-                 :color "#dcdcaa"
+                 :color (:warning colors/tokens)
                  :padding "8px"
                  :border "1px solid #333"
                  :border-radius "3px"
                  :white-space "pre"
                  :overflow "auto"
                  :max-height "30vh"
-                 :font-family "monospace"
-                 :font-size "11px"
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)
                  :line-height "1.4"}})
 
 ;; ---------------------------------------------------------------------------
@@ -549,7 +551,7 @@
                           :data-test "story-recorder-picker-error"}
                    "EDN didn't parse — " (pr-str (:raw error))])])
              (when (seq fields)
-               [:div {:style {:font-size "10px" :color "#9a9a9a"}}
+               [:div {:style {:font-size (:micro typography/type-scale) :color (:text-tertiary colors/tokens)}}
                 "preview:"])
              (when preview
                [:pre {:style     (:preview styles)
@@ -606,11 +608,11 @@
        [:span "REC"]
        [:span {:style {:color "#fff"}}
         (pr-str variant-id)]
-       [:span {:style {:color "#9a9a9a"}}
+       [:span {:style {:color (:text-tertiary colors/tokens)}}
         (str (count events) " event" (when (not= 1 (count events)) "s"))]
        [:button
         {:style       (if dom-on?
-                        (assoc (:assert-btn styles) :background "#0e639c")
+                        (assoc (:assert-btn styles) :background (:accent-amber colors/tokens))
                         (assoc (:btn-muted styles)  :opacity     "0.6"))
          :data-test   "story-recorder-toggle-dom"
          :data-enabled (if dom-on? "true" "false")

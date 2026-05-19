@@ -81,6 +81,7 @@
             [re-frame.story.ui.url-state :as url-state]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
+            [re-frame.story.theme.typography :as theme-typography]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.toolbar :as toolbar]
@@ -88,7 +89,10 @@
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
             [re-frame.story.ui.workspace :as workspace]
             [re-frame.story.backgrounds :as backgrounds]
-            [re-frame.story.viewport :as viewport]))
+            [re-frame.story.viewport :as viewport]
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]
+            [re-frame.story.theme.motion :as motion]))
 
 ;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -512,7 +516,8 @@
         widths     (rails/current-widths)
         narrow?    (rails/narrow-viewport?)]
     [:aside {:style      (merge (:right styles)
-                                {:width (str (:right widths) "px")}
+                                {:width (str (:right widths) "px")
+                                 :animation (motion/stagger-animation :right)}
                                 (when narrow? (:right-narrow styles)))
              :data-test  "story-inspectors"
              :role       "complementary"
@@ -525,21 +530,43 @@
      ;; causa-available?` returns false → `ensure-causa-mounted!`
      ;; short-circuits → nothing renders here).
      ;;
-     ;; The slot is `position: relative` + `flex` so Causa's `:inline`
-     ;; mode (which uses `position: relative` and fills its host)
-     ;; participates in normal flex flow rather than escaping to
-     ;; viewport-fixed. The `min-height` keeps the slot tall enough
-     ;; for Causa's 4-layer chrome to render usefully even before the
-     ;; user resizes the RHS rail.
-     [:div {:data-rf-causa-host true
-            :data-test          "story-rhs-causa-host"
-            :style              {:position    "relative"
-                                 :display     "flex"
-                                 :flex        "1 1 auto"
-                                 :min-height  "320px"
-                                 :overflow    "hidden"}}]
+     ;; rf2-8rvu4: wrap the Causa host in a labelled RHS section so
+     ;; the user sees 'CAUSA — diagnostic surface' above the embed
+     ;; instead of an unlabelled 320px column. Section header carries
+     ;; the amber accent variant since Causa is the RHS's primary
+     ;; tenant.
+     [:section {:style (:rhs-section styles)
+                :data-rf-rhs-section "causa"}
+      [:div {:style (merge (:rhs-section-h styles)
+                           (:rhs-section-h-accent styles))}
+       [:span "Causa"]
+       [:span {:style {:font-weight "400"
+                       :color (:text-tertiary colors/tokens)
+                       :letter-spacing "0.04em"}}
+        "diagnostic"]]
+      ;; The slot is `position: relative` + `flex` so Causa's `:inline`
+      ;; mode (which uses `position: relative` and fills its host)
+      ;; participates in normal flex flow rather than escaping to
+      ;; viewport-fixed. The `min-height` keeps the slot tall enough
+      ;; for Causa's 4-layer chrome to render usefully even before the
+      ;; user resizes the RHS rail.
+      [:div {:data-rf-causa-host true
+             :data-test          "story-rhs-causa-host"
+             :style              {:position    "relative"
+                                  :display     "flex"
+                                  :flex        "1 1 auto"
+                                  :min-height  "320px"
+                                  :overflow    "hidden"}}]]
      (when (:controls vis)
-       [controls/panel variant-id])
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "controls"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Controls"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "args + modes"]]
+        [controls/panel variant-id]])
      ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
      ;; the running variant's frame. Default HIDDEN; opt-in via
      ;; `:dispatch-console? true` on the story or variant body. The
@@ -568,10 +595,22 @@
                     (true?  vis-flag) true
                     (false? vis-flag) false
                     :else             var-default)))
-       [dispatch-console/panel variant-id])
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "dispatch"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Dispatch"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "free-form events"]]
+        [dispatch-console/panel variant-id]])
      ;; Stage 6: render any registered :right-placement story panels.
+     ;; Wrapped in a section so the visual rhythm holds across Story-
+     ;; shipped + user-registered panels uniformly.
      (when variant-id
-       [panels/render-panels-at-placement :right variant-id vis])]))
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "story-panels"}
+        [panels/render-panels-at-placement :right variant-id vis]])]))
 
 (defn- framed-canvas
   "Render the variant `canvas/canvas` wrapped with the effective
@@ -646,7 +685,8 @@
         vis        (:panel-visibility shell)
         mode-tab   (when variant-id
                      (state/active-mode-tab shell variant-id))]
-    [:main {:style (:main styles)
+    [:main {:style (merge (:main styles)
+                          {:animation (motion/stagger-animation :main)})
             :aria-label "Story canvas"}
      ;; rf2-9hc8: top-of-shell mode-tab strip — only when a single
      ;; variant is selected (workspaces enumerate multiple variants and
@@ -672,7 +712,7 @@
                     [framed-canvas])
        :else
        [:div {:style {:padding "32px"
-                      :color "#9a9a9a"
+                      :color (:text-tertiary colors/tokens)
                       :font-style "italic"
                       :text-align "center"}}
         "Select a variant or workspace from the sidebar."])
@@ -693,6 +733,31 @@
      :component-did-mount
      (fn [_]
        (when config/enabled?
+         ;; rf2-2rwdc: inject IBM Plex `@font-face` rules into the
+         ;; document head BEFORE the first render so the chrome's
+         ;; `font-family: "IBM Plex Sans"` / `"IBM Plex Mono"`
+         ;; declarations resolve immediately. Idempotent — the helper's
+         ;; internal sentinel collapses subsequent calls. Safe in static
+         ;; builds (re-frame.story.config/static-mode? still passes
+         ;; config/enabled?; the helper renders <style>@font-face..</style>
+         ;; which static export captures correctly).
+         (theme-typography/inject-font-faces!)
+         ;; rf2-3lt89: inject motion @keyframes + prefers-reduced-motion
+         ;; override stylesheet. Defines the `rf-story-mount-in` /
+         ;; `rf-story-overlay-in` / `rf-story-chip-press` keyframes the
+         ;; chrome refers to via inline `:animation` slots, plus the
+         ;; canonical `[data-rf-story-root] *:focus-visible` outline so
+         ;; the focus ring is uniform across every chrome surface.
+         ;; Idempotent. Behind config/enabled? — production short-
+         ;; circuits before the DOM touch.
+         (motion/inject-motion-css!)
+         ;; rf2-ypd6h: inject grain overlay stylesheet — an SVG-feTurbulence
+         ;; noise sheet rendered as a `::before` pseudo on
+         ;; `[data-rf-story-root]` so the bare slate grounds carry studio
+         ;; texture rather than reading as 'editor pane'. Self-elides on
+         ;; prefers-contrast more / when config/enabled? is false.
+         ;; Idempotent.
+         (depth/inject-grain-css!)
          ;; rf2-xi9zk: hydrate chrome-wide :active-modes from URL +
          ;; localStorage before the first render of the toolbar /
          ;; canvas. URL wins over localStorage per spec/010 §URL deep-
@@ -801,16 +866,30 @@
      (fn []
        (let [widths  (rails/current-widths)
              narrow? (rails/narrow-viewport?)]
-         [:div {:style (:root styles)}
+         ;; rf2-3lt89: `data-rf-story-root` is the focus-visible scope
+         ;; declared in motion-css — the standardised amber outline +
+         ;; reduced-motion override target this root. The four chrome
+         ;; landmarks (toolbar / sidebar / main / right) ride staggered
+         ;; entrance keyframes via inline :animation styles so shell
+         ;; mount reveals as a choreographed 360ms sequence rather than
+         ;; a single synchronous paint. Each landmark wraps its child
+         ;; in a flex container so the animation root doesn't disrupt
+         ;; the layout.
+         [:div {:style (:root styles)
+                :data-rf-story-root true}
           ;; rf2-xi9zk: chrome-level toolbar — horizontal strip above the
-          ;; three-pane row. Exposes every registered :mode as a toggle
-          ;; chip; selection writes the chrome-wide :active-modes slot.
-          [toolbar/toolbar-strip]
+          ;; three-pane row. Stamped with the stagger entrance via a
+          ;; thin wrap so the toolbar strip ns doesn't need to reach
+          ;; into motion tokens.
+          [:div {:style {:animation (motion/stagger-animation :toolbar)
+                         :flex-shrink "0"}}
+           [toolbar/toolbar-strip]]
           [:div {:style (merge (:body styles)
                                (when narrow? (:body-narrow styles)))}
            [sidebar/sidebar {:style (merge {:width       (str (:left widths) "px")
                                             :flex-basis  (str (:left widths) "px")
-                                            :flex-shrink "0"}
+                                            :flex-shrink "0"
+                                            :animation   (motion/stagger-animation :sidebar)}
                                            (when narrow?
                                              {:width "auto"
                                               :flex-basis "auto"

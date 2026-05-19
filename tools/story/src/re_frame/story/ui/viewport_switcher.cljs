@@ -27,7 +27,9 @@
             [re-frame.story.predicates       :as pred]
             [re-frame.story.registrar        :as registrar]
             [re-frame.story.ui.state         :as state]
-            [re-frame.story.viewport         :as viewport]))
+            [re-frame.story.viewport         :as viewport]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- dropdown state ------------------------------------------------------
 ;;
@@ -120,18 +122,18 @@
 
 (def ^:private styles
   {:chip        {:padding         "3px 10px"
-                 :background      "#37373d"
-                 :color           "#cccccc"
+                 :background      (:bg-3 colors/tokens)
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
                  :gap             "6px"}
-   :chip-icon   {:font-size "10px"
+   :chip-icon   {:font-size (:micro typography/type-scale)
                  :opacity   "0.85"}
    :wrap        {:position "relative"
                  :display  "inline-block"}
@@ -148,31 +150,31 @@
                  :display         "flex"
                  :flex-direction  "column"
                  :gap             "2px"
-                 :font-family     "monospace"
-                 :font-size       "11px"}
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)}
    :item        {:display         "flex"
                  :align-items     "center"
                  :justify-content "space-between"
                  :padding         "5px 8px"
                  :background      "transparent"
-                 :color           "#cccccc"
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :text-align      "left"
                  :width           "100%"}
-   :item-active {:background "#0e639c"
+   :item-active {:background (:accent-amber colors/tokens)
                  :color      "white"}
    :item-label  {:display "flex"
                  :align-items "center"
                  :gap "8px"}
    :item-size   {:color     "#888"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :font-style "italic"}
    :divider     {:height          "1px"
-                 :background      "#333"
+                 :background      (:border-subtle colors/tokens)
                  :margin          "4px 0"}
    :custom-row  {:display "flex"
                  :gap "4px"
@@ -180,22 +182,22 @@
                  :padding "4px"}
    :custom-input {:width        "60px"
                   :padding      "3px 5px"
-                  :background   "#252526"
+                  :background   (:bg-2 colors/tokens)
                   :color        "white"
                   :border       "1px solid #444"
                   :border-radius "3px"
-                  :font-family  "monospace"
-                  :font-size    "11px"}
+                  :font-family  mono-stack
+                  :font-size    (:caption typography/type-scale)}
    :custom-x    {:color "#888"
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    :custom-go   {:padding         "3px 8px"
-                 :background      "#0e639c"
+                 :background      (:accent-amber colors/tokens)
                  :color           "white"
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "10px"}
+                 :font-family     mono-stack
+                 :font-size       (:micro typography/type-scale)}
    :backdrop    {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :z-index 1499

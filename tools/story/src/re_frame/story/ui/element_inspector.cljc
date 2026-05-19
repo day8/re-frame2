@@ -64,7 +64,9 @@
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
                        [re-frame.source-coords :as source-coords]
-                       [re-frame.story.ui.open-in-editor :as open-in-editor]])))
+                       [re-frame.story.ui.open-in-editor :as open-in-editor]])
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- per-process state ---------------------------------------------------
 ;;
@@ -378,32 +380,32 @@
    :tooltip {:position       "fixed"
              :pointer-events "none"
              :z-index        "1000000"
-             :background     "#1e1e1e"
-             :color          "#cccccc"
+             :background     (:bg-canvas colors/tokens)
+             :color          (:text-primary colors/tokens)
              :border         "1px solid #444"
              :border-radius  "3px"
              :padding        "3px 8px"
-             :font-family    "monospace"
-             :font-size      "11px"
+             :font-family    mono-stack
+             :font-size      (:caption typography/type-scale)
              :white-space    "nowrap"
              :box-shadow     "0 2px 8px rgba(0,0,0,0.4)"}
    :chip-on    {:padding         "3px 8px"
-                :background      "#0e639c"
+                :background      (:accent-amber colors/tokens)
                 :color           "white"
                 :border          "none"
                 :border-radius   "10px"
                 :cursor          "pointer"
-                :font-family     "monospace"
-                :font-size       "11px"
+                :font-family     mono-stack
+                :font-size       (:caption typography/type-scale)
                 :user-select     "none"}
    :chip-off   {:padding         "3px 8px"
-                :background      "#37373d"
-                :color           "#cccccc"
+                :background      (:bg-3 colors/tokens)
+                :color           (:text-primary colors/tokens)
                 :border          "none"
                 :border-radius   "10px"
                 :cursor          "pointer"
-                :font-family     "monospace"
-                :font-size       "11px"
+                :font-family     mono-stack
+                :font-size       (:caption typography/type-scale)
                 :user-select     "none"}})
 
 #?(:cljs

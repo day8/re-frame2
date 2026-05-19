@@ -30,7 +30,9 @@
   (:require [reagent.core :as r]
             [re-frame.story.config        :as config]
             [re-frame.story.review-dialog :as review-dialog]
-            [re-frame.story.save-variant  :as save-variant]))
+            [re-frame.story.save-variant  :as save-variant]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog ratom — the impure mirror of `review-dialog/initial-state`.
@@ -87,23 +89,23 @@
 
 (def ^:private button-styles
   {:button          {:padding       "4px 8px"
-                     :background    "#0e639c"
+                     :background    (:accent-amber colors/tokens)
                      :color         "white"
                      :border        "none"
                      :border-radius "3px"
                      :cursor        "pointer"
-                     :font-size     "10px"
+                     :font-size     (:micro typography/type-scale)
                      :margin-top    "8px"
-                     :font-family   "monospace"}
+                     :font-family   mono-stack}
    :button-disabled {:padding       "4px 8px"
-                     :background    "#2d2d30"
+                     :background    (:bg-2 colors/tokens)
                      :color         "#777"
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :cursor        "not-allowed"
-                     :font-size     "10px"
+                     :font-size     (:micro typography/type-scale)
                      :margin-top    "8px"
-                     :font-family   "monospace"}})
+                     :font-family   mono-stack}})
 
 ;; ---------------------------------------------------------------------------
 ;; Controls-panel button
@@ -159,8 +161,8 @@
                    :color "#e0a060"
                    :border "1px solid #a06030"
                    :border-radius "3px"
-                   :font-family "monospace"
-                   :font-size "10px"
+                   :font-family mono-stack
+                   :font-size (:micro typography/type-scale)
                    :line-height "1.5"}}
      [:div {:style {:font-weight "bold" :margin-bottom "4px"}}
       "Args do not match the variant's Spec 010 schema — preview below; "

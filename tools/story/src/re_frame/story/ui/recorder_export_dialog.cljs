@@ -51,7 +51,9 @@
             [re-frame.story.recorder                      :as recorder]
             [re-frame.story.recorder.play-export          :as export]
             [re-frame.story.recorder.play-export-events   :as export-events]
-            [re-frame.story.review-dialog                 :as review-dialog]))
+            [re-frame.story.review-dialog                 :as review-dialog]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog state — a single Reagent ratom carrying the dialog's
@@ -184,49 +186,49 @@
    :modal       {:width          "720px"
                  :max-width      "92vw"
                  :max-height     "86vh"
-                 :background     "#1e1e1e"
-                 :color          "#ddd"
+                 :background     (:bg-canvas colors/tokens)
+                 :color          (:text-primary colors/tokens)
                  :border         "1px solid #444"
                  :border-radius  "6px"
                  :padding        "16px"
-                 :font-family    "monospace"
-                 :font-size      "12px"
+                 :font-family    mono-stack
+                 :font-size      (:body-tight typography/type-scale)
                  :display        "flex"
                  :flex-direction "column"
                  :gap            "12px"
                  :box-shadow     "0 14px 36px rgba(0,0,0,0.75)"
                  :overflow       "hidden"}
    :title       {:font-weight "bold"
-                 :color       "#9cdcfe"
-                 :font-size   "13px"}
-   :hint        {:color "#9a9a9a"
+                 :color       (:info colors/tokens)
+                 :font-size   (:body typography/type-scale)}
+   :hint        {:color (:text-tertiary colors/tokens)
                  :font-style "italic"
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    :row         {:display "flex"
                  :gap "8px"
                  :align-items "center"}
-   :label       {:color "#9cdcfe"
-                 :font-size "11px"
+   :label       {:color (:info colors/tokens)
+                 :font-size (:caption typography/type-scale)
                  :min-width "110px"}
    :input       {:padding "6px 8px"
-                 :background "#252526"
+                 :background (:bg-2 colors/tokens)
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
-                 :font-family "monospace"
-                 :font-size "12px"
+                 :font-family mono-stack
+                 :font-size (:body-tight typography/type-scale)
                  :flex "1 1 auto"
                  :box-sizing "border-box"}
    :snippet     {:background    "#0e0e10"
-                 :color         "#dcdcaa"
+                 :color         (:warning colors/tokens)
                  :padding       "10px"
                  :border        "1px solid #333"
                  :border-radius "4px"
                  :white-space   "pre"
                  :overflow      "auto"
                  :max-height    "40vh"
-                 :font-family   "monospace"
-                 :font-size     "11px"
+                 :font-family   mono-stack
+                 :font-size     (:caption typography/type-scale)
                  :line-height   "1.45"
                  :flex          "1 1 auto"}
    :checkbox-row {:display "flex"
@@ -237,29 +239,29 @@
                  :justify-content "flex-end"
                  :flex-wrap "wrap"}
    :btn         {:padding "5px 12px"
-                 :background "#0e639c"
+                 :background (:accent-amber colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
-                 :font-size "11px"}
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
-                 :color "#cccccc"
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
-                 :font-size "11px"}
+                 :font-family mono-stack
+                 :font-size (:caption typography/type-scale)}
    :status-pill {:padding "2px 8px"
                  :border-radius "10px"
-                 :font-size "10px"
-                 :font-family "monospace"
+                 :font-size (:micro typography/type-scale)
+                 :font-family mono-stack
                  :margin-left "auto"}
    :pill-pass   {:background "#1f5e2b" :color "#cdf7d4"}
    :pill-fail   {:background "#7a2020" :color "#ffd1d1"}
-   :pill-running {:background "#0e639c" :color "white"}})
+   :pill-running {:background (:accent-amber colors/tokens) :color "white"}})
 
 (defn- replay-pill
   [status msg]

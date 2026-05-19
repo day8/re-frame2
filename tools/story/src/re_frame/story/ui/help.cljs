@@ -34,7 +34,11 @@
   Production builds with `re-frame.story.config/enabled?` false never
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
-            [re-frame.story.config :as config]))
+            [re-frame.story.config :as config]
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]
+            [re-frame.story.theme.motion :as motion]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -92,40 +96,45 @@
                  :z-index     2000
                  :display     "flex"
                  :align-items "center"
-                 :justify-content "center"}
-   :panel       {:background    "#252526"
-                 :color         "#cccccc"
-                 :border        "1px solid #555"
-                 :border-radius "5px"
-                 :box-shadow    "0 8px 32px rgba(0,0,0,0.7)"
+                 :justify-content "center"
+                 :animation   (str "rf-story-overlay-in "
+                                   (:overlay-fade motion/timing) " "
+                                   (:enter motion/easing) " both")}
+   :panel       {:background    (:overlay-glass depth/backdrops)
+                 :color         (:text-primary colors/tokens)
+                 :border        (str "1px solid " (:border-strong colors/tokens))
+                 :border-radius "8px"
+                 :box-shadow    (:elev-overlay depth/shadows)
                  :width         "560px"
                  :max-width     "92vw"
                  :max-height    "86vh"
                  :overflow      "auto"
-                 :font-family   "system-ui, sans-serif"
-                 :font-size     "13px"
-                 :line-height   "1.5"}
+                 :font-family   sans-stack
+                 :font-size     (:body typography/type-scale)
+                 :line-height   "1.5"
+                 :backdrop-filter "blur(8px)"
+                 :-webkit-backdrop-filter "blur(8px)"}
    :header      {:display         "flex"
                  :justify-content "space-between"
                  :align-items     "center"
                  :padding         "12px 16px"
-                 :background      "#2d2d30"
+                 :background      (:bg-2 colors/tokens)
                  :border-bottom   "1px solid #444"}
-   :title       {:color       "#9cdcfe"
+   :title       {:color       (:info colors/tokens)
                  :font-weight "bold"
-                 :font-size   "13px"
+                 :font-size   (:body typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}
    :close       {:background  "transparent"
                  :border      "none"
-                 :color       "#b0b0b0"
-                 :font-size   "16px"
+                 :color       (:text-secondary colors/tokens)
+                 :font-size   (:display typography/type-scale)
                  :cursor      "pointer"
                  :padding     "0 4px"
                  :line-height "1"}
    :body        {:padding "16px 20px"}
-   :section-h   {:color          "#b0b0b0"
-                 :font-size      "10px"
+   :section-h   {:color          (:text-secondary colors/tokens)
+                 :font-size      (:micro typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"
                  :margin         "12px 0 6px 0"
@@ -134,30 +143,30 @@
    :list        {:margin     "0 0 0 18px"
                  :padding    "0"}
    :list-item   {:margin-bottom "4px"}
-   :kw          {:color       "#dcdcaa"
-                 :font-family "monospace"}
-   :muted       {:color "#b0b0b0"}
+   :kw          {:color       (:warning colors/tokens)
+                 :font-family mono-stack}
+   :muted       {:color (:text-secondary colors/tokens)}
    :footer      {:display         "flex"
                  :justify-content "flex-end"
                  :padding         "12px 16px"
                  :border-top      "1px solid #444"
-                 :background      "#2d2d30"}
+                 :background      (:bg-2 colors/tokens)}
    :got-it      {:padding       "6px 16px"
-                 :background    "#0e639c"
+                 :background    (:accent-amber colors/tokens)
                  :color         "white"
                  :border        "none"
                  :border-radius "3px"
                  :cursor        "pointer"
-                 :font-size     "12px"
-                 :font-family   "system-ui, sans-serif"}
+                 :font-size     (:body-tight typography/type-scale)
+                 :font-family   sans-stack}
    :help-btn    {:padding       "2px 9px"
-                 :background    "#37373d"
-                 :color         "#9cdcfe"
+                 :background    (:bg-3 colors/tokens)
+                 :color         (:info colors/tokens)
                  :border        "1px solid #555"
                  :border-radius "12px"
                  :cursor        "pointer"
-                 :font-family   "monospace"
-                 :font-size     "11px"
+                 :font-family   mono-stack
+                 :font-size     (:caption typography/type-scale)
                  :line-height   "1.2"}})
 
 ;; ---- the panel ----------------------------------------------------------

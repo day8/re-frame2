@@ -1,7 +1,9 @@
 (ns re-frame.story.ui.test-mode.stepper-styles
   "Style map for the play step-debugger (rf2-ulw5m + spec/009 §Play
   step-debugger). Pure data; no Reagent dependency. Matches the rest of
-  the test pane chrome (rf2-2uwv palette).")
+  the test pane chrome (rf2-2uwv palette)."
+  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 (def styles
   {;; ---- section wrap ---------------------------------------------------
@@ -13,10 +15,10 @@
                     :padding-right    "10px"
                     :padding-bottom   "8px"
                     :padding-left     "10px"
-                    :background       "#252526"
+                    :background       (:bg-2 colors/tokens)
                     :border-style     "solid"
                     :border-width     "1px"
-                    :border-color     "#3a3a3a"
+                    :border-color     (:border-default colors/tokens)
                     :border-radius    "4px"
                     :outline-offset   "2px"}
    :section-header {:display          "flex"
@@ -24,21 +26,21 @@
                     :align-items      "center"
                     :gap              "10px"
                     :margin-bottom    "6px"
-                    :font-family      "monospace"
-                    :font-size        "10px"
+                    :font-family      mono-stack
+                    :font-size        (:micro typography/type-scale)
                     :font-weight      "bold"
-                    :color            "#b0b0b0"
+                    :color            (:text-secondary colors/tokens)
                     :text-transform   "uppercase"
                     :letter-spacing   "0.5px"}
    :section-title  {:display          "flex"
                     :align-items      "center"
                     :gap              "8px"}
-   :progress       {:color            "#9a9a9a"
+   :progress       {:color            (:text-tertiary colors/tokens)
                     :font-weight      "normal"
                     :text-transform   "none"
                     :letter-spacing   "0"}
-   :kbd-hint       {:color            "#7a7a7a"
-                    :font-size        "9px"
+   :kbd-hint       {:color            (:text-tertiary colors/tokens)
+                    :font-size        (:nano typography/type-scale)
                     :font-weight      "normal"
                     :text-transform   "none"
                     :letter-spacing   "0"}
@@ -53,41 +55,41 @@
                     :padding-right    "10px"
                     :padding-bottom   "4px"
                     :padding-left     "10px"
-                    :background       "#0e639c"
+                    :background       (:accent-amber colors/tokens)
                     :color            "white"
                     :border-style     "solid"
                     :border-width     "1px"
-                    :border-color     "#0e639c"
+                    :border-color     (:accent-amber colors/tokens)
                     :border-radius    "3px"
                     :cursor           "pointer"
-                    :font-family      "monospace"
-                    :font-size        "11px"
+                    :font-family      mono-stack
+                    :font-size        (:caption typography/type-scale)
                     :letter-spacing   "0.3px"}
    :ctrl-btn-soft  {:padding-top      "4px"
                     :padding-right    "10px"
                     :padding-bottom   "4px"
                     :padding-left     "10px"
-                    :background       "#37373d"
-                    :color            "#dcdcdc"
+                    :background       (:bg-3 colors/tokens)
+                    :color            (:text-primary colors/tokens)
                     :border-style     "solid"
                     :border-width     "1px"
-                    :border-color     "#4a4a4a"
+                    :border-color     (:border-strong colors/tokens)
                     :border-radius    "3px"
                     :cursor           "pointer"
-                    :font-family      "monospace"
-                    :font-size        "11px"
+                    :font-family      mono-stack
+                    :font-size        (:caption typography/type-scale)
                     :letter-spacing   "0.3px"}
    :ctrl-btn-disabled
-                   {:background       "#2d2d30"
-                    :color            "#6a6a6a"
-                    :border-color     "#3a3a3a"
+                   {:background       (:bg-2 colors/tokens)
+                    :color            (:text-tertiary colors/tokens)
+                    :border-color     (:border-default colors/tokens)
                     :cursor           "not-allowed"}
-   :ctrl-btn-armed {:background       "#5a4a1a"
-                    :color            "#ffd680"
-                    :border-color     "#7a6a30"}
+   :ctrl-btn-armed {:background       (:breakpoint-ctrl-bg colors/tokens)
+                    :color            (:breakpoint-ring colors/tokens)
+                    :border-color     (:breakpoint-ctrl-bd colors/tokens)}
    :ctrl-divider   {:width            "1px"
                     :height           "16px"
-                    :background       "#3a3a3a"
+                    :background       (:border-default colors/tokens)
                     :margin           "0 2px"}
 
    ;; ---- step list ------------------------------------------------------
@@ -106,9 +108,9 @@
                     :padding-right        "6px"
                     :padding-bottom       "3px"
                     :padding-left         "6px"
-                    :font-family          "monospace"
-                    :font-size            "11px"
-                    :color                "#dcdcdc"
+                    :font-family          mono-stack
+                    :font-size            (:caption typography/type-scale)
+                    :color                (:text-primary colors/tokens)
                     :cursor               "pointer"
                     :border-radius        "3px"
                     :border-left-style    "solid"
@@ -116,58 +118,58 @@
                     :border-left-color    "transparent"
                     :line-height          "1.4"}
    :step-row-current
-                   {:background           "#1f3a5f"
-                    :color                "#ffffff"
-                    :border-left-color    "#9cdcfe"
+                   {:background           (:scrub-row-bg colors/tokens)
+                    :color                (:text-primary colors/tokens)
+                    :border-left-color    (:info colors/tokens)
                     :padding-left         "3px"}
    :step-row-done  {:opacity              "0.65"}
-   :step-row-pending {:color              "#9a9a9a"}
-   :step-row-bp    {:background           "#3a2a1a"
+   :step-row-pending {:color              (:text-tertiary colors/tokens)}
+   :step-row-bp    {:background           (:breakpoint-bg colors/tokens)
                     :outline-style        "dashed"
                     :outline-width        "1px"
-                    :outline-color        "#ffd680"
+                    :outline-color        (:breakpoint-ring colors/tokens)
                     :outline-offset       "-1px"}
    :step-row-bp-current
-                   {:background           "#5a3a1a"
+                   {:background           (:breakpoint-active colors/tokens)
                     :outline-style        "solid"
                     :outline-width        "1px"
-                    :outline-color        "#ffd680"
+                    :outline-color        (:breakpoint-ring colors/tokens)
                     :outline-offset       "-1px"}
    :step-glyph     {:width            "14px"
                     :text-align       "center"
-                    :font-size        "11px"
+                    :font-size        (:caption typography/type-scale)
                     :line-height      "1"}
-   :step-index     {:color            "#7a7a7a"
-                    :font-size        "10px"
+   :step-index     {:color            (:text-tertiary colors/tokens)
+                    :font-size        (:micro typography/type-scale)
                     :min-width        "24px"
                     :text-align       "right"}
    :step-label     {:flex             "1"
                     :overflow         "hidden"
                     :text-overflow    "ellipsis"
                     :white-space      "nowrap"}
-   :step-bp-chip   {:color            "#ffd680"
-                    :font-size        "10px"
+   :step-bp-chip   {:color            (:breakpoint-ring colors/tokens)
+                    :font-size        (:micro typography/type-scale)
                     :background       "transparent"
                     :border-style     "solid"
                     :border-width     "1px"
-                    :border-color     "#ffd680"
+                    :border-color     (:breakpoint-ring colors/tokens)
                     :border-radius    "2px"
                     :padding-top      "0"
                     :padding-right    "4px"
                     :padding-bottom   "0"
                     :padding-left     "4px"
                     :cursor           "pointer"
-                    :font-family      "monospace"}
+                    :font-family      mono-stack}
 
    ;; outcome tinting (small)
-   :outcome-pass   {:color            "#4ec9b0"}
-   :outcome-fail   {:color            "#f48771"}
-   :outcome-skip   {:color            "#9a9a9a"}
-   :outcome-event  {:color            "#b0b0b0"}
+   :outcome-pass   {:color            (:success colors/tokens)}
+   :outcome-fail   {:color            (:danger colors/tokens)}
+   :outcome-skip   {:color            (:text-tertiary colors/tokens)}
+   :outcome-event  {:color            (:text-secondary colors/tokens)}
 
    ;; ---- inactive placeholder ------------------------------------------
    :inactive       {:padding          "6px 0"
-                    :color            "#9a9a9a"
-                    :font-family      "monospace"
-                    :font-size        "11px"
+                    :color            (:text-tertiary colors/tokens)
+                    :font-family      mono-stack
+                    :font-size        (:caption typography/type-scale)
                     :font-style       "italic"}})

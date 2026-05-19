@@ -88,7 +88,9 @@
                        ;; namespace-dropping provider would scope the
                        ;; subtree to `:y` — a frame that does not exist.
                        [re-frame.story.ui.canvas :as canvas]
-                       [re-frame.story.ui.state :as state]])))
+                       [re-frame.story.ui.state :as state]])
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: layout resolution --------------------------------------------
 
@@ -151,36 +153,36 @@
 #?(:cljs
    (def ^:private styles
      {:wrap          {:padding "16px"
-                      :background "#1e1e1e"
+                      :background (:bg-canvas colors/tokens)
                       :flex "1"
                       :overflow "auto"}
       :title         {:font-weight "bold"
-                      :color "#9cdcfe"
-                      :font-family "monospace"
+                      :color (:info colors/tokens)
+                      :font-family mono-stack
                       :margin-bottom "12px"}
       :grid          {:display "grid"
                       :grid-template-columns "repeat(auto-fit, minmax(280px, 1fr))"
                       :gap "12px"}
-      :cell          {:background "#252526"
+      :cell          {:background (:bg-2 colors/tokens)
                       :border "1px solid #3c3c3c"
                       :border-radius "4px"
                       :padding "8px"
                       :min-height "160px"
-                      :color "#cccccc"
-                      :font-family "monospace"
-                      :font-size "11px"}
-      :cell-title    {:color "#dcdcaa"
+                      :color (:text-primary colors/tokens)
+                      :font-family mono-stack
+                      :font-size (:caption typography/type-scale)}
+      :cell-title    {:color (:warning colors/tokens)
                       :font-weight "bold"
                       :margin-bottom "4px"}
       :prose-block   {:padding "12px"
-                      :background "#252526"
-                      :color "#cccccc"
+                      :background (:bg-2 colors/tokens)
+                      :color (:text-primary colors/tokens)
                       :border-radius "4px"
                       :margin-bottom "12px"
                       :line-height "1.5"}
       :prose-flow    {:display "flex"
                       :flex-direction "column"}
-      :empty         {:color "#9a9a9a"
+      :empty         {:color (:text-tertiary colors/tokens)
                       :font-style "italic"
                       :padding "24px"
                       :text-align "center"}}))
@@ -254,12 +256,12 @@
         [:div {:style (:cell-title styles)}
          [:span (pr-str variant-id)]
          (when view-id
-           [:span {:style {:color "#b0b0b0" :margin-left "8px"
+           [:span {:style {:color (:text-secondary colors/tokens) :margin-left "8px"
                            :font-weight "normal"}}
             (str "→ " (pr-str view-id))])]
         (cond
           (nil? view-id)
-          [:div {:style {:color "#b0b0b0" :font-style "italic"
+          [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"
                          :padding "8px 0"}}
            "variant has no :component registered — register one on the story or variant body"]
 
@@ -290,17 +292,17 @@
                   [resolved-view eff-args]
                   (:hiccup decorator-pack)
                   eff-args)]]
-              [:div {:style {:color "#b0b0b0" :font-style "italic"
+              [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"
                              :padding "8px 0"}}
                (str ":component " (pr-str view-id)
                     " is not registered as a view")])))
         (when (seq errors)
-          [:div {:style {:background "#5a1d1d"
+          [:div {:style {:background (:danger-bg colors/tokens)
                          :border "1px solid #be4040"
-                         :color "#fdd"
+                         :color (:danger colors/tokens)
                          :padding "6px"
                          :margin-top "6px"
-                         :font-size "10px"
+                         :font-size (:micro typography/type-scale)
                          :border-radius "3px"}}
            [:div "Decorator errors:"]
            (for [[i e] (map-indexed vector errors)]
@@ -313,8 +315,8 @@
              [:div {:style {:padding "2px 6px"
                             :border-left "3px solid #be4040"
                             :margin "2px 0"
-                            :background "#332"
-                            :font-size "10px"}}
+                            :background (:danger-bg colors/tokens)
+                            :font-size (:micro typography/type-scale)}}
               (pr-str a)])])])))
 
 #?(:cljs
@@ -427,15 +429,15 @@
       :tab-button  {:background     "#2d2d2d"
                     :border         "1px solid #3c3c3c"
                     :border-radius  "3px 3px 0 0"
-                    :color          "#cccccc"
-                    :font-family    "monospace"
-                    :font-size      "11px"
+                    :color          (:text-primary colors/tokens)
+                    :font-family    mono-stack
+                    :font-size      (:caption typography/type-scale)
                     :padding        "4px 10px"
                     :cursor         "pointer"}
-      :tab-active  {:background     "#252526"
+      :tab-active  {:background     (:bg-2 colors/tokens)
                     :border         "1px solid #569cd6"
                     :border-bottom  "1px solid #252526"
-                    :color          "#9cdcfe"
+                    :color          (:info colors/tokens)
                     :font-weight    "bold"}
       :tab-body    {:display "block"}}))
 
@@ -521,17 +523,17 @@
       :nav-button  {:background    "#2d2d2d"
                     :border        "1px solid #3c3c3c"
                     :border-radius "3px"
-                    :color         "#cccccc"
-                    :font-family   "monospace"
-                    :font-size     "11px"
+                    :color         (:text-primary colors/tokens)
+                    :font-family   mono-stack
+                    :font-size     (:caption typography/type-scale)
                     :padding       "4px 10px"
                     :cursor        "pointer"}
-      :nav-button-disabled {:background  "#252526"
+      :nav-button-disabled {:background  (:bg-2 colors/tokens)
                             :color       "#666666"
                             :cursor      "not-allowed"}
-      :nav-label   {:color       "#9cdcfe"
-                    :font-family "monospace"
-                    :font-size   "11px"
+      :nav-label   {:color       (:info colors/tokens)
+                    :font-family mono-stack
+                    :font-size   (:caption typography/type-scale)
                     :font-weight "bold"}
       :nav-body    {:display "block"}}))
 

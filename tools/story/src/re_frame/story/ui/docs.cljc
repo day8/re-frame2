@@ -51,7 +51,9 @@
             [re-frame.story.registrar  :as registrar]
             #?@(:cljs [[re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
-                       [re-frame.story.ui.state :as state]])))
+                       [re-frame.story.ui.state :as state]])
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: prose lookup -------------------------------------------------
 
@@ -179,87 +181,87 @@
      {:wrap          {:flex             "1"
                       :overflow         "auto"
                       :padding          "20px 28px"
-                      :background       "#1e1e1e"
-                      :color            "#cccccc"
-                      :font-family      "system-ui, sans-serif"
-                      :font-size        "13px"
+                      :background       (:bg-canvas colors/tokens)
+                      :color            (:text-primary colors/tokens)
+                      :font-family      sans-stack
+                      :font-size        (:body typography/type-scale)
                       :line-height      "1.5"}
-      :h1            {:font-family      "monospace"
-                      :font-size        "18px"
+      :h1            {:font-family      mono-stack
+                      :font-size        (:display typography/type-scale)
                       :font-weight      "bold"
                       :color            "white"
                       :margin           "0 0 4px 0"}
-      :sub           {:color            "#b0b0b0"
-                      :font-family      "monospace"
-                      :font-size        "11px"
+      :sub           {:color            (:text-secondary colors/tokens)
+                      :font-family      mono-stack
+                      :font-size        (:caption typography/type-scale)
                       :margin-bottom    "10px"}
       :section       {:margin-top       "24px"}
       :section-h     {:font-weight      "bold"
-                      :color            "#b0b0b0"
+                      :color            (:text-secondary colors/tokens)
                       :text-transform   "uppercase"
-                      :font-size        "10px"
+                      :font-size        (:micro typography/type-scale)
                       :letter-spacing   "0.5px"
                       :margin-bottom    "8px"
                       :border-bottom    "1px solid #444"
                       :padding-bottom   "4px"}
-      :doc-blurb     {:color            "#b0b0b0"
+      :doc-blurb     {:color            (:text-secondary colors/tokens)
                       :font-style       "italic"
                       :margin           "4px 0 12px 0"}
       :prose-block   {:padding          "12px 16px"
                       :margin-bottom    "8px"
-                      :background       "#252526"
+                      :background       (:bg-2 colors/tokens)
                       :border-left      "3px solid #0e639c"
-                      :color            "#dcdcdc"
-                      :font-family      "system-ui, sans-serif"
+                      :color            (:text-primary colors/tokens)
+                      :font-family      sans-stack
                       :white-space      "pre-wrap"}
-      :prose-source  {:color            "#b0b0b0"
-                      :font-family      "monospace"
-                      :font-size        "10px"
+      :prose-source  {:color            (:text-secondary colors/tokens)
+                      :font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
                       :margin-bottom    "4px"}
       :table         {:width            "100%"
                       :border-collapse  "collapse"
-                      :font-family      "monospace"
-                      :font-size        "11px"}
+                      :font-family      mono-stack
+                      :font-size        (:caption typography/type-scale)}
       :th            {:text-align       "left"
                       :padding          "6px 8px"
-                      :background       "#2d2d30"
-                      :color            "#b0b0b0"
+                      :background       (:bg-2 colors/tokens)
+                      :color            (:text-secondary colors/tokens)
                       :border-bottom    "1px solid #444"
                       :text-transform   "uppercase"
-                      :font-size        "10px"
+                      :font-size        (:micro typography/type-scale)
                       :letter-spacing   "0.5px"}
       :td            {:padding          "6px 8px"
                       :border-bottom    "1px solid #2d2d30"
-                      :color            "#dcdcdc"
+                      :color            (:text-primary colors/tokens)
                       :vertical-align   "top"}
-      :td-key        {:color            "#9cdcfe"
+      :td-key        {:color            (:info colors/tokens)
                       :white-space      "nowrap"}
-      :td-value      {:color            "#ce9178"
-                      :font-family      "monospace"
+      :td-value      {:color            (:tag-experimental-fg colors/tokens)
+                      :font-family      mono-stack
                       :white-space      "pre-wrap"}
-      :td-doc        {:color            "#b0b0b0"
+      :td-doc        {:color            (:text-secondary colors/tokens)
                       :font-style       "italic"}
-      :section-h-row {:background       "#37373d"
-                      :color            "#b0b0b0"
+      :section-h-row {:background       (:bg-3 colors/tokens)
+                      :color            (:text-secondary colors/tokens)
                       :text-transform   "uppercase"
-                      :font-size        "10px"
+                      :font-size        (:micro typography/type-scale)
                       :letter-spacing   "0.5px"}
       :chip-row      {:display          "flex"
                       :flex-wrap        "wrap"
                       :gap              "6px"
                       :margin-top       "4px"}
       :chip          {:padding          "3px 9px"
-                      :background       "#37373d"
-                      :color            "#cccccc"
+                      :background       (:bg-3 colors/tokens)
+                      :color            (:text-primary colors/tokens)
                       :border           "none"
                       :border-radius    "10px"
                       :cursor           "pointer"
-                      :font-family      "monospace"
-                      :font-size        "10px"
+                      :font-family      mono-stack
+                      :font-size        (:micro typography/type-scale)
                       :user-select      "none"}
-      :chip-active   {:background       "#0e639c"
+      :chip-active   {:background       (:accent-amber colors/tokens)
                       :color            "white"}
-      :empty         {:color            "#9a9a9a"
+      :empty         {:color            (:text-tertiary colors/tokens)
                       :font-style       "italic"
                       :padding          "6px 0"}}))
 

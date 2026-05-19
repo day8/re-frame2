@@ -41,19 +41,21 @@
             [re-frame.story.config           :as config]
             [re-frame.story.play.dom         :as dom]
             [re-frame.story.play.runner      :as runner]
-            [re-frame.story.play.runner-events :as runner-events]))
+            [re-frame.story.play.runner-events :as runner-events]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styles ---------------------------------------------------------------
 
 (def ^:private styles
   {:chip-base   {:padding         "3px 8px"
-                 :background      "#37373d"
-                 :color           "#cccccc"
+                 :background      (:bg-3 colors/tokens)
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
-                 :font-size       "11px"
+                 :font-family     mono-stack
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
@@ -64,36 +66,36 @@
                   :color      "#fae766"}
    :chip-pass    {:background "#1c4a1c"
                   :color      "#7be07b"}
-   :chip-fail    {:background "#5a1d1d"
+   :chip-fail    {:background (:danger-bg colors/tokens)
                   :color      "#fda3a3"}
-   :chip-icon    {:font-size "10px"}
+   :chip-icon    {:font-size (:micro typography/type-scale)}
    :re-run-btn   {:padding         "2px 6px"
-                  :background      "#264f78"
+                  :background      (:tag-dev-bg colors/tokens)
                   :color           "white"
                   :border          "1px solid #264f78"
                   :border-radius   "3px"
                   :cursor          "pointer"
-                  :font-family     "monospace"
-                  :font-size       "10px"
+                  :font-family     mono-stack
+                  :font-size       (:micro typography/type-scale)
                   :margin-left     "4px"}
    :dropdown-btn {:padding         "0 4px"
                   :background      "transparent"
                   :color           "inherit"
                   :border          "none"
                   :cursor          "pointer"
-                  :font-family     "monospace"
-                  :font-size       "10px"
+                  :font-family     mono-stack
+                  :font-size       (:micro typography/type-scale)
                   :line-height     "1"}
    :dropdown-panel {:position       "absolute"
                     :top            "100%"
                     :left           "0"
                     :margin-top     "4px"
-                    :background     "#1e1e1e"
-                    :color          "#cccccc"
+                    :background     (:bg-canvas colors/tokens)
+                    :color          (:text-primary colors/tokens)
                     :border         "1px solid #3c3c3c"
                     :border-radius  "4px"
-                    :font-family    "monospace"
-                    :font-size      "11px"
+                    :font-family    mono-stack
+                    :font-size      (:caption typography/type-scale)
                     :min-width      "220px"
                     :max-width      "320px"
                     :z-index        "2147483646"
@@ -110,19 +112,19 @@
                   :color           "inherit"
                   :width           "100%"
                   :text-align      "left"
-                  :font-family     "monospace"
-                  :font-size       "11px"}
-   :dropdown-row-active {:background "#264f78"
+                  :font-family     mono-stack
+                  :font-size       (:caption typography/type-scale)}
+   :dropdown-row-active {:background (:tag-dev-bg colors/tokens)
                          :color      "white"}
    :dropdown-row-name   {:overflow      "hidden"
                          :text-overflow "ellipsis"
                          :white-space   "nowrap"
                          :flex          "1 1 auto"}
    :dropdown-row-status {:flex          "0 0 auto"
-                         :font-size     "9px"
+                         :font-size     (:nano typography/type-scale)
                          :text-transform "uppercase"
                          :opacity       "0.85"}
-   :dropdown-divider    {:height "1px" :background "#3c3c3c"}
+   :dropdown-divider    {:height "1px" :background (:border-default colors/tokens)}
    :dropdown-run-all    {:padding         "6px 10px"
                          :cursor          "pointer"
                          :display         "block"
@@ -131,13 +133,13 @@
                          :border          "none"
                          :background      "transparent"
                          :color           "#7bbcff"
-                         :font-family     "monospace"
-                         :font-size       "11px"}
-   :banner       {:background     "#5a1d1d"
+                         :font-family     mono-stack
+                         :font-size       (:caption typography/type-scale)}
+   :banner       {:background     (:danger-bg colors/tokens)
                   :color          "#fde0e0"
                   :padding        "8px 14px"
-                  :font-family    "monospace"
-                  :font-size      "12px"
+                  :font-family    mono-stack
+                  :font-size      (:body-tight typography/type-scale)
                   :border-bottom  "2px solid #be4040"
                   :display        "flex"
                   :align-items    "flex-start"
@@ -154,8 +156,8 @@
                   :border          "1px solid #fde0e0"
                   :border-radius   "3px"
                   :cursor          "pointer"
-                  :font-family     "monospace"
-                  :font-size       "10px"}})
+                  :font-family     mono-stack
+                  :font-size       (:micro typography/type-scale)}})
 
 ;; ---- chip helpers ---------------------------------------------------------
 
