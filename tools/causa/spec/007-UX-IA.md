@@ -238,6 +238,27 @@ dropped; LIVE/RETRO surfaces in the L2 event-list spine itself.)
 Full anatomy + filter-pill edit popup in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §3 + §7.
 
+### Frame slot contract (rf2-iwwou)
+
+The **Frame** cluster is the L1 frame-switcher slot — the single
+contractually-anchored surface every frame-aware feature reaches
+through. The slot lives in `tools/causa/src/day8/re_frame2_causa/
+frame_switcher.cljs`; the ribbon mounts the view as one delegate. The
+contract:
+
+| Surface | Id | Role |
+|---|---|---|
+| Sub | `:rf.causa/current-frame` | Returns the frame id the user has focused (or nil pre-selection). |
+| Sub | `:rf.causa/available-frames` | First-seen-order vec of selectable frames; tool frames filtered by default per §I1 below. |
+| Event-fx | `:rf.causa/select-frame <frame-id>` | Canonical write. Dispatches the spine's `:rf.causa/set-frame` (which re-seeds `:target-frame` + `:epoch-history` — see [`018-Event-Spine.md`](./018-Event-Spine.md) §6) AND fires `:rf.causa.frame-switcher/persist` for localStorage. |
+| Fx | `:rf.causa.frame-switcher/persist` | localStorage write under `re-frame2.causa.frame-switcher.v1` (per-instance overridable via `(causa-config/configure! {:frame-switcher/storage-key …})`). |
+
+Every frame-aware feature — the L1 ribbon picker, the Cmd-K palette's
+`:palette/select-frame` verb, future panel-by-frame surfaces — MUST
+dispatch `:rf.causa/select-frame`. Reaching the spine's `:rf.causa/
+set-frame` primitive directly bypasses the persistence + future
+instrumentation layers attached to the canonical event.
+
 ## The default landing view
 
 On page load after `rf/init!`, when `[data-rf-causa-host]` exists:

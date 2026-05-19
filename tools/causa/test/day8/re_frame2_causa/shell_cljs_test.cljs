@@ -1173,30 +1173,13 @@
 ;; -------------------------------------------------------------------------
 ;; (6) Frame picker — excludes tool frames by default (spec/018 §8 I1)
 ;; -------------------------------------------------------------------------
-
-(deftest distinct-frames-excludes-internal-frames-by-default
-  (testing "spec/018 §8 I1 — `:rf/causa` and other tool frames are
-            filtered out of the picker option list unless the power-
-            user toggle re-includes them"
-    (let [cascades [{:dispatch-id 1 :frame :rf/default}
-                    {:dispatch-id 2 :frame :rf/causa}
-                    {:dispatch-id 3 :frame :app/main}
-                    {:dispatch-id 4 :frame :rf/re-frame2-pair}]
-          default-frames (shell/distinct-frames cascades false)
-          power-frames   (shell/distinct-frames cascades true)]
-      (is (= [:rf/default :app/main] default-frames)
-          "default — :rf/causa and :rf/re-frame2-pair are excluded")
-      (is (= [:rf/default :rf/causa :app/main :rf/re-frame2-pair] power-frames)
-          "power-user — tool frames included in first-seen order"))))
-
-(deftest distinct-frames-drops-nil-frame-cascades
-  (testing "an :ungrouped cascade has nil :frame — it must NOT show
-            up in the picker (the picker labels would render `nil`)"
-    (let [cascades [{:dispatch-id 1 :frame :rf/default}
-                    {:dispatch-id 2 :frame nil}
-                    {:dispatch-id 3 :frame :app/main}]]
-      (is (= [:rf/default :app/main] (shell/distinct-frames cascades false))
-          "nil frame is filtered out"))))
+;;
+;; The pure `distinct-frames` helper + the `internal-frames` set moved to
+;; `day8.re-frame2-causa.frame-switcher` per rf2-iwwou (the L1 frame-
+;; switcher slot is a single contractually-anchored ns every frame-aware
+;; feature reaches through). Pure-helper coverage now lives in
+;; `frame_switcher_cljs_test.cljs`; the shell-level smokes below verify
+;; the ribbon still mounts the picker via the contract.
 
 (deftest frame-picker-is-strictly-single-select
   (testing "Round-3 rf2-i74n7 + spec/018 §1 Non-goals — the frame

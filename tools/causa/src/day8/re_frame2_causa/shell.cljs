@@ -105,6 +105,7 @@
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
+            [day8.re-frame2-causa.frame-switcher :as frame-switcher]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
@@ -127,15 +128,13 @@
              :as t
              :refer [tokens type-scale layout sans-stack mono-stack]]))
 
-;; ---- internal frames + tab inventory ------------------------------------
-
-(def ^:private internal-frames
-  "Frames Causa filters out of the picker by default per spec/018 §8 I1.
-  `:rf/causa` is Causa's own state; `:rf/re-frame2-pair` is the future MCP-pair
-  frame. A future Settings 'Show tool frames in picker' toggle will
-  re-include them under a `── Power user ──` divider; the toggle UI
-  is not built yet, so the picker is hardcoded to exclude them."
-  #{:rf/causa :rf/re-frame2-pair})
+;; ---- tab inventory ------------------------------------------------------
+;;
+;; Frame-switcher concerns (the internal-frames filter set, distinct-frames
+;; helper, ribbon picker view) live in `frame_switcher.cljs` per rf2-iwwou
+;; — the L1 ribbon's frame slot is a single contractually-anchored surface
+;; every frame-aware feature reaches through. The ribbon's `[frame-
+;; switcher/frame-switcher-view]` is the only call site here.
 
 (def ^:private tabs
   "The seven L3 tabs per spec/018 §5 The 7 tabs. Order is the canonical
@@ -163,30 +162,6 @@
 (def ^:private default-tab :event)
 
 ;; ---- helpers (pure, exported for tests) ---------------------------------
-
-(defn distinct-frames
-  "Pure helper. Returns the distinct frames present in `cascades` in
-  first-seen order. Used by the ribbon frame dropdown to populate
-  selectable options.
-
-  Filters `:rf/causa` (and other tool frames) out by default per
-  spec/018 §8 I1 — passing `show-tool-frames?` true reincludes them.
-  nil-frame cascades are dropped (an `:ungrouped` cascade carries
-  nil `:frame`)."
-  [cascades show-tool-frames?]
-  (let [seen (volatile! #{})]
-    (reduce
-      (fn [acc cascade]
-        (let [f (:frame cascade)]
-          (cond
-            (nil? f)                              acc
-            (contains? @seen f)                   acc
-            (and (not show-tool-frames?)
-                 (contains? internal-frames f))   acc
-            :else (do (vswap! seen conj f)
-                      (conj acc f)))))
-      []
-      cascades)))
 
 (defn event-id-of-cascade
   "Best-effort pluck of the event-id from a cascade's `:event` slot.
@@ -501,40 +476,13 @@
                :style       btn-style}
       "⏭"]]))
 
-(defn- ribbon-frame-picker
-  "Frame dropdown — STRICTLY single-select per spec/018 §1 Non-goals
-  + §3 Frame dropdown + Round-3 rf2-i74n7. No 'All frames (merged)'
-  option; no `:multiple` attribute on the `<select>`. Excludes
-  `:rf/causa` by default per §8 I1. When the only available frame
-  is the current selection, the dropdown collapses to a flat label
-  (no chevron — no click target).
-
-  Writes via `:rf.causa/set-frame <frame-id>` — single frame id, no
-  aggregate / merged value path."
-  [{:keys [selected-frame frames]}]
-  (let [label-style {:color       (:text-primary tokens)
-                     :font-family sans-stack
-                     :font-size   (:body type-scale)}]
-    (if (<= (count frames) 1)
-      [:span {:data-testid "rf-causa-ribbon-frame"
-              :style (merge label-style {:color (:text-secondary tokens)})}
-       (str "Frame: " (or selected-frame (first frames) ":rf/default"))]
-      [:select {:data-testid "rf-causa-ribbon-frame-picker"
-                :value       (str (or selected-frame (first frames)))
-                :on-change   (fn [^js e]
-                               (let [v   (.. e -target -value)
-                                     kw  (when (and v (.startsWith v ":"))
-                                           (keyword (subs v 1)))]
-                                 (when kw
-                                   (rf/dispatch [:rf.causa/set-frame kw] {:frame :rf/causa}))))
-                :style       (merge label-style
-                               {:background    (:bg-2 tokens)
-                                :border        (str "1px solid " (:border-default tokens))
-                                :border-radius "4px"
-                                :padding       "2px 6px"})}
-       (for [f frames]
-         ^{:key (str f)}
-         [:option {:value (str f)} (str "Frame: " f)])])))
+;; The L1 frame-switcher slot lives in `frame_switcher.cljs` per rf2-iwwou
+;; — the ribbon mounts `[frame-switcher/frame-switcher-view]` and reaches
+;; the picker's contract surface through `:rf.causa/current-frame` /
+;; `:rf.causa/available-frames` / `:rf.causa/select-frame`. Cmd-K's
+;; `:palette/select-frame` verb dispatches through the same canonical
+;; event so the ribbon picker + the palette + any future frame-aware
+;; feature flows through one source of truth.
 
 (defn- ribbon-filter-pills
   "Filter pills cluster per spec/018 §3 + §7 Ribbon pills. Thin
@@ -670,14 +618,12 @@
   (let [focus           @(rf/subscribe [:rf.causa/focus])
         cascades        @(rf/subscribe [:rf.causa/cascades])
         focus-set       @(rf/subscribe [:rf.causa/focus-set])
-        show-tool?      false   ; Hardcoded — Power-user toggle UI not built yet
         ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
         ;; bucket. Default OFF preserves silent-by-default; ON
         ;; includes the bucket in L2 + the ribbon's boundary walk
         ;; so the nav cluster's `[◀ ▶ ⏭]` agrees with what the user
         ;; sees in L2.
         show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
-        frames          (distinct-frames cascades show-tool?)
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])
         focused-id      (:dispatch-id focus)
@@ -734,8 +680,12 @@
        [mode-pill/mode-pill])
      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
      [ribbon-focus-chip {:focus-set focus-set}]
-     [ribbon-frame-picker {:selected-frame (:frame focus)
-                           :frames frames}]
+     ;; L1 frame-switcher slot (rf2-iwwou) — single contractually-
+     ;; anchored surface. The view itself reads `:rf.causa/current-
+     ;; frame` + `:rf.causa/available-frames` and writes via
+     ;; `:rf.causa/select-frame` — no ad-hoc frame access from the
+     ;; ribbon. See `frame_switcher.cljs` for the contract.
+     [frame-switcher/frame-switcher-view]
      [ribbon-filter-pills {:filters filters}]
      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
       [ribbon-redacted-indicator redacted-count]]

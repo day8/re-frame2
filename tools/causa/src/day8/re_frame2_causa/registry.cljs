@@ -36,6 +36,7 @@
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.epoch :as epoch]
             [day8.re-frame2-causa.filters :as filters]
+            [day8.re-frame2-causa.frame-switcher :as frame-switcher]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
@@ -615,6 +616,15 @@
     ;; legacy selection events shim writes through the spine slot,
     ;; and the slot's reducer helpers live in spine.cljs.
     (spine/install!)
+    ;; Frame-switcher slot (rf2-iwwou) — hardened L1 frame-switcher
+    ;; contract. MUST install AFTER `spine/install!` so the canonical
+    ;; `:rf.causa/select-frame` event-fx's `[:dispatch [:rf.causa/set-
+    ;; frame ...]]` resolves at hydration time. Registers the
+    ;; `:rf.causa/current-frame` + `:rf.causa/available-frames` subs,
+    ;; the `:rf.causa/select-frame` event-fx, the `:rf.causa.frame-
+    ;; switcher/persist` localStorage write fx, and hydrates the
+    ;; `[:focus :frame]` slot from localStorage at first install.
+    (frame-switcher/install!)
     (app-db-diff/install!)
     ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
     ;; path-segment in the App-DB Diff breadcrumb is clicked. Installs
