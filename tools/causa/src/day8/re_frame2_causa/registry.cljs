@@ -42,6 +42,7 @@
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
+            [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
             [day8.re-frame2-causa.static.shell :as static-shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
@@ -631,13 +632,23 @@
     ;; mounts inline in event_detail.cljs under the six-domino cascade,
     ;; so no L3 tab is added.
     (managed-fx-subs/install!)
-    ;; Routing tab (rf2-nrbs9) — 7th L3 tab. Installs the registered-
+    ;; Routing tab (rf2-nrbs9, narrowed per rf2-o5f5f.3) — Runtime L3
+    ;; tab carrying the focused-event lens (FROM/TO chips when the
+    ;; focused event triggered navigation). Installs the registered-
     ;; routes / current-route-slice / routing-tab-data subs +
     ;; test-only overrides. Composes against `:rf.causa/target-frame-db`
     ;; (registered by `app-db-diff/install!` above) so the install
     ;; order is intentional, though re-frame's `:<-` resolution is
     ;; lazy and the order is purely cosmetic.
     (routing/install!)
+    ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
+    ;; Simulate-URL + per-row inline expand + hermetic Simulate-
+    ;; navigation preview. Installs the UI-state slots under
+    ;; `:rf.causa.static.routes/*` + the `:rf.causa.static.routes/
+    ;; tab-data` composite. Reads `:rf.causa/registered-routes` (just
+    ;; registered above) — order is cosmetic since re-frame resolves
+    ;; `:<-` chains lazily.
+    (static-routes-panel/install!)
     (views/install!)
     (trace/install!))
   nil)

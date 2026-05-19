@@ -289,12 +289,21 @@
                    (:aria-selected attrs))
                 (str "tab " tab-id " aria-selected matches the active tab"))))))))
 
+(def ^:private filled-static-tab-ids
+  "Static tab ids that have a real panel installed — the placeholder
+  card for these tabs is no longer rendered. Sibling beads tick one
+  off each time they land."
+  ;; rf2-o5f5f.3 — :routes now mounts the Static Routes panel.
+  #{:routes})
+
 (deftest static-placeholder-cards-name-sibling-bead
   (testing "each placeholder card surfaces its sibling-bead id
-            (rf2-o5f5f.<N> will fill this)"
+            (rf2-o5f5f.<N> will fill this) — except for tabs already
+            replaced by a real panel (filled-static-tab-ids)"
     (causa-setup!)
     (rf/with-frame :rf/causa
-      (doseq [tab-id expected-static-tab-ids]
+      (doseq [tab-id expected-static-tab-ids
+              :when (not (contains? filled-static-tab-ids tab-id))]
         (frame-dispatch [:rf.causa.static/select-tab tab-id])
         (let [tree (static-shell/surface)
               card (find-by-testid tree (str "rf-causa-static-placeholder-" (name tab-id)))

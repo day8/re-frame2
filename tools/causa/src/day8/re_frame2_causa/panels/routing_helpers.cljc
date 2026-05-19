@@ -223,6 +223,67 @@
          :candidates decorated
          :winner     winner-id}))))
 
+;; ---- hermetic Simulate-navigation preview -------------------------------
+;;
+;; The Static Routes panel surfaces a 'Simulate navigation' button per
+;; row that previews what would land if the user navigated to the
+;; given route — WITHOUT actually dispatching any framework event.
+;; That preview is structural: the matched params (derived from the
+;; row's pattern + the chosen URL), the registered `:on-match` event
+;; vector, and the expected app-db slot (`[:rf/route ...]`).
+
+(defn simulate-navigation-preview
+  "Pure data → data. Given a registered-routes map + a `route-id`, plus
+  an OPTIONAL `url` (the user's input from the row's Simulate-URL
+  surface), return a preview map describing what a real navigation
+  would carry:
+
+      {:route-id    <keyword>
+       :path        <string-or-nil>     ;; the route's registered pattern
+       :url         <string-or-nil>     ;; the simulated URL (or nil)
+       :matched?    <bool>              ;; did url match this route's pattern?
+       :params      <map-or-nil>        ;; matched params (nil when no url)
+       :on-match    <vector-or-nil>     ;; registered :on-match event vector
+       :db-slot     [:rf/route]         ;; where the slice would land
+       :slot-shape  <map>               ;; preview of the :rf/route map
+                                        ;; that would land in app-db
+       :unknown?    <bool>}             ;; true when route-id not registered
+
+  Hermetic — no dispatch, no fx, no app-db mutation. The shape mirrors
+  what the framework's `:rf.route/navigate` handler would write into
+  `[:rf/route]` so the user can reason about the cascade without
+  triggering it.
+
+  When `route-id` is not in `routes-map` returns `{:unknown? true
+  :route-id route-id}` — the view surfaces this as an unregistered
+  route hint."
+  ([routes-map route-id]
+   (simulate-navigation-preview routes-map route-id nil))
+  ([routes-map route-id url]
+   (if-let [meta (get routes-map route-id)]
+     (let [path     (:path meta)
+           on-match (:on-match meta)
+           sim      (when (and url (not (str/blank? url)))
+                      (simulate-url routes-map url))
+           winner   (some-> sim :candidates first)
+           matched? (and (some? winner)
+                         (= route-id (:route-id winner)))
+           params   (when matched? (:params winner))
+           slot     (cond-> {:id route-id}
+                      (some? path)   (assoc :path path)
+                      (some? params) (assoc :params params))]
+       {:route-id   route-id
+        :path       path
+        :url        url
+        :matched?   (boolean matched?)
+        :params     params
+        :on-match   on-match
+        :db-slot    [:rf/route]
+        :slot-shape slot
+        :unknown?   false})
+     {:route-id route-id
+      :unknown? true})))
+
 ;; ---- focused-cascade routing detection ----------------------------------
 
 (def ^:private nav-allocated-op
@@ -336,6 +397,44 @@
                          :else nil)]
             (assoc row :marker marker)))
         rows))
+
+;; ---- Static-surface composite projection -------------------------------
+;;
+;; The Static Routes panel is event-INDEPENDENT — no FROM/TO/HERE
+;; markers, no focused-cascade gating, no slice detail. Just a flat
+;; sorted catalogue + substring filter + Simulate-URL surface. Pure
+;; data → data so the JVM unit-test target can cover the projection.
+
+(defn project-static-data
+  "View-facing composite for the Static Routes panel. Folds the
+  registered-routes map + UI controls (search query + Simulate-URL)
+  into the shape `static/routes/panel.cljs` consumes:
+
+      {:silent?       <bool>             ;; true when no routes registered
+       :routes        [<row> ...]        ;; flat, sorted by :path, filtered
+       :total-routes  <count>            ;; pre-filter row count
+       :filtered?     <bool>             ;; query removed at least one row
+       :query         <string-or-nil>
+       :sim-url       <string-or-nil>
+       :sim-result    <map-or-nil>}
+
+  No `:current` / `:from-id` / `:to-id` / `:navigated?` slots — those
+  are Runtime concerns. Rows carry no `:marker` (the Static surface
+  shows no orientation chip; orientation lives on the Runtime
+  Routing lens)."
+  [routes-map query sim-url]
+  (let [rows       (project-routes routes-map)
+        silent?    (empty? rows)
+        filtered   (filter-rows rows query)
+        sim-result (when (and sim-url (not (str/blank? sim-url)))
+                     (simulate-url routes-map sim-url))]
+    {:silent?       silent?
+     :routes        filtered
+     :total-routes  (count rows)
+     :filtered?     (not= (count rows) (count filtered))
+     :query         query
+     :sim-url       sim-url
+     :sim-result    sim-result}))
 
 ;; ---- composite projection ----------------------------------------------
 

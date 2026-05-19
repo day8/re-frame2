@@ -181,13 +181,17 @@
    :rf.causa/current-route-slice
    :rf.causa/current-route-slice-override
    :rf.causa/routing-tab-data
-   ;; rf2-lq0ef — Routes lens UI state (search query, Simulate-URL
-   ;; input, expanded-row set). Per-panel `:rf.causa.routing/*` group
-   ;; per the `:rf.causa.<panel>/*` convention in
-   ;; tools/causa/spec/014-Registry-Catalogue.md §Naming convention.
-   :rf.causa.routing/query
-   :rf.causa.routing/sim-url
-   :rf.causa.routing/expanded
+   ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
+   ;; the Static Routes panel (promoted from `:rf.causa.routing/*` per
+   ;; the two-verbs-two-homes split). The Runtime Routing lens narrows
+   ;; to the focused-event surface and no longer owns these slots.
+   :rf.causa.static.routes/query
+   :rf.causa.static.routes/sim-url
+   :rf.causa.static.routes/expanded
+   ;; rf2-o5f5f.3 — Static Routes hermetic Simulate-navigation toggle
+   ;; set + view-facing composite.
+   :rf.causa.static.routes/sim-nav-open
+   :rf.causa.static.routes/tab-data
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -376,11 +380,16 @@
    ;; rf2-nrbs9 — Routes tab test-only override events.
    :rf.causa/set-current-route-slice-override-for-test
    :rf.causa/set-registered-routes-override-for-test
-   ;; rf2-lq0ef — Routes lens UI-state events (search input,
-   ;; Simulate-URL input, expand-row toggle).
-   :rf.causa.routing/set-query
-   :rf.causa.routing/set-sim-url
-   :rf.causa.routing/toggle-row
+   ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
+   ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
+   ;; toggle, cross-link to Runtime Routing). Promoted from the
+   ;; Runtime `:rf.causa.routing/*` group per the two-verbs-two-homes
+   ;; split.
+   :rf.causa.static.routes/set-query
+   :rf.causa.static.routes/set-sim-url
+   :rf.causa.static.routes/toggle-row
+   :rf.causa.static.routes/toggle-sim-nav
+   :rf.causa.static.routes/jump-to-runtime
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
    ;; rf2-x8h9y — resize-handle live update event.

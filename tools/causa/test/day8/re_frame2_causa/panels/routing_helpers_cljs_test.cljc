@@ -367,3 +367,87 @@
   (testing "blank sim-url leaves :sim-result nil"
     (let [data (h/project-data cart-routes {:id :route/cart} nil nil "")]
       (is (nil? (:sim-result data))))))
+
+;; ---- project-static-data (rf2-o5f5f.3) ---------------------------------
+
+(deftest project-static-data-empty-test
+  (testing "silent state — no routes registered"
+    (let [data (h/project-static-data {} nil nil)]
+      (is (true? (:silent? data)))
+      (is (= [] (:routes data)))
+      (is (= 0 (:total-routes data)))
+      (is (false? (:filtered? data)))
+      (is (nil? (:sim-result data))))))
+
+(deftest project-static-data-rows-test
+  (testing "rows are projected + sorted + carry no :marker"
+    (let [data (h/project-static-data cart-routes nil nil)]
+      (is (false? (:silent? data)))
+      (is (= (count cart-routes) (:total-routes data)))
+      (is (= (count cart-routes) (count (:routes data))))
+      (is (every? #(not (contains? % :marker)) (:routes data))
+          "Static rows MUST NOT carry :marker (event-INDEPENDENT)"))))
+
+(deftest project-static-data-query-test
+  (testing "query narrows the row list + flips :filtered?"
+    (let [data (h/project-static-data cart-routes "checkout" nil)
+          ids  (set (map :route-id (:routes data)))]
+      (is (true? (:filtered? data)))
+      (is (contains? ids :route/checkout))
+      (is (not (contains? ids :route/cart)))))
+
+  (testing "blank query is identity"
+    (let [data (h/project-static-data cart-routes "" nil)]
+      (is (false? (:filtered? data)))
+      (is (= (count cart-routes) (count (:routes data)))))))
+
+(deftest project-static-data-sim-url-test
+  (testing "non-blank sim-url drives :sim-result"
+    (let [data (h/project-static-data cart-routes nil "/cart")]
+      (is (= "/cart" (-> data :sim-result :path)))
+      (is (= :route/cart (-> data :sim-result :winner)))))
+
+  (testing "blank sim-url leaves :sim-result nil"
+    (let [data (h/project-static-data cart-routes nil "")]
+      (is (nil? (:sim-result data))))))
+
+;; ---- simulate-navigation-preview (rf2-o5f5f.3) -------------------------
+
+(deftest simulate-navigation-preview-unknown-test
+  (testing "unknown route-id returns the unknown shape"
+    (let [pv (h/simulate-navigation-preview cart-routes :route/nope nil)]
+      (is (true? (:unknown? pv)))
+      (is (= :route/nope (:route-id pv))))))
+
+(deftest simulate-navigation-preview-no-url-test
+  (testing "registered route, no URL → path / on-match / slot shape; no params"
+    (let [pv (h/simulate-navigation-preview cart-routes :route/audit nil)]
+      (is (false? (:unknown? pv)))
+      (is (= :route/audit (:route-id pv)))
+      (is (= "/admin/audit" (:path pv)))
+      (is (= [:audit/load] (:on-match pv)))
+      (is (= [:rf/route] (:db-slot pv)))
+      (is (false? (:matched? pv)))
+      (is (nil? (:params pv)))
+      (is (= {:id :route/audit :path "/admin/audit"} (:slot-shape pv))))))
+
+(deftest simulate-navigation-preview-with-matching-url-test
+  (testing "matching URL → :matched? true + params surfaced + slot shape carries params"
+    ;; cart-routes uses bare paths (no compiled pattern) — the helper
+    ;; compiles on-demand. A literal /cart matches :route/cart.
+    (let [pv (h/simulate-navigation-preview cart-routes :route/cart "/cart")]
+      (is (false? (:unknown? pv)))
+      (is (true? (:matched? pv)))
+      (is (= "/cart" (:url pv)))
+      (is (= [:rf/route] (:db-slot pv)))
+      (is (contains? (:slot-shape pv) :id))
+      (is (= :route/cart (-> pv :slot-shape :id))))))
+
+(deftest simulate-navigation-preview-with-mismatching-url-test
+  (testing "URL does not match this route's pattern → :matched? false"
+    (let [pv (h/simulate-navigation-preview cart-routes :route/cart "/checkout")]
+      (is (false? (:matched? pv)))
+      (is (nil? (:params pv)))
+      ;; Slot shape still carries path (registered) but no params (no match).
+      (is (= "/cart" (:path pv)))
+      (is (not (contains? (:slot-shape pv) :params))))))

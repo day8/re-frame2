@@ -85,6 +85,7 @@
     - rf2-o5f5f.6 — Events registry browse + interceptor stack"
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
+            [day8.re-frame2-causa.static.routes.panel :as routes-panel]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens type-scale layout sans-stack]]))
@@ -335,8 +336,17 @@
                    :overflow    "auto"
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
-     (if tab
+     (cond
+       ;; rf2-o5f5f.3 — Static Routes panel replaces the placeholder.
+       ;; Sibling rf2-o5f5f.2 (Machines) will replace the :machines
+       ;; branch in parallel; trivial 5-line rebase if both land.
+       (= selected :routes)
+       [routes-panel/Panel]
+
+       tab
        [placeholder-card tab]
+
+       :else
        [:div {:data-testid "rf-causa-static-tab-unknown"
               :style {:padding     "16px"
                       :color       (:text-secondary tokens)
