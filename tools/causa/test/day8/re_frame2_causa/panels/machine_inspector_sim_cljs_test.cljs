@@ -122,13 +122,13 @@
     [:rf.causa/set-machine-definitions-override-for-test definitions]))
 
 (defn- force-picker-mode!
-  "Force the panel out of the rf2-a9cke focused-event default into the
-  picker-driven Mode A (definition) so the chart / sim chrome / sim
-  side-rail this test ns exercises mounts. The sim sub-mode is
-  picker-driven by design — the focused-event lens is the canonical
-  lens but doesn't surface the sim sub-mode chrome."
+  "Historical no-op. rf2-y9xmf collapsed the Machine Inspector to an
+  event-driven panel — there is no longer a picker / Mode A surface to
+  force into. The Sim sub-mode UI (`SimSideRail`) is still mountable
+  directly via the sim ns; these tests mount it standalone instead of
+  going through the panel."
   []
-  (rf/dispatch-sync [:rf.causa/set-forced-machine-mode :mode-a]))
+  nil)
 
 (def ^:private ok-result
   {:re-frame.machines.result/tag :ok
@@ -304,70 +304,18 @@
       (is (not (contains? by-machine :auth/login))
           "Causa's :sim/by-machine map carries no entry for the stopped sim"))))
 
-;; ---- (7) chart integration ----------------------------------------------
+;; ---- (7) sim side rail ---------------------------------------------------
+;;
+;; rf2-y9xmf — the Machine Inspector panel no longer mounts the
+;; Sim side-rail (the panel is event-driven only). The `SimSideRail`
+;; view is still exported by the sim ns; tests mount it directly so
+;; the engine + UI contract stays exercised.
 
-(deftest chart-flips-sim-active-when-sim-on
+(deftest side-rail-renders-nothing-when-sim-inactive
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines!    [:auth/login])
-    (override-snapshots!   {:auth/login {:state :idle :data {}}})
-    (override-definitions! {:auth/login fixture-definition})
-    (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-    ;; Before sim-start the chart's data-sim-active is "false".
-    (let [tree-before  (machine-inspector/Panel)
-          chart-before (find-by-testid tree-before "rf-causa-machine-inspector-chart")]
-      (is (= "false" (:data-sim-active (second chart-before)))
-          "sim is off — chart reflects this"))
-    (rf/dispatch-sync [:rf.causa/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    (let [tree-after  (machine-inspector/Panel)
-          chart-after (find-by-testid tree-after "rf-causa-machine-inspector-chart")]
-      (is (= "true" (:data-sim-active (second chart-after)))
-          "sim is on — chart reflects this"))))
-
-(deftest chart-highlight-shifts-to-sim-snapshot
-  (testing "with sim active, the chart's data-highlight-id is sourced
-            from the sim snapshot, not the production snapshot"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (force-picker-mode!)
-      (override-machines!    [:auth/login])
-      ;; The production snapshot says :authing — but sim's snapshot
-      ;; starts at :idle (the definition's :initial). The chart should
-      ;; pick the sim value when sim is active.
-      (override-snapshots!   {:auth/login {:state :authing :data {}}})
-      (override-definitions! {:auth/login fixture-definition})
-      (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-      (rf/dispatch-sync [:rf.causa/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      (let [tree  (machine-inspector/Panel)
-            chart (find-by-testid tree "rf-causa-machine-inspector-chart")]
-        (is (= "idle" (:data-highlight-id (second chart)))
-            "chart highlights the sim snapshot's :state (idle), not the live :authing")))))
-
-(deftest chart-highlight-follows-sim-step
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-    (rf/dispatch-sync [:rf.causa/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
-      (rf/dispatch-sync [:rf.causa/sim-step
-                         {:machine-id :auth/login
-                          :event [:start]}]))
-    (let [tree  (machine-inspector/Panel)
-          chart (find-by-testid tree "rf-causa-machine-inspector-chart")]
-      (is (= "authing" (:data-highlight-id (second chart)))
-          "after a sim step the chart re-renders with the new highlight"))))
-
-;; ---- (8) sim side rail ---------------------------------------------------
+    (is (nil? (sim/SimSideRail))
+        "rail returns nil when sim is inactive")))
 
 (deftest side-rail-mounts-when-sim-active
   (setup-causa-frame!)
@@ -376,14 +324,10 @@
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-    ;; Off — no rail.
-    (is (nil? (find-by-testid (machine-inspector/Panel)
-                              "rf-causa-machine-inspector-sim-rail"))
-        "rail absent when sim is off")
     (rf/dispatch-sync [:rf.causa/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (machine-inspector/Panel)]
+    (let [tree (sim/SimSideRail)]
       (is (some? (find-by-testid tree "rf-causa-machine-inspector-sim-rail"))
           "rail present when sim is on")
       (is (some? (find-by-testid tree "rf-causa-machine-inspector-sim-banner")))
@@ -404,7 +348,7 @@
     (rf/dispatch-sync [:rf.causa/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (machine-inspector/Panel)
+    (let [tree (sim/SimSideRail)
           available (find-all-by-testid-prefix
                       tree "rf-causa-machine-inspector-sim-available-")]
       (is (some? (find-by-testid
@@ -424,7 +368,7 @@
     (rf/dispatch-sync [:rf.causa/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (machine-inspector/Panel)]
+    (let [tree (sim/SimSideRail)]
       (is (some? (find-by-testid
                    tree "rf-causa-machine-inspector-sim-audit-empty"))
           "empty audit message before any steps"))
@@ -432,7 +376,7 @@
       (rf/dispatch-sync [:rf.causa/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
-    (let [tree (machine-inspector/Panel)]
+    (let [tree (sim/SimSideRail)]
       (is (some? (find-by-testid
                    tree "rf-causa-machine-inspector-sim-audit-list")))
       (is (some? (find-by-testid
@@ -453,74 +397,17 @@
       (rf/dispatch-sync [:rf.causa/sim-step
                          {:machine-id :auth/login
                           :event [:bad]}]))
-    (let [tree (machine-inspector/Panel)]
+    (let [tree (sim/SimSideRail)]
       (is (some? (find-by-testid
                    tree "rf-causa-machine-inspector-sim-error"))
           "error toast surfaces inline"))))
 
-;; ---- (9) toggle button ---------------------------------------------------
-
-(deftest toggle-button-enabled-when-definition-present
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (let [tree   (machine-inspector/Panel)
-          toggle (find-by-testid tree "rf-causa-machine-inspector-sim-toggle")]
-      (is (some? toggle))
-      (is (= "false" (:data-active (second toggle))))
-      (is (some? (:on-click (second toggle)))
-          "toggle carries an on-click handler when a definition is available"))))
-
-(deftest toggle-button-disabled-without-definition
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines! [:auth/login])
-    ;; No definitions override — Causa has no way to clone.
-    (let [tree   (machine-inspector/Panel)
-          toggle (find-by-testid tree "rf-causa-machine-inspector-sim-toggle")]
-      (is (some? toggle))
-      (is (nil? (:on-click (second toggle)))
-          "toggle is non-interactive when no definition is available"))))
-
-(deftest toggle-button-dispatches-sim-start-and-stop
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-    (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
-                                   ([ev] (swap! dispatches conj ev) nil)
-                                   ([ev _opts] (swap! dispatches conj ev) nil))]
-        (let [tree   (machine-inspector/Panel)
-              toggle (find-by-testid tree "rf-causa-machine-inspector-sim-toggle")
-              handler (:on-click (second toggle))]
-          (handler nil))
-        ;; sim-start should have been dispatched
-        (is (some (fn [ev]
-                    (and (vector? ev)
-                         (= :rf.causa/sim-start (first ev))))
-                  @dispatches)
-            "first toggle click fires sim-start")))))
-
-(deftest toggle-button-stops-sim-when-active
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (force-picker-mode!)
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (rf/dispatch-sync [:rf.causa/select-machine-id :auth/login])
-    (rf/dispatch-sync [:rf.causa/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    (let [tree   (machine-inspector/Panel)
-          toggle (find-by-testid tree "rf-causa-machine-inspector-sim-toggle")]
-      (is (= "true" (:data-active (second toggle)))
-          "toggle reflects active sim state"))))
+;; rf2-y9xmf — the inline Sim toggle button that lived in the Machine
+;; Inspector header is gone (the panel is now event-driven only).
+;; Sibling bead rf2-r4nao will re-host the Sim entry point under the
+;; future Static surface; until then the sim engine's `:rf.causa/sim-
+;; start` / `:sim-stop` events are dispatched programmatically by tests
+;; (see the engine-level tests above).
 
 ;; ---- (10) frame isolation -----------------------------------------------
 
@@ -590,7 +477,7 @@
       (rf/dispatch-sync [:rf.causa/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree      (machine-inspector/Panel)
+      (let [tree      (sim/SimSideRail)
             available (raw-find-all-by-testid-prefix
                         tree "rf-causa-machine-inspector-sim-available-")
             ;; Drop the container <ul> (testid `…-available-list`); we
@@ -624,7 +511,7 @@
                            {:machine-id :auth/login :event [:start]}])
         (rf/dispatch-sync [:rf.causa/sim-step
                            {:machine-id :auth/login :event [:ok]}]))
-      (let [tree (machine-inspector/Panel)
+      (let [tree (sim/SimSideRail)
             rows (raw-find-all-by-testid-prefix
                    tree "rf-causa-machine-inspector-sim-audit-")
             ;; Drop the container <ol> (testid `…-audit-list`).

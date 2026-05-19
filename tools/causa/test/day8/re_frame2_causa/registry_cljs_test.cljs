@@ -127,28 +127,20 @@
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
-   :rf.causa/forced-machine-mode
-   ;; rf2-nqw0v Phase 5 — Machine Inspector per-instance arc + scrubber.
-   :rf.causa/machine-arc-data
-   :rf.causa/machine-arc-highlight-state
-   :rf.causa/machine-arc-hover
-   :rf.causa/machine-arc-trimmed
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
-   :rf.causa/machine-instances
-   :rf.causa/machine-instances-override
+   ;; rf2-a9cke — focused-event lens composite consumed by the
+   ;; Machine Inspector + the cancellation-cascade SidePanel.
+   :rf.causa/machine-transitions-for-focused-event
+   ;; rf2-y9xmf — scrubber-position slot survives the collapse so the
+   ;; share-URL surface can round-trip the position; the scrubber UI
+   ;; itself is gone (sibling bead rf2-r4nao re-hosts it under Static).
    :rf.causa/machine-scrubber-position
    :rf.causa/machine-snapshots
    :rf.causa/machine-snapshots-override
    ;; rf2-uyp86 — managed-fx wire-boundary diff composite.
    :rf.causa/managed-fx-for-focused-event
-   :rf.causa/mode-c-cluster-by
-   :rf.causa/mode-c-clusters
-   :rf.causa/mode-c-compare-table
-   :rf.causa/mode-c-context-key
-   :rf.causa/mode-c-expanded
-   :rf.causa/mode-c-selection
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
    :rf.causa/now-ms
    ;; rf2-e9tb0 — App-DB segment-inspector popup subs.
@@ -252,8 +244,6 @@
    ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
    ;; focus-set; `[◀][▶]` step within the in-focus subset).
    :rf.causa/clear-focus
-   :rf.causa/clear-machine-selection
-   :rf.causa/clear-mode-c-selection
    :rf.causa/clear-selected-dispatch-id
    :rf.causa/clear-slice-focus
    :rf.causa/clear-trace-buffer
@@ -324,16 +314,12 @@
    :rf.causa/select-tab
    ;; rf2-a1z3b — focus-navigation primitive write event.
    :rf.causa/set-focus
-   :rf.causa/set-forced-machine-mode
    :rf.causa/set-frame
    :rf.causa/set-machine-definitions-override-for-test
-   :rf.causa/set-machine-instances-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
    ;; rf2-nrbs9 — Routing tab test-only override events.
    :rf.causa/set-current-route-slice-override-for-test
    :rf.causa/set-registered-routes-override-for-test
-   :rf.causa/set-mode-c-cluster-by
-   :rf.causa/set-mode-c-context-key
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
    ;; rf2-x8h9y — resize-handle live update event.
@@ -341,11 +327,17 @@
    ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
    :rf.causa/set-now-ms-override-for-test
    :rf.causa/set-registered-machines-override-for-test
-   :rf.causa/set-arc-hover
    ;; rf2-a9cke — focused-event lens test overrides (Machine Inspector).
    :rf.causa/set-epoch-history-for-test
    :rf.causa/set-focus-epoch-id-for-test
+   ;; rf2-y9xmf — scrubber-position slot reducer (UI is gone; the
+   ;; share-URL surface round-trips through this event).
    :rf.causa/set-scrubber-position
+   ;; rf2-y9xmf — per-machine prev/next nav (walks the spine's epoch-
+   ;; history to the prior/next epoch that ALSO touched the focused
+   ;; machine).
+   :rf.causa/machine-focus-prev
+   :rf.causa/machine-focus-next
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
    ;; rf2-9poxq — Settings popup events.
@@ -379,8 +371,6 @@
    :rf.causa/timer-hover
    :rf.causa/timer-tick
    :rf.causa/toggle-live-pause
-   :rf.causa/toggle-mode-c-cluster-expanded
-   :rf.causa/toggle-mode-c-selection
    ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
    ;; panel events. See `tools/causa/spec/012-Views.md`.
    :rf.causa/views-collapse-all-rows
@@ -472,8 +462,24 @@
     ;; rf2-e9tb0 + rf2-r9lyy combined deltas against post-rf2-ttnst
     ;; baseline (102 / 116): e9tb0 +2 subs / -1 event; r9lyy +1 sub / 0 events.
     ;; rf2-piye4: +3 events (:rf.causa/filter-by-{machine,http-correlation,fx}).
-    (is (= 105 (count all-sub-names)))
-    (is (= 118 (count all-event-names)))
+    ;;
+    ;; rf2-y9xmf — Machine Inspector collapse to event-driven Runtime panel.
+    ;; Drops the Mode A/B/C picker / sub-strip / arc / mini-scrubber surfaces
+    ;; (Sim engine + browse-all index preserved; UI ribbons gone). Sibling
+    ;; bead rf2-r4nao will re-host the dropped UI under the future Static
+    ;; surface.
+    ;;   Subs:   -13 (forced-machine-mode, machine-arc-*, machine-instances*,
+    ;;                mode-c-*) +1 (machine-transitions-for-focused-event)
+    ;;                = net -12 → 93.
+    ;;   Events: -8 (clear-mode-c-selection, set-forced-machine-mode,
+    ;;               set-machine-instances-override, set-mode-c-cluster-by,
+    ;;               set-mode-c-context-key, set-arc-hover, toggle-mode-c-*)
+    ;;           -1 duplicate (clear-machine-selection appeared twice)
+    ;;           +2 (machine-focus-prev / machine-focus-next)
+    ;;           = net -7. Plus rf2-piye4's +3 events still present →
+    ;;           115 - 7 + 3 = 111.
+    (is (= 93  (count all-sub-names)))
+    (is (= 111 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent

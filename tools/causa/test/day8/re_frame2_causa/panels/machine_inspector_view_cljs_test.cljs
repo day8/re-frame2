@@ -1,29 +1,19 @@
 (ns day8.re-frame2-causa.panels.machine-inspector-view-cljs-test
-  "CLJS-side wiring + view tests for Causa's Machine Inspector panel
-  (Phase 5+, rf2-r9f9u).
+  "View tests for the collapsed Machine Inspector panel (rf2-y9xmf).
 
-  ## What's under test (in addition to the pure-data tests in
-  `machine_inspector_helpers_cljs_test.cljc`)
+  Post-collapse the Runtime Machines panel is event-driven only:
 
-    1. **Registry wires the composite sub + supporting subs / events**
-       under `:rf.causa/*`.
-
-    2. **The empty state** renders when no machines are registered.
-
-    3. **The picker** enumerates rows from the override and dispatching
-       the change event updates Causa's frame.
-
-    4. **The placeholder banner** + prop summary render when a machine
-       is selected (the MachineChart impl is deferred per spec).
-
-    5. **The transition history ribbon** renders entries from the
-       trace-buffer when transition events are present for the
-       selected machine.
+    - BLANK when the focused event has no machine activity.
+    - One per-machine section (topology + transition highlight + guards +
+      actions + cascade + rings) when the focused event triggered a
+      transition.
+    - prev/next nav walks the spine to the prior/next event touching
+      THE focused machine.
 
   ## Pure hiccup
 
-  Same approach as `subscriptions_view_cljs_test.cljs` — walk the
-  view's hiccup tree by `data-testid` rather than mounting to the DOM."
+  Same approach as every other Causa view test — walk the rendered
+  hiccup tree by `data-testid` rather than mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -48,13 +38,6 @@
      :init-fn causa-init!}))
 
 ;; ---- hiccup walkers -----------------------------------------------------
-;;
-;; The picker / placeholder / ribbon are *function components* (the panel
-;; calls them as `[picker rows id]`). A naive `tree-seq` over the
-;; rendered view sees the fn-as-first-element vector but doesn't descend
-;; into its expansion. We expand fn-components eagerly first (recursively
-;; rewriting the tree), then `tree-seq` walks the fully-expanded hiccup —
-;; so a `:select` nested inside the picker's expansion is reachable.
 
 (declare expand-fn-component)
 
@@ -105,12 +88,13 @@
   (rf/dispatch-sync
     [:rf.causa/set-machine-definitions-override-for-test definitions]))
 
-(defn- force-mode!
-  "Force the panel out of the rf2-a9cke focused-event default into one
-  of the picker-driven exploration modes for tests that pin the
-  picker / chart / ribbon chrome that only renders under those modes."
-  [mode]
-  (rf/dispatch-sync [:rf.causa/set-forced-machine-mode mode]))
+(defn- override-epoch-history! [history]
+  (rf/dispatch-sync
+    [:rf.causa/set-epoch-history-for-test history]))
+
+(defn- focus-epoch! [epoch-id]
+  (rf/dispatch-sync
+    [:rf.causa/set-focus-epoch-id-for-test epoch-id]))
 
 (def ^:private fixture-definition
   {:initial :idle
@@ -122,8 +106,7 @@
 ;; ---- (1) registry wiring ------------------------------------------------
 
 (deftest registry-installs-machine-inspector-handlers
-  (testing "register-causa-handlers! installs every rf2-r9f9u handler
-            (plus the rf2-2tkza Phase 1 chart + Mode A/B additions)"
+  (testing "register-causa-handlers! installs the post-collapse handlers"
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/registered-machines)))
     (is (some? (registrar/handler :sub :rf.causa/machine-snapshots)))
@@ -131,24 +114,29 @@
     (is (some? (registrar/handler :sub :rf.causa/machine-definitions-override)))
     (is (some? (registrar/handler :sub :rf.causa/selected-machine-id)))
     (is (some? (registrar/handler :sub :rf.causa/machine-inspector-data)))
+    (is (some? (registrar/handler
+                 :sub :rf.causa/machine-transitions-for-focused-event)))
+    (is (some? (registrar/handler :sub :rf.causa/machine-scrubber-position)))
     (is (some? (registrar/handler :event :rf.causa/select-machine-id)))
     (is (some? (registrar/handler :event :rf.causa/clear-machine-selection)))
-    (is (some? (registrar/handler :event :rf.causa/machine-state-clicked))
-        "rf2-2tkza Phase 1: chart click → source-coord jump trigger")
+    (is (some? (registrar/handler :event :rf.causa/machine-state-clicked)))
+    (is (some? (registrar/handler :event :rf.causa/machine-focus-prev)))
+    (is (some? (registrar/handler :event :rf.causa/machine-focus-next)))
+    (is (some? (registrar/handler :event :rf.causa/set-scrubber-position)))
     (is (some? (registrar/handler
                  :event :rf.causa/set-registered-machines-override-for-test)))
     (is (some? (registrar/handler
                  :event :rf.causa/set-machine-snapshots-override-for-test)))
     (is (some? (registrar/handler
-                 :event :rf.causa/set-machine-definitions-override-for-test))
-        "rf2-2tkza Phase 1: definitions test override hook")))
+                 :event :rf.causa/set-machine-definitions-override-for-test)))
+    (is (some? (registrar/handler
+                 :event :rf.causa/set-epoch-history-for-test)))
+    (is (some? (registrar/handler
+                 :event :rf.causa/set-focus-epoch-id-for-test)))))
 
 (deftest composite-defaults-to-empty-when-no-override
   (testing "with an empty machines override the composite returns the
-            empty-shape map. The override is required because the
-            process-global registrar may carry machines registered by
-            other test namespaces (fixture-reset clears Causa's app-db
-            but not the global registrar's :machines kind)."
+            empty-shape map"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [])
@@ -157,351 +145,42 @@
         (is (= 0 (:total d)))
         (is (= :no-machines (:empty-kind d)))))))
 
-(deftest composite-projects-machines-into-rows
-  (testing "with a machines + snapshots override the composite returns
-            one row per id with the live snapshot"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!  [:auth/login :checkout/flow])
-      (override-snapshots! {:auth/login {:state :authing :data {}}})
-      (let [d @(rf/subscribe [:rf.causa/machine-inspector-data])]
-        (is (= 2 (:total d)))
-        (is (= #{:auth/login :checkout/flow}
-               (set (map :machine-id (:machines d)))))
-        (is (= :auth/login (:selected-id d))
-            "first row is the default focus")
-        (is (= :authing (-> d :selected :state)))))))
-
-;; ---- (2) empty state ----------------------------------------------------
+;; ---- (2) empty state (no machines registered) --------------------------
 
 (deftest empty-state-renders-when-no-machines
   (testing "with the override-empty machines slot the panel renders
-            the empty state. The override is required because the
-            process-global registrar may carry machines registered by
-            other test namespaces."
+            the empty-state surface"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [])
       (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector"))
-            "panel container present")
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector")))
         (is (some? (find-by-testid tree "rf-causa-machine-inspector-empty"))
-            "empty-state container present")
-        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-picker"))
-            "no picker when there are zero machines")))))
+            "empty-state container present")))))
 
-;; ---- (3) picker ---------------------------------------------------------
+;; ---- (3) blank state (event has no machine activity) ------------------
 
-(deftest picker-renders-with-machines
-  (testing "with the override populated the picker renders the dropdown
-            under any picker-driven exploration mode (rf2-a9cke: Mode A
-            here; the focused-event default has its own per-section
-            header instead)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login :checkout/flow])
-      (force-mode! :mode-a)
-      (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-picker"))
-            "picker container present")
-        (is (some? (find-by-testid
-                     tree "rf-causa-machine-inspector-picker-select"))
-            "picker dropdown present")))))
-
-(deftest picker-hidden-in-focused-event-default-mode
-  (testing "the rf2-a9cke focused-event default has its own per-section
-            header chrome; the picker is opt-in via the mode strip"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login :checkout/flow])
-      (let [tree (machine-inspector/Panel)
-            root (find-by-testid tree "rf-causa-machine-inspector")]
-        (is (= "focused-event" (:data-view-mode (second root)))
-            "default mode is rf2-a9cke focused-event lens")
-        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-picker"))
-            "picker chrome is hidden in the focused-event default")))))
-
-(deftest select-machine-id-event-writes-to-causa-frame
-  (testing ":rf.causa/select-machine-id stores the machine-id on the Causa frame"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/select-machine-id :checkout/flow])
-      (is (= :checkout/flow @(rf/subscribe [:rf.causa/selected-machine-id]))))))
-
-(deftest clear-machine-selection-drops-the-pick
-  (setup-causa-frame!)
-  (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/select-machine-id :checkout/flow])
-    (rf/dispatch-sync [:rf.causa/clear-machine-selection])
-    (is (nil? @(rf/subscribe [:rf.causa/selected-machine-id])))))
-
-(deftest selection-narrows-the-composite
-  (testing "the explicit selection drives the chart-props machine-id"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login :checkout/flow])
-      (rf/dispatch-sync [:rf.causa/select-machine-id :checkout/flow])
-      (let [d @(rf/subscribe [:rf.causa/machine-inspector-data])]
-        (is (= :checkout/flow (:selected-id d)))
-        (is (= :checkout/flow (-> d :chart-props :machine-id)))))))
-
-;; ---- (4) placeholder ----------------------------------------------------
-
-(deftest placeholder-banner-renders-with-selection
-  (testing "the placeholder banner calls out the deferred machines-viz
-            impl whenever a machine is selected (picker-driven Mode A;
-            the rf2-a9cke focused-event default has its own per-section
-            chrome)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (force-mode! :mode-a)
-      (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid
-                     tree "rf-causa-machine-inspector-placeholder-banner"))
-            "placeholder banner present — surfaces the deferred impl")))))
-
-(deftest placeholder-falls-back-to-prop-summary-without-definition
-  (testing "when no machine-definition is available (no introspection
-            metadata), the panel falls back to the prop-summary
-            view so the panel still renders something useful (picker-
-            driven Mode B; the rf2-a9cke focused-event default has its
-            own no-definition fallback)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!  [:auth/login])
-      (override-snapshots! {:auth/login {:state :authing :data {}}})
-      (force-mode! :mode-b)
-      (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-placeholder")))
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-machine-id")))
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-prop-frame-id")))))))
-
-(deftest chart-renders-when-definition-is-available
-  (testing "with the definitions override populated, the panel renders
-            the live SVG chart instead of the prop-summary fallback
-            (picker-driven Mode B; the rf2-a9cke focused-event default
-            renders its own chart per section)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login])
-      (override-snapshots!   {:auth/login {:state :authing :data {}}})
-      (override-definitions! {:auth/login fixture-definition})
-      (force-mode! :mode-b)
-      (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-chart"))
-            "the chart container replaces the prop-summary fallback")
-        (is (some? (find-by-testid tree "rf-causa-chart-svg"))
-            "the SVG primitive emits a root <svg>")
-        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-placeholder"))
-            "the fallback is suppressed when a definition is available")))))
-
-(deftest chart-highlights-active-state-from-snapshot
-  (testing "the chart's root data-highlight-id matches the snapshot's :state
-            (picker-driven Mode B)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login])
-      (override-snapshots!   {:auth/login {:state :authing :data {}}})
-      (override-definitions! {:auth/login fixture-definition})
-      (force-mode! :mode-b)
-      (let [tree (machine-inspector/Panel)
-            chart (find-by-testid tree "rf-causa-machine-inspector-chart")]
-        (is (some? chart))
-        (is (= "authing" (:data-highlight-id (second chart)))
-            "the chart container carries the resolved highlight-id")))))
-
-;; ---- (5) transition history ribbon --------------------------------------
-
-(deftest ribbon-renders-empty-when-no-transitions
-  (testing "with no transition events in the buffer the ribbon shows
-            its empty branch (picker-driven Mode A — the ribbon is
-            scoped to a single picker-selected machine; the rf2-a9cke
-            focused-event default surfaces transitions via per-section
-            sections instead)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (force-mode! :mode-a)
-      (let [tree (machine-inspector/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-ribbon")))
-        (is (some? (find-by-testid tree "rf-causa-machine-inspector-ribbon-empty")))))))
-
-(deftest ribbon-renders-entries-when-transitions-present
-  (testing "with transition events in the buffer for the selected machine
-            the ribbon renders one entry per transition (picker-driven
-            Mode A)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (force-mode! :mode-a)
-      ;; Push two transition events into the Causa trace buffer via
-      ;; the production `collect-trace!` path (per rf2-e9s81 the
-      ;; sub thunks the trace-bus atom).
-      (trace-bus/collect-trace!
-        {:id 1 :operation :rf.machine/transition :time 100
-         :tags {:machine-id :auth/login :from :idle :to :authing
-                :event [:auth/submit] :dispatch-id "d-1"}})
-      (trace-bus/collect-trace!
-        {:id 2 :operation :rf.machine/transition :time 200
-         :tags {:machine-id :auth/login :from :authing :to :idle
-                :event [:auth/cancel] :dispatch-id "d-2"}})
-      (let [tree    (machine-inspector/Panel)
-            entries (find-all-by-testid-prefix
-                      tree "rf-causa-machine-inspector-transition-")]
-        (is (= 2 (count entries))
-            "two ribbon entries — one per transition event")))))
-
-(deftest ribbon-entry-click-pivots-to-event-detail
-  (testing "clicking a ribbon entry dispatches :rf.causa/select-dispatch-id
-            (parity with the Issues ribbon + Trace panel cross-panel jump;
-            picker-driven Mode A)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (force-mode! :mode-a)
-      ;; Push a transition event via `collect-trace!` (per rf2-e9s81
-      ;; the sub thunks the trace-bus atom).
-      (trace-bus/collect-trace!
-        {:id 1 :operation :rf.machine/transition :time 100
-         :tags {:machine-id :auth/login :from :idle :to :authing
-                :event [:auth/submit] :dispatch-id "d-42"}})
-      (let [dispatches (atom [])]
-        ;; rf/dispatch is async; with-redefs on the underlying
-        ;; rf/dispatch* fn captures the event vector synchronously
-        ;; (same approach the mcp-server view test uses).
-        (with-redefs [rf/dispatch* (fn
-                                     ([ev] (swap! dispatches conj ev) nil)
-                                     ([ev _opts] (swap! dispatches conj ev) nil))]
-          (let [tree    (machine-inspector/Panel)
-                entry   (find-by-testid
-                          tree "rf-causa-machine-inspector-transition-1")
-                handler (:on-click (second entry))]
-            (is (some? entry) "entry node present in the rendered tree")
-            (is (some? handler) "entry carries an :on-click handler")
-            (when handler (handler))))
-        (is (some #(= [:rf.causa/select-dispatch-id "d-42"] %) @dispatches)
-            "select-dispatch-id fired with the dispatch-id from the trace event")))))
-
-;; ---- (5b) Mode A / Mode B (UC2 dynamic instance modes) ----------------
-
-(deftest view-mode-helper-routes-by-instance-count
-  (testing "the view-mode auto-classifier returns :mode-a / :mode-b /
-            :mode-c per spec/003-Machine-Inspector.md §UC2. Note that
-            per rf2-a9cke `view-mode` is now only the AUTO classifier
-            for the picker-driven modes; the panel default is
-            :focused-event (see resolve-mode below)"
-    (is (= :mode-a (machine-inspector/view-mode 0)))
-    (is (= :mode-a (machine-inspector/view-mode nil)))
-    (is (= :mode-b (machine-inspector/view-mode 1)))
-    (is (= :mode-b (machine-inspector/view-mode 3)))
-    (is (= :mode-c (machine-inspector/view-mode 4)))
-    (is (= :mode-c (machine-inspector/view-mode 100)))))
-
-(deftest resolve-mode-defaults-to-focused-event
-  (testing "per rf2-a9cke the panel's default mode is :focused-event
-            (the canonical lens-on-focused-event). The picker-driven
-            Mode A/B/C explorations are opt-in via the mode strip."
-    (is (= :focused-event (machine-inspector/resolve-mode 0 nil)))
-    (is (= :focused-event (machine-inspector/resolve-mode 5 nil)))
-    (is (= :focused-event (machine-inspector/resolve-mode nil nil)))))
-
-(deftest resolve-mode-honours-forced-pick
-  (testing "a forced-mode override pins the resolved mode regardless of
-            instance-count"
-    (is (= :mode-a (machine-inspector/resolve-mode 0 :mode-a)))
-    (is (= :mode-b (machine-inspector/resolve-mode 0 :mode-b)))
-    (is (= :mode-c (machine-inspector/resolve-mode 100 :mode-c)))
-    (is (= :focused-event
-           (machine-inspector/resolve-mode 100 :focused-event)))))
-
-(deftest mode-a-renders-when-forced
-  (testing "with a registered machine + the picker-driven Mode A forced,
-            the panel renders in Mode A (definition view; instance-tabs
-            hidden)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (force-mode! :mode-a)
-      (let [tree (machine-inspector/Panel)
-            root (find-by-testid tree "rf-causa-machine-inspector")]
-        (is (= "mode-a" (:data-view-mode (second root))))
-        (is (= 0 (:data-instance-count (second root))))
-        (is (nil? (find-by-testid
-                    tree "rf-causa-machine-inspector-instance-tabs"))
-            "instance-tabs strip is hidden in Mode A")))))
-
-(deftest mode-b-renders-instance-tabs-when-forced
-  (testing "with a registered machine + a live snapshot + Mode B forced,
-            the panel renders in Mode B (instance tabs visible above
-            the chart)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines!    [:auth/login])
-      (override-snapshots!   {:auth/login {:state :authing :data {}}})
-      (override-definitions! {:auth/login fixture-definition})
-      (force-mode! :mode-b)
-      (let [tree (machine-inspector/Panel)
-            root (find-by-testid tree "rf-causa-machine-inspector")
-            tabs (find-by-testid
-                   tree "rf-causa-machine-inspector-instance-tabs")]
-        (is (= "mode-b" (:data-view-mode (second root))))
-        (is (= 1 (:data-instance-count (second root))))
-        (is (some? tabs) "instance-tabs strip is present in Mode B")
-        (is (= "mode-b" (:data-mode (second tabs))))))))
-
-;; ---- (5c) focused-event lens (rf2-a9cke) ------------------------------
-
-(defn- override-epoch-history!
-  "Write an epoch-history slot so the focused-event lens has cascade
-  windows to walk. Used by the rf2-a9cke wiring tests; mirrors the
-  existing `override-*` pattern but writes the slot directly since
-  the panel's existing test-overrides cover registered-machines /
-  snapshots / definitions only."
-  [history]
-  (rf/dispatch-sync
-    [:rf.causa/set-epoch-history-for-test history]))
-
-(defn- focus-epoch!
-  "Pin the spine's focus to a specific :epoch-id by writing through
-  `:rf.causa/focus-cascade` (which the spine reduces to also stamp
-  :epoch-id when resolvable). Tests that want explicit control of
-  the focused epoch write the slot directly via the event below."
-  [epoch-id]
-  (rf/dispatch-sync
-    [:rf.causa/set-focus-epoch-id-for-test epoch-id]))
-
-(deftest focused-event-mode-is-the-default
-  (testing "the panel's default mode is :focused-event per rf2-a9cke
-            (no forced-mode → focused-event lens wins)"
+(deftest blank-state-renders-when-focused-event-has-no-machine-activity
+  (testing "when machines are registered but the focused event triggered
+            no transitions, the panel renders the BLANK state (silent-
+            by-default per rf2-g3ghh)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
       (let [tree (machine-inspector/Panel)
             root (find-by-testid tree "rf-causa-machine-inspector")]
         (is (= "focused-event" (:data-view-mode (second root))))
-        (is (some? (find-by-testid
-                     tree "rf-causa-machine-inspector-focused-event-host"))
-            "the focused-event host is mounted at the default surface")))))
-
-(deftest focused-event-lens-is-silent-when-no-machine-traces
-  (testing "per rf2-g3ghh silent-by-default: an empty cascade window
-            renders the host but NO focused-event sections"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (let [tree (machine-inspector/Panel)
-            host (find-by-testid
-                   tree "rf-causa-machine-inspector-focused-event-host")]
-        (is (some? host) "host present (the chrome always mounts)")
+        (is (= "false" (:data-has-records (second root))))
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-blank"))
+            "blank-state container present")
         (is (nil? (find-by-testid tree "rf-causa-machine-focused-event"))
-            "no inner focused-event surface when no machine transitions")))))
+            "no focused-event surface when cascade has no transitions")))))
+
+;; ---- (4) focused-event lens (one section per transition) --------------
 
 (deftest focused-event-lens-renders-one-section-per-transition
   (testing "an epoch whose :trace-events carry ≥ 1 :rf.machine/transition
-            events yields one focused-event-section per record (rf2-a9cke
-            canonical design)"
+            events yields one section per record"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines!    [:auth/login])
@@ -525,12 +204,37 @@
             "one section per transitioned machine")
         (is (some? (find-by-testid
                      tree "rf-causa-machine-focused-event-chart"))
-            "the section renders the topology chart")))))
+            "the section renders the topology chart")
+        (is (nil? (find-by-testid tree "rf-causa-machine-inspector-blank"))
+            "the blank-state is suppressed when records exist")))))
+
+(deftest focused-event-section-emits-from-and-to-highlight-ids
+  (testing "the per-section chart carries data-from/to-highlight-id so
+            the chart's render path applies the dashed-origin + bold-
+            landing visual grammar"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree   (machine-inspector/Panel)
+            chart  (find-by-testid
+                     tree "rf-causa-machine-focused-event-chart")]
+        (is (some? chart))
+        (is (= "idle"    (:data-from-highlight-id (second chart))))
+        (is (= "authing" (:data-to-highlight-id   (second chart))))))))
 
 (deftest focused-event-lens-renders-multi-machine-cascade
   (testing "a cascade triggering transitions across multiple machines
-            yields one section per machine, document-order (rf2-a9cke
-            multi-machine acceptance)"
+            yields one section per machine, document-order"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines!    [:auth/login :checkout/flow :session/clock])
@@ -565,10 +269,11 @@
                (mapv #(:data-machine-id (second %)) sections))
             "sections appear in cascade document order")))))
 
-(deftest focused-event-section-emits-from-and-to-highlight-ids
-  (testing "the per-section chart carries data-from/to-highlight-id so
-            the chart's render path applies the dashed-origin + bold-
-            landing visual grammar"
+;; ---- (5) per-machine prev/next nav -------------------------------------
+
+(deftest prev-next-nav-renders-when-a-machine-is-in-scope
+  (testing "the per-machine prev/next nav appears in the header whenever
+            the focused event has at least one machine section"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines!    [:auth/login])
@@ -582,14 +287,157 @@
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit] :dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree   (machine-inspector/Panel)
-            chart  (find-by-testid
-                     tree "rf-causa-machine-focused-event-chart")]
-        (is (some? chart))
-        (is (= "idle"    (:data-from-highlight-id (second chart))))
-        (is (= "authing" (:data-to-highlight-id   (second chart))))))))
+      (let [tree (machine-inspector/Panel)]
+        (is (some? (find-by-testid
+                     tree "rf-causa-machine-inspector-prev-next-nav"))
+            "prev/next nav is visible when a machine is in scope")
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-prev")))
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-next")))))))
 
-;; ---- (6) frame isolation ------------------------------------------------
+(deftest prev-next-nav-hidden-in-blank-state
+  (testing "the per-machine prev/next nav is hidden when no machine is
+            in scope (the blank state)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:auth/login])
+      (let [tree (machine-inspector/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-machine-inspector-blank")))
+        (is (nil? (find-by-testid
+                    tree "rf-causa-machine-inspector-prev-next-nav"))
+            "no nav when there is no machine in scope")))))
+
+(deftest machine-focus-prev-walks-to-prior-event-touching-machine
+  (testing "dispatching :rf.causa/machine-focus-prev moves the spine's
+            focus to the prior epoch that ALSO touched the focused
+            machine — skipping epochs whose cascade did not touch it"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
+      ;; Epoch history: e1 touches :auth/login, e2 touches :checkout/flow only
+      ;; (must be skipped), e3 touches :auth/login (the current focus).
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+         {:epoch-id 2
+          :trace-events
+          [{:id 2 :time 20 :operation :rf.machine/transition
+            :tags {:machine-id :checkout/flow
+                   :before {:state :idle :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:cart/sync] :dispatch-id "d-2"}}]}
+         {:epoch-id 3
+          :trace-events
+          [{:id 3 :time 30 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :authing :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:auth/done] :dispatch-id "d-3"}}]}])
+      (focus-epoch! 3)
+      (rf/dispatch-sync [:rf.causa/machine-focus-prev])
+      (let [causa-db (frame/frame-app-db-value :rf/causa)]
+        (is (= 1 (get-in causa-db [:focus :epoch-id]))
+            "focus stepped from epoch 3 → epoch 1, skipping epoch 2")))))
+
+(deftest machine-focus-next-walks-to-next-event-touching-machine
+  (testing "dispatching :rf.causa/machine-focus-next moves the spine's
+            focus forward to the next epoch that touched the focused
+            machine"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+         {:epoch-id 2
+          :trace-events
+          [{:id 2 :time 20 :operation :rf.machine/transition
+            :tags {:machine-id :checkout/flow
+                   :before {:state :idle :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:cart/sync] :dispatch-id "d-2"}}]}
+         {:epoch-id 3
+          :trace-events
+          [{:id 3 :time 30 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :authing :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:auth/done] :dispatch-id "d-3"}}]}])
+      (focus-epoch! 1)
+      (rf/dispatch-sync [:rf.causa/machine-focus-next])
+      (let [causa-db (frame/frame-app-db-value :rf/causa)]
+        (is (= 3 (get-in causa-db [:focus :epoch-id]))
+            "focus stepped from epoch 1 → epoch 3, skipping epoch 2")))))
+
+(deftest machine-focus-prev-is-noop-at-history-edge
+  (testing "stepping prev when the focused epoch is already the first
+            touching the machine leaves the focus untouched"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (rf/dispatch-sync [:rf.causa/machine-focus-prev])
+      (let [causa-db (frame/frame-app-db-value :rf/causa)]
+        (is (= 1 (get-in causa-db [:focus :epoch-id]))
+            "focus stays at epoch 1 — no prior match")))))
+
+;; ---- (6) events ---------------------------------------------------------
+
+(deftest select-machine-id-event-writes-to-causa-frame
+  (testing ":rf.causa/select-machine-id stores the id on the Causa frame
+            (kept for share-URL + Sim-engine compatibility)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-machine-id :checkout/flow])
+      (is (= :checkout/flow @(rf/subscribe [:rf.causa/selected-machine-id]))))))
+
+(deftest clear-machine-selection-drops-the-pick
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/select-machine-id :checkout/flow])
+    (rf/dispatch-sync [:rf.causa/clear-machine-selection])
+    (is (nil? @(rf/subscribe [:rf.causa/selected-machine-id])))))
+
+(deftest scrubber-position-slot-defaults-to-present
+  (testing "the scrubber-position slot defaults to :present (the share-
+            URL round-trips this slot even though the scrubber UI is gone)"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (is (= :present @(rf/subscribe [:rf.causa/machine-scrubber-position]))))))
+
+(deftest set-scrubber-position-event-writes-the-slot
+  (testing ":rf.causa/set-scrubber-position writes the slot for the
+            share-URL surface"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-scrubber-position 3])
+      (is (= 3 @(rf/subscribe [:rf.causa/machine-scrubber-position])))
+      (rf/dispatch-sync [:rf.causa/set-scrubber-position :present])
+      (is (= :present @(rf/subscribe [:rf.causa/machine-scrubber-position]))))))
+
+;; ---- (7) frame isolation ------------------------------------------------
 
 (deftest selection-state-does-not-leak-into-default-frame
   (testing "the panel's selection state lives on :rf/causa, never :rf/default"
@@ -604,27 +452,14 @@
           "selection did NOT leak into :rf/default"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ppzid — React unique-key warning regression guard.
-;;
-;; Two `for` loops in the Machine Inspector panel previously attached
-;; `^{:key …}` reader meta to a function-call list form — `(transition-
-;; entry row)` and `(focused-event-section rec)`. Reagent's
-;; `get-react-key` only reads `:key` from vector meta, so the keys were
-;; silently lost and React emitted "unique key prop" warnings. The fix
-;; routes both per-row children through `with-meta` so the `:key` meta
-;; lands on the returned `[:li …]` / `[:section …]` vector. This test
-;; renders both loops under populated fixtures and asserts every
-;; per-row child carries `:key` meta so the regression cannot recur
-;; silently. (rf2-ppzid)
+;; rf2-ppzid — React unique-key warning regression guard. The for-loop
+;; in `focused-event-view` previously attached `^{:key …}` reader meta
+;; to a function-call list form, losing the key. The fix routes per-row
+;; children through `with-meta` so the `:key` meta lands on the
+;; returned `[:section …]` vector. This test asserts the regression
+;; cannot recur silently.
 ;; ---------------------------------------------------------------------------
 
-;; Meta-preserving walker. The `expand-fn-component`/`mapv` walker
-;; above rewrites every vector node with `mapv`, stripping element
-;; meta. To assert `:key` meta survives we walk via `tree-seq` with a
-;; custom children fn: for fn-component vectors we descend into
-;; `(apply f args)`; for pure hiccup vectors we yield their children
-;; in place. Either way the data-testid-bearing vectors land in our
-;; hand as-is, with meta intact.
 (defn- meta-preserving-children [node]
   (cond
     (and (vector? node) (fn? (first node)))
@@ -635,8 +470,7 @@
       (drop 2 node)
       (rest node))
 
-    (seq? node)
-    node
+    (seq? node) node
 
     :else nil))
 
@@ -648,36 +482,6 @@
                          (.startsWith prefix))))
           (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
 
-(deftest ribbon-entries-carry-key-meta
-  (testing "ribbon entries (transition-entry for-loop) carry :key meta
-            on the returned [:li …] vector (rf2-ppzid)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (override-machines! [:auth/login])
-      (force-mode! :mode-a)
-      (trace-bus/collect-trace!
-        {:id 1 :operation :rf.machine/transition :time 100
-         :tags {:machine-id :auth/login :from :idle :to :authing
-                :event [:auth/submit] :dispatch-id "d-1"}})
-      (trace-bus/collect-trace!
-        {:id 2 :operation :rf.machine/transition :time 200
-         :tags {:machine-id :auth/login :from :authing :to :idle
-                :event [:auth/cancel] :dispatch-id "d-2"}})
-      (trace-bus/collect-trace!
-        {:id 3 :operation :rf.machine/transition :time 300
-         :tags {:machine-id :auth/login :from :idle :to :authing
-                :event [:auth/retry] :dispatch-id "d-3"}})
-      (let [tree    (machine-inspector/Panel)
-            entries (raw-find-all-by-testid-prefix
-                      tree "rf-causa-machine-inspector-transition-")]
-        (is (= 3 (count entries))
-            "three ribbon entries — one per transition event")
-        (doseq [entry entries]
-          (is (vector? entry) "ribbon entry is a hiccup vector")
-          (is (some? (some-> (meta entry) :key))
-              (str "ribbon entry carries :key meta — got "
-                   (pr-str (meta entry)))))))))
-
 (deftest focused-event-sections-carry-key-meta
   (testing "focused-event-section per-record for-loop ships per-section
             children carrying :key meta on the returned [:section …]
@@ -687,21 +491,20 @@
       (override-machines!    [:auth/login :checkout/flow])
       (override-definitions! {:auth/login    fixture-definition
                               :checkout/flow fixture-definition})
-      ;; Two transitions across two machines so the focused-event lens
-      ;; renders two sibling sections.
-      (trace-bus/collect-trace!
-        {:id 1 :operation :event/dispatched :op-type :event :time 100
-         :tags {:event [:cascade/start] :dispatch-id "d-cascade"
-                :frame :rf/default}})
-      (trace-bus/collect-trace!
-        {:id 2 :operation :rf.machine/transition :time 110
-         :tags {:machine-id :auth/login :from :idle :to :authing
-                :event [:cascade/start] :dispatch-id "d-cascade"}})
-      (trace-bus/collect-trace!
-        {:id 3 :operation :rf.machine/transition :time 120
-         :tags {:machine-id :checkout/flow :from :idle :to :authing
-                :event [:cascade/start] :dispatch-id "d-cascade"}})
-      (rf/dispatch-sync [:rf.causa/select-dispatch-id "d-cascade"])
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :dispatch-id "d-1"}}
+           {:id 2 :time 11 :operation :rf.machine/transition
+            :tags {:machine-id :checkout/flow
+                   :before {:state :idle :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:cart/sync] :dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
       (let [tree     (machine-inspector/Panel)
             sections (raw-find-all-by-testid-prefix
                        tree "rf-causa-machine-focused-event-section-")]

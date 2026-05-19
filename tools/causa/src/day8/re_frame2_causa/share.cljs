@@ -247,16 +247,18 @@
   ;; changes between sessions.
   (rf/reg-sub :rf.causa/share-state
     :<- [:rf.causa/selected-machine-id]
-    :<- [:rf.causa/forced-machine-mode]
     :<- [:rf.causa/selected-tab]
     :<- [:rf.causa/machine-scrubber-position]
-    (fn [[machine-id forced-mode tab position] _query]
+    (fn [[machine-id tab position] _query]
       ;; instance-id == machine-id under the Phase 1/3 snapshot
       ;; widening; the slot stays for the spawn-aware future.
+      ;;
+      ;; rf2-y9xmf: `:mode` (forced Mode A/B/C) is gone — the panel is
+      ;; event-driven only. Inbound share URLs carrying a `:mode` slot
+      ;; are silently dropped in `restore-from-share-url` below.
       (cond-> {}
         (some? machine-id)  (assoc :machine-id machine-id
                                    :instance-id machine-id)
-        (some? forced-mode) (assoc :mode forced-mode)
         (some? tab)         (assoc :tab tab)
         (some? position)    (assoc :position position))))
 
@@ -340,13 +342,11 @@
   (rf/reg-event-fx :rf.causa/copy-share-url-to-clipboard
     (fn [{:keys [db]} _event]
       (let [state (let [machine-id  (:selected-machine-id db)
-                        forced-mode (:machine-inspector/forced-mode db)
                         tab         (or (:selected-tab db) :event)
                         position    (:machine-inspector/scrubber-position db)]
                     (cond-> {}
                       (some? machine-id)  (assoc :machine-id machine-id
                                                  :instance-id machine-id)
-                      (some? forced-mode) (assoc :mode forced-mode)
                       (some? tab)         (assoc :tab tab)
                       (some? position)    (assoc :position position)))
             url   (current-share-url state)
@@ -369,13 +369,11 @@
   (rf/reg-event-fx :rf.causa/open-share-url-in-new-tab
     (fn [{:keys [db]} _event]
       (let [state (let [machine-id  (:selected-machine-id db)
-                        forced-mode (:machine-inspector/forced-mode db)
                         tab         (or (:selected-tab db) :event)
                         position    (:machine-inspector/scrubber-position db)]
                     (cond-> {}
                       (some? machine-id)  (assoc :machine-id machine-id
                                                  :instance-id machine-id)
-                      (some? forced-mode) (assoc :mode forced-mode)
                       (some? tab)         (assoc :tab tab)
                       (some? position)    (assoc :position position)))
             url   (current-share-url state)]
@@ -384,14 +382,16 @@
   ;; Restore Causa state from a decoded share-state map. Drives the
   ;; per-slot reducers so the same code-paths that handle interactive
   ;; events handle the restored ones — no special-case branches.
+  ;;
+  ;; rf2-y9xmf: the `:mode` slot (forced Mode A/B/C) was removed when
+  ;; the Machine Inspector was collapsed to an event-driven panel.
+  ;; Inbound share URLs carrying `:mode` are silently dropped here so
+  ;; old links don't error.
   (rf/reg-event-db :rf.causa/restore-from-share-url
-    (fn [db [_ {:keys [machine-id position mode tab] :as state}]]
+    (fn [db [_ {:keys [machine-id position tab] :as _state}]]
       (cond-> db
         (some? machine-id) (assoc :selected-machine-id machine-id)
         (some? position)   (assoc :machine-inspector/scrubber-position position)
-        (and (some? mode)
-             (contains? #{:mode-a :mode-b :mode-c} mode))
-        (assoc :machine-inspector/forced-mode mode)
         (some? tab)        (assoc :selected-tab tab)))))
 
 ;; ---- on-load restore hook -----------------------------------------------

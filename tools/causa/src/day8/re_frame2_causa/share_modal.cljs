@@ -166,11 +166,10 @@
   [:button
    {:data-testid "rf-causa-share-modal-reset"
     :on-click    (fn [_]
-                   ;; Reset selection + forced mode + scrubber so the
-                   ;; URL collapses to the bare sentinel.
+                   ;; Reset selection + scrubber so the URL collapses
+                   ;; to the bare sentinel. (rf2-y9xmf: forced-mode is
+                   ;; gone — the panel is event-driven, no Mode A/B/C.)
                    (rf/dispatch [:rf.causa/clear-machine-selection]
-                                {:frame :rf/causa})
-                   (rf/dispatch [:rf.causa/set-forced-machine-mode nil]
                                 {:frame :rf/causa})
                    (rf/dispatch [:rf.causa/set-scrubber-position :present]
                                 {:frame :rf/causa}))

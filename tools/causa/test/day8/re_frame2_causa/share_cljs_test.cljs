@@ -126,6 +126,10 @@
     (is (= :present (:position s)))))
 
 (deftest decode-state-restores-mode-and-tab
+  ;; rf2-y9xmf: the `:mode` slot survives the encode/decode round-trip
+  ;; on the wire (legacy URLs still parse), but the restore-event drops
+  ;; it because the panel is event-driven post-collapse. The decoded
+  ;; map keeps the slot so callers can detect / log legacy mode bits.
   (let [s (share/decode-state {"causa-share" "1"
                                "mode"        "mode-c"
                                "tab"         "machines"})]
@@ -133,7 +137,9 @@
     (is (= :machines (:tab s)))))
 
 (deftest encode-decode-round-trip
-  (testing "encode → decode preserves every payload slot"
+  (testing "encode → decode preserves every payload slot. `:mode` is
+            kept on the wire for legacy URL compatibility even though
+            the Causa restore-event drops it post-rf2-y9xmf collapse."
     (let [original {:machine-id  :auth/login
                     :instance-id :auth/login
                     :mode        :mode-b
@@ -233,17 +239,23 @@
                         :tab        :machines
                         :position   3}])
     (is (= :auth/login @(rf/subscribe [:rf.causa/selected-machine-id])))
-    (is (= :mode-c     @(rf/subscribe [:rf.causa/forced-machine-mode])))
     (is (= :machines   @(rf/subscribe [:rf.causa/selected-tab])))
     (is (= 3           @(rf/subscribe [:rf.causa/machine-scrubber-position])))))
 
-(deftest restore-ignores-invalid-mode
+(deftest restore-drops-legacy-mode-slot
+  ;; rf2-y9xmf: the `:mode` slot is dropped on restore — the panel is
+  ;; event-driven post-collapse, there is no Mode A/B/C forcing. Legacy
+  ;; URLs carrying `:mode` are silently ignored rather than rejected.
   (setup-causa-frame!)
   (rf/with-frame :rf/causa
     (rf/dispatch-sync [:rf.causa/restore-from-share-url
-                       {:mode :not-a-real-mode}])
-    (is (nil? @(rf/subscribe [:rf.causa/forced-machine-mode]))
-        "invalid mode value is dropped rather than written")))
+                       {:machine-id :auth/login
+                        :mode       :mode-c}])
+    (is (= :auth/login @(rf/subscribe [:rf.causa/selected-machine-id]))
+        "the rest of the payload still restores")
+    (let [causa-db (frame/frame-app-db-value :rf/causa)]
+      (is (nil? (:machine-inspector/forced-mode causa-db))
+          "the legacy :mode slot does NOT land on app-db"))))
 
 (deftest restore-tolerates-empty-state
   (setup-causa-frame!)
