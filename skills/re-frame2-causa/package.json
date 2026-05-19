@@ -1,0 +1,41 @@
+{
+  "name": "@day8/re-frame2-causa",
+  "version": "0.1.0-alpha.1",
+  "description": "Read-only tour skill for Causa — the re-frame2 in-app devtools panel. Teaches how to launch Causa (true-inline, pop-out, programmatic, hotkeys) and which of its 13 panels surfaces the data you're looking for.",
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "claude-code-plugin",
+    "re-frame",
+    "re-frame2",
+    "causa",
+    "devtools",
+    "clojurescript",
+    "day8"
+  ],
+  "homepage": "https://github.com/day8/re-frame2/tree/main/skills/re-frame2-causa",
+  "bugs": {
+    "url": "https://github.com/day8/re-frame2/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/day8/re-frame2.git",
+    "directory": "skills/re-frame2-causa"
+  },
+  "license": "MIT",
+  "author": "day8 (https://github.com/day8)",
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "references/",
+    "evals/",
+    ".claude-plugin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
