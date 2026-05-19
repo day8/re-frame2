@@ -398,12 +398,14 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Event tab content — the 7-section Event lens
+### §5.1 Event tab content — the 8-section Event lens
 
-Shipped layout per rf2-zh2qc + rf2-jhhqt (the latter swaps DISPATCH SITE
-before EVENT per Mike's Q1 verbatim, and adds the COEFFECTS section).
-Top-of-panel: a single-line cascade-outcome summary; below: seven stacked
-sections that read top-to-bottom as the developer scans.
+Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i (rf2-jhhqt swaps
+DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
+section; rf2-lo37i adds the FLOWS section as a peer surface to make the
+cascade's flow step first-class). Top-of-panel: a single-line cascade-
+outcome summary; below: eight stacked sections that read top-to-bottom
+as the developer scans.
 
 ```
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
@@ -436,6 +438,16 @@ sections that read top-to-bottom as the developer scans.
 │   │ ▼ REQUEST  ▼ WIRE TIMING  ▼ RESPONSE  ▼ HANDLER  ▼ APP-DB SLICE      │           │
 │   └────────────────────────────────────────────────────────────────────────┘         │
 │   :dispatch    ⏱ <1ms  ✓ handled  → queued [:notify "added"]                        │
+│                                                                                      │
+│ ▼ FLOWS  (3)                                                                         │
+│   ▸ :cart-total                wrote [:cart :total]   52.50                         │
+│                                  read  [:cart :items]                                │
+│     ↳ :tax-due       via :cart-total                                                 │
+│                                wrote [:tax :due]      5.25                          │
+│                                  read  [:cart :total]                                │
+│     ↳ :grand-total-display     via :cart-total, :tax-due                            │
+│                                wrote [:checkout :grand-total]  57.75                │
+│                                  read  [:cart :total] [:tax :due]                    │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -450,7 +462,7 @@ sections that read top-to-bottom as the developer scans.
   `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
   purely-client-side cascades.
 
-#### The 7 sections (Mike's verbatim order, rf2-jhhqt)
+#### The 8 sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i)
 
 1. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
    caption. Reads `:rf.trace/call-site` off the `:event/dispatched`
@@ -492,6 +504,30 @@ sections that read top-to-bottom as the developer scans.
    `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`
    mounts INLINE beneath the row per §8.3 of the findings doc — NOT
    in a trailing block.
+8. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
+   peer section between the handler-driven effects and any conceptual
+   `RETURNED VALUE` slot). Reads `:rf.flow/computed` traces (op-type
+   `:flow`) from the cascade's `:other` bucket per
+   [spec/013-Flows.md §Flow tracing](../../spec/013-Flows.md#flow-tracing)
+   and [spec/009-Instrumentation.md §Flow trace events](../../spec/009-Instrumentation.md#flow-trace-events).
+   One row per firing in cascade order (the framework's topo-sorted
+   walk):
+   - `▸ :flow-id` (or `↳ :flow-id  via :upstream-flow` when the row's
+     read path overlaps a preceding row's write path — subtle indent +
+     `↳` glyph linking back to the upstream flow id)
+   - `wrote <write-path>` + after-value (via `inspector/inspect`)
+   - `read <input-path-1> <input-path-2> …` — input paths recovered
+     from the registry via `(rf/handler-meta :flow flow-id)` (the
+     per-firing trace does not carry input PATHS; rf2-qlzh4 polish
+     bead tracks adding `:before` to the trace payload for full self-
+     containment). When the flow has been cleared mid-session the
+     read line renders `input paths unavailable (flow may have been
+     cleared)` instead of paths.
+
+   `:rf.flow/skip` traces (value-equal dirty-check suppression per
+   [spec/013-Flows.md §Dirty-check semantics](../../spec/013-Flows.md#dirty-check-semantics))
+   are NOT rendered as rows — a flow that didn't recompute did not
+   touch app-db, so it stays out of the cascade-detail by default.
 
 #### Edge cases
 
@@ -501,10 +537,16 @@ sections that read top-to-bottom as the developer scans.
 - **No user interceptors** — INTERCEPTORS section ABSENT entirely.
 - **No effects returned** — EFFECTS RETURNED section ABSENT.
 - **No fx handlers ran** — EFFECTS HANDLERS RAN section ABSENT.
-- **Handler threw** — §6 + §7 are both absent (handler never
-  returned / fx walk never started); a small footer caption renders:
-  `Handler threw — see Issues tab ⚠ for the exception detail.` This
-  is the ONE inline cross-reference to another tab.
+- **No flows fired** — FLOWS section ABSENT entirely (silent-by-
+  default; no '(none)' placeholder).
+- **Flow cleared mid-session** — FLOWS section still renders the row
+  (the firing happened); the read-paths line renders the absent
+  placeholder since `(rf/handler-meta :flow id)` returns nil.
+- **Handler threw** — §6 + §7 + §8 are all absent (handler never
+  returned / fx walk never started / flow walk never reached); a
+  small footer caption renders: `Handler threw — see Issues tab ⚠
+  for the exception detail.` This is the ONE inline cross-reference
+  to another tab.
 
 #### What's dropped from the Event tab
 
