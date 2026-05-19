@@ -41,6 +41,7 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.static.machines.panel :as static-machines-panel]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
             [day8.re-frame2-causa.static.shell :as static-shell]
@@ -626,6 +627,15 @@
     (event-detail/install!)
     (issues-ribbon/install!)
     (machine-inspector/install!)
+    ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
+    ;; machine + Topology + JUMP-to-Runtime + Cascade-dimmed surfaces.
+    ;; Installs AFTER `machine-inspector/install!` so the static-machines
+    ;; sub graph can :<- onto the existing `:rf.causa/registered-machines`,
+    ;; `:rf.causa/machine-definitions`, and `:rf.causa/machine-snapshots`
+    ;; subs without redeclaring them. Registration order is purely
+    ;; cosmetic (re-frame resolves `:<-` chains lazily); the top-down
+    ;; dependency read is clearer.
+    (static-machines-panel/install!)
     ;; Managed-fx wire-boundary diff template (rf2-uyp86) — installs the
     ;; `:rf.causa/managed-fx-for-focused-event` sub + the
     ;; `:rf.causa/focus-event` cross-link event. The panel view itself
