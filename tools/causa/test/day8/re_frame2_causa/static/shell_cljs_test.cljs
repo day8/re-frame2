@@ -253,12 +253,13 @@
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-static-tab-ids
-  [:machines :routes :schemas :views :events])
+  ;; rf2-uhsqb added :flows as a 6th tab between :views and :events.
+  [:machines :routes :schemas :views :flows :events])
 
 (deftest static-tab-bar-renders-five-tabs
-  (testing "Static L3 tab bar renders 5 sub-tabs per parent-epic
-            rf2-o5f5f sub-bead list (Machines / Routes / Schemas /
-            Views / Events)"
+  (testing "Static L3 tab bar renders 6 sub-tabs per parent-epic
+            rf2-o5f5f sub-bead list + rf2-uhsqb Flows (Machines /
+            Routes / Schemas / Views / Flows / Events)"
     (causa-setup!)
     (rf/with-frame :rf/causa
       (let [tree (static-shell/surface)]
@@ -295,7 +296,10 @@
   off each time they land."
   ;; rf2-o5f5f.2 — :machines mounts the Static Machines panel.
   ;; rf2-o5f5f.3 — :routes   mounts the Static Routes panel.
-  #{:machines :routes})
+  ;; rf2-o5f5f.4 — :schemas  mounts the Static Schemas panel.
+  ;; rf2-o5f5f.5 — :views    mounts the Static Views panel.
+  ;; rf2-uhsqb   — :flows    mounts the Static Flows panel.
+  #{:machines :routes :schemas :views :flows})
 
 (deftest static-placeholder-cards-name-sibling-bead
   (testing "each placeholder card surfaces its sibling-bead id
@@ -490,13 +494,17 @@
 (deftest static-tab-inventory-shape
   (testing "tab inventory carries id/label/mnem/placeholder-bead and
             preserves canonical order"
-    (is (= [:machines :routes :schemas :views :events]
+    (is (= [:machines :routes :schemas :views :flows :events]
            (mapv :id static-shell/tabs))
-        "5 tabs in canonical order")
+        "6 tabs in canonical order (rf2-uhsqb added :flows)")
     (doseq [{:keys [id label mnem placeholder-bead]} static-shell/tabs]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))
       (is (and (string? mnem) (= 1 (count mnem)))
           (str "mnem is one character for " id))
-      (is (re-matches #"rf2-o5f5f\.\d" placeholder-bead)
+      ;; Most sub-tabs are sibling beads under the rf2-o5f5f parent epic
+      ;; (rf2-o5f5f.2 / .3 / .4 / .5 / .6). The :flows tab landed under
+      ;; the standalone rf2-uhsqb bead per the parent-epic comment, so
+      ;; the regex accepts either shape.
+      (is (re-matches #"(rf2-o5f5f\.\d|rf2-[a-z0-9]+)" placeholder-bead)
           (str "placeholder-bead names a sibling bead for " id)))))
