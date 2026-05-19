@@ -234,7 +234,8 @@
         auto-open?      @(rf/subscribe [:rf.causa/setting :general :auto-open-on-error?])
         density         @(rf/subscribe [:rf.causa/density])
         long-kw-thresh  @(rf/subscribe [:rf.causa/long-keyword-threshold])
-        show-tool?      @(rf/subscribe [:rf.causa/show-tool-frames?])]
+        show-tool?      @(rf/subscribe [:rf.causa/show-tool-frames?])
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])]
     [:div {:data-testid "rf-causa-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -440,7 +441,41 @@
               ":rf/pair2"]
        " in the L1 frame-picker dropdown. Default OFF — tool frames"
        " observing themselves is a known anti-pattern (see "
-       "spec/007-UX-IA.md §Frame-observation isolation invariants)."]]]))
+       "spec/007-UX-IA.md §Frame-observation isolation invariants)."]]
+
+     ;; ── Show :ungrouped pseudo-cascade events (rf2-r9lyy) ──────
+     ;;
+     ;; Opt-in surface for the `:ungrouped` bucket produced by
+     ;; `re-frame.trace.projection/group-cascades` (registry-time
+     ;; emits, frame lifecycle outside a drain, `:rf.ssr/hydration-
+     ;; mismatch`, REPL evals). Default OFF preserves Causa's
+     ;; silent-by-default posture (rf2-639lc filtered the bucket out
+     ;; of L2 entirely); flipping ON reveals the bucket as a muted
+     ;; L2 row so users debugging SSR / REPL flows can focus it and
+     ;; populate downstream panels. Per Mike 2026-05-19 closure of
+     ;; rf2-q60yf (Option B — opt-in chip/toggle).
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-causa-settings-show-ungrouped"
+                :type        "checkbox"
+                :checked     (boolean show-ungrouped?)
+                :on-change   #(rf/dispatch
+                                [:rf.causa/settings-update
+                                 :general :show-ungrouped?
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/causa})}]
+       "Show :ungrouped pseudo-cascade events in L2"]
+      [:p {:style (hint-style)}
+       "Reveals events outside any dispatch — "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        ":rf.ssr/*"]
+       ", registry-time emits, REPL evals, frame lifecycle. "
+       "Default OFF — Causa is silent-by-default. Useful when "
+       "debugging SSR / REPL flows."]]]))
 
 ;; ---- section: Filters ---------------------------------------------------
 

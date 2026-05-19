@@ -684,6 +684,15 @@
     above which a fully-qualified keyword is elided in compact list
     cells. Per spec/007-UX-IA.md §Long-keyword treatment; was
     previously a fixed constant.
+  - `:show-ungrouped?` (boolean, default `false`) — opt-in surface
+    for the `:ungrouped` pseudo-cascade bucket (per rf2-r9lyy / Mike
+    2026-05-19 closure of rf2-q60yf). OFF by default: the L2 event
+    list filters `:ungrouped` (registry-time emits, frame lifecycle
+    outside a drain, `:rf.ssr/hydration-mismatch`, REPL evals) per
+    rf2-639lc — silent-by-default. Flip ON to reveal those events
+    in L2 with a muted visual treatment; clicking the row focuses
+    the bucket so downstream panels populate. Useful when debugging
+    SSR / REPL / registry-time flows.
 
   ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
 
@@ -703,6 +712,7 @@
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false
+               :show-ungrouped?        false           ; rf2-r9lyy opt-in pseudo-cascade surface
                :long-keyword-threshold 24}
    :theme     :dark                                  ; :dark | :light
    :diff      {:highlight-fn-ref-changes? false}

@@ -813,6 +813,91 @@
            (spine/focusable-cascades fixture-cascades))
         "no :ungrouped → no-op")))
 
+;; -------------------------------------------------------------------------
+;; rf2-r9lyy — :ungrouped opt-in surface (Option B)
+;;
+;; Mike 2026-05-19 closure of rf2-q60yf: the `:settings/show-ungrouped?`
+;; knob flips the bucket from "always stripped" to "user-revealed". The
+;; spine respects the opt-in: when on, the bucket is a valid focusable
+;; target so clicking the L2 row pins it; when off (default), the
+;; existing strict behaviour applies and pinning to :ungrouped snaps to
+;; head.
+;; -------------------------------------------------------------------------
+
+(deftest focusable-cascades-include-ungrouped-when-opt-in
+  (testing "rf2-r9lyy — `show-ungrouped? true` keeps the bucket so the
+            user can focus it"
+    (is (= 3 (count (spine/focusable-cascades
+                      fixture-cascades-with-ungrouped true))))
+    (is (some #(= :ungrouped (:dispatch-id %))
+              (spine/focusable-cascades
+                fixture-cascades-with-ungrouped true)))
+    (is (= 2 (count (spine/focusable-cascades
+                      fixture-cascades-with-ungrouped false)))
+        "show-ungrouped? false preserves the strict default")))
+
+(deftest focusable-head-id-includes-ungrouped-when-opt-in
+  (testing "rf2-r9lyy — when `show-ungrouped?` is on the head walk
+            considers :ungrouped as a possible head (the bucket sorts
+            last per the first-id sentinel)"
+    (is (= :ungrouped
+           (spine/focusable-head-id
+             fixture-cascades-with-ungrouped true)))
+    (is (= :c2
+           (spine/focusable-head-id
+             fixture-cascades-with-ungrouped false))
+        "show-ungrouped? false preserves the strict default")))
+
+(deftest compose-focus-pins-ungrouped-when-opt-in
+  (testing "rf2-r9lyy — `show-ungrouped? true` lets a stored
+            `:dispatch-id :ungrouped` stick (effective id is
+            :ungrouped, not the head)"
+    (let [r (spine/compose-focus {:dispatch-id :ungrouped :mode :retro}
+                                 fixture-cascades-with-ungrouped
+                                 true)]
+      (is (= :ungrouped (:dispatch-id r))
+          "stored :ungrouped is pinnable under opt-in"))))
+
+(deftest compose-focus-defaults-to-strict-when-opt-in-off
+  (testing "rf2-r9lyy — `show-ungrouped? false` (default) preserves
+            the rf2-fzbrw contract: a stored :ungrouped snaps to head"
+    (let [r (spine/compose-focus {:dispatch-id :ungrouped :mode :retro}
+                                 fixture-cascades-with-ungrouped
+                                 false)]
+      (is (= :c2 (:dispatch-id r))
+          "show-ungrouped? off → snap to head"))
+    (let [r (spine/compose-focus {:dispatch-id :ungrouped :mode :retro}
+                                 fixture-cascades-with-ungrouped)]
+      (is (= :c2 (:dispatch-id r))
+          "2-arity (legacy) preserves the strict default"))))
+
+(deftest focus-step-reducer-walks-into-ungrouped-when-opt-in
+  (testing "rf2-r9lyy — when `show-ungrouped?` is on, stepping forward
+            from the last real cascade lands on :ungrouped (the bucket
+            sorts at the head per the first-id sentinel)"
+    (let [db {:focus {:dispatch-id :c2 :mode :retro}
+              :selected-dispatch-id :c2}
+          r  (spine/focus-step-reducer db
+                                       fixture-cascades-with-ungrouped
+                                       []
+                                       +1
+                                       true)]
+      (is (= :ungrouped (get-in r [:focus :dispatch-id]))
+          "show-ungrouped? on → step forward into the bucket"))))
+
+(deftest focus-step-reducer-skips-ungrouped-when-opt-in-off
+  (testing "rf2-r9lyy — when `show-ungrouped?` is off (default), the
+            step walk never lands on :ungrouped (rf2-fzbrw default)"
+    (let [db {:focus {:dispatch-id :c2 :mode :retro}
+              :selected-dispatch-id :c2}
+          r  (spine/focus-step-reducer db
+                                       fixture-cascades-with-ungrouped
+                                       []
+                                       +1
+                                       false)]
+      (is (= db r)
+          "show-ungrouped? off → boundary no-op at the last real cascade"))))
+
 (deftest focus-step-reducer-prev-on-first-event-is-no-op
   (testing "rf2-fzbrw — [<] on the first (oldest) real event returns db
             unchanged. The boundary is a true no-op so focus cannot

@@ -87,6 +87,19 @@
       (boolean (or (get-in db [:settings :general :show-tool-frames?])
                    (config/get-setting :general :show-tool-frames?)))))
 
+  ;; rf2-r9lyy — convenience sub: should the L2 event list surface
+  ;; the `:ungrouped` pseudo-cascade bucket (registry-time emits /
+  ;; frame lifecycle / `:rf.ssr/hydration-mismatch` / REPL evals)?
+  ;; OFF by default — Causa is silent-by-default per Mike's 2026-05-19
+  ;; closure of rf2-q60yf. Flipping ON re-includes the bucket in L2
+  ;; with a muted row treatment; clicking the row focuses it so
+  ;; downstream panels (Event / App-db / Views / Trace) render against
+  ;; the bucket's events. Useful when debugging SSR / REPL flows.
+  (rf/reg-sub :rf.causa/show-ungrouped?
+    (fn [db _query]
+      (boolean (or (get-in db [:settings :general :show-ungrouped?])
+                   (config/get-setting :general :show-ungrouped?)))))
+
   ;; rf2-ttnst — convenience sub: long-keyword wrap threshold (chars).
   ;; Default 24 (was a fixed constant; now user-tuneable per spec/007-
   ;; UX-IA.md §Long-keyword treatment).
