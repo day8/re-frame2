@@ -31,21 +31,11 @@ theme:
     repo: fontawesome/brands/git-alt
   language: en
   palette:
-    - scheme: default
-      primary: black
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - scheme: slate
-      primary: black
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+    primary: blue
+    accent: blue
   font:
-    text: Inter
-    code: JetBrains Mono
+    text: IBM Plex Sans
+    code: Source Code Pro
   features:
     - navigation.tabs
     - navigation.sections
@@ -60,9 +50,6 @@ theme:
 # in the list, otherwise search silently disappears.
 plugins:
   - search
-
-extra_css:
-  - stylesheets/cursor-inspired.css
 
 extra:
   social:
