@@ -489,14 +489,15 @@
                                      :height "100%"
                                      :display "block"}}})
      (when show-after-rings?
-       ;; The after-rings overlay rendered AT 1:1 over the chart
-       ;; (it positions absolute on each ring's chart-world coord).
-       ;; With viewport-transform active the rings drift from the
-       ;; node centres — for v1 we keep them at identity (the
-       ;; rings are runtime-runtime overlays whose precision tracks
-       ;; the un-transformed positioned graph). Follow-on bead
-       ;; aligns them with the user's transform.
-       [after-rings/AfterRingsOverlay positioned])
+       ;; rf2-obp4z — the after-rings overlay receives the same
+       ;; viewport-transform the chart applies. The overlay wraps
+       ;; its rings group in `<g transform="translate(tx,ty)
+       ;; scale(s)">` so each ring tracks its bearing node centre
+       ;; through the user's zoom + pan. Pre-fix the rings drifted
+       ;; off-node at any non-identity viewport.
+       [after-rings/AfterRingsOverlay
+        positioned
+        {:viewport-transform viewport}])
      ;; Toolbar — absolute top-right, above the chart SVG.
      [:div {:data-testid "rf-causa-machine-canvas-toolbar"
             :style {:position "absolute"

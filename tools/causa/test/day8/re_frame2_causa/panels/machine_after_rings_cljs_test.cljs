@@ -245,6 +245,80 @@
       (is (some? (find-by-testid tree
                    "rf-causa-machine-inspector-after-ring-authing"))))))
 
+;; ---- (5b) rf2-obp4z viewport-transform alignment -----------------------
+;;
+;; Regression coverage for rf2-obp4z: when the chart's viewport-transform
+;; is non-identity, the rings group MUST carry the same transform so the
+;; rings track their node centres under zoom + pan. The legacy single-
+;; arity call site stays at 1:1 (back-compat).
+
+(defn- find-rings-group
+  "Walk the hiccup tree for the rings `<g>` (testid
+  `rf-causa-machine-inspector-after-rings`)."
+  [tree]
+  (find-by-testid tree "rf-causa-machine-inspector-after-rings"))
+
+(deftest overlay-omits-transform-without-viewport
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (override-machines!    [:auth/login])
+    (override-definitions! {:auth/login fixture-definition})
+    (pin-now-ms! 2000)
+    (push-scheduled! 1000 :auth/login :idle 5000 0)
+    (testing "single-arity call site renders without a transform attr (back-compat)"
+      (let [tree     (after-rings/AfterRingsOverlay fixture-positioned)
+            rings-g  (find-rings-group tree)]
+        (is (some? rings-g))
+        (is (nil? (:transform (second rings-g)))
+            "no viewport-transform passed → rings group carries no transform attr")))
+    (testing "explicit nil viewport-transform also omits the transform attr"
+      (let [tree (after-rings/AfterRingsOverlay
+                   fixture-positioned
+                   {:viewport-transform nil})]
+        (is (nil? (:transform (second (find-rings-group tree)))))))
+    (testing "identity viewport (scale 1, tx 0, ty 0) omits the transform attr"
+      (let [tree (after-rings/AfterRingsOverlay
+                   fixture-positioned
+                   {:viewport-transform {:scale 1 :tx 0 :ty 0}})]
+        (is (nil? (:transform (second (find-rings-group tree)))))))))
+
+(deftest overlay-applies-viewport-transform-when-supplied
+  (setup-causa-frame!)
+  (rf/with-frame :rf/causa
+    (override-machines!    [:auth/login])
+    (override-definitions! {:auth/login fixture-definition})
+    (pin-now-ms! 2000)
+    (push-scheduled! 1000 :auth/login :idle 5000 0)
+    (testing "non-identity viewport-transform stamps a translate+scale transform on the rings group"
+      (let [tree    (after-rings/AfterRingsOverlay
+                      fixture-positioned
+                      {:viewport-transform {:scale 1.5 :tx 40 :ty -20}})
+            rings-g (find-rings-group tree)
+            attrs   (second rings-g)]
+        (is (some? rings-g))
+        (is (= "translate(40,-20) scale(1.5)"
+               (:transform attrs))
+            "transform attr matches the chart's translate(tx,ty) scale(s) order — same vector as the chart body")
+        (testing "the overlay svg root exposes the viewport for data-binding / inspection"
+          (let [overlay (find-by-testid tree
+                          "rf-causa-machine-inspector-after-rings-overlay")
+                a       (second overlay)]
+            (is (= "1.5" (:data-viewport-scale a)))
+            (is (= "40"  (:data-viewport-tx a)))
+            (is (= "-20" (:data-viewport-ty a)))))))
+    (testing "scale-only zoom (no pan) still stamps a transform"
+      (let [tree (after-rings/AfterRingsOverlay
+                   fixture-positioned
+                   {:viewport-transform {:scale 2.0 :tx 0 :ty 0}})]
+        (is (= "translate(0,0) scale(2)"
+               (:transform (second (find-rings-group tree)))))))
+    (testing "pan-only (no zoom) still stamps a transform"
+      (let [tree (after-rings/AfterRingsOverlay
+                   fixture-positioned
+                   {:viewport-transform {:scale 1 :tx 25 :ty 15}})]
+        (is (= "translate(25,15) scale(1)"
+               (:transform (second (find-rings-group tree)))))))))
+
 ;; ---- (6) frame isolation ----------------------------------------------
 
 (deftest now-ms-lives-on-causa-frame

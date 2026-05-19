@@ -272,68 +272,103 @@
   "Renders the focused machine's `:after` countdown rings as an SVG
   overlay positioned over the chart's `<svg>` viewport. Takes the
   chart's positioned graph (so it can resolve timer states to node-
-  centres + radii) as the only arg; subscribes to the timers + now-ms
-  internally.
+  centres + radii); subscribes to the timers + now-ms internally.
+
+  Accepts the positioned graph either as the first positional arg
+  (legacy single-arity call site) OR as the `:positioned` key in an
+  options map. The map form additionally accepts:
+
+    :viewport-transform — rf2-obp4z. Optional `{:scale s :tx tx :ty ty}`
+                          map carrying the chart's current zoom + pan.
+                          When supplied (non-identity), the rings group
+                          is wrapped in `<g transform=\"translate(tx,ty)
+                          scale(s)\">` so the rings track the chart
+                          nodes as the user zooms / pans. nil / absent
+                          leaves the overlay at 1:1 (back-compat for
+                          callers that don't have a viewport — the
+                          legacy single-arity Inspector path takes
+                          this branch).
 
   Returns nil when the projection has no active timers (the SVG layer
   drops out of the chart so unrelated chart hover handlers aren't
   shadowed)."
-  [{:keys [nodes width height]}]
-  (let [timers   @(rf/subscribe [:rf.causa/active-timers-for-focused-machine])
-        now      @(rf/subscribe [:rf.causa/now-ms])
-        scrub    @(rf/subscribe [:rf.causa/machine-scrubber-position])
-        node-idx (nodes->index nodes)
-        ;; Kick the rAF loop iff ticking is needed (live mode + at
-        ;; least one armed timer). Cheap to call per render — the
-        ;; `:running?` sentinel collapses duplicate kicks.
-        _        (when (rings-h/needs-ticking? timers scrub)
-                   (kick-tick!))
-        rings    (rings-h/timers->ring-positions
-                   timers node-idx chart-layout/highlight-id)]
-    (when (seq rings)
-      [:svg {:data-testid "rf-causa-machine-inspector-after-rings-overlay"
-             :data-timer-count (count rings)
-             :viewBox (str "0 0 " (or width 0) " " (or height 0))
-             :width "100%"
-             :preserveAspectRatio "xMidYMin meet"
-             :style {:position "absolute"
-                     :top 0
-                     :left 0
-                     :width "100%"
-                     :height "100%"
-                     :pointer-events "none"   ;; rings opt in below
-                     :overflow "visible"}}
-       (into [:g {:data-testid "rf-causa-machine-inspector-after-rings"
-                  :style {:pointer-events "all"}}]
-             (for [{:keys [timer cx cy r]} rings
-                   :let [fraction (rings-h/ring-fraction timer now)
-                         color    (rings-h/timer-color timer now)
-                         cancelled? (= :cancelled (:status timer))
-                         tooltip  (rings-h/format-timer-tooltip timer now)
-                         state-id (if (keyword? (:state timer))
-                                    (name (:state timer))
-                                    (pr-str (:state timer)))
-                         testid   (str "rf-causa-machine-inspector-after-ring-"
-                                       state-id)]]
-               ^{:key (str (:state timer) "/" (:epoch timer))}
-               [:g {:on-mouse-enter
-                    (fn [_]
-                      (rf/dispatch [:rf.causa/timer-hover
-                                    {:machine-id (:machine-id timer)
-                                     :state      (:state timer)
-                                     :epoch      (:epoch timer)}]
-                                   {:frame :rf/causa}))
-                    :on-mouse-leave
-                    (fn [_]
-                      (rf/dispatch [:rf.causa/timer-hover nil]
-                                   {:frame :rf/causa}))}
-                (chart-svg/countdown-ring
-                  {:cx cx :cy cy :r r
-                   :fraction fraction
-                   :color    color
-                   :cancelled? cancelled?
-                   :testid   testid
-                   :tooltip  tooltip})]))])))
+  ([positioned]
+   (AfterRingsOverlay positioned nil))
+  ([{:keys [nodes width height]} {:keys [viewport-transform]}]
+   (let [timers   @(rf/subscribe [:rf.causa/active-timers-for-focused-machine])
+         now      @(rf/subscribe [:rf.causa/now-ms])
+         scrub    @(rf/subscribe [:rf.causa/machine-scrubber-position])
+         node-idx (nodes->index nodes)
+         ;; Kick the rAF loop iff ticking is needed (live mode + at
+         ;; least one armed timer). Cheap to call per render — the
+         ;; `:running?` sentinel collapses duplicate kicks.
+         _        (when (rings-h/needs-ticking? timers scrub)
+                    (kick-tick!))
+         rings    (rings-h/timers->ring-positions
+                    timers node-idx chart-layout/highlight-id)
+         ;; rf2-obp4z — align the rings with the chart's viewport
+         ;; transform. The chart wraps its body in `translate(tx,ty)
+         ;; scale(s)`; we mirror that transform on the rings group
+         ;; so the rings track their node centres under zoom + pan.
+         ;; When the viewport is identity (or absent) the transform
+         ;; attr is omitted entirely — back-compat: the legacy
+         ;; single-arity call site (Machine Inspector pre-canvas
+         ;; path) gets a byte-identical render.
+         {:keys [scale tx ty]
+          :or   {scale 1 tx 0 ty 0}}
+         (or viewport-transform {})
+         transform-applied? (or (not= 1 scale) (not= 0 tx) (not= 0 ty))
+         rings-transform    (when transform-applied?
+                              (str "translate(" tx "," ty ")"
+                                   " scale(" scale ")"))]
+     (when (seq rings)
+       [:svg {:data-testid "rf-causa-machine-inspector-after-rings-overlay"
+              :data-timer-count (count rings)
+              :data-viewport-scale (str scale)
+              :data-viewport-tx (str tx)
+              :data-viewport-ty (str ty)
+              :viewBox (str "0 0 " (or width 0) " " (or height 0))
+              :width "100%"
+              :preserveAspectRatio "xMidYMin meet"
+              :style {:position "absolute"
+                      :top 0
+                      :left 0
+                      :width "100%"
+                      :height "100%"
+                      :pointer-events "none"   ;; rings opt in below
+                      :overflow "visible"}}
+        (into [:g (cond-> {:data-testid "rf-causa-machine-inspector-after-rings"
+                           :style {:pointer-events "all"}}
+                    rings-transform (assoc :transform rings-transform))]
+              (for [{:keys [timer cx cy r]} rings
+                    :let [fraction (rings-h/ring-fraction timer now)
+                          color    (rings-h/timer-color timer now)
+                          cancelled? (= :cancelled (:status timer))
+                          tooltip  (rings-h/format-timer-tooltip timer now)
+                          state-id (if (keyword? (:state timer))
+                                     (name (:state timer))
+                                     (pr-str (:state timer)))
+                          testid   (str "rf-causa-machine-inspector-after-ring-"
+                                        state-id)]]
+                ^{:key (str (:state timer) "/" (:epoch timer))}
+                [:g {:on-mouse-enter
+                     (fn [_]
+                       (rf/dispatch [:rf.causa/timer-hover
+                                     {:machine-id (:machine-id timer)
+                                      :state      (:state timer)
+                                      :epoch      (:epoch timer)}]
+                                    {:frame :rf/causa}))
+                     :on-mouse-leave
+                     (fn [_]
+                       (rf/dispatch [:rf.causa/timer-hover nil]
+                                    {:frame :rf/causa}))}
+                 (chart-svg/countdown-ring
+                   {:cx cx :cy cy :r r
+                    :fraction fraction
+                    :color    color
+                    :cancelled? cancelled?
+                    :testid   testid
+                    :tooltip  tooltip})]))]))))
 
 ;; ---- public install entry -----------------------------------------------
 
