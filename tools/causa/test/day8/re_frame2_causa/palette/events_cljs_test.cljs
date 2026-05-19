@@ -16,6 +16,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.config :as config]
+            [day8.re-frame2-causa.palette.recents :as recents]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -27,7 +28,11 @@
   (registry/reset-for-test!)
   (trace-bus/clear-buffer!)
   (config/reset-suppressed-count!)
-  (config/set-project-root! nil))
+  (config/set-project-root! nil)
+  ;; rf2-ybjkx — clear palette recents between tests so each scenario
+  ;; starts with a clean slate. localStorage degrades silently in Node
+  ;; runtimes (no window.localStorage); the clear is a no-op there.
+  (recents/clear!))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
@@ -234,3 +239,192 @@
         :action [:palette/close]}
        false]))
   (is (false? (boolean (:palette-open? (causa-db))))))
+
+;; ---- rf2-ybjkx — new commands ------------------------------------------
+
+(deftest invoke-clear-epoch-history-drops-slot
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    ;; Seed the slot so we can observe the clear.
+    (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                       [{:epoch-id 1} {:epoch-id 2}]])
+    (is (= 2 (count (:epoch-history (causa-db))))
+        "sanity check — slot is seeded before the clear")
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :clear-epoch-history
+        :label  "Clear epoch history"
+        :action [:palette/clear-epoch-history]}
+       false]))
+  (is (nil? (:epoch-history (causa-db)))
+      "clear-epoch-history dissocs the slot")
+  (is (false? (boolean (:palette-open? (causa-db))))))
+
+(deftest invoke-toggle-theme-flips-via-settings-update
+  (setup!)
+  ;; Reset the atom to a known starting theme so the cycle is deterministic.
+  (config/update-setting! :theme nil :dark)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :toggle-theme
+        :label  "Toggle theme (dark ↔ light)"
+        :action [:palette/toggle-theme]}
+       false]))
+  (is (= :light (config/get-setting :theme nil))
+      ":dark → :light cycles the canonical settings atom")
+  (is (false? (boolean (:palette-open? (causa-db))))))
+
+(deftest invoke-cycle-reduced-motion-walks-the-tri-state
+  (setup!)
+  (config/update-setting! :general :reduced-motion-override :os)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :cycle-reduced-motion
+        :label  "Cycle reduced-motion override"
+        :action [:palette/cycle-reduced-motion]}
+       false]))
+  (is (= :always (config/get-setting :general :reduced-motion-override))
+      "first cycle: :os → :always")
+  ;; Second invocation continues the cycle.
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :cycle-reduced-motion
+        :label  "Cycle reduced-motion override"
+        :action [:palette/cycle-reduced-motion]}
+       false]))
+  (is (= :never (config/get-setting :general :reduced-motion-override))
+      "second cycle: :always → :never"))
+
+(deftest invoke-jump-to-settings-opens-popup
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :jump-to-settings
+        :label  "Jump to Settings"
+        :action [:palette/jump-to-settings]}
+       false]))
+  (is (true? (boolean (:settings-open? (causa-db))))
+      "jump-to-settings opens the Settings popup")
+  (is (false? (boolean (:palette-open? (causa-db))))))
+
+(deftest invoke-toggle-mode-flips-runtime-static
+  (setup!)
+  ;; Force-set the slot so the cycle is deterministic.
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/set-mode :runtime])
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :toggle-mode
+        :label  "Toggle mode (Runtime ↔ Static)"
+        :action [:palette/toggle-mode]}
+       false]))
+  (is (= :static (:mode (causa-db)))
+      ":runtime → :static via the canonical toggle-mode handler"))
+
+(deftest invoke-select-static-tab-flips-static-slot
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :panel
+        :id     [:static :routes]
+        :label  "Open Routes (Static)"
+        :action [:palette/select-static-tab :routes]}
+       false]))
+  (is (= :routes (:rf.causa.static/selected-tab (causa-db)))
+      "Static tab selection lands on the Static-scoped slot")
+  (is (false? (boolean (:palette-open? (causa-db))))))
+
+(deftest invoke-select-frame-drives-canonical-set-frame
+  (setup!)
+  ;; Ensure :rf/cart-frame exists so the spine handler resolves
+  ;; epoch-history without throwing — the canonical set-frame event
+  ;; queries `rf/epoch-history` for the new target.
+  (frame/reg-frame :rf/cart-frame {})
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :frame
+        :id     :rf/cart-frame
+        :label  "Switch focus to frame :rf/cart-frame"
+        :action [:palette/select-frame :rf/cart-frame]}
+       false]))
+  (is (= :rf/cart-frame (get-in (causa-db) [:focus :frame]))
+      "select-frame routes through :rf.causa/set-frame so every per-
+       frame composite (App-DB Diff, Views, Routing) re-fires off the
+       new frame's slot")
+  (is (= :rf/cart-frame (:target-frame (causa-db)))
+      ":target-frame is also written by the canonical handler"))
+
+;; ---- rf2-ybjkx — recents tracking --------------------------------------
+
+(deftest invoking-a-command-records-it-in-recents
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command
+        :id     :toggle-theme
+        :label  "Toggle theme"
+        :action [:palette/toggle-theme]}
+       false]))
+  (is (= [:toggle-theme] (:palette-recents (causa-db)))
+      "command invocation bumps the recents vector"))
+
+(deftest invoking-twice-keeps-recents-unique
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command :id :toggle-theme
+        :action [:palette/toggle-theme]}
+       false])
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command :id :jump-to-settings
+        :action [:palette/jump-to-settings]}
+       false])
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :command :id :toggle-theme
+        :action [:palette/toggle-theme]}
+       false]))
+  (is (= [:toggle-theme :jump-to-settings]
+         (:palette-recents (causa-db)))
+      "re-invoking an existing recent bubbles it to the head;
+       it does not duplicate"))
+
+(deftest non-command-items-do-not-record-recents
+  (setup!)
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/palette-open])
+    (rf/dispatch-sync
+      [:rf.causa/palette-invoke
+       {:source :panel
+        :id     :trace
+        :action [:palette/select-panel :trace]}
+       false]))
+  (is (empty? (:palette-recents (causa-db)))
+      "panel jumps don't pollute the recents vector"))

@@ -769,7 +769,19 @@
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false
                :show-ungrouped?        false           ; rf2-r9lyy opt-in pseudo-cascade surface
-               :long-keyword-threshold 24}
+               :long-keyword-threshold 24
+               ;; rf2-ybjkx — user-side override of the OS-level
+               ;; `prefers-reduced-motion: reduce` media query. Three
+               ;; values:
+               ;;   :os      — defer to the OS pref (the historic
+               ;;              behaviour; CSS media query alone)
+               ;;   :always  — force reduced motion regardless of OS
+               ;;   :never   — force full motion regardless of OS
+               ;; Drives the `rf-causa-motion-override-{always,never}`
+               ;; body class which `theme/global-styles/motion-css`
+               ;; reads to override the media-query-derived
+               ;; `--rf-causa-motion-scale`.
+               :reduced-motion-override :os}
    :theme     :dark                                  ; :dark | :light
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:retained-epochs                    200

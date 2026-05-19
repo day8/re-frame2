@@ -169,6 +169,53 @@
         (try (.add cl klass) (catch :default _ nil)))))
   nil)
 
+;; ---- reduced-motion override (rf2-ybjkx) --------------------------------
+
+(def motion-override-class-prefix
+  "CSS class prefix the reduced-motion override writes onto `<html>`.
+  Three states:
+
+    :os      — no class set; OS media query alone drives the seam
+               (the historic behaviour preserved when the user has
+               never opted in).
+    :always  — `rf-causa-motion-override-always` — force the
+               vanishingly-small motion-scale regardless of OS pref.
+    :never   — `rf-causa-motion-override-never` — restore full motion
+               even when the OS prefers `reduce`.
+
+  The selector in `theme/global-styles/motion-css` matches a single
+  class on `:where(html, body)` so the override outranks the
+  media-query `:root` rule (single class beats element selector) and
+  authoring order plus `:where` keeps specificity low enough that
+  consumer styles can still override the var if they want to."
+  "rf-causa-motion-override-")
+
+(defn apply-reduced-motion-override!
+  "Drive the body / `<html>` class that overrides the OS-level
+  `prefers-reduced-motion: reduce` media query. Accepted values:
+
+    :os      — clear any prior override (defer to OS pref)
+    :always  — write `rf-causa-motion-override-always`
+    :never   — write `rf-causa-motion-override-never`
+
+  Idempotent — repeated calls with the same value leave the
+  classList in the same state. No-op when neither the shell root nor
+  `<html>` is present (test runtimes without a `document`)."
+  [override]
+  (let [target (or override :os)
+        klass  (when (contains? #{:always :never} target)
+                 (str motion-override-class-prefix (name target)))]
+    (doseq [el [(shell-root-element) (html-root-element)]
+            :when el]
+      (let [cl (.-classList el)]
+        ;; Drop both options first so the assertion below is exclusive.
+        (doseq [c [(str motion-override-class-prefix "always")
+                   (str motion-override-class-prefix "never")]]
+          (try (.remove cl c) (catch :default _ nil)))
+        (when klass
+          (try (.add cl klass) (catch :default _ nil))))))
+  nil)
+
 ;; ---- panel width (rf2-x8h9y resize handle) ------------------------------
 
 (def panel-width-css-var
@@ -360,6 +407,12 @@
   (let [s (config/get-settings)]
     (apply-text-size!  (get-in s [:general :text-size]))
     (apply-theme!      (get s :theme))
+    ;; rf2-ybjkx — restore the reduced-motion override so the user's
+    ;; saved choice survives reload BEFORE first paint. The default
+    ;; `:os` writes nothing (the OS media query alone drives the
+    ;; seam); `:always` / `:never` write the override class.
+    (apply-reduced-motion-override!
+      (get-in s [:general :reduced-motion-override]))
     ;; rf2-x8h9y — restore the persisted panel width so the user's
     ;; saved drag survives reload BEFORE first paint. No-op-safe
     ;; pre-mount (writes to `<html>` only when the layout host hasn't

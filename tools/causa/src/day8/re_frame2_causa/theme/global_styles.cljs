@@ -399,6 +399,30 @@
     "@media (prefers-reduced-motion: reduce) {\n"
     "  :root { --rf-causa-motion-scale: 0.001; }\n"
     "}\n"
+    ;; rf2-ybjkx — user-side override of the OS media query. A body /
+    ;; <html> class set by `settings/effects.cljs/apply-reduced-motion-
+    ;; override!` overrides the media-query-derived value:
+    ;;
+    ;;   .rf-causa-motion-override-always  — always reduced (matches
+    ;;                                       the @media rule above)
+    ;;   .rf-causa-motion-override-never   — always full motion (even
+    ;;                                       when the OS prefers reduce)
+    ;;
+    ;; Higher specificity (a single class selector outranks `:root`)
+    ;; and authored AFTER the media-query rule so it wins on equal
+    ;; specificity collisions too — covers the legacy media rule
+    ;; injection order. The selector targets `:where(html, body)` so
+    ;; either node carrying the class flips the var without bumping
+    ;; specificity to the point that downstream consumer overrides
+    ;; can't beat it.
+    ".rf-causa-motion-override-always:where(html, body), \n"
+    ":where(html, body).rf-causa-motion-override-always {\n"
+    "  --rf-causa-motion-scale: 0.001;\n"
+    "}\n"
+    ".rf-causa-motion-override-never:where(html, body), \n"
+    ":where(html, body).rf-causa-motion-override-never {\n"
+    "  --rf-causa-motion-scale: 1;\n"
+    "}\n"
     ;; rf2-5kfxe.2 — diff-flash. Yellow tint at ~20% alpha (hex32 ≈ 20%)
     ;; holds for the first 12% of the run so the eye locks on, then
     ;; eases to transparent. The downstream `:animation-fill-mode:

@@ -106,6 +106,13 @@
         (and (= section :theme) (nil? key))
         (effects/apply-theme! value)
 
+        ;; rf2-ybjkx — reduced-motion override class flip. Three-value
+        ;; enum (`:os | :always | :never`). The apply-fn clears prior
+        ;; classes and writes the new one onto `<html>` so the next
+        ;; paint reads the updated `--rf-causa-motion-scale` seam.
+        (and (= section :general) (= key :reduced-motion-override))
+        (effects/apply-reduced-motion-override! value)
+
         ;; Auto-open-on-error toggle — install the sub-watcher on
         ;; flip-on, detach on flip-off. The install is also attempted
         ;; from `mount/ensure-causa-frame!` so the persisted-true case
