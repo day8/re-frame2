@@ -34,6 +34,7 @@
              :as sections]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-causa.theme.tokens
+             :as t
              :refer [tokens sans-stack]]))
 
 (rf/reg-view Panel
@@ -59,10 +60,14 @@
                              :font-family    sans-stack
                              :font-size      "14px"}}
      [:header {:style {:padding "16px 16px 8px 16px"}}
-      [:h1 {:style {:font-size   "16px"
-                    :font-weight 600
-                    :margin      0
-                    :color       (:text-primary tokens)}}
+      ;; rf2-5kfxe.8 — domain-coloured 3px left border via the
+      ;; canonical `theme.tokens/accent-stripe-style` helper. App-db's
+      ;; domain colour is `:cyan` — see `panel-domain->token`.
+      [:h1 {:style (merge {:font-size   "16px"
+                           :font-weight 600
+                           :margin      0
+                           :color       (:text-primary tokens)}
+                          (t/accent-stripe-style :app-db))}
        "App-db diff"]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond

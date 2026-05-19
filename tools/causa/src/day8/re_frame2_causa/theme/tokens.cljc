@@ -269,3 +269,61 @@
   Pure data → string; JVM-portable."
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
+
+;; ---- L4 panel domain colours (rf2-5kfxe.8) -----------------------------
+
+(def panel-domain->token
+  "Pure semantic map from L4 tab keyword → token keyword used as the
+  panel's domain colour. Each panel renders a 3px left-border on its
+  `<h1>` in this colour so panels are distinguishable at a glance
+  without restructuring the header chrome.
+
+  Choices mirror the existing semantic colour usage across panels:
+
+    :event     → :accent-violet  (the causal-chain accent everywhere
+                                  in the Event lens)
+    :app-db    → :cyan           (the App-db diff already uses cyan
+                                  for highlighted state)
+    :views     → :cyan           (Views is a peer of App-db; both
+                                  read state, hence the shared hue —
+                                  same way the spec groups them)
+    :trace     → :orange         (Trace = events 'in flight'; orange
+                                  is the firing/heat tone in the
+                                  perf scale)
+    :machines  → :green          (machine state lands in green for
+                                  'final' across the inspector)
+    :routing   → :yellow         (routing is the side-channel
+                                  attention tone — distinguishes
+                                  from app-db's main colour)
+    :issues    → :red            (issues = errors; semantic red)
+
+  JVM-portable pure data → keyword. Call sites do
+  `(get tokens (panel-domain->token tab))` to materialise the hex."
+  {:event    :accent-violet
+   :app-db   :cyan
+   :views    :cyan
+   :trace    :orange
+   :machines :green
+   :routing  :yellow
+   :issues   :red})
+
+(defn panel-accent
+  "Resolve the L4 panel's accent hex from the canonical
+  `panel-domain->token` map through `tokens`. Falls back to the
+  violet accent for unknown tab keywords so the stripe always
+  renders."
+  [tab]
+  (get tokens
+       (get panel-domain->token tab :accent-violet)))
+
+(defn accent-stripe-style
+  "Build an inline-style map that paints the per-panel accent as a
+  3px left border on the panel's `<h1>` (or whichever element the
+  caller applies it to). Inline style so per-panel call sites stay
+  small + the stripe is co-located with the header chrome.
+
+  `tab` is the L4 tab keyword (`:event` / `:app-db` / …). Returns a
+  map merge-able into an existing `:style`. Per rf2-5kfxe.8."
+  [tab]
+  {:border-left   (str "3px solid " (panel-accent tab))
+   :padding-left  "10px"})

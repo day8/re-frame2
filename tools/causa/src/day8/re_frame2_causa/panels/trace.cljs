@@ -88,6 +88,7 @@
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
+             :as t
              :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -228,10 +229,13 @@
    [:div {:style {:display     "flex"
                   :align-items "baseline"
                   :gap         "12px"}}
-    [:h1 {:style {:font-size   "16px"
-                  :font-weight 600
-                  :margin      0
-                  :color       (:text-primary tokens)}}
+    ;; rf2-5kfxe.8 — domain-coloured accent stripe (:orange for Trace
+    ;; — events 'in flight'; orange is the firing/heat tone).
+    [:h1 {:style (merge {:font-size   "16px"
+                         :font-weight 600
+                         :margin      0
+                         :color       (:text-primary tokens)}
+                        (t/accent-stripe-style :trace))}
      "Trace"]
     [:span {:data-testid "rf-causa-trace-counts"
             :style {:font-size   "11px"

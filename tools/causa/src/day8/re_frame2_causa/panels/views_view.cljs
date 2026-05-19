@@ -64,6 +64,7 @@
             [day8.re-frame2-causa.diff.hiccup :as hd]
             [day8.re-frame2-causa.diff.hiccup-render :as hd-render]
             [day8.re-frame2-causa.theme.tokens
+             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- styling primitives -------------------------------------------------
@@ -658,8 +659,11 @@
   except the panel title which is part of the L4 tab affordance."
   [data]
   [:header {:style {:padding "16px 16px 8px 16px"}}
-   [:h1 {:style {:font-size "16px" :font-weight 600 :margin 0
-                 :color (:text-primary tokens)}}
+   ;; rf2-5kfxe.8 — domain-coloured accent stripe (:cyan for Views,
+   ;; peer of App-db; both read state hence the shared hue).
+   [:h1 {:style (merge {:font-size "16px" :font-weight 600 :margin 0
+                        :color (:text-primary tokens)}
+                       (t/accent-stripe-style :views))}
     "Views"]
    (when (and (:has-cascade? data) (:frame data))
      [:p {:data-testid "rf-causa-views-header-meta"

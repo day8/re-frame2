@@ -117,3 +117,38 @@
             light-theme surface is the CSS-variable layer until the
             v1.0 sweep migrates inline styles through to it."
     (is (= t/dark-palette t/tokens))))
+
+;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
+
+(deftest panel-domain-map-covers-every-l4-tab
+  (testing "rf2-5kfxe.8 — the 7 L4 tabs each get a domain colour, so
+            panels are distinguishable at a glance via the 3px left
+            border on their header."
+    (let [tabs #{:event :app-db :views :trace :machines :routing :issues}]
+      (is (= tabs (set (keys t/panel-domain->token)))))))
+
+(deftest panel-accent-resolves-through-tokens
+  (testing "`panel-accent` is a thin wrapper:
+            (get tokens (panel-domain->token tab))."
+    (doseq [[tab token-kw] t/panel-domain->token]
+      (is (= (get t/tokens token-kw)
+             (t/panel-accent tab))
+          (str "tab " tab " resolves via token " token-kw)))))
+
+(deftest panel-accent-falls-back-for-unknown-tab
+  (testing "unknown tab → :accent-violet (the brand fallback). The
+            stripe always renders rather than disappearing."
+    (is (= (:accent-violet t/tokens)
+           (t/panel-accent :unknown-tab-kw)))
+    (is (= (:accent-violet t/tokens)
+           (t/panel-accent nil)))))
+
+(deftest accent-stripe-style-emits-3px-left-border
+  (testing "`accent-stripe-style` returns a merge-able style map
+            carrying the 3px left border + matching padding."
+    (let [s (t/accent-stripe-style :issues)]
+      (is (re-find #"3px solid" (:border-left s)))
+      (is (re-find #"#" (:border-left s))
+          "the border ends with a hex colour")
+      (is (string? (:padding-left s))
+          "padding-left compensates for the border so text doesn't shift"))))
