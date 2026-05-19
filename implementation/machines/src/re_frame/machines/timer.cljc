@@ -254,12 +254,26 @@
           (or (not (number? resolved-ms))
               (not (pos? resolved-ms)))
           ;; Bad delay resolution — emit advisory and skip.
-          (trace/emit! :machine :rf.warning/no-clock-configured
-                       {:machine-id   parent-id
-                        :state        state
-                        :delay-key    delay-key
-                        :delay-source delay-source
-                        :recovery     :skipped})
+          ;;
+          ;; Per rf2-fva6c.1: `resolve-delay-ms` for a subscription-vector
+          ;; delay calls `subs/subscribe` (bumping the sub-cache ref-count)
+          ;; BEFORE we know whether the resolved value is usable. The bad-
+          ;; delay branch short-circuits and stores nothing in
+          ;; `after-timers`, so no future `cancel-after-timer-entry!` will
+          ;; ever run `release-entry-resources!` to drop the ref. Pair the
+          ;; subscribe with an `unsubscribe` here so every exit path
+          ;; balances the ref-count. Per Spec 006 §Reference counting and
+          ;; disposal.
+          (do
+            (when (and reaction (vector? delay-key))
+              (try (subs/unsubscribe frame-id delay-key)
+                   (catch #?(:clj Throwable :cljs :default) _ nil)))
+            (trace/emit! :machine :rf.warning/no-clock-configured
+                         {:machine-id   parent-id
+                          :state        state
+                          :delay-key    delay-key
+                          :delay-source delay-source
+                          :recovery     :skipped}))
 
           :else
           (let [_ (when emit-scheduled-trace?
