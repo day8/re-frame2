@@ -61,12 +61,12 @@ The preload registers Causa's listeners under `register-trace-cb!` and `register
 
 Causa's default launch is **true inline** (per spec `rf2-eehov`): it mounts into a host element the app provides, sharing the layout. No overlay, no body-padding dock, no popup. The app reserves space; Causa fills it.
 
-Add a left-side host to the app's HTML and CSS:
+Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<aside>` second — flex flow puts the aside on the right):
 
 ```html
 <div class="app-shell">
-  <aside data-rf-causa-host></aside>
   <main id="app"></main>
+  <aside data-rf-causa-host></aside>
 </div>
 ```
 
