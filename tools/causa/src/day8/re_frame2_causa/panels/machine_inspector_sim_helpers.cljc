@@ -5,7 +5,7 @@
   ## Why a separate `.cljc` ns
 
   Same dual-target pattern every other Causa helper ns uses
-  (causality-graph, subscriptions, routes, machine-inspector-helpers).
+  (subscriptions, routes, machine-inspector-helpers).
   The sim view in `machine_inspector_sim.cljs` builds the hiccup; the
   *logic* — projecting a definition into an initial snapshot, deriving
   available transitions, building audit-trail rows — lives here as

@@ -1282,8 +1282,7 @@
   ;; so the cached ELK positions land on the next render. A no-op
   ;; event handler tick on the panel's app-db is the simplest pulse —
   ;; it bumps the reactive graph without changing any user-visible
-  ;; state. Mirrors the `:rf.causa/causality-popover-layout-pulse`
-  ;; pattern in the Causality popover's ELK loader.
+  ;; state.
   (rf/reg-event-db :rf.causa/machine-chart-layout-pulse
     (fn [db _event]
       ;; Increment a counter so the app-db value actually changes —

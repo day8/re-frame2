@@ -30,10 +30,6 @@ tools/causa/  ─requires→  implementation/machines/
    (chart primitive: chart/{layout,svg,interaction}.cljc)
 ```
 
-The Causality popover (see [`018-Event-Spine.md`](018-Event-Spine.md)
-§10) reuses the same ELK+SVG primitive for ancestor-chain +
-descendants-tree rendering. Two consumers, one layout engine.
-
 ## Tab placement
 
 - **Tab id:** 5 of 6 (`m` mnemonic).
@@ -401,9 +397,7 @@ same `{:nodes :edges :width :height :initial-id}` data shape:
 
 ELK.js is a ~250 kB browser bundle (gzipped). Bundling it into every
 Causa dev session would inflate the preload cost whether the user
-opens the Machines tab or not, so the loader mirrors the Causality
-popover pattern (per [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
-§Causality popover):
+opens the Machines tab or not, so the loader is lazy:
 
 1. First open of the Machines tab triggers a `js/import` of
    `"elkjs/lib/elk.bundled.js"`.
@@ -433,9 +427,7 @@ In every fallback path the chart still mounts — the `layered-fallback`
 shape is data-compatible with ELK's positioned output. The user gets
 a readable chart that loses orthogonal routing but keeps the
 node/edge content. v1 does NOT surface a "layout engine: fallback"
-status indicator on the Machines tab itself (the chart just renders);
-the Causality popover surfaces an equivalent hint because its graph
-density makes the missing-orthogonal-router more visually jarring.
+status indicator on the Machines tab itself (the chart just renders).
 
 ### v1 ships (deferred follow-ons)
 
@@ -448,11 +440,9 @@ density makes the missing-orthogonal-router more visually jarring.
   state as a flat ELK child + relies on the existing dashed-border
   treatment for visual grouping. ELK's hierarchical mode (parent
   containers with child layout) is a richer follow-on.
-- **Unified ELK loader** — both this surface and the Causality
-  popover (`popover/causality_graph.cljs`) hold their own loader atom
-  so the two consumers fail independently. In practice once one
-  succeeds the other will too. A future bead can fold the loader into
-  a shared `chart/elk_loader.cljs`.
+- **Unified ELK loader** — this surface holds its own loader atom.
+  Future consumers can either share it or fold into a shared
+  `chart/elk_loader.cljs`.
 
 ## Share affordance
 

@@ -112,13 +112,6 @@
    :rf.causa/cancellation-cascade-for-focused-machine
    :rf.causa/cancellation-cascade-popover-focus
    :rf.causa/cancellation-cascade-popover-open?
-   ;; :rf.causa/causality-graph-data removed with rf2-dqnuu — the
-   ;; Causality panel was replaced by the c-key popover; the popover's
-   ;; payload sub `:rf.causa/causality-popover-payload` stands in for
-   ;; the panel's composite sub.
-   :rf.causa/causality-popover-open?
-   :rf.causa/causality-popover-layout
-   :rf.causa/causality-popover-payload
    ;; rf2-i39w2 Phase 3 — hiccup-diff micro-engine opt-in toggle.
    :rf.causa/diff-opts
    :rf.causa/edit-popup-draft
@@ -245,13 +238,6 @@
    :rf.causa/cancellation-cascade-open
    :rf.causa/cancellation-cascade-set-expanded
    :rf.causa/cancellation-cascade-toggle-expand
-   ;; Causality popover events (rf2-dqnuu) — replace the dropped
-   ;; Causality tab. See spec/018-Event-Spine.md §10.
-   :rf.causa/causality-popover-close
-   :rf.causa/causality-popover-layout-pulse
-   :rf.causa/causality-popover-open
-   :rf.causa/causality-popover-toggle
-   :rf.causa/causality-popover-toggle-layout
    :rf.causa/clear-machine-selection
    ;; rf2-a1z3b — focus-navigation primitive (gutter click on L2 row sets a
    ;; focus-set; `[◀][▶]` step within the in-focus subset).
@@ -461,8 +447,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 101 (count all-sub-names)))
-    (is (= 118 (count all-event-names)))
+    (is (= 98  (count all-sub-names)))
+    (is (= 113 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -851,33 +837,6 @@
         (is (nil? (:focused-path data)))
         (is (= [] (:focused-hits data)))))))
 
-(deftest sub-causality-popover-payload-shape
-  (testing ":rf.causa/causality-popover-payload returns the canonical
-            shape (rf2-dqnuu — the popover replaces the panel)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/causality-popover-payload])]
-        (is (contains? data :focused))
-        (is (contains? data :ancestors))
-        (is (contains? data :descendants))
-        (is (contains? data :nodes))
-        (is (contains? data :edges))
-        (is (true? (:empty? data))
-            "no focused event on a fresh frame → :empty? true")))))
-
-(deftest sub-causality-popover-open?-defaults-false
-  (testing ":rf.causa/causality-popover-open? defaults to false"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/causality-popover-open?]))))))
-
-(deftest sub-causality-popover-layout-defaults-tb
-  (testing ":rf.causa/causality-popover-layout defaults to :tb"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (= :tb @(rf/subscribe [:rf.causa/causality-popover-layout]))))))
-
-
 (deftest sub-issues-ribbon-shape-on-empty-buffer
   (testing ":rf.causa/issues-ribbon returns :no-issues empty-kind initially"
     (setup-causa-frame!)
@@ -1196,9 +1155,6 @@
       ;; inputs; per-panel tests cover the populated cases.
       (doseq [sub-id [:rf.causa/event-detail
                       :rf.causa/app-db-diff
-                      ;; :rf.causa/causality-graph-data removed with rf2-dqnuu;
-                      ;; the popover's payload sub stands in for the smoke.
-                      :rf.causa/causality-popover-payload
                       :rf.causa/issues-ribbon
                       :rf.causa/trace-feed
                       :rf.causa/machine-inspector-data

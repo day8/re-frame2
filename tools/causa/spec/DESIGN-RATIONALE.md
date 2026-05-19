@@ -274,6 +274,11 @@ template existed.
 **Locked 2026-05-12 (Mike).** **Event detail.** Causality graph
 demoted to peer + inline mini-graph.
 
+**Updated 2026-05-19 (Mike, rf2-y0z5b).** Causality surface dropped
+entirely — the popover, the ELK+SVG graph primitive, and the `c` key
+binding are all gone. Event detail remains hero; cascade lineage is
+inspected via the Event tab + Trace tab tags, not a dedicated graph.
+
 ### Question
 
 What's the hero panel — the one users land in on every `Ctrl+Shift+C`?

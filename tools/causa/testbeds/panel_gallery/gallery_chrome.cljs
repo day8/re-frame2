@@ -37,9 +37,6 @@
     - Settings popup (rf2-9poxq) — `:rf.causa/open-settings` is a
       stub event in registry.cljs. No Settings modal renders yet;
       gallery variants for the modal wait on the Settings impl
-      landing.
-    - Causality popover (rf2-dqnuu) — c-key popover not yet
-      implemented; gallery variants for the popover wait on rf2-dqnuu
       landing."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures :as fixtures]

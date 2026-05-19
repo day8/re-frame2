@@ -83,9 +83,9 @@ function waitForReady(url, timeoutMs) {
     // entangling with shell-state teardown semantics.
     // Per rf2-sszlr: gallery rebuilt for the new 6-tab Causa shape.
     // One workspace per L4 tab + one for the full chrome. Causality
-    // and time-travel are no longer panel tabs (Causality is a c-key
-    // popover, deferred to rf2-dqnuu; Time Travel folds into the
-    // spine per spec/018-Event-Spine).
+    // and time-travel are no longer panel tabs (Causality dropped
+    // entirely in rf2-y0z5b; Time Travel folds into the spine per
+    // spec/018-Event-Spine).
     const panels = [
       {
         id:          'event',
@@ -153,15 +153,6 @@ function waitForReady(url, timeoutMs) {
         workspaceRe: /Workspace\.causa\.filters\/all/,
         cardTestid:  'panel-gallery-chrome-card',
         expectedAtLeast: 5,
-      },
-      // Causality popover workspace (rf2-pt1e1) — 4 variants. Each
-      // cell mounts the chrome + opens the popover against a
-      // different graph / layout / fallback configuration.
-      {
-        id:          'causality-popover',
-        workspaceRe: /Workspace\.causa\.causality-popover\/all/,
-        cardTestid:  'panel-gallery-chrome-card',
-        expectedAtLeast: 4,
       },
     ];
 

@@ -205,7 +205,7 @@ For React-only hosts (a JS Story consumer, a non-Reagent app):
 
 ```javascript
 import {init, open, close, toggle, popout} from '@day8/re-frame2-causa';
-import {EventDetailPanel, CausalityPanel, /* ... */} from '@day8/re-frame2-causa/panels';
+import {EventDetailPanel, /* ... */} from '@day8/re-frame2-causa/panels';
 
 init({defaultFrame: ':app/main', theme: 'dark', density: 'cosy'});
 
@@ -248,7 +248,7 @@ reference:
 | `(rf/machines)` | Spec 005 | The machine inspector dropdown — 0-ary; returns the seq of machine-ids registered in the active frame. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |
 | `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The subscription graph. |
-| `:dispatch-id` / `:parent-dispatch-id` (in `:tags`) | Spec 009 | The causality graph edges. |
+| `:dispatch-id` / `:parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces. |
 | `:origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
 | Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
 | `data-rf2-source-coord` DOM attribute | Spec 006 | DOM-level source-coord (for the rare cases where DOM event → source is needed). |
@@ -256,10 +256,10 @@ reference:
 ## Open in editor (rf2-evgf5)
 
 Every panel that surfaces a source-coord (the event-detail hero, the
-causality graph nodes, the machine inspector's state / edge / guard /
-action chips, the hydration debugger's render-tree rows, the trace
-panel's per-event rows, etc.) wraps the coord in a clickable `open`
-chip. Click sets `window.location.href` to a URI-scheme handler the OS
+machine inspector's state / edge / guard / action chips, the hydration
+debugger's render-tree rows, the trace panel's per-event rows, etc.)
+wraps the coord in a clickable `open` chip. Click sets
+`window.location.href` to a URI-scheme handler the OS
 dispatches to the configured editor:
 
 | Editor (config key) | URI scheme |

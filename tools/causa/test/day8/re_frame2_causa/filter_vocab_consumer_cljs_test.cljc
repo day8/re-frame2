@@ -19,9 +19,9 @@
     - Phase 2 (rf2-op3bz) added the event-detail hero panel, which
       slices the buffer by selected `:dispatch-id` through the
       `:rf.causa/event-detail` composite subscription.
-    - Subsequent panels under rf2-5aw5v (causality graph, time-travel,
-      app-db diff, machine inspector) will slice by `:event-id`,
-      `:severity`, `:source`, `:origin`, `:since-ms`, etc.
+    - Subsequent panels under rf2-5aw5v (time-travel, app-db diff,
+      machine inspector) will slice by `:event-id`, `:severity`,
+      `:source`, `:origin`, `:since-ms`, etc.
 
   This suite locks the **consumer contract** ahead of those panels
   landing: the same filter vocabulary the framework's

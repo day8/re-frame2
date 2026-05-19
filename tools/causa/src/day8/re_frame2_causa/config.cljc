@@ -368,8 +368,8 @@
 ;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
 ;; trace-consuming integrations MUST default-suppress `:sensitive? true`
 ;; events. Causa is a framework-published consumer — its ring buffer
-;; feeds every panel (event-detail, causality, trace, machine
-;; inspector, etc.) — so the collector body gates on this flag before
+;; feeds every panel (event-detail, trace, machine inspector, etc.)
+;; — so the collector body gates on this flag before
 ;; the event reaches the buffer.
 ;;
 ;; Default is `false` (suppress sensitive events). An engineer debugging

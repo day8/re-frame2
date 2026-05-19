@@ -4,8 +4,8 @@
 
   ## Why the `.cljc` + `_cljs_test` naming
 
-  Same dual-target pattern as `causality_graph_cljs_test.cljc`,
-  `subscriptions_helpers_cljs_test.cljc`, etc.:
+  Same dual-target pattern as `subscriptions_helpers_cljs_test.cljc`,
+  etc.:
 
     - Cognitect's test-runner (CLJ) picks it up via the default
       `.*-test$` regex on the ns name.

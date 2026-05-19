@@ -15,8 +15,7 @@
   Per `tools/causa/spec/018-Event-Spine.md` the new chrome is four
   stacked layers — top ribbon + event list + tab bar + detail panel
   — with seven L4 tabs replacing the legacy sidebar's 16+ panels.
-  Causality is a `c`-key popover (not a tab); Time Travel is folded
-  into the spine.
+  Time Travel is folded into the spine.
 
   ## What this boot does
 
@@ -58,7 +57,6 @@
             [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [day8.re-frame2-causa.popover.causality-graph :as causality-graph]
             [day8.re-frame2-causa.registry :as causa-registry]
             [panel-gallery.panel-views :as panel-views]
             ;; Side-effecting story registrations — namespaces fire
@@ -72,11 +70,9 @@
             [panel-gallery.gallery-issues]
             [panel-gallery.gallery-chrome]
             ;; Chrome follow-on galleries — rf2-mpn8m settings popup,
-            ;; rf2-kbrkx auto-filter pill / edit-popup, rf2-pt1e1
-            ;; Causality popover.
+            ;; rf2-kbrkx auto-filter pill / edit-popup.
             [panel-gallery.gallery-settings]
-            [panel-gallery.gallery-filters]
-            [panel-gallery.gallery-causality]))
+            [panel-gallery.gallery-filters]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -152,16 +148,8 @@
     corresponding `:rf/causa` slot through the canonical Causa
     event. `:after-seeds` runs additional event vectors against
     `:rf/causa` after the canonical seeds — used by chrome-follow-
-    on galleries (Settings / Filters edit-popup / Causality
-    popover) that need to dispatch modal-open + section-select
-    events into the same frame.
-
-  - `:panel-gallery.causality/force-elk-fallback!` — testbed-only
-    forcer for the Causality popover's ELK-unavailable fallback
-    render. Calls `causality-graph/reset-elk-state-for-test!` then
-    swaps the loader atom to `{:failed ...}` so subsequent
-    `body` renders take the failed branch (flat list + footer
-    'Causality graph unavailable' hint)."
+    on galleries (Settings / Filters edit-popup) that need to
+    dispatch modal-open + section-select events into the same frame."
   []
   (rf/reg-event-fx :panel-gallery.chrome/seed!
     (fn [_cofx [_ {:keys [trace-buffer epoch-history selected-tab
@@ -203,25 +191,13 @@
 
               ;; Arbitrary follow-on dispatches into `:rf/causa`.
               ;; The chrome-follow-on galleries (rf2-mpn8m settings,
-              ;; rf2-kbrkx auto-filter, rf2-pt1e1 causality) use this
-              ;; lane to drive modal-open + section-select +
-              ;; popover-open events against the shared frame.
+              ;; rf2-kbrkx auto-filter) use this lane to drive modal-
+              ;; open + section-select events against the shared frame.
               (seq after-seeds)
               (into (vec after-seeds)))]
         (doseq [ev seeds]
           (rf/dispatch-sync ev {:frame :rf/causa}))
-        {})))
-
-  ;; ELK fallback forcer — testbed-only. Pins the popover's render
-  ;; path to the failed-fallback branch (flat list + 'Causality
-  ;; graph unavailable' footer) via the public test-support fn so
-  ;; the chrome gallery's causality variants exercise the fallback
-  ;; visual contract without depending on a real ELK load failure.
-  (rf/reg-event-fx :panel-gallery.causality/force-elk-fallback!
-    (fn [_cofx _event]
-      (causality-graph/force-elk-failed-for-test!
-        "panel-gallery: ELK fallback forced for variant")
-      {})))
+        {}))))
 
 (defn- ensure-causa-frame!
   "Register the `:rf/causa` frame so the chrome gallery's

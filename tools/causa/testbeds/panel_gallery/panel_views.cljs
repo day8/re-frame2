@@ -29,9 +29,6 @@
     - **Routing**  → `routing/Panel` (rf2-nrbs9 — 7th tab)
     - **Issues**   → `issues-ribbon/Panel`
 
-  (Causality is NOT a tab — it's a `c`-key popover; gallery variants
-  for the popover wait on rf2-dqnuu landing.)
-
   ## The chrome (rf2-xy4yb / spec/018)
 
   `:panel-gallery.chrome/Shell` mounts the full 4-layer chrome

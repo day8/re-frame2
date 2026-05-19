@@ -30,8 +30,8 @@
   The fix is mechanical: every `rf/dispatch` from a deferred handler
   carries `{:frame :rf/causa}` so the envelope's `:frame` is set at
   call time and never depends on the click-time React-context read.
-  Sister modals (palette + causality popover) carry the same bug;
-  fixed separately under their own beads to keep this PR scoped."
+  Sister modals (palette) carry the same bug; fixed separately under
+  their own beads to keep this PR scoped."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))

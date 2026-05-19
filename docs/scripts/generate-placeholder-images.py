@@ -39,7 +39,6 @@ PLACEHOLDERS = [
     ("causa", "02-shell-opened.png",    "The Causa shell, opened over the live app"),
     ("causa", "02-sidebar-panels.png",  "Sixteen panels in three bands"),
     ("causa", "02-event-detail.png",    "Event detail — the landing panel"),
-    ("causa", "02-causality.png",       "Causality graph — the deeper walk"),
     ("causa", "03-time-travel.png",     "Time-travel scrubber with epoch history"),
     ("causa", "04-trace.png",           "Trace panel with live event count + filter bar"),
     ("causa", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),

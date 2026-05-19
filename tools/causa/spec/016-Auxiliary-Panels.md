@@ -102,8 +102,7 @@ user sees on opening Causa.
 ### Main interactions
 
 - **Click a cascade row** in the cascade list →
-  `:rf.causa/select-dispatch-id` (selection event). The selection is
-  also consumed by the causality graph per §10 Lock 7.
+  `:rf.causa/select-dispatch-id` (selection event).
 - **Clear selection** → `:rf.causa/clear-selected-dispatch-id`.
 - **Source-coord click-through** (non-interactive in v1) → planned
   jump-to-editor via rf2-evgf5 / the
@@ -473,87 +472,6 @@ follow-on).
 - [`018-Event-Spine.md`](./018-Event-Spine.md) §9 — full architectural
   contract (modal not panel, why; reset semantics; future sections).
 
-## Causality popover — v1 ships
-
-The Causality popover (trigger: `c` key from any tab; mouse:
-ancestor-graph icon next to source-coord in Event tab) renders the
-focused event's causal graph: ancestor chain + descendants tree on a
-centred floating overlay. Architectural shape is normatively
-specified in [`018-Event-Spine.md`](./018-Event-Spine.md) §10. This
-section backfills v1 implementation specifics.
-
-### Geometry
-
-- **Default size:** 640×480 (matches spec §10). `max-width: 92vw` /
-  `max-height: 82vh` so the dialog adapts to small viewports without
-  overflowing.
-- **Backdrop dim:** 15% black (spec §10).
-- **Resize handle:** deferred. v1 ships the default size only; the
-  resize-and-remember affordance per spec §10 §Interaction is a
-  follow-on bead.
-
-### Layout direction — single-axis with footer toggle
-
-**v1 ships:** the popover renders **a single direction at a time** —
-TB (descendants-tree dominant, default) OR LR (ancestor-chain
-dominant) — with a footer **LR ↔ TB toggle** persisting the choice
-in `:rf.causa/causality-popover-layout` per session.
-
-The §018 §10 "Q12 hybrid: ancestors-LR + descendants-TB in the same
-popover" remains the intent, but v1 ships single-axis-at-a-time
-because:
-
-- ELK's per-region direction support requires laying out two graphs
-  separately and stitching them into one SVG with a divider; that's
-  a stretch v1 doesn't yet do.
-- The footer toggle is one click; switching between "show me the
-  ancestor chain" and "show me the descendants tree" is the common
-  mode anyway. The hybrid is the polish.
-
-The Q12 hybrid lands when ELK's per-region wiring is tackled in a
-follow-on bead.
-
-### Lazy ELK load + fallback list
-
-The popover uses the same lazy-load pattern as the Machine Inspector
-chart (see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
-§Layout engine — ELK with layered fallback): ELK.js loads
-asynchronously on first popover open; the fallback path is a flat
-list render until ELK resolves.
-
-**Fallback render shape.** When ELK is unavailable (test rig, CSP
-block, offline) the popover drops into a `fallback-list` render — a
-flat `<ul>` listing the focused event + its ancestors and descendants
-with edges shown as `parent → child` lines. The cascade lineage is
-fully readable; the visual graph affordance is the only thing lost.
-The footer surfaces a "Causality graph unavailable (ELK.js failed to
-load)" status hint so the user understands why the layout looks
-different.
-
-The fallback is also what the test corpus asserts against — node
-runtimes have no bundler-resolvable `elkjs` package and the import
-rejects immediately.
-
-### Close + interaction (recap of spec §10)
-
-- **Close:** `Esc`, click backdrop, `c` again, or the `×` icon in the
-  header.
-- **Node click:** dispatches `:rf.causa/focus-cascade <id>` AND
-  `:rf.causa/causality-popover-close` — the user landed somewhere new
-  and the popover's job is done. Spine rebinds; tab content reflects
-  the new focus.
-- **Tab switch under popover (`1`–`6`)**: popover stays open; user
-  can survey the cascade graph against changing tab content
-  underneath.
-
-### Cross-references
-
-- [`018-Event-Spine.md`](./018-Event-Spine.md) §10 — full
-  architectural contract (trigger, geometry, interaction matrix,
-  depth limits, empty states).
-- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Layout
-  engine — sibling consumer of the same ELK loader pattern.
-
 ## Vision — auxiliary content growth
 
 ### Event tab — per-fx wire-boundary diff
@@ -655,14 +573,6 @@ for popout-geometry; add **Actions** for factory-reset + clear-buffer):
 | **Popout** | — | Window-geometry restore; "always popout" toggle |
 | **Actions** | — | Factory-reset (red button); clear-buffer-now; reload-without-state |
 
-### Causality popover — full Q12 hybrid layout
-
-The Causality popover ships v1 with single-axis vertical layout.
-Future: hybrid LR-ancestors + TB-descendants per-region; resizable +
-per-session persistence; depth-disclosure pills + per-segment hover
-tooltips; machine-edge types. See
-[`001-Causality-Graph.md`](001-Causality-Graph.md) §Vision.
-
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab
@@ -674,8 +584,7 @@ tooltips; machine-edge types. See
   density gradients, keyboard map.
 - [`018-Event-Spine.md`](./018-Event-Spine.md) — 4-layer chrome,
   spine binding (`:rf.causa/focus`), per-tab content placement,
-  Settings popup, Causality popover, data-classification rendering
-  contract.
+  Settings popup, data-classification rendering contract.
 - [`012-Views.md`](./012-Views.md) — Views tab content (where Flows
   surface).
 - [`013-Trace-Bus.md`](./013-Trace-Bus.md) — the trace ring every tab

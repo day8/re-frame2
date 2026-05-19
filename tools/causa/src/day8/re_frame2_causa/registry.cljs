@@ -38,7 +38,6 @@
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
             [day8.re-frame2-causa.palette :as palette]
-            [day8.re-frame2-causa.popover.causality :as causality-popover]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
@@ -142,8 +141,8 @@
     ;; ---- Modal positioning (rf2-om6fa) ----
     ;;
     ;; Every Causa modal (Settings popup, auto-filter edit popup,
-    ;; Causality popover, Share modal, Cancellation cascade popover)
-    ;; defaults to `position: fixed; inset: 0; z-index: 2_147_483_64x`
+    ;; Share modal, Cancellation cascade popover) defaults to
+    ;; `position: fixed; inset: 0; z-index: 2_147_483_64x`
     ;; — the right shape for production where the shell covers the
     ;; host app. In a Story testbed where multiple shell instances
     ;; render side-by-side in workspace cells, that geometry escapes
@@ -238,29 +237,27 @@
           {:in  (vec (get stored :in []))
            :out (vec (get stored :out []))})))
 
-    ;; Shared cascade projection. The event-detail, causality-graph,
-    ;; and performance composites all consume `projection/group-cascades`
-    ;; over the same trace-buffer; routing them through one intermediate
-    ;; sub collapses three O(buffer) passes per push to one. Each
-    ;; downstream composite declares the dependency via `:<-` so the
-    ;; reactive graph stays correct (and idle composites still don't pay
-    ;; for the projection).
+    ;; Shared cascade projection. The event-detail and performance
+    ;; composites all consume `projection/group-cascades` over the same
+    ;; trace-buffer; routing them through one intermediate sub collapses
+    ;; multiple O(buffer) passes per push to one. Each downstream
+    ;; composite declares the dependency via `:<-` so the reactive graph
+    ;; stays correct (and idle composites still don't pay for the
+    ;; projection).
     ;;
     ;; Per rf2-g1pt8 the projection ALSO hard-filters Causa-internal
     ;; cascades (any cascade whose event-id is in the `rf.causa`
     ;; namespace) at this single point so every downstream consumer
     ;; — `:rf.causa/filtered-cascades`, the L2 event list, the spine,
-    ;; the causality popover, the Trace / Issues / Event / Views
-    ;; tabs — inherits the filter automatically. The ingest-side
-    ;; `trace-bus/causa-internal-event?` guard (rf2-xs8vu) catches
-    ;; self-emitted sub-reads + view-renders inside Causa's frame
-    ;; scope, but `:rf.causa/*` events dispatched WITHOUT a
-    ;; `{:frame :rf/causa}` option (palette quick-actions, the
-    ;; causality popover's node click, headless helpers) land on the
-    ;; host frame and slip past the ingest filter. This filter
-    ;; closes that hole structurally without forcing every call site
-    ;; to thread `:frame`. Pre-alpha posture: no opt-out toggle —
-    ;; Causa's internals are not user-facing.
+    ;; the Trace / Issues / Event / Views tabs — inherits the filter
+    ;; automatically. The ingest-side `trace-bus/causa-internal-event?`
+    ;; guard (rf2-xs8vu) catches self-emitted sub-reads + view-renders
+    ;; inside Causa's frame scope, but `:rf.causa/*` events dispatched
+    ;; WITHOUT a `{:frame :rf/causa}` option (palette quick-actions,
+    ;; headless helpers) land on the host frame and slip past the
+    ;; ingest filter. This filter closes that hole structurally without
+    ;; forcing every call site to thread `:frame`. Pre-alpha posture:
+    ;; no opt-out toggle — Causa's internals are not user-facing.
     (rf/reg-sub :rf.causa/cascades
       :<- [:rf.causa/trace-buffer]
       (fn [buffer _query]
@@ -546,13 +543,6 @@
     ;; and the slot's reducer helpers live in spine.cljs.
     (spine/install!)
     (app-db-diff/install!)
-    ;; Causality popover (rf2-dqnuu) — replaces the dropped Causality
-    ;; tab. The popover's subs depend on `:rf.causa/cascades` (shared
-    ;; projection, registered above) + `:rf.causa/focus` (spine,
-    ;; installed above) — order matters for clarity (the dependency
-    ;; chain reads top-down) but re-frame's lazy :<- resolution makes
-    ;; the registration order incidental.
-    (causality-popover/install!)
     ;; Cancellation-cascade visualiser (rf2-59e7k) — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
     ;; popover. The view-side `reg-view`s are picked up at ns-load.

@@ -23,8 +23,8 @@
 ;;
 ;; Foundation only: preload, Ctrl+Shift+C, frame-provider :rf/causa
 ;; isolation, empty-shell layout, trace bus subscription. Panels
-;; (event-detail hero, causality graph, time-travel, app-db diff,
-;; etc.) ship as separate beads under rf2-5aw5v.
+;; (event-detail hero, time-travel, app-db diff, etc.) ship as
+;; separate beads under rf2-5aw5v.
 ;;
 ;; ## MCP surface
 ;;
@@ -37,8 +37,8 @@
          ;; Per rf2-5so8f — `day8/re-frame2-epoch` is a hard dep of Causa,
          ;; not an optional add-on. The Causa preload `:require`s
          ;; `re-frame.epoch` (see preload.cljs §rf2-1barg) so the Time
-         ;; Travel scrubber + causality graph have an epoch-history seed
-         ;; table to read from `rf/epoch-history` / `rf/register-epoch-cb!`.
+         ;; Travel scrubber has an epoch-history seed table to read from
+         ;; `rf/epoch-history` / `rf/register-epoch-cb!`.
          ;; Without the artefact on the classpath the preload fails to
          ;; compile in any downstream consumer build that doesn't
          ;; coincidentally already declare `day8/re-frame2-epoch` — a

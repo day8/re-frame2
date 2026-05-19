@@ -102,8 +102,7 @@
 (defn focused-cascade
   "Find the cascade in `cascades` whose `:dispatch-id` matches
   `focused-id`. Returns nil when the id has aged out of the buffer
-  or the spine has no focus yet. Mirrors the focused-cascade lookup
-  used elsewhere (popover/causality_graph_helpers)."
+  or the spine has no focus yet."
   [cascades focused-id]
   (when focused-id
     (some #(when (= focused-id (:dispatch-id %)) %) cascades)))

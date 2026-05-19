@@ -24,9 +24,8 @@ dot per failure (red = `:skip-handler` / `:rollback-db` /
 `:re-raised`; yellow = `:replaced-with-default`); a 600ms label-flash
 on the empty→non-empty transition so newly-failing schemas catch the
 eye. Click a dot → side panel with full Malli explanation, recovery
-mode, triggering cascade, registration source-coord, and three
-actions: open in causality graph, open source, filter timeline to
-just this schema.
+mode, triggering cascade, registration source-coord, and two
+actions: open source, filter timeline to just this schema.
 
 ## Affordance
 
@@ -112,7 +111,6 @@ Click a dot → side panel:
 │                                                      │
 │  Triggered by:                                       │
 │    epoch 14 — :user/load-profile (epoch 14)          │
-│    [Open in causality graph]                         │
 │                                                      │
 │  Registered at:                                      │
 │    src/cart/schemas.cljs:7                           │
@@ -120,12 +118,10 @@ Click a dot → side panel:
 ╰──────────────────────────────────────────────────────╯
 ```
 
-The detail surfaces three actions:
+The detail surfaces two actions:
 
-1. **Open in causality graph** — pivots to the graph filtered to the
-   dispatch that caused this violation.
-2. **Open source** — jumps to the `reg-app-schema` call site.
-3. **Show me all violations of this schema** — filters the timeline to
+1. **Open source** — jumps to the `reg-app-schema` call site.
+2. **Show me all violations of this schema** — filters the timeline to
    the selected row.
 
 ## Hover tooltip

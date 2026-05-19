@@ -1,8 +1,8 @@
 (ns day8.re-frame2-causa.trace-bus
   "Causa-side trace ring buffer. Per rf2-n6x4q §4 + tools/causa/spec/
   007-UX-IA.md the panel needs a buffer of trace events to render
-  the event-detail / causality / trace panels against. The buffer is
-  *Causa's own* — separate from the framework's retain-N ring at
+  the event-detail / trace panels against. The buffer is *Causa's own*
+   — separate from the framework's retain-N ring at
   `re-frame.trace/trace-buffer`. Two buffers exist because:
 
     1. The framework buffer's depth is tuned for the framework's own
@@ -16,9 +16,8 @@
 
   The buffer is pure-data (a vector held under an atom); push +
   evict-oldest is conj + subvec. Capped by `default-buffer-depth`
-  (1000 events — five times the framework default; matches the
-  expectation in tools/causa/spec/007-UX-IA.md §Performance budget
-  that 'the causality graph caps at the last 200 dispatches', with
+  (1000 events — five times the framework default; spec/007-UX-IA.md
+  §Performance budget caps cascades at the last 200 dispatches, with
   headroom for non-dispatch trace events that share the same buffer).
 
   The buffer is gated on `re-frame.interop/debug-enabled?` (the
@@ -249,20 +248,18 @@
 ;; rf2-higwg), so the trace envelope carries `:frame :rf/default` —
 ;; the ingest filter waves them through into Causa's buffer, and the
 ;; L2 event list shows Causa instrumenting itself in the user-facing
-;; cascade list. Concrete sites (as of this fix): the causality popover
-;; node click in `popover/causality_graph.cljs:255`, the palette's
-;; `:palette/select-panel` dispatch in `palette/events.cljs:175`, and
-;; the headless `core/select-panel!` helper.
+;; cascade list. Concrete sites: the palette's `:palette/select-panel`
+;; dispatch in `palette/events.cljs:175` and the headless
+;; `core/select-panel!` helper.
 ;;
 ;; Tightening every call site to pass `{:frame :rf/causa}` would be a
 ;; manual sweep with no structural guarantee. The data-layer guard
 ;; here is the single point of truth: cascades whose event vector's
 ;; head is in the `rf.causa` namespace are filtered out of the shared
 ;; `:rf.causa/cascades` sub, and every downstream consumer (the
-;; filtered-cascades facade, the L2 event list, the spine, the
-;; causality popover, performance / event-detail / trace / issues
-;; tabs) inherits the filter automatically. Single point of truth;
-;; readers stay simple.
+;; filtered-cascades facade, the L2 event list, the spine, performance
+;; / event-detail / trace / issues tabs) inherits the filter
+;; automatically. Single point of truth; readers stay simple.
 ;;
 ;; Pre-alpha posture mirrors `causa-internal-event?`: drop
 ;; unconditionally, no opt-out toggle. Causa's internals are

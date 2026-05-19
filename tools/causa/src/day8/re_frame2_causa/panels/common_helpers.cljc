@@ -15,9 +15,9 @@
       ribbons so all four feeds share an identical visual clock.
     - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
       cascade-id by walking its `:trace-events`. Shared by
-      time-travel-helpers and causality-graph-helpers; previously
-      duplicated as `dispatch-id-from-epoch` / `dispatch-id-of-epoch`
-      with identical algebra.
+      time-travel-helpers; previously duplicated as
+      `dispatch-id-from-epoch` / `dispatch-id-of-epoch` with
+      identical algebra.
 
   ## Why a shared cap
 
@@ -127,10 +127,8 @@
   dispatch-id-bearing event is present (synthetic epochs from
   `reset-frame-db!` record `:trace-events []`).
 
-  Pure data → cascade-id-or-nil. Used by both the time-travel panel
-  (when building a fresh pin or deciding chip presentation) and the
-  causality-graph panel (when routing a selected-epoch → 'filter to
-  this cascade')."
+  Pure data → cascade-id-or-nil. Used by the time-travel panel
+  (when building a fresh pin or deciding chip presentation)."
   [epoch-record]
   (some (fn [ev]
           (or (get-in ev [:tags :dispatch-id])
