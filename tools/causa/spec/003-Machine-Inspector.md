@@ -21,7 +21,7 @@
 > Static re-host effort; they no longer describe what the Runtime
 > Machines panel renders.
 
-The Machines tab (tab 5 of 6 in the 4-layer chrome — see
+The Machines tab (tab 5 of 7 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
 state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation

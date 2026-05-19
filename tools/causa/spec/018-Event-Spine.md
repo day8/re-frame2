@@ -38,7 +38,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -59,7 +59,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ⚠Issues 1            │   L3 — 6 tabs
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1        │   L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 │   event vector · source · handler return · db writes · fx · fx-handlers │
@@ -936,7 +936,7 @@ User CHOSE to load them. First session is honest about what's filtered.
 
 ### Auto-filter chip strip (data-classification)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:trace/show-sensitive? false`), Causa's chrome surfaces the count in the mode-pill hover tooltip + per-row redaction markers — NOT as an auto-filter chip. The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Causa does not auto-add filters on the user's behalf.
+Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:trace/show-sensitive? false`), Causa's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Causa does not auto-add filters on the user's behalf.
 
 ### v1 ships: right-click → edit-popup (NOT silent append)
 
@@ -1217,7 +1217,7 @@ Causa CONSUMES the contract specified in [spec/015-Data-Classification](../../..
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
 | L4 Issues tab | Exception `:data` payload; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |
-| Ribbon mode-pill tooltip | Per-session totals | `[● REDACTED N · ● ELIDED M]` aggregate on hover |
+| Settings → Diagnostics panel | Per-session totals | `[● REDACTED N · ● ELIDED M]` aggregate (the Mode pill widget that earlier drafts surfaced this on was dropped; per-row markers + Settings carry the totals now) |
 
 ### Combination semantics
 
@@ -1361,7 +1361,7 @@ not Causa.
 
 ## §14 Cross-references
 
-- [`000-Vision.md`](000-Vision.md) — 6-tab inventory; philosophy shift to human-only surface.
+- [`000-Vision.md`](000-Vision.md) — 7-tab inventory; philosophy shift to human-only surface.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Runtime Machines panel (rf2-y9xmf); UC1 Sim + UC2 Mode A/B/C are preserved as Static re-host reference (rf2-r4nao) below the §STATIC RE-HOST REFERENCE divider in that doc.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.

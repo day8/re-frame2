@@ -40,8 +40,11 @@ that make them hard to debug from code alone:
    Causa today funnels most of them through one generic Issues row; that
    wastes signal the framework paid to capture.
 
-**The strategic move:** Causa's existing 6-tab chrome does NOT need a 7th,
-8th, 9th tab. It needs **deep specialised renderings inside the existing
+**The strategic move:** Causa's existing 7-tab chrome (Routing was
+promoted to its own L3 tab in rf2-nrbs9 — a deliberate exception
+because cohesive sub-domains earn their own lens) does NOT need an
+8th, 9th tab for the remaining cross-cutting concerns. Cross-cutting
+content needs **deep specialised renderings inside the existing
 tabs**, surfaced through five reusable visual idioms:
 
 - **Wall-clock timelines** — rings (timer countdown), waterfalls (retry
@@ -800,13 +803,13 @@ back after reading the spec as the destination:
 
 1. **Hydration tab vs popover vs Issues-inline.** The bisector (S-C2)
    deserves more than a row. Options:
-   - **(a)** Add Hydration as a **conditional 7th tab** (visible only
-     when SSR is detected for the session). Tab count goes from 6 → 6-or-7.
+   - **(a)** Add Hydration as a **conditional 8th tab** (visible only
+     when SSR is detected for the session). Tab count goes from 7 → 7-or-8.
    - **(b)** Promote it to an inline panel inside the Issues tab. Stays
-     at 6.
+     at 7.
    - **(c)** Make it a `h`-keyboard popover (consistent with Nav-token
      `r`).
-   - **Lean: (c).** Keeps the chrome at 6 tabs; joins the popover
+   - **Lean: (c).** Keeps the chrome at 7 tabs; joins the popover
      pattern. But "always visible when relevant" is a strong (a) argument.
 
 2. **Active managed-effects dashboard placement.**
@@ -858,7 +861,7 @@ This spec distils the following findings (local-only, in
   sequencing.
 - **[2026-05-17 Causa consolidated design]** —
   `ai/findings/2026-05-17-causa-consolidated-design.md` (2016 LoC). The
-  locked R3 design vocabulary + the 6-tab inventory + the 4-layer chrome
+  locked R3 design vocabulary + the (then-)6-tab inventory + the 4-layer chrome
   + the spine-binding architecture this all hangs off.
 - **[2026-05-17 re-frame-10x vs Causa workflows]** —
   `ai/findings/2026-05-17-re-frame-10x-vs-causa-workflows.md` (492 LoC).
@@ -887,8 +890,8 @@ clause), the findings carry the discussion that locked the opinion.
 - [`000-Vision.md`](000-Vision.md) — the claim, the five canonical
   questions, the audience, the "where Causa fits" diagram.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
-  contract; the spine sub; the 6-tab inventory; the popover invocation
-  contract.
+  contract; the spine sub; the 7-tab inventory (Routing added per
+  rf2-nrbs9); the popover invocation contract.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines
   tab's full feature spec; this doc's §2.1 catalogues the bug classes
   that motivate each feature there.

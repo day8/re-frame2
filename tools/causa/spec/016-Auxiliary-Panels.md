@@ -166,7 +166,7 @@ holds no `:event/dispatched` events.
 ## Effects content — folded into Event tab
 
 The pre-rewrite Effects panel is GONE. Its content folds into the
-**Event tab** (tab 1 of 6) as the "fx handlers that ran" block — see
+**Event tab** (tab 1 of 7) as the "fx handlers that ran" block — see
 [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 for the canonical
 wireframe.
 
@@ -671,7 +671,7 @@ for popout-geometry; add **Actions** for factory-reset + clear-buffer):
 
 ## Cross-references
 
-- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab
+- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 7-tab
   inventory.
 - [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) —
   the 5-idioms × 4-areas matrix driving the per-tab content growth

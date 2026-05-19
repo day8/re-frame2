@@ -12,11 +12,11 @@ main read**.
 
 - **[000-Vision.md](000-Vision.md)** — The claim. Causa shows you what
   happens when an event fires. The five canonical questions; the audience;
-  the "two doors" split (Causa = human; re-frame2-pair-mcp = AI); the 6-tab
+  the "two doors" split (Causa = human; re-frame2-pair-mcp = AI); the 7-tab
   inventory.
 - **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
-  spine sub `:rf.causa/focus`, the 6-tab inventory, the popover invocation
+  spine sub `:rf.causa/focus`, the 7-tab inventory, the popover invocation
   contract, the data-classification rendering contract. Reading order:
   read THIS after 000-Vision, then per-tab specs.
 - **[019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md)** — The
@@ -108,7 +108,7 @@ main read**.
    ("Causa shows you what happens when an event fires") and the five
    canonical questions.
 2. **Read [`018-Event-Spine.md`](018-Event-Spine.md) next** for the
-   chrome architecture — the 4-layer + spine + 6 tabs + popovers.
+   chrome architecture — the 4-layer + spine + 7 tabs + popovers.
 3. **Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
    third** for the matrix of features across the four cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).

@@ -58,7 +58,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -79,7 +79,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ⚠Issues 1            │   L3 — 6 tabs
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1        │   L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -98,9 +98,11 @@ The four layers, top to bottom:
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Six tabs: Event / App-db / Views / Trace /
-   Machines / Issues. Letter mnemonics: `e` `a` `v` `t` `m` `i`. Count
-   badges (`Views 8`) update with focused cascade.
+3. **L3 — Tab bar (40px).** Seven tabs: Event / App-db / Views / Trace /
+   Machines / Routing / Issues. Letter mnemonics: `e` `a` `v` `t` `m`
+   `r` `i`. Count badges (`Views 8`) update with focused cascade.
+   Routing was promoted to its own L3 tab in rf2-nrbs9 (cohesive
+   sub-domains earn their own lens tab).
 4. **L4 — Detail panel.** Fills remaining canvas (60% default;
    resizable via L2/L3 drag handle). Per-tab content; all values
    rendered via the cljs-devtools-shaped renderer (see §Detail panel
@@ -590,8 +592,10 @@ Specific motions:
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
 needs to settle. The error pulse becomes a static red ring for 1.5s;
-the machine pulse stops entirely; the mode-pill LIVE pulse stops (`●`
-stays statically rendered).
+the machine pulse stops entirely; the L2 head-row LIVE pulse stops
+(the `●` gutter glyph stays statically rendered). The Mode pill
+widget that earlier drafts carried the LIVE pulse on was dropped;
+the rule now applies to the spine's head-row cue.
 
 ## Keyboard
 

@@ -37,7 +37,7 @@ separate tab.
 
 ---
 
-The Views tab (tab 3 of 6 in the 4-layer chrome — see
+The Views tab (tab 3 of 7 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) is the answer to two of
 the five canonical questions:
 
@@ -496,7 +496,7 @@ v1.0 ships the panel as part of Causa's tab bar only.
 ## Cross-references
 
 - [`018-Event-Spine.md`](018-Event-Spine.md) — Views tab placement
-  (tab 3 of 6); spine binding; isolation invariants.
+  (tab 3 of 7); spine binding; isolation invariants.
 - [`007-UX-IA.md`](007-UX-IA.md) — detail panel renderer; long-keyword
   treatment.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — changed-paths
