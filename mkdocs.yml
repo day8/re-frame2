@@ -31,11 +31,12 @@ theme:
     repo: fontawesome/brands/git-alt
   language: en
   palette:
-    primary: blue
-    accent: blue
+    scheme: slate
+    primary: black
+    accent: indigo
   font:
-    text: IBM Plex Sans
-    code: Source Code Pro
+    text: Inter
+    code: JetBrains Mono
   features:
     - navigation.tabs
     - navigation.sections
@@ -50,6 +51,9 @@ theme:
 # in the list, otherwise search silently disappears.
 plugins:
   - search
+
+extra_css:
+  - stylesheets/cursor-inspired.css
 
 extra:
   social:
