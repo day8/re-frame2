@@ -3088,7 +3088,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Spawn-and-join via `:invoke-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`), the runtime fires one of three parent events when the join resolves and (by default) cancels surviving siblings | Prose: [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all); Schema: `:rf/state-node` extended for `:invoke-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-all-join-all-completes`, `invoke-all-join-any-fails-cancels`, `invoke-all-n-of-cancels-extras` | ✓ claimed (specified) | Sugar over N parallel `:invoke`s plus a runtime-owned join-state at `[:rf/spawned <parent> <invoke-id>]` (the direct map shape per rf2-ujhzw — `:children` / `:done` / `:failed` / `:resolved?` / `:spec` co-mingle at the root). Cancel-on-decision is the default (matches Dash8/rf8 boot-page-reload semantics). Per rf2-6vmw. |
 | **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | ~~**Wall-clock `:timeout-ms` on `:invoke` / `:invoke-all`**~~ | DROPPED in favour of state-level `:after`. See [§Wall-clock timeouts on `:invoke` — use parent state's `:after`](#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-invoke--invoke-all--use-parent-states-after). | n/a | The `:after` capability subsumes this; one canonical primitive, not two. The `:fsm/delayed-after` capability above covers wall-clock-on-state semantics for both pure timed-transition states and `:invoke`-bearing states. Per rf2-3y3y. |
-| **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
+| **SCXML / Stately / XState JSON interop** — bidirectional schema parity or paste-and-render compatibility | Out of v1 scope | ✗ not claimed | Deferred to v1.1+; tracked alongside rf2-6urjd (SCXML) as the v1.1+ interop family. |
 
 ### How conformance is graded
 
@@ -3137,13 +3137,7 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Stately.ai compatibility — exact or approximate?" classifies as **`:host-choice`** (paste-and-render is the v1 CLJS reference recommendation; ports may aim higher); "Auto-cleanup of orphaned actors" classifies as **`:post-v1 tracked`** (file a bead to drive the `:owned-by` design when needed). The Globally-registered guards/actions `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule.
-
-### Stately.ai compatibility — exact or approximate?
-
-Aim for *paste-and-render* compatibility (a re-frame machine definition pastes into stately.ai and renders correctly), accepting some superficial vocabulary differences (e.g. our action ids vs stately's `actions: {...}` map). Or aim for *full bidirectional* compatibility (exact JSON shape parity)?
-
-Recommendation: paste-and-render is the realistic target; full bidirectional is overinvestment unless someone wants to write a stately-driven authoring tool.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Auto-cleanup of orphaned actors" classifies as **`:post-v1 tracked`** (file a bead to drive the `:owned-by` design when needed). The Globally-registered guards/actions `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule. Stately.ai / XState JSON interop is out of scope for v1; see rf2-6urjd (SCXML) for the v1.1+ interop family.
 
 ### Auto-cleanup of orphaned actors
 
@@ -3191,7 +3185,8 @@ The transition table is data; rendering it as a diagram is straightforward. v1 s
 
 - `(rf/machine->mermaid definition)` — emit Mermaid `stateDiagram-v2`. Renders inline in GitHub markdown, VS Code preview, AI-agent prompts.
 - `(rf/machine->d2 definition)` — emit D2.
-- `(rf/machine->xstate-json definition)` — paste-and-render compatibility with Stately Studio (per [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate)).
+
+XState/Stately JSON export (`machine->xstate-json`) is part of the v1.1+ interop family, not a v1 deliverable; tracked alongside rf2-6urjd (SCXML).
 
 Mermaid/D2 are AI-fluent — LLMs read and write them confidently — which makes diagram export the cheapest way to extend AI-amenability of machine code.
 
@@ -3265,8 +3260,8 @@ Richer scaffolding on top of the v1 foundation. None of the items below add a ne
 
 - **Advanced grammar:** history states. (Hierarchical state nodes, `:always`, `:after`, `:invoke`, parallel state nodes, and **final states with `:on-done`** are v1; see the v1 ship list above. Final states landed in v1 per rf2-gn80.)
 - **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`).
-- **Stately.ai compatibility:** `(machine->xstate-json definition)` converter, paste-and-render parity, Stately-Inspector wire-format mapping.
-- **Visualisation tooling:** `machine->mermaid`, `machine->d2`, `machine->xstate-json` exporters.
+- **XState/Stately/SCXML interop (v1.1+):** `machine->xstate-json` converter, paste-and-render parity, Stately-Inspector wire-format mapping. Tracked alongside rf2-6urjd (SCXML) as the v1.1+ interop family.
+- **Visualisation tooling:** `machine->mermaid`, `machine->d2` exporters.
 - **Model-based testing harness:** `@xstate/test`-style graph traversal over the transition table.
 - **Declarative `:history` grammar** (history pseudo-states; substitute is snapshot-as-value capture per [§Substitutes for skipped features](#substitutes-for-skipped-features)).
 - **Recurring timers, wall-clock delays, pause/resume on `:after`** — explicitly out of scope for v1; see [§What `:after` does *not* include](#what-after-does-not-include).
