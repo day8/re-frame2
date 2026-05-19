@@ -1030,8 +1030,19 @@
       (doseq [ev dispatches]
         (cond
           (map? ev)
-          (let [{event :event :as opts} ev]
-            (rf/dispatch-sync event (dissoc opts :event)))
+          (cond
+            ;; Harness teardown step `{:destroy-frame <frame-id>}` per
+            ;; Spec 002 §Destroy + Spec 005 §Cross-Spec Interactions §1
+            ;; — invoke `destroy-frame!` against the named frame; the
+            ;; machine-cascade teardown hook + sub-cache disposal +
+            ;; `:frame/destroyed` trace all fire here. Mirrors the
+            ;; flows-conformance runner's shape (rf2-gmrks).
+            (contains? ev :destroy-frame)
+            (rf/destroy-frame! (:destroy-frame ev))
+
+            :else
+            (let [{event :event :as opts} ev]
+              (rf/dispatch-sync event (dissoc opts :event))))
 
           ;; Convention: :rf/hydrate events dispatch with :source :ssr-hydration
           ;; per Spec 011 §The :rf/hydrate event. Real clients pass this on the

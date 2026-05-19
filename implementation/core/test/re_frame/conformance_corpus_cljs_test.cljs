@@ -910,8 +910,16 @@
       (doseq [ev dispatches]
         (cond
           (map? ev)
-          (let [{event :event :as opts} ev]
-            (rf/dispatch-sync event (dissoc opts :event)))
+          (cond
+            ;; Harness teardown step `{:destroy-frame <frame-id>}` per
+            ;; Spec 002 §Destroy + Spec 005 §Cross-Spec Interactions §1.
+            ;; Mirrors the JVM runner.
+            (contains? ev :destroy-frame)
+            (rf/destroy-frame! (:destroy-frame ev))
+
+            :else
+            (let [{event :event :as opts} ev]
+              (rf/dispatch-sync event (dissoc opts :event))))
 
           (and (vector? ev) (= :rf/hydrate (first ev)))
           (rf/dispatch-sync ev {:source :ssr-hydration})

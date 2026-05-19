@@ -355,6 +355,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `routing-history-popstate.edn` | `:routing/history-popstate` | Popstate-driven URL change (`[:rf.route/handle-url-change url]`): URL round-trips into `:rf/route` slice; `:rf.nav/scroll` fires with popstate-default `:restore` strategy; runtime does NOT push or replace the URL (it came from the browser) |
 | `routing-history-replace.edn` | `:routing/history-replace` | Programmatic navigation with `{:replace? true}` routes through `:rf.nav/replace-url` instead of `:rf.nav/push-url` — replaceState semantics so the back button skips the intermediate URL |
 | `hot-reload-handler-replaced-trace.edn` | `:hot-reload/handler-replaced-trace` | Per Spec 001 §Hot-reload trace surface: a re-registration emits `:rf.registry/handler-replaced` carrying `:kind` + `:id` + `:different-fn?`. Exercised through flow re-registration (the only pure-data surface today through which the corpus can re-register a slot mid-dispatch); the trace contract is cross-kind |
+| `cross-spec-frame-destroy-with-machines.edn` | `:cross-spec/frame-destroy-with-machines` | Cross-Spec #1 (Frames × Machines): `destroy-frame!` while a singleton machine snapshot is live emits `:rf.machine.lifecycle/destroyed` BEFORE `:frame/destroyed`, carrying `:reason :parent-frame-destroyed` |
 
 Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
 
