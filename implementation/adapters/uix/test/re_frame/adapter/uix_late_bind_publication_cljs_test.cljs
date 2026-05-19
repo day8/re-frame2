@@ -10,16 +10,22 @@
         currently-installed one; otherwise chain to the previous
         handler. Used for `:adapter/current-frame`,
         `:adapter/add-on-dispose!`, `:adapter/dispose!`,
-        `:adapter/wrap-view`.
+        `:adapter/wrap-view`, and `:adapter/after-render` (rf2-334d9 —
+        useLayoutEffect-backed via the spine).
 
-        Per rf2-jicu2 the UIx adapter no longer publishes
-        `:adapter/ratom`, `:adapter/ratom?`, `:adapter/make-reaction`,
-        `:adapter/reactive?`, or `:adapter/after-render` — UIx ships no
-        reactive-atom primitive (per rf2-3yij) and the reactive
+        Per rf2-jicu2 the UIx adapter does not publish the
+        reactive-atom hooks `:adapter/ratom`, `:adapter/ratom?`,
+        `:adapter/make-reaction`, or `:adapter/reactive?` — UIx ships
+        no reactive-atom primitive (per rf2-3yij) and the reactive-atom
         surfaces have zero production call sites under UIx. Publishing
         them previously forced reagent.core (transitively reagent.ratom
         + reagent.impl.batching) into every UIx-only release bundle for
         code the substrate never executed.
+
+        Per rf2-334d9 the UIx adapter DOES publish `:adapter/after-render`
+        — `after-render` is a React-lifecycle question (when does the
+        next commit complete?), not a reactive-atom one. Pre-rf2-334d9
+        `(rf/after-render f)` under the UIx adapter was a silent no-op.
 
     (2) `late-bind/chain-fn!` — chained hooks where every contributor
         runs (independent of installed-adapter identity). Used for
@@ -54,11 +60,12 @@
   pins; ordering here is for human-readable diff."
   ;; Routed via substrate-adapter/route-hook!
   ;;
-  ;; Per rf2-jicu2 the publication set was trimmed: the UIx adapter
-  ;; no longer publishes :adapter/ratom, :adapter/ratom?,
-  ;; :adapter/make-reaction, :adapter/reactive?, or
-  ;; :adapter/after-render. See this ns's docstring for rationale.
+  ;; Per rf2-jicu2 the reactive-atom hooks (:adapter/ratom,
+  ;; :adapter/ratom?, :adapter/make-reaction, :adapter/reactive?)
+  ;; remain excluded. Per rf2-334d9 :adapter/after-render IS published.
+  ;; See this ns's docstring for rationale.
   #{:adapter/add-on-dispose!
+    :adapter/after-render
     :adapter/current-frame
     :adapter/dispose!
     :adapter/wrap-view

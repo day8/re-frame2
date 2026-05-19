@@ -151,14 +151,24 @@
 ;;     routed to `reagent.ratom/add-on-dispose!` / `ratom/dispose!`
 ;;     which dragged ~9KB of reagent.ratom + reagent.impl.batching into
 ;;     every UIx-only release bundle for a single defprotocol slot.
-;;     The other reactive-substrate hooks (`:adapter/ratom`,
-;;     `:adapter/ratom?`, `:adapter/make-reaction`, `:adapter/reactive?`,
-;;     `:adapter/after-render`) are intentionally NOT published by the
-;;     UIx adapter — UIx ships no reactive-atom primitive (per
-;;     rf2-3yij) and `re-frame.interop`'s reactive surfaces have zero
-;;     production call sites under UIx; publishing those hooks would
-;;     force the UIx bundle to carry reagent.core (transitively
-;;     reagent.ratom) for code it never executes.
+;;     The remaining reactive-substrate hooks (`:adapter/ratom`,
+;;     `:adapter/ratom?`, `:adapter/make-reaction`, `:adapter/reactive?`)
+;;     are intentionally NOT published by the UIx adapter — UIx ships
+;;     no reactive-atom primitive (per rf2-3yij) and
+;;     `re-frame.interop`'s reactive-atom surfaces have zero production
+;;     call sites under UIx; publishing those hooks would force the UIx
+;;     bundle to carry reagent.core (transitively reagent.ratom) for
+;;     code it never executes.
+;;   :adapter/after-render — rf2-334d9. Backed by `React.useLayoutEffect`
+;;     via the spine's after-render machinery (see
+;;     `re-frame.substrate.spine/make-after-render-hook` +
+;;     `make-after-render-sentinel`). `after-render` is a React-
+;;     lifecycle question (when does the next commit complete?), not a
+;;     reactive-atom one — so the "no reactive primitive" rationale
+;;     that excludes the four hooks above does NOT apply. Pre-rf2-334d9
+;;     `(rf/after-render f)` under the UIx adapter was a silent no-op;
+;;     publish closes that correctness bug under the pre-alpha
+;;     masterpiece posture.
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
 ;;     injection via React.cloneElement (the views.cljs inline
 ;;     hiccup-walk would mis-classify React-element output as a
@@ -173,6 +183,8 @@
   rf-disposable/-dispose)
 (substrate-adapter/route-hook! adapter :adapter/wrap-view
   wrap-view)
+(substrate-adapter/route-hook! adapter :adapter/after-render
+  (:after-render-hook spine-fns))
 
 ;; Chained warn-once clear (rf2-4edk): every loaded adapter's
 ;; per-process defonce must be cleared between tests, so this hook is

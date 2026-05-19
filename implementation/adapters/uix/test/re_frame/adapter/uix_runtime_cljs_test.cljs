@@ -6,13 +6,13 @@
   isolation, sub hot-reload) is substrate-agnostic, but every assertion
   in this file runs under the UIx-installed adapter — pinning that the
   late-bind hooks the UIx adapter publishes (`:adapter/current-frame`,
-  `:adapter/add-on-dispose!`, `:adapter/dispose!`, `:adapter/wrap-view`)
-  compose with the runtime layer correctly. Per rf2-jicu2 the UIx
-  adapter intentionally does NOT publish the reactive-substrate hooks
-  (`:adapter/ratom`, `:adapter/make-reaction`, `:adapter/reactive?`,
-  `:adapter/after-render`); subscribe-side reactivity routes through
-  the spine's `make-derived-value` (`IDeref`+`IWatchable` wrapper) which
-  carries no Reagent dependency.
+  `:adapter/add-on-dispose!`, `:adapter/dispose!`, `:adapter/wrap-view`,
+  `:adapter/after-render` per rf2-334d9) compose with the runtime layer
+  correctly. Per rf2-jicu2 the UIx adapter intentionally does NOT
+  publish the reactive-atom hooks (`:adapter/ratom`,
+  `:adapter/make-reaction`, `:adapter/reactive?`); subscribe-side
+  reactivity routes through the spine's `make-derived-value`
+  (`IDeref`+`IWatchable` wrapper) which carries no Reagent dependency.
 
   This is the headless subset only — Reagent-specific `r/atom` /
   `r/track!` / inline-hiccup-render assertions and example-driven tests
