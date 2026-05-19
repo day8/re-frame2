@@ -298,6 +298,106 @@ sequence + drain-settle check is closer to the problem domain.
 
 Each named with rationale so contributors have a clear "no" list.
 
+The first cluster below — **Storybook commodity patterns** — is the
+named "no" list relative to Storybook 8 specifically. Story is the
+re-frame2 workshop equivalent and Storybook is the popular comparator;
+copying its identity-bearing choices would erase Story's identity. The
+positive contracts these entries reject are pinned in
+[`016-Design-Tokens.md`](016-Design-Tokens.md) (typography / colour /
+motion / backdrop / iconography / toolbar 5-cluster) and in
+§record-not-throw above. The cross-references below carry the reader
+to the relevant lock. See the rf2-38pb9 audit verdict (warm-slate +
+amber + Plex + motion-as-language >> Storybook's cold-grey + pink +
+Inter + flat) for the comparator pass.
+
+### Rejected: Brand-pink-on-cold-grey chrome palette — we use amber-on-warm-slate
+
+**Rejected.** Storybook 8 ships a cold-grey chrome (`#1B1C1F` / `#2D3036`
+/ `#9E9E9E` neutrals) accented by its brand pink (`#FF4785`). The
+combination reads as the rubric's "predictable layout that lacks
+context-specific character" — a generic dark-mode neutral plus a brand
+hot pink, the pattern AI-generated component-explorer chromes
+converge on.
+
+**Why.** Story's identity palette is **warm-slate + amber** — a warm
+neutral substrate with amber as the accent, the inverse of the
+cold-grey + pink convergence point. Per
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour the palette is
+locked: warm-slate `:bg-*` tokens (substrate with a touch of warmth so
+the chrome reads as a workshop rather than a forensic console), amber
+`:accent-amber*` tokens (the active-row / active-chip / sidebar-glyph
+identity), and the semantic foreground tokens (`:text-primary` /
+`:text-secondary` / `:text-tertiary`). The pairing also achieves the
+**two-surface, two-role** signal when Causa lands in the RHS: Causa is
+cool-grey + cyan (diagnostic), Story is warm-slate + amber (workshop)
+— the user reads "workshop" vs "diagnostic" without needing labels.
+Raw hex literals at call sites are banned (rf2-i3i5j AC#3); the
+contract is enforced via the `theme.colors/tokens` map.
+
+### Rejected: Commodity-default fonts (Inter / Nunito Sans / system-ui)
+
+**Rejected.** Storybook 8 ships Nunito Sans + the system stack. The
+broader JS-tooling field converges on Inter (Vercel, Linear, Stripe,
+many AI-generated landing pages) or `system-ui` (the cookie-cutter
+floor: GitHub, npm, most CRA defaults). The 2026 convergence point on
+"workshop UI" typography is Inter + JetBrains Mono.
+
+**Why.** Story's canonical sans + mono pair is **IBM Plex Sans + IBM
+Plex Mono**. Per [`016-Design-Tokens.md`](016-Design-Tokens.md)
+§Typography the pair is locked: Plex carries IBM's editorial bias —
+geometric without being sterile, with characterful italics, a
+confident `g`, and a mono sibling tuned to the same proportions. The
+sans + mono pair share design DNA so chrome that mixes them (a
+variant id rendered next to its status text) holds together
+typographically. **Crucially, the pair distinguishes Story from Causa
+visually**: Causa uses Inter + JetBrains Mono — Story's Plex pair is
+the typographic complement, not the same family. Raw `font-family`
+strings at call sites are banned (rf2-2rwdc AC#5); `sans-stack` /
+`mono-stack` / `display-stack` are the public contract.
+
+### Rejected: Addon-per-concern panel architecture (Storybook's eight + addons)
+
+**Rejected.** Storybook ships a panel-per-concern surface: theme switcher,
+viewport switcher, locale toggle, a11y panel, actions panel, measure
+overlay, outline overlay, highlight overlay — each is a separate
+addon with its own registration, its own toolbar slot, its own
+configuration surface, and its own bundle weight. The user composes
+chrome by installing-and-configuring eight addons.
+
+**Why.** Story collapses these eight concerns into **two registered
+primitives** plus one decorator: `reg-mode :axis` for the
+theme / viewport / locale / background axis (saved-tuple modes —
+toggleable on the toolbar, multi-select across axes, single-select
+within axis — see [`010-Toolbar.md`](010-Toolbar.md)); `reg-story-panel`
+for a11y / actions / measure / outline / highlight as registered
+panels (one registration mechanism, declarative placement; see
+[`014-Chrome-Features.md`](014-Chrome-Features.md)); and
+`force-fx-stub` for the actions-panel equivalent's stub-then-record
+discipline (see [`004-Assertions.md`](004-Assertions.md)). Three
+re-frame2 primitives replace eight Storybook addons — the
+collapse is what makes Story authorable from a single artefact rather
+than a stack of addon configurations.
+
+### Rejected: Throw-on-first-failure assertion semantics
+
+**Rejected.** Storybook's `play` function throws on the first failed
+expectation (the JS test-runner integration depends on the throw to
+signal failure to the harness). The remainder of the play sequence
+never executes; later expectations are not evaluated; the user sees
+"first failure" rather than "full picture."
+
+**Why.** Story's `:rf.assert/*` events **record** failures into the
+variant's `:assertions` list and continue the play sequence (see
+§record-not-throw above for the architectural lock). Storybook's
+choice is constrained by JavaScript's async-throw mess and the
+test-runner protocol; we have no such constraint. The
+record-don't-throw discipline pairs with the four-phase lifecycle (a
+play sequence runs to completion against the frame's drain semantics,
+per [Spec 002](../../../spec/002-Frames.md)) and the test-runner
+adapter post-processes the `:assertions` list into the host test
+framework's failure signal. The full picture of "what went wrong" is
+strictly more useful than "first failure halts everything."
+
 ### Rejected: CSF Factories (JS) — we use EDN-first
 
 **Rejected.** Storybook v10 introduced CSF Factories for type-safe

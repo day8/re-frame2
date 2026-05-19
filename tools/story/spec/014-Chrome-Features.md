@@ -413,6 +413,308 @@ Reagent layer.
 - [`010-Toolbar.md`](./010-Toolbar.md) — the mode-toggle entry-point
   the `:mode` kind reuses.
 
+## Phase 3 chrome cluster (rf2-38pb9 Storybook ADOPTs)
+
+The Phase 3 cluster lands six umbrella features from the rf2-38pb9
+Storybook audit's ADOPT inventory. Each was filed against a sibling
+bead and landed across the rf2-rcoht / #1574 / #1582 PRs. The
+features are normative chrome: tested by `npm run test:cljs` for the
+pure projections and `test:story-feature-load` for the browser
+contract.
+
+The cluster shares one identity-bearing constraint: features must
+read as **Story chrome** (amber-on-warm-slate, Plex typography, motion
+choreography) rather than commodity Storybook chrome — see
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §Rejected "Storybook
+commodity patterns" for the comparator pass.
+
+### Chrome-visibility hotkeys (rf2-g8l8x + rf2-p3i0t)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/keybindings.cljs`. Comparator
+> baseline: Storybook ships **one** chrome hotkey (a/d toolbar toggle);
+> Story ships four under one capture-phase listener with one
+> registry of bound keys.
+
+A `{key → handler}` registry that backs four chrome-level muscle-memory
+hotkeys: `f` toggles full-screen, `s` toggles the sidebar, `a` toggles
+the RHS / addons pane, `t` toggles the toolbar. The single
+`window#keydown` capture-phase listener co-exists with the command
+palette's `Cmd-K / Ctrl-K` listener (`command_palette/view.cljs` —
+the palette is modal, the hotkey registry handles inline chrome
+toggles).
+
+#### Discrimination contract
+
+The dispatcher only fires a handler when ALL of the following hold:
+
+- `event.key` is a single lowercase letter present in the
+  `bindings` map.
+- **No modifier is held.** `Meta` / `Ctrl` / `Alt` press passes
+  through to the browser or the palette listener — the chrome
+  hotkeys are deliberately modifier-less.
+- **Focus is not in an editable region** (`<input>` / `<textarea>` /
+  `<select>` / `[contenteditable=true]`) — typing `f` into the
+  sidebar search box must not toggle full-screen.
+
+The `dispatch-key?` predicate is pure and JVM-testable: it accepts
+`(key, modifier?, editable?)` and returns the discrimination boolean.
+The listener itself does the DOM-side feature detection.
+
+#### Persistence
+
+The chrome-visibility toggles persist to localStorage under
+`re-frame.story/chrome-visibility` so a refresh keeps the user's
+layout intent. Hydration runs once at shell mount via
+`keybindings/hydrate!`. The persisted slots are the four boolean
+toggles (`:full-screen?` / `:sidebar?` / `:rhs?` / `:toolbar?`);
+`:embed?` is deliberately excluded — embed-mode is URL-driven (per
+§Embed-mode flag below) and must not survive across navigations.
+
+#### Escape semantics
+
+While full-screen is active, the same listener intercepts `Escape` and
+calls `exit-full-screen!` — a public escape handler that clears
+`:full-screen?` regardless of prior state. The escape is independent
+of the chrome's modal stack (the command palette also closes on
+`Escape`); the listener sequence is install-order-stable, and the
+palette's modal layer takes priority when both are open.
+
+#### Bundle isolation
+
+Production builds with `re-frame.story.config/enabled?` false never
+install the listener — Closure DCE drops the registry, the dispatcher,
+and the handler fns. The `ls-key` constant + the pure
+`dispatch-key?` predicate stay testable in the JVM target.
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Chrome-visibility
+  hotkeys row — the test-corpus contract this section makes
+  substantive.
+- §First-visit help overlay — the help-overlay shortcut-table section
+  reads `keybindings/shortcut-keys` so the rendered cheat-sheet stays
+  in lockstep with the registry.
+
+### Sidebar search-as-you-type (rf2-yngai)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/sidebar_search.cljc` (pure
+> tokenisation + match predicates) and the Reagent input in
+> `tools/story/src/re_frame/story/ui/sidebar.cljs`. Comparator
+> baseline: Storybook ships in-tree search; Story matches the
+> ergonomic, plus differentiates by token-AND scoring and amber-tint
+> match-segment highlighting.
+
+A text input above the sidebar tree filters the visible variants /
+stories / workspaces by substring match. Different ergonomic from
+`Cmd-K` (the command palette is a fuzzy whole-registry jump; the
+sidebar search narrows the existing tree in place).
+
+#### Match semantics
+
+Token-AND, case-insensitive, substring per token. The haystack for a
+variant is the concatenation of its id-string, its parent story id
+(derived from the keyword's namespace), the variant body's `:doc`
+prose, and its tags. Empty / blank query → every variant matches
+(the filter no-ops). The same token-AND discrimination drives the
+command palette's `match-score` (see §Command palette §Token-AND
+scoring) so users get consistent narrowing across both surfaces.
+
+#### Highlight contract
+
+Matching segments are tinted amber via `highlight-segments` — a pure
+data → data helper that splits a label into a vector of
+`{:match? true|false :text "..."}` chunks. The sidebar renders each
+chunk inline; matching chunks wear the `accent-amber-soft` ground +
+`accent-amber` text token. The pure helper is JVM-testable.
+
+#### Pure / impure split (CLJC discipline)
+
+The namespace is `.cljc` by design — every match helper
+(`tokenise`, `match-variant?`, `match-story?`, `filter-grouped-tree`,
+`highlight-segments`) runs under both the JVM unit-test target and
+the CLJS node-test build. The Reagent input plus the controlled-
+state ratom live under `:cljs` in `sidebar.cljs`.
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Sidebar
+  search-as-you-type row.
+- §Command palette §Token-AND scoring — the shared discrimination
+  contract.
+
+### Loading skeleton (rf2-0s4p1)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/canvas.cljs` §loading skeleton.
+> Comparator baseline: Storybook ships a generic neutral skeleton-row;
+> Story ships an **identity-bearing** amber-shimmer-on-warm-slate
+> skeleton that reads as "workshop loading" rather than commodity
+> placeholder.
+
+A three-bar amber-shimmer skeleton with an inset amber edge that
+renders inside the canvas while the variant's four-phase lifecycle
+is in `:pre-mount` / `:mounting` / `:loading`. Once the variant has
+committed a first render the skeleton is suppressed for the rest of
+that session (a hot-reload re-run is brief enough that re-flashing
+the skeleton would read as a glitch).
+
+#### Render predicate
+
+`loading-phase?` is pure: `(loading-phase? phase first-rendered?
+assertions-recorded?)` returns true when phase is in `#{:pre-mount
+:mounting :loading}` AND no first render has been committed AND no
+assertion has been recorded against the variant frame. The
+`assertions-recorded?` arm closes the regression window where the
+`:loaders-complete-when` predicate may declare loaders incomplete
+(`:story.counter-matrix/loader-never-completes`) or a loader event
+may throw a deterministic rejection
+(`:story.counter-matrix/loader-rejects`) — in both paths the runtime
+records an assertion and the lifecycle machine stays parked at
+`:loading`, but the user view must render. A non-empty assertions
+vector is the proof that `run-loaders!` returned; pin the skeleton
+off so the variant body takes over.
+
+#### Visual contract
+
+Three skeleton bars (78% / 62% / 44% widths) with an amber-shimmer
+linear-gradient cycling at 1400ms cubic-bezier easing; an inset
+`accent-amber-deep` edge stroke that matches the canvas-frame
+chrome; an uppercase `"loading"` label in amber. Behind
+`prefers-reduced-motion: reduce` the shimmer falls back to a static
+amber inset edge (no animation).
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Loading skeleton
+  row.
+- [`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion — the
+  `prefers-reduced-motion` honour-contract.
+- [`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour —
+  `accent-amber*` and `bg-canvas` tokens.
+
+### Viewport-px indicator chip (rf2-zgu68)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/canvas.cljs` §viewport-px
+> indicator chip. Comparator baseline: Storybook ships a viewport
+> dropdown but no in-canvas dimension chip; Story renders the chip
+> directly on the canvas so the user reads the dimensions without
+> opening the toolbar.
+
+A `pointer-events: none` chip rendered at the canvas bottom-right
+that displays the active viewport's pixel dimensions (e.g.
+`"375 × 667"`). The chip is suppressed when no viewport mode is
+active (the default `:full` preset has no `:width` / `:height` so
+`viewport-indicator-text` returns nil).
+
+#### Render contract
+
+`viewport-indicator-text` is pure: `(viewport-indicator-text
+{:width 375 :height 667 :label "Mobile"})` returns `"375 × 667"`.
+Returns nil when either dimension is missing. The Reagent component
+`viewport-indicator` consumes the resolved viewport preset map
+produced by `viewport/resolve` and renders the chip; `pointer-events:
+none` so it never intercepts hits on the underlying canvas content.
+
+#### Test affordances
+
+- `[data-test="story-canvas-viewport-indicator"]` — the chip
+  container.
+- `:data-viewport-dims` — the resolved dimensions string for
+  test-corpus assertion.
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Viewport-px
+  indicator chip row.
+- [`010-Toolbar.md`](010-Toolbar.md) §Viewport cluster — the upstream
+  registration that the chip reads.
+
+### Docs-mode table of contents (rf2-8c7tk)
+
+> **Status:** shipped. Implemented at
+> `tools/story/src/re_frame/story/ui/docs.cljc` §TOC. Comparator
+> baseline: Storybook ships a docs-mode TOC; Story matches the
+> ergonomic plus auto-hides more aggressively (≥1024px instead of
+> ≥1200px) since the RHS is already present.
+
+A sticky right-edge nav pane that lists the docs-mode sections
+(prose / args / decorators / parameters / tags) and scroll-syncs the
+active entry via `IntersectionObserver`. Self-elides on viewports
+below 1024px.
+
+#### Pure projection
+
+`docs-toc-entries` is the canonical entry table — a vector of maps
+`{:id :label :level :conditional?}`. `visible-toc-entries` is pure
+data → data: prune entries that don't apply to the variant (the
+prose section is the only conditional one — dropped when
+`(prose-for-variant variant-id)` returns empty). The variant's `<h1>`
+header is intentionally NOT in the TOC list — it sits beside that h1
+and would self-reference.
+
+#### Scroll-sync contract
+
+A `IntersectionObserver` with `rootMargin: "-30% 0px -60% 0px"`
+watches each registered section's anchor element. The most-recently-
+intersected id becomes the active entry; the corresponding button
+wears the `accent-amber-soft` ground + `accent-amber` text token
+plus `aria-current="location"`. Clicking an entry calls
+`scrollIntoView({behavior: "smooth", block: "start"})` on the
+anchor element.
+
+#### Test affordances
+
+- `[data-test="story-docs-toc"]` — the nav container.
+- `[data-test="story-docs-toc-item"]` — each TOC entry button.
+- `:data-toc-target` — the anchor id the entry jumps to.
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Docs-mode TOC row.
+- [`008-Docs-Mode.md`](008-Docs-Mode.md) — the section schema the
+  TOC mirrors.
+
+### Embed-mode flag (rf2-pucku)
+
+> **Status:** shipped. Hydration at
+> `tools/story/src/re_frame/story/ui/url_state.cljc` §embed-flag.
+> Comparator baseline: Storybook ships a `viewMode=story` URL flag
+> that hides chrome for blog-embed scenarios; Story matches the
+> ergonomic via `?embed=1`.
+
+An optional `?embed=1` query-string flag that suppresses the
+chrome (sidebar / toolbar / RHS) so the canvas can be embedded in
+blog posts, marketing pages, or design-review docs without the
+workshop UI surrounding it. The flag is **URL-driven only** — never
+persisted to localStorage (see §Chrome-visibility hotkeys §Persistence
+above: `:embed?` is explicitly stripped from the localStorage
+persistence slot).
+
+#### Hydration contract
+
+`hydrate-embed-flag!` is one-shot at shell mount. It reads
+`embed-flag-from-current-url` and seeds `[:chrome-visibility :embed?]`
+exactly once. Subsequent navigations don't re-read the URL — the
+flag is a session-start signal, not a watched parameter.
+
+#### Effect
+
+When `:embed?` is true, the shell suppresses the sidebar, toolbar,
+and RHS panels (the same surfaces the `f` hotkey toggles when
+`:full-screen?` flips), exposing the canvas at full width. The
+viewport-px chip (§Viewport-px indicator chip) continues to render
+when a viewport mode is active.
+
+#### Cross-references
+
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Embed-mode flag
+  row.
+- [`013-Static-Build.md`](013-Static-Build.md) — embed mode pairs
+  naturally with static builds for design-review artefacts.
+
 ## What this doc deliberately doesn't normalise
 
 - **Schema-validation panel widget styling.** Colours, icons, row
@@ -434,3 +736,18 @@ Reagent layer.
   ground, `:text-primary` body text. The spec normalises the kind
   set, scoring, keyboard contract, and test affordances rather than
   pixel-level appearance.
+- **Skeleton bar widths and shimmer cadence.** The §Loading skeleton
+  bar widths (78% / 62% / 44%) and the 1400ms shimmer cycle are the
+  shipped numbers; the spec locks the three-bar amber-shimmer-on-
+  warm-slate contract + the `prefers-reduced-motion` honour rule and
+  treats the exact widths / cadence as implementation detail.
+- **TOC scroll-sync threshold.** The §Docs-mode TOC's
+  `rootMargin: "-30% 0px -60% 0px"` is shipped tuning; the spec
+  locks the IntersectionObserver-driven contract and the auto-hide
+  ≥1024px threshold, not the exact rootMargin numbers.
+- **Hotkey letter assignments.** The §Chrome-visibility hotkeys
+  letters (`f` / `s` / `a` / `t`) are aligned with Storybook
+  conventions (`a` for "addons") where they don't conflict; the
+  spec locks the discrimination contract (no modifier, no editable
+  focus) and the registry pattern, not the specific letters — a
+  consuming project could re-key via `keybindings/bindings`.
