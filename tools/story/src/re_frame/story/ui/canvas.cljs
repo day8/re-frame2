@@ -195,7 +195,7 @@
   render? True when the lifecycle machine is in `:pre-mount`,
   `:mounting`, or `:loading` AND no first render has been committed
   yet AND the runtime has not recorded any assertions against the
-  variant frame.
+  variant frame AND the variant is NOT 'events-only' (rf2-043cm).
 
   The `assertions-recorded?` arm closes a regression window introduced
   with the skeleton (rf2-qrk2s / Phase 3 cluster): the
@@ -210,12 +210,27 @@
   the proof that `run-loaders!` returned; pin the skeleton off so the
   view layer takes over.
 
+  The `events-only?` arm (rf2-043cm) closes the regression PR #1574
+  introduced for variants whose body declares only `:events` (no
+  `:loaders`, no `:frame-setup` decorators, no `:loaders-complete-
+  when`). Their lifecycle takes the runtime's fast-path
+  (`:pre-mount → :ready` on mount via `loaders/mount-ready!`), so by
+  the time the canvas reads `current-state` post-allocate the phase
+  is already `:ready` — but the canvas may still render once against
+  the pre-allocate `:pre-mount` snapshot (e.g. on initial selection
+  before `ensure-variant-frame!` has run for the new selection on
+  some browsers). For events-only variants we suppress the skeleton
+  unconditionally: there is nothing to wait for.
+
   Returns false when `phase` is nil or `:ready` / `:error`."
-  [phase first-rendered? assertions-recorded?]
-  (boolean
-    (and (not first-rendered?)
-         (not assertions-recorded?)
-         (contains? #{:pre-mount :mounting :loading} phase))))
+  ([phase first-rendered? assertions-recorded?]
+   (loading-phase? phase first-rendered? assertions-recorded? false))
+  ([phase first-rendered? assertions-recorded? events-only?]
+   (boolean
+     (and (not first-rendered?)
+          (not assertions-recorded?)
+          (not events-only?)
+          (contains? #{:pre-mount :mounting :loading} phase)))))
 
 (defn loading-skeleton
   "Hiccup component rendering the identity-bearing loading skeleton
@@ -455,6 +470,14 @@
         lifecycle-phase (try (story-loaders/current-state variant-id)
                              (catch :default _ nil))
         first?         (variant-first-rendered? variant-id)
+        ;; rf2-043cm — events-only variants take the lifecycle fast-
+        ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
+        ;; the skeleton must not engage even on the brief render
+        ;; window before `frames/allocate!` runs. Pure-data check
+        ;; against the variant body + decorator stack, mirroring
+        ;; `loaders/events-only-variant?`.
+        events-only?   (story-loaders/events-only-variant?
+                         variant-body decorator-pack)
         ;; rf2-qrk2s — a recorded assertion proves the loader cascade
         ;; resolved its outcome (success path → :ready; failure paths
         ;; like loader-never-completes / loader-rejects park at
@@ -463,7 +486,7 @@
         ;; otherwise pin forever on the deterministic-failure variants
         ;; and hide the count text the load-gate reads.
         show-skeleton? (loading-phase? lifecycle-phase first?
-                                       (seq assertions))]
+                                       (seq assertions) events-only?)]
     [:div {:style (:frame styles)}
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]

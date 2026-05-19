@@ -84,6 +84,53 @@
                 (story/destroy-variant! :story.cljs.run/v)
                 (done))))))))
 
+;; ---- rf2-043cm — events-only fast-path on CLJS --------------------------
+;;
+;; The JVM-side `re-frame.story-runtime-test` covers the lifecycle
+;; transitions exhaustively. This CLJS smoke pins the cross-host
+;; contract: dispatching the new `:mount-ready` event drives the
+;; lifecycle from `:pre-mount` directly to `:ready` on CLJS too, so
+;; the canvas's loading skeleton (rf2-0s4p1) reads `:ready` post-
+;; allocate and never engages for events-only variants like the
+;; causa-rhs-smoke testbed's `:story.counter/loaded`.
+
+(deftest cljs-events-only-fast-path-to-ready
+  (testing "rf2-043cm — events-only variant lands :ready directly on
+            CLJS too. Drives the regression's repro shape: a variant
+            body declaring only `:events`, with no `:loaders` / no
+            `:frame-setup` decorators / no `:loaders-complete-when`."
+    (rf/reg-event-db :test.eo/seed
+      (fn [db _] (assoc db :seeded? true)))
+    (story/reg-variant :story.cljs.eo/v
+      {:events [[:test.eo/seed]]})
+    (let [p (story/run-variant :story.cljs.eo/v)]
+      (async done
+        (-> p
+            (async-lib/then
+              (fn [r]
+                (is (= :ready  (:lifecycle r))
+                    "events-only variant lands :ready")
+                (is (true? (:seeded? (:app-db r)))
+                    "events still dispatched after the fast-path mount")
+                (is (empty? (:assertions r))
+                    "no `:rf.error/loader-incomplete` projection on the fast-path")
+                (story/destroy-variant! :story.cljs.eo/v)
+                (done))))))))
+
+(deftest cljs-events-only-classifier
+  (testing "rf2-043cm — `loaders/events-only-variant?` classifies the
+            causa-rhs-smoke testbed variant shape on CLJS"
+    (is (true?  (loaders/events-only-variant? {:events [[:counter/initialise 5]]}
+                                              {:hiccup [] :frame-setup []
+                                               :fx-override [] :errors []}))
+        "the causa-rhs-smoke `:story.counter/loaded` body shape → events-only")
+    (is (false? (loaders/events-only-variant? {:loaders [[:l]]} {}))
+        ":loaders disqualifies")
+    (is (false? (loaders/events-only-variant? {:loaders-complete-when :p?} {}))
+        ":loaders-complete-when disqualifies")
+    (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
+        ":frame-setup decorators disqualify")))
+
 ;; ---- snapshot-identity --------------------------------------------------
 
 (deftest cljs-snapshot-identity-shape
