@@ -666,13 +666,49 @@
   identity-different references render as `:same` so idiomatic fresh-
   per-render closures don't drown the actual hiccup diff. Flip to
   `true` when diagnosing memoization issues — child re-renders because
-  the parent passes a new fn every time."
-  {:general   {:text-size           13              ; px — slider range 10–18
-               :panel-position      :right-rail     ; :right-rail | :popout | :fullscreen
-               :panel-width-px      default-panel-width-px ; rf2-x8h9y resize handle
-               :auto-open-on-error? false}
+  the parent passes a new fn every time.
+
+  ## :general additions (rf2-ttnst — Settings popup v1 expansion)
+
+  - `:density` (#{:cosy :compact}, default `:cosy`) — vertical-rhythm
+    knob applied to Views detail rows + App-db diff rows. Per Mike's
+    2026-05-19 walkthrough the Comfy tier is dropped; only two
+    densities ship in v1. Consumers read `:rf.causa/density` and
+    branch padding/line-height. Runtime plumbing into individual
+    panels lands incrementally.
+  - `:show-tool-frames?` (boolean, default `false`) — when true the
+    L1 frame picker dropdown reveals tool frames (`:rf/causa`,
+    `:rf/pair2`). OFF by default per spec/007-UX-IA.md §Frame-
+    observation isolation invariant I1.
+  - `:long-keyword-threshold` (integer, default 24) — character count
+    above which a fully-qualified keyword is elided in compact list
+    cells. Per spec/007-UX-IA.md §Long-keyword treatment; was
+    previously a fixed constant.
+
+  ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
+
+  Buffer-depth tunables surfaced in the Buffer tab. All three are
+  numbers; runtime consumption lives in trace-bus + the diff/
+  inspector helpers and may be plumbed incrementally.
+
+  - `:retained-epochs` (default 200) — count of epochs to retain
+    in the causa epoch buffer.
+  - `:trace-buffer/keep` (default 1000) — count of raw trace events
+    to retain (mirrors `trace-bus/default-buffer-depth`).
+  - `:app-db/inspector-collapse-threshold` (default 50) — branch
+    factor above which the App-db inspector collapses by default."
+  {:general   {:text-size              13              ; px — slider range 10–18
+               :panel-position         :right-rail     ; :right-rail | :popout | :fullscreen
+               :panel-width-px         default-panel-width-px ; rf2-x8h9y resize handle
+               :auto-open-on-error?    false
+               :density                :cosy           ; #{:cosy :compact}
+               :show-tool-frames?      false
+               :long-keyword-threshold 24}
    :theme     :dark                                  ; :dark | :light
-   :diff      {:highlight-fn-ref-changes? false}})
+   :diff      {:highlight-fn-ref-changes? false}
+   :buffer    {:retained-epochs                    200
+               :trace-buffer/keep                  1000
+               :app-db/inspector-collapse-threshold 50}})
 
 (defn clamp-panel-width-px
   "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]
@@ -816,7 +852,8 @@
                          (update :general merge (:general parsed))
                          (assoc  :theme  (or (:theme parsed)
                                              (:theme default-settings)))
-                         (update :diff      merge (:diff parsed)))))))
+                         (update :diff      merge (:diff parsed))
+                         (update :buffer    merge (:buffer parsed)))))))
        (catch :default _ nil))
      nil))
 
@@ -1027,7 +1064,8 @@
                   (update :general merge (:general settings))
                   (assoc  :theme  (or (:theme settings)
                                       (:theme default-settings)))
-                  (update :diff      merge (:diff settings))))
+                  (update :diff      merge (:diff settings))
+                  (update :buffer    merge (:buffer settings))))
       #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed

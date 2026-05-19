@@ -140,6 +140,20 @@
           (and (.-isContentEditable target)
                (boolean (.-isContentEditable target)))))))
 
+(defn- target-inside-modal?
+  "True when `event.target` is a DOM node inside one of Causa's modal
+  surfaces (Settings popup, command palette) — identified by the
+  `data-rf-causa-mode` attribute set to a known modal value on the
+  dialog root. Used to suppress the bare-letter spine bindings
+  (`s`, `,`, etc.) while a modal owns the keyboard, so those keys
+  can carry their modal-only inner meaning instead of re-toggling
+  the parent modal or firing the spine cascade. Per rf2-ttnst."
+  [^js event]
+  (when-let [target (.-target event)]
+    (when (and target (.-closest target))
+      (let [hit (.closest target "[data-rf-causa-mode=\"settings\"], [data-rf-causa-mode=\"palette\"]")]
+        (boolean hit)))))
+
 (defn- spine-key-id
   "Map an unmodified keydown to the spine event id it dispatches, or
   nil when the key is not a spine binding. Per spec/018 §3 + §6 the
@@ -173,6 +187,19 @@
         ;; k — step forward
         (and (not shift?) (or (= "k" k) (= "KeyK" code)))
         :rf.causa/focus-cascade-next
+
+        ;; , or s — toggle Settings popup. Per spec/007-UX-IA.md
+        ;; §Global shortcuts both bindings open the modal (the spec
+        ;; lists "`,` or `s`"). The popup carries its own ESC/click-
+        ;; outside close handlers so re-pressing the same key while
+        ;; the modal is open is not required (and is intercepted by
+        ;; the modal's inner tab mnemonic — `s` would otherwise
+        ;; re-toggle).
+        (and (not shift?) (or (= "," k) (= "Comma" code)))
+        :rf.causa/settings-toggle
+
+        (and (not shift?) (or (= "s" k) (= "KeyS" code)))
+        :rf.causa/settings-toggle
 
         ;; Esc — clear focus-set (rf2-a1z3b). The focus primitive is a
         ;; lens (NOT a filter); Esc is the universal 'undo the lens'
@@ -209,10 +236,18 @@
     ;; Spine bindings — only fire inside the Causa shell, never on
     ;; editable elements. Per spec/018 §3 + §6 the keys are
     ;; Space / L / j / k / G.
+    ;;
+    ;; rf2-ttnst — also gate on "not inside a modal". The Settings
+    ;; popup and command palette each carry bare-letter mnemonics
+    ;; (g/t/f/k/b/d, fuzzy-typing in palette, etc.) that must NOT
+    ;; also drive the spine. The modal markers are read via
+    ;; `target-inside-modal?` which closest-walks the event target
+    ;; for `data-rf-causa-mode="settings"|"palette"`.
     :else
     (when (and (mount/visible?)
                (target-inside-causa? event)
-               (not (target-editable? event)))
+               (not (target-editable? event))
+               (not (target-inside-modal? event)))
       (when-let [event-id (spine-key-id event)]
         (.preventDefault event)
         (.stopPropagation event)

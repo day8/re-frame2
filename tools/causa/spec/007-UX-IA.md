@@ -262,16 +262,39 @@ underneath. Closes on `Esc`, click outside, or click `✕`. Settings
 persist immediately on change (no Apply/Cancel — every toggle writes
 through to `(causa-config/configure! …)` on commit).
 
-Six sections (left-rail navigation, right-pane content):
+Six inner tabs (top tab strip, body below) — Mike 2026-05-19 §0ter.4
+walkthrough locks the list (rf2-ttnst):
 
-| Section | Content |
+| # | Tab | Mnemonic | Content |
+|---|---|---|---|
+| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) |
+| 2 | **Theme** | `t` | Dark / Light (accent stays fixed violet; per-tab default-expansion knob dropped) |
+| 3 | **Filters** | `f` | Active filter pills mirror · auto-filter-UI quick-open |
+| 4 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
+| 5 | **Buffer** | `b` | `:buffer/retained-epochs` · `:trace-buffer/keep` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" button with confirm modal |
+| 6 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; section-grouping threshold fixed defaults — both dropped from the user surface) |
+
+**Inner-tab mnemonics** (g / t / f / k / b / d) — bare-letter
+keystrokes captured at the dialog level while the modal is open.
+The dialog's `on-key-down` stops propagation on every consumed key,
+and the global keydown listener gates spine bindings on a
+`target-inside-modal?` check (a `data-rf-causa-mode="settings"`
+closest-walk), so the inner mnemonics do not also drive the outer
+spine. Mnemonics are suppressed while the focused element is an
+`<input>` / `<textarea>` / `<select>` / contenteditable surface so
+typing into numeric knobs is not interrupted.
+
+**Dropped from earlier drafts** (per the same 2026-05-19 walkthrough):
+
+| Dropped | Rationale |
 |---|---|
-| **Filters** | Active filter pills mirror · Recommended-filters quick-add · auto-hide-error-overrides toggle |
-| **View** | Theme (Dark / Light / Dim) · Density (Cosy 28px / Compact 22px / Comfy 36px) · Long-keyword threshold · **Power user:** "Show tool frames in picker" toggle (off by default) |
-| **Keybindings** | Per-action chord editor table; reset-to-defaults |
-| **Buffer** | `:buffer/retained-epochs` · `:trace-buffer/keep` · `:app-db/inspector-collapse-threshold` · "Clear buffer now" |
-| **Popout** | `:popout/width` · `:popout/height` · `:popout/position` · "Open in popout now" |
-| **Actions** | `[factory-reset!]` BIG RED BUTTON · finer-grained resets |
+| Actions tab + factory-reset BIG RED BUTTON | Factory-reset stays code-only (`config/reset-settings!`) — a destructive UI button has no use case the confirm modal beneath "Clear buffer" does not already cover. |
+| Density Comfy tier | Two tiers cover the rhythm need; the third was a styling-pass aspiration with no observed demand. |
+| Per-tab default expansion (`:bookish` / `:dense`) | Each tab owns its expansion default; no global knob. |
+| Accent-violet user swap | Brand accent stays fixed; light/dark theme is the only colour axis. |
+| Sub-output diff layout (`:unified` / `:split` toggle) | Fixed unified. |
+| Section-grouping threshold | Fixed defaults; not user-tuneable. |
+| Popout as its own tab | Folds into General's Panel-position sub-section. |
 
 Full wireframe + per-field configure! mapping in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §9. configure! API

@@ -1,5 +1,6 @@
 (ns day8.re-frame2-causa.settings.events
-  "Events for the Causa Settings popup modal (rf2-9poxq).
+  "Events for the Causa Settings popup modal (rf2-9poxq; expanded
+  by rf2-ttnst).
 
   Per `tools/causa/spec/018-Event-Spine.md` §9 Settings popup the
   modal is a transient overlay (NOT a sidebar panel). Events:
@@ -8,6 +9,9 @@
       :rf.causa/settings-close
       :rf.causa/settings-update [section key value]
       :rf.causa/settings-select-tab tab-id
+      :rf.causa/settings-clear-buffer        (rf2-ttnst — Buffer tab)
+      :rf.causa/settings-confirm-clear-buffer (rf2-ttnst — open confirm)
+      :rf.causa/settings-cancel-clear-buffer  (rf2-ttnst — close confirm)
 
   ## Open / close flag
 
@@ -36,7 +40,8 @@
   spec/018 §9 — the user is not 'browsing' it)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.config :as config]
-            [day8.re-frame2-causa.settings.effects :as effects]))
+            [day8.re-frame2-causa.settings.effects :as effects]
+            [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 (defn install!
   "Install the settings popup's events. Idempotent under re-frame's
@@ -119,5 +124,26 @@
       (if (and (= section :theme) (nil? key))
         (assoc-in db [:settings :theme] value)
         (assoc-in db [:settings section key] value))))
+
+  ;; rf2-ttnst — Buffer tab "Clear buffer now" confirm-modal events.
+  ;; The button opens a nested confirmation dialog before clearing the
+  ;; ring buffer; the dialog tracks its open state under
+  ;; `:settings-clear-confirm-open?`.
+  (rf/reg-event-db :rf.causa/settings-confirm-clear-buffer
+    (fn [db _event]
+      (assoc db :settings-clear-confirm-open? true)))
+
+  (rf/reg-event-db :rf.causa/settings-cancel-clear-buffer
+    (fn [db _event]
+      (assoc db :settings-clear-confirm-open? false)))
+
+  ;; rf2-ttnst — perform the clear. trace-bus/clear-buffer! empties the
+  ;; ring + drops the redaction counter (see trace-bus §clear-buffer!).
+  ;; We dismiss the confirm modal here; the parent Settings popup stays
+  ;; open so the user lands back on the Buffer tab.
+  (rf/reg-event-db :rf.causa/settings-clear-buffer
+    (fn [db _event]
+      (try (trace-bus/clear-buffer!) (catch :default _ nil))
+      (assoc db :settings-clear-confirm-open? false)))
 
   nil)

@@ -8,14 +8,29 @@
   `:rf.causa/settings-open?` is false; closed-state cost is one
   subscribe + a `when`.
 
-  ## Sections (rf2-9poxq + rf2-jh9ws)
+  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst)
 
-  General | Filters | Theme — a top tab strip drives which body
-  section renders. The full spec/018 §9 catalogue (Keybindings,
-  Buffer, Popout, Actions) is deferred to follow-on beads. The
-  Telemetry tab was removed (rf2-jh9ws) — Causa ships no telemetry
-  endpoint and the v1 toggle was a broken affordance; per the text
-  audit (rf2-yn86j) the chrome must not pretend.
+  Six inner tabs:
+  General | Theme | Filters | Keybindings | Buffer | Diff. The top
+  tab strip drives which body section renders. Inner mnemonics
+  (`g` / `t` / `f` / `k` / `b` / `d`) switch tabs while the modal
+  is focused — captured by the dialog's `on-key-down`, gated against
+  the editable-target case so numeric inputs are not interrupted.
+
+  Keybindings (rf2-ttnst) v1 is READ-ONLY — a chord catalogue plus
+  the master `:launch.keybinding/enabled?` toggle. Rebind UI is the
+  v1.1 follow-on. Buffer (rf2-ttnst) carries the depth tunables plus
+  a destructive `Clear buffer now` affordance with a nested confirm
+  modal.
+
+  Dropped vs. the earlier spec catalogue (per Mike 2026-05-19
+  §0ter.4 walkthrough): Actions tab + factory-reset BIG RED BUTTON,
+  density Comfy tier, per-tab default expansion knob, accent-violet
+  user swap, sub-output diff layout toggle, section-grouping
+  threshold, Popout as its own tab. The Telemetry tab was removed
+  earlier (rf2-jh9ws) — Causa ships no telemetry endpoint and the
+  v1 toggle was a broken affordance; per the text audit (rf2-yn86j)
+  the chrome must not pretend.
 
   ## Modal layer
 
