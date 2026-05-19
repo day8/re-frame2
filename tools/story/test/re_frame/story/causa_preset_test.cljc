@@ -108,12 +108,17 @@
           :causa {:open? true :tab :issues}})
        (story/reg-variant :story.no-causa/v
          {:doc "v"})
-       ;; The test build has no Causa namespace loaded, so
-       ;; causa-available? is false and apply-preset! returns nil
-       ;; without dispatching.
-       (is (false? (causa-preset/causa-available?))
-           "this test assumes Causa is NOT on the classpath")
-       (is (nil? (causa-preset/apply-preset! :story.no-causa/v))))))
+       ;; rf2-ibpwr: post-fix `causa-available?` is a compile-time
+       ;; symbol resolution check; Causa IS on the test classpath
+       ;; (Story's `causa-embed.cljs` directly requires
+       ;; `day8.re-frame2-causa.mount`). To exercise the no-Causa
+       ;; no-op path we shim the predicate via `with-redefs` — the
+       ;; production code path is what the predicate naturally
+       ;; reports; the shim is the test surface for the absent-Causa
+       ;; degraded posture.
+       (with-redefs [causa-preset/causa-available? (constantly false)]
+         (is (nil? (causa-preset/apply-preset! :story.no-causa/v))
+             "apply-preset! returns nil when causa-available? is false")))))
 
 #?(:cljs
    (deftest cljs-apply-preset-nil-on-missing-preset

@@ -15,9 +15,11 @@
                :focus    {:event-pos 5}}}     ; pre-focus a cascade pos
 
   Every slot is optional. A missing `:causa` slot is the v0 behaviour
-  (no auto-mount, no tab focus). The runtime is feature-detect for
-  Causa itself AND for the optional filters API (rf2-ak4ms in flight)
-  — when Causa is not on the classpath the preset no-ops silently;
+  (no auto-mount, no tab focus). Causa's mount surface is resolved at
+  compile time via a direct `:require` (rf2-ibpwr, mirroring rf2-senbl
+  for `mount-fn-for`); the optional filters API (rf2-ak4ms in flight)
+  is still runtime feature-detected via the `resolve-fn` lookup. When
+  Causa's mount ns is somehow not bound, the preset no-ops silently;
   when filters is not present, only the filters step is skipped (with
   a console.warn breadcrumb so authors notice).
 
@@ -43,7 +45,23 @@
   (:require [re-frame.story.predicates :as pred]
             [re-frame.story.registrar  :as registrar]
             #?(:cljs [re-frame.core           :as rf])
-            #?(:cljs [re-frame.story.config   :as config])))
+            #?(:cljs [re-frame.story.config   :as config])
+            ;; rf2-ibpwr: direct :require for compile-time symbol
+            ;; resolution of `day8.re-frame2-causa.mount/open!`. The
+            ;; pre-rf2-ibpwr `causa-available?` used a `find-ns-obj` +
+            ;; `aget` walk to feature-detect Causa, which returned a
+            ;; false-negative in node-test (shadow-cljs's namespace
+            ;; organisation does not guarantee top-level def'd fns are
+            ;; surfaced as parent-namespace JS properties — the same
+            ;; bug class as the pre-rf2-senbl `mount-fn-for` walk).
+            ;; Causa is on the same shadow-cljs :source-paths as Story
+            ;; (see `implementation/shadow-cljs.edn`), so the require
+            ;; is a compile-time resolution; bundle-isolation still
+            ;; holds because the gate only forbids `implementation/`
+            ;; → `tools/` requires, not `tools/story` → `tools/causa`
+            ;; (the inverse is explicitly fine — see rf2-senbl PR
+            ;; comment for the dep-arrow analysis).
+            #?(:cljs [day8.re-frame2-causa.mount :as causa-mount])))
 
 ;; ---- pure: preset resolution ---------------------------------------------
 
@@ -103,11 +121,22 @@
 
 #?(:cljs
    (defn causa-available?
-     "True iff the Causa mount surface is loaded — feature-detect
-     `day8.re-frame2-causa.mount/open!`. When false the preset
-     no-ops silently."
+     "True iff the Causa mount surface is loaded — checks that the
+     compile-time-resolved `causa-mount/open!` symbol is bound to a
+     value at runtime.
+
+     rf2-ibpwr: this previously used a runtime `find-ns-obj` + `aget`
+     walk to feature-detect Causa, which returned a false-negative under
+     node-test (same bug class as the pre-rf2-senbl `mount-fn-for`
+     walk). The fix mirrors rf2-senbl's `mount-fn-for`: a direct
+     `:require` of `day8.re-frame2-causa.mount` at the top of this ns
+     means the symbol is resolved at compile time; the runtime call
+     just dereferences the bound value. Causa is on Story's shadow-cljs
+     `:source-paths` so the require always resolves; the `some?` guard
+     is belt-and-braces against a degenerate build that somehow shipped
+     without Causa's mount ns. When false the preset no-ops silently."
      []
-     (some? (resolve-fn 'day8.re-frame2-causa.mount/open!))))
+     (some? causa-mount/open!)))
 
 #?(:cljs
    (defn causa-config-available?
@@ -144,10 +173,13 @@
 
 #?(:cljs
    (defn- apply-open!
-     "Drive the Causa shell open via `day8.re-frame2-causa.mount/open!`."
+     "Drive the Causa shell open via `causa-mount/open!`. The symbol
+     resolves at compile time via the direct `:require` at the top of
+     this ns (rf2-ibpwr — replaces the pre-fix `find-ns-obj` walk that
+     false-negatived under node-test)."
      []
-     (when-let [open-fn (resolve-fn 'day8.re-frame2-causa.mount/open!)]
-       (safe-call! "open!" open-fn))))
+     (when causa-mount/open!
+       (safe-call! "open!" causa-mount/open!))))
 
 ;; ---- :project-root bridge (rf2-r1uod) ------------------------------------
 ;;

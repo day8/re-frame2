@@ -113,8 +113,12 @@
     ;; `disable-keybinding!` itself so we can assert the wiring without
     ;; depending on the underlying configure! plumbing (covered by the
     ;; shimmed-configure test above). We also stub `detach-keybinding!`
-    ;; and the `resolve-fn` lookup `apply-open!` uses so we don't
-    ;; actually try to mount a shell.
+    ;; and `apply-open!` directly so we don't actually try to mount a
+    ;; shell. (rf2-ibpwr: the pre-fix tests stubbed `resolve-fn` to
+    ;; intercept the `mount/open!` lookup; after rf2-ibpwr `apply-open!`
+    ;; references `causa-mount/open!` directly via compile-time symbol
+    ;; resolution — there is no `resolve-fn` call to intercept, so the
+    ;; cleaner seam is the `apply-open!` var itself.)
     (let [disable-called? (atom false)
           detach-called?  (atom false)
           open-called?    (atom false)]
@@ -124,10 +128,8 @@
                     (fn [] (reset! disable-called? true) true)
                     causa-preset/detach-keybinding!
                     (fn [] (reset! detach-called? true) true)
-                    causa-preset/resolve-fn
-                    (fn [sym]
-                      (when (= sym 'day8.re-frame2-causa.mount/open!)
-                        (fn [] (reset! open-called? true) nil)))]
+                    causa-preset/apply-open!
+                    (fn [] (reset! open-called? true) nil)]
         (causa-preset/ensure-causa-mounted!)
         (is (true? @disable-called?)
             "disable-keybinding! is part of the mount edge")
@@ -150,10 +152,10 @@
                     (fn [] (swap! calls conj :disable) true)
                     causa-preset/detach-keybinding!
                     (fn [] (swap! calls conj :detach) true)
-                    causa-preset/resolve-fn
-                    (fn [sym]
-                      (when (= sym 'day8.re-frame2-causa.mount/open!)
-                        (fn [] (swap! calls conj :open) nil)))]
+                    ;; rf2-ibpwr: shim apply-open! directly — see the
+                    ;; rationale on the disables-keybinding test above.
+                    causa-preset/apply-open!
+                    (fn [] (swap! calls conj :open) nil)]
         (causa-preset/ensure-causa-mounted!)
         (is (= [:disable :detach :open] @calls)
             "slot flip (intent) lands before detach! (runtime removal)
@@ -187,17 +189,15 @@
       ;; `detach-keybinding!` run for real (with-redefs unchanged) and
       ;; their inner `resolve-fn` lookups resolve against Causa's live
       ;; config/keybinding namespaces (both on the test classpath).
-      ;; Capture the original resolve-fn so the with-redefs delegate
-      ;; can fall through for the keybinding/detach! + configure!
-      ;; lookups without recursing on itself.
-      (let [orig-resolve-fn @#'causa-preset/resolve-fn]
-        (with-redefs [causa-preset/causa-available? (fn [] true)
-                      causa-preset/resolve-fn
-                      (fn [sym]
-                        (if (= sym 'day8.re-frame2-causa.mount/open!)
-                          (fn [] nil)
-                          (orig-resolve-fn sym)))]
-          (causa-preset/ensure-causa-mounted!)))
+      ;; rf2-ibpwr: after the fix, `apply-open!` references
+      ;; `causa-mount/open!` directly via compile-time symbol
+      ;; resolution — no `resolve-fn` call to intercept. Shim
+      ;; `apply-open!` itself as the no-op seam so the test's intent
+      ;; (don't actually mount a shell, but DO run the real
+      ;; keybinding bridges) is preserved.
+      (with-redefs [causa-preset/causa-available? (fn [] true)
+                    causa-preset/apply-open!      (fn [] nil)]
+        (causa-preset/ensure-causa-mounted!))
       (is (false? (causa-config/keybinding-attach-enabled?))
           "ensure-causa-mounted! flipped the slot to false")
       (is (false? (causa-keybinding/attached?))
