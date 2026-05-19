@@ -90,11 +90,35 @@
               :font-style "italic"
               :text-align "center"
               :padding "32px"}
+   ;; Title row: flex so the variant id + view-id consume the left
+   ;; portion and the trailing affordances (open-in-editor chip, share
+   ;; button) sit anchored to the right. `flex-wrap` keeps the row from
+   ;; cramping on narrow canvases, but the share-button container is
+   ;; pinned to the right edge so the popover (anchored from share-button
+   ;; via `right: 0`) always extends INTO the canvas — never leftward
+   ;; into the sidebar's screen-x range, which Playwright's hit-testing
+   ;; flags as a pointer-events intercept (see Tools/Story PR #1554 CI
+   ;; trace: with default fallback fonts on Linux, the natural inline
+   ;; flow wraps the title and pushes share-button to the left of line 2,
+   ;; placing the popover's close button under the sidebar).
    :title    {:font-weight "bold"
               :margin-bottom "8px"
               :color (:info colors/tokens)
               :font-family mono-stack
-              :font-size (:body-tight typography/type-scale)}
+              :font-size (:body-tight typography/type-scale)
+              :display "flex"
+              :align-items "center"
+              :flex-wrap "wrap"
+              :gap "4px"}
+   ;; The trailing-affordance cluster (open-in-editor + share). Pushed
+   ;; to the right via `margin-left: auto` so the popover always anchors
+   ;; from the canvas's right edge rather than wherever inline flow
+   ;; happens to land in CI font-fallback conditions.
+   :title-trailing {:margin-left "auto"
+                    :display "inline-flex"
+                    :align-items "center"
+                    :gap "8px"
+                    :flex-shrink "0"}
    :error    {:background (:danger-bg colors/tokens)
               :border "1px solid #be4040"
               :color (:danger colors/tokens)
@@ -274,23 +298,31 @@
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
       (when view-id
-        [:span {:style {:color (:text-tertiary colors/tokens) :margin-left "8px"}}
+        [:span {:style {:color (:text-tertiary colors/tokens)}}
          (str "→ " (pr-str view-id))])
       (when multi?
-        [:span {:style {:color (:text-secondary colors/tokens) :margin-left "8px"
+        [:span {:style {:color (:text-secondary colors/tokens)
                         :font-size (:micro typography/type-scale) :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])
-      ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
-      ;; off the variant body and routes through the user's configured
-      ;; editor URI scheme. Renders nothing when no source-coord was
-      ;; captured at registration.
+      ;; Trailing-affordance cluster: open-in-editor chip + share popover
+      ;; trigger. Pinned to the right end of the title row via the
+      ;; `:title-trailing` style's `margin-left: auto`. This anchors the
+      ;; share popover (which positions `right: 8px` against its inline-
+      ;; block parent) so it always extends LEFTWARD INTO the canvas, not
+      ;; off the canvas's left edge into the sidebar's screen-x range —
+      ;; which the CI Playwright run flagged as a pointer-events intercept
+      ;; when the title wrapped under default Linux fallback fonts.
       (when variant-id
-        (open-in-editor/open-chip-for-variant variant-body))
-      ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
-      (when variant-id
-        [share/share-button variant-id])]
+        [:span {:style (:title-trailing styles)}
+         ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
+         ;; off the variant body and routes through the user's configured
+         ;; editor URI scheme. Renders nothing when no source-coord was
+         ;; captured at registration.
+         (open-in-editor/open-chip-for-variant variant-body)
+         ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
+         [share/share-button variant-id]])]
      ;; rf2-9jthx: share-import hint surfaces a non-blocking note when
      ;; a hydrated share URL dropped one or more overrides (variant
      ;; args refactored/renamed/removed). Renders nil when nothing
