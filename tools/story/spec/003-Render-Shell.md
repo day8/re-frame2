@@ -9,7 +9,9 @@
 
 See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 `:test` mode-tabs primitive that sits at the top of the canvas pane
-(rf2-9hc8).
+(rf2-9hc8). See [`016-Design-Tokens.md`](016-Design-Tokens.md) for the
+chrome-identity token contracts (typography / colour / motion /
+backdrop / glyphs / toolbar 5-cluster) the shell composes.
 
 ## UI shell substrate
 
@@ -40,6 +42,83 @@ Together these load Reagent v2 (per `feedback_target_reagent_v2`) in
 the dev tool's runtime. In a `:advanced` build of the host app, Story
 DCEs entirely (see [`005-SOTA-Features.md`](005-SOTA-Features.md) §DCE
 contract) so neither dep reaches production.
+
+## Chrome identity — design tokens
+
+The shell composes its identity-bearing surfaces via the
+[`016-Design-Tokens.md`](016-Design-Tokens.md) contracts. At
+`(mount-shell!)` the shell injects three stylesheets one-shot into
+`document.head` so the chrome's `font-family` / `animation` /
+`box-shadow` declarations resolve immediately on first paint:
+
+1. **IBM Plex `@font-face` rules** —
+   `(theme.typography/inject-font-faces!)` (rf2-2rwdc).
+2. **Motion keyframes + `prefers-reduced-motion` override** —
+   `(theme.motion/inject-motion-css!)` (rf2-3lt89).
+3. **Grain overlay (`::before` pseudo on `[data-rf-story-root]`)** —
+   `(theme.depth/inject-grain-css!)` (rf2-ypd6h).
+
+Each injector is idempotent and gated on
+`re-frame.story.config/enabled?` so production builds DCE the chrome
+entirely. The shell stamps its root with `data-rf-story-root` so the
+token-dependent CSS rules (the `*:focus-visible` outline, the
+reduced-motion override, the grain overlay) scope cleanly to Story's
+chrome without bleeding into the host app.
+
+The four chrome landmarks (toolbar / sidebar / main / right) ride
+**staggered entrance keyframes** via inline `:animation` styles so
+shell mount reveals as a choreographed 360ms sequence rather than a
+single synchronous paint. The stagger map keys per region on a
+`0ms` / `60ms` / `120ms` / `180ms` delay — see
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion §Shell-mount
+choreography for the canonical values.
+
+See [`016-Design-Tokens.md`](016-Design-Tokens.md) for the full
+token vocabulary the shell consumes:
+
+- §Typography — the `sans-stack` / `mono-stack` / `display-stack`
+  contract every chrome surface uses.
+- §Colour — the warm-slate + amber palette + the seven-tag colour
+  vocabulary.
+- §Motion — the timing / easing / transition tokens + the entrance
+  choreography.
+- §Depth + backdrop — the gradient mesh + grain overlay + shadow
+  scale + canvas-frame accent edge.
+- §Iconography — the five SVG glyphs the sidebar consumes (see
+  §Sidebar glyph rhythm below).
+- §Toolbar 5-cluster — the MODES / DATA / VIEW / DEBUG / REC
+  cluster contract (the canonical toolbar surface spec lives in
+  [`010-Toolbar.md`](010-Toolbar.md)).
+
+## Sidebar glyph rhythm
+
+The sidebar renders three row types — **story** (parent container),
+**variant** (renderable unit), **workspace** (multi-variant
+composition) — with a deliberate glyph + colour rhythm so the tree
+parses visually without reading text.
+
+| Row type    | Glyph                            | Colour                                              | Active state                                        |
+|-------------|----------------------------------|-----------------------------------------------------|-----------------------------------------------------|
+| Story       | `theme.glyphs/story-glyph` (◆)   | `:accent-amber` — chapter-heading register          | Bold + amber-coloured row                           |
+| Variant     | `theme.glyphs/variant-glyph` (●) OR `status-dot` for testable variants | `:text-tertiary` (muted) OR semantic-status colour | `:bg-active` ground + `:accent-amber` text + 2px amber `border-left` |
+| Workspace   | `theme.glyphs/workspace-glyph` (▦) | `:info` (cool-cyan) — composition register         | `:bg-active` ground + `:accent-amber` text + 2px amber `border-left` |
+
+**Amber-cyan temperature split** — the story + active-selection
+glyphs wear warm amber; the workspace glyph wears cool info-cyan.
+The temperature contrast tells the eye "this row is a different
+category" without needing labels. Testable variants (carrying `:test`
+in `:tags` or a non-empty `:play` sequence) replace the muted variant
+glyph with a **`status-dot`** that wears the semantic colour from
+the variant's last `run-variant` outcome
+(`:success`/`:danger`/`:warning`/pending).
+
+The glyphs are rendered inline-SVG via `currentColor` so CSS
+controls colour at the call site — see
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Iconography for the
+five-glyph set and SVG contract. The sidebar component lives at
+[`ui/sidebar.cljs`](../src/re_frame/story/ui/sidebar.cljs); the
+style map at
+[`ui/sidebar_styles.cljs`](../src/re_frame/story/ui/sidebar_styles.cljs).
 
 ## Workspace layouts
 

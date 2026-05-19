@@ -37,19 +37,30 @@ sections only.
 
 The toolbar renders as a horizontal strip **above** the three-pane
 layout, between the (future) chrome header and the sidebar / canvas /
-inspector row:
+inspector row. Per rf2-v58dm the strip composes **five distinct
+affordance clusters** separated by token-driven hairlines — each
+with a small-caps cluster label so users scan groups rather than
+chips:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ [chip] [chip] [chip] [chip]   ●dark ●mobile   [reset]        │  ← toolbar
-├──────────┬───────────────────────────────────┬───────────────┤
-│ sidebar  │ Canvas │ Docs │ Tests │           │ Causa         │  ← mode-tabs strip
-│          ├───────────────────────────────────┤ ───────────── │
-│ stories  │                                   │ controls      │
-│ tags     │   <selected mode's pane>          │ ───────────── │
-│ ws       │                                   │ disp. console │
-└──────────┴───────────────────────────────────┴───────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ MODES [chip] [chip]  │  DATA [Dispatch] [Play]  │  VIEW [Vp] [Bg]  │  DEBUG [Insp] │ REC [REC] [reset] │
+├──────────┬───────────────────────────────────┬─────────────────────────────────────┤
+│ sidebar  │ Canvas │ Docs │ Tests │           │ Causa                                │  ← mode-tabs strip
+│          ├───────────────────────────────────┤ ────────────────────────────────────│
+│ stories  │                                   │ controls                             │
+│ tags     │   <selected mode's pane>          │ ────────────────────────────────────│
+│ ws       │                                   │ disp. console                        │
+└──────────┴───────────────────────────────────┴─────────────────────────────────────┘
 ```
+
+The 5-cluster vocabulary (MODES / DATA / VIEW / DEBUG / REC) is the
+normative structural contract for the strip and lives in
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar 5-cluster
+structure. This doc describes the **MODES** cluster substrate
+(registry-driven `reg-mode` chips); 016 describes the cluster
+chrome around it (hairlines, cluster labels, active-chip
+amber-deep border).
 
 (RHS shape per rf2-sgdd3 — scrubber / trace / actions panels were
 retired; Causa is the always-on primary inspector now.)
@@ -76,11 +87,21 @@ modes pick up via the existing fingerprint poll (per
 [`003-Render-Shell.md`](003-Render-Shell.md) §Shell lifecycle). No
 caching layer.
 
-The strip's left-to-right chip order is **alphabetic by mode id** —
-stable across renders and across machines, matching the existing
-controls-panel `mode-picker` ordering. v1.1 may add an explicit
+Within the **MODES cluster** the left-to-right chip order is
+**alphabetic by mode id** — stable across renders and across
+machines, matching the existing controls-panel `mode-picker`
+ordering. Axis-grouped modes (`:axis :theme` / `:axis :viewport` /
+etc.) lead, ordered alphabetically by axis name; unaxed modes
+trail in their own ungrouped sub-section. v1.1 may add an explicit
 `:order` slot on `reg-mode` if that ordering proves wrong; for v1
 alphabetic-by-id is the lock.
+
+Cluster-level ordering (MODES → DATA → VIEW → DEBUG → REC) is
+**structural, not alphabetic** — MODES anchors the left edge
+(variable width, registry-driven), the chrome-fixed clusters follow
+right-aligned via a spacer slot. See
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar 5-cluster
+structure §Cluster-internal ordering.
 
 ## Mode tuple — confirmed shape
 
@@ -160,18 +181,26 @@ parallels question — `theme` / `viewport` / `locale` are
 
 ### Chip visual contract
 
-Each chip is a `<button role="button">`:
+Each chip is a `<button role="button">`. The chip palette consumes
+the canonical token vocabulary from
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour:
 
-| State    | Background | Foreground | `aria-pressed` |
-|----------|-----------:|-----------:|---------------:|
-| Inactive | `#37373d`  | `#cccccc`  | `false`        |
-| Active   | `#0e639c`  | `white`    | `true`         |
-| Hover    | `#454547`  | `#cccccc`  | (unchanged)    |
+| State    | Background           | Foreground         | Border               | `aria-pressed` |
+|----------|----------------------|--------------------|----------------------|---------------:|
+| Inactive | `:bg-3`              | `:text-primary`    | `:border-subtle`     | `false`        |
+| Active   | `:accent-amber`      | `:text-on-accent`  | `:accent-amber-deep` | `true`         |
+| Hover    | `:bg-3` (lightened)  | `:text-primary`    | (unchanged)          | (unchanged)    |
 
-Reuses the `:chip` / `:chip-active` styles from
-`re-frame.story.ui.controls/styles` to keep the chrome chip vocabulary
-consistent across the controls panel (decorator list) and the
-toolbar.
+The **active chip's amber-deep border** is the rf2-v58dm signature
+(see [`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar
+5-cluster §Visual contract): the pressed-amber outline reads as
+"saturated active" rather than just "background tinted." Chip
+transitions ride `:chip` from `motion/transitions` (background +
+colour hover + overshoot tap on `:active`).
+
+The chrome chip vocabulary is shared with the controls panel and
+the mode-tabs strip via the token cascade — colour and motion
+tokens compose into chip styles uniformly across surfaces.
 
 The chip label is `(str mode-id)` truncated at 28 chars with a CSS
 `text-overflow: ellipsis`; the full id + `:doc` tooltip lives on
@@ -377,17 +406,39 @@ select path.
 Selectors:
 
 - The strip: `[data-test="story-toolbar"]`
-- Each chip: `[data-toolbar-mode="<mode-id>"]`
+- Each cluster: `[data-test="story-toolbar-cluster"][data-cluster="<name>"]`
+  where `<name>` is one of `modes` / `data` / `view` / `debug` / `rec`
+  (per rf2-v58dm — see [`016-Design-Tokens.md`](016-Design-Tokens.md)
+  §Toolbar 5-cluster §Test surface).
+- Each MODES chip: `[data-toolbar-mode="<mode-id>"]`
 - The reset button: `[data-test="story-toolbar-reset"]`
 
 ## Visual style
 
-Strip background `#252526`, 1px solid `#444` bottom border, 8px
-vertical / 12px horizontal padding, 6px gap between chips. Axis group
-labels: 10px uppercase `#9a9a9a` with 4px right-margin. Matches the
-existing controls-panel and mode-tabs aesthetic. 32px total strip
-height — small enough not to dominate the canvas, large enough to
-support 11px chip text.
+The strip consumes the canonical token vocabulary from
+[`016-Design-Tokens.md`](016-Design-Tokens.md):
+
+- **Strip ground** — `:bg-2` (raised chrome) with a 1px solid
+  `:border-default` bottom border.
+- **Padding / gap** — `6px 10px` strip padding, `6px` chip gap,
+  `4px` cluster-internal gap.
+- **Strip height** — `min-height: 32px` (`box-sizing: border-box`).
+  Small enough not to dominate the canvas, large enough to support
+  `:caption` (11px) chip text.
+- **Cluster labels** — `:micro` type-scale (10px), `:semibold`,
+  uppercase via `text-transform`, `:text-tertiary` colour,
+  `:label-wide` letter-spacing.
+- **Axis-group labels** (within MODES) — same shape as cluster
+  labels: `:micro` uppercase, `:text-tertiary`, `:label-wide`.
+- **Cluster hairlines** — `1px` `:border-subtle`, `align-self:
+  stretch`, `margin: 2px 4px`.
+- **Wrapping** — `flex-wrap: wrap` + `row-gap: 6px` so each
+  cluster wraps onto the next row as a cohesive unit on narrow
+  viewports rather than fragmenting chip-by-chip.
+
+Matches the existing controls-panel and mode-tabs aesthetic via the
+shared token vocabulary — colour / motion / typography all compose
+through `theme.*` rather than per-surface hex literals.
 
 ## Out-of-scope at this surface
 
@@ -430,16 +481,27 @@ The toolbar's contract guarantees:
 1. The strip renders above the three-pane layout whenever the shell
    is mounted.
 2. Every registered `:mode` appears as a chip in alphabetic order
-   (within its `:axis` group, if any).
-3. Selection writes to shell-state `:active-modes`, which the canvas,
+   (within its `:axis` group, if any) inside the **MODES** cluster.
+3. The strip composes **five clusters** (MODES / DATA / VIEW /
+   DEBUG / REC) separated by token-driven hairlines per
+   [`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar
+   5-cluster structure. Cluster identity is stable across renders;
+   chips never migrate between clusters.
+4. Selection writes to shell-state `:active-modes`, which the canvas,
    workspace, controls, docs, test-mode, multi-substrate, and share
    modules already consume.
-4. Selection persists chrome-wide via localStorage and is restorable
+5. Selection persists chrome-wide via localStorage and is restorable
    via URL query string.
-5. The Storybook addon parallels (theme / viewport / locale /
+6. The Storybook addon parallels (theme / viewport / locale /
    background) are `reg-mode` registrations with an `:axis` slot, not
    separate primitives — preserving the
    no-new-framework-registries principle.
+7. Active chips wear the **`:accent-amber-deep` border** signature
+   per rf2-v58dm — the visual distinction between active /
+   inactive consumes the chrome's amber palette uniformly.
 
 See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the orthogonal
 per-variant mode-tabs primitive that sits inside the main pane.
+See [`016-Design-Tokens.md`](016-Design-Tokens.md) for the chrome-
+identity token contracts the strip consumes (typography, colour,
+motion, the 5-cluster structural contract).

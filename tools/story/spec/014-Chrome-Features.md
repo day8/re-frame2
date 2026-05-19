@@ -17,6 +17,13 @@ Each is captured as its own section below. Where v1 deliberately
 leaves details to implementation, the section calls that out so a
 one-shot implementer doesn't infer an unwritten contract.
 
+The chrome-identity tokens these features compose against
+(typography / colour / motion / backdrop / glyphs / toolbar
+5-cluster) are normalised separately in
+[`016-Design-Tokens.md`](016-Design-Tokens.md). This doc captures
+**chrome features** (panels, overlays, badges, palette); 016
+captures the **design tokens** every feature consumes.
+
 ## Schema-validation panel (rf2-dvue)
 
 > **Status:** shipped. Implemented at
@@ -244,10 +251,17 @@ on-boarded to.
 
 ### Voice + colour
 
-Matches the rest of the Story shell chrome: `#252526` panel ground,
-`#cccccc` body text, `#b0b0b0` muted labels (post rf2-2uwv contrast
-fixes — all foreground colours meet WCAG AA against the panel
-ground). Tight bulleted copy — no paragraphs.
+Matches the rest of the Story shell chrome, consuming the canonical
+token vocabulary from
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour: the panel
+ground reads against `:bg-overlay`; body text wears
+`:text-primary`; muted labels wear `:text-secondary`; semantic
+states (success / warning / danger / info) wear the corresponding
+semantic tokens. The token sweep (rf2-i3i5j) replaced the
+pre-existing VS-Code Dark+ literals (`#252526` / `#cccccc` / …)
+with semantic tokens; all foreground colours meet WCAG AA against
+the panel ground per the rf2-2uwv contrast baseline. Tight bulleted
+copy — no paragraphs.
 
 ### Bundle isolation
 
@@ -403,18 +417,20 @@ Reagent layer.
 
 - **Schema-validation panel widget styling.** Colours, icons, row
   layouts inside the panel follow the shell's design tokens
-  ([`003-Render-Shell.md`](./003-Render-Shell.md)); the spec
+  ([`016-Design-Tokens.md`](./016-Design-Tokens.md)); the spec
   normalises the projection contract and the registration slot, not
   the pixel-level appearance.
 - **Help-overlay body copy.** Treated as ephemeral chrome copy that
   evolves with the playground; the `-v<n>` suffix on `seen-key` is
   the canonical lever for marking copy changes.
-- **Tag-palette hex values.** Token names (`:tag-badge-dev` etc.)
-  are normative; the specific hexes live in `sidebar_styles.cljs`
-  and follow the shell's palette (the tokens move when the palette
-  does).
+- **Tag-palette hex values.** Token names (`:tag-{dev,docs,test,...}-bg`
+  / `-fg` etc.) are normative — they live in
+  [`016-Design-Tokens.md`](./016-Design-Tokens.md) §Colour. The
+  specific hexes resolve through `theme.colors/tokens`; the tokens
+  move when the palette does.
 - **Command-palette overlay styling.** Panel width, blur, scrim
-  alpha, and result-row layout follow the chrome's existing dark
-  palette (`#1f1f23` ground, `#cccccc` body text); the spec
-  normalises the kind set, scoring, keyboard contract, and test
-  affordances.
+  alpha, and result-row layout follow the chrome's design tokens
+  ([`016-Design-Tokens.md`](./016-Design-Tokens.md)) — `:bg-overlay`
+  ground, `:text-primary` body text. The spec normalises the kind
+  set, scoring, keyboard contract, and test affordances rather than
+  pixel-level appearance.

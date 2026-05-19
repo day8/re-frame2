@@ -249,6 +249,15 @@ Per Phase 2 §5.2 #5. Iff `re-com` or the host design system emits
 Style-Dictionary-shaped tokens. Stage 6 ships the panel; activation
 is conditional on token emission upstream.
 
+(Distinct from **Story's own chrome-identity tokens** —
+typography / colour / motion / backdrop / glyphs / toolbar
+5-cluster — which shipped in Phase 1 + Phase 2 and are normative
+per [`016-Design-Tokens.md`](016-Design-Tokens.md). The §design-
+tokens-in-v1.1 panel here is a Storybook-style affordance that
+RENDERS a host app's design tokens for the developer to inspect;
+the chrome's own tokens are the substrate that affordance would
+render against.)
+
 ### §causa-embed-inert-without-causa — Causa embed registration ships in v1 but stays inert if Causa absent
 
 Per §causa-embed above. The `reg-story-panel` call is unconditional;
