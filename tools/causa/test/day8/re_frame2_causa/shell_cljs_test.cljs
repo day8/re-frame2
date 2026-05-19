@@ -386,6 +386,7 @@
         (is (re-find #"forwards" anim)
             "fill-mode forwards pins opacity 1 after the fade")))))
 
+
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
   `shell/detail-panel`. The Views tab routes to the full Views panel
@@ -454,6 +455,31 @@
             rows (find-all-by-testid-prefix tree "rf-causa-event-row-")]
         (is (= 2 (count rows))
             "one row per cascade")))))
+
+(deftest event-row-gutter-carries-cascade-chain-thread
+  (testing "rf2-5kfxe.10 — every L2 event-row gutter carries an inset
+            1px violet box-shadow on its left edge. Stacked rows
+            render as a continuous vertical thread that visually
+            expresses the spine's timeline rather than reading as a
+            flat list. Implemented via box-shadow (not border-left)
+            so the gutter glyph doesn't shift."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree    (shell/shell-view)
+            gutters (find-all-by-testid-prefix tree "rf-causa-row-gutter-")
+            gutter  (first gutters)
+            shadow  (get-in gutter [1 :style :box-shadow])]
+        (is (seq gutters)
+            "at least one event-row gutter exists in the rendered tree")
+        (is (string? shadow))
+        (is (re-find #"inset" shadow)
+            "the thread uses `inset` so it paints inside the gutter
+             without consuming layout width")
+        (is (re-find #"1px 0 0 0" shadow)
+            "1px wide, left edge — a vertical line")
+        (is (re-find #"#7C5CFF" shadow)
+            "violet accent — Causa's spine colour")))))
 
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`

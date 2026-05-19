@@ -1055,6 +1055,14 @@
      ;; on the row's inferred dimension. The hit-area is the 14px
      ;; gutter cell; stopPropagation prevents the body-click handler
      ;; from also firing.
+     ;;
+     ;; rf2-5kfxe.10 — cascade-chain timeline gutter. The gutter cell
+     ;; carries a 1px violet inset border on its LEFT EDGE so stacked
+     ;; rows render as a continuous vertical thread — visually
+     ;; expressing the spine's timeline rather than reading as a flat
+     ;; list. `:ungrouped` rows break the thread (the bucket isn't on
+     ;; the cascade timeline). The thread is `align-self: stretch` so
+     ;; it spans the full row height edge-to-edge.
      [:span (cond-> {:data-testid (str "rf-causa-row-gutter-" (str id))
                      :style       {:width        "14px"
                                    :flex-shrink  0
@@ -1064,7 +1072,20 @@
                                    :align-self   "stretch"
                                    :cursor       (if gutter-click "pointer" "default")
                                    :color        focus-marker-col
-                                   :font-size    "11px"}
+                                   :font-size    "11px"
+                                   ;; rf2-5kfxe.10 — the timeline
+                                   ;; thread. `box-shadow inset` paints
+                                   ;; a 1px violet line on the left
+                                   ;; edge of the gutter without
+                                   ;; consuming any layout width
+                                   ;; (border-left would shift the
+                                   ;; glyph). Ungrouped rows break the
+                                   ;; thread because they're off-
+                                   ;; timeline.
+                                   :box-shadow   (if ungrouped?
+                                                   "none"
+                                                   (str "inset 1px 0 0 0 "
+                                                        (:accent-violet tokens)))}
                      :title       (cond
                                     pivot?
                                     (str "Clear focus on " (fh/dimension-label focus-set))
