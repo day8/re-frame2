@@ -1,5 +1,6 @@
 (ns day8.re-frame2-causa.panels.routing-helpers-cljs-test
-  "Pure-data tests for Causa's Routing tab helpers (rf2-nrbs9).
+  "Pure-data tests for Causa's Routes tab helpers (rf2-nrbs9, reshaped
+  per rf2-lq0ef).
 
   Dual-target naming (`.cljc` + `_cljs_test`):
 
@@ -10,19 +11,25 @@
 
   ## What's under test
 
-    1. **project-route-tree** — registrar map → row vector, sorted
-       by path; correct depth derivation; empty registrar → `[]`.
-    2. **focused-cascade** — lookup by dispatch-id.
-    3. **nav-token-allocated-in-cascade** — scans `:other` bucket
-       for the `:rf.route.nav-token/allocated` emit; nil when
-       absent.
-    4. **from-to-from-cascade** — derives `{:from-id :to-id
+    1. **project-routes** — registrar map → row vector, sorted by
+       path; per-key surface (route-id / path / doc / parent / tags /
+       has-on-match? / has-can-leave? / rank / meta); empty
+       registrar → `[]`.
+    2. **filter-rows** — substring match across route-id + path + doc,
+       case-insensitive; blank query is identity.
+    3. **simulate-url** — runs every route's compiled pattern against
+       the URL, returns ranked candidates + winner; mirrors `match-url`
+       resolution order.
+    4. **focused-cascade** — lookup by dispatch-id.
+    5. **nav-token-allocated-in-cascade** — scans `:other` bucket for
+       the `:rf.route.nav-token/allocated` emit; nil when absent.
+    6. **from-to-from-cascade** — derives `{:from-id :to-id
        :navigated?}` per the lens contract.
-    5. **assign-markers** — TO wins over FROM wins over HERE; HERE
+    7. **assign-markers** — TO wins over FROM wins over HERE; HERE
        only surfaces when no navigation happened.
-    6. **project-data** — top-level composite; silent state when no
-       routes; correct decoration when focused event causes
-       navigation."
+    8. **project-data** — top-level composite; silent state when no
+       routes; correct decoration when focused event causes navigation;
+       carries query + sim-url through."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-causa.panels.routing-helpers :as h]))
@@ -30,26 +37,34 @@
 ;; ---- fixture builders ---------------------------------------------------
 
 (defn- route
-  "Build a registrar-shaped route metadata map."
-  ([path] (route path nil))
-  ([path doc] (cond-> {:path path}
-                doc (assoc :doc doc))))
+  "Build a registrar-shaped route metadata map. Adds the
+  `:rf.route/compiled` slot the simulator reads (production sets this
+  at `reg-route` time) so the simulator tests work without booting
+  the full registrar."
+  [path & {:keys [doc parent tags on-match can-leave]}]
+  (cond-> {:path path}
+    doc       (assoc :doc doc)
+    parent    (assoc :parent parent)
+    tags      (assoc :tags tags)
+    on-match  (assoc :on-match on-match)
+    can-leave (assoc :can-leave can-leave)))
 
 (def cart-routes
   "Realistic registrar shape — a small e-commerce route set."
   {:route/root      (route "/")
-   :route/cart      (route "/cart"      "shopping cart")
-   :route/checkout  (route "/checkout"  "checkout overview")
+   :route/cart      (route "/cart"      :doc "shopping cart")
+   :route/checkout  (route "/checkout"  :doc "checkout overview")
    :route/payment   (route "/checkout/payment")
-   :route/confirm   (route "/checkout/confirm")
-   :route/admin     (route "/admin")
-   :route/audit     (route "/admin/audit")
+   :route/confirm   (route "/checkout/confirm" :parent :route/checkout)
+   :route/admin     (route "/admin"
+                           :tags     #{:admin}
+                           :can-leave :guard/admin-leave?)
+   :route/audit     (route "/admin/audit"
+                           :parent   :route/admin
+                           :on-match [:audit/load])
    :route/not-found (route "/404")})
 
 (defn- nav-allocated-trace
-  "Build a `:rf.route.nav-token/allocated` trace event map mirroring
-  the shape `(trace/emit! :event :rf.route.nav-token/allocated ...)`
-  produces in `re-frame.routing`."
   [route-id nav-token & [dispatch-id]]
   {:id        1
    :op-type   :event
@@ -58,8 +73,6 @@
                 dispatch-id (assoc :dispatch-id dispatch-id))})
 
 (defn- cascade
-  "Build a minimal cascade record per `re-frame.trace.projection`
-  shape — only the slots the helpers actually read."
   [dispatch-id event-vec & {:keys [other effects fx handler]
                             :or {other [] effects [] fx nil handler nil}}]
   {:dispatch-id dispatch-id
@@ -71,37 +84,122 @@
    :renders     []
    :other       other})
 
-;; ---- project-route-tree -------------------------------------------------
+;; ---- project-routes -----------------------------------------------------
 
-(deftest project-route-tree-test
+(deftest project-routes-test
   (testing "empty registrar yields []"
-    (is (= [] (h/project-route-tree {}))))
+    (is (= [] (h/project-routes {}))))
 
-  (testing "single route yields one row at depth 0 for root"
-    (let [rows (h/project-route-tree {:route/root (route "/")})]
+  (testing "single route yields one row"
+    (let [rows (h/project-routes {:route/root (route "/")})]
       (is (= 1 (count rows)))
       (is (= :route/root (-> rows first :route-id)))
       (is (= "/" (-> rows first :path)))
-      (is (= 0 (-> rows first :depth)))))
+      (is (false? (-> rows first :has-on-match?)))
+      (is (false? (-> rows first :has-can-leave?)))))
 
-  (testing "multi-segment paths derive depth from segment count"
-    (let [rows (h/project-route-tree cart-routes)
-          by-id (into {} (map (juxt :route-id identity)) rows)]
-      (is (= 0 (get-in by-id [:route/root :depth])))
-      (is (= 1 (get-in by-id [:route/cart :depth])))
-      (is (= 1 (get-in by-id [:route/checkout :depth])))
-      (is (= 2 (get-in by-id [:route/payment :depth])))
-      (is (= 2 (get-in by-id [:route/audit :depth])))))
+  (testing "no :depth field — flat per rf2-lq0ef"
+    (let [rows (h/project-routes cart-routes)]
+      (is (every? #(not (contains? % :depth)) rows)
+          "rows must not carry a :depth field (decorative tree dropped)")))
 
   (testing "rows are sorted by path lexicographically"
-    (let [paths (mapv :path (h/project-route-tree cart-routes))]
+    (let [paths (mapv :path (h/project-routes cart-routes))]
       (is (= paths (sort paths)))))
 
-  (testing "doc is carried through when present, nil otherwise"
+  (testing "metadata surface — doc / parent / tags / has-on-match? / has-can-leave?"
     (let [by-id (into {} (map (juxt :route-id identity))
-                      (h/project-route-tree cart-routes))]
+                      (h/project-routes cart-routes))]
       (is (= "shopping cart" (get-in by-id [:route/cart :doc])))
-      (is (nil? (get-in by-id [:route/payment :doc]))))))
+      (is (= :route/checkout (get-in by-id [:route/confirm :parent])))
+      (is (= #{:admin} (get-in by-id [:route/admin :tags])))
+      (is (true? (get-in by-id [:route/admin :has-can-leave?])))
+      (is (true? (get-in by-id [:route/audit :has-on-match?])))
+      (is (false? (get-in by-id [:route/cart :has-on-match?])))))
+
+  (testing ":meta is the full registrar entry verbatim — click-to-expand surface"
+    (let [by-id (into {} (map (juxt :route-id identity))
+                      (h/project-routes cart-routes))]
+      (is (= (route "/cart" :doc "shopping cart")
+             (get-in by-id [:route/cart :meta]))))))
+
+;; ---- filter-rows --------------------------------------------------------
+
+(deftest filter-rows-test
+  (let [rows (h/project-routes cart-routes)]
+    (testing "blank / nil query is identity"
+      (is (= rows (h/filter-rows rows nil)))
+      (is (= rows (h/filter-rows rows "")))
+      (is (= rows (h/filter-rows rows "   "))))
+
+    (testing "substring on path"
+      (let [filtered (h/filter-rows rows "checkout")
+            ids      (set (map :route-id filtered))]
+        (is (contains? ids :route/checkout))
+        (is (contains? ids :route/payment))
+        (is (contains? ids :route/confirm))
+        (is (not (contains? ids :route/cart)))))
+
+    (testing "substring on route-id"
+      (let [filtered (h/filter-rows rows "audit")
+            ids      (set (map :route-id filtered))]
+        (is (= #{:route/audit} ids))))
+
+    (testing "substring on doc"
+      (let [filtered (h/filter-rows rows "shopping")
+            ids      (set (map :route-id filtered))]
+        (is (contains? ids :route/cart))))
+
+    (testing "case-insensitive"
+      (is (= (h/filter-rows rows "CHECKOUT")
+             (h/filter-rows rows "checkout"))))))
+
+;; ---- simulate-url -------------------------------------------------------
+
+(deftest simulate-url-test
+  (testing "nil / blank URL yields a benign empty result"
+    (let [r (h/simulate-url cart-routes nil)]
+      (is (nil? (:url r)))
+      (is (= [] (:candidates r)))
+      (is (nil? (:winner r))))
+    (is (= [] (:candidates (h/simulate-url cart-routes "")))))
+
+  (testing "exact path match — winner is the matching route"
+    (let [r (h/simulate-url cart-routes "/cart")]
+      (is (= "/cart" (:path r)))
+      (is (= :route/cart (:winner r)))
+      (is (= 1 (count (:candidates r))))
+      (is (true? (-> r :candidates first :winner?)))
+      (is (= [:route/cart] (mapv :route-id (:candidates r))))))
+
+  (testing "no match — empty candidates, nil winner"
+    (let [r (h/simulate-url cart-routes "/nope")]
+      (is (= [] (:candidates r)))
+      (is (nil? (:winner r)))))
+
+  (testing "query / fragment are stripped before matching"
+    (let [r (h/simulate-url cart-routes "/cart?source=email#step-1")]
+      (is (= "/cart" (:path r)))
+      (is (= :route/cart (:winner r)))))
+
+  (testing "trailing slash normalises (multi-segment only)"
+    (let [r (h/simulate-url cart-routes "/checkout/")]
+      (is (= :route/checkout (:winner r)))))
+
+  (testing "every matching route is a candidate (ranked descending)"
+    ;; `/checkout/payment` only matches `:route/payment` exactly;
+    ;; but if we register a splat-style fallback, it should appear
+    ;; as a lower-ranked candidate. Build a registrar with a splat
+    ;; to exercise the cascade.
+    (let [routes {:route/exact (route "/checkout/payment")
+                  :route/splat (route "/*rest")}
+          r      (h/simulate-url routes "/checkout/payment")
+          ids    (mapv :route-id (:candidates r))]
+      (is (= :route/exact (:winner r))
+          "static-heavy pattern outranks splat")
+      (is (= 2 (count ids)))
+      (is (= :route/exact (first ids)))
+      (is (= :route/splat (second ids))))))
 
 ;; ---- focused-cascade ----------------------------------------------------
 
@@ -179,7 +277,7 @@
 ;; ---- assign-markers -----------------------------------------------------
 
 (deftest assign-markers-test
-  (let [rows (h/project-route-tree cart-routes)]
+  (let [rows (h/project-routes cart-routes)]
     (testing "no navigation: HERE on the current route only"
       (let [decorated (h/assign-markers rows
                                         {:current-id :route/cart
@@ -200,7 +298,6 @@
             by-id (into {} (map (juxt :route-id :marker)) decorated)]
         (is (= :from (get by-id :route/cart)))
         (is (= :to   (get by-id :route/confirm)))
-        ;; Current-id == TO; HERE is suppressed in favour of TO.
         (is (not= :here (get by-id :route/confirm)))))
 
     (testing "navigation with same-route collapse: only TO surfaces"
@@ -232,25 +329,18 @@
       (is (= :route/cart (get-in data [:current :id]))))))
 
 (deftest project-data-navigation-test
-  (testing "focused cascade caused navigation — FROM + TO render"
+  (testing "focused cascade caused navigation — TO renders"
     (let [c (cascade 42 [:rf.route/navigate :route/confirm]
               :other [(nav-allocated-trace :route/confirm "nav-9" 42)])
           data (h/project-data cart-routes {:id :route/confirm} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (true? (:navigated? data)))
       (is (= :route/confirm (:to-id data)))
-      ;; Note: current-slice's :id is the POST-nav value (the slice
-      ;; reflects TO), so the FROM is derived from the nav-token emit
-      ;; ∧ the slice difference. Since current.id == to-id, FROM
-      ;; collapses to nil per from-to-from-cascade contract.
-      (is (nil? (:from-id data)))
+      (is (nil? (:from-id data))
+          "current.id == to-id ⇒ FROM collapses per from-to-from-cascade")
       (is (= :to (get by-id :route/confirm)))))
 
   (testing "nav cascade with distinct current slice — FROM ≠ TO"
-    ;; This simulates the case where the panel is reading mid-cascade:
-    ;; the nav-token emit identifies TO; the current slice (perhaps
-    ;; from a stale snapshot, or a different frame) carries the prior
-    ;; route-id; helper produces both markers.
     (let [c (cascade 1 [:rf.route/navigate :route/confirm]
               :other [(nav-allocated-trace :route/confirm "nav-3")])
           data (h/project-data cart-routes {:id :route/cart} c)
@@ -260,3 +350,20 @@
       (is (= :route/confirm (:to-id data)))
       (is (= :from (get by-id :route/cart)))
       (is (= :to   (get by-id :route/confirm))))))
+
+(deftest project-data-query-and-sim-test
+  (testing "query filter is applied to :routes"
+    (let [data (h/project-data cart-routes {:id :route/cart} nil "checkout" nil)
+          ids  (set (map :route-id (:routes data)))]
+      (is (true? (:filtered? data)))
+      (is (contains? ids :route/checkout))
+      (is (not (contains? ids :route/cart)))))
+
+  (testing "sim-url drives :sim-result"
+    (let [data (h/project-data cart-routes {:id :route/cart} nil nil "/cart")]
+      (is (= "/cart" (-> data :sim-result :path)))
+      (is (= :route/cart (-> data :sim-result :winner)))))
+
+  (testing "blank sim-url leaves :sim-result nil"
+    (let [data (h/project-data cart-routes {:id :route/cart} nil nil "")]
+      (is (nil? (:sim-result data))))))

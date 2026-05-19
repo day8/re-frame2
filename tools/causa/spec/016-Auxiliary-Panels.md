@@ -266,14 +266,46 @@ Per-cascade tier dots + duration ms stay inline in:
 
 That's the entire Causa-side perf surface post-rewrite.
 
-## Routing tab — 7th L3 tab (rf2-nrbs9)
+## Routes tab — 7th L3 tab (rf2-nrbs9, reshaped per rf2-lq0ef)
 
 Per Mike's design call (2026-05-18) Routing was promoted from "lives
 in App-db + Trace" to its own L3 lens tab. The App-db panel was
-getting busy and routing is a cohesive sub-domain (route tree +
+getting busy and routing is a cohesive sub-domain (route catalogue +
 current match + nav transitions); cohesive sub-domains earn their own
 lens tab rather than overloading App-db. Parallel to the Machines tab
 in posture — always-on registered topology + per-focused-event lens.
+
+### Shape: flat catalogue (rf2-lq0ef)
+
+The lens is a **flat catalogue sorted by `:path`** — never a tree.
+The previous URL-path-segmentation indentation (`project-route-tree`)
+was decorative: the audit
+([`ai/findings/2026-05-19-routing-inheritance-audit.md`](../../../ai/findings/2026-05-19-routing-inheritance-audit.md))
+found that routes are flat in the spec + impl, `:parent` plays no
+role in matching, and the match-resolver is structural (6-rule rank
+on URL pattern). Indenting routes by URL-segment count conflated
+URL-prefix similarity with semantic hierarchy — those are independent
+(a child route can live anywhere in the URL space).
+
+The lens shape now mirrors the actual contract:
+
+- **Flat list sorted by `:path`** (lexicographic). No indentation, no
+  depth.
+- **Per-row chips**: route-id + path + doc, with letter badges
+  (`M` / `L` / `T` / `P`) for routes carrying `:on-match` /
+  `:can-leave` / `:tags` / `:parent`. Click the row chevron to
+  expand the full registrar meta inline.
+- **Substring search** across route-id + path + doc.
+- **Simulate-URL** — paste a URL into Try URL, the panel ranks every
+  matching route by its 6-rule `:rf.route/rank` tuple and highlights
+  the winner. This is the load-bearing interactive surface — it
+  exposes the structural match contract per
+  [`spec/012-Routing.md`](../../../spec/012-Routing.md) §Route
+  ranking algorithm.
+- **`:parent` annotation** — when a row carries `:parent`, render a
+  compact `↑ :route/parent` inline pointer; expanding the row
+  surfaces the full registrar meta (including the `:rf.route/chain`
+  surface the impl exposes).
 
 ### Inputs
 
@@ -287,20 +319,18 @@ in posture — always-on registered topology + per-focused-event lens.
 - `:rf.causa/cascades` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.causa/focus` — the spine's focused dispatch-id + epoch.
+- `:rf.causa.routing/query` — substring filter input (driven by
+  `:rf.causa.routing/set-query`).
+- `:rf.causa.routing/sim-url` — Simulate-URL input (driven by
+  `:rf.causa.routing/set-sim-url`).
+- `:rf.causa.routing/expanded` — set of expanded route-ids (driven by
+  `:rf.causa.routing/toggle-row`).
 - `:rf.causa/routing-tab-data` — view-facing composite folding all of
-  the above into `{:silent? :routes :current :from-id :to-id
-  :navigated?}` per `routing_helpers/project-data`.
+  the above into `{:silent? :routes :total-routes :filtered?
+  :current :from-id :to-id :navigated? :query :sim-url :sim-result}`
+  per `routing_helpers/project-data`.
 
-### Lens model
-
-Always-shown structure: the **full route tree** — every registered
-route, sorted by path so siblings under a common prefix render
-contiguously and the rendering is deterministic. The tree is the
-orientation surface — a Causa user can flip to the Routing tab and
-immediately read the app's routing topology without digging through
-code.
-
-Per-focused-event highlighting:
+### Per-focused-event highlighting
 
 | Marker | Trigger | Visual |
 |---|---|---|
@@ -324,9 +354,31 @@ inside both `:rf.route/navigate` and `:rf/url-changed`). Detection:
 - Same-route re-navigations (different params/query, same route-id)
   collapse FROM to nil — surfacing a FROM equal to TO is noise.
 
+### Simulate-URL contract
+
+The simulator walks the registered-routes map, calls
+`re-frame.routing.match/match-against` on each route's compiled
+pattern (or compiles it on the fly for test-only fixtures), and
+ranks the matching candidates by `:rf.route/rank` descending — the
+same order `match-url` walks the registry table. The first candidate
+is the winner.
+
+The result block surfaces:
+
+- The normalised path (query and fragment stripped).
+- Every matching candidate, with its `:rf.route/rank` tuple and the
+  parsed `:params` map.
+- The winner highlighted (green border + `WINNER` glyph).
+- An empty result block when no route matches (i.e. `match-url` would
+  return nil for this URL).
+
+Query coercion and `:params` / `:query` schema validation are out of
+scope for the simulator — the lens is about exposing the rank
+cascade, not full match semantics.
+
 ### Active route slice — params + query + fragment
 
-Below the tree the panel renders a labelled grid for the active
+Below the catalogue the panel renders a labelled grid for the active
 slice:
 
     Params:    {:order-id "ord-1234"}
@@ -341,16 +393,17 @@ skeleton (predictable scanning).
 When the host app registers no routes the panel renders only the
 header + a terse `No routes registered.` one-liner. No `(none)`
 placeholder, no marketing copy — silent-by-default per rf2-g3ghh.
+Search + Simulate-URL are hidden when the catalogue is empty.
 
 ### Pre-rewrite app-db / trace overlap
 
 The transition FSM state (`:idle` / `:loading` / `:error`) is still
 part of the app-db slice (Spec 012) and still visible in the App-db
-tab's diff. The Routing tab is the dedicated lens; the App-db tab
+tab's diff. The Routes tab is the dedicated lens; the App-db tab
 shows the raw slice diff like any other key. Navigation trace events
 (`:rf.route.nav-token/*` + `:rf.route/url-changed`) continue to
 appear in the Trace tab when the `event` chip is ON (default) —
-the Routing tab does not duplicate the firehose, it projects the
+the Routes tab does not duplicate the firehose, it projects the
 single nav-event that pertains to the focused cascade.
 
 ### Vision (future)
@@ -361,7 +414,8 @@ single nav-event that pertains to the focused cascade.
   (already noted under §Event tab — `:on-match` event chain (Routes)
   later in this doc).
 - **Route-chain visualiser** — the `:parent`-chain walk for nested
-  layouts.
+  layouts (i.e. expand the inline `:parent` annotation into the full
+  `:rf.route/chain` graph).
 
 ## MCP Server panel — dropped
 
