@@ -42,18 +42,47 @@
 
 ;; ---- (1) cart-cascade worked example -----------------------------------
 
-(deftest cart-cascade-four-sections
-  (testing "design §3.1.1 worked example: cart cascade → 4 sections"
+(deftest cart-cascade-five-sections-at-tuned-defaults
+  (testing "cart cascade at tuned default depth=2 (rf2-ogkh0) → 5
+            sections. The [:cart :items 1 :qty] change point is 3
+            levels deep from [:cart]; depth=2 keeps it at [:cart
+            :items] rather than promoting up to [:cart], so the
+            sibling [:cart :gross] singleton stands as its own
+            section (promoted from [:cart :gross] up to [:cart] by
+            singleton-promote).
+
+            Sections: [:cart] (gross singleton promoted to parent),
+            [:cart :items] (items cluster), [:user :prefs] (theme
+            singleton), [:status], [:flash]. Pre-tune (depth=3) this
+            shape collapsed both cart change-points into a single
+            [:cart] section (4 sections total); depth=2 preserves
+            slice-identity per the findings doc §4.2 'per-feature
+            breadcrumbs'."
     (let [tree     (at/diff-tree cart-before cart-after)
           sections (sg/group-into-sections tree)]
-      ;; Sections: [:cart] (items + gross), [:user :prefs] (theme),
-      ;; [:status], [:flash]. Per design — the depth-3 coalescence
-      ;; swallows the inner [:cart :items] + [:cart :gross] changes
-      ;; into one [:cart] section.
-      (is (= 4 (count sections))
-          (str "expected 4 sections, got "
+      (is (= 5 (count sections))
+          (str "expected 5 sections, got "
                (count sections) ": "
                (mapv :path sections)))
+      (let [paths (set (map :path sections))]
+        (is (contains? paths [:cart])
+            "[:cart :gross] singleton promotes to [:cart]")
+        (is (contains? paths [:cart :items])
+            "[:cart :items] cluster (items 1 :qty + items 2)")
+        (is (contains? paths [:user :prefs])
+            "[:user :prefs] singleton promoted from [:user :prefs :theme]")
+        (is (contains? paths [:status]))
+        (is (contains? paths [:flash]))))))
+
+(deftest cart-cascade-four-sections-at-depth-3
+  (testing "with the legacy depth=3 budget the cart cascade collapses
+            [:cart :gross] + [:cart :items …] into a single [:cart]
+            section, yielding 4 sections. Documents the pre-tune
+            behaviour explicitly so the move to depth=2 is visible in
+            the test corpus."
+    (let [tree     (at/diff-tree cart-before cart-after)
+          sections (sg/group-into-sections tree {:max-coalesce-depth 3})]
+      (is (= 4 (count sections)))
       (let [paths (set (map :path sections))]
         (is (contains? paths [:cart]))
         (is (contains? paths [:user :prefs]))
@@ -148,14 +177,15 @@
       ;; depth 0 means even sibling pairs don't merge.
       (is (= 2 (count sections))))))
 
-(deftest heuristic-depth-3-coalesces-cart
-  (testing "max-coalesce-depth=3 (default): cart cascade collapses to
-            4 sections (verified in cart-cascade-four-sections)"
+(deftest heuristic-depth-2-coalesces-cart
+  (testing "max-coalesce-depth=2 (tuned default, rf2-ogkh0): cart
+            cascade lands at 5 sections (verified in
+            cart-cascade-five-sections-at-tuned-defaults)"
     ;; Already covered above; repeated for explicit sweep parity.
     (let [tree     (at/diff-tree cart-before cart-after)
           sections (sg/group-into-sections tree
-                                           {:max-coalesce-depth 3})]
-      (is (= 4 (count sections))))))
+                                           {:max-coalesce-depth 2})]
+      (is (= 5 (count sections))))))
 
 (deftest heuristic-depth-5-still-respects-root
   (testing "even with a wide depth-5 budget, root-level
@@ -300,10 +330,13 @@
 ;; default budget; the cluster survives as one section.
 
 (defn- catalog-pad
-  "Build a 200-key catalog map of stable `:sku-NNN` entries."
+  "Build a 200-key catalog map of stable `:sku-NNN` entries.
+  Uses `(str i)` rather than zero-padded ids — `format` isn't on the
+  CLJS reader's standard surface, and the leading zeros aren't load-
+  bearing for the test (only the cardinality is)."
   []
   (into {} (for [i (range 200)]
-             [(keyword (str "sku-" (format "%03d" i)))
+             [(keyword (str "sku-" i))
               {:price (* i 7) :stock (mod i 13)}])))
 
 (defn- catalog-with-new
@@ -311,7 +344,7 @@
   []
   (merge (catalog-pad)
          (into {} (for [i (range 50)]
-                    [(keyword (str "sku-new-" (format "%03d" i)))
+                    [(keyword (str "sku-new-" i))
                      {:price (* i 11) :stock (mod i 9)}]))))
 
 (deftest large-multi-tier-counter-no-longer-walks-same-cluster

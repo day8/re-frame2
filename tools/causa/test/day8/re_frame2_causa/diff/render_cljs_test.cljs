@@ -68,13 +68,18 @@
    :status :submitting
    :flash  "Order saved"})
 
-(deftest render-cart-cascade-yields-four-section-blocks
-  (testing "cart cascade → 4 section blocks each with a testid"
+(deftest render-cart-cascade-yields-five-section-blocks
+  (testing "cart cascade at tuned default depth=2 (rf2-ogkh0) → 5
+            section blocks each with a testid. depth=2 keeps the
+            sub-cart change-points separated; the [:cart :gross]
+            singleton promotes to [:cart], the [:cart :items] cluster
+            keeps its full path."
     (let [tree     (at/diff-tree cart-before cart-after)
           sections (sg/group-into-sections tree)
           hiccup   (render/render-sections sections "app-db-diff")]
-      (is (= 4 (count sections)))
+      (is (= 5 (count sections)))
       (is (has-testid? hiccup "rf-causa-diff-section-[:cart]"))
+      (is (has-testid? hiccup "rf-causa-diff-section-[:cart :items]"))
       (is (has-testid? hiccup "rf-causa-diff-section-[:user :prefs]"))
       (is (has-testid? hiccup "rf-causa-diff-section-[:status]"))
       (is (has-testid? hiccup "rf-causa-diff-section-[:flash]")))))

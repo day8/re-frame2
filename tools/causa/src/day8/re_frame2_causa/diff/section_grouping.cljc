@@ -20,11 +20,11 @@
   2. Each change point starts as a candidate section, headed by its
      full path with the change-point subtree as body.
   3. Coalesce siblings: if two candidate sections share an ancestor
-     within `max-coalesce-depth` (default 3) levels, merge into one
+     within `max-coalesce-depth` (default 2) levels, merge into one
      section headed by the shared ancestor; the new body is the
      annotated subtree rooted at the ancestor.
   4. Split overfilled: if a coalesced section would render more than
-     `max-unchanged-context` (default 50) paths of unchanged context,
+     `max-unchanged-context` (default 40) paths of unchanged context,
      split back into the constituent candidate sections.
   5. Whole-DB replacement: if every top-level key changed (count of
      changed top-level keys equals total top-level key count), emit
@@ -54,10 +54,20 @@
   (:require [day8.re-frame2-causa.diff.annotated-tree :as at]))
 
 (def default-opts
-  "Tunable knobs. Defaults per design §3.1.1; tune against a real corpus
-  (rf2-ogkh0)."
-  {:max-coalesce-depth    3
-   :max-unchanged-context 50})
+  "Tunable knobs. Defaults tuned by rf2-ogkh0's automated 53-pair corpus
+  sweep (`ai/findings/2026-05-19-causa-section-grouping-heuristics.md`)
+  — 1325 invocations across `depth ∈ {1..5}` × `context ∈ {20..100}`
+  on real `(before, after)` pairs from `examples/` + `testbeds/`:
+
+    - `:max-coalesce-depth 2` — minimum that maximises corpus-ideal
+      coalescence (52/53 entries land in [1,6] sections); higher
+      depths silently up-promote per-feature breadcrumbs to
+      generic container-level heads without changing section counts.
+    - `:max-unchanged-context 40` — minimum that handles the
+      vec-grow-paginate shape (`corner/vec-grow-deep`, 21-item feed)
+      cleanly without over-grouping any other corpus entry."
+  {:max-coalesce-depth    2
+   :max-unchanged-context 40})
 
 ;; ---- 1. walk to collect change points ----------------------------------
 
@@ -304,7 +314,7 @@
 
   Args:
     `root`  — root annotated node (from `annotated-tree/diff-tree`).
-    `opts`  — optional `{:max-coalesce-depth 3 :max-unchanged-context 50}`.
+    `opts`  — optional `{:max-coalesce-depth 2 :max-unchanged-context 40}`.
 
   Returns a sorted vector of `{:path [...] :subtree <annotated-node>}`.
 
