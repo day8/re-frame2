@@ -279,9 +279,8 @@ in posture — always-on registered topology + per-focused-event lens.
 
 The lens is a **flat catalogue sorted by `:path`** — never a tree.
 The previous URL-path-segmentation indentation (`project-route-tree`)
-was decorative: the audit
-([`ai/findings/2026-05-19-routing-inheritance-audit.md`](../../../ai/findings/2026-05-19-routing-inheritance-audit.md))
-found that routes are flat in the spec + impl, `:parent` plays no
+was decorative: the routing-inheritance audit (2026-05-19) found that
+routes are flat in the spec + impl, `:parent` plays no
 role in matching, and the match-resolver is structural (6-rule rank
 on URL pattern). Indenting routes by URL-segment count conflated
 URL-prefix similarity with semantic hierarchy — those are independent
