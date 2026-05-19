@@ -54,6 +54,7 @@
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
+             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- knob constants -----------------------------------------------------
@@ -659,16 +660,18 @@
                         :border-radius  "4px"
                         :overflow       "hidden"}
          flash-style   (when flash?
-                         ;; The `--rf-causa-motion-scale` custom prop
-                         ;; (rf2-5kfxe.5 lands in a later commit and
-                         ;; sets it to 0 under reduced-motion). Default
-                         ;; via the `var(..., 1)` fallback keeps the
-                         ;; wash running even before that seam is
-                         ;; wired.
+                         ;; Duration is interpolated through the
+                         ;; `--rf-causa-motion-scale` seam (rf2-5kfxe.5
+                         ;; — set on `:root` by theme/global-styles and
+                         ;; overridden to ~0 under
+                         ;; `prefers-reduced-motion: reduce`). Reach
+                         ;; the seam via `theme.tokens/duration-css` so
+                         ;; the duration constant lives in tokens.cljc
+                         ;; rather than this renderer.
                          {:animation
                           (str "rf-causa-diff-flash "
-                               "calc(400ms * var(--rf-causa-motion-scale, 1)) "
-                               "ease-out forwards")})]
+                               (t/duration-css (:flash-duration-ms t/motion))
+                               " ease-out forwards")})]
      [:section {:data-testid (str "rf-causa-diff-section-"
                                   (pr-str path))
                 :style (merge base-style flash-style)}

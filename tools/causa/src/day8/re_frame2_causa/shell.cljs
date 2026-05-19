@@ -119,7 +119,9 @@
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
             [day8.re-frame2-causa.theme.global-styles :as global-styles]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
+            [day8.re-frame2-causa.theme.tokens
+             :as t
+             :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
 
@@ -1358,11 +1360,16 @@
                               (name selected))
             :style {:height     "100%"
                     ;; Keyframes named in `global-styles/motion-css`.
+                    ;; Duration interpolated through the
+                    ;; `--rf-causa-motion-scale` seam (rf2-5kfxe.5)
+                    ;; via `theme.tokens/duration-css` so the
+                    ;; 180ms constant + the seam-var name both live
+                    ;; in tokens.cljc — one source of truth.
                     ;; `forwards` pins the end state (opacity 1) so
                     ;; the panel stays visible after the fade settles.
-                    :animation  (str "rf-causa-fade-in calc(180ms * "
-                                     "var(--rf-causa-motion-scale, 1)) "
-                                     "ease-out forwards")}}
+                    :animation  (str "rf-causa-fade-in "
+                                     (t/duration-css (:fade-duration-ms t/motion))
+                                     " ease-out forwards")}}
       (case selected
         :event    [event-detail/Panel]
         :app-db   [app-db-diff/Panel]

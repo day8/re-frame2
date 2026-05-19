@@ -73,6 +73,28 @@
           "the initial state lifts 2px below final → the new tab rises
            into place rather than appearing statically"))))
 
+;; ---- rf2-5kfxe.5 — prefers-reduced-motion seam --------------------------
+
+(deftest motion-css-declares-root-motion-scale-default
+  (testing "rf2-5kfxe.5 — the `:root` rule sets
+            --rf-causa-motion-scale: 1 so the calc()'d duration-css
+            consumers run at full duration by default."
+    (let [css @#'gs/motion-css]
+      (is (re-find #":root\s*\{[^}]*--rf-causa-motion-scale:\s*1" css)))))
+
+(deftest motion-css-declares-prefers-reduced-motion-override
+  (testing "rf2-5kfxe.5 — under `prefers-reduced-motion: reduce` the
+            `:root` motion-scale is overridden so every downstream
+            animation collapses to its end state in a single frame.
+            A vanishingly small value (rather than 0) is used so
+            older Chrome treats the keyframes as 'animate to
+            completion in zero time' rather than 'never animate'."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"@media\s*\(prefers-reduced-motion:\s*reduce\)" css))
+      (is (re-find #"--rf-causa-motion-scale:\s*0\.001" css)
+          "the override value is a hair above zero — runs to completion
+           in a single frame so the end state is reached immediately"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document

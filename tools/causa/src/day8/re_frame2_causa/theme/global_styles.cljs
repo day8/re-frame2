@@ -118,13 +118,45 @@
   "rf-causa-motion-keyframes")
 
 (def ^:private motion-css
-  "Keyframes + the reduced-motion seam (rf2-5kfxe.5 expands this in a
-  later commit). The seam is a `:root` CSS variable
-  `--rf-causa-motion-scale` — consumers interpolate it into their
-  inline `animation-duration: calc(…ms * var(--rf-causa-motion-scale, 1))`
-  so a single media-query write at the top of the cascade disables every
-  downstream animation."
+  "Keyframes + the reduced-motion seam (rf2-5kfxe.5).
+
+  ## The single motion seam (rf2-5kfxe.5)
+
+  `--rf-causa-motion-scale` is a `:root` CSS custom property —
+  consumers interpolate it into their inline `animation-duration:
+  calc(…ms * var(--rf-causa-motion-scale, 1))`. Default `1` runs
+  motion at full duration; the `prefers-reduced-motion: reduce`
+  media-query rule below sets it to `0.001` (effectively zero — a
+  hair above so the keyframes still resolve to their `to` state
+  rather than collapsing to undefined). One media-query write at the
+  top of the cascade disables every downstream Causa animation
+  without any per-component branching.
+
+  ## Why 0.001 and not 0
+
+  Some browsers (older Chrome) treat `animation-duration: 0s` as
+  'never animate' AND 'never apply fill-mode forwards' — the element
+  is stuck at the `from` state. A vanishingly small duration runs
+  the keyframes to completion within a single frame, so the end
+  state (transparent flash; opacity-1 tab) is reached immediately
+  and the user perceives an instant resolve. That is the spirit of
+  `prefers-reduced-motion: reduce` — eliminate motion but keep the
+  end-state legible."
   (str
+    ;; Root-level CSS custom-property defaults. The motion-scale is
+    ;; the single seam every downstream animation reads through; the
+    ;; accent var is published for host stylesheets too (per
+    ;; config/default-accent-css-var).
+    ":root {\n"
+    "  --rf-causa-motion-scale: 1;\n"
+    "}\n"
+    ;; rf2-5kfxe.5 — reduced-motion override. Single rule, every
+    ;; downstream calc(…ms * var(--rf-causa-motion-scale, 1)) collapses
+    ;; to a vanishingly small duration. See ns docstring for the
+    ;; 0.001-vs-0 rationale.
+    "@media (prefers-reduced-motion: reduce) {\n"
+    "  :root { --rf-causa-motion-scale: 0.001; }\n"
+    "}\n"
     ;; rf2-5kfxe.2 — diff-flash. Yellow tint at ~20% alpha (hex32 ≈ 20%)
     ;; holds for the first 12% of the run so the eye locks on, then
     ;; eases to transparent. The downstream `:animation-fill-mode:

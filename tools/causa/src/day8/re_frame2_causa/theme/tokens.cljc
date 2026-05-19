@@ -149,3 +149,44 @@
   in earlier Causa redesigns and the now-unused `:sidebar-width` /
   `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee)."
   {:top-strip-height "56px"})
+
+;; ---- motion (rf2-5kfxe.5) ----------------------------------------------
+
+(def motion
+  "Motion-axis tokens (rf2-5kfxe.5). Every Causa animation interpolates
+  its duration through `--rf-causa-motion-scale`, a CSS custom
+  property set on `:root` by `theme/global-styles`. A single media-
+  query rule overrides the property to ~0 under `prefers-reduced-
+  motion: reduce`, collapsing every downstream animation to its end
+  state in a single frame.
+
+  - `:scale-var-name`   — CSS variable name; consumers write
+                          `\"var(\" :scale-var-name \", 1)\"` in their
+                          inline `animation-duration` `calc(...)`
+                          expressions so the seam stays one
+                          identifier.
+  - `:flash-duration-ms` — the canonical 400ms diff-flash duration
+                          (rf2-5kfxe.2). Catalogued here so the
+                          renderer can read it without forking the
+                          number.
+  - `:fade-duration-ms`  — the canonical 180ms tab cross-fade
+                          duration (rf2-5kfxe.3).
+
+  The CSS keyframes themselves live in `theme/global-styles/motion-
+  css`; this map is the symbolic surface for consumers that need to
+  reason about durations / the seam variable in cljs-land."
+  {:scale-var-name    "--rf-causa-motion-scale"
+   :flash-duration-ms 400
+   :fade-duration-ms  180})
+
+(defn duration-css
+  "Build the canonical `calc(<ms>ms * var(--rf-causa-motion-scale, 1))`
+  CSS string a consumer passes as `animation-duration`. The
+  `prefers-reduced-motion: reduce` seam in `theme/global-styles`
+  collapses the var to a vanishingly small value, so motion-using
+  surfaces that build their duration through this helper honour
+  reduced-motion without any per-component branching.
+
+  Pure data → string; JVM-portable."
+  [ms]
+  (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
