@@ -86,16 +86,28 @@
             (str " " http-status)))]))
 
 (defn- correlation-pill
+  "Render the correlation-id pill. Right-click fires
+  `:rf.causa/filter-by-http-correlation` to drop a typed
+  `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows
+  the L2 event list to cascades that touched this exchange (issuing
+  effect, retries, response, downstream handler)."
   [correlation-id]
   (when correlation-id
     [:span {:data-testid "rf-causa-managed-fx-correlation"
+            :on-context-menu (fn [^js e]
+                               (.preventDefault e)
+                               (rf/dispatch
+                                 [:rf.causa/filter-by-http-correlation correlation-id]
+                                 {:frame :rf/causa}))
+            :title "Right-click to filter the event list to this HTTP exchange"
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
                     :border-radius "3px"
                     :background    (:bg-3 tokens)
                     :color         (:text-secondary tokens)
                     :font-family   mono-stack
-                    :font-size     "10px"}}
+                    :font-size     "10px"
+                    :cursor        "context-menu"}}
      (str "correlation: " correlation-id)]))
 
 (defn- phase-pill
@@ -170,10 +182,19 @@
                    :letter-spacing "0.5px"}}
     [:span (get h/surface->glyph surface "•")]
     (str "MANAGED FX [" (get h/surface->label surface (str surface)) "]")]
-   [:span {:style {:color (:accent-violet tokens)
+   [:span {:data-testid "rf-causa-managed-fx-fx-id"
+           :on-context-menu (fn [^js e]
+                              (when fx-id
+                                (.preventDefault e)
+                                (rf/dispatch
+                                  [:rf.causa/filter-by-fx fx-id]
+                                  {:frame :rf/causa})))
+           :title "Right-click to filter the event list to events triggering this fx"
+           :style {:color (:accent-violet tokens)
                    :font-family mono-stack
                    :font-size "12px"
-                   :font-weight 600}}
+                   :font-weight 600
+                   :cursor "context-menu"}}
     (h/format-fx-id fx-id)]
    [:span {:style {:color (:text-tertiary tokens)
                    :font-family mono-stack

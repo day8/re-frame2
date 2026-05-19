@@ -95,9 +95,22 @@
   "Dropdown over the registered machines. Per spec/003-Machine-
   Inspector.md §Selection and switching the picker shows the
   machine-id + current state for each option; selecting fires
-  `:rf.causa/select-machine-id`."
+  `:rf.causa/select-machine-id`.
+
+  Right-click on the picker chrome fires
+  `:rf.causa/filter-by-machine` with the currently-selected
+  machine-id (rf2-piye4) — drops a typed `:machine` IN pill into
+  the ribbon so the L2 event list narrows to cascades involving
+  this machine."
   [rows selected-id]
   [:div {:data-testid "rf-causa-machine-inspector-picker"
+         :on-context-menu (fn [^js e]
+                            (when selected-id
+                              (.preventDefault e)
+                              (rf/dispatch
+                                [:rf.causa/filter-by-machine selected-id]
+                                {:frame :rf/causa})))
+         :title       "Right-click to filter the event list to this machine"
          :style       {:display "flex"
                        :align-items "center"
                        :gap "8px"
@@ -808,6 +821,13 @@
               :border-radius "4px"
               :background (:bg-2 tokens)}}
      [:header {:data-testid "rf-causa-machine-focused-event-header"
+               :on-context-menu (fn [^js e]
+                                  (when machine-id
+                                    (.preventDefault e)
+                                    (rf/dispatch
+                                      [:rf.causa/filter-by-machine machine-id]
+                                      {:frame :rf/causa})))
+               :title "Right-click to filter the event list to this machine"
                :style {:padding "10px 12px"
                        :display "flex"
                        :align-items "center"

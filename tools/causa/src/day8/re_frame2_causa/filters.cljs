@@ -28,7 +28,8 @@
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.filters.edit-popup :as edit-popup]
             [day8.re-frame2-causa.filters.matcher :as matcher]
-            [day8.re-frame2-causa.filters.persistence :as persistence]))
+            [day8.re-frame2-causa.filters.persistence :as persistence]
+            [day8.re-frame2-causa.filters.typed-predicates :as typed]))
 
 ;; ---- Modal --------------------------------------------------------------
 
@@ -93,6 +94,19 @@
       (assoc :edit-popup-trigger nil)
       (assoc :edit-popup-draft nil)))
 
+(defn- append-typed-pill
+  "Append a typed pill to `mode`'s bucket; no-op when an equivalent
+  pill already exists. Used by the `:rf.causa/filter-by-*` typed-add
+  events (rf2-piye4) — the right-click affordances on the Machines /
+  managed-fx panels dispatch through this so a double-add collapses
+  to one pill rather than piling duplicates."
+  [db mode pill]
+  (let [bucket   (get-in db [:active-filters mode] [])
+        present? (some #(= pill %) bucket)]
+    (if present?
+      db
+      (update-in db [:active-filters mode] (fnil conj []) pill))))
+
 (defn install!
   "Idempotent install for the filter subsystem's Causa-side surface.
   Wires:
@@ -109,7 +123,11 @@
               `:rf.causa/save-edit-popup`,
               `:rf.causa/delete-edit-popup`,
               `:rf.causa/hide-event-type`,
-              `:rf.causa/hydrate-filters`.
+              `:rf.causa/hydrate-filters`,
+              + rf2-piye4 typed-add events:
+              `:rf.causa/filter-by-machine`,
+              `:rf.causa/filter-by-http-correlation`,
+              `:rf.causa/filter-by-fx`.
 
     - Effects: `:rf.causa.filters/persist` — localStorage write fx.
 
@@ -139,6 +157,14 @@
   ;; → composed-focus. nil slot = no frame filter active (multi-frame
   ;; app, picker has not been touched, OR a single-frame app whose
   ;; picker collapses to a flat label).
+  ;; Pill matching routes through the typed-predicate dispatcher
+  ;; (rf2-piye4) so each pill's `:kind` selects the per-kind cascade
+  ;; matcher (`:event-id-pattern` delegates to the existing event-id
+  ;; matcher; `:machine` / `:http-correlation` / `:fx` walk the
+  ;; cascade's trace-events for the matching tag). Pre-typed pills
+  ;; persisted under `{:pattern <kw-or-str>}` hydrate as
+  ;; `:event-id-pattern` via `canonicalise-pill` — no migration step
+  ;; needed.
   (rf/reg-sub :rf.causa/filtered-cascades
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/active-filters]
@@ -146,7 +172,7 @@
     (fn [[cascades filters focus-slot] _query]
       (-> cascades
           (matcher/filter-cascades-by-frame (:frame focus-slot))
-          (matcher/filter-cascades filters))))
+          (typed/filter-cascades filters))))
 
   ;; Popup state — three slots so the open / trigger / draft tiers
   ;; are individually subscribable.
@@ -297,6 +323,41 @@
             (assoc :edit-popup-draft
                    (-> (edit-popup/pill->draft pill)
                        (assoc :mode :out)))))))
+
+  ;; ---- typed-predicate add events (rf2-piye4) -------------------------
+  ;;
+  ;; Right-click affordances on the Machines / managed-fx panels fire
+  ;; these events to append a typed-predicate IN pill directly — no
+  ;; popup round-trip because the pattern is fully determined by the
+  ;; clicked row (machine-id / correlation-id / fx-id). The user can
+  ;; remove the pill via the standard `×` button on the pill cluster.
+  ;;
+  ;; Each event idempotently appends via the file-level
+  ;; `append-typed-pill` helper — a duplicate add (same params)
+  ;; collapses to a no-op so multiple right-click → add chains don't
+  ;; pile up redundant pills.
+
+  (rf/reg-event-fx :rf.causa/filter-by-machine
+    (fn [{:keys [db]} [_ machine-id]]
+      (let [pill    {:kind :machine :params {:machine-id machine-id}}
+            next-db (append-typed-pill db :in pill)]
+        {:db next-db
+         :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
+
+  (rf/reg-event-fx :rf.causa/filter-by-http-correlation
+    (fn [{:keys [db]} [_ correlation-id]]
+      (let [pill    {:kind :http-correlation
+                     :params {:correlation-id correlation-id}}
+            next-db (append-typed-pill db :in pill)]
+        {:db next-db
+         :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
+
+  (rf/reg-event-fx :rf.causa/filter-by-fx
+    (fn [{:keys [db]} [_ fx-id]]
+      (let [pill    {:kind :fx :params {:fx-id fx-id}}
+            next-db (append-typed-pill db :in pill)]
+        {:db next-db
+         :fx [[:rf.causa.filters/persist (get next-db :active-filters)]]})))
 
   ;; ---- load: hydrate from localStorage --------------------------------
 
