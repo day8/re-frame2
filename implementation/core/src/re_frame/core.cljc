@@ -409,6 +409,15 @@
   ships in `day8/re-frame2-ssr`. Late-bound via `:ssr/head-model-html`."}
   head-model->html rf-ssr/head-model->html)
 
+(def ^{:doc "Read the per-frame `{head-id → last-produced head-model}`
+  snapshot for `frame-id`. Returns `{}` for a frame that has never
+  seen a `render-head` call (or whose snapshot has been cleared via
+  per-request frame teardown). Useful for tests, introspection, and
+  tools (Causa, MCP). Per Spec 011 §Head/meta contract (rf2-4dra9).
+  Implementation ships in `day8/re-frame2-ssr`. Late-bound via
+  `:ssr/head-snapshot`."}
+  head-snapshot    rf-ssr/head-snapshot)
+
 ;; ---- frame management ----------------------------------------------------
 
 (def ^{:doc "Anonymous-instance frame creation — generates a gensym'd id
