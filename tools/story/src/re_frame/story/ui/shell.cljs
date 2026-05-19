@@ -530,21 +530,43 @@
      ;; causa-available?` returns false → `ensure-causa-mounted!`
      ;; short-circuits → nothing renders here).
      ;;
-     ;; The slot is `position: relative` + `flex` so Causa's `:inline`
-     ;; mode (which uses `position: relative` and fills its host)
-     ;; participates in normal flex flow rather than escaping to
-     ;; viewport-fixed. The `min-height` keeps the slot tall enough
-     ;; for Causa's 4-layer chrome to render usefully even before the
-     ;; user resizes the RHS rail.
-     [:div {:data-rf-causa-host true
-            :data-test          "story-rhs-causa-host"
-            :style              {:position    "relative"
-                                 :display     "flex"
-                                 :flex        "1 1 auto"
-                                 :min-height  "320px"
-                                 :overflow    "hidden"}}]
+     ;; rf2-8rvu4: wrap the Causa host in a labelled RHS section so
+     ;; the user sees 'CAUSA — diagnostic surface' above the embed
+     ;; instead of an unlabelled 320px column. Section header carries
+     ;; the amber accent variant since Causa is the RHS's primary
+     ;; tenant.
+     [:section {:style (:rhs-section styles)
+                :data-rf-rhs-section "causa"}
+      [:div {:style (merge (:rhs-section-h styles)
+                           (:rhs-section-h-accent styles))}
+       [:span "Causa"]
+       [:span {:style {:font-weight "400"
+                       :color (:text-tertiary colors/tokens)
+                       :letter-spacing "0.04em"}}
+        "diagnostic"]]
+      ;; The slot is `position: relative` + `flex` so Causa's `:inline`
+      ;; mode (which uses `position: relative` and fills its host)
+      ;; participates in normal flex flow rather than escaping to
+      ;; viewport-fixed. The `min-height` keeps the slot tall enough
+      ;; for Causa's 4-layer chrome to render usefully even before the
+      ;; user resizes the RHS rail.
+      [:div {:data-rf-causa-host true
+             :data-test          "story-rhs-causa-host"
+             :style              {:position    "relative"
+                                  :display     "flex"
+                                  :flex        "1 1 auto"
+                                  :min-height  "320px"
+                                  :overflow    "hidden"}}]]
      (when (:controls vis)
-       [controls/panel variant-id])
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "controls"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Controls"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "args + modes"]]
+        [controls/panel variant-id]])
      ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
      ;; the running variant's frame. Default HIDDEN; opt-in via
      ;; `:dispatch-console? true` on the story or variant body. The
@@ -573,10 +595,22 @@
                     (true?  vis-flag) true
                     (false? vis-flag) false
                     :else             var-default)))
-       [dispatch-console/panel variant-id])
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "dispatch"}
+        [:div {:style (:rhs-section-h styles)}
+         [:span "Dispatch"]
+         [:span {:style {:font-weight "400"
+                         :color (:text-tertiary colors/tokens)
+                         :letter-spacing "0.04em"}}
+          "free-form events"]]
+        [dispatch-console/panel variant-id]])
      ;; Stage 6: render any registered :right-placement story panels.
+     ;; Wrapped in a section so the visual rhythm holds across Story-
+     ;; shipped + user-registered panels uniformly.
      (when variant-id
-       [panels/render-panels-at-placement :right variant-id vis])]))
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "story-panels"}
+        [panels/render-panels-at-placement :right variant-id vis]])]))
 
 (defn- framed-canvas
   "Render the variant `canvas/canvas` wrapped with the effective
