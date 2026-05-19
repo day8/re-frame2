@@ -125,3 +125,50 @@
     (is (= "[1,2,3]" (util-json/json-stringify [1 2 3])))
     (is (= "true" (util-json/json-stringify true)))
     (is (= "null" (util-json/json-stringify nil)))))
+
+;; ---- rf2-mih7n — non-string / empty input coverage -----------------------
+;;
+;; The JVM `json-parse` body opens with `(when (string? s) ...)`. That
+;; guard means a non-string `s` (nil, keyword, number, map, vector)
+;; returns nil cleanly rather than throwing — protecting the
+;; `:rf.http/managed` decode pipeline from a programmer error in the
+;; transport layer.
+;;
+;; The empty-string case `""` flows through Cheshire's `parse-string`
+;; which returns nil (Jackson's end-of-stream → nil for an empty
+;; document). A future Cheshire upgrade that changes that behaviour
+;; would surface here.
+;;
+;; Truthful-malformed inputs are covered above in
+;; `cheshire-rejects-malformed-input-cleanly` — those throw. This
+;; deftest is the no-throw counterpart that pins the
+;; "input simply has no JSON value to surface → return nil" path.
+
+(deftest jvm-json-parse-non-string-and-empty-return-nil
+  (testing "rf2-mih7n — `json-parse` returns nil (not a throw) for
+  non-string inputs and the empty string. The JVM body's `(when
+  (string? s) ...)` guard protects the managed-HTTP decode pipeline
+  from a programmer error in transport — a malformed input throws
+  through to `:rf.http/decode-failure`, a missing input is benign nil."
+    (is (nil? (util-json/json-parse nil))
+        "nil input → nil (string? guard short-circuits)")
+    (is (nil? (util-json/json-parse ""))
+        "empty string → nil (Cheshire's end-of-stream → nil)")
+    (is (nil? (util-json/json-parse :keyword))
+        "keyword input → nil (string? guard short-circuits)")
+    (is (nil? (util-json/json-parse 42))
+        "number input → nil (string? guard short-circuits)")
+    (is (nil? (util-json/json-parse {:already :clojure}))
+        "map input → nil (string? guard short-circuits — caller
+         passed an already-parsed value by mistake)")
+    (is (nil? (util-json/json-parse [1 2 3]))
+        "vector input → nil (same)")))
+
+(deftest jvm-json-parse-whitespace-only-returns-nil
+  (testing "rf2-mih7n — whitespace-only inputs (\" \", \"\\n\", \"\\t\")
+  are not valid JSON documents per RFC 8259, but Cheshire/Jackson
+  surfaces them as end-of-stream → nil (same as the empty-string
+  case). Pin the contract."
+    (is (nil? (util-json/json-parse "   ")))
+    (is (nil? (util-json/json-parse "\n")))
+    (is (nil? (util-json/json-parse "\t")))))
