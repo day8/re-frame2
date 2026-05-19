@@ -177,7 +177,21 @@ the lifecycle.
 | Var / fn | Notes |
 |---|---|
 | `goog-define :rf.story/enabled?` | Compile-time DCE flag; `true` in dev, `false` in `:advanced`. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
-| `configure!` | `(configure! {:global-args {...} :editor :vscode :project-root "..." :trace/show-sensitive? false})` — set global config at boot. `:project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
+| `configure!` | `(configure! {:global-args {...} :editor :vscode :project-root "..." :trace/show-sensitive? false})` — set global config at boot. `:project-root` is bridged into Causa's slot via `re-frame.story.causa-preset/propagate-project-root!` so Causa-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:trace/show-sensitive?` is the on-box dev override that gates whether the chrome's diagnostic surfaces (Causa Event Detail, the `:test` mode pane row-detail disclosures) render path-marked values in clear vs. `:rf/redacted`; defaults to `false`. The off-box wire-egress equivalent (`:include-sensitive?` for MCP, per [spec/Conventions §Privacy config-knob naming](../../../spec/Conventions.md)) is owned by `tools/story-mcp/`. |
+
+## Privacy
+
+Story participates in the framework's path-level data-classification
+contract — see [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015)
+for the marquee posture statement, and the per-surface entries:
+
+| Surface | Behaviour | Spec |
+|---|---|---|
+| `reg-variant` body — per-frame marks | Variant body MAY include `(re-frame.core/reg-marks <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
+| Assertion records | `:rf.assert/*` records build `:actual` / `:expected` / `:payload` slots through `re-frame.elision/elide-wire-value` before landing in `:assertions`. The `:rf/redacted` sentinel is a legal `:expected` value for pinning the redaction contract. | [`004-Assertions.md`](004-Assertions.md) §Privacy |
+| Error-projection records | `:rf.error/exception` records pass `ex-data` through `re-frame.elision/elide-wire-value`; exception `:message` strings are NOT auto-walked (author responsibility — see spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`). | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |
+| MCP read surface | Story core returns marks-as-data; wire substitution to `:rf/redacted` happens at the MCP jar's egress boundary, not in Story core. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) §MCP read surface |
+| Snapshot-identity | Content-hash computes over real values (pre-substitution); the hash itself is unredacted but downstream emission of the inputs goes through the wire-elision walker. | [`002-Runtime.md`](002-Runtime.md) §Snapshot-identity computation + [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) §Snapshot-identity |
 
 ## Cross-references
 
