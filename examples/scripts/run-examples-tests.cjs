@@ -1,16 +1,34 @@
 #!/usr/bin/env node
 /*
- * Playwright runner for the example apps.
+ * Playwright runner for adapter smokes + framework testbeds.
  *
- * Each example is built by shadow-cljs into out/examples/<name>/main.js
+ * Each surface is built by shadow-cljs into out/examples/<name>/main.js
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
- * browser and executes the *.spec.cjs files that sit alongside each
- * example's source (examples/<substrate>/<name>/<name>.spec.cjs, plus
- * examples/reagent/7Guis/<name>/<name>.spec.cjs for the per-example
- * 7GUIs sub-folders). Each spec navigates to the example's URL and
- * asserts a user-visible behaviour (initial render + an interaction +
- * post-interaction state).
+ * browser and executes the spec.cjs files that sit alongside each
+ * testbed under the SPEC_ROOTS below. Each spec navigates to the
+ * surface's URL and asserts a user-visible behaviour (initial render +
+ * an interaction + post-interaction state).
+ *
+ * Test surface inventory (post rf2-8cevm, Mike directive 2026-05-19 —
+ * `examples/` tree is TEST-FREE):
+ *
+ *   - 3 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
+ *     Reagent / UIx / Helix mount + dispatch + render.
+ *
+ *   - 2 framework testbeds (tools/causa/testbeds/{perf_counter,
+ *     parallel_frames}/spec.cjs)
+ *     Perf-API live counterpart of the static perf-bundle gate, and
+ *     the canonical multi-frame-isolation contract.
+ *
+ *   - top-level testbeds/  (testbeds/<surface>/spec.cjs)
+ *     rf2-fe84r framework-behaviour cross-cutting + rf2-ik4io SSR.
+ *
+ * Real-regression coverage for everything else lives in: substrate
+ * contract tests under `npm run test:cljs`, the Causa feature-matrix
+ * gate (`npm run test:causa-feature-gate`), bundle-isolation
+ * (`npm run test:bundle-isolation`), the perf-bundle gate
+ * (`npm run test:perf-bundle`), and mcp-conformance.
  *
  * Why a hand-rolled runner rather than @playwright/test:
  *   - Mirrors the run-browser-tests.cjs pattern (PR #15) — same
@@ -21,33 +39,13 @@
  *
  * Spec format: each spec exports an object
  *   {
- *     name:       string,                    // human-readable
- *     url:        string,                    // path under the static server root
- *     run:        async (page) => void,      // Playwright assertions
- *     skip:       string | false             // optional — when truthy, the
+ *     name:  string,                         // human-readable
+ *     url:   string,                         // path under the static server root
+ *     run:   async (page) => void,           // Playwright assertions
+ *     skip:  string | false                  // optional — when truthy, the
  *                                            //   spec is reported as SKIP
  *                                            //   with this string as the
- *                                            //   reason. Used when an
- *                                            //   example is shipped under
- *                                            //   construction (bead-tracked
- *                                            //   gap; rf2-5lbx introduced
- *                                            //   the convention for the
- *                                            //   slim adapter's pending
- *                                            //   interop seam).
- *     timeoutMs:  number | undefined         // optional — override the
- *                                            //   per-spec timeout (default
- *                                            //   `EXAMPLE_SPEC_TIMEOUT_MS`
- *                                            //   or 30000). Specs that
- *                                            //   exercise a long serial
- *                                            //   chain of waits on slow
- *                                            //   CI hardware (e.g.
- *                                            //   Story-Causa embed
- *                                            //   boot + multi-panel
- *                                            //   mount round-trip) can
- *                                            //   bump this with a
- *                                            //   rationale comment.
- *                                            //   Introduced for
- *                                            //   rf2-paskh.
+ *                                            //   reason.
  *   }
  *
  * Exit code: 0 if every spec's `run` resolves (skipped specs count as
@@ -99,19 +97,23 @@ function matchesFilter(filePath) {
   return normalizeForFilter(filePath).includes(normalizeForFilter(FILTER));
 }
 // __dirname is <repo>/examples/scripts; the example tree sits at
-// <repo>/examples (one level up). rf2-p8f2s broadened discovery to
-// include tool-owned testbeds under <repo>/tools/<tool>/testbeds/ and
-// the top-level <repo>/testbeds/ (Tier 1+ shared framework-behavior
-// surfaces, future).
+// <repo>/examples (one level up).
+//
+// Spec discovery (post rf2-8cevm, Mike directive 2026-05-19): the
+// `examples/` tree is TEST-FREE — no `*.spec.cjs` is permitted under
+// it. Discovery now scans only the spec-bearing roots:
+//
+//   - tools/<tool>/testbeds/        — framework testbeds owned by Causa
+//                                     (parallel_frames, perf_counter)
+//   - testbeds/                     — top-level cross-cutting testbeds
+//                                     (rf2-fe84r framework-behaviour +
+//                                     rf2-ik4io SSR)
+//   - implementation/adapters/      — per-adapter end-to-end smokes
+//                                     (rf2-eceuv: Reagent/UIx/Helix)
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPEC_ROOTS = [
-  path.join(REPO_ROOT, 'examples'),
   path.join(REPO_ROOT, 'tools'),
   path.join(REPO_ROOT, 'testbeds'),
-  // rf2-eceuv — per-adapter testbeds live with their adapter under
-  // implementation/adapters/<name>/testbed/. Each carries its own
-  // spec.cjs (one per adapter); the orchestrator stages each bundle
-  // under /adapter-testbeds/<name>/ on the static server.
   path.join(REPO_ROOT, 'implementation', 'adapters'),
 ];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
@@ -241,23 +243,13 @@ function withTimeout(promise, ms, label) {
     });
 
     const fullUrl = spec.url.startsWith('http') ? spec.url : BASE_URL + spec.url;
-    // rf2-paskh — honour optional per-spec `timeoutMs` override. Specs
-    // with a long serial chain of waits (e.g. causa-rhs-smoke's
-    // Story-Causa embed boot + multi-panel mount round-trip) can lift
-    // their own budget without inflating the global gate for every
-    // lightweight smoke. EXAMPLES_BASE_URL env wins over both, so CI
-    // can still throttle the whole sweep if needed.
-    const specTimeoutMs =
-      typeof spec.timeoutMs === 'number' && spec.timeoutMs > 0
-        ? spec.timeoutMs
-        : TIMEOUT_MS;
     log(`Navigating to ${fullUrl}`);
 
     let passed = false;
     let failure = null;
     try {
-      await page.goto(fullUrl, { waitUntil: 'load', timeout: specTimeoutMs });
-      await withTimeout(spec.run(page), specTimeoutMs, label);
+      await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
+      await withTimeout(spec.run(page), TIMEOUT_MS, label);
       if (pageErrored) {
         throw new Error(`Page emitted an uncaught error: ${pageErrored.message}`);
       }

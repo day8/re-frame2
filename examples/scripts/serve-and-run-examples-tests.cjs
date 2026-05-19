@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 /*
- * Orchestrator for the examples Playwright suite.
+ * Orchestrator for the adapter-smoke + framework-testbed Playwright
+ * suite (npm run test:examples). Per rf2-8cevm (Mike directive
+ * 2026-05-19) the `examples/` tree is TEST-FREE — this orchestrator
+ * compiles + stages only the surfaces paired with a `spec.cjs` under
+ * the runner's SPEC_ROOTS (adapter smokes at
+ * implementation/adapters/<name>/testbed/, framework testbeds at
+ * tools/causa/testbeds/, and the top-level testbeds/ tree).
  *
- * 1. Compiles every example shadow-cljs build (one per example).
- * 2. Stages each example's hand-written index.html into its
+ * 1. Compiles each surface's shadow-cljs build (one per testbed).
+ * 2. Stages each surface's hand-written index.html into its
  *    out/examples/<name>/ directory next to main.js.
  * 3. Spawns http-server over out/examples on port 8030.
  * 4. Waits for it to be reachable, then runs the Playwright runner
@@ -11,8 +17,9 @@
  * 5. Always tears the server down.
  *
  * Build list, mount paths, and HTML sources are declared in EXAMPLES
- * below. Adding a new example: add its shadow-cljs build target,
- * append an entry here, and add a Playwright spec.
+ * below. Adding a new testbed: append an entry here ONLY when a
+ * matching spec.cjs exists under SPEC_ROOTS; never stage a surface
+ * that nothing tests.
  *
  * Cross-platform: compile via npx, but launch http-server directly from the
  * local package so teardown kills the real server process on Windows too.
@@ -65,23 +72,12 @@ function parseFilterFromArgs(argv) {
 const FILTER = parseFilterFromArgs(process.argv)
             || (process.env.EXAMPLES_FILTER || '').trim();
 const PORT = 8030;
-// rf2-j3dlc — live-SSR JVM Ring server (Jetty) for the
-// `ssr-live.spec.cjs` smoke. Side-port so it lives alongside the static
-// http-server on PORT without contention. Launched by `main()` below
-// via `clojure -X:live-ssr-server` against
-// `examples/reagent/ssr/deps.edn`.
-const LIVE_SSR_PORT = 8031;
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
-// Live-SSR harness dir — deps.edn + server.clj. The `:examples/ssr`
-// build's `:output-dir` (under OUT_ROOT) supplies the `main.js` the
-// JVM server serves for browser hydration.
-const LIVE_SSR_DIR = path.join(REPO_ROOT, 'examples', 'reagent', 'ssr');
-const LIVE_SSR_STATIC_ROOT = path.join(OUT_ROOT, 'ssr');
 // http-server is a devDependency of implementation/package.json. Resolve
 // it from there explicitly so this script can be invoked from any cwd.
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
@@ -91,33 +87,56 @@ const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
-// Each example: shadow-cljs build id, the html source to stage, and the
+// Each entry: shadow-cljs build id, the html source to stage, and the
 // directory under out/examples it lands in. The url-path is what the
 // Playwright spec navigates to under http://127.0.0.1:PORT/.
+//
+// Policy (rf2-8cevm, Mike directive 2026-05-19): the `examples/` tree
+// is TEST-FREE. The runner orchestrates the three adapter smokes
+// (Reagent / UIx / Helix), the two framework testbeds owned by Causa
+// (perf-live + parallel-frames), and the cross-cutting top-level
+// `testbeds/` (rf2-ik4io SSR + rf2-fe84r framework-behaviour). Every
+// build below is paired with a `spec.cjs`; never add a build here
+// whose only purpose is "compile + stage with no spec to drive it"
+// (that's dead CI weight). Per-example smoke coverage that previously
+// lived under `examples/<substrate>/<name>/*.spec.cjs` has been
+// permanently retired — real regressions are caught by substrate
+// contract tests, the Causa feature-matrix gate, bundle-isolation,
+// the perf-bundle gate, and mcp-conformance.
 const EXAMPLES = [
+  // ----- Adapter smokes (3 of 3) ----------------------------------------
+  // rf2-eceuv — per-adapter end-to-end smoke. Each adapter (Reagent
+  // / UIx / Helix) ships a standalone counter under
+  // implementation/adapters/<name>/testbed/ that proves the adapter
+  // wires up end-to-end (mount, subscribe, dispatch, re-render). The
+  // shadow build emits straight into out/examples/adapter-testbeds/<name>/,
+  // so the HTML is staged alongside main.js and the static server picks
+  // it up under /adapter-testbeds/<name>/. The companion spec.cjs sits
+  // beside core.cljs + index.html and is discovered via SPEC_ROOTS in
+  // run-examples-tests.cjs (which scans implementation/adapters/).
   {
-    build: 'examples/counter',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter'),
+    build: 'adapters/reagent-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'reagent', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'reagent'),
   },
-  // counter-slim-and-fast (rf2-5lbx) — the same counter mounted on
-  // day8/reagent-slim instead of the bridge. Paired with the
-  // Reagent Slim bundle-isolation contract in
-  // scripts/check-reagent-slim-bundle-isolation.cjs.
   {
-    build: 'examples/counter-slim-and-fast',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter_slim_and_fast', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter-slim-and-fast'),
+    build: 'adapters/uix-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'uix', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'uix'),
   },
-  // Performance-API instrumented variant of the counter.
-  // rf2-p8f2s — the perf testbed is tool-owned (lives under
-  // tools/causa/testbeds/perf_counter/) so the canonical tutorial
-  // counter (examples/reagent/counter/) stays on the idiomatic
-  // reg-event-db :initialise shape. The paired
-  // tools/causa/testbeds/perf_counter/spec.cjs asserts a real
+  {
+    build: 'adapters/helix-testbed',
+    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'helix', 'testbed', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
+  },
+
+  // ----- Framework testbeds (2) -----------------------------------------
+  // Performance-API instrumented variant of the counter (paired with
+  // tools/causa/testbeds/perf_counter/spec.cjs). Asserts a real
   // dispatch through the perf-on bundle produces `rf:event:*` /
   // `rf:sub:*` / `rf:fx:*` / `rf:render:*` measure entries on
-  // `performance.getEntriesByType`.
+  // `performance.getEntriesByType` — the live counterpart to the
+  // static perf-bundle grep gate at scripts/check-perf-bundle.cjs.
   {
     build: 'examples/counter-perf',
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'perf_counter', 'index.html'),
@@ -125,262 +144,44 @@ const EXAMPLES = [
   },
   // Parallel-Frames testbed (rf2-m00rw) — THE canonical multi-frame
   // isolation demo. One app, mounted in TWO frames (:above + :below)
-  // on ONE page with zero cross-frame coupling. Each frame is a
-  // fully isolated reactive context; the exercise is observing the
-  // two diverge as the user interacts with each independently.
-  // No static endpoint — the mock HTTP fx is in-process.
+  // on ONE page with zero cross-frame coupling. Paired with
+  // tools/causa/testbeds/parallel_frames/spec.cjs.
   {
     build: 'examples/parallel-frames',
     htmlSrc: path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'parallel_frames', 'index.html'),
     outDir: path.join(OUT_ROOT, 'parallel-frames'),
   },
-  {
-    build: 'examples/temperature',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'temperature', 'temperature.html'),
-    outDir: path.join(OUT_ROOT, 'temperature'),
-  },
-  {
-    build: 'examples/flight-booker',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'flight_booker', 'flight_booker.html'),
-    outDir: path.join(OUT_ROOT, 'flight-booker'),
-  },
-  {
-    build: 'examples/timer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'timer', 'timer.html'),
-    outDir: path.join(OUT_ROOT, 'timer'),
-  },
-  {
-    build: 'examples/nine-states',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'nine_states', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'nine-states'),
-  },
-  {
-    build: 'examples/routing',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'routing', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'routing'),
-  },
-  {
-    build: 'examples/todomvc',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'todomvc', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'todomvc'),
-    extraFiles: [
-      {
-        src: path.join(IMPL_ROOT, 'node_modules', 'todomvc-common', 'base.css'),
-        dest: 'base.css',
-      },
-      {
-        src: path.join(IMPL_ROOT, 'node_modules', 'todomvc-app-css', 'index.css'),
-        dest: 'todomvc-app.css',
-      },
-    ],
-  },
-  // Spec 014 — managed HTTP counter. Stages a static
-  // /api/inc.json for the +1 button to fetch; a missing /api/does-not-exist
-  // path naturally produces a 404 from http-server for the Fail button.
-  {
-    build: 'examples/managed-http-counter',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'managed_http_counter', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'managed-http-counter'),
-    extraFiles: [
-      {
-        src: path.join(REPO_ROOT, 'examples', 'reagent', 'managed_http_counter', 'api', 'inc.json'),
-        dest: path.join('api', 'inc.json'),
-      },
-    ],
-  },
-  {
-    build: 'examples/crud',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'crud', 'crud.html'),
-    outDir: path.join(OUT_ROOT, 'crud'),
-  },
-  {
-    build: 'examples/circle-drawer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'circle_drawer', 'circle_drawer.html'),
-    outDir: path.join(OUT_ROOT, 'circle-drawer'),
-  },
-  {
-    build: 'examples/cells',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'cells', 'cells.html'),
-    outDir: path.join(OUT_ROOT, 'cells'),
-  },
-  {
-    build: 'examples/login',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'login', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'login'),
-  },
-  // rf2-t7t6f — Reagent design-led example. Three-pane editorial
-  // notebook (documents tree + markdown editor + live preview). Pairs
-  // with the Reagent 'Editorial Warm' identity (rf2-nfg15).
-  {
-    build: 'examples/notebook',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'notebook', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'notebook'),
-  },
-  // UIx adapter smoke trio (counter + login, realworld skipped).
-  // Different folders from the canonical Reagent versions so the
-  // bundle-isolation grep can confirm UIx code does NOT appear in
-  // Reagent-substrate examples and vice versa. The UIx tree lives
-  // under examples/uix/.
-  {
-    build: 'examples/counter-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'counter_uix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter-uix'),
-  },
-  {
-    build: 'examples/login-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login_uix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'login-uix'),
-  },
-  // rf2-t7t6f — UIx design-led example. Analytics dashboard with
-  // status tiles, filter chips, and sparkline metric cards. Pairs with
-  // the UIx 'Swiss Modern' identity (rf2-nfg15).
-  {
-    build: 'examples/dashboard-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'dashboard_uix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'dashboard-uix'),
-  },
-  // Helix adapter smoke trio (counter + login, realworld skipped —
-  // the eight UIx decisions transfer unchanged). Different folders
-  // from the canonical Reagent and UIx versions so the
-  // bundle-isolation grep can confirm Helix code does NOT appear
-  // in Reagent / UIx-substrate examples and vice versa. The Helix
-  // tree lives under examples/helix/.
-  {
-    build: 'examples/counter-helix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'counter_helix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter-helix'),
-  },
-  {
-    build: 'examples/login-helix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'login_helix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'login-helix'),
-  },
-  // rf2-t7t6f — Helix design-led example. Terminal-style process
-  // monitor: status tiles, filterable process list, live log stream
-  // with a recurring :dispatch-later tick. Pairs with the Helix
-  // 'Developer Industrial' identity (rf2-nfg15).
-  {
-    build: 'examples/process-monitor-helix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'process_monitor_helix', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'process-monitor-helix'),
-  },
-  {
-    build: 'examples/realworld',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'realworld', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'realworld'),
-  },
-  // Pattern-Boot example (rf2-dsm2). The :app/boot state machine
-  // owns the application's initialisation graph; the example's
-  // four mocked endpoints are served entirely by an in-process
-  // :rf.http/managed canned-success override (no static files
-  // needed).
-  {
-    build: 'examples/boot',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'boot', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'boot'),
-  },
-  // Runnable companion to docs/guide/09-state-machines.md.
-  {
-    build: 'examples/state-machine-walkthrough',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'state_machine_walkthrough', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'state-machine-walkthrough'),
-  },
-  // SSR + hydration walkthrough.
-  {
-    build: 'examples/ssr',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'ssr', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'ssr'),
-  },
-  // Story Stage 8 — the canonical counter app with the
-  // seven `reg-*` Story macros wired up. URL-hash-routed: `#/`
-  // renders the live counter; `#/stories` mounts the Story shell.
-  // rf2-p8f2s — testbed-shaped (33× canonical counter); now lives
-  // under tools/story/testbeds/counter_with_stories/.
-  {
-    build: 'examples/counter-with-stories',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'counter_with_stories', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'counter-with-stories'),
-  },
-  // Login-form testbed (rf2-0sg12) — Story tutorial five-state
-  // scenario as runnable variants. URL-hash-routed: `#/` renders
-  // the live login card; `#/stories` mounts the Story shell.
-  {
-    build: 'examples/login-form',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'login_form', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'login-form'),
-  },
-  // Causa-as-Story-RHS smoke testbed (rf2-drprn). Minimal Story shell
-  // + Causa preload, used by the companion spec.cjs to exercise the
-  // four Causa-side replacement scenarios for the Story RHS panels
-  // retired in PR #1478 (rf2-sgdd3).
-  {
-    build: 'examples/causa-rhs-smoke',
-    htmlSrc: path.join(REPO_ROOT, 'tools', 'story', 'testbeds', 'causa_rhs_smoke', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'causa-rhs-smoke'),
-  },
-  // Pattern-LongRunningWork worked example (rf2-o9fg) —
-  // :invoke-all spawn-and-join with progress reporting and a
-  // cooperative cancellation cascade on parent-unmount.
-  {
-    build: 'examples/long-running-work',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'long_running_work', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'long-running-work'),
-  },
-  // Pattern-WebSocket worked example (rf2-yf97). Connection machine
-  // with hierarchical :active, :invoke'd socket actor, :after backoff,
-  // :always queue-flush, :fsm/tags, request-reply correlation, and
-  // connection-epoch staleness. The transport is an in-process mock
-  // WebSocket so the example is standalone — no network needed.
-  {
-    build: 'examples/websocket',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'websocket', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'websocket'),
-  },
-  // rf2-ik4io — SSR hydration baseline. Static index.html bakes
-  // pre-rendered HTML + a :rf/hydration-payload script; the browser-
-  // side run reads the payload, dispatches :rf/hydrate, and calls
-  // verify-hydration!. The companion spec.cjs lives at
-  // testbeds/ssr_basic/spec.cjs.
-  //
-  // These three SSR testbeds are top-level `testbeds/<surface>/`
-  // siblings of `examples/<substrate>/` (per the testbeds split,
-  // rf2-96nb3); the shadow-cljs build id uses the `testbeds/` prefix
-  // and lands the bundle under `implementation/out/testbeds/<id>/`.
-  // The orchestrator serves http://127.0.0.1:8030/<id>/ from OUT_ROOT
-  // (out/examples/), so we redirect outDir into the served root with
-  // a `testbed-` prefix to keep the URL path unambiguous.
+
+  // ----- SSR testbeds (rf2-ik4io) ---------------------------------------
+  // Top-level `testbeds/<surface>/` siblings of `examples/<substrate>/`
+  // (per the testbeds split, rf2-96nb3). The shadow-cljs build id uses
+  // the `testbeds/` prefix and lands the bundle under
+  // `implementation/out/testbeds/<id>/`. The orchestrator serves
+  // http://127.0.0.1:8030/<id>/ from OUT_ROOT (out/examples/), so we
+  // redirect outDir into the served root with a `testbed-` prefix to
+  // keep the URL path unambiguous.
   {
     build: 'testbeds/ssr-basic',
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_basic', 'index.html'),
     outDir: path.join(OUT_ROOT, 'testbed-ssr-basic'),
   },
-  // rf2-ik4io — SSR hydration-mismatch surface. The payload bakes a
-  // deliberately wrong :rf/render-hash so verify-hydration! emits
-  // :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced.
   {
     build: 'testbeds/ssr-hydration-mismatch',
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_hydration_mismatch', 'index.html'),
     outDir: path.join(OUT_ROOT, 'testbed-ssr-hydration-mismatch'),
   },
-  // rf2-ik4io — SSR multi-frame surface. Three frames each hydrate
-  // independently from their own payload slice; the three panels
-  // prove per-frame state restoration through the hydration
-  // boundary.
   {
     build: 'testbeds/ssr-multi-frame',
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_multi_frame', 'index.html'),
     outDir: path.join(OUT_ROOT, 'testbed-ssr-multi-frame'),
   },
-  // rf2-fe84r cross-cutting six — shared framework-behavior testbed
-  // surfaces. Unlike the SSR testbeds above (whose shadow-cljs
-  // builds emit directly into `out/examples/testbed-<id>/`), the
-  // rf2-kzcim testbeds emit into `out/testbeds/<id>/` and the
-  // orchestrator copies the bundle into `OUT_ROOT/testbeds/<id>/`
-  // so http-server serves it under the same origin as the examples.
-  // The `bundleSrc` field opts a build into the bundle-copy step.
-  // The two staging conventions coexist; rf2-ik4io and rf2-kzcim
-  // each made a defensible decision at their time and the
-  // orchestrator handles both.
+
+  // ----- Cross-cutting framework testbeds (rf2-fe84r / rf2-kzcim) -------
+  // Shared framework-behaviour testbed surfaces. These emit into
+  // `out/testbeds/<id>/` and the orchestrator copies the bundle into
+  // `OUT_ROOT/testbeds/<id>/` so http-server serves it under the same
+  // origin as the adapter smokes. The `bundleSrc` field opts a build
+  // into the bundle-copy step.
   {
     build: 'testbeds/deliberate-throw',
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'deliberate_throw', 'index.html'),
@@ -422,30 +223,6 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'testbeds', 'drain_depth_trigger', 'index.html'),
     bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'drain-depth-trigger'),
     outDir: path.join(OUT_ROOT, 'testbeds', 'drain-depth-trigger'),
-  },
-  // rf2-eceuv — per-adapter testbeds. Each adapter (Reagent / UIx /
-  // Helix) ships a standalone counter under
-  // implementation/adapters/<name>/testbed/ that proves the adapter
-  // wires up end-to-end (mount, subscribe, dispatch, re-render). The
-  // shadow build emits straight into out/examples/adapter-testbeds/<name>/,
-  // so the HTML is staged alongside main.js and the static server picks
-  // it up under /adapter-testbeds/<name>/. The companion spec.cjs sits
-  // beside core.cljs + index.html and is discovered via SPEC_ROOTS in
-  // run-examples-tests.cjs (which now scans implementation/adapters/).
-  {
-    build: 'adapters/reagent-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'reagent', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'reagent'),
-  },
-  {
-    build: 'adapters/uix-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'uix', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'uix'),
-  },
-  {
-    build: 'adapters/helix-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'helix', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
   },
 ];
 
@@ -572,33 +349,6 @@ function stageHtml() {
   }
 }
 
-// rf2-j3dlc — launch the live-SSR JVM Ring server. The Clojure CLI
-// ships as `clojure` (POSIX) or `clojure.exe` / `deps.clj` (Windows).
-// `shell: true` on Windows lets the OS resolve the right one against
-// %PATHEXT% (.EXE, .CMD, .BAT) without us hard-coding the suffix.
-//
-// We DO NOT pass `:static-root` on the command line — Clojure `-X`
-// args go through `read-string` once and then through the platform
-// shell once, and Windows backslash-bearing paths survive neither
-// cleanly. Instead we rely on the alias's `:exec-args :static-root`
-// default (relative path baked into examples/reagent/ssr/deps.edn,
-// resolved against the LIVE_SSR_DIR cwd). Port stays on the CLI
-// because it's a plain integer with no shell-meaningful characters.
-//
-// The server stays alive until the orchestrator's cleanup kills it.
-function spawnLiveSsrServer() {
-  const isWin = process.platform === 'win32';
-  const args = [
-    '-X:live-ssr-server',
-    ':port', String(LIVE_SSR_PORT),
-  ];
-  return cleanup.trackProcess(spawnHarnessProcess('clojure', args, {
-    cwd:   LIVE_SSR_DIR,
-    stdio: ['ignore', 'inherit', 'inherit'],
-    shell: isWin,
-  }));
-}
-
 async function main() {
   compileAll();
   stageHtml();
@@ -624,50 +374,11 @@ async function main() {
     return 1;
   }
 
-  // rf2-j3dlc — bring up the live-SSR JVM server before the spec runner
-  // starts. The :examples/ssr build was just compiled by `compileAll`
-  // (above), so `LIVE_SSR_STATIC_ROOT/main.js` is on disk and the
-  // server's static handler can serve it on the same origin as the
-  // SSR-rendered HTML. The browser-driven `ssr-live.spec.cjs` reaches
-  // it via http://127.0.0.1:LIVE_SSR_PORT/.
-  //
-  // rf2-h9ut9 — skip the JVM bring-up when EXAMPLES_FILTER excludes
-  // the ssr build. Saves ~10-20s of JVM cold-start on narrow runs
-  // (the realworld smoke is the canonical use-case and doesn't need
-  // SSR live infrastructure).
-  const needsLiveSsr = EXAMPLES.some(
-    (ex) => selectedExample(ex) && ex.build === 'examples/ssr',
-  );
-  if (needsLiveSsr) {
-    const liveSsr = spawnLiveSsrServer();
-    let liveSsrDown = false;
-    liveSsr.on('exit', (code, signal) => {
-      liveSsrDown = true;
-      if (code !== 0 && code !== null) {
-        console.error(`live-ssr server exited unexpectedly (code=${code}, signal=${signal}).`);
-      }
-    });
-    // JVM cold-start (Clojure + shadow-cljs's transitive deps + Jetty
-    // bind) — well within READY_TIMEOUT_MS in CI but can take ~10-20s
-    // on a cold local cache.
-    const liveSsrReady = await waitForHttpReady(LIVE_SSR_PORT, Date.now() + READY_TIMEOUT_MS, {
-      isAborted: () => liveSsrDown,
-    });
-    if (!liveSsrReady || liveSsrDown) {
-      console.error(`live-ssr server did not become reachable on :${LIVE_SSR_PORT} within ${READY_TIMEOUT_MS}ms.`);
-      return 1;
-    }
-  }
-
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
     env: {
       ...process.env,
       EXAMPLES_BASE_URL:    `http://127.0.0.1:${PORT}`,
-      // rf2-j3dlc — exposed to `ssr-live.spec.cjs` so the spec can
-      // build its `spec.url` against the JVM server's port without
-      // hard-coding it in the spec module.
-      EXAMPLES_LIVE_SSR_URL: `http://127.0.0.1:${LIVE_SSR_PORT}`,
       // rf2-h9ut9 — propagate the orchestrator's filter (CLI or env)
       // to the runner so spec-file selection matches the build/stage
       // narrowing. Empty = full sweep, which matches the runner's

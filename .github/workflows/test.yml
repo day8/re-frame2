@@ -1033,16 +1033,19 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # Compile every example shadow-cljs build, stage the per-example
-      # index.html alongside the bundle, serve out/examples on :8030,
-      # and run the Playwright specs that sit alongside each example
-      # (examples/<name>/<name>.spec.cjs). Each spec asserts a
-      # user-visible behaviour for its example.
+      # Compile the adapter-smoke + framework-testbed shadow-cljs builds
+      # (each paired with a spec.cjs under tools/, testbeds/, and
+      # implementation/adapters/), stage their index.html alongside the
+      # bundles, serve out/examples on :8030, and run the Playwright
+      # specs. Per rf2-8cevm the `examples/` tree is TEST-FREE — only
+      # the 3 adapter smokes (Reagent/UIx/Helix), 2 Causa-owned
+      # framework testbeds (parallel-frames, perf-counter), and the
+      # top-level testbeds/ specs (rf2-fe84r + rf2-ik4io SSR) are
+      # exercised here.
       #
       # NOT a required check on main initially — mirrors the rollout
-      # pattern used for cljs-browser (rf2-zoem). Promote to required
-      # once the suite has been stable for a couple of cycles.
-      - name: Compile examples, serve, and run Playwright specs
+      # pattern used for cljs-browser (rf2-zoem).
+      - name: Compile adapter smokes + testbeds, serve, and run Playwright specs
         run: npm run test:examples
 
   story-causa-browser:

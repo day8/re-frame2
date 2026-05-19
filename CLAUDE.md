@@ -97,6 +97,8 @@ npm run story:build                  # build the story artefact
 
 Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). The canonical matrix and PR/nightly/release split lives in `TESTING.md`; workflow gates live in `.github/workflows/`.
 
+**Examples are test-free (locked 2026-05-19, rf2-8cevm).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation, the perf-bundle gate, and mcp-conformance. Framework testbeds (`tools/causa/testbeds/`, top-level `testbeds/`) carry their own non-adapter spec.cjs for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
+
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
 ## Architecture Overview

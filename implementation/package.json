@@ -24,7 +24,6 @@
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/counter-helix && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-helix-reagent-free.cjs",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs",
-    "test:examples:realworld": "node ../examples/scripts/serve-and-run-examples-tests.cjs --filter realworld",
     "story:build": "node scripts/story-build.cjs",
     "test:story-feature-load": "node ../examples/scripts/serve-and-run-story-feature-load-tests.cjs",
     "test:story-play-scripts": "node ../examples/scripts/serve-and-run-story-play-scripts.cjs",

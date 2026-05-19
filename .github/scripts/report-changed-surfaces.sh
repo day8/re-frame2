@@ -81,12 +81,15 @@ else
         story_causa_browser=true
         ;;
       implementation/adapters/reagent-slim/*|examples/reagent/counter_slim_and_fast/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
+        # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
+        # used to ship a paired spec.cjs but the bundle-isolation contract
+        # at scripts/check-reagent-slim-bundle-isolation.cjs is the
+        # canonical gate; examples_browser is no longer fired here.
         implementation_jvm=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
         reagent_slim_bundle=true
-        examples_browser=true
         ;;
       implementation/adapters/*)
         implementation_jvm=true
