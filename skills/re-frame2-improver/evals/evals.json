@@ -1,0 +1,24 @@
+{
+  "skill_name": "re-frame2-improver",
+  "schema_version": "1",
+  "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md (per rf2-djprj). Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
+  "notes": "Three filters must hold to trigger: explicit pull, source-in-scope, not a sibling's job. Positives include all three. Negatives split between vocab-only (no source), wrong sibling, mid-edit (out of scope), and unrelated 'review' prompts.",
+  "evals": [
+    {"id": 1,  "name": "pull-review-cljs",       "should_trigger": true,  "prompt": "I just edited src/app/cart/events.cljs and src/app/cart/subs.cljs. Review them for re-frame2 anti-patterns."},
+    {"id": 2,  "name": "pull-audit-best",        "should_trigger": true,  "prompt": "Audit this snippet against re-frame2 best practices:\n\n(rf/reg-event-db :cart/loading? (fn [db [_ v]] (assoc db :cart/loading? v)))"},
+    {"id": 3,  "name": "pull-any-improvements",  "should_trigger": true,  "prompt": "I read events.cljs and views.cljs earlier. Any improvements you can spot?"},
+    {"id": 4,  "name": "pull-better-pattern",    "should_trigger": true,  "prompt": "Is there a better re-frame2 pattern for this state machine?\n\n(rf/reg-event-db :checkout/start ...)"},
+    {"id": 5,  "name": "pull-spot-antipatterns", "should_trigger": true,  "prompt": "Spot any anti-patterns in cart/handlers.cljs?"},
+    {"id": 6,  "name": "pull-improver-against",  "should_trigger": true,  "prompt": "Run the re-frame2 improver against the files I just edited."},
+    {"id": 7,  "name": "pull-critique-mode",     "should_trigger": true,  "prompt": "Critique my re-frame2 code — focus on subs.cljs and events.cljs in the cart slice."},
+    {"id": 8,  "name": "pull-snippet-paste",     "should_trigger": true,  "prompt": "Quick review:\n\n(rf/reg-sub :cart/items-loading? (fn [db _] (boolean (:cart/loading? db))))\n(rf/reg-sub :cart/items-error?   (fn [db _] (some? (:cart/error db))))\n(rf/reg-sub :cart/items-loaded?  (fn [db _] (some? (:cart/items db))))\n\nAnything wrong?"},
+    {"id": 9,  "name": "neg-vocab-no-source",    "should_trigger": false, "prompt": "Any improvements I should make to my project?", "rationale": "Vocabulary hit ('improvements') but no re-frame2 source in scope."},
+    {"id": 10, "name": "neg-review-non-cljs",    "should_trigger": false, "prompt": "Review my Python script for anti-patterns.", "rationale": "Source is not re-frame2."},
+    {"id": 11, "name": "neg-author-new",         "should_trigger": false, "prompt": "Write me a re-frame2 reg-event-fx for posting a login form.", "rationale": "Authoring new code is re-frame2's job."},
+    {"id": 12, "name": "neg-live-pair",          "should_trigger": false, "prompt": "Inspect app-db in my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
+    {"id": 13, "name": "neg-greenfield",         "should_trigger": false, "prompt": "Start me a new re-frame2 project from scratch.", "rationale": "Greenfield is re-frame2-setup."},
+    {"id": 14, "name": "neg-mid-edit",           "should_trigger": false, "prompt": "I'm in the middle of writing this reg-event-fx — interrupt me if I'm about to use an anti-pattern.", "rationale": "Mid-edit interruption is explicitly disallowed; skill is pull-only."},
+    {"id": 15, "name": "neg-pair-retro",         "should_trigger": false, "prompt": "Retro on the re-frame2-pair session I just finished.", "rationale": "Session retro is re-frame2-pair-retro."},
+    {"id": 16, "name": "neg-migration-review",   "should_trigger": false, "prompt": "Review my v1->v2 migration so far — what's left?", "rationale": "Migration is re-frame-migration's job."}
+  ]
+}

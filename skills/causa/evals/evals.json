@@ -1,0 +1,24 @@
+{
+  "skill_name": "causa",
+  "schema_version": "1",
+  "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md (per rf2-djprj). Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
+  "notes": "Positives (should_trigger: true) target the launch + panel-routing surface of skill SKILL.md. Negatives target adjacent surfaces (re-frame2-pair drives Causa; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering.",
+  "evals": [
+    {"id": 1,  "name": "launch-default",        "should_trigger": true,  "prompt": "How do I open Causa in my re-frame2 dev build?"},
+    {"id": 2,  "name": "launch-popout",         "should_trigger": true,  "prompt": "I want Causa on a second monitor — what's the call to pop it out into its own window?"},
+    {"id": 3,  "name": "launch-programmatic",   "should_trigger": true,  "prompt": "How do I mount Causa from code? My app doesn't use shadow-cljs :preloads."},
+    {"id": 4,  "name": "launch-hotkey",         "should_trigger": true,  "prompt": "What's the Ctrl+Shift+C hotkey wired to?"},
+    {"id": 5,  "name": "panel-route-state",     "should_trigger": true,  "prompt": "Which Causa panel shows me when [:cart :items] last changed in app-db?"},
+    {"id": 6,  "name": "panel-route-machine",   "should_trigger": true,  "prompt": "Where in Causa do I see the current state of my checkout state machine?"},
+    {"id": 7,  "name": "panel-route-schema",    "should_trigger": true,  "prompt": "I'm getting schema violations — which Causa panel surfaces them and when did each one start?"},
+    {"id": 8,  "name": "panel-route-hydration", "should_trigger": true,  "prompt": "My SSR hydration is mismatching — does Causa have a panel for that?"},
+    {"id": 9,  "name": "neg-drive-causa",       "should_trigger": false, "prompt": "Use Causa to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "Driving Causa from a REPL is re-frame2-pair's surface, not the read-only tour."},
+    {"id": 10, "name": "neg-implement-panel",   "should_trigger": false, "prompt": "I want to add a new Causa panel for WebSocket connection lifecycle — walk me through the panel-facade/leaf split.", "rationale": "Implementing Causa is out of scope; route to tools/causa/spec/."},
+    {"id": 11, "name": "neg-author-app",        "should_trigger": false, "prompt": "Write a re-frame2 reg-event-fx that posts a login form and dispatches :login-success / :login-failure.", "rationale": "Authoring application code is re-frame2's job."},
+    {"id": 12, "name": "neg-spec-discussion",   "should_trigger": false, "prompt": "Why does re-frame2 use frames at all? What's the EP rationale?", "rationale": "Spec / design rationale belongs to SKILL-REDIRECT.md."},
+    {"id": 13, "name": "neg-setup",             "should_trigger": false, "prompt": "Start me a brand-new re-frame2 project from an empty directory — deps.edn, shadow-cljs.edn, the works.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
+    {"id": 14, "name": "neg-migration",         "should_trigger": false, "prompt": "I've got a re-frame v1 app I want to migrate to re-frame2. Walk me through it.", "rationale": "v1->v2 migration is re-frame-migration."},
+    {"id": 15, "name": "neg-implementor",       "should_trigger": false, "prompt": "I'm porting re-frame2 to TypeScript. Where do I start?", "rationale": "Porting the framework is re-frame2-implementor."},
+    {"id": 16, "name": "neg-vocab-only",        "should_trigger": false, "prompt": "What's the difference between cause and effect in programming generally?", "rationale": "Vocabulary hit on 'cause' without any re-frame2 context."}
+  ]
+}
