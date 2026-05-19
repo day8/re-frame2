@@ -65,7 +65,8 @@
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [day8.re-frame2-causa.config :as config]))
+            [day8.re-frame2-causa.config :as config]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- mount late-bind helpers --------------------------------------------
 
@@ -143,6 +144,78 @@
       (.setProperty (.-style root) text-size-css-var value))
     (when-let [html (html-root-element)]
       (.setProperty (.-style html) text-size-css-var value)))
+  nil)
+
+;; ---- density (rf2-i40us) ------------------------------------------------
+;;
+;; The density radio (Compact / Cosy in v1; Comfy is the spec's third
+;; tier kept here for forward compat) writes a px value to the canonical
+;; `--rf-causa-font-size` CSS custom property that anchors the whole
+;; `theme/tokens/type-scale`. Per rf2-n8i2c every `type-scale` entry
+;; resolves to `calc(var(--rf-causa-font-size, 13px) * <multiplier>)`;
+;; flipping the var rescales every typographic surface in lockstep on
+;; the next paint (no re-render needed). This completes the "one knob
+;; per density" loop the radio shipped without — until this commit the
+;; radio only persisted the value + drove the `:rf.causa/density` sub.
+;;
+;; ## Why we write here AND `theme/global-styles/motion-css` already
+;; publishes a default on `:root`
+;;
+;; `global-styles` writes the *default* value (`13px`) into the
+;; injected `<style>` block once at install time, so the var resolves
+;; for any descendant from first paint even before Causa mounts. The
+;; settings-driven apply fn here writes an *inline* declaration on
+;; `:root` / shell-root which OVERRIDES that selector-based default
+;; (inline > selector in the cascade). Removing the inline declaration
+;; on a return-to-cosy is therefore optional — re-asserting 13px is
+;; idempotent — but we re-assert anyway so the apply fn's contract is
+;; one-write-one-paint regardless of the prior state.
+
+(def density->font-size-px
+  "Pure-data map from density keyword → font-size pixel value to write
+  into `--rf-causa-font-size`. The v1 radio surfaces only `:compact`
+  and `:cosy` (Mike 2026-05-19); `:comfy` is catalogued so a future
+  un-drop of the third tier wires through without a code change.
+
+  - `:compact` → 12px (one step tighter than the historic baseline)
+  - `:cosy`    → 13px (the historic baseline; matches
+                 `tokens/font-size-default`)
+  - `:comfy`   → 14px (one step looser; spec/007 §Typography catalogues
+                 it as the third tier on the ±1px density knob)
+
+  JVM-portable pure data so the JVM test surface can assert the
+  mapping without touching the browser."
+  {:compact 12
+   :cosy    13
+   :comfy   14})
+
+(defn density->px
+  "Resolve a density keyword to its px value via `density->font-size-px`.
+  Falls back to the cosy default (13px) when the keyword is unknown
+  (a persisted `:comfy` payload pre-Mike-2026-05-19 lands here; the
+  `:rf.causa/density` sub coerces unknown values to `:cosy` for the
+  reactive surface, and this helper mirrors that posture)."
+  [density]
+  (or (get density->font-size-px density)
+      (get density->font-size-px :cosy)))
+
+(defn apply-density-font-size!
+  "Write the px value for `density` into `--rf-causa-font-size` on both
+  the Causa shell root (so the inline-style call sites that resolve
+  `calc(var(--rf-causa-font-size, 13px) * N)` from `type-scale` pick
+  it up via inheritance) and the `<html>` root (so popout / fullscreen
+  mounts that may not be inside the inline shell root still inherit).
+
+  No-op when neither element is present (test runtimes without a
+  `document`). Matches the `apply-text-size!` / `apply-theme!` /
+  `apply-panel-width!` write pattern — write to both roots so every
+  Causa-owned surface (inline, popout, fullscreen) honours the knob."
+  [density]
+  (let [value (str (density->px density) "px")]
+    (when-let [root (shell-root-element)]
+      (.setProperty (.-style root) tokens/font-size-var-name value))
+    (when-let [html (html-root-element)]
+      (.setProperty (.-style html) tokens/font-size-var-name value)))
   nil)
 
 ;; ---- theme --------------------------------------------------------------
@@ -407,6 +480,14 @@
   (let [s (config/get-settings)]
     (apply-text-size!  (get-in s [:general :text-size]))
     (apply-theme!      (get s :theme))
+    ;; rf2-i40us — restore the persisted density-driven font-size so
+    ;; the user's saved choice rescales the type scale BEFORE first
+    ;; paint. Default (`:cosy`) re-asserts 13px (the same value
+    ;; `theme/global-styles/motion-css` publishes on `:root` at install
+    ;; time); the inline write is idempotent on the cosy case and the
+    ;; cost of writing-anyway is one DOM setProperty per boot.
+    (apply-density-font-size!
+      (get-in s [:general :density]))
     ;; rf2-ybjkx — restore the reduced-motion override so the user's
     ;; saved choice survives reload BEFORE first paint. The default
     ;; `:os` writes nothing (the OS media query alone drives the
