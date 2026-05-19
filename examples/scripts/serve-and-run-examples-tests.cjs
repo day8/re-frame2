@@ -208,6 +208,14 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'login', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login'),
   },
+  // rf2-t7t6f — Reagent design-led example. Three-pane editorial
+  // notebook (documents tree + markdown editor + live preview). Pairs
+  // with the Reagent 'Editorial Warm' identity (rf2-nfg15).
+  {
+    build: 'examples/notebook',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'notebook', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'notebook'),
+  },
   // UIx adapter smoke trio (counter + login, realworld skipped).
   // Different folders from the canonical Reagent versions so the
   // bundle-isolation grep can confirm UIx code does NOT appear in
@@ -222,6 +230,14 @@ const EXAMPLES = [
     build: 'examples/login-uix',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login_uix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-uix'),
+  },
+  // rf2-t7t6f — UIx design-led example. Analytics dashboard with
+  // status tiles, filter chips, and sparkline metric cards. Pairs with
+  // the UIx 'Swiss Modern' identity (rf2-nfg15).
+  {
+    build: 'examples/dashboard-uix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'dashboard_uix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'dashboard-uix'),
   },
   // Helix adapter smoke trio (counter + login, realworld skipped —
   // the eight UIx decisions transfer unchanged). Different folders
@@ -238,6 +254,15 @@ const EXAMPLES = [
     build: 'examples/login-helix',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'login_helix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-helix'),
+  },
+  // rf2-t7t6f — Helix design-led example. Terminal-style process
+  // monitor: status tiles, filterable process list, live log stream
+  // with a recurring :dispatch-later tick. Pairs with the Helix
+  // 'Developer Industrial' identity (rf2-nfg15).
+  {
+    build: 'examples/process-monitor-helix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'process_monitor_helix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'process-monitor-helix'),
   },
   {
     build: 'examples/realworld',

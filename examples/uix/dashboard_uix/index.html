@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: dashboard (UIx · design-led)</title>
+  <link rel="stylesheet" href="_shared/css/uix.css">
+  <style>
+    /* Per-example layout — Atlas dashboard grid. Tokens come from
+       _shared/css/uix.css (ux-* CSS variables). */
+    .dash-shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 3em min(7vw, 56px);
+      box-sizing: border-box;
+    }
+    .dash-shell-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 2em;
+      margin-bottom: 2.5em;
+      padding-bottom: 1.5em;
+      border-bottom: 1.5px solid var(--ux-ink);
+    }
+    .dash-shell-head h1 { font-size: 3rem; margin: 0 0 0.3rem; }
+    .dash-tagline {
+      margin: 0;
+      font-family: var(--ux-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.78rem;
+      color: var(--ux-ink-mute);
+    }
+    .dash-substrate-tag {
+      color: var(--ux-ink);
+      background: var(--ux-yellow);
+      padding: 1px 6px;
+      margin-left: 6px;
+    }
+
+    .dash-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dash-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--ux-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 8px 12px;
+      background: var(--ux-bg-raised);
+      color: var(--ux-ink-mute);
+      border: 1.5px solid var(--ux-rule);
+      box-shadow: 3px 3px 0 var(--ux-rule);
+      cursor: pointer;
+      border-radius: 0;
+      transition: transform 80ms ease, box-shadow 80ms ease, color 100ms ease;
+    }
+    .dash-chip:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0 var(--ux-rule);
+    }
+    .dash-chip.is-on {
+      color: var(--ux-ink);
+      border-color: var(--ux-ink);
+      box-shadow: 3px 3px 0 var(--ux-ink);
+    }
+    .dash-chip-dot {
+      width: 8px; height: 8px; display: inline-block;
+    }
+    .dash-chip-dot.tag-money { background: var(--ux-mint); }
+    .dash-chip-dot.tag-perf  { background: var(--ux-cyan-deep); }
+    .dash-chip-dot.tag-usage { background: var(--ux-yellow); }
+
+    .dash-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25em;
+    }
+
+    .dash-card {
+      background: var(--ux-bg-raised);
+      border: 1.5px solid var(--ux-ink);
+      box-shadow: 5px 5px 0 var(--ux-ink);
+      padding: 1.4em 1.5em;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+    }
+    .dash-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .dash-eyebrow {
+      font-family: var(--ux-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.7rem;
+      color: var(--ux-ink-mute);
+    }
+    .dash-delta {
+      font-family: var(--ux-mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 2px 6px;
+    }
+    .dash-delta.is-good { background: var(--ux-mint); color: var(--ux-ink); }
+    .dash-delta.is-bad  { background: var(--ux-coral); color: var(--ux-bg-raised); }
+
+    .dash-card-value {
+      display: flex; align-items: baseline; gap: 4px;
+      margin-top: 0.4em;
+      font-family: var(--ux-sans);
+      color: var(--ux-ink);
+    }
+    .dash-value { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.025em; }
+    .dash-unit  { font-size: 1.2rem; color: var(--ux-ink-mute); font-weight: 500; }
+
+    .dash-card-label {
+      font-family: var(--ux-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.84rem;
+      color: var(--ux-ink-mute);
+    }
+
+    .dash-sparkline {
+      width: 100%; height: 42px;
+      color: var(--ux-cyan-deep);
+      margin-top: 0.6em;
+    }
+
+    .dash-shell-foot {
+      margin-top: 3em;
+      padding-top: 1em;
+      border-top: 1px solid var(--ux-rule);
+      font-family: var(--ux-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.74rem;
+      color: var(--ux-ink-faint);
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="main.js"></script>
+</body>
+</html>

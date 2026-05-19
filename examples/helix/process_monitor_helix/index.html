@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: process-monitor (Helix · design-led)</title>
+  <link rel="stylesheet" href="_shared/css/helix.css">
+  <style>
+    /* Per-example layout — process-monitor shell. Tokens come from
+       _shared/css/helix.css (hx-* CSS variables). */
+    .pm-shell {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      background: var(--hx-bg);
+    }
+    .pm-shell-head {
+      padding: 1.5em 2em 1em;
+      border-bottom: 1px solid var(--hx-rule-strong);
+      display: flex; flex-direction: column; gap: 1.2em;
+    }
+    .pm-brand { display: flex; align-items: baseline; gap: 0.2em; }
+    .pm-prompt { color: var(--hx-green); font-family: var(--hx-mono);
+                 font-weight: 700; font-size: 1.6rem; }
+    .pm-shell-head h1 {
+      font-family: var(--hx-mono);
+      font-size: 1.6rem;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .pm-shell-head h1::before { content: ''; }
+    .pm-substrate {
+      font-family: var(--hx-mono);
+      color: var(--hx-ink-muted);
+      font-size: 0.9rem;
+    }
+
+    .pm-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75em; }
+    .pm-tile {
+      background: var(--hx-bg-surface);
+      border: 1px solid var(--hx-rule-strong);
+      border-radius: 4px;
+      padding: 0.6em 0.9em;
+      font-family: var(--hx-mono);
+    }
+    .pm-tile-label {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.7rem;
+      color: var(--hx-ink-muted);
+      margin-bottom: 4px;
+    }
+    .pm-tile-value { font-size: 1.4rem; font-weight: 700; color: var(--hx-ink); }
+    .pm-tile-good { border-left: 3px solid var(--hx-green); }
+    .pm-tile-good .pm-tile-value { color: var(--hx-green); }
+    .pm-tile-warn { border-left: 3px solid var(--hx-amber); }
+    .pm-tile-warn .pm-tile-value { color: var(--hx-amber); }
+    .pm-tile-bad  { border-left: 3px solid var(--hx-red); }
+    .pm-tile-bad  .pm-tile-value { color: var(--hx-red); }
+
+    .pm-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(380px, 1fr) 1.6fr;
+      gap: 0;
+      min-height: 0;
+    }
+
+    .pm-pane {
+      display: flex; flex-direction: column;
+      border-right: 1px solid var(--hx-rule-strong);
+      min-width: 0;
+    }
+    .pm-pane:last-child { border-right: 0; }
+
+    .pm-pane-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.9em 1.2em;
+      border-bottom: 1px solid var(--hx-rule);
+      background: var(--hx-bg-surface);
+    }
+    .pm-pane-head h3 {
+      font-family: var(--hx-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--hx-green);
+      font-size: 0.78rem;
+      margin: 0;
+    }
+    .pm-pane-head h3::before { content: ''; }
+    .pm-pane-hint {
+      font-family: var(--hx-mono);
+      color: var(--hx-ink-faint);
+      font-size: 0.74rem;
+    }
+
+    .pm-chips { display: flex; gap: 6px; }
+    .pm-chip {
+      font-family: var(--hx-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border: 1px solid var(--hx-rule-strong);
+      background: transparent;
+      color: var(--hx-ink-muted);
+      cursor: pointer;
+      border-radius: 2px;
+      transition: color 100ms ease, border-color 100ms ease;
+    }
+    .pm-chip:hover { color: var(--hx-ink); border-color: var(--hx-ink-muted); }
+    .pm-chip-info.is-on  { color: var(--hx-cyan);    border-color: var(--hx-cyan); }
+    .pm-chip-warn.is-on  { color: var(--hx-amber);   border-color: var(--hx-amber); }
+    .pm-chip-error.is-on { color: var(--hx-red);     border-color: var(--hx-red); }
+
+    .pm-list {
+      list-style: none; padding: 0; margin: 0;
+      overflow-y: auto; flex: 1;
+    }
+    .pm-row {
+      display: grid;
+      grid-template-columns: 12px minmax(0,1fr) 70px 80px 56px 56px;
+      gap: 8px; align-items: center;
+      padding: 0.55em 1.2em;
+      border-bottom: 1px solid var(--hx-rule);
+      cursor: pointer;
+      font-family: var(--hx-mono);
+      font-size: 0.86rem;
+      transition: background 80ms ease;
+    }
+    .pm-row:hover { background: var(--hx-bg-surface); }
+    .pm-row.is-selected {
+      background: var(--hx-bg-elevated);
+      box-shadow: inset 3px 0 0 var(--hx-green);
+    }
+    .pm-row-name { color: var(--hx-ink); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pm-row-pid  { color: var(--hx-ink-faint); }
+    .pm-row-cpu, .pm-row-mem { color: var(--hx-ink-muted); text-align: right; }
+    .pm-row-meter {
+      height: 6px;
+      background: var(--hx-rule);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+    .pm-row-bar { height: 100%; background: var(--hx-green); transition: width 200ms ease; }
+    .pm-row-warn .pm-row-bar { background: var(--hx-amber); }
+    .pm-row-down .pm-row-bar { background: var(--hx-red); }
+
+    .pm-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--hx-ink-faint);
+      box-shadow: 0 0 6px currentColor;
+    }
+    .pm-dot-running { background: var(--hx-green); color: var(--hx-green); }
+    .pm-dot-warn    { background: var(--hx-amber); color: var(--hx-amber); }
+    .pm-dot-down    { background: var(--hx-red);   color: var(--hx-red); }
+
+    .pm-loglist {
+      list-style: none; padding: 0; margin: 0;
+      overflow-y: auto; flex: 1;
+      background: var(--hx-bg);
+    }
+    .pm-log {
+      display: grid;
+      grid-template-columns: 60px 80px 60px 1fr;
+      gap: 10px;
+      padding: 0.35em 1.2em;
+      font-family: var(--hx-mono);
+      font-size: 0.84rem;
+      border-bottom: 1px dotted var(--hx-rule);
+    }
+    .pm-log-t   { color: var(--hx-ink-faint); }
+    .pm-log-pid { color: var(--hx-ink-muted); }
+    .pm-log-lvl {
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .pm-log-lvl-info  { color: var(--hx-cyan); }
+    .pm-log-lvl-warn  { color: var(--hx-amber); }
+    .pm-log-lvl-error { color: var(--hx-red); }
+    .pm-log-msg { color: var(--hx-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="main.js"></script>
+</body>
+</html>

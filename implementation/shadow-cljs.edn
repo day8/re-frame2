@@ -554,6 +554,17 @@
    :asset-path "."
    :modules    {:main {:init-fn login.core/run}}}
 
+  ;; rf2-t7t6f — Reagent design-led example. Three-pane editorial layout
+  ;; (documents tree + markdown editor + live preview) proving Reagent
+  ;; builds substantive UIs, not just counters. Pairs with the Reagent
+  ;; 'Editorial Warm' visual identity (rf2-nfg15) from
+  ;; examples/_shared/css/reagent.css.
+  :examples/notebook
+  {:target     :browser
+   :output-dir "out/examples/notebook"
+   :asset-path "."
+   :modules    {:main {:init-fn notebook.core/run}}}
+
   ;; rf2-3yij — UIx-substrate smoke trio (counter + login per Decision 7).
   ;; Each example has its own per-example shadow-cljs build, mirroring the
   ;; Reagent variants, so the bundle-isolation grep can verify a Reagent
@@ -571,6 +582,16 @@
    :output-dir "out/examples/login-uix"
    :asset-path "."
    :modules    {:main {:init-fn login-uix.core/run}}}
+
+  ;; rf2-t7t6f — UIx design-led example. Analytics-dashboard layout
+  ;; (status tiles + filter chips + sparkline cards) proving UIx builds
+  ;; substantive UIs. Pairs with the UIx 'Swiss Modern' visual identity
+  ;; (rf2-nfg15) from examples/_shared/css/uix.css.
+  :examples/dashboard-uix
+  {:target     :browser
+   :output-dir "out/examples/dashboard-uix"
+   :asset-path "."
+   :modules    {:main {:init-fn dashboard-uix.core/run}}}
 
   ;; rf2-2qit — Helix-substrate smoke trio (counter + login per Decision 7,
   ;; transferred from rf2-3yij). Each example has its own per-example
@@ -590,6 +611,17 @@
    :output-dir "out/examples/login-helix"
    :asset-path "."
    :modules    {:main {:init-fn login-helix.core/run}}}
+
+  ;; rf2-t7t6f — Helix design-led example. Terminal-style process-monitor
+  ;; (status tiles + filterable process list + live log stream with a
+  ;; recurring :dispatch-later tick) proving Helix builds substantive
+  ;; UIs. Pairs with the Helix 'Developer Industrial' visual identity
+  ;; (rf2-nfg15) from examples/_shared/css/helix.css.
+  :examples/process-monitor-helix
+  {:target     :browser
+   :output-dir "out/examples/process-monitor-helix"
+   :asset-path "."
+   :modules    {:main {:init-fn process-monitor-helix.core/run}}}
 
   :examples/realworld
   {:target     :browser
