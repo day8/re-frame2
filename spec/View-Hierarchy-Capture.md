@@ -1,7 +1,7 @@
 # View Hierarchy Capture — runtime view-tree readback
 
 > **Type:** Reference (single contract document)
-> Locked: 2026-05-19 ~14:55 AUSEST per [`ai/findings/2026-05-19-causa-machine-inspector-mode-s.md`](../ai/findings/2026-05-19-causa-machine-inspector-mode-s.md) §12 + §11 Comment 6.
+> Locked: 2026-05-19 — Fiber-reading for hierarchy capture relaxed; per-component metadata reads remain rejected.
 
 This doc pins the contract for **runtime view-hierarchy capture** — how a tool (today, Causa) reads the parent ⊃ children relationships of the views the host application has mounted. The contract is single-document because **the React Fiber parent/child slots ARE the contract for every React-backed substrate** the framework supports (Reagent / UIx / Helix all mount through React).
 
