@@ -216,8 +216,75 @@
   `local()` defaults."
   "Fraunces, ui-serif, Georgia, Cambria, Times, serif")
 
+(def font-size-var-name
+  "CSS custom-property name the whole type-scale interpolates through
+  (rf2-n8i2c). `theme/global-styles/motion-css` publishes a default
+  value of `13px` on `:root`; host pages, the settings panel's
+  density slider, or DevTools overrides can swap the value and the
+  entire shell's type rescales in lockstep.
+
+  Modelled on TanStack Query Devtools' `--tsqd-font-size` knob — one
+  variable, every size derived via `calc()` with relative multipliers.
+  The 357 inline-style call sites that read `(:body type-scale)`
+  continue to resolve to a CSS string; the browser does the
+  multiplication at paint time, so changing `:root { --rf-causa-font-
+  size: 16px }` rescales every typographic surface ~1.23x without a
+  code change."
+  "--rf-causa-font-size")
+
+(def font-size-default
+  "Default value of `--rf-causa-font-size` published on `:root` by
+  `theme/global-styles/motion-css`. This is the historical Causa
+  baseline (`:body` = 13px); the per-key multipliers below are
+  expressed RELATIVE to it (e.g. `:caption` = 0.85 → ~11px at the
+  default knob).
+
+  Catalogued here rather than only in the CSS string so the JVM
+  side has the literal default for tests / inspection without
+  parsing a calc() expression."
+  "13px")
+
+(def type-scale-multipliers
+  "Pure-data multipliers used to derive each `type-scale` entry from
+  the `--rf-causa-font-size` knob. Catalogued separately from the
+  emitted calc-strings so tests can assert the relationship without
+  re-parsing a CSS expression.
+
+  Each multiplier expresses the entry's size as a fraction of the
+  CSS-variable default. Anchored on `:body = 1.0`:
+
+  - `:display`     1.077  — panel titles (~14px at the 13px default)
+  - `:body`        1.000  — default UI text (the anchor)
+  - `:body-tight`  0.923  — sidebar entries, header chrome (~12px)
+  - `:mono-body`   0.923  — code, EDN (~12px)
+  - `:caption`     0.846  — hints, secondary labels (~11px)
+  - `:micro`       0.769  — badges, tabs (~10px; spec's refused floor)
+
+  Multipliers chosen so the emitted calc-strings round to the same
+  pixel values the previous fixed-px table shipped — no perceptual
+  shift at the default knob; downstream rescales are uniform."
+  {:display     1.077
+   :body        1.0
+   :body-tight  0.923
+   :mono-body   0.923
+   :caption     0.846
+   :micro       0.769})
+
+(defn font-size-css
+  "Build the canonical `calc(var(--rf-causa-font-size, 13px) * N)`
+  CSS string each `type-scale` entry uses. One knob — change `:root
+  { --rf-causa-font-size: 16px }` and every derived size rescales
+  in lockstep.
+
+  Pure data → string; JVM-portable so the .cljc test surface
+  exercises the calc shape on the JVM runner."
+  [multiplier]
+  (str "calc(var(" font-size-var-name ", " font-size-default ") * "
+       multiplier ")"))
+
 (def type-scale
-  "Causa shell typography sizes (rf2-pcitk).
+  "Causa shell typography sizes (rf2-pcitk + rf2-n8i2c font-size-var
+  migration).
 
   Causa is an info-dense dev surface. Mike's UX session against the
   testbed flagged the cosy baseline (body 14 / mono 13 / line-height
@@ -226,23 +293,39 @@
   tightens line-height to 1.35, which is the readability floor for
   monospaced data dumps.
 
+  ## One knob, whole scale (rf2-n8i2c)
+
+  Every size below resolves through the `--rf-causa-font-size` CSS
+  custom property (default `13px`, published on `:root` by
+  `theme/global-styles/motion-css`). Each entry is
+  `calc(var(--rf-causa-font-size, 13px) * <multiplier>)` where the
+  multiplier expresses the entry's RELATIVE size — `:body` is the
+  1.0 anchor, `:display` is 1.077, `:caption` is 0.846, and so on.
+
+  Modelled on TanStack Query Devtools' `--tsqd-font-size` knob: one
+  variable scales the entire UI. Override `--rf-causa-font-size` at
+  `:root` (or under a `.rf-causa-density-compact` / `-comfy` class
+  toggle once wired) and every typographic surface rescales together
+  without a single code change.
+
   spec/007-UX-IA.md §Typography catalogues the cosy baseline and a
-  ±1px density knob (compact/cosy/comfy). Rather than wire the
-  runtime density toggle now (a later v1.0 styling-pass bead), we
-  ship the denser scale as the default — closer to compact, but with
-  a few intermediate values that suit Causa's layout. Raise every
-  value 1px to revert to spec-cosy.
+  ±1px density knob (compact/cosy/comfy). The runtime density
+  toggle plumb-through lands as a follow-on; this commit ships the
+  CSS-variable foundation it builds on.
 
   Values are CSS strings so call sites can drop them straight into
-  inline `:style` maps without unit conversion."
+  inline `:style` maps. The browser resolves `calc(var(--…) * N)`
+  at paint time, so the knob takes effect on the next style flush
+  without a re-render."
   {;; Headings + prose
-   :display      "14px"     ; was 16 — panel titles
-   :body         "13px"     ; was 14 — default UI text
-   :body-tight   "12px"     ; sidebar entries, header chrome
-   :mono-body    "12px"     ; was 13 — code, EDN
-   :caption      "11px"     ; was 12 — hints, secondary labels
-   :micro        "10px"     ; was 11 — badges, tabs (refused-floor in spec is 10)
-   ;; Vertical rhythm
+   :display      (font-size-css (:display     type-scale-multipliers))
+   :body         (font-size-css (:body        type-scale-multipliers))
+   :body-tight   (font-size-css (:body-tight  type-scale-multipliers))
+   :mono-body    (font-size-css (:mono-body   type-scale-multipliers))
+   :caption      (font-size-css (:caption     type-scale-multipliers))
+   :micro        (font-size-css (:micro       type-scale-multipliers))
+   ;; Vertical rhythm — unitless ratios, unchanged by the font-size
+   ;; knob (line-height naturally scales with the resolved font-size).
    :line-height-tight 1.35   ; was 1.5 — denser blocks
    :line-height-mono  1.4    ; mono needs a touch more leading for ascender clearance
    })
