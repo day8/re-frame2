@@ -13,12 +13,11 @@ Examples are organised under per-substrate top-level directories. Reagent is the
 examples/
   scripts/                              <-- orchestrator + Playwright helpers
     serve-and-run-examples-tests.cjs    <-- compiles, stages, serves, runs (entry point of `npm run test:examples`)
-    run-examples-tests.cjs              <-- Playwright runner (walks the tree, picks up *.spec.cjs)
+    run-examples-tests.cjs              <-- Playwright runner (walks SPEC_ROOTS, picks up *.spec.cjs / spec.cjs)
     spec-helpers.cjs                    <-- shared assertion helpers used by every spec
   reagent/                              <-- canonical substrate (full set)
     counter/
       core.cljs
-      counter.spec.cjs
       index.html
     counter_slim_and_fast/              <-- same dataflow, mounted on day8/reagent-slim
     todomvc/
@@ -39,25 +38,32 @@ examples/
     long_running_work/                  <-- Pattern-LongRunningWork worked example
     websocket/                          <-- Pattern-WebSocket worked example
     login/
-  uix/                                  <-- UIx adapter smoke-test set (counter + login)
+  uix/                                  <-- UIx adapter examples (counter + login + dashboard)
     counter_uix/                        <-- folder name carries the namespace suffix so it
     login_uix/                              doesn't collide with reagent/{counter,login}/ on the classpath
-  helix/                                <-- Helix adapter smoke-test set (counter + login)
+    dashboard_uix/
+  helix/                                <-- Helix adapter examples (counter + login + process-monitor)
     counter_helix/                      <-- folder name carries the namespace suffix so it
     login_helix/                            doesn't collide with reagent/ or uix/ siblings on the classpath
+    process_monitor_helix/
 ```
+
+> **The `examples/` tree is test-free (rf2-8cevm, Mike directive 2026-05-19).** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Causa feature-matrix gate (`npm run test:causa-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/causa/testbeds/`](../tools/causa/testbeds/) and the top-level [`testbeds/`](../testbeds/) carry their own non-adapter `spec.cjs` for cross-cutting surfaces (parallel-frames isolation, perf-API live counterpart, SSR, etc.).
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
 
 ## Reagent
 
-The full set of worked examples — nineteen in total (counting each 7GUIs task individually), each paired with a Playwright smoke spec (`<name>.spec.cjs`) and a shadow-cljs build id. The orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every build, stages the example's hand-written `index.html`, serves the lot, and runs the specs against a real Chromium. Run the full sweep from `implementation/`:
+The full set of worked examples — nineteen in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. Per rf2-8cevm there is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:causa-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
+
+Build any example directly via shadow-cljs:
 
 ```bash
-npm run test:examples
+# from implementation/
+shadow-cljs watch examples/counter
 ```
 
-| # | Example | Maturity | Build id | Spec(s) it exercises | What it demonstrates |
+| # | Example | Maturity | Build id | Spec(s) it illustrates | What it demonstrates |
 |---|---|---|---|---|---|
 | 1 | [`reagent/counter/`](reagent/counter/) | Pedagogical sketch | `examples/counter` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | The smallest possible app — one event, one sub, one view. The "hello world" of the pattern. |
 | 2 | [`reagent/counter_slim_and_fast/`](reagent/counter_slim_and_fast/) | Adapter fixture | `examples/counter-slim-and-fast` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [Conventions §Adapter test matrix](../spec/Conventions.md#adapter-test-matrix-policy) | The same counter dataflow as entry 1, but mounted on the `day8/reagent-slim` rewrite (every user-facing `reagent.*` import → `reagent2.*`; `rf/init!` takes the slim adapter Var). The paired `scripts/check-reagent-slim-bundle-isolation.cjs` asserts the advanced bundle contains no `reagent.impl.*` and no `react-dom/server` symbols — the slim adapter's bundle-isolation contract. |
@@ -79,13 +85,13 @@ npm run test:examples
 | 18 | [`reagent/7Guis/cells/`](reagent/7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
 | 19 | [`reagent/realworld/`](reagent/realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
 
-> Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It still builds under `:examples/counter-with-stories` and is exercised by the `npm run test:examples` runner — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/causa/testbeds/`](../tools/causa/) (the canonical multi-frame `parallel_frames` demo, the deterministic `feature_matrix` sweep, the Panel-view `panel_gallery`, and the perf-instrumented `perf_counter`).
+> Story Stage 8 (`tools/story` end-to-end on the canonical counter — seven `reg-*` macros, four variants, two workspaces, plus the privacy + size elision demo) lives as a **tool-owned testbed** at [`tools/story/testbeds/counter_with_stories/`](../tools/story/testbeds/counter_with_stories/). It builds under `:examples/counter-with-stories` and is exercised by `npm run test:story-feature-load` — but it's catalogued with the tool that owns it rather than with the tutorial examples. Same for [`tools/causa/testbeds/`](../tools/causa/) (the canonical multi-frame `parallel_frames` demo, the deterministic `feature_matrix` sweep, the Panel-view `panel_gallery`, and the perf-instrumented `perf_counter`).
 
 For the 7GUIs cluster's own narrative (entries 13–18 above plus the counter from entry 1), see the cluster README at [`reagent/7Guis/README.md`](reagent/7Guis/README.md).
 
 ## UIx
 
-The UIx adapter ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the canonical Reagent smoke trio (counter + login + realworld) is reduced to a **smoke pair (counter + login)** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+The UIx adapter ships a curated subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the canonical Reagent set is reduced for UIx to the **counter + login + dashboard** trio — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it. Adapter-level smoke coverage lives at [`implementation/adapters/uix/testbed/spec.cjs`](../implementation/adapters/uix/testbed/spec.cjs).
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
@@ -94,7 +100,7 @@ The UIx adapter ships a curated smoke-test subset rather than a 1:1 mirror of th
 
 ## Helix
 
-The Helix adapter ships the same smoke pair as UIx — counter + login. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ.
+The Helix adapter ships the same subset shape as UIx — counter + login (plus the process-monitor design-led example). The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ. Adapter-level smoke coverage lives at [`implementation/adapters/helix/testbed/spec.cjs`](../implementation/adapters/helix/testbed/spec.cjs).
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
@@ -121,37 +127,33 @@ If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix
 
 ## End-to-end verification
 
-Every example listed above is verified end-to-end by a Playwright spec — each spec navigates a real browser to the example's URL, asserts the initial render, drives at least one interaction, and asserts the post-interaction user-visible state. The orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every example, stages its `index.html`, serves the output over HTTP on port 8030, and runs the spec runner at [`scripts/run-examples-tests.cjs`](scripts/run-examples-tests.cjs). Specs sit alongside each example as `<name>.spec.cjs`. Run the full sweep with `npm run test:examples` from `implementation/` (the orchestrator and runner share the `playwright` and `http-server` devDependencies declared in `implementation/package.json`).
+Per rf2-8cevm (Mike directive 2026-05-19) the `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/`. The historic per-example Playwright sweep has been retired; real-regression coverage instead lives in:
 
-### How the orchestrator wires an example up
+- **`npm run test:cljs`** — substrate contract tests (events, subs, handlers, machines, schemas) across every artefact under `npm run test:cljs`'s node-runtime CLJS suite.
+- **`npm run test:examples`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`), the 2 Causa-owned framework testbeds (`tools/causa/testbeds/{parallel_frames,perf_counter}/`), and the top-level cross-cutting testbeds (`testbeds/<surface>/`), then runs their paired `spec.cjs`.
+- **`npm run test:causa-feature-gate`** — 14-scenario Causa feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
+- **`npm run test:bundle-isolation`** — production bundle grep contract for the per-feature artefact split.
+- **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (complemented by the live `tools/causa/testbeds/perf_counter/spec.cjs`).
+- **`npm run test:story-feature-load`** — Story tool feature/load gate (occasional).
 
-The orchestrator file declares one entry per example and walks through three steps for the whole set:
+### Building examples interactively
 
-1. **Compile.** A single `shadow-cljs compile <build-id> ...` invocation runs every build at once, sharing one JVM warmup. Each build's `:output-dir` is `out/examples/<name>/`.
-2. **Stage.** Each example's hand-written `index.html` (and any extra static assets — TodoMVC's CSS, the managed-HTTP counter's `/api/inc.json`) is copied next to the compiled `main.js` under `out/examples/<name>/`.
-3. **Serve and run.** `http-server` is launched against `out/examples` on port 8030, then `run-examples-tests.cjs` walks the tree, picks up every `*.spec.cjs`, and runs each spec against `http://127.0.0.1:8030/<mount>/`.
-
-Each spec module exports `{name, url, run}`; `run` is an `async (page) => ...` that issues Playwright assertions. URL mounts match the orchestrator's `outDir` directory name (e.g. `/counter/`, `/managed-http-counter/`, `/state-machine-walkthrough/`).
-
-### Adding a new example
-
-1. Create `examples/<substrate>/<name>/` with the source, a hand-written `index.html`, and a Playwright spec `<name>.spec.cjs`.
-2. Add a shadow-cljs build target to `implementation/shadow-cljs.edn` under the existing `:examples/...` block.
-3. Append an entry to the `EXAMPLES` array in `examples/scripts/serve-and-run-examples-tests.cjs` declaring `{build, htmlSrc, outDir, extraFiles?}`.
-4. Update this catalogue and any per-Spec cross-references that the new example exercises.
-
-The spec runner discovers specs by filesystem walk under `examples/`, `tools/`, and `testbeds/` (rf2-p8f2s), so no additional registration is needed beyond the orchestrator entry. Tool-owned testbeds at `tools/<tool>/testbeds/<scenario>/spec.cjs` are picked up the same way as in-tree example specs.
-
-### Running a single example interactively
-
-If you want to iterate on one example without re-running the whole sweep:
+If you want to iterate on one example:
 
 ```bash
 # From implementation/ — pick the build id from the catalogue above.
 shadow-cljs watch examples/counter
 ```
 
-Then serve the same `out/examples/counter/` directory (after staging its `index.html` once by hand, or by running `npm run test:examples` once first to populate the layout). The orchestrator is the canonical end-to-end runner; this loop is purely for source-code iteration.
+Stage the `index.html` once (copy `examples/reagent/counter/index.html` next to `out/examples/counter/main.js`) and serve `out/examples/` over HTTP.
+
+### Adding a new example
+
+1. Create `examples/<substrate>/<name>/` with the source and a hand-written `index.html`.
+2. Add a shadow-cljs build target to `implementation/shadow-cljs.edn` under the existing `:examples/...` block.
+3. Update this catalogue and any per-Spec cross-references that the new example exercises.
+
+**Do NOT add a `*.spec.cjs` under `examples/`.** If the new example proves a new framework contract that isn't already covered by `test:cljs` / `test:causa-feature-gate` / bundle-isolation / perf-bundle, file a follow-up bead to extend the appropriate gate (or, for a genuinely new cross-cutting surface, add a top-level `testbeds/<surface>/` with its own `spec.cjs`).
 
 ## What examples are *not*
 
