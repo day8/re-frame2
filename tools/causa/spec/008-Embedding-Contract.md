@@ -129,7 +129,7 @@ mechanism.
 | **App-db inspector** | Yes (compact-mode renders the slice-centric view only; no full-tree escape). |
 | **Issues ribbon** | Yes. |
 | **Performance ribbon** | Yes. |
-| Machine inspector | v1.1 — would re-import `tools/machines-viz/` per embed. |
+| Machine inspector | v1.0 — depends on `tools/machines-viz/` (its own tool jar; per rf2-o9arp / PR #1570). Causa re-exports the public chart API via thin shims so embedders that want the chart alone can depend on `tools/machines-viz/` directly without bringing in Causa's panel chrome. See also 003 §Architectural posture (H1) and 000 §Dependency arrows (H6). |
 | Subscription graph | v1.1. |
 | Schema timeline | v1.1. |
 | Hydration debugger | Not embeddable (the panel is contextual to a specific hydration; doesn't compose). |

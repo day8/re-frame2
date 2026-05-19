@@ -365,6 +365,45 @@ When both `:filters` and `:filters/storage-key` are passed in one
 call, the storage key is set BEFORE the seed so a host that overrides
 both gets the seed persisted under the right key.
 
+### `:experimental/static-mode?`
+
+The Static-mode feature flag (rf2-o5f5f.1). Gates whether Causa's
+surface composer mounts the dual-mode chrome (Runtime + Static, with
+the mode pill at ribbon-left and the Cmd-Shift-M chord wired to
+`:rf.causa/toggle-mode`) or the pre-Static Runtime-only chrome.
+
+| Value | Meaning |
+|---|---|
+| `false` | Default. The surface composer renders Runtime byte-identical to the pre-Static chrome — the mode pill is absent, `Cmd-Shift-M` / `Ctrl-Shift-M` falls through to host / browser shortcuts. Persisted mode in `causa.mode` localStorage is not consulted. |
+| `true` | The mode pill mounts at ribbon-left (`data-testid="rf-causa-mode-pill"`), `Cmd-Shift-M` / `Ctrl-Shift-M` toggles between Runtime and Static surfaces via `:rf.causa/toggle-mode`, and the active mode hydrates from `causa.mode` localStorage on boot (with `"runtime"` fallback). |
+| `nil` | Resets to default (`false`). |
+
+Default: `false`.
+
+The flag default flips to `true` once the placeholder Static sub-tabs
+(rf2-o5f5f.4 / .5 / .6) ship — separate decision, tracked under the
+`:experimental/static-mode?` follow-on. Hosts that want Static mode
+today (e.g. Story testbeds for design review of the 3-layer chrome)
+opt in via `(configure! {:experimental/static-mode? true})` and live
+with the placeholder cards on the still-pending sub-tabs.
+
+**Persistence.** The mode SELECTION (not the flag) persists under
+the localStorage key `causa.mode` as a bare string (`"runtime"` /
+`"static"`). The persistence fx is
+`:rf.causa.static/persist-mode` (per
+[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) §Static
+mode). The flag itself is a per-load atom — hosts must call
+`configure!` on every boot if they want Static mode active; flipping
+the flag while the panel is mounted is legal but is reserved for
+hot-reload / live-rebind scenarios.
+
+Cross-reference: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode
+(visual-language treatment of the mode pill, edge stripe, motion
+dampening, chrome silhouette) +
+[`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface (the
+architectural contract — 3-layer silhouette, 4-signal mode-recognition
+mechanism, mode-state lifecycle).
+
 ## App-db slots
 
 `configure!` is the host-visible surface; under the hood, Causa

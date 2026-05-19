@@ -447,6 +447,81 @@ share-affordance and source-coord jumps live in `tools/machines-viz/`.
 | `:rf.causa/set-registered-machines-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.causa/set-machine-snapshots-override-for-test` | `[_ ov]` | Test-only override hook. |
 
+## Static mode
+
+Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +
+[`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
+architectural section. Gated by the `:experimental/static-mode?` flag
+per [`015-Configuration.md`](./015-Configuration.md). When the flag is
+ON the mode pill mounts at ribbon-left, `Cmd-Shift-M` / `Ctrl-Shift-M`
+toggles between Runtime and Static surfaces, and the selected mode +
+sub-tab persist to localStorage. Per rf2-o5f5f.1 + rf2-o5f5f.2 +
+rf2-o5f5f.3 + rf2-ybjkx.
+
+### Subscriptions
+
+| Sub | Returns | Notes |
+|---|---|---|
+| `:rf.causa/mode` | `:runtime` / `:static`. | Default `:runtime`. Hydrated from `causa.mode` localStorage on boot when `:experimental/static-mode?` is ON. |
+| `:rf.causa.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
+| `:rf.causa.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
+| `:rf.causa.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.causa.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |
+| `:rf.causa.static.routes/expanded-id` | Set of route-ids whose meta-expander is open (per-row inline expand surface in the Static Routes panel). | Default `#{}`; sourced from the Static Routes panel's UI-state slot. |
+
+### Events
+
+| Event | Vector shape | Behaviour |
+|---|---|---|
+| `:rf.causa/set-mode` | `[_ mode]` | Sets `:rf.causa/mode` to `:runtime` / `:static` and fires `:rf.causa.static/persist-mode` so the selection round-trips through localStorage. |
+| `:rf.causa/toggle-mode` | `[_]` | Flips between `:runtime` and `:static`. The `Cmd-Shift-M` / `Ctrl-Shift-M` chord dispatches this. |
+| `:rf.causa.static/select-tab` | `[_ tab-id]` | Selects a Static sub-tab. Persists via the Static persistence fx. |
+
+### Effects
+
+| Fx | Args | Behaviour |
+|---|---|---|
+| `:rf.causa.static/persist-mode` | `mode` keyword | Writes the bare string (`"runtime"` / `"static"`) to localStorage key `causa.mode`. No-ops on JVM / when localStorage is unavailable. |
+
+## Command palette
+
+Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Command palette. Per
+rf2-ybjkx / PR #1572 the palette extensions ship six new verbs, a
+mode-aware command index (the palette's source list filters by
+`:rf.causa/mode`), and a recents slot that boosts the most-recently-
+invoked commands to the head of the result list (top-3 persisted to
+localStorage).
+
+### Subscriptions
+
+| Sub | Returns | Notes |
+|---|---|---|
+| `:rf.causa.palette/open?` | Boolean — palette dialog mounted? | Toggled by the `Cmd-K` / `Ctrl-K` chord. |
+| `:rf.causa.palette/recents` | Vector of command-ids in MRU order, capped at 3. | Persisted under localStorage key `re-frame2.causa.palette.recents.v1`. Lazy-seeded from localStorage on first open. |
+
+### Events
+
+| Event | Vector shape | Behaviour |
+|---|---|---|
+| `:rf.causa.palette/open` | `[_]` | Mounts the dialog + focuses the input. |
+| `:rf.causa.palette/close` | `[_]` | Unmounts the dialog. |
+| `:rf.causa.palette/invoke` | `[_ command-id]` | Fires the verb's dispatch + records the id into recents + persists the recents slot. |
+
+### Command-item names (the 6 new verbs landed by rf2-ybjkx)
+
+| Command-id | Mode filter (`:modes`) | Behaviour |
+|---|---|---|
+| `:toggle-theme` | `#{:runtime :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.causa/settings-update`. |
+| `:toggle-reduced-motion` | `#{:runtime :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
+| `:snapshot-db` | `#{:runtime}` | Pins the current target-frame's app-db snapshot via `:rf.causa/pin-current`. |
+| `:clear-epoch` | `#{:runtime}` | Clears the trace ring + epoch history via `trace-bus/clear-buffer!`. |
+| `:mode-toggle` | `#{:runtime :static}` | Dispatches `:rf.causa/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
+| `:jump-to-settings` | `#{:runtime :static}` | Opens the Settings popup. |
+
+The `:modes` filter is the normative convention for palette command
+authoring: a command's `:modes` set MUST include every mode in which
+the command should appear in the palette's result list. Commands
+without a `:modes` slot default to `#{:runtime :static}` (both modes).
+
 ## Cross-references
 
 The catalogue is reference material; per-panel specs (000–013) are

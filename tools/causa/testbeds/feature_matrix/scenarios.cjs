@@ -2677,7 +2677,7 @@ const SCENARIOS = [
     url: '/counter/',
     panels: [],
     coveredRows: [
-      'Static Mode',
+      'Static mode mount + chord',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runStaticModeChromeAndChord,
@@ -2690,7 +2690,7 @@ const SCENARIOS = [
     url: '/counter/',
     panels: [],
     coveredRows: [
-      'Command Palette',
+      'Cmd-K palette',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runPaletteOpenExecute,
@@ -2755,9 +2755,12 @@ const SCENARIOS = [
     url: '/counter/',
     panels: ['trace'],
     load: true,
+    // Post rf2-y0z5b: 'Performance' coveredRow was dropped (the
+    // Performance panel was retired per Mike's call — Chrome DevTools
+    // Performance tab is the canonical surface). Trace + Shell/Elision
+    // remain.
     coveredRows: [
       'Trace',
-      'Performance',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runTraceBudgetSaturation,
