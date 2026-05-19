@@ -63,6 +63,7 @@
             [re-frame.trace :as rf-trace]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.causa-embed :as causa-embed]
             [re-frame.story.ui.command-palette.view :as command-palette]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.dispatch-console :as dispatch-console]
@@ -405,27 +406,22 @@
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
                      (ensure-variant-frame! now)
-                     ;; rf2-sgdd3: Causa is always-on in the RHS by
-                     ;; default. Drive `mount/open!` on every variant-
-                     ;; selection edge so the user lands in a freshly-
-                     ;; opened Causa shell against the new variant's
-                     ;; frame. Feature-detect-safe; no-op when Causa
-                     ;; is not on the classpath. Deferred one tick via
-                     ;; setTimeout so React has committed the RHS
-                     ;; `[data-rf-causa-host]` slot before `mount/open!`
-                     ;; queries the DOM for it (the slot only mounts
-                     ;; on the first render that has a selected variant).
-                     (js/setTimeout
-                       (fn [] (causa-preset/ensure-causa-mounted!))
-                       0)
+                     ;; rf2-v1ach: Causa now mounts per-panel into the
+                     ;; RHS via `causa-embed/causa-embed-panel`. The
+                     ;; embed owns its own React lifecycle — selecting
+                     ;; a variant rebuilds the panel-host component
+                     ;; (keyed on `variant-id::panel-id`) which drives
+                     ;; the Causa mount-fn on commit. We retain the
+                     ;; per-variant project-root + keybinding bridges
+                     ;; so the popout escape hatch + Causa's source-
+                     ;; coord chips honour Story's configured
+                     ;; `:project-root`. Per-variant Causa bridges
+                     ;; live on a separate seam from the embed mount.
+                     (causa-preset/wire-cross-host!)
                      ;; rf2-q9kv5: apply any per-story Causa preset
                      ;; (focus tab, configure filters, focus a cascade
-                     ;; position). Feature-detect-safe; no-op when
-                     ;; Causa is not on the classpath. The `:open?`
-                     ;; slot of the preset is now redundant — Causa
-                     ;; is opened above unconditionally — but the rest
-                     ;; of the preset (tab / filters / focus) still
-                     ;; rides this hook.
+                     ;; position) + seed the RHS chip-row's user-
+                     ;; override slot from the story's `:causa-panel`.
                      (causa-preset/on-variant-selected! now)
                      ;; rf2-8i2a9: auto-run the variant's `:play-script`
                      ;; if `:auto-run?` is true. Best-effort — yields one
@@ -523,18 +519,16 @@
              :role       "complementary"
              :aria-label "Inspectors"
              :tab-index  "0"}
-     ;; rf2-sgdd3 — Causa mount slot. Causa's `mount/open!` finds
-     ;; `[data-rf-causa-host]` and renders its shell into a child div.
-     ;; Feature-detect-safe: when Causa is not on the classpath the
-     ;; slot stays empty (preload isn't loaded → `causa-preset/
-     ;; causa-available?` returns false → `ensure-causa-mounted!`
-     ;; short-circuits → nothing renders here).
+     ;; rf2-v1ach — Causa-in-Story per-panel embed. Replaces the
+     ;; pre-rf2-v1ach whole-shell mount that crammed Causa's 4-layer
+     ;; chrome into a 320px column. The new shape: ONE Causa panel
+     ;; mounted at a time, chip-row picker for runtime swap, popout
+     ;; chip for the full-shell escape hatch. Per-story author
+     ;; intent rides the `:causa-panel` slot (or legacy
+     ;; `:causa :panel`); user clicks override for the session.
      ;;
-     ;; rf2-8rvu4: wrap the Causa host in a labelled RHS section so
-     ;; the user sees 'CAUSA — diagnostic surface' above the embed
-     ;; instead of an unlabelled 320px column. Section header carries
-     ;; the amber accent variant since Causa is the RHS's primary
-     ;; tenant.
+     ;; Feature-detect-safe: `causa-embed-panel` renders a graceful
+     ;; empty state when Causa is not on the classpath.
      [:section {:style (:rhs-section styles)
                 :data-rf-rhs-section "causa"}
       [:div {:style (merge (:rhs-section-h styles)
@@ -544,19 +538,7 @@
                        :color (:text-tertiary colors/tokens)
                        :letter-spacing "0.04em"}}
         "diagnostic"]]
-      ;; The slot is `position: relative` + `flex` so Causa's `:inline`
-      ;; mode (which uses `position: relative` and fills its host)
-      ;; participates in normal flex flow rather than escaping to
-      ;; viewport-fixed. The `min-height` keeps the slot tall enough
-      ;; for Causa's 4-layer chrome to render usefully even before the
-      ;; user resizes the RHS rail.
-      [:div {:data-rf-causa-host true
-             :data-test          "story-rhs-causa-host"
-             :style              {:position    "relative"
-                                  :display     "flex"
-                                  :flex        "1 1 auto"
-                                  :min-height  "320px"
-                                  :overflow    "hidden"}}]]
+      [causa-embed/causa-embed-panel]]
      (when (:controls vis)
        [:section {:style (:rhs-section styles)
                   :data-rf-rhs-section "controls"}
@@ -825,15 +807,12 @@
          (rails/hydrate!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid)
-           ;; rf2-sgdd3: mount Causa on shell mount too — without this
-           ;; the deep-link / persisted-selection path would render
-           ;; an empty `[data-rf-causa-host]` slot until the user
-           ;; clicked a different variant. Same setTimeout discipline
-           ;; as the selection-watcher branch: defer one tick so the
-           ;; RHS host slot has committed before Causa queries the DOM.
-           (js/setTimeout
-             (fn [] (causa-preset/ensure-causa-mounted!))
-             0)
+           ;; rf2-v1ach: per-panel embed manages its own mount on
+           ;; commit. The cross-host bridges (project-root +
+           ;; keybinding detach) still need to fire so the popout
+           ;; escape hatch + Causa's source-coord chips resolve
+           ;; against Story's `:project-root`.
+           (causa-preset/wire-cross-host!)
            ;; rf2-q9kv5: apply per-story preset on the mount-time
            ;; selection too (the selection-watcher only fires on
            ;; change, so a pre-selected variant would otherwise miss
