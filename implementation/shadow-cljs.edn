@@ -170,7 +170,13 @@
  ;; index.html is found without a copy step; per-file requests like
  ;; /main.js fall through to the second root automatically.
  :dev-http {8765 ["../tools/causa/testbeds/panel_gallery"
-                  "out/testbeds/panel-gallery"]}
+                  "out/testbeds/panel-gallery"]
+            ;; Parallel-Frames testbed (rf2-gxgmt). Source dir first so
+            ;; the hand-written index.html resolves at `/`; the compiled
+            ;; main.js falls through to out/examples/parallel-frames per
+            ;; the same cascade as :testbeds/panel-gallery above.
+            8030 ["../tools/causa/testbeds/parallel_frames"
+                  "out/examples/parallel-frames"]}
 
  :builds
  {:node-test

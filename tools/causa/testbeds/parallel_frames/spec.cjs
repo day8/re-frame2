@@ -6,23 +6,30 @@
  * coupling. The smoke asserts:
  *
  *   1. Initial paint — both frame panels render, both counters read 0,
- *      both clocks have ticked at least once (auto-tick @ 1s).
+ *      both clock-tick counters read 0 (rf2-gxgmt: ticks are on-demand
+ *      via the per-frame Tick button; the auto-tick chain was retired).
  *
  *   2. Counter isolation — clicking + on :above increments :above's
  *      counter while :below's counter stays at 0. Clicking + on :below
  *      then advances only :below.
  *
- *   3. HTTP / machine isolation — clicking Refresh on :below drives
+ *   3. Clock-tick isolation (rf2-gxgmt) — clicking Tick on :above
+ *      increments only :above's tick counter; clicking Tick on :below
+ *      increments only :below's. The same `::clock-tick` handler is
+ *      registered once globally and resolves against whichever frame
+ *      the dispatch envelope targets via the frame-provider context.
+ *
+ *   4. HTTP / machine isolation — clicking Refresh on :below drives
  *      :below's :title/flow machine into :loading, the mock fx
  *      resolves ~600ms later into :loaded, and :below's title slot
  *      carries a non-empty value. :above's title state stays :idle
  *      throughout.
  *
- *   4. Force-error path — Force-error on :above drives the same
+ *   5. Force-error path — Force-error on :above drives the same
  *      machine into :error legitimately (request fails by design).
- *      :below's :loaded state from step 3 persists.
+ *      :below's :loaded state from step 4 persists.
  *
- *   5. Causa target-frame round-trip (rf2-qd5r6, ex-Tier-2 L-14).
+ *   6. Causa target-frame round-trip (rf2-qd5r6, ex-Tier-2 L-14).
  *      Spec 008 §State isolation (the rf2-tijr Option-C lock).
  *      Causa's panel-layer `:rf.causa/set-target-frame` event +
  *      `:rf.causa/target-frame-db` sub project the addressed frame's
@@ -54,6 +61,11 @@ module.exports = {
     await expectTextEquals(page.locator('[data-testid="above-counter-value"]'), '0');
     await expectTextEquals(page.locator('[data-testid="below-counter-value"]'), '0');
 
+    // Both clock-tick counters start at 0 (rf2-gxgmt — on-demand via
+    // the per-frame Tick button; no auto-tick chain).
+    await expectTextEquals(page.locator('[data-testid="above-clock-ticks"]'), '0 ticks');
+    await expectTextEquals(page.locator('[data-testid="below-clock-ticks"]'), '0 ticks');
+
     // Both machines start at :idle (the :title/flow :initial slot).
     await expectTextEquals(page.locator('[data-testid="above-title-state"]'), ':idle');
     await expectTextEquals(page.locator('[data-testid="below-title-state"]'), ':idle');
@@ -76,7 +88,25 @@ module.exports = {
     await expectTextEquals(page.locator('[data-testid="above-counter-value"]'), '3');
     await expectTextEquals(page.locator('[data-testid="below-counter-value"]'), '1');
 
-    // --- 2. HTTP / machine isolation — Refresh on :below --------------------
+    // --- 2. Clock-tick isolation (rf2-gxgmt) --------------------------------
+    //
+    // Click Tick on :above twice. :above's tick counter advances to 2;
+    // :below's stays at 0. Then click Tick on :below once. :below
+    // advances to 1; :above stays at 2. The same `::clock-tick`
+    // handler is registered once globally and resolves against
+    // whichever frame the dispatch envelope targets via the
+    // frame-provider context — proving on-demand per-frame isolation
+    // without the spine-pollution cost of the retired auto-tick chain.
+    await page.locator('[data-testid="above-clock-tick"]').click();
+    await page.locator('[data-testid="above-clock-tick"]').click();
+    await expectTextEquals(page.locator('[data-testid="above-clock-ticks"]'), '2 ticks');
+    await expectTextEquals(page.locator('[data-testid="below-clock-ticks"]'), '0 ticks');
+
+    await page.locator('[data-testid="below-clock-tick"]').click();
+    await expectTextEquals(page.locator('[data-testid="above-clock-ticks"]'), '2 ticks');
+    await expectTextEquals(page.locator('[data-testid="below-clock-ticks"]'), '1 tick');
+
+    // --- 3. HTTP / machine isolation — Refresh on :below --------------------
     //
     // Click Refresh on :below. The :title/flow machine in :below's app-db
     // transitions :idle → :loading. ~600ms later the mock fx resolves
@@ -107,13 +137,13 @@ module.exports = {
       );
     }
 
-    // --- 3. Force-error on :above — legitimate failure cascade --------------
+    // --- 4. Force-error on :above — legitimate failure cascade --------------
     //
     // The Force-error button dispatches the same :title-refresh event
     // with `:force-error? true`. The mock fx rejects on that flag (it's
     // not a bug — it's a normal request the user asked to fail), and
     // the machine transitions :idle → :loading → :error. :below's
-    // :loaded state from step 2 persists.
+    // :loaded state from step 3 persists.
     await page.locator('[data-testid="above-title-force-error"]').click();
     await expectTextEquals(
       page.locator('[data-testid="above-title-state"]'),
@@ -132,7 +162,7 @@ module.exports = {
       );
     }
 
-    // --- 5. Causa target-frame round-trip + multi-frame isolation -----------
+    // --- 6. Causa target-frame round-trip + multi-frame isolation -----------
     //     (rf2-qd5r6 ex-Tier-2 L-14)
     //
     // Spec 008 §State isolation (rf2-tijr Option-C frame-provider lock).
