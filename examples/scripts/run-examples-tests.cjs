@@ -21,10 +21,10 @@
  *
  * Spec format: each spec exports an object
  *   {
- *     name:  string,                         // human-readable
- *     url:   string,                         // path under the static server root
- *     run:   async (page) => void,           // Playwright assertions
- *     skip:  string | false                  // optional — when truthy, the
+ *     name:       string,                    // human-readable
+ *     url:        string,                    // path under the static server root
+ *     run:        async (page) => void,      // Playwright assertions
+ *     skip:       string | false             // optional — when truthy, the
  *                                            //   spec is reported as SKIP
  *                                            //   with this string as the
  *                                            //   reason. Used when an
@@ -34,6 +34,20 @@
  *                                            //   the convention for the
  *                                            //   slim adapter's pending
  *                                            //   interop seam).
+ *     timeoutMs:  number | undefined         // optional — override the
+ *                                            //   per-spec timeout (default
+ *                                            //   `EXAMPLE_SPEC_TIMEOUT_MS`
+ *                                            //   or 30000). Specs that
+ *                                            //   exercise a long serial
+ *                                            //   chain of waits on slow
+ *                                            //   CI hardware (e.g.
+ *                                            //   Story-Causa embed
+ *                                            //   boot + multi-panel
+ *                                            //   mount round-trip) can
+ *                                            //   bump this with a
+ *                                            //   rationale comment.
+ *                                            //   Introduced for
+ *                                            //   rf2-paskh.
  *   }
  *
  * Exit code: 0 if every spec's `run` resolves (skipped specs count as
@@ -227,13 +241,23 @@ function withTimeout(promise, ms, label) {
     });
 
     const fullUrl = spec.url.startsWith('http') ? spec.url : BASE_URL + spec.url;
+    // rf2-paskh — honour optional per-spec `timeoutMs` override. Specs
+    // with a long serial chain of waits (e.g. causa-rhs-smoke's
+    // Story-Causa embed boot + multi-panel mount round-trip) can lift
+    // their own budget without inflating the global gate for every
+    // lightweight smoke. EXAMPLES_BASE_URL env wins over both, so CI
+    // can still throttle the whole sweep if needed.
+    const specTimeoutMs =
+      typeof spec.timeoutMs === 'number' && spec.timeoutMs > 0
+        ? spec.timeoutMs
+        : TIMEOUT_MS;
     log(`Navigating to ${fullUrl}`);
 
     let passed = false;
     let failure = null;
     try {
-      await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
-      await withTimeout(spec.run(page), TIMEOUT_MS, label);
+      await page.goto(fullUrl, { waitUntil: 'load', timeout: specTimeoutMs });
+      await withTimeout(spec.run(page), specTimeoutMs, label);
       if (pageErrored) {
         throw new Error(`Page emitted an uncaught error: ${pageErrored.message}`);
       }
