@@ -48,6 +48,13 @@
             ;; for the click-expand hero in the inline drilldown.
             [day8.re-frame2-causa.panels.views-sub-diff :as sub-diff]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
+            ;; rf2-mxkq7 — Group-by-tree toggle. Reads the host
+            ;; application's view-hierarchy via `views/fiber_walker.cljs`
+            ;; (Fiber parent/child slots) and renders parent ⊃ children
+            ;; indentation. Production DCE via `goog.DEBUG`; the
+            ;; renderer + walker are dev-only (gated by
+            ;; `interop/debug-enabled?` at every entry point).
+            [day8.re-frame2-causa.views.group-by-tree :as gbt]
             ;; rf2-i39w2 Phase 3 — hiccup-diff micro-engine + renderer.
             ;; Lit up in the Re-rendered row drilldown when the render
             ;; entry carries `:hiccup-before` + `:hiccup-after`. The
@@ -715,7 +722,14 @@
                      :label "component"}]
      [group-by-pill {:value :sub
                      :selected? (= active :sub)
-                     :label "sub"}]]))
+                     :label "sub"}]
+     ;; rf2-mxkq7 — third toggle. The tree view groups renders by
+     ;; the React Fiber parent ⊃ children hierarchy, surfacing
+     ;; parent-cascade attribution (e.g. "parent X (47 descendants
+     ;; re-rendered)") as a single collapsed row.
+     [group-by-pill {:value :tree
+                     :selected? (= active :tree)
+                     :label "tree"}]]))
 
 ;; ---- filter chip (spec §0ter.1 R3-E — promote above section header) ----
 ;;
@@ -838,6 +852,14 @@
 
         (= group-by :sub)
         (sub-grouped-section sub-grouped)
+
+        ;; rf2-mxkq7 — Group-by-tree: walk Fiber for the host app's
+        ;; view hierarchy and render indented rows with parent-cascade
+        ;; rollup chips. `gbt/read-host-tree` returns nil under DCE
+        ;; (production) or in headless tests; `build-tree-rows`
+        ;; degrades to a flat depth-0 projection in that case.
+        (= group-by :tree)
+        (gbt/tree-section (gbt/build-tree-rows (gbt/read-host-tree) groups))
 
         (zero? (+ (count (:mounted groups))
                   (count (:rendered groups))
