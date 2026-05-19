@@ -148,7 +148,7 @@ test harnesses, and Settings UIs.
 (causa/init! opts)
 ;; opts: {:default-frame :app/main
 ;;        :theme         :dark / :light / :high-contrast
-;;        :density       :compact / :cosy / :comfy
+;;        :density       :compact / :cosy
 ;;        :ai-provider   {:provider :claude / :openai / :gemini / :local / :custom
 ;;                        :api-key  "sk-..."     ;; localStorage only; never sent to Day8
 ;;                        :model    "claude-3-5-sonnet"
@@ -337,7 +337,7 @@ wires per-instance panel state). Shape (validated by Malli):
 
 ```clojure
 {:theme         :dark / :light / :high-contrast
- :density       :compact / :cosy / :comfy
+ :density       :compact / :cosy
  :ai-provider   {:provider :claude / :openai / :gemini / :local / :custom
                  :api-key      "sk-..."
                  :model        "claude-3-5-sonnet"
