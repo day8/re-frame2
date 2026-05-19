@@ -59,6 +59,31 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
 // `examples/reagent/realworld/realworld.spec.cjs` cleanly. Unset (or
 // empty) = the full sweep.
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
+// rf2-mpa3x — normalize before substring-matching. Two cosmetic
+// conventions diverge between build ids and spec paths:
+//
+//   1. Build ids use kebab-case (`examples/causa-rhs-smoke`); on-disk
+//      dirs use snake_case (`tools/story/testbeds/causa_rhs_smoke/`).
+//      A user naturally supplies the build-id form to EXAMPLES_FILTER,
+//      so the literal substring `causa-rhs-smoke` failed to match the
+//      underscore-bearing spec path. Map `_` → `-` on both sides.
+//   2. Path separators differ across platforms (`\` on Windows, `/`
+//      elsewhere). The saved-memory substring trap recommends the
+//      path-separator-aware form (`testbeds/shop` or `testbeds\shop`)
+//      so a bare `shop` isn't shadowed by a worktree-name substring.
+//      Normalize `\` → `/` on both sides so `testbeds/shop` works on
+//      every platform (Git Bash on Windows, Linux, macOS) without the
+//      user remembering which slash to type.
+//
+// The substring-trap protection is preserved verbatim — the only
+// change is collapsing two cosmetic variants before `.includes()`.
+function normalizeForFilter(s) {
+  return s.replace(/_/g, '-').replace(/\\/g, '/');
+}
+function matchesFilter(filePath) {
+  if (FILTER === '') return true;
+  return normalizeForFilter(filePath).includes(normalizeForFilter(FILTER));
+}
 // __dirname is <repo>/examples/scripts; the example tree sits at
 // <repo>/examples (one level up). rf2-p8f2s broadened discovery to
 // include tool-owned testbeds under <repo>/tools/<tool>/testbeds/ and
@@ -132,11 +157,11 @@ function withTimeout(promise, ms, label) {
 
 (async () => {
   const allSpecFiles = listSpecFiles(SPEC_ROOTS);
-  // rf2-h9ut9 — apply EXAMPLES_FILTER substring match against the
-  // absolute spec path so narrow runs only execute matching specs.
-  const specFiles = FILTER
-    ? allSpecFiles.filter((f) => f.includes(FILTER))
-    : allSpecFiles;
+  // rf2-h9ut9 + rf2-mpa3x — apply EXAMPLES_FILTER substring match
+  // against the absolute spec path so narrow runs only execute matching
+  // specs. The normalisation in `matchesFilter` bridges the kebab/snake
+  // and `\`/`/` cosmetic gaps without weakening the substring trap.
+  const specFiles = allSpecFiles.filter(matchesFilter);
   if (specFiles.length === 0) {
     if (FILTER) {
       console.error(
