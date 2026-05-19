@@ -78,7 +78,8 @@
   no issues the feed renders empty (silent-by-default per rf2-g3ghh,
   with a terse one-liner so the panel-skeleton doesn't look broken)."
   (:require [clojure.string :as str]
-            [day8.re-frame2-causa.panels.common-helpers :as common]))
+            [day8.re-frame2-causa.panels.common-helpers :as common]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -117,16 +118,23 @@
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
 
+(def severity->token
+  "Pure semantic map from severity keyword to token keyword. Mirrors
+  spec/007-UX-IA.md §Issues ribbon. Splitting the semantic map from
+  the hex lookup keeps the data pure + tokens consolidated
+  (rf2-5kfxe.4)."
+  {:error    :red
+   :warning  :yellow
+   :advisory :cyan})
+
 (defn severity-colour
-  "Map a severity keyword to its swatch colour. Mirrors the
-  shell.cljs token names so the panel can reuse them. The strings
-  are returned so the helper stays pure (no token-map dependency)."
+  "Map a severity keyword to its swatch colour. Resolves the semantic
+  token keyword through `theme/tokens` so the palette has exactly one
+  source of truth (rf2-5kfxe.4). Falls back to `:text-tertiary` for
+  unknown severities."
   [severity]
-  (case severity
-    :error    "#F87171"  ; :red
-    :warning  "#FBBF24"  ; :yellow
-    :advisory "#43C3D0"  ; :cyan
-    "#6B7080"))           ; :text-tertiary fallback
+  (get tokens/tokens
+       (get severity->token severity :text-tertiary)))
 
 (defn severity-glyph
   "Single-character glyph the per-row severity dot renders. Pure

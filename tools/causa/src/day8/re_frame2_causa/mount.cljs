@@ -53,6 +53,7 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.theme.tokens :as tokens]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- mount state ---------------------------------------------------------
@@ -564,26 +565,25 @@
 ;; even if the substrate tree has thrown mid-render under the broken
 ;; opener. Token-derived colours match the rest of the Causa shell.
 
+;; Per rf2-5kfxe.4 the four colour constants and the sans stack now
+;; resolve through `theme/tokens` directly. The earlier "inlined to
+;; avoid pulling theme into the install path" rationale was stale —
+;; `theme.tokens` has no transitive deps and is the canonical palette.
+
 (def ^:private opener-gone-overlay-bg
-  ;; tokens/bg-0 — Causa's deepest surface colour. Inlined here to
-  ;; avoid pulling the shell's CLJS theme into the plain-DOM overlay
-  ;; install path.
-  "#0E0F12")
+  (:bg-0 tokens/tokens))
 
 (def ^:private opener-gone-overlay-text
-  ;; tokens/text-primary — Causa's primary text colour.
-  "#E8EAF0")
+  (:text-primary tokens/tokens))
 
 (def ^:private opener-gone-overlay-secondary
-  ;; tokens/text-secondary — for the subordinate hint line.
-  "#A8AEC0")
+  (:text-secondary tokens/tokens))
 
 (def ^:private opener-gone-overlay-accent
-  ;; tokens/accent-violet — for the leading glyph.
-  "#7C5CFF")
+  (:accent-violet tokens/tokens))
 
 (def ^:private sans-stack
-  "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+  tokens/sans-stack)
 
 (defn- install-opener-gone-overlay!
   "Create the opener-gone overlay node inside the popout's document

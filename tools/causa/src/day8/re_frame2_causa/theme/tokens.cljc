@@ -82,7 +82,21 @@
    :yellow         "#FBBF24"
    :orange         "#FB923C"
    :red            "#F87171"
-   :magenta        "#E879F9"})
+   :magenta        "#E879F9"
+
+   ;; ── deep variants (rf2-5kfxe.4) ──
+   ;; Darker variant of `:red` used as a danger-button background. The
+   ;; default `:red` is the standard text-on-bg accent (high lightness
+   ;; for readability over the dark canvas); a button surface that
+   ;; FILLS the rectangle wants a deeper hue so white text on red
+   ;; stays AA-grade.
+   :red-deep       "#a83a3a"
+
+   ;; Universal white — readable on the violet accent + the deep
+   ;; reds. Catalogued here so the few "white text on coloured
+   ;; surface" spots (primary / danger buttons) flow through tokens
+   ;; like every other colour.
+   :white          "#ffffff"})
 
 (def mono-stack
   "JetBrains Mono stack per spec/007-UX-IA.md §Typography. Used by

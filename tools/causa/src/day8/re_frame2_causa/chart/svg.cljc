@@ -45,12 +45,17 @@
 
 (defn- node-fill
   [{:keys [highlight? sim? from-highlight? to-highlight?]}]
+  ;; The four highlight tints are alpha-overlays on top of the dark
+  ;; canvas — kept as literal rgba() strings because the alpha
+  ;; component is part of the visual character and `theme/tokens`
+  ;; doesn't (yet) catalogue colour-with-alpha variants. The default
+  ;; resting fill resolves through tokens (rf2-5kfxe.4).
   (cond
     sim?            "rgba(251, 191, 36, 0.18)"   ;; amber tint (Sim mode)
     to-highlight?   "rgba(67, 195, 208, 0.22)"   ;; brighter cyan (focused-event lens: landing state)
     from-highlight? "rgba(132, 110, 230, 0.14)"  ;; violet tint (focused-event lens: origin state)
     highlight?      "rgba(67, 195, 208, 0.18)"   ;; cyan tint (live)
-    :else           "#1c2030"))
+    :else           (:bg-2 tokens/tokens)))
 
 (defn- node-stroke
   [{:keys [highlight? sim? final? from-highlight? to-highlight?]}]

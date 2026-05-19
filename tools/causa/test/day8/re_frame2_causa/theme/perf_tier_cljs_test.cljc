@@ -27,7 +27,8 @@
     4. `default-budget-ms` / `tier-order` — stable structural constants."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]))
+            [day8.re-frame2-causa.theme.perf-tier :as perf-tier]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- (1) classification boundaries --------------------------------------
 
@@ -67,6 +68,17 @@
             never invisible"
     (is (= "#6B7080" (perf-tier/tier-colour :unknown)))
     (is (= "#6B7080" (perf-tier/tier-colour nil)))))
+
+(deftest tier-colour-resolves-through-theme-tokens
+  (testing "rf2-5kfxe.4 — `tier-colour` is now a thin wrapper over
+            (get tokens (tier->token tier)). The hex values above are
+            still spec-anchored; this test enforces the resolution
+            path so future palette tweaks to tokens.cljc automatically
+            propagate to the perf scale."
+    (doseq [[tier token-kw] perf-tier/tier->token]
+      (is (= (get tokens/tokens token-kw)
+             (perf-tier/tier-colour tier))
+          (str "tier " tier " resolves via token " token-kw)))))
 
 (deftest tier-glyph-pairs-shape-with-colour
   (testing "Colour is never alone (spec/007-UX-IA.md §Colour is never alone)"

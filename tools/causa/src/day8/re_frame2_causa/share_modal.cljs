@@ -135,7 +135,11 @@
                          {:frame :rf/causa})
       :style          {:background tone
                        :border "none"
-                       :color "#101218"
+                       ;; rf2-5kfxe.4 — token-grade dark text for the
+                       ;; copy button surface (button background is
+                       ;; the green/violet tone, so contrast wants
+                       ;; the deepest bg colour as the foreground).
+                       :color (:bg-0 tokens)
                        :font-family sans-stack
                        :font-size "12px"
                        :font-weight 600
