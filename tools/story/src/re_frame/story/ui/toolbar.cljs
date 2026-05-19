@@ -54,6 +54,7 @@
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.motion :as motion]
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -244,9 +245,10 @@
                  :overflow        "hidden"
                  :text-overflow   "ellipsis"
                  :white-space     "nowrap"
-                 :user-select     "none"}
+                 :user-select     "none"
+                 :transition      (:chip motion/transitions)}
    :chip-active {:background (:accent-amber colors/tokens)
-                 :color      "white"}
+                 :color      (:text-on-accent colors/tokens)}
    :spacer      {:flex "1"}
    :reset       {:padding       "3px 8px"
                  :background    "transparent"

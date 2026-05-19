@@ -36,7 +36,8 @@
   (:require [reagent.core :as r]
             [re-frame.story.config :as config]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.motion :as motion]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -94,7 +95,10 @@
                  :z-index     2000
                  :display     "flex"
                  :align-items "center"
-                 :justify-content "center"}
+                 :justify-content "center"
+                 :animation   (str "rf-story-overlay-in "
+                                   (:overlay-fade motion/timing) " "
+                                   (:enter motion/easing) " both")}
    :panel       {:background    (:bg-2 colors/tokens)
                  :color         (:text-primary colors/tokens)
                  :border        "1px solid #555"

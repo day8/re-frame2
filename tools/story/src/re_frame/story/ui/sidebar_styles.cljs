@@ -5,7 +5,8 @@
 
   CLJS-only."
   (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.motion :as motion]))
 
 (def styles
   {:wrap         {:width "260px"
@@ -56,9 +57,10 @@
                   :border-radius "10px"
                   :cursor "pointer"
                   :font-size (:micro typography/type-scale)
-                  :user-select "none"}
+                  :user-select "none"
+                  :transition (:chip motion/transitions)}
    :tag-active   {:background (:accent-amber colors/tokens)
-                  :color "white"}
+                  :color (:text-on-accent colors/tokens)}
    :story-row    {:padding "4px 12px"
                   :color (:warning colors/tokens)
                   :font-weight "bold"
@@ -68,8 +70,11 @@
                   :color (:text-primary colors/tokens)
                   :display "flex"
                   :align-items "center"
-                  :gap "6px"}
-   :variant-row-active {:background (:accent-amber-soft colors/tokens) :color "white"}
+                  :gap "6px"
+                  :transition (:row motion/transitions)}
+   :variant-row-active {:background (:bg-active colors/tokens)
+                        :color (:accent-amber colors/tokens)
+                        :font-weight (str (:medium typography/weights))}
    :empty        {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
