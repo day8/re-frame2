@@ -185,7 +185,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ## When to also open Causa
 
-A re-frame2-pair session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the 13-panel visual reading of what just happened — `skills/causa/` is the canonical source for Causa facts). Reach for Causa alongside re-frame2-pair when:
+A re-frame2-pair session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the 13-panel visual reading of what just happened — `skills/re-frame2-causa/` is the canonical source for Causa facts). Reach for Causa alongside re-frame2-pair when:
 
 | Pair2 just did | Open Causa to … |
 |---|---|

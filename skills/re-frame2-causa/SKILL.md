@@ -1,5 +1,5 @@
 ---
-name: causa
+name: re-frame2-causa
 description: >
   Read-only tour of **Causa** — the re-frame2 devtools panel. Use when the
   user wants to know how to *launch* Causa (in-app inline panel, pop-out
@@ -22,7 +22,7 @@ allowed-tools:
   - Glob
 ---
 
-# causa
+# re-frame2-causa
 
 A tour skill for **Causa** — the re-frame2 in-app devtools panel. Causa is
 the structural successor to re-frame-10x: where v1 organised debugging

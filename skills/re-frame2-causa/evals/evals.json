@@ -1,5 +1,5 @@
 {
-  "skill_name": "causa",
+  "skill_name": "re-frame2-causa",
   "schema_version": "1",
   "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md (per rf2-djprj). Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
   "notes": "Positives (should_trigger: true) target the launch + panel-routing surface of skill SKILL.md. Negatives target adjacent surfaces (re-frame2-pair drives Causa; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering.",
