@@ -69,3 +69,63 @@
         (e2e/dispatch-host [:counter/inc])
         (is (= :sub (e2e/sub-causa [:rf.causa/views-group-by]))
             "host dispatch reset the views-group-by slot — wrong-frame routing")))))
+
+;; ---- rf2-w991t — canonical event + composite re-projection ----------------
+;;
+;; The original Phase 3 bead (rf2-mpqxn) asked for two things on top of the
+;; raw-slot regression guard above:
+;;
+;;   (a) cycle pills via the registered event surface (not a per-test event)
+;;       so the test exercises the same dispatch path the panel button does;
+;;   (b) the composite Views-data sub re-projects on each pill flip — the
+;;       `:group-by` slot of the projection migrates with the active pill.
+;;
+;; (b) is the "differently-shaped data per pill" assertion the original
+;; Playwright scenario expressed by reading `aria-pressed=true` off the
+;; rendered DOM. In a node-test we read the same migrating value off the
+;; composite sub, which is what the panel's hiccup also reads.
+
+(deftest causa-views-set-group-by-event-cycles-pills
+  (testing "rf2-w991t — :rf.causa/views-set-group-by cycles :component → :sub → :tree → :component"
+    (e2e/with-host-and-causa-frames
+      {:install-host counter/install-and-init!}
+      (fn []
+        (is (= :component (e2e/sub-causa [:rf.causa/views-group-by]))
+            "fresh install did not default to :component")
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :sub])
+        (is (= :sub (e2e/sub-causa [:rf.causa/views-group-by]))
+            "first cycle did not land on :sub")
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :tree])
+        (is (= :tree (e2e/sub-causa [:rf.causa/views-group-by]))
+            "second cycle did not land on :tree")
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :component])
+        (is (= :component (e2e/sub-causa [:rf.causa/views-group-by]))
+            "third cycle did not return to :component")))))
+
+(deftest causa-views-data-group-by-migrates-with-active-pill
+  (testing "rf2-w991t — composite :rf.causa/views-data re-projects per pill"
+    (e2e/with-host-and-causa-frames
+      {:install-host counter/install-and-init!}
+      (fn []
+        ;; Land one cascade so the composite resolves to a real shape rather
+        ;; than the empty-buffer no-op (the `:group-by` slot is on the
+        ;; projection regardless, but `:has-cascade?` flipping on is the
+        ;; signal that the composite ran end-to-end).
+        (e2e/dispatch-host [:counter/inc])
+        (let [d0 (e2e/sub-causa [:rf.causa/views-data])]
+          (is (true? (:has-cascade? d0))
+              "composite did not see the freshly-landed cascade")
+          (is (= :component (:group-by d0))
+              "composite did not start at :component"))
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :sub])
+        (let [d1 (e2e/sub-causa [:rf.causa/views-data])]
+          (is (= :sub (:group-by d1))
+              ":group-by did not migrate to :sub on composite — re-projection drop"))
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :tree])
+        (let [d2 (e2e/sub-causa [:rf.causa/views-data])]
+          (is (= :tree (:group-by d2))
+              ":group-by did not migrate to :tree on composite — re-projection drop"))
+        (e2e/dispatch-causa [:rf.causa/views-set-group-by :component])
+        (let [d3 (e2e/sub-causa [:rf.causa/views-data])]
+          (is (= :component (:group-by d3))
+              ":group-by did not return to :component on composite"))))))
