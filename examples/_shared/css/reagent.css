@@ -1,0 +1,313 @@
+/* ============================================================================
+ * Reagent examples — shared baseline stylesheet (rf2-jzqs9).
+ *
+ * Foundation lift: every inline <style> block previously duplicated across
+ * examples/reagent/*\/index.html is consolidated here, keyed by the class
+ * names the views actually emit. This is the FLOOR — commit 2 (rf2-nfg15)
+ * layers the Reagent visual identity (typography pairing, palette,
+ * atmosphere) on top via examples/_shared/css/reagent-identity.css.
+ *
+ * Staging: the orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
+ * copies this file into each example's out/examples/<name>/_shared/css/
+ * directory via the `extraFiles` mechanism, so the same hand-written
+ * index.html can <link rel="stylesheet" href="_shared/css/reagent.css">
+ * relatively in every example.
+ *
+ * The class-name surface here is the union of what the example views emit
+ * (.login-form, .banner, .error, .pill.<state>, .navbar, .nav-link,
+ * .card, .cells-grid, ...) — a single CSS bundle so the substrate's UIx
+ * and Helix siblings can also opt in (they currently render the same
+ * components with the same classes; the unstyled-fallback problem
+ * documented in rf2-7p188 finding M4).
+ * ========================================================================== */
+
+/* -- Forms (login, signup, settings) ------------------------------------- */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.login-form input,
+.login-form button {
+  padding: 6px 12px;
+}
+
+.error {
+  color: #c33;
+  margin: 0;
+}
+
+.error-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.locked {
+  color: #c33;
+}
+
+/* -- Banners + pills (state-machine walkthrough, websocket) -------------- */
+
+.banner {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  background: #f4f4f4;
+  border-radius: 4px;
+}
+
+.banner .state {
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
+}
+
+.pill.disconnected   { background: #888; }
+.pill.connecting     { background: #2a93d5; }
+.pill.authenticating { background: #6c5ce7; }
+.pill.connected      { background: #2ecc71; }
+.pill.reconnecting   { background: #e67e22; }
+.pill.failed         { background: #e74c3c; }
+
+/* -- Boot example -------------------------------------------------------- */
+
+.boot-progress {
+  padding: 16px;
+  background: #f5f7fa;
+  border-left: 4px solid #5cb85c;
+}
+
+.boot-failed {
+  padding: 16px;
+  background: #fdf3f3;
+  border-left: 4px solid #d9534f;
+}
+
+.boot-hint {
+  color: #777;
+  font-size: 0.85rem;
+}
+
+.main-app section {
+  padding: 8px 0;
+  border-top: 1px solid #eee;
+}
+
+dl.boot-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+dl.boot-summary dt {
+  font-weight: 600;
+  color: #555;
+}
+
+dl.boot-summary dd { margin: 0; }
+
+/* -- Realworld / Conduit ------------------------------------------------- */
+
+.navbar,
+.realworld-footer {
+  padding: 8px 16px;
+  background: #f5f5f5;
+}
+
+.navbar .nav {
+  display: inline-block;
+  margin-right: 12px;
+}
+
+.nav-link {
+  margin-right: 8px;
+  text-decoration: none;
+  color: #5cb85c;
+}
+
+.container {
+  padding: 12px 16px;
+}
+
+.article-preview {
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.article-preview h1 {
+  font-size: 1.2rem;
+  margin: 4px 0;
+}
+
+/* -- SSR + streaming SSR ------------------------------------------------- */
+
+.page { max-width: 600px; }
+
+.toggle-bodies {
+  margin: 0.5em 0 1em;
+  padding: 6px 12px;
+}
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin-top: 1.5em;
+}
+
+.card {
+  flex: 1 1 220px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 1em;
+}
+
+.card h3 {
+  margin: 0 0 0.5em;
+  font-size: 0.95em;
+  color: #444;
+}
+
+.card p.value {
+  margin: 0;
+  font-size: 1.6em;
+  font-weight: bold;
+}
+
+.card.skeleton {
+  color: #aaa;
+  background: #fafafa;
+}
+
+/* -- Long-running work --------------------------------------------------- */
+
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+code {
+  background: #f0f0f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* -- WebSocket example specifics ----------------------------------------- */
+
+.muted     { color: #666; }
+.status    { margin: 8px 0; }
+
+.lifecycle,
+.demo-buttons,
+.send-form {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  align-items: center;
+}
+
+input[type="text"] {
+  padding: 6px 10px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.queue-depth {
+  color: #555;
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+.inbox ul {
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.85em;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  padding: 8px 8px 8px 28px;
+}
+
+.inbox li { margin: 2px 0; }
+
+.last-reply { font-size: 0.85em; }
+
+.last-reply code {
+  background: #f3f3f3;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid #eee;
+  margin: 16px 0;
+}
+
+/* -- 7GUIs: cells grid --------------------------------------------------- */
+
+.cells-grid {
+  border-collapse: collapse;
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+}
+
+.cells-grid th,
+.cells-grid td {
+  border: 1px solid #ccc;
+  min-width: 60px;
+  height: 22px;
+  padding: 1px 4px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.cells-grid thead th {
+  background: #eee;
+  text-align: center;
+}
+
+.cells-grid tbody th {
+  background: #eee;
+  text-align: right;
+  min-width: 28px;
+}
+
+.cells-grid input {
+  width: 56px;
+  box-sizing: border-box;
+}
+
+/* -- Causa-host shell (counter testbed pattern) -------------------------- */
+
+.rf2-testbed-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+:root {
+  --rf-causa-accent: #7C5CFF;
+}
+
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
+  min-width: 320px;
+  box-sizing: border-box;
+  border-left: 1px solid #2a2a2a;
+}
+
+.rf2-testbed-shell #app {
+  flex: 1;
+  min-width: 0;
+  padding: 2em;
+}

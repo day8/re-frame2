@@ -3,37 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>re-frame2 example: Pattern-WebSocket</title>
-  <style>
-    body { font-family: sans-serif; margin: 0; padding: 16px; max-width: 880px; }
-    .muted { color: #666; }
-    .status { margin: 8px 0; }
-    .pill {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-weight: 600;
-      color: #fff;
-      letter-spacing: 0.04em;
-      font-size: 0.85em;
-    }
-    .pill.disconnected   { background: #888; }
-    .pill.connecting     { background: #2a93d5; }
-    .pill.authenticating { background: #6c5ce7; }
-    .pill.connected      { background: #2ecc71; }
-    .pill.reconnecting   { background: #e67e22; }
-    .pill.failed         { background: #e74c3c; }
-    .error { color: #c0392b; margin-left: 8px; font-family: monospace; font-size: 0.85em; }
-    .lifecycle, .demo-buttons, .send-form { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
-    button { padding: 6px 12px; cursor: pointer; }
-    button[disabled] { opacity: 0.5; cursor: not-allowed; }
-    input[type="text"] { padding: 6px 10px; flex: 1; min-width: 240px; }
-    .queue-depth { color: #555; font-style: italic; font-size: 0.9em; }
-    .inbox ul { font-family: monospace; font-size: 0.85em; max-height: 240px; overflow-y: auto; border: 1px solid #ddd; padding: 8px 8px 8px 28px; }
-    .inbox li { margin: 2px 0; }
-    .last-reply { font-size: 0.85em; }
-    .last-reply code { background: #f3f3f3; padding: 2px 6px; border-radius: 4px; }
-    hr { border: 0; border-top: 1px solid #eee; margin: 16px 0; }
-  </style>
+  <link rel="stylesheet" href="_shared/css/reagent.css">
 </head>
 <body>
   <div id="app"></div>

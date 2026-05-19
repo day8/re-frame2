@@ -491,6 +491,19 @@ function copyDirRecursive(src, dest) {
   }
 }
 
+// rf2-jzqs9 — Shared per-substrate stylesheets + favicon + OG assets
+// (rf2-nfg15 / rf2-3zibv). The hand-written index.html files reference
+// these via relative paths like `_shared/css/reagent.css`, so the
+// orchestrator stages the `examples/_shared/` tree into every example's
+// output dir alongside main.js + index.html. Single source on disk; one
+// copy step per build (cheap — a handful of small files).
+const SHARED_SRC = path.join(REPO_ROOT, 'examples', '_shared');
+
+function stageShared(outDir) {
+  if (!fs.existsSync(SHARED_SRC)) return;
+  copyDirRecursive(SHARED_SRC, path.join(outDir, '_shared'));
+}
+
 function stageHtml() {
   // Silent-on-success (rf2-try1x): per-file staging notices are
   // suppressed.  Errors still throw with the offending path.
@@ -517,6 +530,11 @@ function stageHtml() {
     }
     const dest = path.join(ex.outDir, 'index.html');
     fs.copyFileSync(ex.htmlSrc, dest);
+
+    // rf2-jzqs9 — stage examples/_shared/ alongside index.html so the
+    // hand-written page can <link>/<img> assets at the same relative
+    // path on every example build.
+    stageShared(ex.outDir);
 
     for (const extra of ex.extraFiles || []) {
       if (!fs.existsSync(extra.src)) {
