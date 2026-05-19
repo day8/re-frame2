@@ -1,0 +1,111 @@
+;; Conformance fixture: hot-reload/handler-replaced-trace
+;;
+;; Per Spec 001 §Hot-reload trace surface — every re-registration emits
+;; a `:rf.registry/handler-replaced` trace event with a stable shape:
+;;
+;;   {:operation :rf.registry/handler-replaced
+;;    :tags      {:kind            <kind>     ;; :event, :sub, :fx, :flow, ...
+;;                :id              <id>       ;; the re-registered id
+;;                :different-fn?   <bool>}}    ;; true when handler-fn identity changed
+;;
+;; Devtools (re-frame-10x, re-frame-pair, Causa) subscribe to this event
+;; and refresh their view. This fixture pins the cross-implementation
+;; trace contract: a re-registration MUST emit the trace; the trace
+;; MUST carry the kind + id of the re-registered slot; the
+;; `:different-fn?` tag MUST distinguish an idempotent reload from a
+;; real handler-fn swap.
+;;
+;; The fixture drives the re-registration via `:rf.fx/reg-flow` (the
+;; public flow-registration fx per Spec 013 — the only public surface
+;; through which the pure-data corpus can re-register a slot mid-
+;; dispatch). The `:rf.registry/handler-replaced` contract is
+;; cross-kind, not flow-specific; per Spec 001 §Per-kind rules the
+;; same trace fires for every registry kind. This fixture exercises
+;; the contract through the flow kind; per-kind variants live in
+;; per-kind implementation tests (see e.g.
+;; `implementation/core/test/re_frame/hot_reload_test.clj` for the
+;; cross-kind JVM coverage).
+;;
+;; Sequence:
+;;   1. `:flow/init` seeds `:n`.
+;;   2. `:flow/reg-v1` registers `:doubled/value` with `(* 2 n)` —
+;;      first-time registration; `:rf.flow/registered` fires (per Spec
+;;      013 §Flow tracing) but `:rf.registry/handler-replaced` does NOT
+;;      (the registrar's `register!` discriminates first-time from
+;;      re-registration).
+;;   3. `:flow/reg-v2` re-registers `:doubled/value` with `(+ n n)` —
+;;      re-registration; `:rf.registry/handler-replaced` fires with
+;;      `:kind :flow` + `:id :doubled/value` + `:different-fn? true`.
+;;      The new body is value-equivalent on the same input so the
+;;      output stays at 14 (per Spec 013 §Re-registration — flows that
+;;      re-evaluate to the same value preserve the prior output).
+;;
+;; Reference: Spec 001 §Hot-reload trace surface;
+;;            Spec 013 §Re-registration;
+;;            `flow-hot-reload-preserves-output.edn` (output-preservation
+;;            sibling — this fixture pins the trace contract that
+;;            fixture leaves implicit).
+
+{:fixture/id           :hot-reload/handler-replaced-trace
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace :flow/basic :flow/hot-reload}
+ :fixture/doc          "A re-registration emits :rf.registry/handler-replaced with the kind + id of the replaced slot and :different-fn? distinguishing fn-identity changes from idempotent reloads. Exercised here via flow re-registration; the cross-kind trace contract per Spec 001 §Hot-reload trace surface."
+
+ :fixture/registry
+ {:event {:flow/init     {:doc "Seed :n."}
+          :flow/reg-v1   {:doc "First-time flow registration."}
+          :flow/reg-v2   {:doc "Re-register the same flow id with a different body."}
+          :flow/poke     {:doc "No-op event to drive a drain."}}
+  :fx    {:rf.fx/reg-flow {:doc       "Public fx: register a flow."
+                           :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:flow/init   [[:set [:n] 7]]
+          :flow/reg-v1 [[:fx :rf.fx/reg-flow
+                         {:id     :doubled/value
+                          :inputs [[:n]]
+                          :body   [[:fn :* [:event-arg 0] 2]]
+                          :path   [:doubled]}]]
+          :flow/reg-v2 [[:fx :rf.fx/reg-flow
+                         {:id     :doubled/value
+                          :inputs [[:n]]
+                          :body   [[:fn :+ [:event-arg 0] [:event-arg 0]]]
+                          :path   [:doubled]}]]
+          :flow/poke   [[:set [:tick] [:event-arg 1]]]}}
+
+ :fixture/frame-config
+ {:on-create [:flow/init]}
+
+ :fixture/dispatches
+ [[:flow/reg-v1]
+  [:flow/poke 1]
+  [:flow/reg-v2]
+  [:flow/poke 2]]
+
+ :fixture/expect
+ {:final-app-db
+  {:n       7
+   :tick    2
+   :doubled 14}
+
+  ;; The trace assertion is the load-bearing one. Order:
+  ;;   :flow/reg-v1 dispatches → :rf.flow/registered fires (first-time,
+  ;;     per Spec 013 §Flow tracing).
+  ;;   :flow/poke 1 — flow evaluates against v1 body.
+  ;;   :flow/reg-v2 dispatches → :rf.registry/handler-replaced fires
+  ;;     (the cross-kind hot-reload trace). NO second :rf.flow/registered
+  ;;     fires — that op-type is first-time-only (per rf2-ehxez,
+  ;;     re-registration surfaces as :rf.registry/handler-replaced only,
+  ;;     so subscribers don't double-count).
+  ;;   :flow/poke 2 — flow re-evaluates against v2 body.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :flow/reg-v1}}
+   {:operation :rf.flow/registered
+    :tags      {:flow-id :doubled/value :frame :rf/default}}
+   {:operation :event :tags {:event-id :flow/poke}}
+   {:operation :event :tags {:event-id :flow/reg-v2}}
+   {:operation :rf.registry/handler-replaced
+    :tags      {:kind          :flow
+                :id            :doubled/value
+                :different-fn? true}}
+   {:operation :event :tags {:event-id :flow/poke}}]}}
