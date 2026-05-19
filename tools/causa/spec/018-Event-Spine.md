@@ -162,7 +162,7 @@ Same discipline as the Runtime chrome (per §8 Frame-observation isolation invar
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Runtime + Static).
 - [`007-UX-IA.md`](007-UX-IA.md) §Static mode — visual-language details (mode pill widget chrome, edge stripe colour tokens, motion dampening durations, sub-tab mnemonics, design language).
-- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface — concrete Static Machines surface description (4-mode sub-strip · Topology · Sim placeholder · Instances JUMP · Cascade dimmed).
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface — concrete Static Machines surface description (4-mode sub-strip · Topology · Sim body (rf2-r4nao — landed) · Instances JUMP · Cascade dimmed).
 
 ---
 
@@ -432,7 +432,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Bus.md`](013-Trace-Bus.md) |
-| 5 | **Machines** | `m` | **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. UC1 Sim engine + UC2 Mode A/B/C deferred to the Static re-host (rf2-r4nao). | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
+| 5 | **Machines** | `m` | **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.causa.static.machines/sim-*`, view at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Runtime-side concern, reached from Static via the per-row → Runtime JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
 
@@ -806,7 +806,7 @@ Default scope = "All issues this session." Toggle to "Spine cascade only" to fil
 
 ### §5.5 Machines tab — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
 
-Briefly (rf2-y9xmf): the Runtime panel is **event-driven only**. It is BLANK when the focused event triggered no machine transitions; it renders one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when the focused event did trigger transitions. Per-machine prev/next nav walks the spine's epoch history to the prior/next event that ALSO touched the focused machine. The UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI are preserved at the code level (`:rf.causa/sim-*` family + `panels/machine_inspector_sim` view) for the future Static surface re-host (rf2-r4nao); they do NOT render in the Runtime tab.
+Briefly (rf2-y9xmf): the Runtime panel is **event-driven only**. It is BLANK when the focused event triggered no machine transitions; it renders one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when the focused event did trigger transitions. Per-machine prev/next nav walks the spine's epoch history to the prior/next event that ALSO touched the focused machine. The UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao) at `:rf.causa.static.machines/sim-*` (view at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`); it does NOT render in the Runtime tab. UC2 Mode A/B/C dynamic-instance UI remains a Runtime-side concern, reached from Static via the per-row → Runtime JUMP.
 
 ### §5.6 Routing tab — parallel to Machines (rf2-nrbs9)
 
@@ -1376,7 +1376,7 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 | **Spine binding** | `tools/causa/test/.../spine_test.cljs` — asserts `:rf.causa/focus` rebinds atomically when a row is clicked; asserts L2 mode cue (head-row pulse / pinned-row glyph), L3 count badges, L4 detail content all reflect the new focus |
 | **Filter IN/OUT pills round-trip** | `tools/causa/test/.../filter_pills_test.cljs` — asserts pill add/edit/delete via popup; asserts AND-across-modes / OR-within-mode semantics; asserts localStorage persistence; asserts Recommended-filters quick-add |
 | **Event-driven Runtime Machines panel (rf2-y9xmf)** | per-feature in `tools/causa/test/.../machines/runtime_test.cljs` — asserts BLANK state on no-activity; per-machine section rendered on transition; topology highlight + guards + actions + cancellation + `:after` rings; prev/next nav walks spine to other events touching the focused machine |
-| **UC1 Sim engine + UC2 Mode A/B/C (rf2-r4nao — Static re-host, deferred)** | NOT a Runtime test row. The Sim engine subs/events (`:rf.causa/sim-*`) + the `panels/machine_inspector_sim` view are preserved at code level for the future Static re-host; no Runtime test gates them today. |
+| **UC1 Sim engine + UC2 Mode A/B/C (rf2-r4nao — Static re-host, landed)** | NOT a Runtime test row. The Sim engine subs/events (`:rf.causa.static.machines/sim-*`) + the `static/machines/sim.cljs` view ship under the Static Machines surface's Sim sub-mode per [`003-Machine-Inspector.md`](003-Machine-Inspector.md); Static-side tests gate those surfaces. UC2 Mode A/B/C remains Runtime-side (reached via the per-row → Runtime JUMP). |
 | **Data classification rendering** | `tools/causa/test/.../classification_rendering_test.cljs` — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf/large` drillable with size-confirm modal; asserts combination semantics (`:rf/redacted` dominates `:rf/large`); asserts per-surface rendering across L2/L4 |
 | **Frame-isolation invariants** | `tools/causa/test/.../isolation_test.cljs` (NEW; spec §8) — asserts I1 (picker excludes `:rf/causa`) + I3 (Views scoped to selected frame) + I4 (Causa hover doesn't leak into `:rf/default` Views); runs under `npm run test:browser`; **failure blocks merge** |
 | **Sub-graph isolation lint** | `tools/causa/test/.../sub_graph_lint_test.cljs` (NEW; spec §8 I2) — asserts dev-time lint predicate throws on misconfigured Causa-namespaced sub feeding host data |
@@ -1456,7 +1456,7 @@ not Causa.
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — Lock #14 (Two modes — Runtime + Static) is the direction-setting decision behind §2.5 Static surface above.
 - [`000-Vision.md`](000-Vision.md) — 7-tab inventory; philosophy shift to human-only surface.
-- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Runtime Machines panel (rf2-y9xmf) + §Static Machines surface (the shipped Static-mode Machines surface — 4-mode sub-strip with Topology / Sim placeholder / Instances JUMP / Cascade dimmed-with-tooltip). The UC1 Sim engine and UC2 Mode A/B/C historical prose remain below as Sim re-host reference (rf2-r4nao — deferred).
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Runtime Machines panel (rf2-y9xmf) + §Static Machines surface (the shipped Static-mode Machines surface — 4-mode sub-strip with Topology / Sim body (rf2-r4nao — landed) / Instances JUMP / Cascade dimmed-with-tooltip). The UC1 Sim engine and UC2 Mode A/B/C historical prose remain below as Sim re-host reference (rf2-r4nao — landed).
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
 - [`012-Views.md`](012-Views.md) — Views tab three-group layout (mounted / re-rendered / unmounted); nested subs; cluster-large-grids.

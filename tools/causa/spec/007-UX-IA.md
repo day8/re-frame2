@@ -358,12 +358,13 @@ shapes based on the focused event's machine activity:
   A/B/C) is no longer emitted; legacy URLs carrying it are silently
   dropped on restore.
 
-**The Sim engine + browse-all index live in code but have no Runtime UI.**
-Sibling bead rf2-r4nao re-hosts the Sim toggle / side-rail + the
-browse-all entry point under a future Static surface; the registered
-`:rf.causa/sim-*` events / subs are unchanged so the re-host doesn't
-re-implement engine algebra. Until that lands, programmatic callers
-can drive Sim against `:rf/causa` directly.
+**The Sim engine + browse-all index have no Runtime UI.**
+Sibling bead rf2-r4nao landed the Sim toggle / side-rail + the
+browse-all entry point under the Static Machines surface; the engine
+events / subs are now namespaced `:rf.causa.static.machines/sim-*` (re-
+hosted from the historical `:rf.causa/sim-*`) and the view lives at
+`tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`.
+Programmatic callers drive Sim against `:rf/causa` via that ns.
 
 ### Interactive Machines canvas (rf2-y3l8z)
 
@@ -1350,7 +1351,7 @@ along the chart edge.
 | Sub-component | View |
 |---|---|
 | After-rings overlay | `machine-after-rings/AfterRingsOverlay` |
-| Sim side-rail       | `machine-inspector-sim/SimSideRail` |
+| Sim side-rail       | `static.machines.sim/SimRail` |
 
 These render under `machine-inspector/Panel` and are NOT exposed as
 standalone mount fns. Mounting a ring overlay without a chart

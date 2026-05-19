@@ -13,13 +13,15 @@
 > picker chrome, the sub-strip (Topology/Sim/Instances/Cluster), the
 > picker-driven Sim ribbon UI, the multi-instance aggregate (Mode C
 > cluster view), the per-instance arc + mini-scrubber, and the
-> Browse-all entry point. The **Sim engine** (sub/event family at
-> `:rf.causa/sim-*`) and the **browse-all index** remain registered in
-> code so a future Static surface (sibling bead rf2-r4nao) can mount
-> them without re-implementing the algebra. Sections below describing
-> those removed UI ribbons are kept as historical reference for the
-> Static re-host effort; they no longer describe what the Runtime
-> Machines panel renders.
+> Browse-all entry point. The **Sim engine** has since been re-hosted
+> under the Static Machines surface's Sim sub-mode (sibling bead
+> rf2-r4nao landed — sub/event family at
+> `:rf.causa.static.machines/sim-*`, view at
+> `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`); the
+> **browse-all index** ships as the Static Machines surface's
+> master-detail left pane. Sections below describing those removed UI
+> ribbons are kept as historical design-reference; they no longer
+> describe what the Runtime Machines panel renders.
 
 The Machines tab (tab 5 of 7 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
@@ -84,9 +86,12 @@ The header carries:
 - No Mode A/B/C dynamic instance views; no `:rf.causa/forced-machine-
   mode` slot.
 - No Sim toggle / Sim side-rail UI in the Runtime panel header. The
-  `SimSideRail` view is still exported by `panels/machine_inspector_sim.
-  cljs` for the future Static re-host; the `:rf.causa/sim-*` engine
-  events / subs remain registered against the `:rf/causa` frame.
+  `SimRail` view (post-rf2-r4nao rename of the historical
+  `SimSideRail`) ships under
+  `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` and
+  is mounted by the Static Machines surface; the
+  `:rf.causa.static.machines/sim-*` engine events / subs are
+  registered against the `:rf/causa` frame from that ns.
 - No per-instance arc overlay; no mini-scrubber. The
   `:rf.causa/machine-scrubber-position` SLOT survives (read/write
   events still registered) because the share-URL round-trips it; the
@@ -188,7 +193,7 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 │ ─ sort cycle (Name /     │   · 6 states · 2 live (→ Runtime)             │
 │   States / Live)         │                                               │
 │ ─ scrollable rows:       │ ─ 4-mode sub-strip [T][S][I][C]               │
-│   ◉ :checkout    src:42  │ ─ per-mode body (Topology · Sim placeholder · │
+│   ◉ :checkout    src:42  │ ─ per-mode body (Topology · Sim body ·        │
 │   ○ :auth/main   src:18  │   Instances JUMP · Cascade dimmed)            │
 │   ○ :wizard      src:90  │                                               │
 │   …                      │                                               │
@@ -220,7 +225,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
 | **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/svg` MachineChart primitive the Runtime panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.causa.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | inline SVG chart |
-| **Sim** (`s`) | Sibling bead **rf2-r4nao** — the Sim machinery re-host. v1 ships the strip cell and a placeholder card ("rf2-r4nao will fill this") so the strip stays complete. The Sim engine (`:rf.causa/sim-*` subs/events) remains registered in code; only the Static-side UI re-host is deferred. | placeholder card pointing at rf2-r4nao |
+| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Causa's app-db at `[:rf.causa.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is the definition's declared `:initial` + `:data`. Engine events/subs live under the `:rf.causa.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). Failed-guard handling + sim-trail described in §UC1 — Sim sub-mode below remain the design reference for v1 mechanics. | Sim body panel (banner + topology highlight + mock-`:data` form + sim-trail) |
 | **Instances** (`i`) | **JUMP to Runtime.** Clicking the pill (or the per-row `→ Runtime` chip in the browse-list) dispatches three events against `:rf/causa`: `:rf.causa/set-mode :runtime` · `:rf.causa/select-tab :machines` · `:rf.causa/select-machine-id <mid>`. The user lands on the Runtime Machines tab with this machine pre-selected. Mode B/C auto-detection (Mode B for 2-8 live, Mode C for ≥8) is the Runtime panel's responsibility — the Static-side JUMP just lands the selection. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Runtime-only surface. Switch to Runtime mode to view."* The pill renders for muscle-memory consistency with the Runtime sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
@@ -250,20 +255,24 @@ Same discipline as the Runtime Machines panel (per §Tab placement above + [`018
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Runtime + Static).
 - [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface — the architectural spine for the Static mode (3-layer chrome · 4 mode signals · mode-state lifecycle · localStorage `causa.mode` · feature flag · mnemonic mode-scoping).
 - [`007-UX-IA.md`](007-UX-IA.md) §Static mode — the visual-language details (mode pill chrome, edge stripe tokens, motion dampening, sub-tab inventory).
-- §Sim re-host reference (rf2-r4nao — deferred) below — the historical UC1 Sim + UC2 Mode A/B/C prose preserved as design-reference for the Sim re-host effort.
+- §Sim re-host reference (rf2-r4nao — landed) below — the historical UC1 Sim + UC2 Mode A/B/C prose preserved as design-reference. The Sim sub-mode now ships per rf2-r4nao at `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs` with engine events/subs under `:rf.causa.static.machines/sim-*`.
 
 <!-- ============================================================ -->
-<!--  SIM RE-HOST REFERENCE (rf2-r4nao — deferred)                  -->
+<!--  SIM RE-HOST REFERENCE (rf2-r4nao — landed)                    -->
 <!-- ============================================================ -->
 
-## Sim re-host reference (rf2-r4nao — deferred)
+## Sim re-host reference (rf2-r4nao — landed)
 
 > The sections below describe the UC1 Sim engine and UC2 Mode A/B/C
 > dynamic-instance UI as they existed pre-collapse (rf2-y9xmf). They
-> are preserved as design-reference for the **Sim re-host effort
-> (rf2-r4nao)** — the sibling bead that lands the Sim machinery under
-> the Static Machines surface's Sim sub-mode (the Sim pill currently
-> renders a placeholder card pointing at rf2-r4nao).
+> remain preserved as design-reference for the **Sim re-host effort
+> (rf2-r4nao — landed)** — the sibling bead that landed the Sim
+> machinery under the Static Machines surface's Sim sub-mode. The
+> shipped engine + view live at
+> `tools/causa/src/day8/re_frame2_causa/static/machines/sim.cljs`
+> with events/subs under `:rf.causa.static.machines/sim-*`; the
+> §4-mode sub-strip row above is the normative description of the
+> shipped Sim sub-mode shape.
 >
 > **They DO NOT describe what the Runtime Machines panel renders
 > today** (see the collapse note at the top of this doc and the
@@ -275,7 +284,7 @@ Same discipline as the Runtime Machines panel (per §Tab placement above + [`018
 > Runtime-side responsibility, reached from Static via the JUMP).
 >
 > Read everything below this divider as historical design-reference
-> for the deferred Sim re-host, not as a normative description of any
+> for the Sim re-host effort, not as a normative description of any
 > currently-shipped surface.
 
 ## Definition view — Mode A resting state
