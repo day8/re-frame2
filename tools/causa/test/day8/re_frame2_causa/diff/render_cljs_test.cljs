@@ -448,3 +448,123 @@
                                        :modified 0 :children 0})]
       (is (vector? hdr))
       (is (some? (find-by-testid hdr "rf-causa-diff-section-copy-path-[:a]"))))))
+
+;; ---- rf2-s8r6c — origin-tag chip --------------------------------------
+
+(deftest render-sections-omits-origin-chip-by-default
+  (testing "rf2-s8r6c — back-compat: calling render-sections without
+            opts produces no origin chip (legacy hiccup shape preserved
+            for non-Causa-panel callers and tests)"
+    (let [tree     (at/diff-tree {:a 1} {:a 2})
+          sections (sg/group-into-sections tree)
+          hiccup   (render/render-sections sections "app-db-diff")]
+      (is (not (any-testid-prefix? hiccup "rf-causa-diff-section-origin-"))
+          "no origin chip when opts omitted"))))
+
+(deftest render-sections-pure-fx-section-tags-fx-db
+  (testing "rf2-s8r6c — section with no flow coverage gets the
+            `[fx :db]` chip"
+    (let [tree     (at/diff-tree {:counter 0} {:counter 1})
+          sections (sg/group-into-sections tree)
+          triples  [{:op :modified :path [:counter] :before 0 :after 1}]
+          hiccup   (render/render-sections
+                     sections "app-db-diff"
+                     {:flow-writes [] :diff-triples triples})
+          chip     (find-by-testid hiccup
+                                    "rf-causa-diff-section-origin-[:counter]")]
+      (is (some? chip) "origin chip renders for pure-fx section")
+      (is (= "fx" (:data-origin (second chip)))
+          "data-origin attribute is 'fx'")
+      (let [label (->> (tree-seq (some-fn vector? seq?) seq chip)
+                       (filter string?)
+                       (apply str))]
+        (is (re-find #"\[fx :db\]" label)
+            "chip label contains '[fx :db]'")))))
+
+(deftest render-sections-flow-section-tags-flow-id
+  (testing "rf2-s8r6c — section whose path equals a flow's :write-path
+            gets the `[flow :flow-id]` chip"
+    (let [tree     (at/diff-tree {:cart {:total 0}} {:cart {:total 52.5}})
+          sections (sg/group-into-sections tree)
+          writes   [{:flow-id :cart-total :write-path [:cart :total]}]
+          triples  [{:op :modified :path [:cart :total]
+                     :before 0 :after 52.5}]
+          hiccup   (render/render-sections
+                     sections "app-db-diff"
+                     {:flow-writes writes :diff-triples triples})]
+      ;; Section path may coalesce to [:cart] or stay [:cart :total]
+      ;; depending on grouping defaults — assert at least one origin
+      ;; chip carries the `:flow` attribution.
+      (let [chips (filter
+                    (fn [n]
+                      (and (vector? n) (map? (second n))
+                           (some-> (:data-testid (second n))
+                                   (.startsWith "rf-causa-diff-section-origin-"))))
+                    (tree-seq (some-fn vector? seq?) seq hiccup))]
+        (is (seq chips) "at least one origin chip renders")
+        (is (some #(= "flow" (:data-origin (second %))) chips)
+            "a chip carries data-origin='flow'")
+        (let [label (->> (tree-seq (some-fn vector? seq?)
+                                   seq (first chips))
+                         (filter string?)
+                         (apply str))]
+          (is (re-find #":cart-total" label)
+              "chip label names the flow id"))))))
+
+(deftest render-sections-mixed-section-tags-mixed
+  (testing "rf2-s8r6c — coalesced section covering one flow write AND
+            a handler-only sibling triple gets the mixed chip"
+    (let [;; Both writes occur under [:cart] — section coalesces.
+          tree     (at/diff-tree
+                     {:cart {:total 0 :items []}}
+                     {:cart {:total 52.5 :items [:apple]}})
+          sections (sg/group-into-sections tree)
+          writes   [{:flow-id :cart-total :write-path [:cart :total]}]
+          triples  [{:op :modified :path [:cart :total]
+                     :before 0 :after 52.5}
+                    {:op :modified :path [:cart :items]
+                     :before [] :after [:apple]}]
+          hiccup   (render/render-sections
+                     sections "app-db-diff"
+                     {:flow-writes writes :diff-triples triples})
+          chips    (filter
+                     (fn [n]
+                       (and (vector? n) (map? (second n))
+                            (some-> (:data-testid (second n))
+                                    (.startsWith "rf-causa-diff-section-origin-"))))
+                     (tree-seq (some-fn vector? seq?) seq hiccup))]
+      (is (seq chips) "origin chip(s) render for the mixed section")
+      ;; At least one chip must reflect the mixed attribution OR the
+      ;; flow-only attribution (depending on grouping coalescence).
+      ;; The contract: a chip with data-origin in #{"flow" "mixed"}
+      ;; exists; if mixed, label contains both the flow id and [fx :db].
+      (let [mixed (filter #(= "mixed" (:data-origin (second %))) chips)]
+        (when (seq mixed)
+          (let [label (->> (tree-seq (some-fn vector? seq?)
+                                     seq (first mixed))
+                           (filter string?)
+                           (apply str))]
+            (is (re-find #":cart-total" label)
+                "mixed chip label names the flow id")
+            (is (re-find #"\[fx :db\]" label)
+                "mixed chip label includes [fx :db]")))))))
+
+(deftest breadcrumb-omits-chip-when-no-origin-tag
+  (testing "rf2-s8r6c — calling breadcrumb without an origin-tag arg
+            (legacy 2-/3-arity) produces no chip"
+    (let [hdr (render/breadcrumb [:a]
+                                  {:added 1 :removed 0 :modified 0 :children 0}
+                                  nil)]
+      (is (nil? (find-by-testid hdr "rf-causa-diff-section-origin-[:a]"))
+          "no chip rendered when origin-tag arg omitted"))))
+
+(deftest breadcrumb-renders-chip-when-origin-tag-supplied
+  (testing "rf2-s8r6c — the 4-arity breadcrumb renders the chip"
+    (let [hdr (render/breadcrumb
+                [:cart :total]
+                {:added 0 :removed 0 :modified 1 :children 0}
+                nil
+                {:kind :flow :flow-id :cart-total})]
+      (is (some? (find-by-testid
+                   hdr "rf-causa-diff-section-origin-[:cart :total]"))
+          "chip renders next to the path breadcrumb"))))

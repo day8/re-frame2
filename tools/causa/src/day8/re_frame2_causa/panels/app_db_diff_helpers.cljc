@@ -520,3 +520,176 @@
   lookup without duplicating the key shape."
   [epoch-record]
   (:epoch-id epoch-record))
+
+;; ---- App-db path origin tags (rf2-s8r6c) --------------------------------
+;;
+;; The App-DB Diff panel renders one section per cluster of changed paths,
+;; but it does NOT distinguish the WRITER. Two writers can mutate app-db
+;; across a single epoch:
+;;
+;;   1. The event handler's `:db` effect — `[fx :db]`.
+;;   2. A flow's `:output` fn — `[flow :flow-id]`. Per Spec 013, flows
+;;      fire automatically AFTER the handler's effects run; each flow
+;;      writes its computed result back into app-db at its registered
+;;      `:path`.
+;;
+;; Without per-path attribution the developer sees "path X changed" and
+;; has to look elsewhere (the §8 FLOWS section in the Event lens) to
+;; figure out which subset of changes came from flow recomputes. The
+;; origin chip on each diff section closes that gap: the section header
+;; carries `[fx :db]` or `[flow :flow-id]` next to the breadcrumb.
+;;
+;; ## Source of truth
+;;
+;; Per rf2-lo37i (PR #1530) — `event-detail/flows-fired` projects each
+;; `:rf.flow/computed` trace event into `{:flow-id … :write-path … …}`.
+;; The same shape is the input to the helpers below, derived from the
+;; epoch record's `:trace-events` slot (not the cascade `:other` bucket
+;; — Causa's App-DB Diff panel is epoch-rooted, not cascade-rooted).
+;;
+;; ## Attribution rules
+;;
+;; Given a section path P and the vector of `{:flow-id … :write-path …}`
+;; flow-writes for the epoch, attribute as follows:
+;;
+;;   - When NO flow write covers P (P is neither equal to any
+;;     `:write-path` nor a prefix or suffix of any), origin is
+;;     `[:fx :db]` — the handler's `:db` effect is the only writer.
+;;
+;;   - When exactly one flow's `:write-path` equals P, OR P is a strict
+;;     ancestor of one flow's `:write-path`, OR P is a strict descendant
+;;     of one flow's `:write-path`, origin is `[:flow flow-id]`.
+;;
+;;   - When more than one flow write is covered by the section, OR a
+;;     flow write coexists with handler-only writes inside the section,
+;;     origin is `[:mixed flow-ids fx?]` — render as
+;;     `[flow :a :b] + [fx :db]` when `fx?` is true, else `[flow :a :b]`.
+;;
+;; The mixed case is unavoidable for coalesced sections (rf2-gfxmk's
+;; section grouping merges nearby change-points; a section headed
+;; `[:cart]` can cover both a handler-written `[:cart :items]` and a
+;; flow-written `[:cart :total]`). The chip surfaces both writers
+;; honestly rather than picking one.
+;;
+;; ## Detecting handler-only writes inside a section
+;;
+;; A section MAY also cover handler writes that aren't on any flow's
+;; write-path. We can't enumerate handler writes from traces (the `:db`
+;; effect doesn't trace per-leaf writes), so we approximate by checking
+;; whether the section's changed-paths span exceeds the union of flow
+;; write-paths. The diff triples for the section (already computed by
+;; `diff-paths`) are the input — for a section path P, if some triple's
+;; `:path` is under P but NOT under any flow write-path equal to or
+;; under P, then handler-only writes ALSO ride in this section.
+
+(defn flow-writes-from-trace-events
+  "Project `:rf.flow/computed` trace events into a vector of write
+  records:
+
+      [{:flow-id <kw> :write-path <vec>} ...]
+
+  Order preserved (firing order). Skips entries whose `:write-path` is
+  absent (defensive — Spec 013 guarantees `:path` on computed traces,
+  but older fixtures may omit it).
+
+  Pure data → data. JVM-runnable. Mirrors
+  `event-detail/flows-fired` (rf2-lo37i) but on the epoch record's
+  `:trace-events` slot directly rather than on the cascade `:other`
+  bucket — the App-DB Diff panel is epoch-rooted, not cascade-rooted."
+  [trace-events]
+  (vec
+    (keep (fn [ev]
+            (when (= :rf.flow/computed (:operation ev))
+              (let [tags (:tags ev)
+                    wp   (:path tags)
+                    fid  (:flow-id tags)]
+                (when (and (vector? wp) (keyword? fid))
+                  {:flow-id    fid
+                   :write-path wp}))))
+          (or trace-events []))))
+
+(defn- path-prefix?
+  "True when vector `a` is a prefix of (or equal to) vector `b`."
+  [a b]
+  (and (<= (count a) (count b))
+       (= a (subvec b 0 (count a)))))
+
+(defn- flow-covers-section?
+  "True when flow's `:write-path` is involved with `section-path` —
+  either equal, an ancestor of, or a descendant of `section-path`.
+  Bidirectional coverage so the chip fires for both 'section P sits
+  above flow write Q' AND 'section P sits inside flow write Q'."
+  [section-path write-path]
+  (or (path-prefix? write-path section-path)
+      (path-prefix? section-path write-path)))
+
+(defn- handler-only-write-in-section?
+  "True when at least one diff triple lives under `section-path` AND
+  its path is not covered by any of `flow-write-paths`. Detects the
+  mixed case where coalesced sections cover both flow writes and
+  handler-only writes.
+
+  `triples` is the canonical `diff-paths` output (vector of
+  `{:op :path …}`). `flow-write-paths` is a set of write-path
+  vectors."
+  [section-path triples flow-write-paths]
+  (boolean
+    (some (fn [{:keys [path]}]
+            (and (path-prefix? section-path path)
+                 (not-any? #(path-prefix? % path) flow-write-paths)))
+          triples)))
+
+(defn path-origin-tag
+  "Attribute one App-DB Diff section's writer(s).
+
+  Given:
+    - `section-path` (vec) — the section header path
+    - `flow-writes` (vec) — output of `flow-writes-from-trace-events`
+    - `triples`     (vec) — output of `diff-paths` (the full set of
+                            per-leaf changes for this epoch)
+
+  Returns one of:
+
+      {:kind :fx}                                ;; handler `:db` effect only
+      {:kind :flow :flow-id <kw>}                ;; single flow
+      {:kind :mixed :flow-ids [<kw>...] :fx? <bool>}
+
+  Pure data → data. JVM-runnable. The `:mixed` variant covers both
+  multi-flow sections (two+ flows writing under one coalesced section)
+  and flow+handler sections (one or more flows AND a handler-only
+  write under the same section).
+
+  Renderer choice: chip-label per case is built by `format-origin-tag`."
+  [section-path flow-writes triples]
+  (let [covering (filter #(flow-covers-section? section-path (:write-path %))
+                         flow-writes)
+        ids      (vec (distinct (map :flow-id covering)))
+        flow-wps (into #{} (map :write-path) covering)
+        fx?      (handler-only-write-in-section? section-path triples flow-wps)]
+    (cond
+      (and (empty? ids) (not fx?))
+      ;; No flow covers and no handler-only triples under the section
+      ;; — only happens for sections produced from triples that all sit
+      ;; OUTSIDE any flow write-path. That's the pure-fx case.
+      {:kind :fx}
+
+      (and (empty? ids) fx?)
+      {:kind :fx}
+
+      (and (= 1 (count ids)) (not fx?))
+      {:kind :flow :flow-id (first ids)}
+
+      :else
+      {:kind :mixed :flow-ids ids :fx? fx?})))
+
+(defn flow-writes-by-section
+  "Index `flow-writes` by their write-path for efficient lookup. Returns
+  `{write-path-vec flow-id}`. The map shape matches the consumer-
+  interface index Mike's bead spec calls for: 'index by `:write-path`'.
+
+  Pure data → data. Used as the seed for the renderer's chip
+  computation; tests assert the projection."
+  [flow-writes]
+  (into {}
+        (map (juxt :write-path :flow-id))
+        flow-writes))

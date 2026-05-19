@@ -398,3 +398,151 @@
   (testing "identical? whole dbs → 0 immediately (no walk)."
     (let [db {:auth {:token :rf/redacted}}]
       (is (= 0 (h/count-redacted-modified-paths db db))))))
+
+;; ---- rf2-s8r6c — flow-writes / path-origin-tag --------------------------
+;;
+;; The per-section origin chip's pure logic. Each section in the App-DB
+;; Diff panel is tagged `[fx :db]` / `[flow :flow-id]` / mixed based on
+;; the union of the epoch's `:rf.flow/computed` trace events and the
+;; canonical diff triples.
+
+(defn- flow-computed
+  "Build one `:rf.flow/computed` trace event matching the on-the-wire
+  shape Spec 013 + Spec 009 documents. Returned as a plain map so
+  `flow-writes-from-trace-events` can read it without runtime setup."
+  [flow-id write-path & [{:keys [frame input-values result]
+                          :or   {frame :rf/default
+                                 input-values []
+                                 result nil}}]]
+  {:op-type   :flow
+   :operation :rf.flow/computed
+   :tags      {:flow-id      flow-id
+               :path         write-path
+               :input-values input-values
+               :result       result
+               :frame        frame}})
+
+(deftest flow-writes-from-trace-events-empty
+  (testing "empty trace events → empty vector"
+    (is (= [] (h/flow-writes-from-trace-events [])))
+    (is (= [] (h/flow-writes-from-trace-events nil)))))
+
+(deftest flow-writes-from-trace-events-filters-non-computed
+  (testing "only :rf.flow/computed events project — skips
+            :rf.flow/skip + every other op-type"
+    (let [events [(flow-computed :cart-total [:cart :total])
+                  {:op-type :flow :operation :rf.flow/skip
+                   :tags {:flow-id :tax-due :reason :inputs-value-equal}}
+                  {:op-type :event :operation :event/dispatched
+                   :tags {:event [:foo]}}
+                  (flow-computed :tax-due [:tax :due])]
+          rows   (h/flow-writes-from-trace-events events)]
+      (is (= 2 (count rows)))
+      (is (= [:cart-total :tax-due] (mapv :flow-id rows))
+          "order preserved")
+      (is (= [[:cart :total] [:tax :due]] (mapv :write-path rows))))))
+
+(deftest flow-writes-from-trace-events-skips-malformed-writes
+  (testing "defensive — entries missing :path or :flow-id are skipped"
+    (let [events [(flow-computed :ok-flow [:a :b])
+                  {:op-type :flow :operation :rf.flow/computed
+                   :tags    {:flow-id nil :path [:c :d]}}
+                  {:op-type :flow :operation :rf.flow/computed
+                   :tags    {:flow-id :no-path :path nil}}]
+          rows   (h/flow-writes-from-trace-events events)]
+      (is (= [{:flow-id :ok-flow :write-path [:a :b]}] rows)))))
+
+(deftest flow-writes-by-section-indexes-by-write-path
+  (testing "the consumer-interface index — Mike's bead spec calls for
+            'index by :write-path'"
+    (let [writes [{:flow-id :cart-total :write-path [:cart :total]}
+                  {:flow-id :tax-due    :write-path [:tax :due]}]]
+      (is (= {[:cart :total] :cart-total
+              [:tax :due]    :tax-due}
+             (h/flow-writes-by-section writes))))))
+
+;; ---- path-origin-tag — the per-section attribution decision ------------
+
+(deftest path-origin-tag-pure-fx-no-flows
+  (testing "no flows fired → every section is [fx :db]"
+    (let [triples [{:op :modified :path [:counter] :before 0 :after 1}]]
+      (is (= {:kind :fx}
+             (h/path-origin-tag [:counter] [] triples))))))
+
+(deftest path-origin-tag-exact-flow-write-path
+  (testing "section path == one flow's :write-path → [flow :flow-id]"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}]
+          triples [{:op :modified :path [:cart :total]
+                    :before 0 :after 52.5}]]
+      (is (= {:kind :flow :flow-id :cart-total}
+             (h/path-origin-tag [:cart :total] writes triples))))))
+
+(deftest path-origin-tag-section-is-ancestor-of-flow-write
+  (testing "section coalesces above a flow's write-path → still
+            [flow :flow-id]"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}]
+          ;; section coalesced at [:cart], covering the flow write
+          triples [{:op :modified :path [:cart :total]
+                    :before 0 :after 52.5}]]
+      (is (= {:kind :flow :flow-id :cart-total}
+             (h/path-origin-tag [:cart] writes triples))))))
+
+(deftest path-origin-tag-section-is-descendant-of-flow-write
+  (testing "section sits inside a flow's write-path (deep subtree
+            inspection of a flow-written slice) → still
+            [flow :flow-id]"
+    (let [writes  [{:flow-id :cart-summary :write-path [:cart :summary]}]
+          ;; deep section under the flow's output slice
+          triples [{:op :modified
+                    :path [:cart :summary :total]
+                    :before 0 :after 52.5}]]
+      (is (= {:kind :flow :flow-id :cart-summary}
+             (h/path-origin-tag [:cart :summary :total]
+                                writes triples))))))
+
+(deftest path-origin-tag-section-uncovered-by-any-flow
+  (testing "section path is disjoint from every flow's write-path →
+            [fx :db]"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}]
+          triples [{:op :modified :path [:status] :before nil :after :ok}]]
+      (is (= {:kind :fx}
+             (h/path-origin-tag [:status] writes triples))))))
+
+(deftest path-origin-tag-mixed-multi-flow-section
+  (testing "coalesced section covers two flow writes → mixed with
+            both flow-ids"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}
+                   {:flow-id :cart-count :write-path [:cart :count]}]
+          triples [{:op :modified :path [:cart :total] :before 0 :after 1}
+                   {:op :modified :path [:cart :count] :before 0 :after 1}]
+          tag     (h/path-origin-tag [:cart] writes triples)]
+      (is (= :mixed (:kind tag)))
+      (is (= #{:cart-total :cart-count} (set (:flow-ids tag))))
+      (is (false? (:fx? tag))
+          "no handler-only writes inside the section"))))
+
+(deftest path-origin-tag-mixed-flow-and-fx
+  (testing "coalesced section covers ONE flow write AND a handler-only
+            triple → mixed with the one flow-id + :fx? true"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}]
+          triples [{:op :modified :path [:cart :total] :before 0 :after 1}
+                   ;; handler-only sibling write under the coalesced section
+                   {:op :modified :path [:cart :items] :before [] :after [:a]}]
+          tag     (h/path-origin-tag [:cart] writes triples)]
+      (is (= :mixed (:kind tag)))
+      (is (= [:cart-total] (:flow-ids tag)))
+      (is (true? (:fx? tag))
+          "handler-only triple at [:cart :items] surfaces as :fx? true"))))
+
+(deftest path-origin-tag-chained-flows-tag-the-downstream
+  (testing "chained flows — each lands as its own row and writes its
+            own output path; the section at the downstream path tags
+            it with the downstream flow's id (not the upstream's)"
+    (let [writes  [{:flow-id :cart-total :write-path [:cart :total]}
+                   {:flow-id :tax-due    :write-path [:tax :due]}]
+          triples [{:op :modified :path [:cart :total] :before 0 :after 50.0}
+                   {:op :modified :path [:tax :due]    :before 0 :after 5.25}]]
+      (is (= {:kind :flow :flow-id :cart-total}
+             (h/path-origin-tag [:cart :total] writes triples)))
+      (is (= {:kind :flow :flow-id :tax-due}
+             (h/path-origin-tag [:tax :due] writes triples))))))
