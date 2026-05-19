@@ -1,0 +1,249 @@
+/* ============================================================================
+ * Structural baseline — class shapes the example views actually emit.
+ *
+ * rf2-jzqs9 lifted this from inline <style> blocks in every Reagent
+ * index.html. The classes here are layout-only (display/flex/grid,
+ * padding, max-widths, grid-template-columns); substrate-distinguishing
+ * typography + palette + atmosphere live in reagent.css / uix.css /
+ * helix.css (rf2-nfg15) which @import this file.
+ *
+ * Sources: examples/reagent/{login,boot,realworld,websocket,
+ * state_machine_walkthrough,ssr,ssr_streaming,long_running_work,7Guis/cells,
+ * counter}/index.html pre-rf2-jzqs9.
+ * ========================================================================== */
+
+/* -- Forms (login, signup, settings) ------------------------------------- */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 360px;
+}
+
+.login-form input,
+.login-form button {
+  padding: 10px 14px;
+}
+
+.error-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* -- Banners + pills (state-machine walkthrough, websocket) -------------- */
+
+.banner {
+  margin: 1em 0;
+  padding: 0.75em 1.25em;
+  border-radius: 6px;
+}
+
+.banner .state {
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
+}
+
+/* -- Boot example layout -------------------------------------------------- */
+
+.boot-progress,
+.boot-failed {
+  padding: 16px;
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+.main-app section {
+  padding: 12px 0;
+}
+
+dl.boot-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+dl.boot-summary dt { font-weight: 600; }
+dl.boot-summary dd { margin: 0; }
+
+/* -- Realworld / Conduit layout ----------------------------------------- */
+
+.navbar,
+.realworld-footer {
+  padding: 12px 20px;
+}
+
+.navbar .nav {
+  display: inline-block;
+  margin-right: 16px;
+}
+
+.nav-link {
+  margin-right: 10px;
+  text-decoration: none;
+}
+
+.container {
+  padding: 16px 20px;
+}
+
+.article-preview {
+  padding: 16px 0;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.article-preview h1 {
+  font-size: 1.25rem;
+  margin: 6px 0;
+}
+
+/* -- SSR + streaming SSR layout ----------------------------------------- */
+
+.page { max-width: 720px; }
+
+.toggle-bodies {
+  margin: 0.5em 0 1em;
+  padding: 8px 14px;
+}
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin-top: 1.5em;
+}
+
+.card {
+  flex: 1 1 220px;
+  border-radius: 8px;
+  padding: 1.25em;
+  border-width: 1px;
+  border-style: solid;
+}
+
+.card h3 {
+  margin: 0 0 0.5em;
+  font-size: 0.95em;
+}
+
+.card p.value {
+  margin: 0;
+  font-size: 1.8em;
+  font-weight: 700;
+}
+
+/* -- WebSocket example specifics ----------------------------------------- */
+
+.status { margin: 8px 0; }
+
+.lifecycle,
+.demo-buttons,
+.send-form {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+  align-items: center;
+}
+
+input[type="text"] {
+  padding: 8px 12px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.queue-depth {
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+.inbox ul {
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.85em;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 8px 8px 28px;
+}
+
+.inbox li { margin: 2px 0; }
+.last-reply { font-size: 0.85em; }
+
+.last-reply code {
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+hr {
+  border: 0;
+  margin: 20px 0;
+}
+
+/* -- 7GUIs: cells grid --------------------------------------------------- */
+
+.cells-grid {
+  border-collapse: collapse;
+  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+}
+
+.cells-grid th,
+.cells-grid td {
+  border-width: 1px;
+  border-style: solid;
+  min-width: 60px;
+  height: 22px;
+  padding: 1px 4px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.cells-grid thead th { text-align: center; }
+.cells-grid tbody th {
+  text-align: right;
+  min-width: 28px;
+}
+
+.cells-grid input {
+  width: 56px;
+  box-sizing: border-box;
+}
+
+/* -- Causa-host shell (counter testbed pattern) -------------------------- */
+
+.rf2-testbed-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+:root {
+  --rf-causa-accent: #7C5CFF;
+}
+
+[data-rf-causa-host] {
+  flex: 0 0 var(--rf-causa-inline-width, 560px);
+  min-width: 320px;
+  box-sizing: border-box;
+}
+
+.rf2-testbed-shell #app {
+  flex: 1;
+  min-width: 0;
+  padding: 2em;
+}
+
+/* -- Universal disabled state -------------------------------------------- */
+
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

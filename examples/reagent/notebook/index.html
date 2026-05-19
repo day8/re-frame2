@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: notebook (Reagent · design-led)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1F1A14">
+  <meta name="description" content="re-frame2 worked example — Reagent substrate, 'Editorial Warm' identity.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="re-frame2 example: notebook (Reagent · design-led)">
+  <meta property="og:description" content="re-frame2 worked example — Reagent substrate, 'Editorial Warm' identity.">
+  <meta property="og:image" content="_shared/img/og-reagent.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="_shared/img/favicon-reagent.svg">
+  <link rel="stylesheet" href="_shared/css/reagent.css">
+  <style>
+    /* Per-example layout — the editorial three-pane shell. Tokens come
+       from _shared/css/reagent.css (rg-* CSS variables). */
+    .nb-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr 1fr;
+      min-height: 100vh;
+      background: var(--rg-bg);
+    }
+    .nb-sidebar {
+      background: var(--rg-bg-sunken);
+      border-right: 1px solid var(--rg-rule);
+      padding: 24px 18px;
+      display: flex; flex-direction: column;
+    }
+    .nb-sidebar-header { display: flex; align-items: baseline; justify-content: space-between; }
+    .nb-sidebar-header h2 { font-family: var(--rg-serif); font-size: 1.4rem; margin: 0; }
+    .nb-new {
+      font-size: 0.85rem; padding: 4px 10px;
+      background: transparent; color: var(--rg-sienna);
+      border: 1px solid var(--rg-sienna); box-shadow: none;
+    }
+    .nb-new:hover:not([disabled]) { background: var(--rg-sienna); color: #fff; }
+
+    .nb-doc-list { list-style: none; padding: 0; margin: 18px 0 0; flex: 1; }
+    .nb-doc-list li { margin: 2px 0; }
+    .nb-doc-link {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      width: 100%; padding: 10px 12px; text-align: left;
+      background: transparent; color: var(--rg-ink);
+      border: 1px solid transparent; box-shadow: none;
+      font-family: var(--rg-sans); font-weight: 500; font-size: 0.96rem;
+      border-radius: 6px;
+    }
+    .nb-doc-link:hover:not([disabled]) {
+      background: var(--rg-bg-raised);
+      border-color: var(--rg-rule);
+      color: var(--rg-ink);
+    }
+    .nb-doc-link.active {
+      background: var(--rg-bg-raised);
+      border-color: var(--rg-sienna);
+      box-shadow: inset 3px 0 0 var(--rg-sienna);
+    }
+    .nb-doc-title { font-family: var(--rg-serif); font-weight: 600; }
+    .nb-doc-meta { font-size: 0.78em; color: var(--rg-ink-faint); font-family: var(--rg-mono); }
+
+    .nb-sidebar-footer {
+      margin-top: 18px; padding-top: 12px;
+      border-top: 1px solid var(--rg-rule);
+      color: var(--rg-ink-faint); font-size: 0.82rem;
+    }
+    .nb-sidebar-footer em {
+      color: var(--rg-sienna); font-style: italic; font-family: var(--rg-serif);
+    }
+
+    .nb-editor, .nb-preview {
+      display: flex; flex-direction: column;
+      border-right: 1px solid var(--rg-rule);
+    }
+    .nb-preview { border-right: 0; }
+    .nb-pane-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      padding: 20px 28px 8px;
+      border-bottom: 1px solid var(--rg-rule);
+    }
+    .nb-eyebrow {
+      text-transform: uppercase; letter-spacing: 0.16em; font-size: 0.72rem;
+      color: var(--rg-ink-faint); font-family: var(--rg-mono);
+    }
+    .nb-pane-header .nb-doc-title { font-family: var(--rg-serif); font-size: 1.1rem; }
+
+    .nb-textarea {
+      flex: 1; width: 100%; padding: 28px;
+      background: var(--rg-bg-raised); color: var(--rg-ink);
+      border: 0; resize: none; outline: none;
+      font-family: var(--rg-mono); font-size: 0.95rem; line-height: 1.65;
+      box-sizing: border-box;
+    }
+    .nb-textarea:focus {
+      background: var(--rg-bg-raised);
+      box-shadow: inset 0 0 0 2px rgba(196,84,28,0.18);
+    }
+
+    .nb-rendered {
+      flex: 1; padding: 28px 34px;
+      overflow-y: auto;
+      font-family: var(--rg-sans);
+      color: var(--rg-ink);
+      background: var(--rg-bg-raised);
+    }
+    .nb-rendered h1 { font-size: 2.1rem; margin: 0 0 0.4em; }
+    .nb-rendered h2 { font-size: 1.4rem; margin: 0.9em 0 0.4em; }
+    .nb-rendered h3 { font-size: 1.1rem; margin: 0.9em 0 0.35em; color: var(--rg-sienna-deep); }
+    .nb-rendered p  { margin: 0 0 1em; max-width: 60ch; }
+    .nb-rendered ul, .nb-rendered ol { padding-left: 1.4em; margin: 0 0 1em; max-width: 60ch; }
+    .nb-rendered li { margin: 4px 0; }
+    .nb-rendered strong { color: var(--rg-sienna-deep); }
+    .nb-rendered em { font-style: italic; }
+    .nb-rendered code {
+      background: var(--rg-bg-sunken);
+      color: var(--rg-sienna-deep);
+      padding: 1px 6px; border-radius: 3px;
+      font-family: var(--rg-mono);
+    }
+
+    /* Narrow viewport: collapse to single column with tabs (skipped here
+       to keep the example small; smoke test runs at desktop width). */
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="main.js"></script>
+</body>
+</html>

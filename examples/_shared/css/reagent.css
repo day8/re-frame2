@@ -1,0 +1,264 @@
+/* ============================================================================
+ * Reagent substrate — "Editorial Warm" visual identity (rf2-nfg15).
+ *
+ * Typography pairing : Newsreader (display serif, variable) + Source Sans 3 (body)
+ * Palette            : warm paper #FAF4EC / deep ink #1F1A14 / sienna #C4541C
+ *                      / gold #D8A24A / oxblood error #9B2C2C
+ * Atmosphere         : subtle paper grain (radial-gradient noise) +
+ *                      warm-toned soft shadows + serif drop-caps where natural.
+ * Mood               : established, refined, magazine — Reagent is the
+ *                      veteran of the three adapters; the typography says so.
+ *
+ * Per the cluster prompt: distinct from Causa (Inter+JBM+violet) and Story
+ * (IBM Plex), and distinct from the UIx ("Swiss Modern") and Helix
+ * ("Developer Industrial") sibling stylesheets.
+ *
+ * @imports structure.css (rf2-jzqs9) for layout-only class shapes.
+ * ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,700;0,6..72,800;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('structure.css');
+
+:root {
+  /* paper-grade neutrals */
+  --rg-bg:           #FAF4EC;
+  --rg-bg-raised:   #FFFAF1;
+  --rg-bg-sunken:   #EFE6D6;
+  --rg-ink:          #1F1A14;
+  --rg-ink-muted:   #5B5246;
+  --rg-ink-faint:   #877D6D;
+  --rg-rule:        #D9CCB3;
+
+  /* warm accents */
+  --rg-sienna:      #C4541C;
+  --rg-sienna-deep: #9C3F0E;
+  --rg-gold:        #D8A24A;
+  --rg-oxblood:     #9B2C2C;
+  --rg-forest:     #4A6B3A;
+
+  /* fonts */
+  --rg-serif:       'Newsreader', 'Iowan Old Style', 'Charter', Cambria, Georgia, serif;
+  --rg-sans:        'Source Sans 3', 'Source Sans Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --rg-mono:        ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', monospace;
+
+  /* aliases consumed by structure.css */
+  --rf2-mono:       var(--rg-mono);
+}
+
+html, body {
+  background: var(--rg-bg);
+  color: var(--rg-ink);
+  margin: 0;
+  font-family: var(--rg-sans);
+  font-size: 17px;
+  line-height: 1.55;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* paper grain — three radial gradients stacked, fixed so it doesn't
+   scroll with the content. Low-cost, pure CSS, no <img>. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(196,84,28,0.045)  0,    transparent 38%),
+    radial-gradient(circle at 78% 70%, rgba(216,162,74,0.045) 0,    transparent 42%),
+    radial-gradient(circle at 50% 95%, rgba(31,26,20,0.025)   0,    transparent 55%);
+  z-index: -1;
+}
+
+/* Typography */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--rg-serif);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--rg-ink);
+  margin: 0 0 0.6em;
+}
+
+h1 { font-size: 2.4rem;  line-height: 1.12; font-weight: 800; }
+h2 { font-size: 1.65rem; line-height: 1.2;  font-weight: 700; }
+h3 { font-size: 1.2rem;  line-height: 1.25; font-weight: 600; }
+
+p { margin: 0 0 1em; }
+
+code, kbd, pre, .mono {
+  font-family: var(--rg-mono);
+  font-size: 0.92em;
+}
+
+code {
+  background: var(--rg-bg-sunken);
+  color: var(--rg-sienna-deep);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+a, .nav-link {
+  color: var(--rg-sienna);
+  text-decoration-color: var(--rg-gold);
+  text-underline-offset: 3px;
+  transition: color 120ms ease;
+}
+
+a:hover, .nav-link:hover { color: var(--rg-sienna-deep); }
+
+/* Forms */
+
+input, textarea, select {
+  font-family: var(--rg-sans);
+  font-size: 1rem;
+  color: var(--rg-ink);
+  background: var(--rg-bg-raised);
+  border: 1px solid var(--rg-rule);
+  border-radius: 4px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--rg-sienna);
+  box-shadow: 0 0 0 3px rgba(196,84,28,0.18);
+}
+
+button {
+  font-family: var(--rg-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--rg-bg-raised);
+  background: var(--rg-ink);
+  border: 1px solid var(--rg-ink);
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+  box-shadow: 0 1px 0 rgba(31,26,20,0.18);
+}
+
+button:hover:not([disabled]) {
+  background: var(--rg-sienna);
+  border-color: var(--rg-sienna);
+}
+
+button:active:not([disabled]) { transform: translateY(1px); }
+
+/* Form-bound login submit gets the accent */
+.login-form button[type="submit"] {
+  background: var(--rg-sienna);
+  border-color: var(--rg-sienna);
+  color: #fff;
+}
+
+.login-form button[type="submit"]:hover:not([disabled]) {
+  background: var(--rg-sienna-deep);
+  border-color: var(--rg-sienna-deep);
+}
+
+.error {
+  color: var(--rg-oxblood);
+  font-family: var(--rg-sans);
+  font-style: italic;
+}
+
+.locked { color: var(--rg-oxblood); font-weight: 600; }
+
+/* Banner + pill identity */
+
+.banner {
+  background: var(--rg-bg-raised);
+  border: 1px solid var(--rg-rule);
+  box-shadow: 0 1px 3px rgba(31,26,20,0.05);
+  color: var(--rg-ink);
+}
+
+.pill.disconnected   { background: #8a7e6d; }
+.pill.connecting     { background: var(--rg-gold); color: var(--rg-ink); }
+.pill.authenticating { background: var(--rg-sienna); }
+.pill.connected      { background: var(--rg-forest); }
+.pill.reconnecting   { background: var(--rg-gold); color: var(--rg-ink); }
+.pill.failed         { background: var(--rg-oxblood); }
+
+/* Boot */
+
+.boot-progress {
+  background: var(--rg-bg-raised);
+  border-left-color: var(--rg-forest);
+  color: var(--rg-ink);
+}
+
+.boot-failed {
+  background: #FDF1EC;
+  border-left-color: var(--rg-oxblood);
+  color: var(--rg-oxblood);
+}
+
+.boot-hint { color: var(--rg-ink-faint); font-style: italic; }
+.main-app section { border-top: 1px solid var(--rg-rule); }
+dl.boot-summary dt { color: var(--rg-ink-muted); }
+
+/* Realworld / Conduit */
+
+.navbar, .realworld-footer {
+  background: var(--rg-bg-raised);
+  border-bottom: 1px solid var(--rg-rule);
+}
+
+.realworld-footer {
+  border-bottom: 0;
+  border-top: 1px solid var(--rg-rule);
+  margin-top: 2em;
+}
+
+.nav-link { color: var(--rg-sienna); font-weight: 500; }
+.article-preview { border-bottom-color: var(--rg-rule); }
+.article-preview h1 { font-family: var(--rg-serif); font-weight: 700; }
+
+/* SSR cards */
+
+.card {
+  background: var(--rg-bg-raised);
+  border-color: var(--rg-rule);
+  box-shadow: 0 2px 6px rgba(31,26,20,0.06);
+}
+
+.card h3 { color: var(--rg-ink-muted); font-family: var(--rg-serif); }
+.card p.value { color: var(--rg-sienna-deep); font-family: var(--rg-serif); }
+.card.skeleton { color: var(--rg-ink-faint); background: var(--rg-bg-sunken); }
+
+/* Pills + utility */
+
+.muted     { color: var(--rg-ink-faint); }
+.queue-depth { color: var(--rg-ink-muted); }
+.inbox ul { border: 1px solid var(--rg-rule); background: var(--rg-bg-raised); }
+.last-reply code { background: var(--rg-bg-sunken); }
+hr { border-top: 1px solid var(--rg-rule); }
+
+/* Cells grid */
+
+.cells-grid th, .cells-grid td { border-color: var(--rg-rule); }
+.cells-grid thead th, .cells-grid tbody th {
+  background: var(--rg-bg-sunken);
+  color: var(--rg-ink-muted);
+}
+
+/* Causa testbed shell — Reagent accent in the divider */
+[data-rf-causa-host] { border-left: 1px solid #2a2a2a; }
+
+/* Page padding default — used by examples that don't supply their own
+   layout. */
+body > #app,
+body > div > #app {
+  padding: 2.5em min(6vw, 48px);
+  max-width: 1100px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* The .rf2-testbed-shell wrapper overrides the above per its own grid;
+   undo the inherited #app padding under that wrapper. */
+.rf2-testbed-shell > #app { max-width: none; margin: 0; }
