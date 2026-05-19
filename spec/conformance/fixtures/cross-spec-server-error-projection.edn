@@ -1,0 +1,102 @@
+;; Conformance fixture: cross-spec/server-error-projection
+;;
+;; Cross-Spec Interaction #16 (Errors × SSR), per
+;; [Cross-Spec-Interactions §16 — Error projection on the server](../../Cross-Spec-Interactions.md#16-error-projection-on-the-server).
+;;
+;; Specs that meet: [009-Instrumentation §Server error projection](../../009-Instrumentation.md),
+;;                  [011-SSR](../../011-SSR.md).
+;;
+;; Scenario: An fx handler on the server throws during request
+;; processing — the post-commit `:fx` walk hits a buggy stub.
+;;
+;; Behaviour: The exception is caught by `do-fx` (per Spec 002 §Error
+;; during `:fx`); `:rf.error/fx-handler-exception` traces with the
+;; failing fx-id and the original exception message. The frame's
+;; active error projector (the runtime's default
+;; `:rf.ssr/default-error-projector` when no `:public-error-id` is
+;; named) projects the trace event to a public-error shape and stamps
+;; the locked `{:status 500 :code :internal-error :message
+;; "Something went wrong" :retryable? false}` onto the request frame's
+;; response accumulator.
+;;
+;; The HTTP response is built from the projected error (the host
+;; adapter reads `:rf/public-error` off the response accumulator and
+;; converts to a wire response). The trace surface preserves the FULL
+;; exception detail (including any sensitive substrings) while the
+;; public response carries the locked sanitised shape — the projector
+;; IS the sanitisation seam.
+;;
+;; This fixture complements:
+;;   - `ssr-error-sanitisation.edn` (event handler throws — covers the
+;;     same projector path with a different trace category)
+;;   - `cross-spec-ssr-machine-error.edn` (machine action throws —
+;;     composes §11 and §16)
+;; by pinning the fx-handler-exception → projector path. The three
+;; together exercise every 500-class trace shape that flows through
+;; the server projector.
+;;
+;; Per rf2-e3imj — substrate-edge cluster (Cross-Spec #16).
+
+{:fixture/id           :cross-spec/server-error-projection
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :ssr/error-projection}
+ :fixture/doc          "Cross-Spec #16 Server error projection. An fx handler throws on a server frame; the runtime emits :rf.error/fx-handler-exception with the original exception message; the active error projector maps it to the locked generic-500 public-error shape on the request frame's response accumulator. The internal trace preserves full detail; the public-error is sanitised."
+
+ :fixture/registry
+ {:event {:rf/server-init {:doc "Per-request server-side init — dispatches a chain that ends in the buggy fx."
+                           :platforms #{:server}}
+          :load/start     {:doc "Emits the buggy fx as part of its :fx return."
+                           :platforms #{:server}}}
+  :fx    {:user.fx/db-call {:doc       "Buggy stub fx — throws on every call, carrying an internal exception message."
+                            :platforms #{:server}}}
+  :error-projector
+  {:rf.ssr/default-error-projector
+   {:doc "Built-in default projector — maps :rf.error/fx-handler-exception to generic 500 (anything-else branch)."}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init [[:fx [[:dispatch [:load/start]]]]]
+          :load/start     [[:fx :user.fx/db-call {:query "users"}]]}
+  :fx    {:user.fx/db-call
+          ;; Throw with an internal-detail message — the projector's
+          ;; sanitisation contract is that NO part of this string can
+          ;; appear on the public response.
+          [[:throw "Postgres unreachable: PASSWORD=hunter2"]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init]
+                        :platform  :server
+                        :ssr {:public-error-id   :rf.ssr/default-error-projector
+                              :dev-error-detail? false}}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; app-db remains empty — neither the fx-throw nor the projector
+ ;; writes user-visible state. The response accumulator (a
+ ;; framework-private side-channel atom, per rf2-jbcmt) carries the
+ ;; projected public-error; asserted via :ssr/public-error below.
+ {:final-app-db {}
+
+  ;; Trace stream preserves FULL detail (for monitoring / dev tooling):
+  ;;   1. The outer per-request init event.
+  ;;   2. The inner :load/start event the init dispatched.
+  ;;   3. :rf.error/fx-handler-exception with the original message —
+  ;;      the trace surface is allowed (and required) to preserve PII;
+  ;;      sanitisation happens at the projector boundary.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :load/start}}
+   {:operation :rf.error/fx-handler-exception
+    :op-type   :error
+    :tags      {:fx-id             :user.fx/db-call
+                :exception-message "Postgres unreachable: PASSWORD=hunter2"}}]
+
+  ;; Public-error shape — the projector's sanitised output. The PII
+  ;; from the exception-message (hunter2) MUST NOT appear on the wire.
+  ;; The default projector's "anything else → 500 :internal-error"
+  ;; branch produces this locked shape; the host adapter serialises
+  ;; it to the HTTP response status + body.
+  :ssr/public-error
+  {:status     500
+   :code       :internal-error
+   :message    "Something went wrong"
+   :retryable? false}}}

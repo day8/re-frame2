@@ -1,0 +1,94 @@
+;; Conformance fixture: cross-spec/dispatch-sync-in-handler
+;;
+;; Cross-Spec Interaction #14 (Drain loop × Substrate), per
+;; [Cross-Spec-Interactions §14 — Re-entrant dispatch from inside a render](../../Cross-Spec-Interactions.md#14-re-entrant-dispatch-from-inside-a-render).
+;;
+;; Specs that meet: [002-Frames §Run-to-completion §Render boundaries](../../002-Frames.md#render-boundaries),
+;;                  [006-ReactiveSubstrate §Subscription cache](../../006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
+;;
+;; Scenario: A handler runs while a drain cycle is in flight, and that
+;; handler — directly or transitively via an fx that naively chains —
+;; calls `(rf/dispatch-sync ...)`. Per Spec 002 §Render boundaries:
+;;
+;;   "dispatch-sync means 'skip the router queue when called from
+;;    outside any handler.' Calling it from inside a handler raises
+;;    :rf.error/dispatch-sync-in-handler ..."
+;;
+;; The "from inside a render" portion of the interaction's title is a
+;; SUB-CASE of this broader contract: a render-time dispatch-sync would
+;; trip the same guard. The corpus is host-agnostic pure-data event /
+;; sub / fx semantics — render-time observables are out of scope per
+;; the conformance README §Render-time observables. We pin the broader
+;; substrate contract (the same `:in-drain?` router guard a render-time
+;; call would trip) through a fx-handler-mediated dispatch-sync.
+;;
+;; Behaviour (the load-bearing contract):
+;;   1. The outer handler runs normally and commits its :db.
+;;   2. The fx-mediated dispatch-sync trips the router's `:in-drain?`
+;;      guard (per `re-frame.router`'s drain-loop) and emits
+;;      `:rf.error/dispatch-sync-in-handler` with `:op-type :error` +
+;;      `:recovery :no-recovery`.
+;;   3. The transitively-dispatched event's handler does NOT run — the
+;;      sync call is rejected before it reaches the leaf event.
+;;
+;; The pure-data observable: the trace stream carries the structured
+;; error; the marker the leaf would have set (`:leaf?`) is ABSENT from
+;; app-db because the rejected sync-dispatch never reached the leaf
+;; handler.
+;;
+;; Per rf2-60szl — substrate-edge cluster (Cross-Spec #14). The
+;; harness's `:dispatch-sync` op (added alongside this fixture to
+;; mirror the `:dispatch` op's shape) is the seam the fixture pulls.
+
+{:fixture/id           :cross-spec/dispatch-sync-in-handler
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "Cross-Spec #14 Re-entrant dispatch ban. A handler running mid-drain that triggers (rf/dispatch-sync ...) — directly or transitively via a naive fx-side chain — trips the router's :in-drain? guard. The runtime emits :rf.error/dispatch-sync-in-handler with :no-recovery; the would-be leaf handler does NOT run. The same guard catches render-time dispatch-sync (the interaction's title sub-case); the corpus pins the substrate-level contract via the fx path because render-time observables are out of scope (see README §Render-time observables)."
+
+ :fixture/registry
+ {:event {:outer/trigger  {:doc "Outer event — emits a fx-chain that tries to dispatch-sync into :leaf."}
+          :leaf/should-not-run {:doc "If this handler runs, the in-drain guard failed — sets :leaf? true."}}
+  :fx    {:user.fx/sync-dispatch {:doc       "Naive fx that calls dispatch-sync. The :in-drain? guard catches this transitively."
+                                  :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:outer/trigger
+          ;; The outer handler commits a marker and emits ONE fx whose
+          ;; body invokes dispatch-sync transitively. The :dispatch-sync
+          ;; DSL op routes through the runner's dispatch-sync! helper,
+          ;; which calls rf/dispatch-sync while the outer handler is
+          ;; mid-drain — exactly the in-handler shape Spec 002 names.
+          [[:set [:outer-ran?] true]
+           [:fx :user.fx/sync-dispatch [:leaf/should-not-run]]]
+
+          :leaf/should-not-run
+          ;; This MUST NOT run — the in-drain guard catches the
+          ;; dispatch-sync before it reaches the leaf handler. If
+          ;; :leaf? appears in :final-app-db, the contract is broken.
+          [[:set [:leaf?] true]]}
+
+  :fx    {:user.fx/sync-dispatch
+          ;; The naive fx body: calls dispatch-sync with the args (the
+          ;; event vector the outer handler supplied). The :event-arg 1
+          ;; reflection resolves to the args (the leaf event vector).
+          [[:dispatch-sync [:event-arg 1]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [[:outer/trigger]]
+
+ :fixture/expect
+ ;; The load-bearing pair of assertions:
+ ;;   1. :outer-ran? is true (outer handler committed) but :leaf? is
+ ;;      ABSENT — the rejected sync-dispatch never reached the leaf.
+ ;;   2. The :rf.error/dispatch-sync-in-handler trace fired with
+ ;;      :op-type :error and :recovery :no-recovery.
+ {:final-app-db
+  {:outer-ran? true}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :outer/trigger}}
+   {:operation :rf.error/dispatch-sync-in-handler
+    :op-type   :error
+    :recovery  :no-recovery}]}}

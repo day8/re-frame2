@@ -1,0 +1,92 @@
+;; Conformance fixture: cross-spec/machines-under-ssr
+;;
+;; Cross-Spec Interaction #4 (Machines × SSR), per
+;; [Cross-Spec-Interactions §4 — Machines under SSR (allowed-subset)](../../Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset).
+;;
+;; Specs that meet: [005-StateMachines §SSR mode](../../005-StateMachines.md#ssr-mode),
+;;                  [011-SSR §`:after` is no-op under SSR](../../011-SSR.md#after-is-no-op-under-ssr).
+;;
+;; Scenario: A request-scoped frame running on the server hosts a machine
+;; whose state declares an `:after` timer.
+;;
+;; Behaviour (the carve-out): Under `:platform :server`:
+;;   1. Entering an `:after`-bearing state DOES NOT schedule a real
+;;      host-clock timer.
+;;   2. The runtime emits `:rf.machine.timer/skipped-on-server` in place
+;;      of the usual `:rf.machine.timer/scheduled`, carrying the same
+;;      `:state` / `:delay` / `:delay-source` / `:epoch` envelope plus
+;;      `:platform :server` and `:recovery :skipped`.
+;;   3. The pure transition still emits the `:rf.machine/after-schedule`
+;;      fx, but its `:server?` flag is true and the runtime layer's fx
+;;      handler is a no-op.
+;;   4. The machine's snapshot lands at the `:after`-bearing state and
+;;      the request continues — no waiting, no `setTimeout`. The request
+;;      frame is destroyed at request end and any timer that would have
+;;      fired against an unmatching epoch would no-op anyway (Spec 005
+;;      §Epoch-based stale detection).
+;;
+;; The pure machine substrate (`:always`, plain transitions, `:invoke` of
+;; synchronous co-effects) runs normally on the server — only `:after`
+;; carves out.
+;;
+;; Per rf2-ud2tn — substrate-edge cluster (Cross-Spec #4).
+
+{:fixture/id           :cross-spec/machines-under-ssr
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after :core/event-handler :core/trace}
+ :fixture/doc          "Cross-Spec #4 Machines under SSR (allowed-subset). On entry to an :after-bearing state under :platform :server, the runtime emits :rf.machine.timer/skipped-on-server in place of :rf.machine.timer/scheduled, the host-clock timer is NOT installed, and the snapshot still lands at the :after-bearing state. The request continues without waiting; the request frame is destroyed at request end and any stale timer no-ops via the epoch mechanism."
+
+ :fixture/registry
+ {:machine
+  {:auth/probe
+   ;; A flat machine with :after on :loading. The :after's target is
+   ;; :timeout — under :platform :client the timer would eventually
+   ;; transition; under :platform :server the timer is skipped, the
+   ;; snapshot settles at :loading, and the request returns.
+   {:initial :idle
+    :data    {}
+    :states  {:idle    {:on {:probe :loading}}
+              :loading {:after {5000 :timeout}}
+              :timeout {}}}}}
+
+ :fixture/handlers {}
+
+ ;; :platform :server simulates an SSR request frame. The :after fx's
+ ;; server?-true branch fires the :rf.machine.timer/skipped-on-server
+ ;; trace instead of /scheduled.
+ :fixture/frame-config {:on-create []
+                        :platform  :server}
+
+ :fixture/dispatches
+ ;; Drive the machine into :loading on the server. The :after timer for
+ ;; :loading is what surfaces the carve-out.
+ [[:auth/probe [:probe]]]
+
+ :fixture/expect
+ ;; The snapshot lands at :loading even though no timer ran — exactly
+ ;; the contract: machines run normally on the server, :after is
+ ;; specifically carved out.
+ {:final-app-db
+  {:rf/machines
+   {:auth/probe {:state :loading}}}
+
+  ;; The load-bearing trace contract:
+  ;;   1. :event for the outer machine-handler dispatch.
+  ;;   2. :rf.machine.timer/skipped-on-server fires INSTEAD of /scheduled
+  ;;      — carrying :platform :server + :recovery :skipped + the same
+  ;;      :state / :delay / :delay-source / :epoch envelope.
+  ;;   3. :rf.machine/transition for the macrostep commit.
+  ;;
+  ;; If the runtime mis-handled SSR machines and emitted /scheduled,
+  ;; this assertion would fail.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :auth/probe}}
+   {:operation :rf.machine.timer/skipped-on-server
+    :tags      {:machine-id   :auth/probe
+                :state        :loading
+                :delay        5000
+                :delay-source :literal
+                :platform     :server}
+    :recovery  :skipped}
+   {:operation :rf.machine/transition
+    :tags      {:machine-id :auth/probe}}]}}

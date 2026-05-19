@@ -471,7 +471,14 @@
                           ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
                            container new-db)))
            :dispatch! (fn [event frame-id]
-                        (rf/dispatch event {:frame frame-id}))}
+                        (rf/dispatch event {:frame frame-id}))
+           ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync
+           ;; from an fx handler body trips the router's in-drain guard
+           ;; and surfaces :rf.error/dispatch-sync-in-handler. Fixtures
+           ;; that pin the ban use [:dispatch-sync event-vec] from their
+           ;; fx body; the realise-fx-handler routes that pair here.
+           :dispatch-sync! (fn [event frame-id]
+                             (rf/dispatch-sync event {:frame frame-id}))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -1026,12 +1033,52 @@
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
           _            (realise-flows! fixture)
-          dispatches   (or (:fixture/dispatches fixture) [])]
+          dispatches   (or (:fixture/dispatches fixture) [])
+          sub-registry (get-in fixture [:fixture/registry :sub] {})]
       (doseq [ev dispatches]
         (cond
           (map? ev)
-          (let [{event :event :as opts} ev]
-            (rf/dispatch-sync event (dissoc opts :event)))
+          (cond
+            ;; Harness teardown step `{:destroy-frame <frame-id>}` per
+            ;; Spec 002 §Destroy + Spec 005 §Cross-Spec Interactions §1
+            ;; — invoke `destroy-frame!` against the named frame; the
+            ;; machine-cascade teardown hook + sub-cache disposal +
+            ;; `:frame/destroyed` trace all fire here. Mirrors the
+            ;; flows-conformance runner's shape (rf2-gmrks).
+            (contains? ev :destroy-frame)
+            (rf/destroy-frame! (:destroy-frame ev))
+
+            ;; Harness re-registration step `{:reg-sub <sub-id> :body
+            ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a). The
+            ;; runner realises the body via the conformance DSL and
+            ;; calls `reg-sub` against the existing sub id — the
+            ;; registrar's replacement hook fires (cache invalidation,
+            ;; `:rf.registry/handler-replaced` trace). Subsequent
+            ;; dispatches resolve against the NEW body.
+            (contains? ev :reg-sub)
+            (let [sub-id        (:reg-sub ev)
+                  steps         (:body ev)
+                  {:keys [kind inputs body]} (conformance/realise-sub steps)
+                  sub-meta      (get sub-registry sub-id {})
+                  ;; Per the realise-handlers branch above (rf2-jwm4):
+                  ;; the public re-frame.core/reg-sub is a macro on JVM
+                  ;; for source-coord capture, so we route through the
+                  ;; fn-form re-frame.subs/reg-sub here. Source-coord
+                  ;; capture is intentionally bypassed for this
+                  ;; fixture-synthesised re-registration.
+                  reg-sub-fn (requiring-resolve 're-frame.subs/reg-sub)]
+              (case kind
+                :layer-1 (if (seq sub-meta)
+                           (reg-sub-fn sub-id sub-meta body)
+                           (reg-sub-fn sub-id body))
+                :layer-2 (apply reg-sub-fn sub-id
+                                (concat (when (seq sub-meta) [sub-meta])
+                                        (interleave (repeat :<-) inputs)
+                                        [body]))))
+
+            :else
+            (let [{event :event :as opts} ev]
+              (rf/dispatch-sync event (dissoc opts :event))))
 
           ;; Convention: :rf/hydrate events dispatch with :source :ssr-hydration
           ;; per Spec 011 §The :rf/hydrate event. Real clients pass this on the

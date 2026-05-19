@@ -445,7 +445,11 @@
                         (let [container (frame/get-frame-db frame-id)]
                           (substrate-adapter/replace-container! container new-db)))
            :dispatch! (fn [event frame-id]
-                        (rf/dispatch event {:frame frame-id}))}
+                        (rf/dispatch event {:frame frame-id}))
+           ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync
+           ;; from an fx handler body trips the router's in-drain guard.
+           :dispatch-sync! (fn [event frame-id]
+                             (rf/dispatch-sync event {:frame frame-id}))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -906,12 +910,43 @@
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
           _            (realise-flows! fixture)
-          dispatches   (or (:fixture/dispatches fixture) [])]
+          dispatches   (or (:fixture/dispatches fixture) [])
+          sub-registry (get-in fixture [:fixture/registry :sub] {})]
       (doseq [ev dispatches]
         (cond
           (map? ev)
-          (let [{event :event :as opts} ev]
-            (rf/dispatch-sync event (dissoc opts :event)))
+          (cond
+            ;; Harness teardown step `{:destroy-frame <frame-id>}` per
+            ;; Spec 002 §Destroy + Spec 005 §Cross-Spec Interactions §1.
+            ;; Mirrors the JVM runner.
+            (contains? ev :destroy-frame)
+            (rf/destroy-frame! (:destroy-frame ev))
+
+            ;; Harness re-registration step `{:reg-sub <sub-id> :body
+            ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a). Mirror
+            ;; of the JVM runner — the realised sub's `:kind` MUST drive
+            ;; the registration form: a layer-2 body re-registered as a
+            ;; layer-1 sub would receive app-db (not the input-sub value)
+            ;; at evaluation time, silently producing NaN / nonsense.
+            ;; Use the fn-form subs/reg-sub (rf/reg-sub is a macro and
+            ;; not first-class for `apply`).
+            (contains? ev :reg-sub)
+            (let [sub-id        (:reg-sub ev)
+                  steps         (:body ev)
+                  {:keys [kind inputs body]} (conformance/realise-sub steps)
+                  sub-meta      (get sub-registry sub-id {})]
+              (case kind
+                :layer-1 (if (seq sub-meta)
+                           (subs/reg-sub sub-id sub-meta body)
+                           (subs/reg-sub sub-id body))
+                :layer-2 (apply subs/reg-sub sub-id
+                                (concat (when (seq sub-meta) [sub-meta])
+                                        (interleave (repeat :<-) inputs)
+                                        [body]))))
+
+            :else
+            (let [{event :event :as opts} ev]
+              (rf/dispatch-sync event (dissoc opts :event))))
 
           (and (vector? ev) (= :rf/hydrate (first ev)))
           (rf/dispatch-sync ev {:source :ssr-hydration})

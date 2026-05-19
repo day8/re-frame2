@@ -1,0 +1,87 @@
+;; Conformance fixture: cross-spec/frame-destroy-with-machines
+;;
+;; Cross-Spec Interaction #1 (Frames × Machines), per
+;; [Cross-Spec-Interactions §1 — Frame disposal with active machine instances](../../Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances).
+;;
+;; Specs that meet: [002-Frames §Destroy](../../002-Frames.md#destroy),
+;;                  [005-StateMachines §Hierarchical compound states §Entry/exit cascading](../../005-StateMachines.md#entryexit-cascading-along-the-lca).
+;;
+;; Scenario: `(rf/destroy-frame! <id>)` is called while the frame holds
+;; an active machine instance (a singleton-registered machine that has
+;; reached a non-initial :state through prior dispatch).
+;;
+;; Behaviour (Spec 005 §Cross-Spec Interactions §1, rf2-vsigt):
+;;   1. Each active machine emits `:rf.machine.lifecycle/destroyed` with
+;;      `:reason :parent-frame-destroyed`, carrying the destroyed frame
+;;      id, the machine id, and the snapshot's `:last-state`.
+;;   2. After every machine has settled, the frame's `:frame/destroyed`
+;;      trace fires.
+;;
+;; This fixture exercises the singleton-machine path (one machine
+;; registered via `reg-machine`, snapshot present at
+;; `[:rf/machines :auth/session]` after the dispatch). The reverse-
+;; creation-order contract for dynamically-spawned actors is exercised
+;; by the JVM-side cascade tests in
+;; `implementation/machines/test/re_frame/frame_destroy_cascade_test.clj`;
+;; the corpus pins the cross-implementation TRACE-shape contract, which is
+;; the host-agnostic observable.
+;;
+;; Per rf2-u68jt — substrate-edge cluster (Cross-Spec #1). The harness's
+;; `{:destroy-frame <frame-id>}` dispatch step (added alongside this
+;; fixture to mirror the flow-conformance runner's shape) is the seam
+;; the fixture pulls.
+
+{:fixture/id           :cross-spec/frame-destroy-with-machines
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/frame :core/trace}
+ :fixture/doc          "Cross-Spec #1 Frame disposal with active machine instances. destroy-frame! while a machine snapshot is live emits :rf.machine.lifecycle/destroyed BEFORE :frame/destroyed, with :reason :parent-frame-destroyed. The trace contract is the host-agnostic observable."
+
+ :fixture/registry
+ {:event {:boot/seed {:doc "Seed a marker so the frame's app-db is non-empty before destroy."}}
+  ;; Singleton authentication machine. The reg-machine path turns this
+  ;; into an event-handler at :auth/session; dispatching [:auth/session
+  ;; [:authenticate]] sub-routes to the machine handler which transitions
+  ;; :idle → :authenticated and commits [:rf/machines :auth/session
+  ;; {:state :authenticated :data {}}] into app-db. THAT is the "active
+  ;; machine instance" the frame holds at destroy time.
+  :machine
+  {:auth/session
+   {:initial :idle
+    :data    {}
+    :states  {:idle          {:on {:authenticate :authenticated}}
+              :authenticated {}}}}}
+
+ :fixture/handlers
+ {:event {:boot/seed [[:set [:seeded?] true]]}}
+
+ :fixture/frame-config {:on-create [:boot/seed]}
+
+ :fixture/dispatches
+ ;; Commit the machine snapshot at [:rf/machines :auth/session], then
+ ;; tear the frame down. The :destroy-frame step is interpreted by the
+ ;; runner (not dispatched as an event) and invokes destroy-frame!,
+ ;; triggering the machine teardown cascade and the :frame/destroyed
+ ;; trace.
+ [[:auth/session [:authenticate]]
+  {:destroy-frame :rf/default}]
+
+ :fixture/expect
+ ;; Trace ordering contract — per rf2-vsigt §step 6 + frame.cljc's
+ ;; emit-frame-destroyed-trace! step ordering:
+ ;;   1. :boot/seed event (on-create).
+ ;;   2. :auth/session event (the machine-dispatched inner [:authenticate]).
+ ;;   3. destroy-frame! starts.
+ ;;   4. :rf.machine.lifecycle/destroyed fires for the active machine
+ ;;      BEFORE the frame's :frame/destroyed trace (rf2-vsigt §step
+ ;;      3.a — emit BEFORE the destroy work so trace consumers see the
+ ;;      signal while the handler still resolves).
+ ;;   5. :frame/destroyed fires last.
+ {:trace-emissions
+  [{:operation :event :tags {:event-id :boot/seed}}
+   {:operation :event :tags {:event-id :auth/session}}
+   {:operation :rf.machine.lifecycle/destroyed
+    :tags      {:frame      :rf/default
+                :machine-id :auth/session
+                :last-state :authenticated
+                :reason     :parent-frame-destroyed}}
+   {:operation :frame/destroyed :tags {:frame :rf/default}}]}}
