@@ -1,313 +1,264 @@
 /* ============================================================================
- * Reagent examples — shared baseline stylesheet (rf2-jzqs9).
+ * Reagent substrate — "Editorial Warm" visual identity (rf2-nfg15).
  *
- * Foundation lift: every inline <style> block previously duplicated across
- * examples/reagent/*\/index.html is consolidated here, keyed by the class
- * names the views actually emit. This is the FLOOR — commit 2 (rf2-nfg15)
- * layers the Reagent visual identity (typography pairing, palette,
- * atmosphere) on top via examples/_shared/css/reagent-identity.css.
+ * Typography pairing : Newsreader (display serif, variable) + Source Sans 3 (body)
+ * Palette            : warm paper #FAF4EC / deep ink #1F1A14 / sienna #C4541C
+ *                      / gold #D8A24A / oxblood error #9B2C2C
+ * Atmosphere         : subtle paper grain (radial-gradient noise) +
+ *                      warm-toned soft shadows + serif drop-caps where natural.
+ * Mood               : established, refined, magazine — Reagent is the
+ *                      veteran of the three adapters; the typography says so.
  *
- * Staging: the orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
- * copies this file into each example's out/examples/<name>/_shared/css/
- * directory via the `extraFiles` mechanism, so the same hand-written
- * index.html can <link rel="stylesheet" href="_shared/css/reagent.css">
- * relatively in every example.
+ * Per the cluster prompt: distinct from Causa (Inter+JBM+violet) and Story
+ * (IBM Plex), and distinct from the UIx ("Swiss Modern") and Helix
+ * ("Developer Industrial") sibling stylesheets.
  *
- * The class-name surface here is the union of what the example views emit
- * (.login-form, .banner, .error, .pill.<state>, .navbar, .nav-link,
- * .card, .cells-grid, ...) — a single CSS bundle so the substrate's UIx
- * and Helix siblings can also opt in (they currently render the same
- * components with the same classes; the unstyled-fallback problem
- * documented in rf2-7p188 finding M4).
+ * @imports structure.css (rf2-jzqs9) for layout-only class shapes.
  * ========================================================================== */
 
-/* -- Forms (login, signup, settings) ------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,700;0,6..72,800;1,6..72,400&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('structure.css');
 
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 320px;
+:root {
+  /* paper-grade neutrals */
+  --rg-bg:           #FAF4EC;
+  --rg-bg-raised:   #FFFAF1;
+  --rg-bg-sunken:   #EFE6D6;
+  --rg-ink:          #1F1A14;
+  --rg-ink-muted:   #5B5246;
+  --rg-ink-faint:   #877D6D;
+  --rg-rule:        #D9CCB3;
+
+  /* warm accents */
+  --rg-sienna:      #C4541C;
+  --rg-sienna-deep: #9C3F0E;
+  --rg-gold:        #D8A24A;
+  --rg-oxblood:     #9B2C2C;
+  --rg-forest:     #4A6B3A;
+
+  /* fonts */
+  --rg-serif:       'Newsreader', 'Iowan Old Style', 'Charter', Cambria, Georgia, serif;
+  --rg-sans:        'Source Sans 3', 'Source Sans Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --rg-mono:        ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', monospace;
+
+  /* aliases consumed by structure.css */
+  --rf2-mono:       var(--rg-mono);
 }
 
-.login-form input,
-.login-form button {
-  padding: 6px 12px;
-}
-
-.error {
-  color: #c33;
+html, body {
+  background: var(--rg-bg);
+  color: var(--rg-ink);
   margin: 0;
+  font-family: var(--rg-sans);
+  font-size: 17px;
+  line-height: 1.55;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.error-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* paper grain — three radial gradients stacked, fixed so it doesn't
+   scroll with the content. Low-cost, pure CSS, no <img>. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(196,84,28,0.045)  0,    transparent 38%),
+    radial-gradient(circle at 78% 70%, rgba(216,162,74,0.045) 0,    transparent 42%),
+    radial-gradient(circle at 50% 95%, rgba(31,26,20,0.025)   0,    transparent 55%);
+  z-index: -1;
 }
 
-.locked {
-  color: #c33;
+/* Typography */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--rg-serif);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--rg-ink);
+  margin: 0 0 0.6em;
 }
 
-/* -- Banners + pills (state-machine walkthrough, websocket) -------------- */
+h1 { font-size: 2.4rem;  line-height: 1.12; font-weight: 800; }
+h2 { font-size: 1.65rem; line-height: 1.2;  font-weight: 700; }
+h3 { font-size: 1.2rem;  line-height: 1.25; font-weight: 600; }
 
-.banner {
-  margin: 1em 0;
-  padding: 0.5em 1em;
-  background: #f4f4f4;
-  border-radius: 4px;
-}
+p { margin: 0 0 1em; }
 
-.banner .state {
-  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
-}
-
-.pill {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: 0.04em;
-  font-size: 0.85em;
-}
-
-.pill.disconnected   { background: #888; }
-.pill.connecting     { background: #2a93d5; }
-.pill.authenticating { background: #6c5ce7; }
-.pill.connected      { background: #2ecc71; }
-.pill.reconnecting   { background: #e67e22; }
-.pill.failed         { background: #e74c3c; }
-
-/* -- Boot example -------------------------------------------------------- */
-
-.boot-progress {
-  padding: 16px;
-  background: #f5f7fa;
-  border-left: 4px solid #5cb85c;
-}
-
-.boot-failed {
-  padding: 16px;
-  background: #fdf3f3;
-  border-left: 4px solid #d9534f;
-}
-
-.boot-hint {
-  color: #777;
-  font-size: 0.85rem;
-}
-
-.main-app section {
-  padding: 8px 0;
-  border-top: 1px solid #eee;
-}
-
-dl.boot-summary {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 4px 12px;
-  margin: 0;
-}
-
-dl.boot-summary dt {
-  font-weight: 600;
-  color: #555;
-}
-
-dl.boot-summary dd { margin: 0; }
-
-/* -- Realworld / Conduit ------------------------------------------------- */
-
-.navbar,
-.realworld-footer {
-  padding: 8px 16px;
-  background: #f5f5f5;
-}
-
-.navbar .nav {
-  display: inline-block;
-  margin-right: 12px;
-}
-
-.nav-link {
-  margin-right: 8px;
-  text-decoration: none;
-  color: #5cb85c;
-}
-
-.container {
-  padding: 12px 16px;
-}
-
-.article-preview {
-  padding: 12px 0;
-  border-bottom: 1px solid #eee;
-}
-
-.article-preview h1 {
-  font-size: 1.2rem;
-  margin: 4px 0;
-}
-
-/* -- SSR + streaming SSR ------------------------------------------------- */
-
-.page { max-width: 600px; }
-
-.toggle-bodies {
-  margin: 0.5em 0 1em;
-  padding: 6px 12px;
-}
-
-.cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1em;
-  margin-top: 1.5em;
-}
-
-.card {
-  flex: 1 1 220px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 1em;
-}
-
-.card h3 {
-  margin: 0 0 0.5em;
-  font-size: 0.95em;
-  color: #444;
-}
-
-.card p.value {
-  margin: 0;
-  font-size: 1.6em;
-  font-weight: bold;
-}
-
-.card.skeleton {
-  color: #aaa;
-  background: #fafafa;
-}
-
-/* -- Long-running work --------------------------------------------------- */
-
-button[disabled] {
-  cursor: not-allowed;
-  opacity: 0.5;
+code, kbd, pre, .mono {
+  font-family: var(--rg-mono);
+  font-size: 0.92em;
 }
 
 code {
-  background: #f0f0f0;
-  padding: 1px 4px;
+  background: var(--rg-bg-sunken);
+  color: var(--rg-sienna-deep);
+  padding: 1px 5px;
   border-radius: 3px;
 }
 
-/* -- WebSocket example specifics ----------------------------------------- */
-
-.muted     { color: #666; }
-.status    { margin: 8px 0; }
-
-.lifecycle,
-.demo-buttons,
-.send-form {
-  display: flex;
-  gap: 8px;
-  margin: 8px 0;
-  align-items: center;
+a, .nav-link {
+  color: var(--rg-sienna);
+  text-decoration-color: var(--rg-gold);
+  text-underline-offset: 3px;
+  transition: color 120ms ease;
 }
 
-input[type="text"] {
-  padding: 6px 10px;
-  flex: 1;
-  min-width: 240px;
-}
+a:hover, .nav-link:hover { color: var(--rg-sienna-deep); }
 
-.queue-depth {
-  color: #555;
-  font-style: italic;
-  font-size: 0.9em;
-}
+/* Forms */
 
-.inbox ul {
-  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
-  font-size: 0.85em;
-  max-height: 240px;
-  overflow-y: auto;
-  border: 1px solid #ddd;
-  padding: 8px 8px 8px 28px;
-}
-
-.inbox li { margin: 2px 0; }
-
-.last-reply { font-size: 0.85em; }
-
-.last-reply code {
-  background: #f3f3f3;
-  padding: 2px 6px;
+input, textarea, select {
+  font-family: var(--rg-sans);
+  font-size: 1rem;
+  color: var(--rg-ink);
+  background: var(--rg-bg-raised);
+  border: 1px solid var(--rg-rule);
   border-radius: 4px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-hr {
-  border: 0;
-  border-top: 1px solid #eee;
-  margin: 16px 0;
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--rg-sienna);
+  box-shadow: 0 0 0 3px rgba(196,84,28,0.18);
 }
 
-/* -- 7GUIs: cells grid --------------------------------------------------- */
-
-.cells-grid {
-  border-collapse: collapse;
-  font-family: var(--rf2-mono, ui-monospace, Menlo, monospace);
+button {
+  font-family: var(--rg-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--rg-bg-raised);
+  background: var(--rg-ink);
+  border: 1px solid var(--rg-ink);
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+  box-shadow: 0 1px 0 rgba(31,26,20,0.18);
 }
 
-.cells-grid th,
-.cells-grid td {
-  border: 1px solid #ccc;
-  min-width: 60px;
-  height: 22px;
-  padding: 1px 4px;
-  text-align: left;
-  vertical-align: middle;
+button:hover:not([disabled]) {
+  background: var(--rg-sienna);
+  border-color: var(--rg-sienna);
 }
 
-.cells-grid thead th {
-  background: #eee;
-  text-align: center;
+button:active:not([disabled]) { transform: translateY(1px); }
+
+/* Form-bound login submit gets the accent */
+.login-form button[type="submit"] {
+  background: var(--rg-sienna);
+  border-color: var(--rg-sienna);
+  color: #fff;
 }
 
-.cells-grid tbody th {
-  background: #eee;
-  text-align: right;
-  min-width: 28px;
+.login-form button[type="submit"]:hover:not([disabled]) {
+  background: var(--rg-sienna-deep);
+  border-color: var(--rg-sienna-deep);
 }
 
-.cells-grid input {
-  width: 56px;
+.error {
+  color: var(--rg-oxblood);
+  font-family: var(--rg-sans);
+  font-style: italic;
+}
+
+.locked { color: var(--rg-oxblood); font-weight: 600; }
+
+/* Banner + pill identity */
+
+.banner {
+  background: var(--rg-bg-raised);
+  border: 1px solid var(--rg-rule);
+  box-shadow: 0 1px 3px rgba(31,26,20,0.05);
+  color: var(--rg-ink);
+}
+
+.pill.disconnected   { background: #8a7e6d; }
+.pill.connecting     { background: var(--rg-gold); color: var(--rg-ink); }
+.pill.authenticating { background: var(--rg-sienna); }
+.pill.connected      { background: var(--rg-forest); }
+.pill.reconnecting   { background: var(--rg-gold); color: var(--rg-ink); }
+.pill.failed         { background: var(--rg-oxblood); }
+
+/* Boot */
+
+.boot-progress {
+  background: var(--rg-bg-raised);
+  border-left-color: var(--rg-forest);
+  color: var(--rg-ink);
+}
+
+.boot-failed {
+  background: #FDF1EC;
+  border-left-color: var(--rg-oxblood);
+  color: var(--rg-oxblood);
+}
+
+.boot-hint { color: var(--rg-ink-faint); font-style: italic; }
+.main-app section { border-top: 1px solid var(--rg-rule); }
+dl.boot-summary dt { color: var(--rg-ink-muted); }
+
+/* Realworld / Conduit */
+
+.navbar, .realworld-footer {
+  background: var(--rg-bg-raised);
+  border-bottom: 1px solid var(--rg-rule);
+}
+
+.realworld-footer {
+  border-bottom: 0;
+  border-top: 1px solid var(--rg-rule);
+  margin-top: 2em;
+}
+
+.nav-link { color: var(--rg-sienna); font-weight: 500; }
+.article-preview { border-bottom-color: var(--rg-rule); }
+.article-preview h1 { font-family: var(--rg-serif); font-weight: 700; }
+
+/* SSR cards */
+
+.card {
+  background: var(--rg-bg-raised);
+  border-color: var(--rg-rule);
+  box-shadow: 0 2px 6px rgba(31,26,20,0.06);
+}
+
+.card h3 { color: var(--rg-ink-muted); font-family: var(--rg-serif); }
+.card p.value { color: var(--rg-sienna-deep); font-family: var(--rg-serif); }
+.card.skeleton { color: var(--rg-ink-faint); background: var(--rg-bg-sunken); }
+
+/* Pills + utility */
+
+.muted     { color: var(--rg-ink-faint); }
+.queue-depth { color: var(--rg-ink-muted); }
+.inbox ul { border: 1px solid var(--rg-rule); background: var(--rg-bg-raised); }
+.last-reply code { background: var(--rg-bg-sunken); }
+hr { border-top: 1px solid var(--rg-rule); }
+
+/* Cells grid */
+
+.cells-grid th, .cells-grid td { border-color: var(--rg-rule); }
+.cells-grid thead th, .cells-grid tbody th {
+  background: var(--rg-bg-sunken);
+  color: var(--rg-ink-muted);
+}
+
+/* Causa testbed shell — Reagent accent in the divider */
+[data-rf-causa-host] { border-left: 1px solid #2a2a2a; }
+
+/* Page padding default — used by examples that don't supply their own
+   layout. */
+body > #app,
+body > div > #app {
+  padding: 2.5em min(6vw, 48px);
+  max-width: 1100px;
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
-/* -- Causa-host shell (counter testbed pattern) -------------------------- */
-
-.rf2-testbed-shell {
-  display: flex;
-  min-height: 100vh;
-}
-
-:root {
-  --rf-causa-accent: #7C5CFF;
-}
-
-[data-rf-causa-host] {
-  flex: 0 0 var(--rf-causa-inline-width, 560px);
-  min-width: 320px;
-  box-sizing: border-box;
-  border-left: 1px solid #2a2a2a;
-}
-
-.rf2-testbed-shell #app {
-  flex: 1;
-  min-width: 0;
-  padding: 2em;
-}
+/* The .rf2-testbed-shell wrapper overrides the above per its own grid;
+   undo the inherited #app padding under that wrapper. */
+.rf2-testbed-shell > #app { max-width: none; margin: 0; }
