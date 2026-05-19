@@ -101,6 +101,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
@@ -118,6 +119,8 @@
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
+            [day8.re-frame2-causa.static.mode-pill :as mode-pill]
+            [day8.re-frame2-causa.static.shell :as static-shell]
             [day8.re-frame2-causa.theme.global-styles :as global-styles]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -731,8 +734,25 @@
                    :padding          "0 12px"
                    :background       (:bg-1 tokens)
                    :border-bottom    (str "1px solid " (:border-subtle tokens))
+                   ;; rf2-o5f5f.1 — mode-signal mechanism #2: a 2-px
+                   ;; left-edge stripe in the active mode's accent
+                   ;; (violet in Runtime, cyan in Static). Painted on
+                   ;; the ribbon so it lines up with the top-of-shell
+                   ;; edge regardless of the L2 resize-handle. The
+                   ;; stripe-hex helper closes over the current
+                   ;; palette (light vs dark theme via CSS custom
+                   ;; properties); cyan is already in the palette so
+                   ;; zero new tokens introduced.
+                   :border-left      (str "2px solid "
+                                          (static-shell/stripe-hex-for-mode :runtime))
                    :font-family      sans-stack
                    :font-size        (:body type-scale)}}
+     ;; rf2-o5f5f.1 — mode pill at ribbon-left, gated behind the
+     ;; `:experimental/static-mode?` flag. Phase 1 keeps the pill out
+     ;; of sight until a host opts in; sibling beads (.2–.6) fill the
+     ;; Static sub-tabs before the flag flips to default-on.
+     (when (config/static-mode-enabled?)
+       [mode-pill/mode-pill])
      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail?}]
      [ribbon-focus-chip {:focus-set focus-set}]
      [ribbon-frame-picker {:selected-frame (:frame focus)
@@ -1410,6 +1430,53 @@
         :issues   [issues-ribbon/Panel]
         [unknown-tab-stub selected])]]))
 
+;; ---- Runtime / Static surface composer (rf2-o5f5f.1) --------------------
+;;
+;; The shell exposes TWO modes (Runtime — the 4-layer chrome below,
+;; Static — the 3-layer registry-browse surface owned by
+;; `static/shell.cljs`). With the `:experimental/static-mode?` flag
+;; OFF (default) the composer always renders Runtime — byte-identical
+;; to the pre-bead chrome. With the flag ON the composer reads
+;; `:rf.causa/mode` and renders either Runtime or Static.
+;;
+;; The composer is `reg-view`-registered so the subscribe inside its
+;; body resolves through React-context to `:rf/causa` — same
+;; discipline as the rest of the shell.
+
+(rf/reg-view runtime-chrome
+  "The Runtime 4-layer chrome (L1 ribbon · L2 event list · L3 tab bar ·
+  L4 detail panel) wrapped as a single component. Extracted from the
+  inline composition in `shell-view` so the Static surface can swap in
+  alongside it via the mode composer (rf2-o5f5f.1).
+
+  Per rf2-in6l2 `reg-view`-registered for parity with every other
+  shell region."
+  []
+  [:<>
+   [ribbon {}]
+   [event-list]
+   [tab-bar]
+   [detail-panel]])
+
+(rf/reg-view surface-composer
+  "Mode-aware composer (rf2-o5f5f.1). Reads `:rf.causa/mode` and renders
+  either the Runtime 4-layer chrome OR the Static 3-layer surface.
+
+  With the `:experimental/static-mode?` flag OFF the composer always
+  renders Runtime — the mode slot is ignored, the surface is byte-
+  identical to the pre-bead chrome. With the flag ON the active mode
+  drives the swap.
+
+  Per rf2-in6l2 `reg-view`-registered so the subscribe resolves to
+  `:rf/causa` via React-context."
+  []
+  (let [mode (if (config/static-mode-enabled?)
+               @(rf/subscribe [:rf.causa/mode])
+               :runtime)]
+    (case mode
+      :static  [static-shell/surface]
+      [runtime-chrome])))
+
 ;; ---- shell view ----------------------------------------------------------
 
 (rf/reg-view shell-view
@@ -1520,14 +1587,12 @@
     ;; pushes `--rf-causa-inline-width` onto the layout host so the
     ;; host's `flex-basis` re-evaluates this paint.
     [resize-handle/Handle mode]
-    ;; L1 — top ribbon (scope controls)
-    [ribbon {}]
-    ;; L2 — event list (the spine timeline)
-    [event-list]
-    ;; L3 — tab bar (projection selector)
-    [tab-bar]
-    ;; L4 — detail panel (per-tab content)
-    [detail-panel]
+    ;; Mode-aware surface (rf2-o5f5f.1). With
+    ;; `:experimental/static-mode?` OFF the composer always renders
+    ;; the Runtime 4-layer chrome — byte-identical to the pre-bead
+    ;; surface. With the flag ON it reads `:rf.causa/mode` and swaps
+    ;; in the Static 3-layer surface when active.
+    [surface-composer]
     ;; Command palette (rf2-wm7z4) — mounted at shell root so it
     ;; overlays the chrome. Modal short-circuits to nil when
     ;; `:rf.causa/palette-open?` is false; closed-state cost is one

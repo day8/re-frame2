@@ -53,6 +53,7 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.theme.tokens :as tokens]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -351,6 +352,18 @@
   ;; value into the slot. Idempotent — re-running with an unchanged
   ;; source produces the same slot.
   (filters/hydrate!)
+  ;; Hydrate the Runtime ↔ Static mode slot (rf2-o5f5f.1). Same
+  ;; rationale as the filter hydrate above — the persisted mode
+  ;; lives in localStorage under `causa.mode` and the frame must
+  ;; exist before the dispatch can land. `:rf.causa/set-mode`
+  ;; normalises unknown values back to `:runtime` so an absent or
+  ;; malformed slot is harmless. The dispatch carries the persist-
+  ;; mode fx which would re-write the slot; that's intentional —
+  ;; the round-trip canonicalises the stored value (e.g. an
+  ;; old "explorer" pre-rename value would land back as "runtime"
+  ;; without manual intervention).
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/set-mode (static-persistence/load)]))
   ;; Auto-open-on-error watcher (rf2-9poxq) — install lazily here so
   ;; the persisted-true case picks up as soon as the user opens
   ;; Causa. The watcher subscribes to `:rf.causa/issues-ribbon`

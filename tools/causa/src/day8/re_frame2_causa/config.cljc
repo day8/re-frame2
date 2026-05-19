@@ -285,6 +285,57 @@
   []
   @keybinding-enabled?)
 
+;; ---- *static-mode?* (rf2-o5f5f.1 — Static-impl feature flag) ------------
+;;
+;; Causa exposes TWO modes per `tools/causa/spec/007-UX-IA.md` §Static
+;; mode + the findings doc `ai/findings/2026-05-19-causa-explorer-
+;; mode.md`:
+;;
+;;   - Runtime — the event-coupled spine + 4-layer chrome (the
+;;     surface the rest of Causa ships today).
+;;   - Static  — event-INDEPENDENT browse of what's registered
+;;     (Machines / Routes / Schemas / Views / Events).
+;;
+;; Phase 1 (this bead) ships the chrome scaffold only — the 5 Static
+;; sub-tabs render placeholder cards naming the sibling bead that
+;; will fill them. Until the siblings land, Static is gated behind
+;; this flag so the default-on installation surface stays at parity
+;; with the pre-Static behaviour.
+;;
+;; The flag is the gate around the mode-pill render + the Cmd-Shift-M
+;; keybinding + the shell's mode dispatch. With the flag OFF the
+;; Runtime shell renders byte-identically to the pre-bead surface;
+;; with it ON the mode pill appears at ribbon-left and Cmd-Shift-M
+;; toggles modes.
+;;
+;; Once .2 / .3 / .4 fill the placeholder tabs the flag can flip to
+;; default-on (a separate decision; not part of this bead).
+
+(defonce
+  ^{:doc "Atom controlling whether Causa exposes the Static mode UX
+         (mode pill, Cmd-Shift-M chord, Static surface render). Default
+         `false` so the Runtime chrome renders byte-identically to the
+         pre-Static surface while the sibling beads (rf2-o5f5f.2..6)
+         fill the placeholder Static tabs. Per rf2-o5f5f.1."}
+  static-mode?
+  (atom false))
+
+(defn set-static-mode-enabled!
+  "Replace the `:experimental/static-mode?` flag. `nil` resets to the
+  default (`false`). Hosts opt into Static mode by calling
+  `(causa-config/configure! {:experimental/static-mode? true})`
+  before the Causa preload runs."
+  [v]
+  (reset! static-mode? (if (nil? v) false (boolean v)))
+  nil)
+
+(defn static-mode-enabled?
+  "Return true when Causa should expose the Static surface UX (mode
+  pill, Cmd-Shift-M chord, Static shell render). Read by the
+  shell + keybinding layers. Per rf2-o5f5f.1."
+  []
+  @static-mode?)
+
 (defonce
   ^{:doc "Atom holding Causa's 'Open in editor' preference. Default
          `:vscode`. Accepts the keywords `:vscode` / `:cursor` /
@@ -1012,6 +1063,13 @@
        palette — are not swallowed by Causa's capture-phase listener.
        Per rf2-4eyik (rf2-q7who Thread A). MUST be set BEFORE the
        Causa preload runs.
+    `{:experimental/static-mode? <bool>}` — whether Causa exposes the
+       Static mode UX (mode pill at ribbon-left, Cmd-Shift-M chord
+       toggle, Static surface render). Defaults to `false` so the
+       Runtime chrome renders byte-identically to the pre-Static
+       surface. Per rf2-o5f5f.1 — flips to default-on after the
+       sibling beads fill the placeholder Static sub-tabs (Machines /
+       Routes / Schemas / Views / Events).
     `{:trace/show-sensitive? <bool>}` — privacy gate for `:sensitive?
        true` trace events per Spec 009 §Privacy (rf2-azls9). Defaults
        to `false` — Causa's trace collector drops sensitive events
@@ -1050,6 +1108,7 @@
     host-selector-opt :layout/host-selector
     auto-open-opt :launch/auto-open?
     keybinding-opt :launch.keybinding/enabled?
+    static-mode-opt :experimental/static-mode?
     show-sensitive-opt :trace/show-sensitive?
     filters-opt :filters
     filters-key-opt :filters/storage-key
@@ -1064,6 +1123,8 @@
     (set-auto-open! auto-open-opt))
   (when (contains? opts :launch.keybinding/enabled?)
     (set-keybinding-enabled! keybinding-opt))
+  (when (contains? opts :experimental/static-mode?)
+    (set-static-mode-enabled! static-mode-opt))
   (when (contains? opts :trace/show-sensitive?)
     (set-show-sensitive! show-sensitive-opt))
   ;; NB: `settings` here is the destructured bulk-config map; the
