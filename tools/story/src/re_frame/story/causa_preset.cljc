@@ -304,33 +304,35 @@
          true))))
 
 #?(:cljs
+   (defn wire-cross-host!
+     "rf2-v1ach: bridge Story's configuration into Causa's config
+     slots without mounting the full shell. Fires the three
+     cross-host bridges (project-root + keybinding disable + listener
+     detach) so the popout escape hatch + Causa's source-coord chips
+     resolve against Story's environment, but does NOT drive
+     `mount/open!` — under the per-panel embed the RHS panel-host
+     component owns the mount lifecycle on its own.
+
+     Idempotent / feature-detect-safe — every bridge is a no-op when
+     Causa is not on the classpath."
+     []
+     (when (and config/enabled? (causa-available?))
+       (propagate-project-root!)
+       (disable-keybinding!)
+       (detach-keybinding!))))
+
+#?(:cljs
    (defn ensure-causa-mounted!
-     "Always-on entry point used by the Story shell (rf2-sgdd3) to drive
-     Causa's `mount/open!` regardless of a per-story preset. Feature-
-     detect-safe: when Causa is not on the classpath the call is a
-     silent no-op.
+     "DEPRECATED — pre-rf2-v1ach the Story shell drove the full Causa
+     4-layer shell into a `[data-rf-causa-host]` 320px column. The
+     per-panel embed (`re-frame.story.ui.causa-embed`) replaced this
+     mount path; the new shape mounts one panel at a time via the
+     `panels/mount-<panel>!` contract.
 
-     The shell's right-panel ships a `[data-rf-causa-host]` slot;
-     `mount/open!` finds the slot and mounts the Causa shell into it.
-     Idempotent — Causa's own singleton state guarantees only one
-     mount per process, subsequent calls flip visibility back to
-     visible if the user closed the shell.
-
-     rf2-r1uod: also propagates Story's configured `:project-root`
-     into Causa's config slot so the Causa-as-RHS source-coord chips
-     resolve absolute on-disk paths. The propagator is no-op-safe when
-     Story has no `:project-root` configured.
-
-     rf2-q7who.1: also disables Causa's global keybinding listener via
-     `:launch.keybinding/enabled? false` so Story's own Cmd/Ctrl+K
-     command palette is not swallowed by Causa's capture-phase
-     listener. The slot is idempotent on every variant edge.
-
-     rf2-ycrt2: also calls `keybinding/detach!` AFTER the slot flip so
-     the listener Causa's preload installed (under the default-true
-     posture, before Story's mount-time bridge fires) is removed at
-     runtime — the slot alone is read only at attach time and would
-     leave the listener installed without this step."
+     Kept for back-compat callers that drove the whole-shell shape
+     explicitly. New code should let the embed own its mount and use
+     `wire-cross-host!` above for the project-root / keybinding
+     bridges."
      []
      (when (and config/enabled? (causa-available?))
        (propagate-project-root!)
@@ -417,6 +419,14 @@
 
      Re-applies the preset on every selection edge so a story author
      who edits `:causa` and hot-reloads sees the change without
-     remount."
+     remount.
+
+     rf2-v1ach: the RHS chip-row's user-override is shell-wide and
+     sticky across variant changes — `causa-embed/effective-panel`
+     prefers the user click when set, falling back to
+     `resolve-panel` otherwise. Authors who want a different
+     default per story declare it on the variant body
+     (`:causa-panel <kw>`); the user can swap at runtime via the
+     chip-row."
      [variant-id]
      (apply-preset! variant-id)))

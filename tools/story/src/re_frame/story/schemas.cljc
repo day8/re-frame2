@@ -257,10 +257,32 @@
   filters API, no-opping gracefully when absent.
 
   - `:open?`   — when truthy, auto-open the Causa shell on variant mount.
-  - `:tab`     — registered Causa panel-id keyword to pre-focus
-                 (e.g. `:event-detail :time-travel :app-db :issues
-                 :machines :trace :subs :fx :flows :routes :performance
-                 :hydration :causality :mcp-server :schemas`).
+                 Under the per-panel embed (rf2-v1ach) this is largely
+                 superseded by `:panel` — the chip-row + selected panel
+                 are the default RHS surface; `:open?` survives for the
+                 popout / whole-shell escape hatch only.
+  - `:panel`   — rf2-v1ach. The Causa panel to mount in the RHS Causa
+                 host. One of:
+                   `:event-detail` (default)
+                   `:app-db`
+                   `:views`
+                   `:trace`
+                   `:machines`
+                   `:routing`
+                   `:issues`
+                 Authors choose the panel-id that fits the story's
+                 diagnostic question (`:counter/at-five` → `:app-db`,
+                 `:routing-demo/*` → `:routing`, etc.). The user can
+                 swap at runtime via the RHS chip-row; the user's
+                 manual click overrides for the session.
+  - `:tab`     — DEPRECATED in v1. Was the Causa full-shell tab-id;
+                 pre-rf2-v1ach the RHS hosted the full 4-layer shell
+                 and `:tab` pre-focused a panel inside it. Under the
+                 per-panel embed the chip-row is the panel selector;
+                 `:panel` carries the same intent. `:tab` still
+                 accepted by the preset runtime for back-compat with
+                 the popout escape hatch but new authors should use
+                 `:panel`.
   - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Causa
                  auto-filter pills to pre-populate. Both axes are
                  optional. Skipped with a console warning when
@@ -271,6 +293,7 @@
                  want LIVE to track head."
   [:map
    [:open?   {:optional true} :boolean]
+   [:panel   {:optional true} :keyword]
    [:tab     {:optional true} :keyword]
    [:filters {:optional true}
     [:map

@@ -57,6 +57,8 @@
             [re-frame.story.runtime           :as runtime]
             [re-frame.story.async             :as async]
             [re-frame.story.registrar         :as registrar]
+            [re-frame.story.theme.colors      :as colors]
+            [re-frame.story.theme.glyphs      :as glyphs]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
             [re-frame.story.ui.state          :as state]))
 
@@ -251,18 +253,33 @@
                           (fn [s] (-> s
                                       (state/select-variant variant-id)
                                       (state/select-workspace nil)))))}
-   (when testable? [status-dot status])
+   ;; rf2-p0wur — per-row glyph affordance. Testable variants keep the
+   ;; status dot (it carries pass/fail/running colour); non-testable
+   ;; variants get a refined variant glyph so every row carries an
+   ;; iconographic prefix at a uniform indent.
+   (if testable?
+     [status-dot status]
+     [:span {:style (:variant-glyph styles)}
+      [glyphs/variant-glyph 10]])
    [:span (str "/" (name variant-id))]
    [tag-badges tags]])
 
 (defn- story-block
   "Render one story header + its variants. `entry` shape is
   `{:story-id ... :variants [[variant-id body] ...]}` (the shape
-  produced by `state/group-variants-by-story`)."
+  produced by `state/group-variants-by-story`).
+
+  rf2-p0wur: story rows lead with an amber diamond glyph + carry an
+  inter-story spacer so the sidebar tree breathes — pre-rf2-p0wur the
+  rows packed flush with no whitespace breaks between top-level stories.
+  The glyph wears `:accent-amber` so the parent row reads as a labelled
+  chapter heading."
   [{:keys [story-id variants]} selected-variant testable-set test-runs]
-  [:div
+  [:div {:style (:story-block styles)}
    [:div {:style (:story-row styles)}
-    (str (or story-id "(no story)"))]
+    [:span {:style (:story-glyph styles)}
+     [glyphs/story-glyph 13]]
+    [:span (str (or story-id "(no story)"))]]
    (for [[vid body] variants]
      (let [testable? (contains? testable-set vid)
            status    (or (get-in test-runs [vid :status]) :pending)
@@ -272,14 +289,18 @@
 
 (defn- workspace-row
   [workspace-id selected?]
-  [:div {:style    (merge (:variant-row styles)
-                          (when selected? (:variant-row-active styles)))
+  [:div {:style    (merge (:workspace-row styles)
+                          (when selected? (:workspace-row-active styles)))
+         :data-test   "story-sidebar-workspace-row"
+         :data-workspace (str workspace-id)
          :on-click (fn [_]
                      (state/swap-state!
                        (fn [s] (-> s
                                    (state/select-workspace workspace-id)
                                    (state/select-variant nil)))))}
-   (str workspace-id)])
+   [:span {:style (:workspace-glyph styles)}
+    [glyphs/workspace-glyph 12]]
+   [:span (str workspace-id)]])
 
 ;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
 
@@ -489,7 +510,11 @@
            :aria-label "Stories and workspaces"
            :tab-index  "0"}
      [:div {:style (:tree styles)}
-      [:div {:style (:header styles)} "Stories"]
+      [:div {:style (:header styles)}
+       [:span {:style {:display "inline-flex" :align-items "center"
+                       :color (:accent-amber colors/tokens)}}
+        [glyphs/story-glyph 12]]
+       [:span "Stories"]]
       [tag-filter-row (:variants registry) tag-filter tag->axis]
       (if (empty? grouped)
         [:div {:style (:empty styles)}
@@ -501,7 +526,13 @@
           [story-block entry sel-variant testable-set test-runs]))
       (when (seq workspaces)
         [:div
-         [:div {:style (:section styles)} "Workspaces"]
+         [:div {:style (:section styles)}
+          [:span {:style {:display "inline-flex" :align-items "center"
+                          :color (:info colors/tokens)
+                          :margin-right "6px"
+                          :vertical-align "-2px"}}
+           [glyphs/workspace-glyph 11]]
+          "Workspaces"]
          (for [[wid _body] (sort-by key workspaces)]
            ^{:key wid}
            [workspace-row wid (= wid sel-ws)])])]

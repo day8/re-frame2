@@ -205,38 +205,52 @@
 
 ;; ---- styling -------------------------------------------------------------
 ;;
-;; Matches the existing controls-panel chip vocabulary + the mode-tabs
-;; strip's chrome register (rf2-2uwv contrast lock). Spec/010 §Visual
-;; style: `#252526` background, `#444` bottom border, 8/12px padding,
-;; 6px chip gap, 10/11px text.
+;; Per rf2-v58dm the toolbar now reads as ~5 distinct affordance
+;; clusters separated by token-driven vertical dividers + a
+;; left-edge upper-cased cluster label so users scan groups rather
+;; than flat chips.  Tokens (rf2-2rwdc / rf2-i3i5j / rf2-3lt89)
+;; carry the surface vocabulary; no hex literals.
+;;
+;; Cluster shape:
+;;   [MODES axis-groups …]  divider  [DATA dispatch / play]  divider
+;;   [VIEW viewport / backgrounds]  divider  [DEBUG inspector]
+;;   divider  [REC recorder]  [reset]
+;;
+;; Modes occupy the left edge (variable width — registry-driven);
+;; everything else is right-aligned via the spacer slot. Wrapping
+;; preserves on narrow viewports: each `:cluster` is a self-contained
+;; flex-item so it stays cohesive across rows.
 
 (def ^:private styles
   {:strip       {:display        "flex"
                  :align-items    "center"
-                 :gap            "10px"
-                 :padding        "6px 12px"
+                 :gap            "6px"
+                 :padding        "6px 10px"
                  :background     (:bg-2 colors/tokens)
-                 :border-bottom  "1px solid #444"
+                 :border-bottom  (str "1px solid " (:border-default colors/tokens))
                  :font-family    mono-stack
                  :font-size      (:caption typography/type-scale)
                  :min-height     "32px"
                  :box-sizing     "border-box"
-                 :flex-wrap      "wrap"}
-   :axis-label  {:font-size       (:micro typography/type-scale)
+                 :flex-wrap      "wrap"
+                 :row-gap        "6px"}
+   :axis-label  {:font-family     typography/sans-stack
+                 :font-size       (:micro typography/type-scale)
+                 :font-weight     (str (:semibold typography/weights))
                  :text-transform  "uppercase"
                  :color           (:text-tertiary colors/tokens)
-                 :letter-spacing  "0.5px"
-                 :margin-right    "4px"}
+                 :letter-spacing  (:label-wide typography/letter-spacing)
+                 :margin-right    "6px"}
    :axis-group  {:display     "flex"
                  :align-items "center"
                  :gap         "4px"}
    :chip-row    {:display   "flex"
                  :gap       "4px"
                  :flex-wrap "wrap"}
-   :chip        {:padding         "3px 8px"
+   :chip        {:padding         "3px 9px"
                  :background      (:bg-3 colors/tokens)
                  :color           (:text-primary colors/tokens)
-                 :border          "none"
+                 :border          (str "1px solid " (:border-subtle colors/tokens))
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
@@ -248,16 +262,43 @@
                  :user-select     "none"
                  :transition      (:chip motion/transitions)}
    :chip-active {:background (:accent-amber colors/tokens)
-                 :color      (:text-on-accent colors/tokens)}
+                 :color      (:text-on-accent colors/tokens)
+                 :border     (str "1px solid " (:accent-amber-deep colors/tokens))}
    :spacer      {:flex "1"}
-   :reset       {:padding       "3px 8px"
+   ;; rf2-v58dm — a `:cluster` is a self-contained flex-item carrying
+   ;; one logical group of affordances. The strip composes ~5 clusters
+   ;; separated by `:divider` strokes.
+   :cluster     {:display     "inline-flex"
+                 :align-items "center"
+                 :gap         "4px"
+                 :padding     "0 2px"}
+   ;; rf2-v58dm — left-edge upper-cased label per cluster. Mirrors the
+   ;; existing axis-label vocabulary so MODES / DATA / VIEW / DEBUG /
+   ;; REC all share the same small-caps grammar.
+   :cluster-label {:font-family    typography/sans-stack
+                   :font-size      (:micro typography/type-scale)
+                   :font-weight    (str (:semibold typography/weights))
+                   :text-transform "uppercase"
+                   :color          (:text-tertiary colors/tokens)
+                   :letter-spacing (:label-wide typography/letter-spacing)
+                   :margin-right   "6px"}
+   ;; rf2-v58dm — vertical divider between clusters. Token-driven
+   ;; hairline; carries an inline height so the rule sits centred on
+   ;; the strip rather than spanning it edge-to-edge.
+   :divider     {:width        "1px"
+                 :align-self   "stretch"
+                 :margin       "2px 4px"
+                 :background   (:border-subtle colors/tokens)
+                 :flex-shrink  "0"}
+   :reset       {:padding       "3px 9px"
                  :background    "transparent"
-                 :color         (:text-primary colors/tokens)
-                 :border        "1px solid #444"
-                 :border-radius "3px"
+                 :color         (:text-secondary colors/tokens)
+                 :border        (str "1px solid " (:border-default colors/tokens))
+                 :border-radius "10px"
                  :cursor        "pointer"
                  :font-family   mono-stack
-                 :font-size     (:micro typography/type-scale)}
+                 :font-size     (:micro typography/type-scale)
+                 :transition    (:chip motion/transitions)}
    :empty       {:color       (:text-tertiary colors/tokens)
                  :font-style  "italic"
                  :font-size   (:caption typography/type-scale)}})
@@ -294,6 +335,21 @@
   [axis]
   [:span {:style (:axis-label styles)} (str/upper-case (name axis))])
 
+(defn- cluster-label
+  "Render an upper-cased cluster label (`MODES` / `DATA` / `VIEW` /
+  `DEBUG` / `REC`). Per rf2-v58dm the toolbar reads as ~5 distinct
+  affordance clusters; this label leads each one."
+  [text]
+  [:span {:style (:cluster-label styles)
+          :aria-hidden "true"}
+   text])
+
+(defn- divider
+  "A token-driven vertical divider between clusters (rf2-v58dm)."
+  []
+  [:span {:style (:divider styles)
+          :aria-hidden "true"}])
+
 ;; ---- public component ----------------------------------------------------
 
 (defn toolbar-strip
@@ -305,101 +361,122 @@
   Spec/010 §Placement in the shell chrome — the strip lives ABOVE the
   three-pane row. Caller (`shell/shell`) wraps the strip in a
   `<header role=\"toolbar\">` landmark — the strip itself is a plain
-  hiccup `<div>` so axe-core's region rule sees the landmark."
+  hiccup `<div>` so axe-core's region rule sees the landmark.
+
+  rf2-v58dm: chips are organised into ~5 logical affordance clusters
+  separated by token-driven dividers — MODES (registry-driven axes /
+  unaxed modes), DATA (dispatch + play status), VIEW (viewport +
+  backgrounds), DEBUG (element inspector), REC (recorder + reset).
+  Each cluster carries a small-caps label so the strip reads as a
+  set of named groups rather than a flat chip row."
   []
   (let [shell    @state/shell-state-atom
         active   (set (:active-modes shell))
         modes    (registrar/registrations :mode)
-        {:keys [axes unaxed]} (state/group-modes-by-axis modes)]
+        variant  (:selected-variant shell)
+        {:keys [axes unaxed]} (state/group-modes-by-axis modes)
+        vis-flag (get-in shell [:panel-visibility :dispatch-console])
+        dc-effective? (cond
+                        (true?  vis-flag) true
+                        (false? vis-flag) false
+                        :else             false)]
     [:header
      {:style      (:strip styles)
       :role       "toolbar"
       :aria-label "Story modes"
       :data-test  "story-toolbar"}
+     ;; ── MODES cluster (left) ──────────────────────────────────────
      (if (empty? modes)
        [:span {:style (:empty styles)} "no modes registered"]
-       (doall
-         (concat
-           (for [[axis ids] axes]
-             ^{:key (str axis)}
-             [:span {:style (:axis-group styles)}
-              [axis-label axis]
-              [:span {:style (:chip-row styles)}
-               (for [mid ids]
-                 ^{:key mid}
-                 [chip mid (get modes mid) (contains? active mid)])]])
-           (when (seq unaxed)
-             [^{:key "unaxed"}
+       [:span {:style       (:cluster styles)
+               :data-test   "story-toolbar-cluster"
+               :data-cluster "modes"}
+        [cluster-label "Modes"]
+        (doall
+          (concat
+            (for [[axis ids] axes]
+              ^{:key (str axis)}
               [:span {:style (:axis-group styles)}
+               [axis-label axis]
                [:span {:style (:chip-row styles)}
-                (for [mid unaxed]
+                (for [mid ids]
                   ^{:key mid}
-                  [chip mid (get modes mid) (contains? active mid)])]]]))))
+                  [chip mid (get modes mid) (contains? active mid)])]])
+            (when (seq unaxed)
+              [^{:key "unaxed"}
+               [:span {:style (:axis-group styles)}
+                [:span {:style (:chip-row styles)}
+                 (for [mid unaxed]
+                   ^{:key mid}
+                   [chip mid (get modes mid) (contains? active mid)])]]])))])
      [:span {:style (:spacer styles)}]
+     ;; ── DATA cluster (variant-scoped affordances) ─────────────────
      ;; rf2-q9kv5 — Dispatch console toolbar toggle. The chip flips the
      ;; chrome-level visibility override; the right-panel resolves
-     ;; story-flag + chrome-toggle together. Shown only when a variant is
-     ;; focused (the panel is per-variant — no variant, nothing to
+     ;; story-flag + chrome-toggle together. Shown only when a variant
+     ;; is focused (the panel is per-variant — no variant, nothing to
      ;; dispatch into).
-     (when (:selected-variant shell)
-       (let [vis-flag (get-in shell [:panel-visibility :dispatch-console])
-             ;; Same default resolution as the right-panel — when the
-             ;; chrome-toggle is nil, the story body's `:dispatch-console?`
-             ;; takes over (defaults to FALSE — toolbar real-estate is
-             ;; precious; authors opt in via `:dispatch-console? true`).
-             ;; We surface the *effective* state on the chip so the user
-             ;; sees what's actually showing.
-             effective? (cond
-                          (true?  vis-flag) true
-                          (false? vis-flag) false
-                          :else             false)]
-         [:button
-          {:style     (merge (:chip styles)
-                             (when effective? (:chip-active styles)))
-           :data-test "story-toolbar-dispatch-console"
-           :aria-pressed (str effective?)
-           :title     (if effective?
-                        "Hide dispatch console"
-                        "Show dispatch console")
-           :on-click  (fn [_]
-                        (state/swap-state!
-                          (fn [s]
-                            (assoc-in s [:panel-visibility :dispatch-console]
-                                      (not effective?)))))}
-          (if effective? "Dispatch ▾" "Dispatch ▸")]))
      ;; rf2-8i2a9 — Play-script status chip. Visible only when a variant
-     ;; is focused AND the variant carries a `:play-script` body. Shows
-     ;; `IDLE / RUNNING (step N/M) / PASS / FAIL (N/M)` + a `[Re-run]`
-     ;; button. Self-elides when no script is present.
-     (when (:selected-variant shell)
-       [play-status/chip-when-enabled (:selected-variant shell)])
+     ;; is focused AND the variant carries a `:play-script` body.
+     (when variant
+       [:span {:style       (:cluster styles)
+               :data-test   "story-toolbar-cluster"
+               :data-cluster "data"}
+        [cluster-label "Data"]
+        [:button
+         {:style     (merge (:chip styles)
+                            (when dc-effective? (:chip-active styles)))
+          :data-test "story-toolbar-dispatch-console"
+          :aria-pressed (str dc-effective?)
+          :title     (if dc-effective?
+                       "Hide dispatch console"
+                       "Show dispatch console")
+          :on-click  (fn [_]
+                       (state/swap-state!
+                         (fn [s]
+                           (assoc-in s [:panel-visibility :dispatch-console]
+                                     (not dc-effective?)))))}
+         (if dc-effective? "Dispatch ▾" "Dispatch ▸")]
+        [play-status/chip-when-enabled variant]])
+     (when variant [divider])
+     ;; ── VIEW cluster (framing chips) ──────────────────────────────
      ;; rf2-zll4h — viewport + backgrounds switchers (Storybook addon-
      ;; viewport + addon-backgrounds parity). Both chips are chrome-wide
-     ;; dropdowns; they live before the recorder REC chip so the
-     ;; left-side chrome cluster reads:
-     ;;   [dispatch] [play-status] [viewport] [backgrounds] [REC] [reset]
-     ;; Each chip uses `aria-haspopup`/`aria-expanded` (NOT
-     ;; `aria-pressed`) so the toolbar reset assertion in story-feature-
-     ;; load (which counts `[aria-pressed="true"]` post-reset) is not
-     ;; tripped by viewport / background state.
-     [viewport-switcher/chip-when-enabled]
-     [backgrounds-switcher/chip-when-enabled]
+     ;; dropdowns. Each chip uses `aria-haspopup`/`aria-expanded`
+     ;; (NOT `aria-pressed`) so the toolbar reset assertion in
+     ;; story-feature-load (which counts `[aria-pressed="true"]`
+     ;; post-reset) is not tripped by viewport / background state.
+     [:span {:style       (:cluster styles)
+             :data-test   "story-toolbar-cluster"
+             :data-cluster "view"}
+      [cluster-label "View"]
+      [viewport-switcher/chip-when-enabled]
+      [backgrounds-switcher/chip-when-enabled]]
+     [divider]
+     ;; ── DEBUG cluster (pick-mode) ─────────────────────────────────
      ;; rf2-h0jc0 — element-level click-to-code inspector chip. Toggles
      ;; the React-Devtools-style pick mode that hovers / highlights any
      ;; rendered DOM element and opens its view-fn source on click.
-     ;; Lives between the viewport / backgrounds dropdowns and the REC
-     ;; chip so the chrome reads left-to-right as a "what you see, how
-     ;; you see it, who rendered it, what you do with it" cluster. Uses
-     ;; `aria-haspopup` (not `aria-pressed`) per rf2-zll4h convention so
-     ;; the reset gate is unaffected.
-     [element-inspector/inspect-chip]
+     ;; Uses `aria-haspopup` (not `aria-pressed`) per rf2-zll4h
+     ;; convention so the reset gate is unaffected.
+     [:span {:style       (:cluster styles)
+             :data-test   "story-toolbar-cluster"
+             :data-cluster "debug"}
+      [cluster-label "Debug"]
+      [element-inspector/inspect-chip]]
+     [divider]
+     ;; ── REC cluster (actions) ─────────────────────────────────────
      ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
-     ;; affordance so the chrome-wide recorder is reachable regardless of
-     ;; which variant the user has focused.
-     [ui-recorder/rec-chip]
-     (when (seq (:active-modes shell))
-       [:button
-        {:style     (:reset styles)
-         :data-test "story-toolbar-reset"
-         :on-click  (fn [_] (reset-modes!))}
-        "reset"])]))
+     ;; affordance so the chrome-wide recorder is reachable regardless
+     ;; of which variant the user has focused.
+     [:span {:style       (:cluster styles)
+             :data-test   "story-toolbar-cluster"
+             :data-cluster "rec"}
+      [cluster-label "Rec"]
+      [ui-recorder/rec-chip]
+      (when (seq (:active-modes shell))
+        [:button
+         {:style     (:reset styles)
+          :data-test "story-toolbar-reset"
+          :on-click  (fn [_] (reset-modes!))}
+         "reset"])]]))
