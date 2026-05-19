@@ -110,8 +110,9 @@
               (recur (inc i) (conj! acc text)))
             (persistent! acc)))))
     (build-overflow-result [_ marker _original]
-      #js {:content #js [#js {:type "text"
-                              :text (pr-str marker)}]})))
+      #js {:content          #js [#js {:type "text"
+                                       :text (pr-str marker)}]
+           :structuredContent (clj->js marker)})))
 
 (defn sum-text-tokens
   "Sum `token-estimate` across every `:text` slot in the MCP

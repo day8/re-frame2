@@ -185,10 +185,10 @@ Fallback: `mcp__re-frame2-pair__watch-epochs {stream: true, pred: {"event-id-pre
 
 ### Inspect what's currently subscribed
 
-The `subscription-info` MCP tool reports every open subscription's `{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}` without draining the queues. To list active streams:
+The `list-subscriptions` MCP tool reports every open subscription's `{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}` without draining the queues. To list active streams:
 
 ```
-mcp__re-frame2-pair__subscription-info {}
+mcp__re-frame2-pair__list-subscriptions {}
 ```
 
 Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, or `sub-id` to look up a specific stream. Use this when a streaming probe seems to have gone quiet — confirm it's still registered (and that its queue-depth isn't piling up against a dead consumer) before assuming the bus is dry.

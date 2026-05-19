@@ -159,7 +159,11 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+                         "Examples: "
+                         "1. Green run: {:variant-id \":story.cart/full\"} -> {:frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true}] :elapsed-ms 42 :passing? true :lifecycle :ok}. "
+                         "2. Red run: {:variant-id \":story.cart/bad\"} -> {:assertions [{:assertion :rf.assert/sub-equals :passed? false :actual nil :expected 3}] :passing? false}. "
+                         "3. Clamped timeout: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:lifecycle :error :assertions [{:assertion :rf.error/run-failed ...}]}.")
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -177,11 +181,17 @@
                                                                   "timeout would park unrelated calls (rf2-g9fje).")}}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/run-variant-annotations
     :handler     tool-run-variant}
 
    {:name           "snapshot-identity"
     :category       :testing
-    :description    "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression."
+    :description    (str "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression. "
+                         "Examples: "
+                         "1. Bare: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :active-modes [] :substrate nil :content-hash \"sha256:abcd...\"}. "
+                         "2. With substrate + mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> different :content-hash from #1 because the tuple inputs differ. "
+                         "3. Use for cache key: build a visual-regression key as `(str variant-id \"@\" content-hash)`.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -190,21 +200,33 @@
                                  :active-modes {:type "array" :items s/kw-or-string}})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-snapshot-identity}
 
    {:name           "run-a11y"
     :category       :testing
-    :description    "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated."
+    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. "
+                         "Examples: "
+                         "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
+                         "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "
+                         "3. JVM-standalone deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note \"a11y is CLJS-only; this JVM-standalone deploy can't run axe-core...\"}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-run-a11y}
 
    {:name           "read-failures"
     :category       :testing
-    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    (str "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`. Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+                         "Examples: "
+                         "1. Clean run: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :total 3 :failures [] :passing? true}. "
+                         "2. Mixed pass/fail: {:variant-id \":story.cart/bad\"} -> {:variant-id :story.cart/bad :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? false :reason \"...\"}] :passing? false}. "
+                         "3. Never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :total 0 :failures [] :passing? true} (vacuous pass).")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -212,4 +234,6 @@
                                   {:variant-id s/kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-read-failures}])

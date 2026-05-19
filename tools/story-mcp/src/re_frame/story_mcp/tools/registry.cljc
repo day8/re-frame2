@@ -15,7 +15,19 @@
 
   The schema fragments + injection helpers live in
   `re-frame.story-mcp.tools.schemas`; the wire-boundary token-cap
-  dispatcher (`invoke-tool`) lives in `re-frame.story-mcp.tools.cap`."
+  dispatcher (`invoke-tool`) lives in `re-frame.story-mcp.tools.cap`.
+
+  ## Handler arity (cross-MCP note)
+
+  Every registered handler is 1-arity `(fn [args])` — story-mcp is
+  JVM-side single-process; there is no remote runtime `conn` to thread
+  through, and the server ships no streaming tool so the MCP `extra`
+  payload (`signal` / `sendNotification` / `_meta.progressToken`)
+  carries no useful slot either. Contrast pair-mcp's 3-arity shape
+  `(fn [conn args extra])`. The divergence is deliberate and is
+  documented at `tools/mcp-base/spec/handler-arity.md`; a phase-2
+  unification awaits a third server instance (causa-mcp) and lands as
+  a separate bead."
   (:require [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.docs :as docs]
@@ -45,6 +57,23 @@
                              (pos? (:typicalTokens t))))
                 tool-registry)
         "tool-registry: every entry must carry positive-integer :typicalTokens")
+
+;; Load-time invariant (rf2-3l3be): every registry entry MUST carry an
+;; `:outputSchema` map describing the structuredContent payload shape.
+;; mcp-builder canonical pattern: "Define outputSchema wherever possible
+;; for structured responses." Asserted at load time so future tool
+;; landings can't silently drop the slot.
+(assert (every? (fn [t] (map? (:outputSchema t))) tool-registry)
+        "tool-registry: every entry must carry an :outputSchema map (rf2-3l3be)")
+
+;; Load-time invariant (rf2-94p8q): every registry entry MUST carry an
+;; `:annotations` map advertising the MCP tool-annotation hints
+;; (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+;; mcp_best_practices.md: agent hosts use these to auto-approve reads
+;; and gate destructive ops. Asserted at load time so future tool
+;; landings can't silently drop the slot.
+(assert (every? (fn [t] (map? (:annotations t))) tool-registry)
+        "tool-registry: every entry must carry an :annotations map (rf2-94p8q)")
 
 (defn- strip-include-sensitive
   "Remove the `:include-sensitive` slot from a tool's `:inputSchema`
@@ -86,12 +115,20 @@
   improvement and a defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
-    (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
-            {:name          name
-             :description   description
-             :inputSchema   (cond-> inputSchema
-                              strip? strip-include-sensitive)
-             :typicalTokens typicalTokens})
+    (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
+            (cond-> {:name          name
+                     :description   description
+                     :inputSchema   (cond-> inputSchema
+                                      strip? strip-include-sensitive)
+                     :typicalTokens typicalTokens}
+              ;; rf2-3l3be — surface :outputSchema when declared. Lifted
+              ;; via cond-> so omission is forward-compatible (e.g. a
+              ;; future tool with no structured response).
+              (some? outputSchema) (assoc :outputSchema outputSchema)
+              ;; rf2-94p8q — surface :annotations when declared. Agent
+              ;; hosts read these to auto-approve reads and gate
+              ;; destructive ops behind a confirmation ceremony.
+              (some? annotations)  (assoc :annotations annotations)))
           tool-registry)))
 
 (def ^:private tool-by-name-index

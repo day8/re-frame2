@@ -70,3 +70,117 @@
   input-schema property keys; see `include-sensitive-schema`."
   [props]
   (assoc props :include-sensitive include-sensitive-schema))
+
+;; ---------------------------------------------------------------------------
+;; outputSchema fragments (rf2-3l3be)
+;;
+;; Story-mcp tools route through `helpers/text-result` / `error-result`,
+;; both of which emit a dual-slot envelope (rf2-vw4sq) — `:content` plus
+;; `:structuredContent`. The structuredContent slot carries the EDN
+;; payload as a JS-coerced object; this fragment describes its shape so
+;; agent hosts can validate the result client-side.
+;;
+;; MCP-spec constraint: the official `ListToolsResultSchema` (Zod) pins
+;; `outputSchema.type` to the literal string \"object\" and rejects any
+;; other shape (notably top-level `oneOf` / `anyOf` — those are NOT
+;; valid MCP outputSchemas). Per spec we describe one flat object
+;; envelope, permissive on tool-specific slots, and document the
+;; wire-bounded marker alternatives in the prose description (the
+;; catalogue prose at spec/002-Tool-Registry.md is the canonical
+;; per-tool source).
+;; ---------------------------------------------------------------------------
+
+(def default-output-schema
+  "Default outputSchema for story-mcp tools — a flat object envelope.
+  Permissive (`additionalProperties: true`) so per-tool payload slots
+  ride without us re-enumerating them; the catalogue prose carries
+  the per-tool shape definitively. The wire-bounded `:rf.mcp/overflow`
+  marker (rf2-rvyzy) lands as an extra top-level key when the cap
+  fires; it satisfies `additionalProperties` and is documented in
+  prose rather than encoded as a `oneOf` alternative (the MCP
+  outputSchema contract pins `type` to the literal \"object\" and
+  rejects top-level alternation)."
+  {:type "object"
+   :additionalProperties true
+   :properties {"isError" {:type "boolean"
+                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+                "rf.mcp/overflow" {:type "object"
+                                   :additionalProperties true
+                                   :description (str "Wire-bounded marker (rf2-rvyzy). Present iff the wire-boundary "
+                                                     "token cap fired and replaced the tool's normal payload; carries "
+                                                     ":dropped-bytes etc.")}}
+   :description (str "Result envelope: a structuredContent object carrying the tool's payload. "
+                     "Optional :isError on the error path; optional :rf.mcp/overflow marker when "
+                     "the cap step fires. See spec/002-Tool-Registry.md for the per-tool payload shape.")})
+
+;; ---------------------------------------------------------------------------
+;; Tool annotations (rf2-94p8q)
+;;
+;; MCP `tools/list` advertises per-tool annotation hints so agent hosts
+;; (Claude Code, Continue, …) can auto-approve reads and gate writes
+;; behind a permission ceremony. Four slots — `readOnlyHint`,
+;; `destructiveHint`, `idempotentHint`, `openWorldHint` — per
+;; mcp_best_practices.md.
+;;
+;; Story-mcp matrix (per the bead rf2-94p8q):
+;;
+;;   - READ-ONLY tools: get-story-instructions, preview-variant,
+;;     list-substrates, list-stories, get-story, get-variant, list-tags,
+;;     list-modes, list-decorators, list-assertions, get-docs-markdown,
+;;     variant->edn, snapshot-identity, run-a11y, read-failures.
+;;
+;;   - DESTRUCTIVE tools: run-variant (dispatches events into a story
+;;     frame), register-variant, unregister-variant, record-as-variant.
+;; ---------------------------------------------------------------------------
+
+(def read-only-annotations
+  "Annotations for pure-read tools — agent hosts can auto-approve.
+  story-mcp reads do NOT reach external state (everything runs JVM-
+  side off the story registry); `:openWorldHint false` reflects that.
+  Reads against the same registry are idempotent."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  false})
+
+(def destructive-write-annotations
+  "Annotations for mutating tools (register / unregister / record).
+  `:destructiveHint true` so agent hosts gate behind explicit
+  confirmation. `:openWorldHint false` — writes land in the JVM-side
+  story registry, not an external system."
+  {:destructiveHint true
+   :openWorldHint   false})
+
+(def run-variant-annotations
+  "Annotations for `run-variant` — executes a variant's four-phase
+  lifecycle which dispatches events into the variant's frame. Per
+  spec/Tool-Pair.md §Direct-read privacy posture the run is a write
+  to the runtime, so `:destructiveHint true`. The events fire inside
+  the JVM process — `:openWorldHint false`."
+  {:destructiveHint true
+   :openWorldHint   false})
+
+(def write-gated-output-schema
+  "outputSchema for write-surface tools (`register-variant`,
+  `unregister-variant`, `record-as-variant` with `:write-back? true`).
+  Includes the gated-error shape — when the operator-only
+  `--allow-writes` flag is closed, the tool returns
+  `{:isError true :structuredContent {:gated true :tool \"<name>\"}}`.
+
+  Single flat object envelope (MCP outputSchema pins `type` to
+  \"object\" and disallows top-level alternation); the success / error
+  / gated-error variants ride on the optional slots described below
+  plus `additionalProperties: true` for per-tool payload."
+  {:type "object"
+   :additionalProperties true
+   :properties {"isError" {:type "boolean"
+                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+                "gated"   {:type "boolean"
+                            :description "Present and true when the operator-only --allow-writes gate is closed."}
+                "tool"    {:type "string"
+                            :description "Name of the tool whose write was gated; present iff :gated true."}
+                "rf.mcp/overflow" {:type "object"
+                                   :additionalProperties true
+                                   :description "Wire-bounded marker (rf2-rvyzy); present iff the cap step fired."}}
+   :description (str "Result envelope: success / error / gated-error map (the write surface is "
+                     "default-off behind --allow-writes; closed gate emits {:gated true :tool ...}). "
+                     "See spec/003-Write-Surface-Gating.md.")})

@@ -131,8 +131,8 @@ wired into the build, and consumers can use it today.
   Fourteen tools (`discover-app`, `eval-cljs`, `dispatch`,
   `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
   `get-path`, the streaming triad `subscribe` / `unsubscribe` /
-  `subscription-info`, the registrar-introspection pair
-  `handler-meta` / `registry-list`, and `get-re-frame2-pair-instructions`);
+  `list-subscriptions`, the registrar-introspection pair
+  `handler-meta` / `list-handlers`, and `get-re-frame2-pair-instructions`);
   per-op latency drops from ~700ms to ~5–50ms. Published to npm as
   `@day8/re-frame2-pair-mcp`. See
   [`tools/re-frame2-pair-mcp/README.md`](./re-frame2-pair-mcp/README.md).

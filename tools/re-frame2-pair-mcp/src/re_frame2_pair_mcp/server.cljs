@@ -15,7 +15,7 @@
      bash-shim-overlap ops `discover-app` / `eval-cljs` / `dispatch` /
      `trace-window` / `watch-epochs` / `tail-build` / `snapshot`, plus
      `get-path` direct-read, the streaming triad `subscribe` /
-     `unsubscribe` / `subscription-info`, and the
+     `unsubscribe` / `list-subscriptions`, and the
      `get-re-frame2-pair-instructions` agent-onboarding tool).
   4. `tools/call`: dispatch to `tools.cljs`. Each call ensures the
      in-browser runtime is injected via the sentinel probe.
@@ -78,10 +78,13 @@
     (-> (tools/invoke conn name args extra)
         (.catch (fn [err]
                   (log! "handler threw for" name "—" (.-message err))
-                  #js {:isError true
-                       :content #js [#js {:type "text"
-                                          :text (str "{:ok? false :reason :handler-threw "
-                                                     ":message " (pr-str (.-message err)) "}")}]})))))
+                  (let [payload {:ok?     false
+                                 :reason  :handler-threw
+                                 :message (.-message err)}]
+                    #js {:isError          true
+                         :content          #js [#js {:type "text"
+                                                     :text (pr-str payload)}]
+                         :structuredContent (clj->js payload)}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server boot.
@@ -129,11 +132,13 @@
   [boot-error]
   (fn [_req]
     (js/Promise.resolve
-      #js {:isError true
-           :content #js [#js {:type "text"
-                              :text (pr-str {:ok? false
-                                             :reason :nrepl-port-not-found
-                                             :hint   (-> boot-error ex-data :hint)})}]})))
+      (let [payload {:ok?    false
+                     :reason :nrepl-port-not-found
+                     :hint   (-> boot-error ex-data :hint)}]
+        #js {:isError          true
+             :content          #js [#js {:type "text"
+                                         :text (pr-str payload)}]
+             :structuredContent (clj->js payload)}))))
 
 (defn parse-launch-flags
   "Pluck the named boolean launch flags out of the raw process argv. Two

@@ -157,8 +157,9 @@ repeatedly.
 mirroring re-frame2-pair-mcp's shape — same wire-protocol slot
 (`notifications/progress` correlated by the call's
 `progressToken`), same idempotent `unsubscribe`, same
-`subscription-info` peer for the "what streams are open?"
-diagnostic.
+`list-subscriptions` peer for the "what streams are open?"
+diagnostic (renamed from `subscription-info` in pair-mcp per
+rf2-4y595 — matches causa-mcp's catalogue).
 
 Topics to expose:
 

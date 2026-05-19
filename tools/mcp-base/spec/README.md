@@ -51,6 +51,16 @@ re-frame2-pair-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
 classpath. The library's `deps.edn` carries only
 `org.clojure/clojure`; no consumer-side runtime deps.
 
+## Handler-arity divergence
+
+The two shipped servers use **different registry-handler arities** —
+pair-mcp is 3-arity `(fn [conn args extra])`, story-mcp is 1-arity
+`(fn [args])`. The divergence is deliberate (pair-mcp needs `conn`
+for nREPL and `extra` for streaming; story-mcp is single-process and
+needs neither) and is documented in full at
+[`handler-arity.md`](handler-arity.md). A future unification awaits a
+third server instance and lands as a separate bead.
+
 ## What deliberately does NOT live here
 
 The bead's scope holds the line at primitives that are truly

@@ -122,6 +122,49 @@ runWithWatchdog(
       'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
     );
 
+    // 2c. Output-schema conformance (rf2-3l3be). Every descriptor MUST
+    // declare an :outputSchema describing the structuredContent payload
+    // shape. mcp-builder canonical pattern: "Define outputSchema
+    // wherever possible for structured responses."
+    for (const t of listed.tools) {
+      if (!t.outputSchema || typeof t.outputSchema !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " MUST declare :outputSchema (rf2-3l3be); got: " +
+            JSON.stringify(t.outputSchema),
+        );
+      }
+    }
+    console.log(
+      'OK   every tool descriptor carries outputSchema (rf2-3l3be)',
+    );
+
+    // 2d. Tool annotations conformance (rf2-94p8q). Every descriptor
+    // MUST declare an :annotations map advertising the MCP hint slots
+    // (readOnlyHint / destructiveHint / idempotentHint / openWorldHint)
+    // so agent hosts can auto-approve reads + gate destructive ops.
+    for (const t of listed.tools) {
+      if (!t.annotations || typeof t.annotations !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " MUST declare :annotations (rf2-94p8q); got: " +
+            JSON.stringify(t.annotations),
+        );
+      }
+      // At least one of readOnlyHint / destructiveHint / openWorldHint
+      // must be set — that's the load-bearing classification. Other
+      // slots are optional refinements.
+      const a = t.annotations;
+      if (a.readOnlyHint !== true && a.destructiveHint !== true && a.openWorldHint !== true) {
+        throw new Error(
+          'tool ' + t.name + " annotations MUST set at least one of " +
+            "readOnlyHint / destructiveHint / openWorldHint; got: " +
+            JSON.stringify(a),
+        );
+      }
+    }
+    console.log(
+      'OK   every tool descriptor carries annotations with a classification hint (rf2-94p8q)',
+    );
+
     // 3. Canonical workflow (degraded, since no nREPL is available):
     //    a. dispatch — proves the write-shaped tool routes through the
     //       SDK; expect graceful degraded `isError: true`.
@@ -212,33 +255,71 @@ runWithWatchdog(
     }
     console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
 
-    // 3c. subscription-info — added by rf2-zjz9q as a dedicated MCP
-    // wrapper around `re-frame2-pair.runtime/subscription-info` so AI
-    // clients can list active streaming subscriptions without an
-    // eval-cljs round-trip. Pure-read tool, no required arguments —
-    // optional :topic / :sub-id filters narrow the result. In degraded
-    // mode it returns the same nrepl-port-not-found envelope as every
-    // other live-runtime tool; covering it here proves the dispatch
-    // table is wired and the descriptor reaches the SDK.
+    // 3c. list-subscriptions — added by rf2-zjz9q as a dedicated MCP
+    // wrapper around `re-frame2-pair.runtime/subscription-info` (runtime
+    // fn keeps the historical name) so AI clients can list active
+    // streaming subscriptions without an eval-cljs round-trip. Renamed
+    // from `subscription-info` per rf2-4y595 (NAMING.md `list-<things>`
+    // conformance — matches causa-mcp's same-named tool). Pure-read
+    // tool, no required arguments — optional :topic / :sub-id filters
+    // narrow the result. In degraded mode it returns the same
+    // nrepl-port-not-found envelope as every other live-runtime tool;
+    // covering it here proves the dispatch table is wired and the
+    // descriptor reaches the SDK.
     const subInfoResp = await client.callTool({
-      name: 'subscription-info',
+      name: 'list-subscriptions',
       arguments: {},
     });
     if (!subInfoResp.isError) {
       throw new Error(
-        'subscription-info in degraded mode should isError; got: ' +
+        'list-subscriptions in degraded mode should isError; got: ' +
           JSON.stringify(subInfoResp),
       );
     }
     const subInfoText = subInfoResp.content?.[0]?.text || '';
     if (!subInfoText.includes('nrepl-port-not-found')) {
       throw new Error(
-        'subscription-info degraded text should mention :nrepl-port-not-found; got: ' +
+        'list-subscriptions degraded text should mention :nrepl-port-not-found; got: ' +
           subInfoText,
       );
     }
     console.log(
-      'OK   tools/call subscription-info (degraded) -> isError + nrepl-port-not-found',
+      'OK   tools/call list-subscriptions (degraded) -> isError + nrepl-port-not-found',
+    );
+
+    // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
+    // pair-mcp result envelope MUST carry BOTH the wire-canonical
+    // `:content [{:type "text"}]` slot AND a `:structuredContent`
+    // slot — the canonical mcp-builder pattern. The SDK already
+    // surfaces the structured slot through `result.structuredContent`
+    // when present; assert it for one tool per category: read
+    // (snapshot, list-subscriptions), action (dispatch), streaming-
+    // shaped (subscribe). All four degraded responses above route
+    // through wire/err-text which now emits both slots; we spot-
+    // check the assembled spool here.
+    for (const [label, resp] of [
+      ['dispatch', dispatchResp],
+      ['watch-epochs', watchResp],
+      ['snapshot', snapResp],
+      ['subscribe', subResp],
+      ['list-subscriptions', subInfoResp],
+    ]) {
+      if (resp.structuredContent === undefined || resp.structuredContent === null) {
+        throw new Error(
+          'tool ' + label + " result MUST carry :structuredContent slot " +
+            "(rf2-hj3pi dual-slot conformance); got: " + JSON.stringify(resp),
+        );
+      }
+      // Sanity: structured slot must be a non-null object/value.
+      if (typeof resp.structuredContent !== 'object') {
+        throw new Error(
+          'tool ' + label + " :structuredContent should be an object; got: " +
+            typeof resp.structuredContent,
+        );
+      }
+    }
+    console.log(
+      'OK   every tool envelope carries :structuredContent (rf2-hj3pi)',
     );
 
     // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts

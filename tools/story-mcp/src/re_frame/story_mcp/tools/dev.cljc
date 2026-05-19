@@ -138,14 +138,24 @@
   "Dev-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "get-story-instructions"
     :category       :dev
-    :description    "Return Story's authoring conventions in agent-friendly form (the seven reg-* macros, hard rules, lifecycle, snapshots)."
+    :description    (str "Return Story's authoring conventions in agent-friendly form (the seven reg-* macros, hard rules, lifecycle, snapshots). "
+                         "Examples: "
+                         "1. Session bootstrap: {} -> text content with the conventions prose. "
+                         "2. With budget override: {:max-tokens 0} -> same text, no cap. "
+                         "3. Discovery (paired with list-substrates + list-tags): call this first, then list-* tools to enumerate the registry surface.")
     :typicalTokens  1500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
     :category       :dev
-    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture)."
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+                         "Examples: "
+                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :lifecycle :ok :app-db {...} :assertions [] :rendered-hiccup [...]}. "
+                         "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
+                         "3. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -158,11 +168,19 @@
                                               :description "Optional base URL for the share link (no default)."}}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
     :category       :dev
-    :description    "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host)."
+    :description    (str "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host). "
+                         "Examples: "
+                         "1. Shared-process deploy: {} -> {:substrates [:helix :reagent :uix]}. "
+                         "2. JVM-standalone deploy: {} -> {:substrates []} — the CLJS-side registry isn't reachable. "
+                         "3. With budget override: {:max-tokens 1000} -> same shape, smaller cap.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-substrates}])

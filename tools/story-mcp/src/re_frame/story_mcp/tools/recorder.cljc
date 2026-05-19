@@ -232,7 +232,11 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). "
+                         "Examples: "
+                         "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :play [[:cart/add ...]]})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
+                         "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back? true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
+                         "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -253,4 +257,6 @@
                                                   :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/write-gated-output-schema
+    :annotations  s/destructive-write-annotations
     :handler     tool-record-as-variant}])

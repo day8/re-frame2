@@ -6,11 +6,13 @@
 > `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The fourteen MCP tools. (The registrar-introspection pair `handler-meta`
-+ `registry-list` (rf2-cibp8 / rf2-pctf8) ships in the live registry —
-[`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs) —
-but their full per-tool catalogue entries have not yet been migrated
-into this file; spec/impl drift tracked by rf2-m9yoi.)
+The fourteen MCP tools. All fourteen are catalogued below; the
+registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
+/ rf2-pctf8 — `list-handlers` renamed from `registry-list` per
+rf2-4y595 for NAMING.md `list-<things>` conformance) live in the live
+registry at
+[`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
+and have full per-tool sections here.
 
 ## Universal: wire-boundary token cap
 
@@ -942,7 +944,7 @@ resource controls](#universal-server-resource-controls-streaming-surfaces)).
 
 ### Diagnostics
 
-When a stream seems quiet or stalled, the `subscription-info` tool
+When a stream seems quiet or stalled, the `list-subscriptions` tool
 below lists every currently-registered subscription with its
 queue-depth, drop counts, and overflow-reason — without draining
 queues. Use it to confirm the sub is still alive and to check
@@ -960,7 +962,7 @@ agent host can't propagate cancellation cleanly).
 
 **Returns**: `{:ok? true :sub-id <id> :existed? <bool>}`.
 
-## subscription-info
+## list-subscriptions
 
 Diagnostic listing of currently-registered streaming subscriptions —
 the "what streams are open right now?" surface. Pure read over the
@@ -968,17 +970,22 @@ runtime's `subscriptions` atom; **does NOT drain any queues** and
 does NOT alter the stream contents that `subscribe` will see on its
 next tick. Wraps the `re-frame2-pair.runtime/subscription-info`
 runtime fn directly (one cheap nREPL eval — no `eval-cljs`
-round-trip needed). Useful when a streaming probe seems to have gone
-quiet: confirm the sub is still registered, inspect `:queue-depth` /
-`:queue-bytes` for evidence of a stuck consumer, or check
-`:overflow-reason` for budget pressure that needs tuning on the next
-`subscribe` call.
+round-trip needed; the runtime fn keeps its historical name).
+Useful when a streaming probe seems to have gone quiet: confirm the
+sub is still registered, inspect `:queue-depth` / `:queue-bytes` for
+evidence of a stuck consumer, or check `:overflow-reason` for budget
+pressure that needs tuning on the next `subscribe` call.
 
-Unlike the other read tools, `subscription-info` reads the runtime's
+Unlike the other read tools, `list-subscriptions` reads the runtime's
 internal subscription registry rather than routing through one of the
 Tool-Pair primitives listed in the intro — its peer surface is the
 streaming registry that `subscribe` / `unsubscribe` mutate, not the
 frame-db / epoch-history / trace-buffer surfaces.
+
+**Naming note**: renamed from `subscription-info` per rf2-4y595 —
+NAMING.md catalogues `list-<things>` as the canonical enumeration
+verb, matching causa-mcp's `list-subscriptions` (rf2-3we2k Lock #12).
+No back-compat shim; the old name hard-errors with `:unknown-tool`.
 
 **Args** (all optional):
 
@@ -1022,16 +1029,141 @@ The output is **not** routed through the universal dedup / elision /
 cache pipeline at the top of this catalogue — the payload is
 already a small flat vector of metadata records (no `:app-db`
 slices, no event vectors), so the wire-cap is the only universal
-that applies. `subscription-info` does NOT carry sensitive event
+that applies. `list-subscriptions` does NOT carry sensitive event
 bodies; only registration metadata crosses the wire.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
-`:reason :subscription-info-failed` (with `:message`) on any other
+`:reason :list-subscriptions-failed` (with `:message`) on any other
 failure.
 
 A future causa-mcp peer will ship `list-subscriptions` — same
 diagnostic shape, NAMING.md-conformant verb in causa-mcp's
 catalogue.
+
+## handler-meta
+
+Return the registration-metadata map for a registered handler — the
+"where is `:user/login` defined?" / "what does sub `:current-user` look
+like?" surface (rf2-pctf8 / rf2-cibp8). Direct introspection on the
+registrar; no wide-authority `eval-cljs` round-trip needed.
+
+Source-coord keys (`:ns` / `:line` / `:column` / `:file`) are merged
+flat onto the top-level result per
+[`spec/Spec-Schemas.md` §`:rf/source-coord-meta`](../../../spec/Spec-Schemas.md#rfsource-coord-meta).
+The wire pipeline (rf2-cibp8) decorates a usable source-coord shape
+with an `:rf.source/uri` string so the AI host can render a clickable
+jump-to-editor link.
+
+**Args**: `kind` (string, **required** — one of `event` / `sub` /
+`fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` /
+`error-projector` / `machine`), `id` (string, **required** — EDN-encoded
+keyword or composite vector), `build` (string, optional).
+
+**Supported kinds**: the closed v1 registrar set (per Spec 001
+§Registry model) minus `:app-schema` (intentionally empty registrar
+slot — its metadata lives in the schemas artefact's per-frame side-
+table, queried via `rf/app-schemas`). The ten registrar kinds route
+through `(re-frame2-pair.runtime/registrar-describe kind id)`. The
+`:machine` kind routes through `(re-frame.core/machine-meta id)`
+instead — machines are registered as `:event` handlers carrying
+`:rf/machine? true` (Spec 005 §Querying machines), and `machine-meta`
+unwraps that slot to surface the spec.
+
+**Returns** on a hit:
+
+```clojure
+{:ok?              true
+ :kind             :event | :sub | :fx | :cofx | :view | :frame |
+                   :route | :flow | :head | :error-projector | :machine
+ :id               <registered-id>
+ :ns               my.app.user
+ :line             42
+ :column           1
+ :file             "src/my/app/user.cljs"
+ :rf.source/uri    "file:///abs/path/to/src/my/app/user.cljs#L42"
+ :doc              "<docstring or nil>"
+ :tags             #{...}                 ; if any
+ ...custom-slots-emitted-by-the-reg-macro}
+```
+
+On a miss:
+
+```clojure
+{:ok?    false
+ :reason :not-registered
+ :kind   <requested-kind>
+ :id     <requested-id>}
+```
+
+**Error envelopes** (short-circuit before touching nREPL):
+
+- `{:ok? false :reason :invalid-kind :kind <raw> :hint "kind must be one of: event, sub, ..."}` — unrecognised / missing `kind` arg.
+- `{:ok? false :reason :missing-id}` — `id` arg absent or blank.
+- `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
+- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw.
+
+**Composite-key subs**: pass the vector form as a string —
+`{:kind "sub" :id "[:rf/composite [:items :by-id 42]]"}`.
+
+**Why not `eval-cljs`**: `eval-cljs` is wide-authority by design
+(launch-flag-gated). The re-frame2-pair contract is "structured tools
+for the common case, eval-cljs for the unknown unknowns";
+`handler-meta` covers the most-frequent introspection ask with a
+narrow surface the agent can rely on across runtimes and editor-config
+postures.
+
+**Source**: rf2-cibp8 (the source-coord uri decoration) + rf2-pctf8
+(the introspection pair).
+
+## list-handlers
+
+Return every registered id under a kind — the discovery surface that
+pairs with `handler-meta`. Agents call `list-handlers` first to find
+out what's registered (per kind), then drill in with `handler-meta`
+on a specific `(kind, id)` pair.
+
+**Args**: `kind` (string, **required** — same enum as `handler-meta`),
+`build` (string, optional).
+
+**Supported kinds**: same closed v1 registrar set as `handler-meta`
+(minus `:app-schema`; plus the virtual `:machine` kind). The ten
+registrar kinds lift the id vector off the registrar's per-kind map
+via `(re-frame2-pair.runtime/registrar-list kind)`. The `:machine`
+kind wraps `(re-frame.core/machines)` — every event handler flagged
+`:rf/machine? true` (Spec 005 §Querying machines).
+
+**Returns**:
+
+```clojure
+{:ok?   true
+ :kind  :event | :sub | :fx | :cofx | :view | :frame |
+        :route | :flow | :head | :error-projector | :machine
+ :ids   [<id> ...]
+ :count <integer>}
+```
+
+The id vector is **sorted** (string / keyword / symbol ordering) so
+the list shape is stable across calls. Empty `:ids` returns
+`{:ok? true :kind k :ids [] :count 0}` — never `:ok? false` for the
+empty case.
+
+**Error envelopes**:
+
+- `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` — unrecognised / missing `kind` arg.
+- `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw.
+
+**Pair with `handler-meta`**: typical agent workflow is
+`list-handlers {kind "event"}` → pick an id → `handler-meta {kind
+"event" :id "<picked>"}` for the full registration-metadata payload.
+
+**Naming note**: renamed from `registry-list` per rf2-4y595 — NAMING.md
+catalogues `<noun>-list` as **rejected** in favour of the canonical
+`list-<things>` prefix shape (the runtime's `(rf/registry-list kind)`
+accessor keeps its name because the runtime is a separate naming
+surface). No back-compat shim; the old name hard-errors with
+`:unknown-tool`.
+
+**Source**: rf2-pctf8.
 
 ## get-re-frame2-pair-instructions
 

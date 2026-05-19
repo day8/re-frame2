@@ -266,47 +266,77 @@
   "Docs-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "list-stories"
     :category       :docs
-    :description    "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids."
+    :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. "
+                         "Examples: "
+                         "1. All stories: {} -> {:stories [{:id :story.cart :doc \"...\" :tags [:dev :docs] :variants [:story.cart/empty :story.cart/full]} ...]}. "
+                         "2. Filter by tag: {:tags [\":docs\"]} -> {:stories [...]} — only stories whose :tags intersect the requested set. "
+                         "3. Filter by multiple tags (OR-intersect): {:tags [\":dev\" \":screenshot\"]} -> {:stories [...]} — any story matching either tag.")
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
                                 {:tags {:type "array" :items s/kw-or-string
                                         :description "Optional tag filter; story `:tags` set must intersect."}})
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-list-stories}
 
    {:name           "get-story"
     :category       :docs
-    :description    "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids)."
+    :description    (str "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids). "
+                         "Examples: "
+                         "1. Hit: {:story-id \":story.cart\"} -> {:id :story.cart :body {:doc \"...\" :component cart-view :args {...} :tags #{:dev}} :variants [:story.cart/empty :story.cart/full]}. "
+                         "2. Bare-name form (no leading :): {:story-id \"story.cart\"} -> same hit. "
+                         "3. Miss: {:story-id \":story.no/such\"} -> {:isError true :content [{:text \"Story not found: :story.no/such\"}]}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:story-id s/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-story}
 
    {:name           "get-variant"
     :category       :docs
-    :description    "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time)."
+    :description    (str "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time). "
+                         "Examples: "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :play [...] :tags #{:dev}}}. "
+                         "2. With extends already applied: {:variant-id \":story.cart/full-with-discount\"} -> {:body {... merged from :story.cart/full ...}}. "
+                         "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-variant}
 
    {:name           "list-tags"
     :category       :docs
-    :description    "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project."
+    :description    (str "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project. "
+                         "Examples: "
+                         "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :test] :custom [] :all [:agent :dev :docs ...]}. "
+                         "2. Project with custom tags: {} -> {:canonical [...] :custom [:mobile :rtl] :all [:agent :dev :docs ... :mobile :rtl]}. "
+                         "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-tags}
 
    {:name           "list-modes"
     :category       :docs
-    :description    "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`."
+    :description    (str "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`. "
+                         "Examples: "
+                         "1. Project with modes: {} -> {:modes [{:id :mode/dark :doc \"Dark theme\" :args {:theme :dark}} {:id :mode/mobile :doc \"...\" :args {:viewport :mobile}}]}. "
+                         "2. Fresh registry (no project modes): {} -> {:modes []}. "
+                         "3. Use with preview-variant: pass {:active-modes [\":mode/dark\"]} on a preview-variant call to render the variant under that mode.")
     :typicalTokens  200
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-modes}
 
    {:name           "list-decorators"
@@ -318,7 +348,11 @@
                          "for `:fx-override`. The read-only peer of the deferred `register-decorator` "
                          "write surface — closures don't transport, so the write side stays out of "
                          "scope, but the read side is cheap. Optional `:kind` arg narrows to one "
-                         "decorator kind.")
+                         "decorator kind. "
+                         "Examples: "
+                         "1. All decorators: {} -> {:decorators [{:id :with-router :kind :hiccup :doc \"...\" :has-wrap? true} {:id :seed-cart :kind :frame-setup :doc \"...\" :init [...] :app-db-patch {...}} {:id :stub-http :kind :fx-override :fx-id :http :response {...}}]}. "
+                         "2. Filter to one kind: {:kind \"fx-override\"} -> {:decorators [{:id :stub-http :kind :fx-override ...}]}. "
+                         "3. Empty registry: {} -> {:decorators []}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -326,23 +360,37 @@
                                         :description "Optional filter — only return decorators of this kind."
                                         :enum ["hiccup" "frame-setup" "fx-override"]}})
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-list-decorators}
 
    {:name           "list-assertions"
     :category       :docs
-    :description    "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids."
+    :description    (str "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids. "
+                         "Examples: "
+                         "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
+                         "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
+                         "3. Pair with run-variant: discover the assertion vocab here, then write :play sequences referencing those event ids.")
     :typicalTokens  500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
     :category       :docs
-    :description    "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN."
+    :description    (str "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN. "
+                         "Examples: "
+                         "1. Hit: {:variant-id \":story.cart/full\"} -> {:doc \"...\" :args {:item-count 3} :tags #{:dev} :play [...]} (as pr-str EDN text). "
+                         "2. Byte-stable for diffing two registries: same input always emits same text bytes (no JSON re-projection). "
+                         "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-variant->edn}
 
    {:name           "get-docs-markdown"
@@ -354,10 +402,16 @@
                          "programmatic consumption but not the right shape when an agent wants to drop "
                          "a docs blurb into an issue tracker or chat. The markdown is returned in the "
                          "wire-canonical `:content` text slot and as a `:markdown` structuredContent "
-                         "slot for hosts that surface structured content separately.")
+                         "slot for hosts that surface structured content separately. "
+                         "Examples: "
+                         "1. Hit: {:story-id \":story.cart\"} -> text body \"# Story `:story.cart`\\n...\" + structuredContent {:story-id :story.cart :markdown \"...\" :variants [...]}. "
+                         "2. Story with no variants: {:story-id \":story.empty\"} -> text \"# Story `:story.empty`\\n\\n## Variants\\n\\n—\\n\". "
+                         "3. Miss: {:story-id \":story.no/such\"} -> {:isError true :content [{:text \"Story not found: :story.no/such\"}]}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:story-id s/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-docs-markdown}])
