@@ -21,26 +21,34 @@
 ;; ---- loading-phase? -----------------------------------------------------
 
 (deftest loading-phase-pre-mount-mounting-loading
-  (testing "pre-mount / mounting / loading + not-rendered? → true"
-    (is (true? (canvas/loading-phase? :pre-mount false)))
-    (is (true? (canvas/loading-phase? :mounting  false)))
-    (is (true? (canvas/loading-phase? :loading   false)))))
+  (testing "pre-mount / mounting / loading + not-rendered? + no assertions → true"
+    (is (true? (canvas/loading-phase? :pre-mount false false)))
+    (is (true? (canvas/loading-phase? :mounting  false false)))
+    (is (true? (canvas/loading-phase? :loading   false false)))))
 
 (deftest loading-phase-ready-or-error
   (testing ":ready / :error → false"
-    (is (false? (canvas/loading-phase? :ready false)))
-    (is (false? (canvas/loading-phase? :error false)))))
+    (is (false? (canvas/loading-phase? :ready false false)))
+    (is (false? (canvas/loading-phase? :error false false)))))
 
 (deftest loading-phase-first-rendered-overrides
   (testing "first-rendered? true → false regardless of phase"
-    (is (false? (canvas/loading-phase? :loading true)))
-    (is (false? (canvas/loading-phase? :pre-mount true)))))
+    (is (false? (canvas/loading-phase? :loading true false)))
+    (is (false? (canvas/loading-phase? :pre-mount true false)))))
+
+(deftest loading-phase-assertions-recorded-overrides
+  (testing "assertions-recorded? true → false even when phase is loading
+            (rf2-qrk2s: loader-never-completes / loader-rejects park the
+            lifecycle at :loading but the user view must render)"
+    (is (false? (canvas/loading-phase? :loading   false true)))
+    (is (false? (canvas/loading-phase? :pre-mount false true)))
+    (is (false? (canvas/loading-phase? :mounting  false true)))))
 
 (deftest loading-phase-nil-or-unknown
   (testing "nil phase → false (no skeleton when phase isn't known)"
-    (is (false? (canvas/loading-phase? nil false))))
+    (is (false? (canvas/loading-phase? nil false false))))
   (testing "unknown phase → false"
-    (is (false? (canvas/loading-phase? :something-else false)))))
+    (is (false? (canvas/loading-phase? :something-else false false)))))
 
 ;; ---- loading-skeleton hiccup shape --------------------------------------
 

@@ -194,12 +194,27 @@
   "Pure: is the variant in a phase where the loading skeleton should
   render? True when the lifecycle machine is in `:pre-mount`,
   `:mounting`, or `:loading` AND no first render has been committed
-  yet.
+  yet AND the runtime has not recorded any assertions against the
+  variant frame.
+
+  The `assertions-recorded?` arm closes a regression window introduced
+  with the skeleton (rf2-qrk2s / Phase 3 cluster): the
+  `:loaders-complete-when` predicate may declare the loaders incomplete
+  (e.g. `:story.counter-matrix/loader-never-completes`), or a loader
+  event may throw a deterministic rejection
+  (`:story.counter-matrix/loader-rejects`). In both paths the runtime
+  records an assertion against the variant frame and the lifecycle
+  machine stays parked at `:loading` — but the loader cascade has
+  resolved its outcome and the user view (the counter, the inline
+  assertion strip, …) must render. A non-empty assertions vector is
+  the proof that `run-loaders!` returned; pin the skeleton off so the
+  view layer takes over.
 
   Returns false when `phase` is nil or `:ready` / `:error`."
-  [phase first-rendered?]
+  [phase first-rendered? assertions-recorded?]
   (boolean
     (and (not first-rendered?)
+         (not assertions-recorded?)
          (contains? #{:pre-mount :mounting :loading} phase))))
 
 (defn loading-skeleton
@@ -440,7 +455,15 @@
         lifecycle-phase (try (story-loaders/current-state variant-id)
                              (catch :default _ nil))
         first?         (variant-first-rendered? variant-id)
-        show-skeleton? (loading-phase? lifecycle-phase first?)]
+        ;; rf2-qrk2s — a recorded assertion proves the loader cascade
+        ;; resolved its outcome (success path → :ready; failure paths
+        ;; like loader-never-completes / loader-rejects park at
+        ;; :loading but record an incomplete/rejection assertion). In
+        ;; either case the user view must render: the skeleton would
+        ;; otherwise pin forever on the deterministic-failure variants
+        ;; and hide the count text the load-gate reads.
+        show-skeleton? (loading-phase? lifecycle-phase first?
+                                       (seq assertions))]
     [:div {:style (:frame styles)}
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
@@ -537,16 +560,25 @@
 
 (defn- mark-rendered-if-ready!
   "Lifecycle helper: flip the first-rendered sentinel for the focused
-  variant when the lifecycle machine reports `:ready` or `:error`. The
-  skeleton (rf2-0s4p1) hides on the next render pass."
+  variant when the lifecycle machine reports `:ready` / `:error`, OR
+  when the runtime has recorded an assertion against the variant
+  frame (rf2-qrk2s). An assertion means the loader cascade resolved
+  its outcome — either by a `:loaders-complete-when` predicate
+  reporting incomplete or by a loader event throwing a deterministic
+  rejection. In those paths the machine parks at `:loading`, but the
+  user view must still render. The skeleton (rf2-0s4p1) hides on the
+  next render pass."
   []
   (when config/enabled?
     (let [shell      @state/shell-state-atom
           variant-id (:selected-variant shell)]
       (when variant-id
         (let [phase (try (story-loaders/current-state variant-id)
-                         (catch :default _ nil))]
-          (when (contains? #{:ready :error} phase)
+                         (catch :default _ nil))
+              assertions (try (runtime/read-assertions variant-id)
+                              (catch :default _ nil))]
+          (when (or (contains? #{:ready :error} phase)
+                    (seq assertions))
             (mark-variant-rendered! variant-id)))))))
 
 (def canvas
