@@ -76,6 +76,76 @@
     (is (= {:a 1}    (h/expand-tree {:a 1})))))
 
 ;; ---------------------------------------------------------------------------
+;; expand-tree — Form-3 reagent class detection (rf2-1c036 gap 1)
+;;
+;; The walker treats a hiccup vector whose head is a reagent-slim
+;; class constructor (built by `reagent2.impl.component/create-class*`)
+;; as a Form-3 component: it plucks the stashed `:reagent-render` slot
+;; off the class and invokes that fn with the hiccup args, instead of
+;; calling the class constructor directly (which would crash without
+;; `new`).
+;;
+;; We fake-stamp a plain fn with the same property tags the reagent-
+;; slim `create-class*` sets — that way the unit test does not have to
+;; depend on reagent and runs identically on JVM (where the class-3
+;; branch is a no-op) and Node-CLJS (where the property access fires).
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn- fake-reagent-class
+     "Stamp `f` with the reagent-slim class tags (`cljsReagentClass = true`
+     + `cljsReagentRender = render-fn`) so test-helpers' class-3 branch
+     fires on the wrapped fn. CLJS-only; on JVM there are no JS
+     properties to set so the helper is omitted."
+     [render-fn]
+     (let [klass (fn [& _] (throw (ex-info "do not call" {})))]
+       (set! (.-cljsReagentClass ^js klass) true)
+       (set! (.-cljsReagentRender ^js klass) render-fn)
+       klass)))
+
+#?(:cljs
+   (deftest expand-tree-expands-reagent-class
+     (testing "a hiccup vector headed by a reagent class is expanded via
+              the class's stashed :reagent-render slot, NOT by calling the
+              class as a fn (which would crash)"
+       (let [render-fn (fn [{:keys [n]}] [:button {:data-testid "class3-btn"}
+                                          (str "n=" n)])
+             klass     (fake-reagent-class render-fn)
+             tree      [klass {:n 11}]
+             out       (h/expand-tree tree)]
+         (is (vector? out) "class-3 was expanded into a hiccup vector")
+         (is (= :button (first out)))
+         (is (= "class3-btn" (:data-testid (second out))))
+         (is (= "n=11" (last out)))))))
+
+#?(:cljs
+   (deftest expand-tree-recurses-through-reagent-class
+     (testing "a class-3 whose render-fn returns a nested function component
+              is expanded all the way down"
+       (let [leaf      (fn [s] [:span {:data-testid "leaf"} s])
+             render-fn (fn [{:keys [label]}] [:div {:data-testid "wrap"}
+                                              [leaf label]])
+             klass     (fake-reagent-class render-fn)
+             tree      [klass {:label "hi"}]
+             out       (h/expand-tree tree)]
+         (is (= :div  (first out)))
+         (is (= :span (first (nth out 2)))
+             "the nested function component under the class was expanded")))))
+
+#?(:cljs
+   (deftest find-by-testid-walks-through-reagent-class
+     (testing "find-by-testid resolves a testid that lives inside a Form-3
+              component's render output"
+       (let [render-fn (fn [{:keys [v]}] [:p {:data-testid "inside-class"} v])
+             klass     (fake-reagent-class render-fn)
+             tree      [:section {:data-testid "outer"} [klass {:v "ok"}]]
+             hit       (h/find-by-testid tree "inside-class")]
+         (is (some? hit)
+             "find-by-testid did not walk into the class-3 render output")
+         (is (= :p (first hit)))
+         (is (= "ok" (last hit)))))))
+
+;; ---------------------------------------------------------------------------
 ;; attrs / children
 ;; ---------------------------------------------------------------------------
 
@@ -150,6 +220,100 @@
     (is (= 3 (count hits)))
     (is (= ["item-1" "item-2" "item-3"]
            (mapv (comp :data-testid second) hits)))))
+
+;; ---------------------------------------------------------------------------
+;; find-by-attr family (rf2-1c036 gap 2)
+;;
+;; Generic over the attribute keyword — `:data-testid` is the React
+;; convention but Story keys on `:data-test` and Causa uses
+;; `:data-rf-causa-*`. The testid wrappers above are thin aliases for
+;; the `:data-testid`-bound case.
+;; ---------------------------------------------------------------------------
+
+(deftest find-by-attr-resolves-data-testid
+  (testing "find-by-attr with :data-testid behaves like find-by-testid"
+    (let [tree (counter-view {:n 0 :on-inc identity})
+          hit  (h/find-by-attr tree :data-testid "counter-inc")]
+      (is (some? hit))
+      (is (= :button (first hit))))))
+
+(deftest find-by-attr-resolves-data-test
+  (testing "Story-style :data-test selectors are matched"
+    (let [tree [:section {:data-test "page-root"}
+                [:button {:data-test "submit"
+                          :on-click identity} "Go"]
+                [:span {:data-test "label"} "hello"]]]
+      (is (= :button (first (h/find-by-attr tree :data-test "submit"))))
+      (is (= "hello" (last (h/find-by-attr tree :data-test "label"))))
+      (is (nil? (h/find-by-attr tree :data-test "missing"))))))
+
+(deftest find-by-attr-resolves-custom-prefix
+  (testing "Causa-style :data-rf-causa-* selectors are matched"
+    (let [tree [:div {:data-rf-causa-id "frame-picker"}
+                [:button {:data-rf-causa-id "btn-1"} "1"]
+                [:button {:data-rf-causa-id "btn-2"} "2"]]]
+      (is (some? (h/find-by-attr tree :data-rf-causa-id "btn-1")))
+      (is (= "2" (last (h/find-by-attr tree :data-rf-causa-id "btn-2")))))))
+
+(deftest find-by-attr-handles-arbitrary-keys
+  (testing "any attribute key — :id, :name, :class — is matchable"
+    (let [tree [:form {:id "login"}
+                [:input {:name "user"}]
+                [:input {:name "pass"}]]]
+      (is (= "login" (-> (h/find-by-attr tree :id "login") second :id)))
+      (is (= "pass"  (-> (h/find-by-attr tree :name "pass") second :name))))))
+
+(deftest find-all-by-attr-collects-every-match
+  (let [tree [:ul
+              [:li {:data-test "row"} "a"]
+              [:li {:data-test "row"} "b"]
+              [:li {:data-test "skip"} "c"]
+              [:li {:data-test "row"} "d"]]
+        hits (h/find-all-by-attr tree :data-test "row")]
+    (is (= 3 (count hits)))
+    (is (= ["a" "b" "d"] (mapv last hits)))))
+
+(deftest find-all-by-attr-empty-when-no-match
+  (is (= [] (h/find-all-by-attr [:div {:data-test "x"}] :data-test "y"))))
+
+(deftest find-by-attr-prefix-matches-stem
+  (let [tree [:ul
+              [:li {:data-test "row-1"} "a"]
+              [:li {:data-test "row-2"} "b"]
+              [:li {:data-test "other"} "c"]
+              [:li {:data-test "row-3"} "d"]]
+        hits (h/find-by-attr-prefix tree :data-test "row-")]
+    (is (= 3 (count hits)))
+    (is (= ["row-1" "row-2" "row-3"]
+           (mapv (comp :data-test second) hits)))))
+
+(deftest find-by-attr-prefix-ignores-non-string-values
+  (testing "an attr whose value is a number/keyword does not match prefix"
+    (let [tree [:div
+                [:span {:data-test "row-1"} "x"]
+                [:span {:data-test 42}     "y"]]
+          hits (h/find-by-attr-prefix tree :data-test "row-")]
+      (is (= 1 (count hits)))
+      (is (= "x" (last (first hits)))))))
+
+;; Back-compat: existing find-by-testid call sites must still work
+;; (Causa tests + every internal caller key on the testid wrapper).
+
+(deftest find-by-testid-still-routes-through-find-by-attr
+  (testing "find-by-testid is a thin wrapper — semantics unchanged"
+    (let [tree (counter-view {:n 0 :on-inc identity})
+          via-testid (h/find-by-testid tree "counter-root")
+          via-attr   (h/find-by-attr tree :data-testid "counter-root")]
+      (is (= via-testid via-attr)
+          "the wrapper and the underlying resolve to the identical node"))))
+
+(deftest find-all-by-testid-still-routes-through-find-all-by-attr
+  (let [tree [:div
+              [:span {:data-testid "dup"} "first"]
+              [:span {:data-testid "dup"} "second"]]
+        via-testid (h/find-all-by-testid tree "dup")
+        via-attr   (h/find-all-by-attr tree :data-testid "dup")]
+    (is (= via-testid via-attr))))
 
 ;; ---------------------------------------------------------------------------
 ;; text-content
