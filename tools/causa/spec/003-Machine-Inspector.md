@@ -158,7 +158,7 @@ who want Causa's panel chrome get the chart transitively via Causa.
 
 ## Tab placement
 
-- **Tab id:** 5 of 6 (`m` mnemonic).
+- **Tab id:** 5 of 7 (`m` mnemonic). Routing is now its own L3 tab per rf2-nrbs9.
 - **Spine binding:** reads `:rf.causa/focus`. The Machines tab inherits
   the ribbon's selected frame; if a user has a machine spawned in
   `:app/dialog`, they need to select `:app/dialog` in the picker to see
