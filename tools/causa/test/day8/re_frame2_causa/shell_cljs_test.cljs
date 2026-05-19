@@ -1213,3 +1213,190 @@
     (rf/with-frame :rf/causa
       (is (= :fixed @(rf/subscribe [:rf.causa/modal-positioning]))
           "no-opt render re-defaults the slot to :fixed"))))
+
+;; -------------------------------------------------------------------------
+;; (N) L2 row — relative-time chip (rf2-vbbq0)
+;; -------------------------------------------------------------------------
+;;
+;; Mike's design call (2026-05-19 Q10): bring datetime BACK to the
+;; default L2 row, but as a dynamic relative chip ("5s" / "2m" / "1h" /
+;; "3d") — NOT an absolute timestamp, NOT seq#, NOT duration. Placement
+;; is INLINE on the row, right-aligned, so active cascades stay visible
+;; without forcing a hover.
+;;
+;; Bucket contract:
+;;
+;;   diff < 1s   → "now"
+;;   diff < 60s  → "Ns"     (1s-resolution; jitters per tick while young)
+;;   diff < 60m  → "Nm"     (minute-bucket; old chips stay stable)
+;;   diff < 24h  → "Nh"
+;;   diff ≥ 24h  → "Nd"
+
+(deftest format-relative-time-now-bucket
+  (testing "rf2-vbbq0 — diff < 1s collapses to the 'now' silent-by-
+            default bucket so jitter at the millisecond boundary never
+            renders to the user."
+    (is (= "now" (shell/format-relative-time 1000 1000)))
+    (is (= "now" (shell/format-relative-time 1500 1000)))
+    (is (= "now" (shell/format-relative-time 1999 1000)))))
+
+(deftest format-relative-time-seconds-bucket
+  (testing "rf2-vbbq0 — diff in [1s, 60s) renders as 'Ns'."
+    (is (= "1s"  (shell/format-relative-time 2000   1000)))
+    (is (= "5s"  (shell/format-relative-time 6000   1000)))
+    (is (= "59s" (shell/format-relative-time 60000  1000)))))
+
+(deftest format-relative-time-minutes-bucket
+  (testing "rf2-vbbq0 — diff in [60s, 60m) renders as 'Nm' — the minute
+            bucket so an old row's chip does not jitter per tick."
+    (is (= "1m" (shell/format-relative-time 61000     1000)))
+    (is (= "1m" (shell/format-relative-time 90000     1000)))
+    (is (= "2m" (shell/format-relative-time 121000    1000)))
+    (is (= "5m" (shell/format-relative-time 301000    1000)))
+    (is (= "59m" (shell/format-relative-time 3541000  1000)))))
+
+(deftest format-relative-time-hours-bucket
+  (testing "rf2-vbbq0 — diff in [60m, 24h) renders as 'Nh'."
+    (is (= "1h" (shell/format-relative-time 3601000      1000)))
+    (is (= "1h" (shell/format-relative-time 3700000      1000)))
+    (is (= "2h" (shell/format-relative-time 7300000      1000)))
+    (is (= "23h" (shell/format-relative-time (+ 1000 (* 23 3600 1000)) 1000)))))
+
+(deftest format-relative-time-days-bucket
+  (testing "rf2-vbbq0 — diff ≥ 24h renders as 'Nd'."
+    (is (= "1d" (shell/format-relative-time (+ 1000 (* 24 3600 1000)) 1000)))
+    (is (= "3d" (shell/format-relative-time (+ 1000 (* 72 3600 1000)) 1000)))))
+
+(deftest format-relative-time-clamps-negative-diff
+  (testing "rf2-vbbq0 — a then-ms larger than now-ms (clock skew /
+            test stub ordering) clamps to 0 → 'now' rather than rendering
+            a negative chip."
+    (is (= "now" (shell/format-relative-time 1000 5000)))))
+
+(deftest format-relative-time-nil-safe
+  (testing "rf2-vbbq0 — nil inputs short-circuit so the caller can decide
+            whether to render anything."
+    (is (= "" (shell/format-relative-time nil  1000)))
+    (is (= "" (shell/format-relative-time 1000 nil)))
+    (is (= "" (shell/format-relative-time nil  nil)))))
+
+(deftest cascade-dispatched-time-ms-reads-dispatched-slot
+  (testing "rf2-vbbq0 — the chip's source-of-truth for the cascade's
+            walltime is `:dispatched :time`. Each trace event carries
+            `:time (interop/now-ms)` per `re-frame.trace.cljc build-event`."
+    (is (= 1234567 (shell/cascade-dispatched-time-ms
+                     {:dispatch-id 1
+                      :dispatched  {:time 1234567}})))
+    (is (nil? (shell/cascade-dispatched-time-ms {:dispatch-id 1}))
+        "no :dispatched slot → nil")
+    (is (nil? (shell/cascade-dispatched-time-ms
+                {:dispatch-id 1 :dispatched {}}))
+        "dispatched slot without :time → nil")
+    (is (nil? (shell/cascade-dispatched-time-ms
+                {:dispatch-id 1 :dispatched {:time "not-a-number"}}))
+        "non-numeric :time is treated as absent — defence-in-depth")))
+
+(defn- dispatch-trace-ev-with-time
+  "Variant of `dispatch-trace-ev` that stamps the trace event's `:time`
+  so the cascade's `:dispatched :time` carries the chip's reference."
+  [id event-vec time-ms]
+  (assoc (dispatch-trace-ev id event-vec) :time time-ms))
+
+(deftest event-row-renders-relative-time-chip
+  (testing "rf2-vbbq0 — every L2 row carries a right-aligned relative-
+            time chip. The chip's text reflects the bucket; the chip's
+            `:title` carries the absolute walltime for the power-user
+            reveal."
+    (causa-setup!)
+    (let [now-ms     1000000
+          then-ms    (- now-ms 5000)]  ;; 5 seconds ago
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (rf/with-frame :rf/causa
+        ;; Seed the now-ms so the chip's display is deterministic.
+        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              chip (find-by-testid tree "rf-causa-row-time-chip")
+              attrs (second chip)
+              label (text-nodes chip)]
+          (is (some? chip) "chip renders per row")
+          (is (= "5s" label) "chip text reflects the seconds-bucket")
+          (is (string? (:title attrs))
+              "chip carries a :title tooltip for the power-user reveal")
+          (is (re-find #"epoch-ms" (:title attrs))
+              "tooltip carries the epoch-ms")
+          (is (= (str then-ms) (:data-then-ms attrs))
+              "chip stamps the source then-ms so tests can pin the value"))))))
+
+(deftest event-row-chip-now-bucket
+  (testing "rf2-vbbq0 — a row at t=0 (chip seeded with same now) renders
+            the 'now' bucket."
+    (causa-setup!)
+    (let [now-ms 1000000]
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] now-ms))
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              chip (find-by-testid tree "rf-causa-row-time-chip")]
+          (is (= "now" (text-nodes chip))
+              "diff = 0 → 'now' bucket"))))))
+
+(deftest event-row-chip-minute-bucket
+  (testing "rf2-vbbq0 — at t+90s the chip rolls into the minute bucket
+            and reads '1m' (not '90s')."
+    (causa-setup!)
+    (let [now-ms  1000000
+          then-ms (- now-ms 90000)]
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              chip (find-by-testid tree "rf-causa-row-time-chip")]
+          (is (= "1m" (text-nodes chip))
+              "90s ago → '1m' (minute bucket; jitter dampened)"))))))
+
+(deftest event-row-chip-hour-bucket
+  (testing "rf2-vbbq0 — at t+3700s the chip rolls into the hour bucket
+            and reads '1h'."
+    (causa-setup!)
+    (let [now-ms  10000000
+          then-ms (- now-ms 3700000)] ;; 3700s ≈ 1h2m
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              chip (find-by-testid tree "rf-causa-row-time-chip")]
+          (is (= "1h" (text-nodes chip))
+              "3700s ago → '1h'"))))))
+
+(deftest event-row-chip-absent-when-no-dispatched-time
+  (testing "rf2-vbbq0 — defence-in-depth: a synthesised cascade carrying
+            no `:dispatched :time` (registry-time emits, stripped-down
+            fixtures) renders no chip rather than a misleading 'now'."
+    (causa-setup!)
+    ;; dispatch-trace-ev (without time stamp) — :dispatched slot will
+    ;; lack `:time`, so the chip MUST NOT render.
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            chip (find-by-testid tree "rf-causa-row-time-chip")]
+        (is (nil? chip)
+            "chip is absent when the cascade has no dispatched :time")))))
+
+(deftest relative-time-now-ms-sub-reads-app-db-slot
+  (testing "rf2-vbbq0 — the `:rf.causa/relative-time-now-ms` sub returns
+            whatever the tick event stamped into the slot. Nil before
+            the first tick lands; the L2 view falls back to `(interop/
+            now-ms)` so chips still render on the first paint."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (is (nil? @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "no value before the first tick lands"))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/relative-time-tick 42]))
+    (rf/with-frame :rf/causa
+      (is (= 42 @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "sub returns whatever the tick handler wrote"))))

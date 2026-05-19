@@ -100,6 +100,7 @@
   `mount.cljs`. No per-substrate switches in view code."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [day8.re-frame2-causa.filters :as filters]
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
@@ -297,6 +298,144 @@
       warn?    (conj "⚠")
       http?    (conj "🌐")
       machine? (conj "🤖"))))
+
+;; ---- Relative-time chip (rf2-vbbq0) --------------------------------------
+;;
+;; Each L2 row carries a small right-aligned chip showing how long ago the
+;; cascade was dispatched ("5s", "2m", "1h", "3d"). Mike's design call
+;; (2026-05-19 Q10): bring datetime BACK to the default row, but as a
+;; dynamic relative chip — NOT an absolute timestamp, NOT the sequence
+;; number (dropped in R3-C), NOT the duration (not interesting).
+;;
+;; Bucketing keeps the chip silent-by-default — an old row that reads "5m"
+;; does not jitter second-by-second because the same minute-bucket maps
+;; back to "5m" regardless of the exact second inside the bucket. Buckets:
+;;
+;;   diff <   1s            → "now"
+;;   diff < 60s              → "Ns"
+;;   diff < 60min            → "Nm"
+;;   diff < 24h              → "Nh"
+;;   diff ≥ 24h              → "Nd"
+;;
+;; The view subscribes to a re-frame sub `:rf.causa/relative-time-now-ms`
+;; that is bumped by a `defonce` `setInterval` once per second. The tick
+;; event is namespaced under `:rf.causa/*` and dispatched against the
+;; `:rf/causa` frame, so per `trace-bus/causa-internal-event?` it is
+;; filtered out at ingest — the user's L2 list never sees it.
+
+(defn format-relative-time
+  "Pure helper. Given two epoch-ms values (current time + the cascade's
+  dispatched-time), returns the chip display string per the bucket
+  contract in the section comment above. Nil-safe on `then-ms` (returns
+  the empty string so the caller can decide whether to render anything).
+
+  Pure-data, JVM-runnable so callers can spec-test it without a CLJS
+  runtime."
+  [now-ms then-ms]
+  (if (or (nil? then-ms) (nil? now-ms))
+    ""
+    (let [diff-ms (max 0 (- now-ms then-ms))
+          s      (quot diff-ms 1000)]
+      (cond
+        (< diff-ms 1000)  "now"
+        (< s 60)          (str s "s")
+        (< s 3600)        (str (quot s 60) "m")
+        (< s 86400)       (str (quot s 3600) "h")
+        :else             (str (quot s 86400) "d")))))
+
+(defn format-absolute-time
+  "CLJS-side helper. Given an epoch-ms (the cascade's dispatched
+  `:time`), returns an absolute-time tooltip string for the chip's
+  `:title` attribute. Used as the power-user reveal that complements
+  the relative chip — clicking the row still opens the Event lens, but
+  a hover shows the precise walltime + epoch-ms.
+
+  Returns the empty string when `then-ms` is nil so the caller can
+  decide whether to attach the tooltip."
+  [then-ms]
+  (if (or (nil? then-ms) (not (exists? js/Date)))
+    ""
+    (let [d   (js/Date. then-ms)
+          iso (.toISOString d)
+          loc (.toLocaleTimeString d)]
+      (str loc " · " iso " (epoch-ms " then-ms ")"))))
+
+(defn cascade-dispatched-time-ms
+  "Pluck the cascade's dispatched-time from `:dispatched :time` (every
+  trace event carries `:time (interop/now-ms)` per `re-frame.trace.cljc
+  build-event`). Returns nil when the cascade has no `:dispatched`
+  slot or the slot's `:time` is not a number — defence-in-depth for
+  cascades synthesised by tests that omit the field."
+  [cascade]
+  (let [t (get-in cascade [:dispatched :time])]
+    (when (number? t) t)))
+
+(defn relative-time-chip
+  "Render the L2 row's right-aligned relative-time chip. `now-ms` is the
+  current wall clock supplied by the L2 view (sourced from the
+  `:rf.causa/relative-time-now-ms` sub so all rows tick coherently).
+  Renders nothing when the cascade carries no dispatched-time stamp."
+  [cascade now-ms]
+  (when-let [then-ms (cascade-dispatched-time-ms cascade)]
+    (let [now      (or now-ms (interop/now-ms))
+          label    (format-relative-time now then-ms)
+          tooltip  (format-absolute-time then-ms)]
+      [:span {:data-testid     "rf-causa-row-time-chip"
+              :data-then-ms    (str then-ms)
+              :title           tooltip
+              :style {:color         (:text-tertiary tokens)
+                      :flex-shrink   0
+                      :font-family   mono-stack
+                      :font-size     (:caption type-scale)
+                      :margin-left   "4px"
+                      :min-width     "30px"
+                      :text-align    "right"
+                      :white-space   "nowrap"}}
+       label])))
+
+;; ---- Relative-time ticker (rf2-vbbq0) ------------------------------------
+;;
+;; A single process-global ticker drives every L2 row's chip. A
+;; `setInterval` at 1s cadence dispatches `:rf.causa/relative-time-tick`
+;; into the `:rf/causa` frame; the event-db handler writes `(interop/
+;; now-ms)` into the `:rf.causa/relative-time-now-ms` slot, and the
+;; chip's parent (`event-list`) subscribes to that value. The ticker's
+;; trace events carry `:frame :rf/causa` so `trace-bus/causa-internal-
+;; event?` drops them at ingest (no buffer pressure, no L2 self-noise).
+;;
+;; `defonce` + idempotent start guard keeps shadow-cljs `:after-load`
+;; from spinning up a second timer. The interval handle is held on the
+;; defonce so a future teardown can clear it; today nothing calls clear.
+
+(defonce ^:private relative-time-ticker-state
+  ;; `{:handle <setInterval-id-or-nil>}` — defonce so the symbol is
+  ;; preserved across reloads; the inner map is mutated via reset!.
+  (atom {:handle nil}))
+
+(defn- relative-time-tick-cadence-ms
+  "Ticker cadence — 1s. Hoisted to a defn so tests can stub it."
+  []
+  1000)
+
+(defn- start-relative-time-ticker!
+  "Idempotent. Spins up a `setInterval` that dispatches
+  `:rf.causa/relative-time-tick` once per second so every L2 row's
+  chip recomputes against the latest wall clock. No-op when the timer
+  is already running, when `js/setInterval` is absent (some test
+  contexts), or when `js/document` is absent (node-test — no DOM, no
+  rendering, no need to tick). The chip's view falls back to
+  `(interop/now-ms)` at render time until the first tick lands."
+  []
+  (when (and (not (:handle @relative-time-ticker-state))
+             (exists? js/setInterval)
+             (exists? js/document))
+    (let [handle (js/setInterval
+                   (fn []
+                     (rf/dispatch [:rf.causa/relative-time-tick (interop/now-ms)]
+                                  {:frame :rf/causa}))
+                   (relative-time-tick-cadence-ms))]
+      (swap! relative-time-ticker-state assoc :handle handle)))
+  nil)
 
 ;; ---- L1 ribbon -----------------------------------------------------------
 
@@ -757,7 +896,7 @@
   focus-set is active, out-of-focus rows render at ~40% opacity and
   the gutter renders an OPEN `⦿` marker; the pivot row renders a
   FILLED `⦿` marker."
-  [{:keys [cascade focused-id auto-track? focus-set in-focus?]}]
+  [{:keys [cascade focused-id auto-track? focus-set in-focus? now-ms]}]
   (let [id          (:dispatch-id cascade)
         focused?    (= id focused-id)
         pivot?      (and focus-set (= id (:pivot-id focus-set)))
@@ -901,7 +1040,14 @@
                        :color (:yellow tokens)
                        :font-size (:caption type-scale)}}
         (for [b badges]
-          ^{:key b} [:span b])])]))
+          ^{:key b} [:span b])])
+     ;; Relative-time chip (rf2-vbbq0). Right-aligned per Mike's design
+     ;; (2026-05-19 Q10) — "active-cascade-visibility" calls for the chip
+     ;; to ride on the row body rather than hide behind a hover tooltip.
+     ;; The chip itself carries an absolute-time `:title` tooltip as the
+     ;; power-user reveal. Rendered LAST so it sits flush right against
+     ;; the row's trailing edge.
+     (relative-time-chip cascade now-ms)]))
 
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
@@ -947,9 +1093,19 @@
   ;; mounted by the shell-view); defonce + DOM guards keep it a
   ;; no-op everywhere it matters.
   (inject-scrollbar-style!)
+  ;; rf2-vbbq0 — kick the relative-time ticker on first paint. The
+  ;; `defonce` + handle guard keeps it a single timer regardless of
+  ;; mount cycles / shadow-cljs `:after-load` reloads.
+  (start-relative-time-ticker!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
         focus          @(rf/subscribe [:rf.causa/focus])
         focus-set      @(rf/subscribe [:rf.causa/focus-set])
+        ;; rf2-vbbq0 — one subscribe per render drives every chip's
+        ;; relative-time text. Falls back to `(interop/now-ms)` before
+        ;; the first tick lands so the chips render correctly on the
+        ;; first paint (which beats the 1s tick cadence).
+        now-ms         (or @(rf/subscribe [:rf.causa/relative-time-now-ms])
+                           (interop/now-ms))
         focused-id     (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
@@ -994,7 +1150,8 @@
                            :focused-id  focused-id
                            :auto-track? auto-track?
                            :focus-set   focus-set
-                           :in-focus?   (focus-pred cascade)}])))]))
+                           :in-focus?   (focus-pred cascade)
+                           :now-ms      now-ms}])))]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 

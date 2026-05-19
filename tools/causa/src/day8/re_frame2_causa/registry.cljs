@@ -267,6 +267,29 @@
         (let [cascades (projection/group-cascades buffer)]
           (into [] (remove trace-bus/causa-internal-cascade?) cascades))))
 
+    ;; ---- L2 relative-time chip ticker (rf2-vbbq0) -----------------
+    ;;
+    ;; Every L2 row carries a small right-aligned chip showing how long
+    ;; ago the cascade was dispatched ("5s" / "2m" / "1h" / "3d"). A
+    ;; process-global `defonce` `setInterval` in `shell.cljs` dispatches
+    ;; `:rf.causa/relative-time-tick` once per second; the handler stamps
+    ;; the current wall clock into `:rf.causa/relative-time-now-ms` so
+    ;; the L2 view's subscribe re-fires every tick and the chip text
+    ;; recomputes against the latest now.
+    ;;
+    ;; `:rf.trace/no-emit? true` keeps the per-second tick out of the
+    ;; trace buffer (defence-in-depth — the ticker also targets
+    ;; `:rf/causa` so `trace-bus/causa-internal-event?` would drop the
+    ;; envelope at ingest anyway).
+    (rf/reg-sub :rf.causa/relative-time-now-ms
+      (fn [db _query]
+        (get db :rf.causa/relative-time-now-ms)))
+
+    (rf/reg-event-db :rf.causa/relative-time-tick
+      {:rf.trace/no-emit? true}
+      (fn [db [_ now-ms]]
+        (assoc db :rf.causa/relative-time-now-ms now-ms)))
+
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
     ;; L3 tab bar — flip the active tab. Six valid ids per spec/018 §5:
