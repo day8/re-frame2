@@ -31,9 +31,18 @@ theme:
     repo: fontawesome/brands/git-alt
   language: en
   palette:
-    scheme: slate
-    primary: black
-    accent: indigo
+    - scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   font:
     text: Inter
     code: JetBrains Mono
