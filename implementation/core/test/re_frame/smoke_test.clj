@@ -101,6 +101,50 @@
     ;; Unknown sub returns nil instead of throwing.
     (is (nil? (rf/compute-sub [:no-such-sub] {})))))
 
+(deftest compute-sub-emits-sub-exception-on-body-throw
+  ;; rf2-cos61: prior to the fix, compute-sub silently swallowed body
+  ;; throws and returned nil — diverging from the reactive sibling
+  ;; (`subs.memo/validate-and-trace`) which emits :rf.error/sub-exception
+  ;; per Spec 009 §Error contract. Pin parity here: SSR + JVM-runnable
+  ;; consumers must see the same debuggable signal the reactive path
+  ;; produces.
+  (testing "compute-sub emits :rf.error/sub-exception when the sub body throws (layer-1)"
+    (rf/reg-sub :boom (fn [_db _q] (throw (ex-info "boom" {:k :v}))))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::boom (fn [ev] (swap! traces conj ev)))
+      (is (nil? (rf/compute-sub [:boom] {}))
+          "compute-sub still returns nil (recovery :replaced-with-default)")
+      (rf/remove-trace-cb! ::boom)
+      (let [ev (some (fn [e]
+                       (when (= :rf.error/sub-exception (:operation e)) e))
+                     @traces)]
+        (is (some? ev) "an :rf.error/sub-exception trace was emitted")
+        (when ev
+          (is (= :error (:op-type ev)) "op-type is :error")
+          ;; `:recovery` is hoisted onto the envelope by build-event.
+          (is (= :replaced-with-default (:recovery ev)))
+          (let [t (:tags ev)]
+            (is (= :boom (:failing-id t)))
+            (is (= :boom (:sub-id t)))
+            (is (= [:boom] (:sub-query t)))
+            (is (= :compute-sub (:where t))
+                ":where distinguishes the pure-compute call site from the reactive memo path")
+            (is (instance? Throwable (:exception t)))
+            (is (= "boom" (:exception-message t))))))))
+  (testing "compute-sub emits :rf.error/sub-exception when a layer-2 body throws"
+    (rf/reg-sub :n   (fn [db _] (:n db)))
+    (rf/reg-sub :n*2 :<- [:n] (fn [_n _q] (throw (ex-info "kaboom" {}))))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::boom2 (fn [ev] (swap! traces conj ev)))
+      (is (nil? (rf/compute-sub [:n*2] {:n 7})))
+      (rf/remove-trace-cb! ::boom2)
+      (is (some (fn [e]
+                  (and (= :rf.error/sub-exception (:operation e))
+                       (= :n*2 (:sub-id (:tags e)))
+                       (= :compute-sub (:where (:tags e)))))
+                @traces)
+          "layer-2 throw also emits :rf.error/sub-exception via compute-sub"))))
+
 (deftest subscribe-handles-missing-frame
   (testing "subscribe / subscribe-once against a missing frame don't throw"
     (rf/reg-sub :n (fn [db _] (:n db)))

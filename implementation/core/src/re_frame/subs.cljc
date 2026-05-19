@@ -432,6 +432,14 @@
             ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
             ;; counted twice on the multi-input path (rf2-r1rma).
             n       (count inputs)]
+        ;; Per Spec 009 §Error contract — body throws emit
+        ;; :rf.error/sub-exception and recover to nil. Mirrors
+        ;; `subs.memo/validate-and-trace` (the reactive sibling), so
+        ;; SSR + JVM-runnable consumers driving subs through
+        ;; `compute-sub` get the same debuggable signal the reactive
+        ;; path produces. The `:where :compute-sub` tag distinguishes
+        ;; this emission site from the reactive memo path; the rest of
+        ;; the envelope mirrors the sibling exactly (rf2-cos61).
         (try
           (let [v (cond
                     (zero? n)
@@ -443,7 +451,20 @@
                     :else
                     (body-fn (mapv #(compute-sub % db) inputs) query-v))]
             (subs-memo/maybe-validate-sub-return! v query-v query-id meta))
-          (catch #?(:clj Throwable :cljs :default) _
+          (catch #?(:clj Throwable :cljs :default) e
+            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
+              (trace/emit-error!
+                :rf.error/sub-exception
+                {:failing-id        query-id
+                 :sub-id            query-id
+                 :sub-query         query-v
+                 :where             :compute-sub
+                 :exception         e
+                 :exception-message msg
+                 :reason            (str "Subscription `" query-id
+                                         "` threw while computing: "
+                                         msg ". Returning nil.")
+                 :recovery          :replaced-with-default}))
             nil))))))
 
 (defn unsubscribe
