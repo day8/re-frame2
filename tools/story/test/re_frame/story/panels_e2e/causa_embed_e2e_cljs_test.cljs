@@ -5,12 +5,16 @@
   Story's RHS hosts ONE Causa panel at a time under a chip-row picker
   (rf2-v1ach). Three bug classes drove this coverage:
 
-  - **rf2-senbl** — `mount-fn-for` returning nil because the previous
-    `find-ns-obj` + `aget` walk did not surface top-level def'd fns
-    as parent-namespace JS properties; the fix is a `case` dispatch
-    via direct `:require`. We assert here that every catalogued
-    panel-id resolves to a callable mount-fn so a regression in the
-    require / case shape is caught at unit-test speed.
+  - **rf2-senbl** / **rf2-ibpwr** — `mount-fn-for` returning nil
+    (rf2-senbl) and `causa-available?` returning a false-negative
+    (rf2-ibpwr) because the previous `find-ns-obj` + `aget` walk did
+    not surface top-level def'd fns as parent-namespace JS
+    properties; the fix is a `case` dispatch via direct `:require`
+    (for `mount-fn-for`) and a direct symbol reference via direct
+    `:require` (for `causa-available?`). We assert here that every
+    catalogued panel-id resolves to a callable mount-fn so a
+    regression in the require / case shape is caught at unit-test
+    speed.
   - **rf2-4l7t2** — React 18+ throws \"Attempted to synchronously
     unmount a root while React was already rendering\" whenever a
     Causa-owned React root is torn down inside the outer Story-
@@ -55,28 +59,25 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.story :as story]
-            [re-frame.story.causa-preset :as causa-preset]
             [re-frame.story.ui.causa-embed :as causa-embed]
             [re-frame.story.ui.state :as ui-state]
             [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-causa.test-helpers.e2e-multi-frame :as causa-e2e]
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
-;; rf2-senbl bug class symmetry: `causa-preset/causa-available?` uses
-;; the same `find-ns-obj` + `aget` walk that previously broke
-;; `mount-fn-for`. The classpath HAS Causa loaded (the embed namespace
-;; directly `:require`s `day8.re-frame2-causa.panels`), so the
-;; feature-detection is a false negative in the node-test context. We
-;; stub the predicate so the embed renders its full surface; the
-;; production code path stays untouched.
-
-(defn- with-causa-available [test-fn]
-  (with-redefs [causa-preset/causa-available? (constantly true)]
-    (test-fn)))
+;; rf2-ibpwr: pre-fix, `causa-preset/causa-available?` used a
+;; `find-ns-obj` + `aget` walk that returned a false-negative under
+;; node-test (same bug class as the pre-rf2-senbl `mount-fn-for`
+;; walk). The fixture below used to stub the predicate via
+;; `with-redefs` so the embed rendered its full surface. After
+;; rf2-ibpwr the predicate is a compile-time symbol resolution check
+;; (the direct `:require` of `day8.re-frame2-causa.mount` in
+;; `re-frame.story.causa-preset` makes the symbol bound at compile
+;; time, so the runtime call correctly reports `true` in node-test).
+;; The stub fixture is no longer needed.
 
 (use-fixtures :each
-  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter})
-  with-causa-available)
+  (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; A minimal variant registration the embed-surface tests depend on —
 ;; the embed reads `:selected-variant` off the shell ratom; resolving
