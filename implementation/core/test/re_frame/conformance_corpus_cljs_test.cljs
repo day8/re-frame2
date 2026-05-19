@@ -923,16 +923,26 @@
             (rf/destroy-frame! (:destroy-frame ev))
 
             ;; Harness re-registration step `{:reg-sub <sub-id> :body
-            ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a).
+            ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a). Mirror
+            ;; of the JVM runner — the realised sub's `:kind` MUST drive
+            ;; the registration form: a layer-2 body re-registered as a
+            ;; layer-1 sub would receive app-db (not the input-sub value)
+            ;; at evaluation time, silently producing NaN / nonsense.
+            ;; Use the fn-form subs/reg-sub (rf/reg-sub is a macro and
+            ;; not first-class for `apply`).
             (contains? ev :reg-sub)
             (let [sub-id        (:reg-sub ev)
                   steps         (:body ev)
-                  realised      (conformance/realise-sub steps)
-                  realised-body (:body realised)
+                  {:keys [kind inputs body]} (conformance/realise-sub steps)
                   sub-meta      (get sub-registry sub-id {})]
-              (if (seq sub-meta)
-                (rf/reg-sub sub-id sub-meta realised-body)
-                (rf/reg-sub sub-id realised-body)))
+              (case kind
+                :layer-1 (if (seq sub-meta)
+                           (subs/reg-sub sub-id sub-meta body)
+                           (subs/reg-sub sub-id body))
+                :layer-2 (apply subs/reg-sub sub-id
+                                (concat (when (seq sub-meta) [sub-meta])
+                                        (interleave (repeat :<-) inputs)
+                                        [body]))))
 
             :else
             (let [{event :event :as opts} ev]
