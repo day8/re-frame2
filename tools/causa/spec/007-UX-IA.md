@@ -556,24 +556,96 @@ animation durations, accent colours. Configurable in Settings → View.
 
 ## Typography
 
-Two typefaces only:
+Three typefaces — two body workhorses + one display face:
 
 - **UI sans:** `Inter` (variable, wght 400–700), fallback
   `system-ui` / `-apple-system` / `Segoe UI`. ~80KB WOFF2.
 - **Data mono:** `JetBrains Mono` (variable, wght 400–700), fallback
   `ui-monospace` / `SF Mono` / `Menlo`. ~100KB WOFF2.
+- **Display serif:** `Fraunces` (variable, wght 500–900 with
+  optical-size axis 9–144; rf2-5kfxe.9), fallback `ui-serif` /
+  `Georgia` / `Cambria` / `Times`. ~30KB WOFF2. Used on **L4 panel
+  `<h1>`** only — panel titles reach for a characterful serif so the
+  L4/L3 hierarchy reads at a glance. Deliberately *not* another
+  grotesque sans — the frontend-design rubric flags "Inter at every
+  size" as a generic AI-aesthetic; one serif accent breaks the
+  monotone. Body chrome stays Inter; L1 ribbon labels + chord
+  callouts + the mode pill stay Inter too (Fraunces is scoped to L4
+  panel headings).
 
-### Sizes (cosy density)
+All three faces ship as `local()`-only `@font-face` rules from
+`theme/global-styles/font-faces-css`. No third-party HTTP fetch is
+initiated; OS-installed copies resolve automatically, otherwise the
+per-stack fallback chain (`tokens/sans-stack` / `tokens/mono-stack`
+/ `tokens/display-stack`) takes over. Consuming projects that want
+web-hosted copies inject their own `url()`-bearing `@font-face`
+rules — CSS layers candidates by family + weight so host-side
+declarations compose with the `local()` defaults.
 
-| Token | Size / line-height / weight | Used for |
+### Sizes — one knob, whole scale (`--rf-causa-font-size`)
+
+Every type-scale entry resolves through the **`--rf-causa-font-size`**
+CSS custom property (rf2-n8i2c). The default value is `13px`,
+published on `:root` by `theme/global-styles/motion-css`. Each entry
+is `calc(var(--rf-causa-font-size, 13px) * <multiplier>)` where the
+multiplier expresses the entry's RELATIVE size — `:body` is the 1.0
+anchor; other entries scale around it. Modelled on TanStack Query
+Devtools' `--tsqd-font-size` knob: one variable rescales the entire
+shell on the next style flush without a re-render.
+
+| Token | Multiplier | Resolves at default | Used for |
+|---|---|---|---|
+| Display | 1.077× | ~14px | Tab titles, modal headers, panel `<h1>` |
+| Body | 1.000× | 13px | Default UI text (the anchor) |
+| Body-tight | 0.923× | ~12px | Sidebar entries, header chrome |
+| Mono body | 0.923× | ~12px | Code, EDN, event-list rows |
+| Caption | 0.846× | ~11px | Hints, secondary labels, hover tooltips |
+| Micro | 0.769× | ~10px | Badges, tabs |
+
+Multipliers are catalogued in
+`tools/causa/src/day8/re_frame2_causa/theme/tokens.cljc`
+(`type-scale-multipliers`) as pure data so the JVM test surface can
+assert the relationship without parsing CSS. Below 10px: refused
+(the `:micro` token sits at the floor).
+
+#### Host override + density coupling
+
+Hosts override the knob via a `:root` stylesheet rule —
+`:root { --rf-causa-font-size: 14px }` rescales every typographic
+surface ~1.08× without a code change. The default `13px` is also
+published as the host-readable knob (`API.md` §CSS variables).
+
+The Settings → General **Density** radio is the in-shell consumer
+of the same var (rf2-i40us). The mapping lives in
+`settings/effects.cljs §density->font-size-px`:
+
+| Density | `--rf-causa-font-size` value | Notes |
 |---|---|---|
-| Display | 16 / 1.4 / 600 | Tab titles, modal headers |
-| Body | 14 / 1.5 / 400 | Default UI text |
-| Mono body | 13 / 1.45 / 400 | Code, EDN, event-list rows (mono is 1px down to visually match sans) |
-| Caption | 12 / 1.4 / 400 | Hints, secondary labels, hover tooltips |
-| Micro | 11 / 1.2 / 600 | Badges, tabs |
+| **Compact** | 12px | One step tighter than baseline |
+| **Cosy** (default) | 13px | Anchor; matches `tokens/font-size-default` |
+| **Comfy** | 14px | Catalogued for forward compat — radio surfaces only Compact / Cosy in v1 (Mike 2026-05-19) |
 
-Below 10px: refused.
+`effects/apply-density-font-size!` is the canonical writer. On every
+density change it writes the resolved px value into
+`--rf-causa-font-size` on **both** the Causa shell root (so inline
+`calc(var(--rf-causa-font-size, 13px) * N)` resolutions inherit the
+value) **and** `<html>` (so popout / fullscreen mounts that may not
+be inside the inline shell root still inherit). The writer is
+idempotent and a no-op when neither element is present (JVM test
+runner). The same writer runs on boot from `apply-all!` so a
+persisted density survives reload before first paint. Unknown
+density keywords (e.g. a persisted `:comfy` payload from before the
+v1 radio drop) coerce to `:cosy` — mirroring the `:rf.causa/density`
+sub's normalisation.
+
+This var is **distinct** from `--rf-causa-text-size`, the Settings
+→ General Text-size slider's user-knob (rf2-9poxq, predates
+rf2-n8i2c). Two CSS vars, two knobs, one shell — see
+[`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Settings
+popup for the disambiguation. The density radio writes
+`--rf-causa-font-size`; the text-size slider writes
+`--rf-causa-text-size`. Hosts that want a single density knob
+target `--rf-causa-font-size` and leave the slider's var alone.
 
 ## Long-keyword treatment
 
@@ -650,6 +722,69 @@ Every coloured marker pairs with a shape or icon:
 - Redaction → magenta + `[● REDACTED N]` literal.
 - Elision → yellow + `[● ELIDED N]` literal.
 
+### Surface texture (grain) (rf2-5kfxe.7)
+
+The shell root paints a soft atmospheric grain under the L1–L4
+chrome. The grain is a `data:image/svg+xml`-encoded `feTurbulence`
+filter (200×200 tile; `baseFrequency 0.85`, `numOctaves 2`,
+`stitchTiles=stitch` for seamless repeat) rendered as a `::before`
+pseudo-element on `[data-testid="rf-causa-shell"]`. Opacity `0.035`;
+`mix-blend-mode: overlay` lets the grain blend additively against
+both dark and light theme backgrounds. Zero extra DOM nodes — the
+pseudo-element approach keeps the grain off the React tree entirely
+and out of every panel's render graph. Under dark theme it reads as
+a soft film grain over the recessed canvas; under light theme it
+manifests as a subtle paper grain over the white canvas. The CSS
+lives in `theme/global-styles/grain-css`; injection is via a single
+`<style id="rf-causa-grain">` block, idempotent + id-keyed DOM
+probe.
+
+### Per-L4 panel accent stripe (rf2-5kfxe.8)
+
+Every L4 panel renders a **3-px left-border** on its `<h1>` in its
+domain colour so panels are distinguishable at a glance without
+restructuring the header chrome. The mapping
+(`theme/tokens/panel-domain->token`) is fixed:
+
+| L4 tab | Domain colour | Token |
+|---|---|---|
+| `:event` | violet | `:accent-violet` (causal-chain accent everywhere in the Event lens) |
+| `:app-db` | cyan | `:cyan` (App-db diff already highlights state in cyan) |
+| `:views` | cyan | `:cyan` (Views is a peer of App-db; both read state) |
+| `:trace` | orange | `:orange` (events in flight; the firing/heat tone) |
+| `:machines` | green | `:green` (machine state lands green for "final") |
+| `:routing` | yellow | `:yellow` (side-channel attention tone) |
+| `:issues` | red | `:red` (errors; semantic red) |
+
+The helper `theme/tokens/accent-stripe-style` emits the inline-style
+map (`:border-left "3px solid <hex>"` + `:padding-left "10px"`); per-
+panel call sites merge it into the `<h1>` `:style`. Unknown tab
+keywords fall back to `:accent-violet` so the stripe always renders.
+This is independent of — and complementary to — the Static-mode 2-px
+ribbon-edge stripe documented in §Static mode below (that one is a
+mode signal at L1; this one is a panel-domain signal at L4).
+
+### Cascade gutter (rf2-5kfxe + the diff renderer)
+
+The App-db diff renderer (`diff/render.cljs`) and the `inspect-diff`
+mode of the detail-panel renderer both ship a **per-node gutter**: a
+3-px coloured left-border + glyph that telegraphs the operation at a
+glance.
+
+| Op | Glyph | Tone | Token |
+|---|---|---|---|
+| Added | `+` | green | `:green` |
+| Removed | `-` | red | `:red` |
+| Modified | `~` | yellow | `:yellow` |
+| Children (recursive descent) | `◴` | violet | `:accent-violet` |
+| Same (rendered for context) | (space) | tertiary | `:text-tertiary` |
+
+The gutter is a single shared idiom across the App-db diff, the
+sub-output diff, and any nested `inspect-diff` consumer. The
+glyph + colour combination satisfies the "colour is never alone"
+discipline above — the gutter glyph alone is enough to read the op
+without any colour.
+
 ## Spacing scale
 
 4px grid. Everything is a multiple.
@@ -690,8 +825,23 @@ Animation communicates, not decorates. Three durations:
 
 Specific motions:
 
-- Tab switch: 180ms cross-fade.
-- Detail diff flash: 400ms yellow → transparent on each touched slice.
+- **Tab cross-fade** (`@keyframes rf-causa-fade-in`, rf2-5kfxe.3):
+  180ms ease-out, opacity 0 → 1 with a 2px translateY (the new tab
+  rises *into* place rather than appearing statically). Subtle
+  enough to feel like a settle, not a slide; characterful enough to
+  read as a beat rather than a hard cut. Triggered by `^{:key
+  selected}` on the L4 case-switch wrapper so a tab swap unmounts +
+  remounts → keyframes auto-play from frame 0. Animation lives in
+  `theme/global-styles/motion-css`.
+- **Diff flash** (`@keyframes rf-causa-diff-flash`, rf2-5kfxe.2):
+  400ms ease-out wash on each touched App-db slice when a new epoch
+  lands. Yellow tint at ~20% alpha (`rgba(251, 191, 36, 0.20)` —
+  `:yellow` token at hex32 20%) holds for the first 12% of the run
+  so the eye locks on, then eases to transparent. `animation-fill-
+  mode: forwards` on the section element pins the end state. The
+  hold-then-fade shape is sharp enough to catch the eye on quick
+  cascades but muted enough that a long burst of consecutive
+  cascades doesn't strobe.
 - Error pulse: single 600ms expand-fade red ring (no looping).
 - Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
   continuous animation in chrome, only on the machine chart).
@@ -963,9 +1113,9 @@ panel may inline its own URI assembly.
 
 ## Command palette
 
-Centred 560px modal, 50% height. Pre-alpha: no keybinding wired by
-default — opening goes through the top-strip control (or `Ctrl+K` once
-wired).
+Centred 560px modal, 50% height. Opened via the `Ctrl+K` / `Cmd-K`
+chord (global; also reachable from the top-strip control). Closes
+on `Esc`, click-outside, or invocation of any item.
 
 ### Indexed sources
 
@@ -973,14 +1123,107 @@ wired).
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- Tab jumps (Event / App-db / Views / Trace / Machines / Issues)
-- Command verbs (Rewind / Re-dispatch / Snapshot / Filter / Pin /
-  Pop-out / Switch frame / …)
+- L4 tab jumps — Runtime: Event / App-db / Views / Trace / Machines
+  / Routing / Issues; Static: Machines / Routes / Schemas / Views /
+  Events (see §Mode-aware command surface below)
+- Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
 - Pinned cascades (pin chips live in the palette as a "Pinned
   cascades" source, since the L0 rail is gone)
 
 Fuzzy match splits on camelCase / kebab-case / namespace boundaries.
+
+### Mode-aware command surface (rf2-ybjkx)
+
+Every palette item carries a **`:modes`** set declaring which Causa
+modes it surfaces under — `#{:runtime}`, `#{:static}`, or
+`#{:runtime :static}` for verbs meaningful in both. The aggregator
+(`palette/sources/by-mode-pred`) filters by membership against the
+active `:rf.causa/mode`. Items missing `:modes` fall through to
+both modes (the legacy contract — every item used to be visible
+always).
+
+The L4 tab-jump items are mode-aware so the **same mnemonic
+letter** dispatches the active mode's tab. `m` in Runtime jumps to
+the Machines instance-inspector; `m` in Static jumps to the
+Machines registry browse. The mnemonic chord — `e` (Events) · `m`
+(Machines) · `r` (Routes/Routing) · `c` (Schemas — Static only) ·
+`v` (Views) — works inside the palette and bare on the spine
+because both consult the active mode (see §Static mode for the
+mnemonics inventory).
+
+### Command verbs (rf2-ybjkx)
+
+The palette catalogues these verbs as `:command` source items. Six
+of them ship post-rf2-ybjkx:
+
+| Command id | Label | Modes | Action |
+|---|---|---|---|
+| `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:runtime :static}` | Flips the `rf-causa-theme-{dark,light}` class on the shell root. |
+| `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `#{:runtime :static}` | Three-state cycle: `:os` (OS pref alone) → `:always` (force reduce) → `:never` (force full). User override of `prefers-reduced-motion: reduce`; rides the `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
+| `:snapshot-app-db` | Snapshot app-db | `#{:runtime :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. |
+| `:jump-to-settings` | Jump to Settings | `#{:runtime :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |
+| `:toggle-mode` | Toggle mode (Runtime ↔ Static) | `#{:runtime :static}` | Chord parity with `Cmd-Shift-M`; flips `:rf.causa/mode` between `:runtime` and `:static`. |
+| `:clear-epoch-history` | Clear epoch history | `#{:runtime}` | Drops Causa's epoch snapshots (Runtime-only — no epoch concept under Static). |
+
+Pre-rf2-ybjkx verbs (clear-trace-buffer, reset-suppressed-counters,
+open-popout, …) continue to surface under their original `:modes`
+sets. The full catalogue lives in
+`tools/causa/src/day8/re_frame2_causa/palette/sources.cljc`
+§`command-items`.
+
+### Recents (rf2-ybjkx)
+
+Command invocations bubble through a **top-3 ring** persisted to
+localStorage under `re-frame2.causa.palette.recents.v1`. The ring
+holds command-ids only (verbs, tab-jumps) — never event-ids,
+handler-ids, or any host-app data. Persistence is best-effort:
+`palette/recents/save!` swallows quota / availability failures.
+
+Sort behaviour is **position-decayed boost**: the most-recent
+command receives `recents-boost-max` (currently sized so the top
+recent ranks +50% over a fresh fuzzy peer at parity), the second
+receives `recents-boost-max - recents-boost-step`, the third
+receives less again. Items beyond the recents tail receive zero
+boost. The decay shape keeps the most-recent verb above a fresh
+fuzzy peer while letting strong query matches still rise.
+
+The recents slot lives at `:rf.causa.palette/recents` on Causa's
+app-db; the persisted vector hydrates on first palette open via
+`recents/load`. The reducer (`recents/record`) is pure — `update +
+distinct + take 3` — so the slot remains test-friendly.
+
+### Modal + close behaviour
+
+- **Esc** closes the palette unconditionally (no exceptions for
+  in-flight fuzzy queries; mirrors the rest of Causa's modal
+  surfaces — every modal closes on `Esc`).
+- Click outside the 560px modal closes the palette.
+- Invoking any item closes the palette as part of the action
+  dispatch (the action handler emits `[:palette/close]` after the
+  effect).
+- The palette is itself catalogued as a closeable verb
+  (`:close-palette`) so a keyboard-only user can fuzzy-find "close"
+  if Esc is unavailable.
+
+### Reduced-motion override seam (rf2-ybjkx)
+
+The `:cycle-reduced-motion` verb is the user-side override of the
+OS `prefers-reduced-motion: reduce` media query. Three states cycle
+in order:
+
+| State | Behaviour |
+|---|---|
+| `:os` (default) | Respect the OS pref alone — `@media (prefers-reduced-motion: reduce)` flips `--rf-causa-motion-scale` to ~0. |
+| `:always` | Force reduced motion ON regardless of OS pref. |
+| `:never` | Force reduced motion OFF regardless of OS pref. |
+
+The override writes to a Causa-owned class on the shell root that
+takes precedence over the OS media query, so the user can opt OUT
+of system-level reduce-motion when developing motion-heavy
+surfaces (the inverse use case is more common: developers on
+default-reduce machines need to preview the full motion). Persists
+to localStorage alongside the other Causa settings.
 
 ## Modal layers
 
