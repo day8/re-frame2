@@ -595,6 +595,6 @@ The bisector deserves more than an Issues row. Three options (see
 - **(b)** Inline panel inside the Issues tab (the current v1 plan).
 - **(c)** `h`-keyboard popover (consistent with Nav-token `r`).
 
-**Lean: (c).** Keeps the chrome at 6 tabs; joins the popover pattern.
+**Lean: (c).** Keeps the chrome at 7 tabs; joins the popover pattern.
 But "always visible when relevant" is a strong (a) argument for SSR-heavy
 apps.

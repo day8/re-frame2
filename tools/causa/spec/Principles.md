@@ -76,8 +76,8 @@ once.
 A graph is striking. A flat panel that answers in one click is
 useful. When the two compete, the flat panel wins.
 
-This is why the event-detail panel is the hero (lock #7). The front
-door is the panel that answers in zero clicks. The causality graph
+This is why the event-detail panel is the hero (lock #7). The Event
+tab is the panel that answers in zero clicks. The causality graph
 that originally accompanied this principle has since been dropped
 entirely (rf2-y0z5b) — cascade lineage is inspected via the Event
 tab + Trace tab tags.
