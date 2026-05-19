@@ -121,6 +121,19 @@
     (let [css @#'gs/motion-css]
       (is (re-find #":root\s*\{[^}]*--rf-causa-motion-scale:\s*1" css)))))
 
+;; ---- rf2-n8i2c — font-size CSS var on :root ----------------------------
+
+(deftest motion-css-publishes-font-size-default-on-root
+  (testing "rf2-n8i2c — `:root` carries `--rf-causa-font-size: 13px`
+            as the type-scale anchor. Every entry in `tokens/type-
+            scale` resolves as `calc(var(--rf-causa-font-size, 13px)
+            * <multiplier>)` so overriding this one variable rescales
+            the entire shell in lockstep — same single-knob discipline
+            TanStack Query Devtools uses (`--tsqd-font-size`)."
+    (let [css @#'gs/motion-css]
+      (is (re-find #":root\s*\{[^}]*--rf-causa-font-size:\s*13px" css)
+          "root block carries the --rf-causa-font-size default"))))
+
 (deftest motion-css-declares-prefers-reduced-motion-override
   (testing "rf2-5kfxe.5 — under `prefers-reduced-motion: reduce` the
             `:root` motion-scale is overridden so every downstream

@@ -173,3 +173,93 @@
     (is (re-find #"Georgia" t/display-stack))
     (is (re-find #"serif$" t/display-stack)
         "the chain terminates at the generic `serif` family")))
+
+;; ---- rf2-n8i2c — font-size CSS var anchor ------------------------------
+
+(deftest font-size-var-name-matches-css-publication
+  (testing "rf2-n8i2c — `font-size-var-name` is the CSS custom property
+            that `theme/global-styles/motion-css` publishes on `:root`.
+            One knob — change it and every `type-scale` entry rescales
+            in lockstep."
+    (is (= "--rf-causa-font-size" t/font-size-var-name))))
+
+(deftest font-size-default-is-the-causa-baseline
+  (testing "rf2-n8i2c — the default knob value is the historical
+            `:body` size (13px). All multipliers are expressed
+            RELATIVE to this so the emitted pixel sizes match the
+            pre-migration fixed-px table at the default."
+    (is (= "13px" t/font-size-default))))
+
+(deftest type-scale-multipliers-anchor-body-at-one
+  (testing "rf2-n8i2c — `:body` is the 1.0 anchor; every other size
+            is a fraction of it. Display rises slightly above; mono,
+            caption, micro fall below."
+    (is (= 1.0 (:body t/type-scale-multipliers)))
+    (is (> (:display t/type-scale-multipliers) 1.0))
+    (is (< (:caption t/type-scale-multipliers) 1.0))
+    (is (< (:micro   t/type-scale-multipliers) 1.0))))
+
+(deftest type-scale-keys-stable
+  (testing "rf2-n8i2c — the migration changes VALUES (fixed px →
+            calc-strings) not KEYS. Every existing call site that
+            reads `(:body type-scale)` continues to resolve."
+    (let [expected #{:display :body :body-tight :mono-body :caption :micro
+                     :line-height-tight :line-height-mono}]
+      (is (= expected (set (keys t/type-scale)))))))
+
+(deftest type-scale-font-size-entries-are-calc-strings
+  (testing "rf2-n8i2c — every typographic size resolves through
+            `calc(var(--rf-causa-font-size, 13px) * <multiplier>)`
+            so a single `:root` override rescales the entire shell."
+    (doseq [k [:display :body :body-tight :mono-body :caption :micro]]
+      (let [v (get t/type-scale k)]
+        (is (string? v) (str k " is a CSS string"))
+        (is (re-find #"^calc\(" v)
+            (str k " starts with calc("))
+        (is (re-find #"var\(--rf-causa-font-size,\s*13px\)" v)
+            (str k " references the --rf-causa-font-size knob with
+                  the 13px fallback so unstyled consumers (no install
+                  of theme/global-styles) still see the baseline"))
+        (is (re-find #"\*\s*[0-9.]+\)" v)
+            (str k " carries a numeric multiplier so the relative
+                  scale is preserved across knob overrides"))))))
+
+(deftest type-scale-line-height-stays-unitless
+  (testing "rf2-n8i2c — line-height values are unitless ratios. They
+            scale with the resolved font-size automatically; the
+            calc-string migration is for absolute sizes only."
+    (is (= 1.35 (:line-height-tight t/type-scale)))
+    (is (= 1.4  (:line-height-mono  t/type-scale)))))
+
+(deftest font-size-css-builds-calc-with-var-and-fallback
+  (testing "rf2-n8i2c — `font-size-css` is the pure-data helper that
+            shapes each calc-string. Consumers (the `type-scale`
+            map) pipe their multiplier through it so the var name +
+            fallback default stay one source of truth.
+
+            The numeric literal is stringified by the host runtime
+            (`1.0` → `1` on CLJS, `1.0` on the JVM). We assert the
+            shape via regex rather than strict equality so both
+            runtimes pass."
+    (let [css (t/font-size-css 1.0)]
+      (is (string? css))
+      (is (re-find #"^calc\(var\(--rf-causa-font-size,\s*13px\)\s*\*\s*1(\.0+)?\)$" css)))))
+
+(deftest font-size-css-respects-distinct-multipliers
+  (testing "different multipliers produce distinct calc-strings —
+            the relative scale is preserved across the type table."
+    (let [body    (t/font-size-css (:body    t/type-scale-multipliers))
+          display (t/font-size-css (:display t/type-scale-multipliers))
+          caption (t/font-size-css (:caption t/type-scale-multipliers))]
+      (is (not= body display))
+      (is (not= body caption))
+      (is (not= display caption)))))
+
+(deftest type-scale-uses-font-size-css-helper
+  (testing "rf2-n8i2c — every size entry in `type-scale` is the
+            output of `font-size-css` applied to the matching
+            multiplier. Asserts the indirection is the only path to
+            the calc-string (no fixed-px regressions)."
+    (doseq [[k mult] t/type-scale-multipliers]
+      (is (= (t/font-size-css mult) (get t/type-scale k))
+          (str k " is font-size-css of its multiplier")))))

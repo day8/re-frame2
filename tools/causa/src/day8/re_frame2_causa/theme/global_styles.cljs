@@ -383,10 +383,14 @@
   (str
     ;; Root-level CSS custom-property defaults. The motion-scale is
     ;; the single seam every downstream animation reads through; the
-    ;; accent var is published for host stylesheets too (per
-    ;; config/default-accent-css-var).
+    ;; font-size knob (rf2-n8i2c) anchors the entire type scale —
+    ;; every `type-scale` entry resolves as
+    ;; `calc(var(--rf-causa-font-size, 13px) * <multiplier>)` so
+    ;; overriding the knob at `:root` (host stylesheet or DevTools)
+    ;; rescales the whole UI in lockstep.
     ":root {\n"
     "  --rf-causa-motion-scale: 1;\n"
+    "  " tokens/font-size-var-name ": " tokens/font-size-default ";\n"
     "}\n"
     ;; rf2-5kfxe.5 — reduced-motion override. Single rule, every
     ;; downstream calc(…ms * var(--rf-causa-motion-scale, 1)) collapses
