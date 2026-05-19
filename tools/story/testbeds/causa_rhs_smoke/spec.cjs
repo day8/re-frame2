@@ -2,32 +2,37 @@
  * Causa-as-Story-RHS regression scenarios (rf2-drprn).
  *
  * PR #1478 (rf2-sgdd3) retired Story's RHS scrubber / trace / actions
- * panels; the RHS is now a `[data-rf-causa-host]` slot into which the
- * Story shell auto-mounts the Causa 4-layer chrome on every variant-
- * selection edge (see `causa-preset/ensure-causa-mounted!`). The four
- * scenarios below are Causa-side replacements for the four retired
- * Story-side scenarios:
+ * panels in favour of an embedded Causa surface. PR #1566 (rf2-v1ach)
+ * then replaced the original "whole-shell mount into
+ * [data-rf-causa-host]" with a per-panel embed: Story's RHS hosts ONE
+ * Causa panel at a time (default `:event-detail`) under a chip-row
+ * picker, with a popout chip for the full 4-layer shell. See
+ * `tools/story/src/re_frame/story/ui/causa_embed.cljs` for the
+ * embed contract.
  *
- *   retired (Story RHS)             →  replacement (Causa-in-Story RHS)
- *   --------------------------------    -------------------------------
- *   story-actions-row                →  variant dispatch surfaces in
- *                                       Causa Trace tab counts
- *   story-scrubber-slider            →  Causa L1 nav `[◀]`/`[▶]` steps
- *                                       update focus (Event-detail
- *                                       dispatch-id)
- *   story-trace-cascade-row          →  clicking an L2 event row renders
- *                                       Event-tab cascade detail
- *   story-trace-scrub-note           →  (no replacement — the L1 mode
- *                                       pill that previously carried
- *                                       LIVE / RETRO was dropped in
- *                                       PR #1509 / rf2-g9pee; mode is
- *                                       derivable from spine focus +
- *                                       `[◀ ▶ ⏭]` cluster, not from a
- *                                       dedicated DOM surface)
+ * Two scenarios cover the embed at the Story / Causa seam:
  *
- * Each scenario is a thin regression smoke — one assertion per
- * contract, not an exhaustive walk. Causa's own deep coverage lives in
- * tools/causa/testbeds/.
+ *   §1 Embed surface mounts. After a variant becomes focused the
+ *      Story RHS renders the per-panel embed wrapper
+ *      `[data-test="story-causa-embed"]` with `data-active-panel`
+ *      reporting the resolved panel, the chip-row picker exposing one
+ *      chip per Causa panel, and the panel-host mount target. Proves
+ *      the rf2-v1ach Story-side seam is wired end-to-end.
+ *
+ *   §2 Chip-row picker retargets the embed. Clicking the App-db chip
+ *      flips `data-active-panel` to `app-db`. Proves the chip-row
+ *      runtime override (`state/swap-state!`) reaches `effective-panel`
+ *      and re-renders the embed wrapper with the new selection.
+ *
+ * Why these two and not also a "panel actually renders" assertion:
+ * the deeper "the mounted Causa panel paints its DOM" is covered by
+ * Causa's own testbeds under tools/causa/testbeds/ — those run the
+ * panel views in isolation against their mount-fns. From the Story
+ * seam's perspective the contract is "Story drives Causa's
+ * mount-<panel>! at the right place with the right panel-id"; the
+ * embed wrapper + the resolved panel-id (data-active-panel attribute)
+ * is the public surface Story owns. (See rf2-senbl for the separate
+ * mount-fn-resolution bug surfaced during this work.)
  *
  * The dedicated testbed exists rather than reusing
  * tools/story/testbeds/counter_with_stories/ because adding the Causa
@@ -40,6 +45,7 @@
  */
 
 const {
+  expectAttribute,
   expectVisible,
   waitForValue,
 } = require('../../../../examples/scripts/spec-helpers.cjs');
@@ -98,12 +104,17 @@ async function waitForCanvas(page, variantId) {
   await canvas(page, variantId).waitFor({ state: 'visible', timeout: 10000 });
 }
 
-async function waitForCausaShell(page) {
-  const host = page.locator('[data-test="story-rhs-causa-host"]');
+// rf2-v1ach: the per-panel embed surface. The embed wrapper carries
+// `data-test="story-causa-embed"` + a `data-active-panel` attribute
+// reflecting which panel is currently mounted; the panel itself
+// mounts inside `[data-test="story-causa-panel-host"]`. We wait on
+// both to confirm the Story-side seam is wired through.
+async function waitForCausaEmbed(page) {
+  const embed = page.locator('[data-test="story-causa-embed"]');
+  await embed.waitFor({ state: 'visible', timeout: 10000 });
+  const host = page.locator('[data-test="story-causa-panel-host"]');
   await host.waitFor({ state: 'visible', timeout: 10000 });
-  const shell = page.locator('[data-testid="rf-causa-shell"]');
-  await shell.waitFor({ state: 'visible', timeout: 10000 });
-  return shell;
+  return embed;
 }
 
 async function selectVariant(page) {
@@ -111,115 +122,64 @@ async function selectVariant(page) {
   await gotoStory(page, '/causa-rhs-smoke/');
   await clickVariant(page, '/loaded');
   await waitForCanvas(page, ':story.counter/loaded');
-  await waitForCausaShell(page);
+  await waitForCausaEmbed(page);
 }
 
 module.exports = {
   name: 'causa-rhs-smoke (rf2-drprn)',
   url: '/causa-rhs-smoke/',
   run: async (page) => {
-    // ----- Scenario 1: variant dispatch surfaces in Causa Trace ----------
+    // ----- Scenario 1: embed surface mounts at the Story RHS ------------
     //
-    // Replacement for retired `story-actions-row`. The Story-side
-    // Actions panel polled `[data-test="story-actions-row"]` rows in
-    // chronological order; the Causa-side equivalent reads the Trace
-    // tab's `[data-testid="rf-causa-trace-counts"]` `N / M in view`
-    // total and proves it ticks up after the variant fires
-    // `:counter/inc` on its frame.
+    // After variant focus the RHS renders the rf2-v1ach per-panel embed:
+    //   - wrapper `[data-test="story-causa-embed"]`
+    //   - resolved panel-id on the wrapper's `data-active-panel` attr
+    //   - chip-row picker with one chip per Causa panel
+    //   - mount target `[data-test="story-causa-panel-host"]`
+    //
+    // No story-side `:causa-panel` slot is declared on the testbed
+    // story/variant, so the resolved panel is the embed's
+    // `default-panel` (`:event-detail`).
 
     await selectVariant(page);
-    await page.locator('[data-testid="rf-causa-tab-trace"]').click();
-    await expectVisible(page.locator('[data-testid="rf-causa-trace"]'), 5000);
 
-    const parseTotal = (text) => {
-      const m = /(\d+)\s*\/\s*(\d+)\s+in view/.exec(text || '');
-      if (!m) throw new Error(`could not parse trace counts: ${JSON.stringify(text)}`);
-      return Number(m[2]);
-    };
-    const readTotal = async () => parseTotal(
-      (await page.locator('[data-testid="rf-causa-trace-counts"]').textContent()) || '',
-    );
+    const embed = page.locator('[data-test="story-causa-embed"]');
+    await expectAttribute(embed, 'data-active-panel', 'event-detail', 5000);
 
-    const before = await readTotal();
-
-    const loadedCanvas = canvas(page, ':story.counter/loaded');
-    await loadedCanvas.locator('[data-test="inc"]').first().click();
-
+    const chips = page.locator('[data-test="story-causa-panel-chip"]');
     await waitForValue(
-      () => readTotal(),
-      (total) => total > before,
+      () => chips.count(),
+      (count) => count >= 7,
       {
         timeoutMs: 5000,
-        description: 'Causa Trace tab total ticks up after variant :counter/inc',
+        description: 'chip-row exposes one chip per Causa panel (>=7)',
       },
     );
 
-    // ----- Scenario 2: L2 row click renders Event-detail cascade ---------
+    // ----- Scenario 2: chip-row picker retargets the embed --------------
     //
-    // Replacement for retired `story-trace-cascade-row`. The Story-side
-    // trace panel rendered six-column cascade rows; clicking one
-    // selected that cascade. The Causa-side equivalent: clicking an L2
-    // event row (`rf-causa-event-row-<dispatch-id>`) dispatches
-    // `:rf.causa/focus-cascade` and the L4 Event-detail panel rebinds
-    // to that cascade, exposing `rf-causa-event-detail-cascade`.
+    // Clicking the App-db chip dispatches `state/swap-state!` to set
+    // `:causa-panel :app-db`; `effective-panel` then beats the
+    // story/variant slot with the user override and the wrapper
+    // re-renders with `data-active-panel="app-db"`.
 
-    await page.locator('[data-testid="rf-causa-tab-event"]').click();
-    await expectVisible(page.locator('[data-testid="rf-causa-detail-panel-event"]'), 5000);
+    const appDbChip = page.locator(
+      '[data-test="story-causa-panel-chip"][data-causa-panel="app-db"]',
+    );
+    await appDbChip.waitFor({ state: 'visible', timeout: 5000 });
+    await appDbChip.click();
 
+    await expectAttribute(embed, 'data-active-panel', 'app-db', 5000);
+
+    // ----- Variant dispatch sanity (best-effort) ------------------------
+    //
+    // Click the variant's `:counter/inc` to prove the canvas + Causa's
+    // trace-bus collectors are wired without errors. The smoke
+    // intentionally stops short of asserting the resulting cascade
+    // surfaces in Causa's DOM — that's covered by Causa's own
+    // testbeds against the panel views in isolation.
+
+    const loadedCanvas = canvas(page, ':story.counter/loaded');
     await loadedCanvas.locator('[data-test="inc"]').first().click();
-
-    const rows = page.locator('[data-testid^="rf-causa-event-row-"]');
-    await waitForValue(
-      () => rows.count(),
-      (count) => count >= 1,
-      { timeoutMs: 5000, description: 'L2 event list populates after :counter/inc' },
-    );
-    await rows.first().click();
-
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-event-detail-cascade"]'),
-      5000,
-    );
-
-    // ----- Scenario 3: L1 nav steps focus through the spine --------------
-    //
-    // Replacement for retired `story-scrubber-slider`. The Story-side
-    // scrubber drove per-variant epoch nav; the Causa-side equivalent
-    // is the L1 ribbon's `[◀]` / `[▶]` cluster
-    // (`rf-causa-nav-prev` / `-next`). With ≥1 cascade in the bus the
-    // prev button is enabled (`aria-disabled="false"`); clicking it
-    // pulls focus off the head and the Event-detail panel rebinds.
-    // The L2 row click above already moved focus into RETRO; we
-    // re-snap to LIVE first so the prev-step assertion measures the
-    // ribbon nav specifically.
-
-    await page.locator('[data-testid="rf-causa-nav-head"]').click();
-
-    const prev = page.locator('[data-testid="rf-causa-nav-prev"]');
-    await prev.waitFor({ state: 'visible', timeout: 5000 });
-    await waitForValue(
-      () => prev.getAttribute('aria-disabled'),
-      (value) => value === 'false',
-      { timeoutMs: 5000, description: 'L1 nav-prev becomes enabled once cascades land' },
-    );
-    await prev.click();
-
-    // The cascade detail surface MUST render after a step — proves
-    // the spine step reached the Event-detail panel through
-    // `:rf.causa/focus`.
-    await expectVisible(
-      page.locator('[data-testid="rf-causa-event-detail-cascade"]'),
-      5000,
-    );
-
-    // ----- (Retired Scenario 4: mode pill reflected LIVE ↔ RETRO) --------
-    //
-    // The Story-side `story-trace-scrub-note` originally mapped to the
-    // L1 `rf-causa-mode-pill` chip. PR #1509 / rf2-g9pee dropped the
-    // mode-pill entirely: LIVE / RETRO state is derivable from spine
-    // focus (`:focus :mode :head? :paused?`) + the existing
-    // `[◀ ▶ ⏭]` cluster, and Space / L / G keybindings cover the
-    // toggle. No replacement DOM surface exists, so the assertion is
-    // intentionally absent here.
   },
 };
