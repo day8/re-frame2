@@ -44,6 +44,12 @@
   the rest accept it for shape uniformity and ignore it. This is the
   single shape the dispatcher invokes — there is no second arity.
 
+  Cross-MCP note: story-mcp uses a different (1-arity) handler shape
+  because its JVM-side single-process deploy has no nREPL `conn` and
+  no streaming tool. The divergence is deliberate and documented at
+  `tools/mcp-base/spec/handler-arity.md`; a phase-2 unification awaits
+  a third server instance (causa-mcp) and lands as a separate bead.
+
   ## Adding a new tool
 
   Land *one* map entry in the `tools` vector below — name, handler,
