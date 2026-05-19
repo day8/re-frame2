@@ -894,3 +894,158 @@ In a non-elided dev build running in production-like conditions,
 Causa shows a yellow top banner: "Causa is enabled in this build.
 Disable for production." Single-click dismiss, remembered for the
 session.
+
+## Mountable panel contract (rf2-crhr8)
+
+Every Causa panel is **independently mountable**. The 4-layer shell
+COMPOSES panels but does NOT own them — panels are reachable as
+stand-alone mount targets so a host can drop one panel into Story
+ribbons, the Scittle playground (per rf2-i8mv option-c progressive
+disclosure), the docs / guide surface, or custom debugging setups
+without bringing along the rest of the shell chrome.
+
+The public mount surface lives in
+`day8.re-frame2-causa.panels` — one mount fn per public panel, plus
+a master `mount-shell!` for the full 4-layer chrome.
+
+### Mountable surface inventory
+
+The panel-surface inventory splits across four tiers, with 11
+surfaces independently mountable as standalone user-facing mount
+targets and the remainder living as internal sub-components that
+render under their owning panel.
+
+**Tier 1 — L3 tab panels (7):** one per `:rf.causa/selected-tab`
+value.
+
+| Panel | View | Mount fn |
+|---|---|---|
+| Event tab    | `event-detail/Panel`     | `mount-event-detail!` |
+| App-db tab   | `app-db-diff/Panel`      | `mount-app-db-diff!` |
+| Views tab    | `views/Panel`            | `mount-views!` |
+| Trace tab    | `trace/Panel`            | `mount-trace!` |
+| Machines tab | `machine-inspector/Panel`| `mount-machine-inspector!` |
+| Routing tab  | `routing/Panel`          | `mount-routing!` |
+| Issues tab   | `issues-ribbon/Panel`    | `mount-issues-ribbon!` |
+
+**Tier 2 — overlay / popup surfaces (3):** modal-light surfaces the
+shell composes at its root, each self-gating on a `:rf.causa/*-open?`
+sub (closed-state cost is one subscribe + a `when` short-circuit).
+
+| Panel | View | Mount fn |
+|---|---|---|
+| App-DB segment-inspector popup | `app-db-segment-inspector/Popup`   | `mount-segment-inspector!` |
+| Cancellation-cascade side-panel | `cancellation-cascade/SidePanel`  | `mount-cancellation-cascade-side-panel!` |
+| Cancellation-cascade popover    | `cancellation-cascade/Popover`    | `mount-cancellation-cascade-popover!` |
+
+**Tier 3 — inline content surface (1):** the managed-fx
+wire-boundary diff template that the Event tab embeds inline under
+its six-domino cascade view. Exposed standalone for Story ribbons
+that want JUST the managed-fx list for the focused cascade.
+
+| Panel | View | Mount fn |
+|---|---|---|
+| Managed-fx records list | `panels/ManagedFxList` | `mount-managed-fx!` |
+
+**Tier 4 — internal sub-components:** auxiliary inspectors that
+depend on `machine-inspector/Panel`'s positioned graph for their
+geometry — overlays anchor on chart node centres, side-rails run
+along the chart edge.
+
+| Sub-component | View |
+|---|---|
+| After-rings overlay | `machine-after-rings/AfterRingsOverlay` |
+| Sim side-rail       | `machine-inspector-sim/SimSideRail` |
+
+These render under `machine-inspector/Panel` and are NOT exposed as
+standalone mount fns. Mounting a ring overlay without a chart
+underneath is geometrically meaningless; they remain reachable via
+`mount-machine-inspector!`. (Per rf2-y9xmf the prior arc / cluster /
+scrubber sub-components were collapsed into the Runtime panel; the
+remaining sub-component surface is the two listed above.)
+
+### The mount-fn contract
+
+Every `mount-<panel>!` fn:
+
+1. Calls `(registry/register-causa-handlers!)` — idempotent install
+   of every panel's subs / events / fxs. The orchestrator's
+   `defonce`-guarded sentinel collapses repeat installs across
+   panel mounts and shadow-cljs `:after-load` cycles.
+2. Calls `(rf/reg-frame :rf/causa {})` — idempotent register of
+   Causa's state-isolation frame. `reg-frame`'s surgical-update-on-
+   re-register semantics (per Spec 002 §reg-frame) keep this
+   idempotent.
+3. Wraps the panel's view in `[rf/frame-provider {:frame :rf/causa}
+   [Panel]]` so descendant `subscribe` / `dispatch` re-anchor to
+   `:rf/causa` regardless of the host's React-context. The
+   `:rf/causa` default may be overridden via `opts {:frame
+   :my-app/frame}` per the embedding contract
+   ([008-Embedding-Contract.md](./008-Embedding-Contract.md) §State
+   isolation).
+4. Delegates to `substrate-adapter/render` with the wrapped tree +
+   `mount-point`. Causa is substrate-agnostic; the host installs
+   the adapter via `rf/init!` and the panels mount via that
+   adapter's render slot.
+5. Returns the substrate adapter's unmount fn so the host owns the
+   panel's teardown lifecycle.
+
+### Per-panel input axes (the coupling-map audit)
+
+Every panel reads its data via subscribes — no sibling-render
+assumptions, no shell-owned local state. The subs (registered by the
+panel's own `install!`) compose against the trace bus + epoch
+history + spine focus:
+
+| Panel | Reads (subs) | Writes (dispatches) |
+|---|---|---|
+| **event-detail**   | `:rf.causa/focus` · `:rf.causa/cascades` · `:rf.causa/target-frame-db` | `:rf.causa/focus-cascade` · `:rf.causa/focus-event` |
+| **app-db-diff**    | `:rf.causa/app-db-diff` (composite) | `:rf.causa/focus-slice-path` · `:rf.causa/open-segment-inspector` |
+| **views**          | `:rf.causa/views-focused-cascade-pair` · `:rf.causa/views-sub-diff` | view-row toggles · sub-diff selection |
+| **trace**          | `:rf.causa/trace-feed` (incremental projection) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
+| **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
+| **routing**        | `:rf.causa/registered-routes` · `:rf.causa/current-route-slice` · `:rf.causa/routing-tab-data` | route-simulation events |
+| **issues-ribbon**  | `:rf.causa/issues-ribbon` (composite) · `:rf.causa.issues/ungrouped` | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa/select-dispatch-id` |
+| **segment-inspector** | `:rf.causa/segment-inspector-open?` · `:rf.causa/segment-inspector-value` | `:rf.causa/close-segment-inspector` |
+| **cancellation-cascade** | `:rf.causa/cancellation-cascade-for-focused-machine` · `:rf.causa/cancellation-cascade-for-focused-event` · `:rf.causa/cancellation-cascade-popover-open?` · `:rf.causa/modal-positioning` | `:rf.causa/cancellation-cascade-close` |
+| **managed-fx**     | `:rf.causa/managed-fx-for-focused-event` | `:rf.causa/focus-event` |
+
+No panel reads sibling-panel state directly. No panel assumes any
+particular frame-picker / tab-bar / event-list / spine-head value
+beyond what the spine sub `:rf.causa/focus` exposes — and `focus`
+itself defaults to head of the trace buffer when no row is selected.
+Each panel is fully driven by the trace bus + the host's
+`(rf/init!)` plumbing.
+
+### Shell composes, doesn't own
+
+The 4-layer shell (`shell.cljs`) **composes** panels by referencing
+each panel's `Panel` reg-view in the L4 detail-panel case-switch,
+and mounts the Tier 2 overlay surfaces at the shell-view root for
+modal layering. The shell does NOT own per-panel state — each panel
+reads and writes its own slice of `:rf/causa`'s app-db via its own
+`install!`-registered handlers.
+
+This separation is what makes per-panel mountability possible: any
+host that wants ONE panel mounts that panel directly via
+`mount-<panel>!`; the shell is just one specific composition of all
+of them.
+
+### Hot-reload + idempotency
+
+`register-causa-handlers!` is `defonce`-guarded so shadow-cljs
+`:after-load` cycles do not re-register handlers (which would emit
+`:rf.warning/handler-replaced` traces on every reload). `reg-frame`
+is idempotent via surgical-update semantics. Mount fns can be called
+from a host's `init!` path at any frequency without risk.
+
+### See also
+
+- [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — the
+  embedding contract for Story / first-party embeds (the `:compact?`
+  / `:scope` / `:on-event` props the panel views consume).
+- [`011-Launch-Modes.md`](./011-Launch-Modes.md) — the default
+  in-app shell-mount path via `[data-rf-causa-host]`.
+- [`Conventions.md`](./Conventions.md) §Panel facade + leaf split —
+  the canonical per-panel facade shape (`Panel` reg-view +
+  `install!`) every mount-fn target adheres to.
