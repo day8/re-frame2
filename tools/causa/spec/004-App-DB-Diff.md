@@ -208,10 +208,12 @@ and this table are updated in lockstep; the drift-detector test in
 ```
 
 These are informational; the panel surfaces them clearly marked so
-the programmer recognises them as runtime-owned and doesn't reach for
-"pin this." (A pin attempt on a reserved key shows a warning toast
-suggesting the equivalent panel — e.g., "Use the Machine inspector
-for `:rf/machines`.")
+the programmer recognises them as runtime-owned and routes to the
+equivalent dedicated tab — e.g., clicking the `:rf/machines` row jumps
+to the Machines tab; clicking the `:rf/route` row jumps to the Routing
+tab. Segment-inspector clicks on a reserved-key path-prefix still
+work (the popup renders the value), but the panel surfaces a soft
+cue suggesting the equivalent tab.
 
 ## Full-tree escape hatch
 

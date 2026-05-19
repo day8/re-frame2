@@ -341,7 +341,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | # | Tab | Mnem | What it shows for the focused event | Spec |
 |---|---|---|---|---|
 | 1 | **Event** | `e` | Whole event vector + arg-map + source · handler return · db writes · fx vector · fx-handlers that ran (incl. results) | this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Event-detail panel |
-| 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · pinned watches · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
+| 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Bus.md`](013-Trace-Bus.md) |
 | 5 | **Machines** | `m` | **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. UC1 Sim engine + UC2 Mode A/B/C deferred to the Static re-host (rf2-r4nao). | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
@@ -567,11 +567,9 @@ classification sentinels render per §12.
 ┌─ App-db tab · :app/main · cascade #347 :order/submit ───────────────────────────────────┐
 │                                                                                          │
 │ Path: [:cart :orders 0]   [Show full tree ▾]   [Copy path]                              │
-│                                                                                          │
-│ ── Pinned watches (3) ──────────────────────────────────────────────────────────────────│
-│   [:auth :user-id]              "u-92"          ×                                        │
-│   [:cart :total]                47.50           ×                                        │
-│   [:nav :current-route]         :checkout       ×                                        │
+│   ↑     ↑       ↑                                                                       │
+│   each path segment is clickable; click opens the segment-inspector popup at that       │
+│   path-prefix (rf2-e9tb0). Hover shows a dotted underline + "Inspect app-db at <prefix>".│
 │                                                                                          │
 │ ── Changed this cascade (4 slices) ─────────────────────────────────────────────────────│
 │                                                                                          │
@@ -595,7 +593,7 @@ classification sentinels render per §12.
 
 **Default disclosure:** changed slices only. Full-tree behind `[Show full tree ▾]`.
 
-**Pinned watches:** strip above the diff (sticky when populated). Each watch shows path + current value (live). Pin via right-click on any path → "Pin watch" (Q13 — right-click is the pick). Unpin via `×` on chip or right-click → "Unpin".
+**Clickable path segments (rf2-e9tb0):** every segment of every diff path is independently clickable; clicking opens a segment-inspector popup at that path-prefix. The popup renders the value at the inspected path via Causa's data-inspector primitive. The canonical contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §Clickable path segments. (The pinned-watches strip that earlier drafts described was dropped when clickable path segments landed — the diff already identifies changes surgically, and any prefix of any diff path can be inspected with one click on its breadcrumb segment.)
 
 **Diff colour ladder** (`inspect-diff` per [`004-App-DB-Diff.md`](004-App-DB-Diff.md)):
 
@@ -1110,7 +1108,7 @@ suites pin the panel render bodies post-reseed.
 | **Keybindings** | Table of `Action / Chord / Edit` rows; per-row chord editor (click chord cell → focus, press new chord); reset-to-defaults button per row + global; `Handle keys?` master toggle |
 | **Buffer** | `:buffer/retained-epochs <int>` (default 200) · `:trace-buffer/keep <int>` (default 500) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button |
 | **Popout** | `:popout/width <px>` (default 800) · `:popout/height <px>` (default 600) · `:popout/position <:right :left :centre>` (default `:right`) · "Open in popout now" button (= `o`) |
-| **Actions** | `[factory-reset!]` BIG RED BUTTON · "Reset to fresh-install state — clears filters, pins, watches, keybindings, theme. Buffer kept." Confirmation modal on click. Plus: "Reset filters only" / "Reset keybindings only" / "Clear pinned cascades" / "Clear pinned watches" finer-grained reset buttons. |
+| **Actions** | `[factory-reset!]` BIG RED BUTTON · "Reset to fresh-install state — clears filters, pins, keybindings, theme. Buffer kept." Confirmation modal on click. Plus: "Reset filters only" / "Reset keybindings only" / "Clear pinned cascades" finer-grained reset buttons. |
 
 ### v1 ships
 
