@@ -137,6 +137,29 @@ runWithWatchdog(
       'OK   every tool descriptor carries outputSchema (rf2-3l3be)',
     );
 
+    // 2d. Tool annotations conformance (rf2-94p8q). Every descriptor
+    // MUST declare an :annotations map advertising the MCP hint slots
+    // (readOnlyHint / destructiveHint / idempotentHint / openWorldHint)
+    // so agent hosts can auto-approve reads + gate destructive ops.
+    for (const t of listed.tools) {
+      if (!t.annotations || typeof t.annotations !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " MUST declare :annotations (rf2-94p8q); got: " +
+            JSON.stringify(t.annotations),
+        );
+      }
+      const a = t.annotations;
+      if (a.readOnlyHint !== true && a.destructiveHint !== true) {
+        throw new Error(
+          'tool ' + t.name + " annotations MUST set at least one of " +
+            "readOnlyHint / destructiveHint; got: " + JSON.stringify(a),
+        );
+      }
+    }
+    console.log(
+      'OK   every tool descriptor carries annotations with a classification hint (rf2-94p8q)',
+    );
+
     // 3. register-variant — body as an EDN string so JSON's lack of
     // keyword support doesn't dilute the assertion (same approach as
     // live-server.js).

@@ -172,6 +172,44 @@
       (is (every? :outputSchema ds))
       (is (every? #(map? (:outputSchema %)) ds)))))
 
+(deftest annotations-on-every-tool
+  ;; rf2-94p8q — every tool descriptor MUST declare an `:annotations`
+  ;; map carrying the MCP tool-annotation hints (`readOnlyHint`,
+  ;; `destructiveHint`, `idempotentHint`, `openWorldHint`). Asserted
+  ;; at load time in `registry.cljc` too; this test pins the wire
+  ;; projection and the load-bearing classification (at least one of
+  ;; `readOnlyHint` / `destructiveHint` must be set).
+  (testing "registry: every tool carries a map :annotations"
+    (doseq [t registry/tool-registry]
+      (is (map? (:annotations t))
+          (str "missing :annotations on " (:name t)))
+      (is (or (true? (get-in t [:annotations :readOnlyHint]))
+              (true? (get-in t [:annotations :destructiveHint])))
+          (str "annotations on " (:name t)
+               " carries no classification — at least one of "
+               "readOnlyHint / destructiveHint must be set"))))
+  (testing "tool-descriptors surfaces :annotations to the wire"
+    (let [ds (registry/tool-descriptors)]
+      (is (every? :annotations ds))
+      (is (every? #(map? (:annotations %)) ds))))
+  (testing "matrix: read-only tools have readOnlyHint"
+    (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
+          ro-tools ["get-story-instructions" "preview-variant" "list-substrates"
+                    "list-stories" "get-story" "get-variant" "list-tags"
+                    "list-modes" "list-decorators" "list-assertions"
+                    "get-docs-markdown" "variant->edn" "snapshot-identity"
+                    "run-a11y" "read-failures"]]
+      (doseq [n ro-tools]
+        (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
+            (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
+  (testing "matrix: destructive tools have destructiveHint"
+    (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
+          dest-tools ["run-variant" "register-variant" "unregister-variant"
+                      "record-as-variant"]]
+      (doseq [n dest-tools]
+        (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
+            (str n " should have destructiveHint true (rf2-94p8q matrix)"))))))
+
 (def ^:private tool-names-fixture
   "Canonical tool-name list (rf2-36upq TE7). Single source of truth
   shared with `test/stdio-roundtrip.js` — a registry change updates one

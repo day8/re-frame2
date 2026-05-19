@@ -258,4 +258,5 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema
+    :annotations  s/destructive-write-annotations
     :handler     tool-record-as-variant}])

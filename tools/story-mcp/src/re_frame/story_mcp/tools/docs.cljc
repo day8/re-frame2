@@ -278,6 +278,7 @@
                                         :description "Optional tag filter; story `:tags` set must intersect."}})
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-list-stories}
 
    {:name           "get-story"
@@ -293,6 +294,7 @@
                   :required ["story-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-story}
 
    {:name           "get-variant"
@@ -308,6 +310,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-variant}
 
    {:name           "list-tags"
@@ -320,6 +323,7 @@
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-tags}
 
    {:name           "list-modes"
@@ -332,6 +336,7 @@
     :typicalTokens  200
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-modes}
 
    {:name           "list-decorators"
@@ -356,6 +361,7 @@
                                         :enum ["hiccup" "frame-setup" "fx-override"]}})
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-list-decorators}
 
    {:name           "list-assertions"
@@ -368,6 +374,7 @@
     :typicalTokens  500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
@@ -383,6 +390,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-variant->edn}
 
    {:name           "get-docs-markdown"
@@ -405,4 +413,5 @@
                   :required ["story-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-get-docs-markdown}])

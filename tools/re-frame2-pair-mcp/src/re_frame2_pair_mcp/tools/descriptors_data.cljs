@@ -92,6 +92,86 @@
                      "spec/003-Tool-Catalogue.md §Universal: per-session response cache + "
                      "§Universal: wire-boundary token cap.")})
 
+;; ---------------------------------------------------------------------------
+;; Tool annotations (rf2-94p8q).
+;;
+;; mcp_best_practices.md guidance: every tool descriptor SHOULD declare
+;; annotation hints so agent hosts (Claude Code, Continue) can auto-
+;; approve read-only operations and gate destructive ones with one
+;; permission ceremony. Four slots:
+;;
+;;   :readOnlyHint     — non-destructive, no observable side-effect.
+;;   :destructiveHint  — observable state change (dispatch, eval-cljs).
+;;   :idempotentHint   — repeated calls with the same args produce the
+;;                       same result (snapshot, get-path).
+;;   :openWorldHint    — reaches external state (the browser runtime,
+;;                       a streaming bus subscription, ...).
+;;
+;; Each tool's matrix pick is documented inline at its descriptor.
+;; ---------------------------------------------------------------------------
+
+(def ^:private read-only-annotations
+  "Annotations for pure-read tools — no observable side-effect, safe
+  to auto-approve. `:openWorldHint true` because every read reaches
+  the browser runtime over nREPL (an external process)."
+  {:readOnlyHint   true
+   :openWorldHint  true})
+
+(def ^:private idempotent-read-only-annotations
+  "Read-only AND idempotent — `snapshot`, `get-path`, `discover-app`,
+  `tail-build`, `list-subscriptions`, `handler-meta`, `list-handlers`
+  return the same answer for the same args + same runtime state."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  true})
+
+(def ^:private inline-read-only-annotations
+  "Read-only AND inline (no runtime round-trip) — `get-re-frame2-pair-
+  instructions` ships static text from the bundle. No external reach,
+  so `:openWorldHint false`."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  false})
+
+(def ^:private destructive-annotations
+  "Annotations for state-mutating tools — `dispatch`, `eval-cljs`.
+  Mutations happen in the browser runtime; agent hosts should gate
+  these behind explicit user confirmation by default."
+  {:destructiveHint true
+   :openWorldHint   true})
+
+(def ^:private streaming-annotations
+  "Annotations for streaming tools — `subscribe` opens a sub on the
+  runtime's trace/epoch bus, `unsubscribe` closes one. Neither
+  mutates app state, but both reach external state and have side-
+  effects on the streaming registry."
+  {:openWorldHint true})
+
+(def ^:private streaming-unsubscribe-annotations
+  "Annotations for `unsubscribe` — closes a subscription. Idempotent
+  (a second close is a no-op `:existed? false`). Touches the
+  streaming registry only (the per-call result is metadata)."
+  {:idempotentHint true
+   :openWorldHint  true})
+
+(def ^:private streaming-subscribe-annotations
+  "Annotations for `subscribe` — opens a streaming subscription on
+  the runtime bus. Reaches external state (`:openWorldHint`); not
+  idempotent (repeated calls create new subscriptions)."
+  {:openWorldHint true})
+
+(def ^:private streaming-summary-annotations
+  "Annotations for the subscribe tool's final summary. Same as
+  `streaming-subscribe-annotations` since the tool is the same."
+  streaming-subscribe-annotations)
+
+(def ^:private streaming-info-annotations
+  "Annotations for `list-subscriptions` — pure read over the
+  subscription registry, idempotent across same-state calls."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  true})
+
 (def ^:private streaming-final-summary
   "Streaming-tool final-summary envelope (subscribe). The progress
   notifications it emits along the way carry their own shape
@@ -117,6 +197,7 @@
                      "2. Named build: {:build \"app\"} -> same shape against the named build. "
                      "3. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
    :typicalTokens 200
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:build {:type "string"
@@ -131,6 +212,7 @@
                      "2. Inspect a global: {:form \"(keys js/window)\"} -> {:ok? true :value [\"document\" ...]}. "
                      "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched without --allow-eval.")
    :typicalTokens 500
+   :annotations destructive-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
@@ -152,6 +234,7 @@
                      "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {:rf/epoch-id ... :event-id :cart/add :db-after ... :effects [...]}}. "
                      "3. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
+   :annotations destructive-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
@@ -185,6 +268,7 @@
                      "2. Larger window, paginated: {:ms 5000 :limit 20} -> {:ok? true :count 20 :has-more? true :next-cursor \"<b64>\"}; pass back as {:cursor \"<b64>\"} to get the next page. "
                      "3. Stale cursor: {:cursor \"<aged-out-b64>\"} -> {:ok? false :reason :rf.mcp/cursor-stale :head-id ... :hint \"drop cursor and restart\"}.")
    :typicalTokens 2000
+   :annotations read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
@@ -226,6 +310,7 @@
                      "2. Resume after last seen id: {:since-id \"epoch-42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id \"epoch-47\"}. "
                      "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}.")
    :typicalTokens 2000
+   :annotations read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
@@ -250,6 +335,7 @@
                      "2. Probe for a recompile signal: {:probe \"(rand)\" :wait-ms 10000} -> {:ok? true :t 1240 :soft? false}. "
                      "3. Timed out: {:probe \"my.app/build-marker\" :wait-ms 500} -> {:ok? false :reason :timed-out}.")
    :typicalTokens 100
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
@@ -301,6 +387,7 @@
                      "2. Drill into one slice: {:frames [\":rf/default\"] :include [\"app-db\"] :path \"[:cart :items]\"} -> {:ok? true :mode :path-sliced :path [:cart :items] :snapshot {:rf/default {:app-db [{:sku \"x\" :qty 2}]}}}. "
                      "3. Full expansion (legacy shape): {:frames \"all\" :mode \"full\"} -> {:ok? true :mode :full :snapshot {:rf/default {:app-db {...} :epochs [...]}}}.")
    :typicalTokens 3000
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
@@ -376,6 +463,7 @@
                      "2. Path-not-found: {:path \"[:cart :items 99]\"} -> {:ok? false :reason :path-not-found :path [:cart :items 99] :deepest-valid-prefix [:cart :items]}. "
                      "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :schema :handle [:rf.elision/at [:big :payload]]}}}.")
    :typicalTokens 500
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
@@ -422,6 +510,7 @@
                      "2. Filtered fx stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks only for checkout-driven fx; ends with {:ok? true :delivered N :reason :aborted}. "
                      "3. Time-bounded probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors, whichever first; {:ok? true :delivered K :reason :max-ms-reached}.")
    :typicalTokens 1000
+   :annotations streaming-subscribe-annotations
    :outputSchema streaming-final-summary
    :inputSchema {:type "object"
                  :properties {:topic   {:type "string"
@@ -455,6 +544,7 @@
                      "2. Already-closed (idempotent): {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? false}. "
                      "3. Unknown id: {:sub-id \"never-was\"} -> {:ok? true :sub-id \"never-was\" :existed? false}.")
    :typicalTokens 50
+   :annotations streaming-unsubscribe-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:sub-id {:type "string"
@@ -481,6 +571,7 @@
                      "2. Healthy probe alive: {:sub-id \"abc-123\"} -> {:ok? true :subs [{:id \"abc-123\" :topic :epoch :filter {} :queue-depth 0 :queue-bytes 0 :dropped-events 0 :overflow-reason nil :created-at 1234567890}]}. "
                      "3. Pressured queue: {:topic \"trace\"} -> {:ok? true :subs [{:id \"xyz-789\" :topic :trace :queue-depth 487 :queue-bytes 2400000 :dropped-events 12 :overflow-reason :max-buffered-bytes}]}.")
    :typicalTokens 500
+   :annotations streaming-info-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:topic  {:type "string"
@@ -519,6 +610,7 @@
                      "2. Subscription on a composite key: {:kind \"sub\" :id \"[:rf/composite [:items :by-id 42]]\"} -> {:ok? true :kind :sub :id [:rf/composite [:items :by-id 42]] :ns my.app.subs :line 18}. "
                      "3. Miss: {:kind \"fx\" :id \":missing/fx\"} -> {:ok? false :reason :not-registered :kind :fx :id :missing/fx}.")
    :typicalTokens 400
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
@@ -553,6 +645,7 @@
                      "2. List subs: {:kind \"sub\"} -> {:ok? true :kind :sub :ids [:current-user :cart/items ...] :count 23}. "
                      "3. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
    :typicalTokens 800
+   :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
@@ -575,6 +668,7 @@
                      "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
                      "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
    :typicalTokens 1500
+   :annotations inline-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {}

@@ -66,6 +66,15 @@
 (assert (every? (fn [t] (map? (:outputSchema t))) tool-registry)
         "tool-registry: every entry must carry an :outputSchema map (rf2-3l3be)")
 
+;; Load-time invariant (rf2-94p8q): every registry entry MUST carry an
+;; `:annotations` map advertising the MCP tool-annotation hints
+;; (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+;; mcp_best_practices.md: agent hosts use these to auto-approve reads
+;; and gate destructive ops. Asserted at load time so future tool
+;; landings can't silently drop the slot.
+(assert (every? (fn [t] (map? (:annotations t))) tool-registry)
+        "tool-registry: every entry must carry an :annotations map (rf2-94p8q)")
+
 (defn- strip-include-sensitive
   "Remove the `:include-sensitive` slot from a tool's `:inputSchema`
   properties. The slot is baked into the descriptor at load time by
@@ -106,7 +115,7 @@
   improvement and a defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
-    (mapv (fn [{:keys [name description inputSchema outputSchema typicalTokens]}]
+    (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
             (cond-> {:name          name
                      :description   description
                      :inputSchema   (cond-> inputSchema
@@ -115,7 +124,11 @@
               ;; rf2-3l3be — surface :outputSchema when declared. Lifted
               ;; via cond-> so omission is forward-compatible (e.g. a
               ;; future tool with no structured response).
-              (some? outputSchema) (assoc :outputSchema outputSchema)))
+              (some? outputSchema) (assoc :outputSchema outputSchema)
+              ;; rf2-94p8q — surface :annotations when declared. Agent
+              ;; hosts read these to auto-approve reads and gate
+              ;; destructive ops behind a confirmation ceremony.
+              (some? annotations)  (assoc :annotations annotations)))
           tool-registry)))
 
 (def ^:private tool-by-name-index

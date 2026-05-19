@@ -115,6 +115,52 @@
                      "the wire-bounded `:rf.mcp/overflow` marker when the cap step fires. See "
                      "spec/002-Tool-Registry.md for the per-tool payload shape.")})
 
+;; ---------------------------------------------------------------------------
+;; Tool annotations (rf2-94p8q)
+;;
+;; MCP `tools/list` advertises per-tool annotation hints so agent hosts
+;; (Claude Code, Continue, …) can auto-approve reads and gate writes
+;; behind a permission ceremony. Four slots — `readOnlyHint`,
+;; `destructiveHint`, `idempotentHint`, `openWorldHint` — per
+;; mcp_best_practices.md.
+;;
+;; Story-mcp matrix (per the bead rf2-94p8q):
+;;
+;;   - READ-ONLY tools: get-story-instructions, preview-variant,
+;;     list-substrates, list-stories, get-story, get-variant, list-tags,
+;;     list-modes, list-decorators, list-assertions, get-docs-markdown,
+;;     variant->edn, snapshot-identity, run-a11y, read-failures.
+;;
+;;   - DESTRUCTIVE tools: run-variant (dispatches events into a story
+;;     frame), register-variant, unregister-variant, record-as-variant.
+;; ---------------------------------------------------------------------------
+
+(def read-only-annotations
+  "Annotations for pure-read tools — agent hosts can auto-approve.
+  story-mcp reads do NOT reach external state (everything runs JVM-
+  side off the story registry); `:openWorldHint false` reflects that.
+  Reads against the same registry are idempotent."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  false})
+
+(def destructive-write-annotations
+  "Annotations for mutating tools (register / unregister / record).
+  `:destructiveHint true` so agent hosts gate behind explicit
+  confirmation. `:openWorldHint false` — writes land in the JVM-side
+  story registry, not an external system."
+  {:destructiveHint true
+   :openWorldHint   false})
+
+(def run-variant-annotations
+  "Annotations for `run-variant` — executes a variant's four-phase
+  lifecycle which dispatches events into the variant's frame. Per
+  spec/Tool-Pair.md §Direct-read privacy posture the run is a write
+  to the runtime, so `:destructiveHint true`. The events fire inside
+  the JVM process — `:openWorldHint false`."
+  {:destructiveHint true
+   :openWorldHint   false})
+
 (def write-gated-output-schema
   "outputSchema for write-surface tools (`register-variant`,
   `unregister-variant`, `record-as-variant` with `:write-back? true`).

@@ -182,6 +182,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/run-variant-annotations
     :handler     tool-run-variant}
 
    {:name           "snapshot-identity"
@@ -200,6 +201,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-snapshot-identity}
 
    {:name           "run-a11y"
@@ -215,6 +217,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-run-a11y}
 
    {:name           "read-failures"
@@ -232,4 +235,5 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-read-failures}])

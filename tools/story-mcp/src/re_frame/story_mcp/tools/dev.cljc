@@ -146,6 +146,7 @@
     :typicalTokens  1500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
@@ -168,6 +169,7 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
+    :annotations  s/read-only-annotations
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
@@ -180,4 +182,5 @@
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
+    :annotations    s/read-only-annotations
     :handler        tool-list-substrates}])

@@ -252,6 +252,7 @@
                   :required ["variant-id" "body"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema
+    :annotations  s/destructive-write-annotations
     :handler     tool-register-variant}
 
    {:name           "unregister-variant"
@@ -267,4 +268,5 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema
+    :annotations  s/destructive-write-annotations
     :handler     tool-unregister-variant}])
