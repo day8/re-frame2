@@ -4,7 +4,7 @@
   rf2-o9arp — the canonical implementation lives in
   `day8.re-frame2-machines-viz.chart.svg`. This ns survives as a
   thin re-export so the Causa-side panels (machine-inspector,
-  machine-after-rings, machine-inspector-sim, etc.) keep importing
+  machine-after-rings, static.machines.sim, etc.) keep importing
   through `day8.re-frame2-causa.chart.svg/render` without
   rewiring every call site at once. Subsequent housekeeping passes
   can collapse the indirection — for now the shim keeps the

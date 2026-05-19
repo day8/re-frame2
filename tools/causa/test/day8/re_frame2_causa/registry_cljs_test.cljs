@@ -245,12 +245,14 @@
    :rf.causa/show-tool-frames?
    ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-cascade bucket.
    :rf.causa/show-ungrouped?
-   ;; rf2-v869p Phase 2 — UC1 Sim sub-mode subs.
-   :rf.causa/sim-active?
-   :rf.causa/sim-available-transitions
-   :rf.causa/sim-by-machine
-   :rf.causa/sim-event-suggestions
-   :rf.causa/sim-state
+   ;; rf2-r4nao — Static Machines Sim sub-mode subs (rehost from
+   ;; rf2-v869p Phase 2; ns moved from :rf.causa/sim-* to
+   ;; :rf.causa.static.machines/sim-*).
+   :rf.causa.static.machines/sim-active?
+   :rf.causa.static.machines/sim-available-transitions
+   :rf.causa.static.machines/sim-by-machine
+   :rf.causa.static.machines/sim-event-suggestions
+   :rf.causa.static.machines/sim-state
    ;; rf2-nqw0v Phase 5 — Share affordance subs.
    :rf.causa/share-copy-status
    :rf.causa/share-modal-open?
@@ -465,13 +467,15 @@
    :rf.causa/share-copy-status
    :rf.causa/share-modal-close
    :rf.causa/share-modal-open
-   ;; rf2-v869p Phase 2 — UC1 Sim sub-mode events.
-   :rf.causa/sim-reset
-   :rf.causa/sim-set-pending-data
-   :rf.causa/sim-set-pending-event
-   :rf.causa/sim-start
-   :rf.causa/sim-step
-   :rf.causa/sim-stop
+   ;; rf2-r4nao — Static Machines Sim sub-mode events (rehost from
+   ;; rf2-v869p Phase 2; ns moved from :rf.causa/sim-* to
+   ;; :rf.causa.static.machines/sim-*).
+   :rf.causa.static.machines/sim-reset
+   :rf.causa.static.machines/sim-set-pending-data
+   :rf.causa.static.machines/sim-set-pending-event
+   :rf.causa.static.machines/sim-start
+   :rf.causa.static.machines/sim-step
+   :rf.causa.static.machines/sim-stop
    :rf.causa/sync-epoch-history
    :rf.causa/sync-trace-buffer
    ;; rf2-7hwwe — `:after` countdown rings event family. timer-tick

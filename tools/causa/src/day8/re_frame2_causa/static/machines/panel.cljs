@@ -26,6 +26,11 @@
     `:rf.causa.static.machines/selected-id` — user's selection (raw slot)
     `:rf.causa.static.machines/sub-mode-by-id` — per-machine sub-mode map
     `:rf.causa.static.machines/sub-mode`    — effective sub-mode for a machine
+    `:rf.causa.static.machines/sim-by-machine`         — sim slots map (rf2-r4nao)
+    `:rf.causa.static.machines/sim-state`              — sim slot for selected machine
+    `:rf.causa.static.machines/sim-active?`            — sim on for selected machine?
+    `:rf.causa.static.machines/sim-available-transitions` — picker source
+    `:rf.causa.static.machines/sim-event-suggestions`  — datalist source
 
   Events:
     `:rf.causa.static.machines/select`         — set selected-id
@@ -35,6 +40,12 @@
     `:rf.causa.static.machines/set-sub-mode`   — set the per-machine sub-mode
     `:rf.causa.static.machines/hydrate`        — hydrate selection + sub-modes
                                                   from localStorage
+    `:rf.causa.static.machines/sim-start`      — clone definition + seed sim
+    `:rf.causa.static.machines/sim-stop`       — dispose sim slot for mid
+    `:rf.causa.static.machines/sim-reset`      — rewind sim snapshot
+    `:rf.causa.static.machines/sim-step`       — fire one event into sim
+    `:rf.causa.static.machines/sim-set-pending-event` — controlled input
+    `:rf.causa.static.machines/sim-set-pending-data`  — controlled input
 
   Fxs:
     `:rf.causa.static.machines/persist-selection` — write selected-id to LS
@@ -51,6 +62,7 @@
              :as definition-detail]
             [day8.re-frame2-causa.static.machines.helpers :as h]
             [day8.re-frame2-causa.static.machines.persistence :as persistence]
+            [day8.re-frame2-causa.static.machines.sim :as sim]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens sans-stack type-scale]]))
@@ -230,6 +242,10 @@
   (install-subs!)
   (install-events!)
   (persistence/install-fx!)
+  ;; Sim sub-mode engine (rf2-r4nao rehost; originally rf2-v869p
+  ;; Phase 2). Installs the `:rf.causa.static.machines/sim-*` event +
+  ;; sub family the Sim rail consumes.
+  (sim/install!)
   ;; Hydrate from localStorage. The persistence ns guards storage
   ;; availability internally so the JVM test path is a no-op.
   (persistence/hydrate!)

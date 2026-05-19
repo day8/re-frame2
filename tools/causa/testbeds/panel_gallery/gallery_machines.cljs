@@ -27,13 +27,15 @@
 
   When a Mode-A panel has Sim active, the chart tints amber + a side-
   rail surfaces an event picker + Step / Reset buttons. The Sim
-  state slot is `:sim/by-machine {<id> <sim-state>}` — the
-  `:rf.causa/sim-start` event seeds it. The 'sim mid-step' variant
-  fires sim-start then sim-step to land mid-execution. The
-  'sim pending-input' variant fires sim-start then seeds the
-  controlled-input slots (`:pending-event` / `:pending-data`) via
-  `:rf.causa/sim-set-pending-event` + `-pending-data` so the side
-  rail's compose box is populated mid-type but not yet stepped."
+  state slot is `:rf.causa.static.machines/sim-by-machine {<id>
+  <sim-state>}` (rf2-r4nao rehost from rf2-v869p) — the
+  `:rf.causa.static.machines/sim-start` event seeds it. The 'sim
+  mid-step' variant fires sim-start then sim-step to land mid-
+  execution. The 'sim pending-input' variant fires sim-start then
+  seeds the controlled-input slots (`:pending-event` / `:pending-
+  data`) via `:rf.causa.static.machines/sim-set-pending-event` +
+  `-pending-data` so the side rail's compose box is populated mid-
+  type but not yet stepped."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures-machines :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -164,9 +166,9 @@
                    {:loader fixtures/loader-definition}]
                   [:rf.causa/sync-trace-buffer (fixtures/no-transitions-buffer)]
                   [:rf.causa/select-machine-id :loader]
-                  [:rf.causa/sim-start {:machine-id :loader
+                  [:rf.causa.static.machines/sim-start {:machine-id :loader
                                         :definition fixtures/loader-definition}]
-                  [:rf.causa/sim-step  {:machine-id :loader
+                  [:rf.causa.static.machines/sim-step  {:machine-id :loader
                                         :event [:start]}]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -176,8 +178,8 @@
   ;; Same UC1 Sim sub-mode as variant 6, but instead of stepping the
   ;; cloned snapshot we seed the controlled-input slots
   ;; (`:pending-event` + `:pending-data`) via the existing sim API
-  ;; (`:rf.causa/sim-set-pending-event` +
-  ;; `:rf.causa/sim-set-pending-data`). The snapshot stays at
+  ;; (`:rf.causa.static.machines/sim-set-pending-event` +
+  ;; `:rf.causa.static.machines/sim-set-pending-data`). The snapshot stays at
   ;; `:idle`; the side-rail event-input shows `[:start]` already
   ;; typed and the payload input shows a sample EDN map, so the
   ;; Step button is primed but not yet pressed.
@@ -201,11 +203,11 @@
                    {:loader fixtures/loader-definition}]
                   [:rf.causa/sync-trace-buffer (fixtures/no-transitions-buffer)]
                   [:rf.causa/select-machine-id :loader]
-                  [:rf.causa/sim-start {:machine-id :loader
+                  [:rf.causa.static.machines/sim-start {:machine-id :loader
                                         :definition fixtures/loader-definition}]
-                  [:rf.causa/sim-set-pending-event
+                  [:rf.causa.static.machines/sim-set-pending-event
                    {:machine-id :loader :text "[:start]"}]
-                  [:rf.causa/sim-set-pending-data
+                  [:rf.causa.static.machines/sim-set-pending-data
                    {:machine-id :loader :text "{:result :data}"}]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})

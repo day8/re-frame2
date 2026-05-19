@@ -1,6 +1,7 @@
-(ns day8.re-frame2-causa.panels.machine-inspector-sim-helpers-cljs-test
-  "Pure-data tests for the UC1 Sim sub-mode helpers (rf2-v869p,
-  Phase 2, parent rf2-2tkza).
+(ns day8.re-frame2-causa.static.machines.sim-helpers-cljs-test
+  "Pure-data tests for the Static Machines Sim sub-mode helpers
+  (rf2-r4nao rehost; engine originally rf2-v869p Phase 2, parent
+  rf2-2tkza). Algebra is unchanged — only the ns moved.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -29,7 +30,7 @@
        `format-event-display`    — UI-facing formatters"
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.panels.machine-inspector-sim-helpers :as sim-h]))
+            [day8.re-frame2-causa.static.machines.sim-helpers :as sim-h]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
