@@ -119,6 +119,18 @@ Diagnostic — invokes the bencode multi-frame walker against
 hand-constructed buffers. Used to debug regressions in the `nrepl@2`
 upgrade path. Not part of the gate.
 
+#### `probe-mcp-path-test.cjs` — `~/.claude.json` drift probe (rf2-vsxgz)
+
+Unit tests for `bin/probe-mcp-path.cjs`. The probe is a pure
+Node-side artefact (read-only scan of `~/.claude.json` for stale
+`tools/pair2-mcp/` references post-#1504); no CLJS source exists, so
+the tests live as a `.cjs` sibling here. Fixture-based: each test
+writes a synthetic `.claude.json` into a temp dir, points the probe
+at it via `opts.configPath`, asserts the `{status, message, stale}`
+return shape. The real `~/.claude.json` is never read.
+
+Run with: `npm run test:probe-mcp-path` (or `node test/probe-mcp-path-test.cjs`).
+
 ## Adding a new test — decision tree
 
 ```

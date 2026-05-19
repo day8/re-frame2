@@ -74,6 +74,59 @@ The server auto-discovers the nREPL port from (in order):
 3. `.shadow-cljs/nrepl.port`
 4. `.nrepl-port`
 
+### Path-drift probe (rf2-vsxgz)
+
+After repo-side renames of this tool (e.g. PR #1504 `tools/pair2-mcp/`
+→ `tools/re-frame2-pair-mcp/`) your `~/.claude.json` keeps pointing at
+the old path until you edit it, and the MCP server then fails to start
+with no obvious clue why. A self-healing **read-only** probe ships in
+this directory to surface that drift on demand:
+
+```bash
+# From this directory:
+npm run probe-mcp-path
+
+# Or directly:
+node bin/probe-mcp-path.cjs
+```
+
+The probe:
+
+- Reads `~/.claude.json`, scans both top-level `mcpServers` and any
+  per-project `projects.<path>.mcpServers` entries.
+- For each entry whose `command`, `args`, `cwd`, or `env` value still
+  references the legacy `tools/pair2-mcp/` token, prints a clear
+  remediation message naming the stale field + the suggested
+  replacement.
+- **Never writes the file.** `~/.claude.json` is the operator's; the
+  probe only reads.
+- Silent on success — zero output if no drift is detected, the file
+  is absent, or there are no matching entries.
+
+Exit codes: `0` clean / absent / malformed (non-blocking); `1` drift
+detected. Suitable for CI / preflight scripts.
+
+Sample output when drift is present:
+
+```
+re-frame2-pair-mcp: stale path detected in ~/.claude.json
+
+PR #1504 (rf2-e2ufx) renamed the MCP source dir from
+  tools/pair2-mcp/  ->  tools/re-frame2-pair-mcp/
+but your ~/.claude.json still points at the old path. The MCP server
+will fail to start until the references are updated.
+
+Stale references:
+  [global] mcpServers.re-frame-pair2
+    - arg: C:/Users/miket/code/re-frame2/tools/pair2-mcp/out/server.js
+      suggested: C:/Users/miket/code/re-frame2/tools/re-frame2-pair-mcp/out/server.js
+
+Remediation: open ~/.claude.json in an editor, replace each
+'tools/pair2-mcp/' fragment with 'tools/re-frame2-pair-mcp/',
+save, then restart Claude Code. This probe never writes the file;
+your editor is the source of truth.
+```
+
 ### Launch flags
 
 | Flag                  | Default | What it does                                                                         |
@@ -242,12 +295,15 @@ tools/re-frame2-pair-mcp/
 ├── shadow-cljs.edn                           ; build config
 ├── spec/                                     ; contract
 ├── pilot/                                    ; pre-port toolchain pilot
+├── bin/
+│   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
     ├── tools.cljs                            ; the fourteen MCP tools (per-op + snapshot + get-path + subscribe/unsubscribe/list-subscriptions + get-re-frame2-pair-instructions)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame2_pair_mcp/nrepl_test.cljs    ; bencode framing unit tests
+    ├── probe-mcp-path-test.cjs               ; probe-mcp-path unit tests
     ├── stdio-roundtrip.js                    ; stdio integration test
     └── live-nrepl.js                         ; live-nREPL integration test
 ```
