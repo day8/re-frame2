@@ -185,6 +185,8 @@
    :rf.causa/modal-positioning
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.causa/panel-width-px
+   ;; rf2-vbbq0 — L2 row relative-time chip clock (1s ticker writes here).
+   :rf.causa/relative-time-now-ms
    :rf.causa/selected-tab
    ;; rf2-9poxq — Settings popup subs.
    :rf.causa/setting
@@ -302,6 +304,9 @@
    :rf.causa/palette-toggle
    :rf.causa/pin-slice
    :rf.causa/preview-cascade
+   ;; rf2-vbbq0 — L2 row relative-time chip ticker (writes `:rf.causa/
+   ;; relative-time-now-ms` once per second so chips recompute coherently).
+   :rf.causa/relative-time-tick
    :rf.causa/remove-filter
    :rf.causa/reorder-pinned-slices
    ;; rf2-x8h9y — resize-handle double-click reset.
@@ -456,8 +461,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 100 (count all-sub-names)))
-    (is (= 117 (count all-event-names)))
+    (is (= 101 (count all-sub-names)))
+    (is (= 118 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent

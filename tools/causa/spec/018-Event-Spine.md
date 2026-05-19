@@ -200,7 +200,7 @@ below remains the canonical shape; this callout records what the
 
 ### Row anatomy
 
-ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing redaction marker:
+ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing redaction marker + trailing relative-time chip:
 
 ```
 │ Col          │ Width        │ Content                              │
@@ -209,7 +209,22 @@ ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing 
 │ Event id     │ flex mono    │ :order/submit (long-keyword treated) │
 │ Badges       │ up to 3×16px │ ⚠ 🌐 🤖 (right-aligned)              │
 │ Red. marker  │ inline 80px  │ [● REDACTED N] / [● ELIDED N]        │
+│ Time chip    │ inline ≥30px │ now / 5s / 2m / 1h / 3d (right-aligned)│
 ```
+
+#### Relative-time chip (rf2-vbbq0)
+
+Each row carries a trailing right-aligned chip showing how long ago the cascade was dispatched. The chip's bucket strategy keeps old chips visually stable:
+
+| Diff               | Display |
+|---|---|
+| `< 1s`             | `now`   |
+| `< 60s`            | `Ns`    |
+| `< 60min`          | `Nm`    |
+| `< 24h`            | `Nh`    |
+| `≥ 24h`            | `Nd`    |
+
+A process-global 1s `setInterval` dispatches `:rf.causa/relative-time-tick` into the `:rf/causa` frame; the resulting trace event is filtered at ingest by `trace-bus/causa-internal-event?` so the tick never lands in the user-facing event list. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
 
 #### Gutter glyphs
 
