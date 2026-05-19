@@ -125,7 +125,7 @@
                  :color "#9a9aa3"
                  :font-size (:body typography/type-scale)}})
 
-(defn- result-row [entry active? on-hover on-select]
+(defn result-row [entry active? on-hover on-select]
   ^{:key [(:kind entry) (:id entry)]}
   [:div {:style         (merge (:row styles) (when active? (:row-active styles)))
          :role          "option"
@@ -140,6 +140,44 @@
     [:div {:style (:id styles)} (:id-label entry)]
     (when (seq (:doc entry))
       [:div {:style (:doc styles)} (:doc entry)])]])
+
+(defn render-palette
+  "Pure render of the open palette overlay — testable without booting
+  reagent's class lifecycle. Returns the same hiccup the class-3
+  `:reagent-render` slot produces when `open?` is true. Called by
+  `command-palette-host`'s render and directly by view tests."
+  [{:keys [query results active on-close on-input-change on-input-keydown
+           on-row-hover on-row-select input-ref]}]
+  [:div {:style     (:scrim styles)
+         :data-test "story-command-palette"
+         :on-click  on-close}
+   [:div {:style    (:panel styles)
+          :role     "dialog"
+          :aria-modal "true"
+          :aria-label "Story command palette"
+          :on-click (fn [event] (.stopPropagation event))}
+    [:div {:style (:input-wrap styles)}
+     [:input {:ref         input-ref
+              :style       (:input styles)
+              :value       query
+              :placeholder "Search stories, variants, workspaces, modes, decorators..."
+              :data-test   "story-command-palette-input"
+              :on-change   on-input-change
+              :on-key-down on-input-keydown}]]
+    [:div {:style (:list styles)
+           :role  "listbox"}
+     (if (seq results)
+       (doall
+         (map-indexed
+           (fn [idx entry]
+             (result-row entry
+                         (= idx active)
+                         #(on-row-hover idx)
+                         #(on-row-select entry)))
+           results))
+       [:div {:style (:empty styles)
+              :data-test "story-command-palette-empty"}
+        "No matching registry entries."])]]])
 
 (defn command-palette-host
   "Install the global shortcut and render the floating palette overlay."
@@ -187,58 +225,39 @@
                            (palette/entries (state/registry-snapshot))
                            @query
                            30)
-                 count   (count results)
-                 active  (palette/clamp-active-index @active-index count)]
+                 result-count (count results)
+                 active (palette/clamp-active-index @active-index result-count)]
              (when (not= active @active-index)
                (reset! active-index active))
-             [:div {:style     (:scrim styles)
-                    :data-test "story-command-palette"
-                    :on-click  (fn [_] (close!))}
-              [:div {:style    (:panel styles)
-                     :role     "dialog"
-                     :aria-modal "true"
-                     :aria-label "Story command palette"
-                     :on-click (fn [event] (.stopPropagation event))}
-               [:div {:style (:input-wrap styles)}
-                [:input {:ref          #(reset! input %)
-                         :style        (:input styles)
-                         :value        @query
-                         :placeholder  "Search stories, variants, workspaces, modes, decorators..."
-                         :data-test    "story-command-palette-input"
-                         :on-change    (fn [event]
-                                         (reset! query (.. event -target -value))
-                                         (reset! active-index 0))
-                         :on-key-down  (fn [event]
-                                         (case (.-key event)
-                                           "ArrowDown"
-                                           (do (.preventDefault event)
-                                               (swap! active-index
-                                                      palette/move-active-index 1 count))
-                                           "ArrowUp"
-                                           (do (.preventDefault event)
-                                               (swap! active-index
-                                                      palette/move-active-index -1 count))
-                                           "Enter"
-                                           (do (.preventDefault event)
-                                               (when-let [entry (get results active)]
-                                                 (select-entry! entry)
-                                                 (close!)))
-                                           "Escape"
-                                           (do (.preventDefault event)
-                                               (close!))
-                                           nil))}]]
-               [:div {:style (:list styles)
-                      :role  "listbox"}
-                (if (seq results)
-                  (doall
-                    (map-indexed
-                      (fn [idx entry]
-                        (result-row entry
-                                    (= idx active)
-                                    #(reset! active-index idx)
-                                    #(do (select-entry! entry)
-                                         (close!))))
-                      results))
-                  [:div {:style (:empty styles)
-                         :data-test "story-command-palette-empty"}
-                   "No matching registry entries."])]]])))})))
+             (render-palette
+               {:query             @query
+                :results           results
+                :active            active
+                :input-ref         #(reset! input %)
+                :on-close          (fn [_] (close!))
+                :on-input-change   (fn [event]
+                                     (reset! query (.. event -target -value))
+                                     (reset! active-index 0))
+                :on-input-keydown  (fn [event]
+                                     (case (.-key event)
+                                       "ArrowDown"
+                                       (do (.preventDefault event)
+                                           (swap! active-index
+                                                  palette/move-active-index 1 result-count))
+                                       "ArrowUp"
+                                       (do (.preventDefault event)
+                                           (swap! active-index
+                                                  palette/move-active-index -1 result-count))
+                                       "Enter"
+                                       (do (.preventDefault event)
+                                           (when-let [entry (get results active)]
+                                             (select-entry! entry)
+                                             (close!)))
+                                       "Escape"
+                                       (do (.preventDefault event)
+                                           (close!))
+                                       nil))
+                :on-row-hover      (fn [idx] (reset! active-index idx))
+                :on-row-select     (fn [entry]
+                                     (select-entry! entry)
+                                     (close!))}))))})))
