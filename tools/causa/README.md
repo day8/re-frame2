@@ -81,28 +81,38 @@ right-side host to the app layout (DOM order: `<main>` first, host
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
-  resize: horizontal;
-  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
 
-Three complementary resize mechanisms ship together:
+That's the whole consumer surface — no `resize: horizontal`, no
+`overflow: auto`. Causa auto-injects a polished drag handle on the
+panel's left edge as soon as the shell mounts; the handle covers
+mouse, touch, and pen via pointer events and is keyboard-navigable
+(arrow keys for fine resize, Shift+arrow for coarse, Home/End for
+the clamp ends, Enter/Space to reset).
+
+Two complementary resize mechanisms ship together:
 
 - **CSS variable** (host-owned). Override `--rf-causa-inline-width`
   anywhere up the cascade (e.g.
   `:root { --rf-causa-inline-width: 720px; }`) to set the initial
   width.
-- **Browser-native drag** (host-CSS fallback). `resize: horizontal` +
-  `overflow: auto` give the host a drag-handle in the bottom corner;
-  the variable seeds the initial size, a drag overrides it for the
-  page lifetime.
-- **Causa drag handle** (user-controlled, persisted). Drag the panel's
-  outer edge (left edge when docked `:right-rail`) to resize. Width
-  clamps to `[320px, 90vw]` and persists across reloads via
-  `configure! :settings :general :panel-width-px`. Double-click the
-  handle to reset to default. See
+- **Causa drag handle** (user-controlled, persisted; auto-injected).
+  Drag the panel's outer edge (left edge when docked `:right-rail`)
+  to resize. Width clamps to `[320px, 90vw]` and persists across
+  reloads via `configure! :settings :general :panel-width-px`.
+  Double-click the handle (or press Enter / Space when focused) to
+  reset to default. See
   [`spec/007-UX-IA.md` §Resize affordance](./spec/007-UX-IA.md#resize-affordance).
+
+**Yield-to-consumer.** Some teams prefer the browser-native handle
+(`resize: horizontal` + `overflow: auto` on the host). Causa
+detects that at render time via `getComputedStyle` and renders no
+handle of its own — the consumer wins, no double-handle. The
+zero-config path (drop in `<aside>` and let Causa inject) is the
+recommended default; the opt-out is the explicit `resize:`
+declaration on the host.
 
 If the host is missing, Causa logs an actionable `console.error` and
 exposes the same state through `window.day8.re_frame2_causa.status()`.
