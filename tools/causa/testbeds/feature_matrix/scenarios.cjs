@@ -12,10 +12,11 @@ const {
 } = require('../../../../testbeds/spec-helpers.cjs');
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
-// sidebar + bottom rail is dead. The L3 tab bar exposes 6 tabs only:
-// event / app-db / views / trace / machines / issues (spec/018 §5).
-// Panels without a tab no longer have a UI handoff and are dropped
-// from the shell-sweep scenario.
+// sidebar + bottom rail is dead. The L3 tab bar exposes 7 tabs:
+// event / app-db / views / trace / machines / routing / issues
+// (spec/018 §5; spec/007-UX-IA.md §L3). Panels without a tab no
+// longer have a UI handoff and are dropped from the shell-sweep
+// scenario.
 const PANEL_HANDOFFS = [
   ['event', 'rf-causa-event-detail'],
   ['app-db', 'rf-causa-app-db-diff'],
@@ -25,6 +26,10 @@ const PANEL_HANDOFFS = [
   ['views', 'rf-causa-views'],
   ['trace', 'rf-causa-trace'],
   ['machines', 'rf-causa-machine-inspector'],
+  // The :routing tab (promoted under rf2-nrbs9 + reshaped under
+  // rf2-lq0ef) is the focused-event navigation lens. Its root view
+  // renders the `rf-causa-routing` testid (panels/routing.cljs).
+  ['routing', 'rf-causa-routing'],
   ['issues', 'rf-causa-issues-ribbon'],
 ];
 
