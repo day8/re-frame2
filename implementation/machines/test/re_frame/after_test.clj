@@ -389,3 +389,151 @@
             "sub-cache remains clean after 5 bad-delay schedules"))
       (finally
         (subs-cache/configure! {:grace-period-ms 50})))))
+
+;; ---- sub-vec :after exception observability arms (rf2-t4uo0) --------------
+;;
+;; Per rf2-q1z1u F1 (HIGH) — follow-on for rf2-c1tnr.
+;;
+;; `timer.cljc` has three error-emit arms in :after-delay resolution:
+;; - :rf.error/machine-after-fn-threw     (fn-form throw on `(delay-key snapshot)`)
+;; - :rf.error/machine-after-sub-threw    (sub-deref throw on `@reaction`)
+;; - :rf.error/machine-after-watch-failed (add-watch throw)
+;;
+;; The fn-form arm is pinned above by `after-fn-form-throw-surfaces-trace`.
+;; The other two arms are the SAFETY NET against the silent-swallow
+;; class of bug rf2-c1tnr fixed: pre-rf2-c1tnr a deref-throw or an
+;; add-watch-throw was silently caught and the resolution returned
+;; [nil nil], surfacing only as `:rf.warning/no-clock-configured`
+;; downstream with no signal the underlying reactive surface blew up.
+;;
+;; These tests pin those two cousin arms at the trace-emit boundary —
+;; mirroring the fn-form test's shape exactly so a regression that
+;; re-introduces the swallow on either arm fails at a clear test name.
+
+(deftest after-sub-vec-deref-throw-surfaces-trace
+  (testing "rf2-t4uo0 — sub-vec :after whose @reaction throws emits
+            :rf.error/machine-after-sub-threw with :sub-id +
+            :exception slots and :recovery :no-clock-configured"
+    ;; Pre-rf2-c1tnr the deref throw was silently caught and the
+    ;; resolution returned [nil nil], surfacing only as
+    ;; :rf.warning/no-clock-configured. The error arm makes the
+    ;; underlying sub failure observable.
+    ;;
+    ;; A USER-SPACE sub body throw is caught by `validate-and-trace`
+    ;; in re-frame.subs.memo BEFORE it reaches the timer's `try
+    ;; @reaction`; the sub-internal catch emits :rf.error/sub-exception
+    ;; and returns nil. The timer's defensive catch arm is for
+    ;; framework-internal failures (e.g. a misbehaving substrate's
+    ;; reaction reify whose deref throws synchronously without going
+    ;; through the sub-internal catch).
+    ;;
+    ;; To force the arm to fire we shadow `subs/subscribe` over the
+    ;; schedule path to return a reify whose deref throws — the timer
+    ;; code's `try @reaction (catch ...)` sees the throw directly.
+    (let [captured  (atom [])
+          listener  (fn [ev] (swap! captured conj ev))
+          throw-msg "reaction deref blew up"
+          ;; Reify that satisfies the IDeref shape but throws on deref.
+          throwing-reaction (reify clojure.lang.IDeref
+                              (deref [_]
+                                (throw (ex-info throw-msg {:where :test}))))]
+      (re-frame.trace/register-trace-cb! ::after-sub-trace listener)
+      (try
+        (rf/reg-sub :s/well-formed (fn [_db _] 1000))
+        (rf/reg-machine
+          :s/throws-machine
+          {:initial :idle
+           :data    {:rf/after-epoch 0}
+           :states  {:idle    {:on    {:go :running}}
+                     :running {:after {[:s/well-formed] :timeout}}
+                     :timeout {}}})
+        (with-redefs [re-frame.subs/subscribe
+                      (fn
+                        ([_query-v] throwing-reaction)
+                        ([_frame-id _query-v] throwing-reaction))]
+          (rf/dispatch-sync [:s/throws-machine [:go]]))
+        (let [errors (filter #(= :rf.error/machine-after-sub-threw
+                                 (:operation %))
+                             @captured)]
+          (is (seq errors)
+              "deref throw surfaces as :rf.error/machine-after-sub-threw")
+          (is (every? #(= :error (:op-type %)) errors)
+              "the trace event has :op-type :error")
+          (when-let [first-err (first errors)]
+            (is (some? (-> first-err :tags :exception))
+                ":exception slot is populated under :tags")
+            (is (= :s/well-formed (-> first-err :tags :sub-id))
+                ":sub-id slot names the offending subscription
+                 (first element of the :after delay-key vector)")
+            ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
+            ;; off `:tags` to the envelope top-level.
+            (is (= :no-clock-configured (:recovery first-err))
+                ":recovery :no-clock-configured hoisted to top-level")))
+        (finally
+          (re-frame.trace/remove-trace-cb! ::after-sub-trace))))))
+
+(deftest after-sub-vec-watch-failure-surfaces-trace
+  (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
+            throws emits :rf.error/machine-after-watch-failed with
+            :sub-id + :exception slots and :recovery :static-delay"
+    ;; Pre-rf2-c1tnr an add-watch throw was silently swallowed; the
+    ;; sub-changed re-resolution watcher would not fire (so dynamic
+    ;; delays would silently stop re-resolving) without any signal.
+    ;; This arm makes the failure observable.
+    ;;
+    ;; To trigger the arm reliably we shadow `clojure.core/add-watch`
+    ;; over the schedule path. The shadow throws once for the
+    ;; :after-watch key (machines/timer.cljc:298 install site) and
+    ;; falls through otherwise — so the runtime's other add-watch call
+    ;; sites (substrate, late-bind, etc.) are not disturbed.
+    (let [captured     (atom [])
+          listener     (fn [ev] (swap! captured conj ev))
+          real-add     add-watch
+          ;; A real watchable sub so subscribe + deref succeed; only
+          ;; the add-watch on the resulting reaction throws.
+          throw-add    (fn [target key f]
+                         (if (and (vector? key)
+                                  (= :re-frame.machines.timer/after-watch
+                                     (first key)))
+                           (throw (ex-info "add-watch blew up on after-watch"
+                                           {:where :test :key key}))
+                           (real-add target key f)))]
+      (re-frame.trace/register-trace-cb! ::after-watch-trace listener)
+      (try
+        ;; A well-behaved sub returning a positive delay — subscribe
+        ;; succeeds, deref returns 1000 (so the bad-delay branch
+        ;; doesn't short-circuit before reaching add-watch).
+        (rf/reg-event-db :w/seed (fn [db _] (assoc db :delay-ms 1000)))
+        (rf/reg-sub :s/well-behaved (fn [db _] (:delay-ms db)))
+        (rf/dispatch-sync [:w/seed])
+        (rf/reg-machine
+          :w/throws-machine
+          {:initial :idle
+           :data    {:rf/after-epoch 0}
+           :states  {:idle    {:on    {:go :running}}
+                     :running {:after {[:s/well-behaved] :timeout}}
+                     :timeout {}}})
+        (with-redefs [clojure.core/add-watch throw-add]
+          (rf/dispatch-sync [:w/throws-machine [:go]]))
+        (let [errors (filter #(= :rf.error/machine-after-watch-failed
+                                 (:operation %))
+                             @captured)]
+          (is (seq errors)
+              "add-watch throw surfaces as :rf.error/machine-after-watch-failed")
+          (is (every? #(= :error (:op-type %)) errors)
+              "the trace event has :op-type :error")
+          (when-let [first-err (first errors)]
+            (is (some? (-> first-err :tags :exception))
+                ":exception slot is populated under :tags")
+            (is (= :s/well-behaved (-> first-err :tags :sub-id))
+                ":sub-id slot names the subscription whose reaction
+                 could not be watched")
+            (is (= :w/throws-machine (-> first-err :tags :machine-id))
+                ":machine-id slot names the owning machine")
+            ;; Per Spec 009 §Error event shape, `:recovery` is hoisted.
+            (is (= :static-delay (:recovery first-err))
+                ":recovery :static-delay hoisted to top-level — the
+                 timer still scheduled, just without dynamic-delay
+                 re-resolution")))
+        (finally
+          (re-frame.trace/remove-trace-cb! ::after-watch-trace))))))
