@@ -366,6 +366,26 @@
         (is (some? (find-by-testid tree "rf-causa-detail-panel-issues"))
             "detail panel rebinds to :issues")))))
 
+(deftest detail-panel-cross-fade-wrapper-carries-fade-in-animation
+  (testing "rf2-5kfxe.3 — the inner wrapper around the case-switch
+            carries an `rf-causa-fade-in` :animation prop. The
+            wrapper's `:key selected` makes Reagent re-mount it on tab
+            change, which auto-plays the keyframes."
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (let [tree    (shell/shell-view)
+            wrapper (find-by-testid tree "rf-causa-detail-panel-fade-event")
+            anim    (get-in wrapper [1 :style :animation])]
+        (is (some? wrapper)
+            "the inner cross-fade wrapper is present + testid'd")
+        (is (string? anim) "wrapper carries an :animation declaration")
+        (is (re-find #"rf-causa-fade-in" anim)
+            "animation references the rf-causa-fade-in keyframes")
+        (is (re-find #"var\(--rf-causa-motion-scale" anim)
+            "duration is calc()'d through the motion-scale seam")
+        (is (re-find #"forwards" anim)
+            "fill-mode forwards pins opacity 1 after the fade")))))
+
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
   `shell/detail-panel`. The Views tab routes to the full Views panel
@@ -381,13 +401,19 @@
    :issues   issues-ribbon/Panel})
 
 (deftest detail-panel-routes-each-tab-to-its-view-fn
-  (testing "spec/018 §5 — each tab routes to the expected Panel fn"
+  (testing "spec/018 §5 — each tab routes to the expected Panel fn.
+            The outer panel <div> wraps an inner cross-fade <div>
+            (rf2-5kfxe.3) whose last child is the routed Panel vector."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (doseq [[tab-id expected-fn] expected-detail-fn]
         (select-tab! tab-id)
         (let [rendered (#'shell/detail-panel)
-              child    (last rendered)]
+              ;; outer = [:div {outer-style} fade-wrapper]
+              ;; fade-wrapper = [:div {fade-style} [Panel-fn]]
+              ;; rf2-5kfxe.3 — peel one extra level to reach the Panel.
+              wrapper  (last rendered)
+              child    (last wrapper)]
           (is (vector? rendered)
               (str "tab " tab-id " — detail returned a hiccup vector"))
           (is (= expected-fn (first child))

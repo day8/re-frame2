@@ -133,6 +133,18 @@
     "  0%   { background-color: rgba(251, 191, 36, 0.20); }\n"
     "  12%  { background-color: rgba(251, 191, 36, 0.20); }\n"
     "  100% { background-color: rgba(251, 191, 36, 0); }\n"
+    "}\n"
+    ;; rf2-5kfxe.3 — L4 tab cross-fade. Opacity 0 → 1 with a 2px
+    ;; translateY (the new tab rises *into* place rather than appearing
+    ;; statically). Subtle enough to feel like a settle, not a slide;
+    ;; characterful enough to read as a beat rather than a hard cut.
+    ;; The wrapper around the case-switch in shell.cljs `detail-panel`
+    ;; carries `:animation rf-causa-fade-in 180ms ease-out forwards`
+    ;; on a `^{:key selected}` div so a tab switch unmounts + remounts
+    ;; → keyframes auto-play from frame 0.
+    "@keyframes rf-causa-fade-in {\n"
+    "  from { opacity: 0; transform: translateY(2px); }\n"
+    "  to   { opacity: 1; transform: translateY(0); }\n"
     "}\n"))
 
 (defn- inject-motion-style!

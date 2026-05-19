@@ -62,6 +62,17 @@
       (is (re-find #"12%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\.20\)" css))
       (is (re-find #"100%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\)" css)))))
 
+(deftest motion-css-declares-fade-in-keyframes
+  (testing "rf2-5kfxe.3 — L4 tab cross-fade keyframes are present.
+            opacity 0 → 1 + a 2px translateY for the 'settle' feel."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"@keyframes\s+rf-causa-fade-in" css))
+      (is (re-find #"from\s*\{[^}]*opacity:\s*0" css))
+      (is (re-find #"to\s*\{[^}]*opacity:\s*1" css))
+      (is (re-find #"translateY\(2px\)" css)
+          "the initial state lifts 2px below final → the new tab rises
+           into place rather than appearing statically"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document

@@ -1321,7 +1321,23 @@
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`. The wrapping `<div>` paints `bg-2` as a contrast
   safety net (rf2-q8154 — defence-in-depth for panels that fail to
-  set their own background)."
+  set their own background).
+
+  ## rf2-5kfxe.3 — 180ms cross-fade on tab switch
+
+  Spec/007 §Motion + animation calls for a 180ms cross-fade when the
+  user switches L4 tabs. The case-switch above is otherwise an instant
+  DOM swap. The trick: wrap the chosen panel in an inner `<div>`
+  *keyed on `selected`*. When the key changes Reagent unmounts the
+  previous wrapper + mounts a new one, which auto-plays the
+  `rf-causa-fade-in` CSS animation declared in
+  `theme/global-styles/motion-css`. Duration is interpolated through
+  the `--rf-causa-motion-scale` seam (rf2-5kfxe.5) so the fade
+  collapses to 0ms under `prefers-reduced-motion: reduce`.
+
+  The outer `<div>` keeps its `data-testid` stable across tab swaps so
+  existing tests + `getByTestId` lookups still resolve — the cross-fade
+  wrapper is purely internal."
   []
   (let [selected (or @(rf/subscribe [:rf.causa/selected-tab])
                      default-tab)]
@@ -1331,24 +1347,40 @@
                    :overflow    "auto"
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
-     (case selected
-       :event    [event-detail/Panel]
-       :app-db   [app-db-diff/Panel]
-       ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
-       ;; replaced the legacy Subscriptions panel with Views; the 4-
-       ;; layer chrome surfaces it as the L3 `:views` tab rather than a
-       ;; sidebar entry).
-       :views    [views/Panel]
-       :trace    [trace/Panel]
-       :machines [machine-inspector/Panel]
-       ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
-       ;; event over the registered-routes tree per spec/016 §Routing
-       ;; tab content. Mike's design call (2026-05-18): cohesive sub-
-       ;; domains earn their own lens tab rather than overloading
-       ;; App-db.
-       :routing  [routing/Panel]
-       :issues   [issues-ribbon/Panel]
-       [unknown-tab-stub selected])]))
+     ;; rf2-5kfxe.3 — re-mount on selected-tab change so the fade-in
+     ;; keyframes auto-play. The `^{:key selected}` reader-meta is on a
+     ;; *vector literal* (the wrapper `[:div ...]`), so Reagent's
+     ;; `get-react-key` picks it up via the vector's meta (no
+     ;; `with-meta` needed here — different from the function-call
+     ;; case in `render-sections`).
+     ^{:key selected}
+     [:div {:data-testid (str "rf-causa-detail-panel-fade-"
+                              (name selected))
+            :style {:height     "100%"
+                    ;; Keyframes named in `global-styles/motion-css`.
+                    ;; `forwards` pins the end state (opacity 1) so
+                    ;; the panel stays visible after the fade settles.
+                    :animation  (str "rf-causa-fade-in calc(180ms * "
+                                     "var(--rf-causa-motion-scale, 1)) "
+                                     "ease-out forwards")}}
+      (case selected
+        :event    [event-detail/Panel]
+        :app-db   [app-db-diff/Panel]
+        ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
+        ;; replaced the legacy Subscriptions panel with Views; the 4-
+        ;; layer chrome surfaces it as the L3 `:views` tab rather than a
+        ;; sidebar entry).
+        :views    [views/Panel]
+        :trace    [trace/Panel]
+        :machines [machine-inspector/Panel]
+        ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
+        ;; event over the registered-routes tree per spec/016 §Routing
+        ;; tab content. Mike's design call (2026-05-18): cohesive sub-
+        ;; domains earn their own lens tab rather than overloading
+        ;; App-db.
+        :routing  [routing/Panel]
+        :issues   [issues-ribbon/Panel]
+        [unknown-tab-stub selected])]]))
 
 ;; ---- shell view ----------------------------------------------------------
 
