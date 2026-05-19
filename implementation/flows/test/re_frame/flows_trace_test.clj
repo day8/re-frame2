@@ -150,7 +150,127 @@
           (is (= [3 4]         (:input-values tags))     ":input-values are the raw vec")
           (is (= 12            (:result tags))           ":result is the computed value")
           (is (= [:rect :area] (:path tags)))
-          (is (= :rf/default   (:frame tags))))))))
+          (is (= :rf/default   (:frame tags)))
+          ;; Per rf2-qlzh4: :before carries the value at :path
+          ;; immediately BEFORE this flow's write. On the first
+          ;; compute the slot has never been written, so :before is
+          ;; nil. The KEY must be present so consumers can rely on
+          ;; uniform shape (rather than discriminating between
+          ;; absent-key and explicit-nil).
+          (is (contains? tags :before)
+              ":before key present on every :rf.flow/computed trace")
+          (is (nil? (:before tags))
+              "first compute — :path has never been written; :before is nil"))))))
+
+;; ---------------------------------------------------------------------------
+;; 2b. :before slot tracks the pre-write value across drains (rf2-qlzh4)
+;;
+;; Per Spec 013 §Flow tracing: `:rf.flow/computed` carries `:before`
+;; — the value at the flow's `:path` immediately before this drain's
+;; write. Self-contained trace consumers (Causa Event Detail, 10x
+;; flow panel) render the "wrote [path] <before> -> <after>" line
+;; without walking the surrounding epoch's `:db-before` snapshot.
+;; These tests pin the contract across the edge cases the audit
+;; (ai/findings/2026-05-19-flow-trace-events-audit.md) flagged.
+;; ---------------------------------------------------------------------------
+
+(deftest computed-before-equals-prior-result-on-second-compute
+  (testing "second :rf.flow/computed's :before equals the first compute's :result"
+    (rf/reg-event-db :init      (fn [_ _] {:n 3}))
+    (rf/reg-event-db :replace-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/dispatch-sync [:init])           ;; first compute: 3 -> 6
+    (rf/dispatch-sync [:replace-n 5])    ;; second compute: 5 -> 10
+    (let [computes (by-op :rf.flow/computed)]
+      (is (= 2 (count computes))
+          "one compute per real input change")
+      (let [[first-ev second-ev] computes]
+        (is (nil? (:before (:tags first-ev)))
+            "first compute :before is nil — :path slot was unwritten")
+        (is (= 6 (:before (:tags second-ev)))
+            ":before of the second compute equals the first compute's :result")
+        (is (= 10 (:result (:tags second-ev)))
+            ":result is the freshly-computed output value")))))
+
+(deftest computed-before-with-prior-value-already-at-path
+  (testing ":before carries the prior value when the path was written by a non-flow source first"
+    ;; Seed [:doubled] with a value the event handler put there before
+    ;; the flow ever fires. The first compute's :before MUST be that
+    ;; prior value — not nil — because the slot was non-empty.
+    (rf/reg-event-db :seed (fn [_ _] {:n 3 :doubled :preseeded}))
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/dispatch-sync [:seed])
+    (let [ev (last (by-op :rf.flow/computed))
+          tags (:tags ev)]
+      (is (= :preseeded (:before tags))
+          ":before reads the pre-existing value at :path, not nil")
+      (is (= 6 (:result tags))
+          ":result is the new flow output"))))
+
+(deftest computed-before-on-nested-path
+  (testing ":before reads the pre-write value at a deeply-nested :path"
+    (rf/reg-event-db :init  (fn [_ _] {:w 3 :h 4 :rect {:area :initial-area}}))
+    (rf/reg-event-db :grow  (fn [db _] (assoc db :w 5)))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:rect :area]})
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:grow])
+    (let [[first-ev second-ev] (by-op :rf.flow/computed)]
+      (is (= :initial-area (:before (:tags first-ev)))
+          "first compute :before reads the pre-existing nested-path value")
+      (is (= 12 (:result (:tags first-ev)))
+          "first compute :result is the freshly-computed value (3 * 4)")
+      (is (= 12 (:before (:tags second-ev)))
+          "second compute :before equals the first compute's :result")
+      (is (= 20 (:result (:tags second-ev)))
+          "second compute :result reflects the input change (5 * 4)"))))
+
+(deftest computed-before-across-cascading-flows
+  (testing ":before is captured against the in-drain accumulator so chained-flow :before reads its own slot, not :path overlap"
+    ;; :A writes [:a-out]. :B reads [:a-out] and writes [:b-out]. The
+    ;; cascade fires A then B in the SAME drain — :B's :before must
+    ;; reflect the pre-drain value at [:b-out] (here nil on first
+    ;; compute), NOT some intermediate state from :A's write. Each
+    ;; flow's :before is independent — captured against its own :path.
+    (rf/reg-event-db :init (fn [_ _] {:n 3}))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-flow {:id     :A
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:a-out]})
+    (rf/reg-flow {:id     :B
+                  :inputs [[:a-out]]
+                  :output (fn [a] (str "B-saw-" a))
+                  :path   [:b-out]})
+    (rf/dispatch-sync [:init])
+    (let [first-pass (by-op :rf.flow/computed)
+          a-first    (first (filterv #(= :A (:flow-id (:tags %))) first-pass))
+          b-first    (first (filterv #(= :B (:flow-id (:tags %))) first-pass))]
+      (is (nil? (:before (:tags a-first)))
+          ":A's first :before is nil — [:a-out] was unwritten")
+      (is (= 6 (:result (:tags a-first))))
+      (is (nil? (:before (:tags b-first)))
+          ":B's first :before is nil — [:b-out] was unwritten — NOT 6 from :A's just-completed write at [:a-out]")
+      (is (= "B-saw-6" (:result (:tags b-first)))))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:bump])
+    (let [second-pass (by-op :rf.flow/computed)
+          a-second    (first (filterv #(= :A (:flow-id (:tags %))) second-pass))
+          b-second    (first (filterv #(= :B (:flow-id (:tags %))) second-pass))]
+      (is (= 6 (:before (:tags a-second)))
+          ":A's :before on the second drain is its prior :result (6)")
+      (is (= 8 (:result (:tags a-second))))
+      (is (= "B-saw-6" (:before (:tags b-second)))
+          ":B's :before on the second drain is its prior :result (the string B-saw-6) — NOT :A's intermediate value")
+      (is (= "B-saw-8" (:result (:tags b-second)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. :rf.flow/skip fires when value-equal input rewrite suppresses recompute
@@ -770,3 +890,33 @@
           ":input-values pass through unmodified")
       (is (= 12 (:result tags))
           ":result passes through unmodified"))))
+
+(deftest computed-trace-elides-large-before
+  (testing ":rf.flow/computed :before rides through elide-wire-value just like :result (rf2-qlzh4)"
+    ;; Seed [:derived :blob] with a non-nil value so :before is non-
+    ;; nil on the FIRST flow drain we observe. Then bump :n to drive
+    ;; a recompute whose :before reads the previous blob and is
+    ;; therefore schema-large. The walker must substitute the marker.
+    (rf/reg-event-db :init (fn [db _] (merge db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}})))
+    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-flow {:id     :payload
+                  :inputs [[:n]]
+                  :output (fn [n] {:bytes (str "blob-" n)})
+                  :path   [:derived :blob]})
+    (rf/reg-app-schema [:derived :blob] [:map {:large? true}])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:bump])
+    (let [computes (by-op :rf.flow/computed)
+          last-ev  (last computes)
+          tags     (:tags last-ev)]
+      (is (some? last-ev) ":rf.flow/computed fired on the recompute")
+      (is (elision/marker? (:before tags))
+          ":before is replaced by the `:rf.size/large-elided` marker — the slot is schema-large")
+      (is (elision/marker? (:result tags))
+          ":result is similarly elided (sanity)")
+      (let [marker (:rf.size/large-elided (:before tags))]
+        (is (= [:derived :blob] (:path marker))
+            "before-marker carries the schema-declared path")
+        (is (= :schema (:reason marker))
+            "before-marker carries :reason :schema")))))

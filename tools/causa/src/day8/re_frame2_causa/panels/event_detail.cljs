@@ -778,14 +778,17 @@
 ;;
 ;; Per spec/013-Flows.md + spec/009-Instrumentation.md:
 ;;   `:rf.flow/computed` (op-type `:flow`) carries `:flow-id`,
-;;   `:input-values`, `:result`, `:path`, `:frame` in `:tags`. Input
-;;   PATHS are not in the trace — they live on the flow registry entry
-;;   and are looked up via `(rf/handler-meta :flow id)` at render time.
+;;   `:input-values`, `:before`, `:result`, `:path`, `:frame` in
+;;   `:tags`. Input PATHS are not in the trace — they live on the
+;;   flow registry entry and are looked up via
+;;   `(rf/handler-meta :flow id)` at render time.
 ;;
-;; The before-value at the output path (the value the flow OVERWROTE)
-;; is not in the current trace; rf2-qlzh4 (open) adds a `:before` slot
-;; to `:rf.flow/computed` for full self-containment. Until then we
-;; render `(after-value)` only — better partial visibility than zero.
+;; Per rf2-qlzh4: `:before` carries the value at `:path` immediately
+;; before this flow's drain wrote — `nil` when the slot was unwritten
+;; — so the wrote-line renders self-contained without walking the
+;; surrounding epoch's `:db-before` snapshot. Rendering currently
+;; surfaces only `:result`; the `:before` slot is projected through
+;; for forthcoming "wrote [:path] <before> → <after>" diff rendering.
 
 (defn- flow-computed?
   [ev]
@@ -807,6 +810,9 @@
       {:flow-id      <keyword>      ;; the flow's :id
        :write-path   <vec>          ;; the flow's :path (where it wrote)
        :input-values <vec>          ;; raw values read from input paths
+       :before       <any>          ;; the value at :path BEFORE this
+                                    ;; drain wrote (rf2-qlzh4); nil when
+                                    ;; the slot had never been written
        :result       <any>          ;; the new output value at :path
        :frame        <kw-or-nil>    ;; the host frame
        :trace-id     <int>}         ;; trace event :id (stable row key)
@@ -821,6 +827,7 @@
         {:flow-id      (:flow-id tags)
          :write-path   (:path tags)
          :input-values (:input-values tags)
+         :before       (:before tags)
          :result       (:result tags)
          :frame        (:frame tags)
          :trace-id     (:id ev)}))))
