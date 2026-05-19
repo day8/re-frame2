@@ -202,6 +202,9 @@
    :rf.causa/selected-machine-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/modal-positioning
+   ;; rf2-o5f5f.1 — Runtime ↔ Static mode slot + Static-scoped tab.
+   :rf.causa/mode
+   :rf.causa.static/selected-tab
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.causa/panel-width-px
    ;; rf2-vbbq0 — L2 row relative-time chip clock (1s ticker writes here).
@@ -358,6 +361,13 @@
    :rf.causa/select-epoch
    :rf.causa/select-machine-id
    :rf.causa/select-tab
+   ;; rf2-o5f5f.1 — Runtime ↔ Static mode events + Static-scoped tab.
+   ;; `set-mode` writes a specific mode; `toggle-mode` flips between
+   ;; them; both attach the `:rf.causa.static/persist-mode` fx so the
+   ;; choice round-trips through localStorage.
+   :rf.causa/set-mode
+   :rf.causa/toggle-mode
+   :rf.causa.static/select-tab
    ;; rf2-a1z3b — focus-navigation primitive write event.
    :rf.causa/set-focus
    :rf.causa/set-frame
@@ -449,6 +459,11 @@
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Causa surface invokes.
    :rf.causa.palette.fx/popout
+   ;; rf2-o5f5f.1 — Runtime ↔ Static mode persistence side-effect.
+   ;; Bound to the `:rf.causa/set-mode` + `:rf.causa/toggle-mode`
+   ;; handlers; writes the post-mutation mode to localStorage in one
+   ;; place (mirrors the filter-persistence shape above).
+   :rf.causa.static/persist-mode
    ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Lives under
    ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.causa.fx/*`
    ;; because the rf2-cm93v allowlist seam is editor-related, not

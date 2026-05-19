@@ -68,6 +68,12 @@
   [event]
   (#'keybinding/spine-key-id event))
 
+(defn- mode-toggle-key?
+  "rf2-o5f5f.1 — the Cmd/Ctrl+Shift+M predicate that drives the
+  Runtime ↔ Static mode toggle."
+  [event]
+  (#'keybinding/mode-toggle-key? event))
+
 ;; ---- stub `js/document` --------------------------------------------------
 ;;
 ;; The `attach!` / `detach!` helpers are guarded by `(exists?
@@ -293,6 +299,65 @@
   (testing "wrong `code`, right modifiers"
     (is (false? (palette-toggle-key?
                   (mk-event {:code "KeyJ" :ctrl? true}))))))
+
+;; ---- (3b) mode-toggle-key? truth table (rf2-o5f5f.1) --------------------
+
+(deftest mode-toggle-key-matches-cmd-shift-m-and-ctrl-shift-m
+  (testing "Ctrl+Shift+M — Windows / Linux convention"
+    (is (true? (mode-toggle-key?
+                 (mk-event {:key "M" :ctrl? true :shift? true}))))
+    (is (true? (mode-toggle-key?
+                 (mk-event {:key "m" :ctrl? true :shift? true})))))
+  (testing "Cmd+Shift+M — macOS convention (Meta modifier)"
+    (is (true? (mode-toggle-key?
+                 (mk-event {:key "m" :meta? true :shift? true})))))
+  (testing "`code` fallback — KeyM"
+    (is (true? (mode-toggle-key?
+                 (mk-event {:code "KeyM" :ctrl? true :shift? true}))))))
+
+(deftest mode-toggle-key-requires-shift
+  (testing "Ctrl+M alone is some Firefox 'bookmark this page' chord —
+            require Shift to disambiguate"
+    (is (false? (mode-toggle-key?
+                  (mk-event {:key "m" :ctrl? true}))))
+    (is (false? (mode-toggle-key?
+                  (mk-event {:key "m" :meta? true})))
+        "Cmd+M alone is 'minimize window' on macOS — require Shift")))
+
+(deftest mode-toggle-key-rejects-both-primary-modifiers
+  (testing "Ctrl+Cmd+Shift+M — both primary modifiers held is
+            ambiguous, reject (mirror palette-toggle-key?'s posture)"
+    (is (false? (mode-toggle-key?
+                  (mk-event {:key "m" :ctrl? true :meta? true :shift? true}))))))
+
+(deftest mode-toggle-key-rejects-alt
+  (testing "Ctrl+Alt+Shift+M is an IME composition on some layouts — reject"
+    (is (false? (mode-toggle-key?
+                  (mk-event {:key "m" :ctrl? true :shift? true :alt? true}))))))
+
+(deftest mode-toggle-key-rejects-wrong-key
+  (testing "wrong key letter, right modifiers"
+    (is (false? (mode-toggle-key?
+                  (mk-event {:key "n" :ctrl? true :shift? true})))))
+  (testing "wrong `code`, right modifiers"
+    (is (false? (mode-toggle-key?
+                  (mk-event {:code "KeyN" :ctrl? true :shift? true}))))))
+
+(deftest mode-toggle-key-mutually-exclusive-with-other-predicates
+  (testing "no synthetic event satisfies more than one Causa keybinding
+            predicate at once — the cond in handle-keydown depends on
+            mutual exclusivity"
+    (doseq [event [(mk-event {:key "M" :ctrl? true :shift? true})
+                   (mk-event {:key "m" :meta? true :shift? true})
+                   (mk-event {:code "KeyM" :ctrl? true :shift? true})
+                   (mk-event {:key "C" :ctrl? true :shift? true})
+                   (mk-event {:key "k" :meta? true})]]
+      (let [matches (cond-> 0
+                      (mode-toggle-key? event)    inc
+                      (causa-toggle-key? event)   inc
+                      (palette-toggle-key? event) inc)]
+        (is (<= matches 1)
+            (str "event " (js->clj event) " must match at most one predicate"))))))
 
 ;; ---- (4) attach! / detach! idempotency sentinel --------------------------
 

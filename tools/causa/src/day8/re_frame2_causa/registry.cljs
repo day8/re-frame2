@@ -41,6 +41,8 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.static.persistence :as static-persistence]
+            [day8.re-frame2-causa.static.shell :as static-shell]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector
@@ -296,6 +298,66 @@
     (rf/reg-event-db :rf.causa/select-tab
       (fn [db [_ tab-id]]
         (assoc db :selected-tab tab-id)))
+
+    ;; ---- Static-mode chrome (rf2-o5f5f.1) -------------------------
+    ;;
+    ;; Causa exposes TWO modes per `tools/causa/spec/007-UX-IA.md`
+    ;; §Static mode: Runtime (event-coupled spine) and Static
+    ;; (registry browse). The mode slot lives on Causa's app-db under
+    ;; `:mode` (default `:runtime`); the Static tab selection lives
+    ;; under `:rf.causa.static/selected-tab` (default `:machines`).
+    ;;
+    ;; Three event handlers drive the mode lifecycle:
+    ;;
+    ;;   - `:rf.causa/set-mode` writes a specific mode (used by the
+    ;;     mode pill's per-segment click, by hydration after
+    ;;     localStorage read, and by test fixtures).
+    ;;   - `:rf.causa/toggle-mode` flips between modes (used by the
+    ;;     Cmd-Shift-M chord — see `keybinding.cljs`).
+    ;;   - `:rf.causa.static/select-tab` flips the Static-scoped tab
+    ;;     (mirrors `:rf.causa/select-tab` but writes the Static
+    ;;     surface's own slot so Runtime + Static tab choices don't
+    ;;     clobber each other).
+    ;;
+    ;; The set / toggle handlers attach the `:rf.causa.static/persist-
+    ;; mode` fx so every mutation round-trips to localStorage in one
+    ;; place. Per `static/persistence.cljs` — the fx swallows
+    ;; localStorage errors so a quota / serialisation failure can't
+    ;; poison the dispatch chain.
+
+    (rf/reg-sub :rf.causa/mode
+      (fn [db _query]
+        (static-persistence/normalise-mode (get db :mode :runtime))))
+
+    (rf/reg-sub :rf.causa.static/selected-tab
+      (fn [db _query]
+        (get db :rf.causa.static/selected-tab static-shell/default-tab)))
+
+    (rf/reg-event-fx :rf.causa/set-mode
+      (fn [{:keys [db]} [_ mode]]
+        (let [next-mode (static-persistence/normalise-mode mode)
+              next-db   (assoc db :mode next-mode)]
+          {:db next-db
+           :fx [[:rf.causa.static/persist-mode next-mode]]})))
+
+    (rf/reg-event-fx :rf.causa/toggle-mode
+      (fn [{:keys [db]} _event]
+        (let [current  (static-persistence/normalise-mode (get db :mode :runtime))
+              next-mode (if (= current :static) :runtime :static)
+              next-db   (assoc db :mode next-mode)]
+          {:db next-db
+           :fx [[:rf.causa.static/persist-mode next-mode]]})))
+
+    (rf/reg-event-db :rf.causa.static/select-tab
+      (fn [db [_ tab-id]]
+        (if (contains? static-shell/tab-ids tab-id)
+          (assoc db :rf.causa.static/selected-tab tab-id)
+          db)))
+
+    ;; The persistence fx installs idempotently — re-frame's registrar
+    ;; replaces in place. Mounting here means the fx is available the
+    ;; moment any `:rf.causa/set-mode` / `:toggle-mode` lands.
+    (static-persistence/install-fx!)
 
     ;; L1 filter pills — add / remove. Mode is :in or :out; index
     ;; identifies the pill within its mode bucket. The pure reducers

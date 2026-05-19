@@ -1064,6 +1064,116 @@ of them.
 is idempotent via surgical-update semantics. Mount fns can be called
 from a host's `init!` path at any frequency without risk.
 
+## Static mode (rf2-o5f5f)
+
+Causa exposes TWO modes — **Runtime** (the event-coupled spine + 4-layer
+chrome described above) and **Static** (event-INDEPENDENT browse of
+what's registered). Static is "Causa-in-a-quieter-key": it shares the
+full Runtime design language (Inter + JetBrains Mono, the complete
+`theme/tokens.cljc` palette, the 4px spacing grid, the 56px ribbon, the
+40px tab-bar). Differentiation is **temperature, not vocabulary**.
+
+### Surface inventory (3-layer chrome)
+
+Runtime is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail
+panel). Static drops L2 — there is no spine in Static mode because the
+surface is event-independent — and renders 3 layers:
+
+    ┌───────────────────────────────────────────────────────┐
+    │ L1  Top ribbon (56px) — mode pill + right icons       │
+    ├───────────────────────────────────────────────────────┤
+    │ L3  Tab bar (40px) — 5 tabs                           │
+    ├───────────────────────────────────────────────────────┤
+    │ L4  Detail panel (fills remaining canvas)             │
+    └───────────────────────────────────────────────────────┘
+
+L2's absence is also a functional signal — see §Mode-signal mechanism
+below.
+
+### Sub-tab inventory (Static L3)
+
+Five Static sub-tabs, mode-scoped mnemonics per the findings doc
+`ai/findings/2026-05-19-causa-explorer-mode.md` §5.2:
+
+| Tab | Mnemonic | Bead | Contents |
+|---|---|---|---|
+| **Machines** | `m` (default) | rf2-o5f5f.2 | Registry browse + Topology + 4-mode sub-strip |
+| **Routes**   | `r` | rf2-o5f5f.3 | Registered routes (promoted from Runtime) + Simulate-URL |
+| **Schemas**  | `c` | rf2-o5f5f.4 | Registered schemas + sample data + jump-to-source |
+| **Views**    | `v` | rf2-o5f5f.5 | Registered views catalogue (Fiber-walker consumer) |
+| **Events**   | `e` | rf2-o5f5f.6 | Registered handlers + interceptor stack |
+
+Mnemonic mode-scoping: the same letter dispatches the active mode's
+tab — `m` in Runtime opens the Machines instance-inspector, `m` in
+Static opens the Machines registry browse.
+
+### Mode-signal mechanism (4 stacked signals)
+
+The user reads Static at a glance via four stacked signals — together
+they telegraph the mode without the user needing to look at the pill:
+
+1. **Mode pill** at ribbon-left — two-segment radio
+   `[● Runtime] [○ Static]`, 160px total, accent-violet active
+   segment with a 200ms cross-fade. Lives in both modes (it's the
+   toggle, not the indicator). Cmd-Shift-M (the global chord) fires
+   the same `:rf.causa/toggle-mode` event so chord and pill share
+   the handler.
+2. **2-px left-edge ribbon stripe** — `:accent-violet` in Runtime,
+   `:cyan` (already in the palette) in Static. Zero new tokens
+   introduced.
+3. **Motion dampening** — Runtime ships the LIVE pulse + machine-active
+   pulse + 180ms tab fade. Static drops the continuous pulses entirely
+   and collapses the 180ms tab fade to instant (so cluster swaps land
+   without motion). Honours `prefers-reduced-motion: reduce` via the
+   `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`.
+4. **Chrome silhouette** — Runtime is 4-layer; Static is 3-layer (no
+   L2 / no spine). The shape itself is a signal.
+
+### Mode-state lifecycle
+
+The mode slot lives on Causa's app-db at `[:rf.causa/mode]`
+(`:runtime | :static`); the Static-scoped tab choice lives at
+`[:rf.causa.static/selected-tab]` (default `:machines`). Three event
+handlers drive the lifecycle:
+
+- `:rf.causa/set-mode` — writes a specific mode (mode-pill segment
+  clicks, hydration after localStorage read, test fixtures).
+- `:rf.causa/toggle-mode` — flips between modes (the Cmd-Shift-M
+  chord — see `keybinding.cljs`).
+- `:rf.causa.static/select-tab` — flips the Static-scoped tab
+  (independent of the Runtime `:rf.causa/select-tab` slot so flipping
+  modes preserves both choices).
+
+Set + toggle attach the `:rf.causa.static/persist-mode` fx so every
+mutation round-trips through localStorage under the canonical key
+`causa.mode`. Unknown / malformed values normalise back to
+`:runtime` — the conservative default.
+
+### Frame isolation
+
+Same discipline as the Runtime shell. The Static surface composer
+inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame
+:rf/causa}]`; every subscribe + dispatch inside the surface resolves
+to `:rf/causa`. Each subscribing region is `reg-view`-registered so
+its rendered component carries `:contextType frame-context` (rf2-in6l2
++ Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
+
+### Feature flag
+
+Static is gated behind the `:experimental/static-mode?` config flag,
+default `false`. Hosts opt in via:
+
+    (causa-config/configure! {:experimental/static-mode? true})
+
+before the Causa preload runs. With the flag OFF the surface composer
+ALWAYS renders Runtime — byte-identical to the pre-Static chrome,
+the mode pill is absent, and the Cmd-Shift-M chord falls through to
+the host / browser. With the flag ON the mode pill mounts at
+ribbon-left and the chord drives the toggle.
+
+The flag flips to default-on once sibling beads rf2-o5f5f.2 … .6 fill
+the placeholder Static sub-tabs (a separate decision).
+
 ### See also
 
 - [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — the

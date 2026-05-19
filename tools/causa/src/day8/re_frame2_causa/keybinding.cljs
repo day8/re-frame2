@@ -89,6 +89,39 @@
     (fn [k code]
       (or (= "C" k) (= "c" k) (= "KeyC" code)))))
 
+(defn- mode-toggle-key?
+  "True when `event` is the Causa Runtime ↔ Static mode toggle —
+  Cmd+Shift+M on macOS or Ctrl+Shift+M everywhere else (rf2-o5f5f.1).
+
+  Per the parent epic's architectural-lock decision (2026-05-19):
+  Cmd-Shift-M is the chord — a paired letter that doesn't collide
+  with the existing Ctrl+Shift+C (toggle shell), Cmd/Ctrl+K (palette),
+  or the bare-letter spine bindings (Space / L / j / k / G).
+
+  Accepts EITHER Cmd OR Ctrl as the primary modifier so mac users
+  get muscle-memory Cmd and Windows/Linux users get Ctrl — the same
+  shape as `palette-toggle-key?` above. Shift is required to keep
+  the chord from colliding with Ctrl+M (Firefox 'duplicate tab' on
+  some platforms) and Cmd+M (macOS 'minimize window').
+
+  Honours the `:experimental/static-mode?` flag — the listener only
+  fires when the flag is on so a host that hasn't opted into Static
+  mode never sees the chord intercepted (the chord falls through to
+  whatever the host or browser binding would otherwise do)."
+  [event]
+  (let [^js e event
+        ctrl?  (.-ctrlKey e)
+        meta?  (.-metaKey e)
+        shift? (.-shiftKey e)
+        alt?   (.-altKey e)
+        k      (.-key e)
+        code   (.-code e)]
+    (and (or (and ctrl? (not meta?))
+             (and meta? (not ctrl?)))
+         shift?
+         (not alt?)
+         (or (= "M" k) (= "m" k) (= "KeyM" code)))))
+
 (defn- palette-toggle-key?
   "True when `event` is a Cmd+K (macOS) or Ctrl+K (every other host)
   keydown. Per spec/007-UX-IA.md §Command palette this is the
@@ -219,6 +252,20 @@
     (do (.preventDefault event)
         (.stopPropagation event)
         (mount/toggle!))
+
+    ;; rf2-o5f5f.1 — Cmd-Shift-M flips Runtime ↔ Static. Gated on
+    ;; `:experimental/static-mode?` so hosts that haven't opted in
+    ;; never see the chord intercepted. When the flag is OFF the
+    ;; chord falls through to whatever else would consume it
+    ;; (browser / host binding). When the flag is ON we
+    ;; `preventDefault` + `stopPropagation` because the chord owns
+    ;; this keystroke for Causa.
+    (and (config/static-mode-enabled?)
+         (mode-toggle-key? event))
+    (do (.preventDefault event)
+        (.stopPropagation event)
+        (rf/with-frame :rf/causa
+          (rf/dispatch [:rf.causa/toggle-mode])))
 
     (palette-toggle-key? event)
     (do (.preventDefault event)
