@@ -61,11 +61,14 @@ body { margin: 0; }
                                           it, the host renders 1px wider
                                           than the var(...) value */
   border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
-  resize: horizontal;                  /* user-draggable width (see below) */
-  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
+
+The user-draggable resize handle is auto-injected by Causa
+(rf2-70u8q; see [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance)).
+Consumers do not wire `resize: horizontal` / `overflow: auto`; the
+handle's styles and behaviour are Causa-owned.
 
 The host owns sizing and layout. Causa owns the shell rendered inside
 the host. For the framework-side Tool-Pair surfaces Causa consumes
@@ -96,8 +99,6 @@ that matches Causa's recommended default (560px per rf2-9ovfb):
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
-  resize: horizontal;
-  overflow: auto;
 }
 ```
 
@@ -140,8 +141,7 @@ sizing; introducing a CLJS setter would split that source.
 ### User-draggable resize
 
 The recommended host snippet ships two complementary resize
-mechanisms — both browser-native, both JS-free, both writing the
-same `flex-basis` slot:
+mechanisms, both writing the same `flex-basis` slot:
 
 1. **CSS variable** (host-owned, fixed-point sizing) — the
    `--rf-causa-inline-width` property described above. The host's
@@ -149,31 +149,33 @@ same `flex-basis` slot:
    overrides (per-route, per-user, per-build). One declaration, no
    pointer events, no runtime cost. This is the path for "the team
    agreed Causa should default to 720px on the debug route."
-2. **Browser-native drag** (user-controlled, ad-hoc sizing) — the
-   `resize: horizontal` + `overflow: auto` pair on
-   `[data-rf-causa-host]`. The browser paints a drag-handle in the
-   bottom corner of the host (per
-   [CSS UI L3 §`resize`](https://drafts.csswg.org/css-ui-3/#resize)),
-   the user drags it, the host's *used* width updates, and flex
-   reflow shrinks `#app` to fill the remainder. No CLJS, no listener,
-   no Causa surface — the browser owns the interaction. This is the
-   path for "I want a bit more room for the event-detail panel right
-   now."
+2. **Causa drag handle** (user-controlled, auto-injected, persisted) —
+   per rf2-70u8q + [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance),
+   Causa mounts a polished handle on the panel's outer edge as soon
+   as the shell renders. Pointer-driven (mouse, touch, pen unified
+   via pointer events; `touch-action: none`), keyboard-navigable
+   (arrow keys for fine resize, Shift for coarse, Home/End for
+   clamps, Enter/Space to reset), width clamps to `[320px, 90vw]`,
+   persists across reloads via
+   `configure! :settings :general :panel-width-px`, double-click to
+   reset. This is the path for "I want a bit more room for the
+   event-detail panel right now."
 
 The two cooperate cleanly. The variable establishes the initial
-size; a drag overrides it for the page lifetime; reload (or a fresh
-`--rf-causa-inline-width` override up the cascade) returns to the
-declared initial. The drag handle is the bottom-right corner of the
-host element (in LTR layouts) and is keyboard-accessible per the
-browser's standard `resize` semantics; no ARIA wiring is required.
+size; a drag overrides it (and persists); reload restores the
+persisted width unless a fresh `--rf-causa-inline-width` override up
+the cascade has shifted the default.
 
-Causa MUST NOT introduce a JS-driven draggable separator — the
-`resize: horizontal` contract covers the user-drag requirement at
-zero runtime surface, zero new failure modes, and zero ARIA
-semantics for Causa to maintain. If a future use case demands
-pointer-capture beyond what the browser primitive provides, it MUST
-write to `--rf-causa-inline-width` (preserving cascade semantics);
-it MUST NOT introduce a parallel sizing channel.
+##### Yield-to-consumer
+
+Some teams prefer the browser-native handle (`resize: horizontal` +
+`overflow: auto` on the host). Causa MUST detect that at render time
+via `getComputedStyle(host).resize` and render no handle of its own
+when the value is `"horizontal"` or `"both"` — the consumer wins, no
+double-handle. The zero-config path (drop in `<aside>` and let Causa
+inject) is the recommended default; the opt-out is the explicit
+`resize:` declaration on the host. No `configure!` knob, no preload
+flag.
 
 ### Inline-style cascade contract
 

@@ -89,8 +89,6 @@ body { margin: 0; }
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
-  resize: horizontal;
-  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
@@ -106,8 +104,7 @@ the host. Override the selector before Causa opens:
 ### Resizing the host
 
 The recommended CSS reads `--rf-causa-inline-width` for its
-`flex-basis`. Two cooperating resize mechanisms, both browser-native,
-both JS-free:
+`flex-basis`. Two cooperating resize mechanisms:
 
 1. **CSS variable** — host-owned, fixed-point sizing. Set the initial
    width or override per route/per build via the cascade. One
@@ -116,14 +113,19 @@ both JS-free:
    :root { --rf-causa-inline-width: 720px; }        /* global default */
    .debug-route { --rf-causa-inline-width: 960px; } /* per route */
    ```
-2. **Browser-native drag** — `resize: horizontal` + `overflow: auto`
-   gives the host a drag handle in its bottom-right corner. The user
-   drags, the host's used width updates, flex reflow shrinks `#app` to
-   fill the remainder. No CLJS, no listener, no Causa surface.
+2. **Causa drag handle** — auto-injected by Causa (rf2-70u8q; see
+   `tools/causa/spec/007-UX-IA.md` §Resize affordance) on the panel's
+   outer edge. Pointer-driven (mouse, touch, pen via pointer events),
+   keyboard-navigable, persisted across reloads via
+   `configure! :settings :general :panel-width-px`, clamped to
+   `[320px, 90vw]`, double-click to reset.
 
-Causa MUST NOT introduce a JS-driven draggable separator and MUST NOT
-set the variable from CLJS — the host's stylesheet is the single source
-of truth.
+Both mechanisms write the same `flex-basis` slot. Consumers that
+prefer the browser-native handle opt out by setting `resize:
+horizontal` on the host; Causa detects that via `getComputedStyle` at
+render time and yields (no double-handle). Causa MUST NOT set the
+variable from CLJS — the host's stylesheet is the single source of
+truth for the *initial* width.
 
 ### Suppress auto-open
 
