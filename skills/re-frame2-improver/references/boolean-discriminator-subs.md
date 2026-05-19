@@ -21,7 +21,7 @@ A re-frame2 state machine declares the states once; tags label the per-state int
 
 ## The canonical fix
 
-[`skills/re-frame2/reference/state-machines/tags.md`](../../re-frame2/reference/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then use `@(rf/machine-has-tag? machine-id tag)` (or a single render-priority selector sub) instead of the boolean cluster.
+[`skills/re-frame2/references/state-machines/tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then use `@(rf/machine-has-tag? machine-id tag)` (or a single render-priority selector sub) instead of the boolean cluster.
 
 For full page-level rendering with cardinality buckets, [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
 

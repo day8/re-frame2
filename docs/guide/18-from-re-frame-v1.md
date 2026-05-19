@@ -28,7 +28,7 @@ The migration is automated. The primary entry point is the **`re-frame-migration
 
 It walks six phases (orient → bump → sweep → verify → optional modernisations → report), applies the mechanical (Type A) rewrites unprompted, and stops at every judgment-call (Type B) site to ask.
 
-A paste-ready kickoff prompt lives at [`skills/re-frame-migration/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/reference/kickoff-prompt.md). The shape of the workflow:
+A paste-ready kickoff prompt lives at [`skills/re-frame-migration/references/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/kickoff-prompt.md). The shape of the workflow:
 
 1. Open a fresh Claude Code session in the root of your v1 project.
 2. Paste the kickoff prompt. The session loads the skill and walks the phases autonomously.

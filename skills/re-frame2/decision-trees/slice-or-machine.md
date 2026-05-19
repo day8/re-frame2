@@ -122,13 +122,13 @@ If the example contradicts the leaf you'd pick from this tree, **the example win
 ## Cross-references
 
 - [`pick-a-pattern.md`](./pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
-- [`../reference/state-machines/reg-machine.md`](../reference/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
-- [`../reference/state-machines/regions.md`](../reference/state-machines/regions.md) — single-region and `:type :parallel` regions.
-- [`../reference/state-machines/tags.md`](../reference/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
-- [`../reference/state-machines/invoke.md`](../reference/state-machines/invoke.md) — `:invoke` and `:invoke-all` for child machines.
-- [`../reference/state-machines/cancellation.md`](../reference/state-machines/cancellation.md) — the actor-destroy cascade.
-- [`../reference/fundamentals/events.md`](../reference/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
-- [`../reference/fundamentals/schemas.md`](../reference/fundamentals/schemas.md) — `reg-app-schema` at boundaries.
+- [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
+- [`../references/state-machines/regions.md`](../references/state-machines/regions.md) — single-region and `:type :parallel` regions.
+- [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
+- [`../references/state-machines/invoke.md`](../references/state-machines/invoke.md) — `:invoke` and `:invoke-all` for child machines.
+- [`../references/state-machines/cancellation.md`](../references/state-machines/cancellation.md) — the actor-destroy cascade.
+- [`../references/fundamentals/events.md`](../references/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
+- [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) — `reg-app-schema` at boundaries.
 - [`../examples-map.md`](../examples-map.md) — example-app index for shape-verification.
 
 ---

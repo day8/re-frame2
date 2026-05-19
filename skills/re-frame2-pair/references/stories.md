@@ -8,7 +8,7 @@
 - A re-frame2-pair session needs to *assert* against a variant — was the play sequence valid? did the cascade meet `:rf.assert/*` expectations? did axe-core find a regression?
 - The user wants to capture a live cascade back into a `:play` snippet to bake the current interaction into a variant body.
 
-Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/reference/tooling/stories.md`. Load this leaf for the five live-session tools and the composition patterns with re-frame2-pair's reads/writes/watches.
+Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the five live-session tools and the composition patterns with re-frame2-pair's reads/writes/watches.
 
 ## The five tools — live-session palette
 
@@ -68,7 +68,7 @@ The dispatch lands in the variant's app-db; the next `run-variant` calls `reset-
 
 ## The agent self-healing loop in re-frame2-pair context
 
-The four-step loop from [`story-mcp-loop.md`](../../re-frame2/reference/tooling/story-mcp-loop.md) — author → run → assert → refine — becomes richer when re-frame2-pair is attached. The re-frame2-pair-augmented loop:
+The four-step loop from [`story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md) — author → run → assert → refine — becomes richer when re-frame2-pair is attached. The re-frame2-pair-augmented loop:
 
 ```
 run-variant fails (:passing? false)
@@ -101,7 +101,7 @@ When the loop terminates, optionally call `record-as-variant` to capture the now
 ## Cross-references
 
 - The identity that makes all this work — [`variant-as-frame.md`](variant-as-frame.md) (rf2-pxrhh).
-- The bare four-step loop — [`skills/re-frame2/reference/tooling/story-mcp-loop.md`](../../re-frame2/reference/tooling/story-mcp-loop.md) (rf2-7iks3).
+- The bare four-step loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md) (rf2-7iks3).
 - The three variant recipes that compose these tools end-to-end — [`recipes.md` §Drive a Story variant from a re-frame2-pair session](recipes.md#drive-a-story-variant-from-a-re-frame2-pair-session), [§Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component), [§Refine a variant interactively](recipes.md#refine-a-variant-interactively).
 - Full tool registry + I/O schemas — [`tools/story-mcp/spec/002-Tool-Registry.md`](../../../tools/story-mcp/spec/002-Tool-Registry.md).
-- Authoring-side variant body shape — [`skills/re-frame2/reference/tooling/stories.md`](../../re-frame2/reference/tooling/stories.md).
+- Authoring-side variant body shape — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).

@@ -40,7 +40,7 @@ For greenfield-then-author, walk the [re-frame2-setup](re-frame2-setup.md) skill
 
 - Source: [`skills/re-frame2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2)
 - `SKILL.md`: [`skills/re-frame2/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/SKILL.md)
-- Reference leaves: [`skills/re-frame2/reference/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/reference) — fundamentals (events, fx, cofx, subs, schemas, frames, project-structure), state-machines (reg-machine, regions, tags, invoke, cancellation), tooling (stories, routing), cross-cutting (testing, API cheatsheet).
+- Reference leaves: [`skills/re-frame2/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/reference) — fundamentals (events, fx, cofx, subs, schemas, frames, project-structure), state-machines (reg-machine, regions, tags, invoke, cancellation), tooling (stories, routing), cross-cutting (testing, API cheatsheet).
 - Pattern leaves: [`skills/re-frame2/patterns/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/patterns) — one leaf per canonical pattern, each with a mini-declaration and a link to the worked example.
 - Decision trees: [`skills/re-frame2/decision-trees/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/decision-trees) — *slice or machine?*, *pick a pattern*.
 - Worked example map: [`skills/re-frame2/examples-map.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/examples-map.md).

@@ -21,9 +21,9 @@ Steps:
 >
 > *The re-frame2 spec corpus is at `<path-to-re-frame2>/spec/` (clone https://github.com/day8/re-frame2 locally if you don't already have it). The checkout is pinned at commit/tag `<sha-or-tag>`; verify `git -C <path-to-re-frame2> rev-parse HEAD` matches that pin and that the origin is `https://github.com/day8/re-frame2` before reading anything. Record the pinned hash in `DECISIONS.md` (D1 preamble). Treat `spec/` as the contract and `<path-to-re-frame2>/implementation/` as one worked example — not as a contract.*
 >
-> *Phase 1 — Lock the decisions. Walk me through `reference/phase-1-decisions.md`. For each decision block, surface the options (citing `spec/Implementor-Checklist.md` Part 2 where it has them), name the trade-offs, and ask me for my choice. Capture every choice in a `DECISIONS.md` at the root of this repo using the template at `reference/decision-record.md` — including the pinned spec hash from above. Do not write any implementation code in Phase 1.*
+> *Phase 1 — Lock the decisions. Walk me through `references/phase-1-decisions.md`. For each decision block, surface the options (citing `spec/Implementor-Checklist.md` Part 2 where it has them), name the trade-offs, and ask me for my choice. Capture every choice in a `DECISIONS.md` at the root of this repo using the template at `references/decision-record.md` — including the pinned spec hash from above. Do not write any implementation code in Phase 1.*
 >
-> *Phase 2 — Walk the spec corpus. Once Phase 1 is locked, walk `reference/phase-2-impl-order.md` EP by EP in this order: 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation → then any optional EPs I declared yes for in Phase 1, in the leaf's suggested order. For each EP: read the spec section first, surface the contract the port must expose, surface what the CLJS reference did (as one worked example, not normative), and write the corresponding code in this repo. After 001 / 002 / 006 / 004 / 009 are in place, run the `:core/*` conformance fixtures as the first acceptance gate — this is per `reference/conformance.md`.*
+> *Phase 2 — Walk the spec corpus. Once Phase 1 is locked, walk `references/phase-2-impl-order.md` EP by EP in this order: 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation → then any optional EPs I declared yes for in Phase 1, in the leaf's suggested order. For each EP: read the spec section first, surface the contract the port must expose, surface what the CLJS reference did (as one worked example, not normative), and write the corresponding code in this repo. After 001 / 002 / 006 / 004 / 009 are in place, run the `:core/*` conformance fixtures as the first acceptance gate — this is per `references/conformance.md`.*
 >
 > *Standing rules for this port:*
 >
@@ -44,7 +44,7 @@ Two common amendments the engineer may add:
 
 **"Minimum viable port."** Append: *"Declare Q1 (state machines) = no, Q2 (routing) = no, Q3 (SSR) = no, Q4 = via-host-types, Q5 (stories) = no, Q6 (Tool-Pair) = no, Q7 (AI-Audit) = no. I'm shipping the core only — events / subs / fx / views. Re-evaluate the optional capabilities after the `:core/*` corpus passes."*
 
-**"Reference impl tour first."** Append: *"Before Phase 1, walk me through `reference/reference-impl-tour.md`. I want to see how the CLJS reference is organised before locking my own decisions — but treat the tour as descriptive, not normative."*
+**"Reference impl tour first."** Append: *"Before Phase 1, walk me through `references/reference-impl-tour.md`. I want to see how the CLJS reference is organised before locking my own decisions — but treat the tour as descriptive, not normative."*
 
 ---
 

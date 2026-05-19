@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp).
+"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf).
 
-Cross-checks every (mcp-server, consumer-skill) pair declared in `MAPPINGS`
-below. For each pair, builds two sets:
+Two axes of cross-check.
+
+**MCP axis** (rf2-flzdp): every (mcp-server, consumer-skill) pair declared
+in `MAPPINGS` below. For each pair, builds two sets:
 
   - SERVER tool names — extracted from the MCP server's source (the Clojure
     `tool-descriptors` / `tool-registry` literal where each tool is a
@@ -19,6 +21,18 @@ Then reports two drift directions:
 
   - MISSING-IN-SERVER — skill allow-lists a tool the server doesn't expose
     (any more, or yet). Always a failure — the skill is referencing a phantom.
+
+**Bash axis** (rf2-yiccf): every rule in `BASH_RULES` is a small contract
+between a SKILL.md body pattern and a required `Bash(...)` allow-list
+entry. When the body matches the pattern, the allow-list must carry an
+entry matching the required shape (with `*` as a wildcard). Catches the
+class of silent-breakage where a skill body instructs the agent to run a
+command the allow-list doesn't permit (e.g. rf2-scpaa: re-frame-migration
+cardinal rule 7 instructs the agent to file GitHub issues but lacks
+`Bash(gh issue *)`).
+
+  - MISSING-BASH-ALLOW — body fires the rule's pattern but no allow-list
+    entry matches the required shape.
 
 Causa-MCP is currently spec-only (no `src/`); the script skips its entry
 gracefully rather than failing on missing files.
@@ -274,6 +288,48 @@ def extract_skill_tools(path: Path, host_prefix: str) -> set[str]:
     return _parse_allowed_tools(fm, host_prefix)
 
 
+def extract_skill_bash_entries(path: Path) -> list[str]:
+    """Pull every `Bash(...)` entry from a SKILL.md's `allowed-tools:` block.
+
+    Returns the raw list of inner-string arguments (e.g.
+    `gh issue create *`, `rg *`, `npm install`). Order preserved for
+    diagnostics; duplicates left in.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm = _read_frontmatter(text)
+    if fm is None:
+        return []
+    return _parse_allowed_bash(fm)
+
+
+_BASH_ENTRY = re.compile(r"Bash\(\s*([^)]+?)\s*\)")
+
+
+def _parse_allowed_bash(frontmatter: str) -> list[str]:
+    """State-machine scan of the `allowed-tools:` block for `Bash(...)` items."""
+    entries: list[str] = []
+    in_block = False
+    for line in frontmatter.splitlines():
+        if _ALLOWED_TOOLS_KEY.match(line):
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        stripped = line.lstrip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        m = _LIST_ITEM.match(line)
+        if not m:
+            break
+        item = m.group(1).strip()
+        bm = _BASH_ENTRY.match(item)
+        if bm:
+            entries.append(bm.group(1).strip())
+    return entries
+
+
 def _read_frontmatter(text: str) -> str | None:
     lines = text.splitlines()
     if not lines or lines[0].strip() != FRONTMATTER_DELIM:
@@ -324,6 +380,73 @@ def _parse_allowed_tools(frontmatter: str, host_prefix: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Bash-allow-list drift detection (rf2-yiccf).
+#
+# Companion to the MCP-axis cross-check above: the same skill files also
+# declare `Bash(...)` allow-list entries that must agree with what the
+# SKILL.md body actually instructs the agent to do. Bash-prefix drift is
+# invisible to the MCP-axis gate but causes silent breakage at the agent
+# host's permission boundary (e.g. rf2-scpaa: re-frame-migration cardinal
+# rule 7 says "file a GitHub issue" but the allow-list lacks `Bash(gh
+# issue ...)`).
+#
+# v0 shape per the bead: a hand-curated `BASH_RULES` table of
+# (body-pattern, required-allow-list-pattern) per skill. The script lexes
+# the SKILL.md body, and when a body pattern fires, checks the skill's
+# `Bash(...)` allow-list for any entry that matches the required pattern.
+# Wildcard semantics: `*` in the required-pattern matches any whitespace
+# or characters (greedy) in the allow-list entry.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BashRule:
+    """One cross-check for the Bash axis.
+
+    `skill_md`            — SKILL.md to inspect.
+    `body_pattern`        — regex matched against the body (post-frontmatter).
+                            If it fires anywhere, the allow-list must satisfy
+                            `required_allow`.
+    `required_allow`      — required allow-list entry shape; `*` is a
+                            wildcard. The check passes if any actual
+                            `Bash(...)` entry matches.
+    `description`         — human-readable description of what the rule
+                            catches, printed in the drift message.
+    """
+    skill_md: Path
+    body_pattern: re.Pattern[str]
+    required_allow: str
+    description: str
+
+
+def _allow_pattern(required: str) -> re.Pattern[str]:
+    """Compile a `Bash(...)` required-entry shape with `*` wildcards into a regex."""
+    escaped = re.escape(required).replace(r"\*", r".*")
+    return re.compile(rf"^{escaped}$")
+
+
+BASH_RULES: list[BashRule] = [
+    # rf2-scpaa: re-frame-migration cardinal rule 7 instructs the agent to
+    # file GitHub issues against day8/re-frame2; allow-list must permit
+    # the create surface. `gh issue list` and `gh issue view` are
+    # adjacent read-only surfaces the skill body also leans on; we gate on
+    # the destructive `create` because that's the rule-7 surface.
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        # Matches both the literal command and the natural-language
+        # instruction shape (cardinal rules typically read "File a GitHub
+        # issue against …" rather than spelling out `gh issue create`).
+        body_pattern=re.compile(
+            r"\bgh\s+issue\s+create\b|\bfile\s+(?:a\s+)?github\s+issue\b",
+            re.IGNORECASE,
+        ),
+        required_allow="gh issue *",
+        description="re-frame-migration body instructs the agent to file GitHub issues; allow-list must permit Bash(gh issue *)",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Drift detection.
 # ---------------------------------------------------------------------------
 
@@ -338,7 +461,15 @@ class Drift:
     def key(self) -> tuple[str, str, str]:
         return (self.mapping_name, self.direction, self.tool)
 
-    def message(self, mapping: Mapping) -> str:
+    def message(self, mapping: Mapping | None) -> str:
+        if self.direction == "missing-bash-allow":
+            return (
+                f"{self.mapping_name}: SKILL.md body references a Bash "
+                f"command but `allowed-tools:` lacks Bash({self.tool}). "
+                f"Add `Bash({self.tool})` to the skill's allow-list, or "
+                f"remove the command reference from the body."
+            )
+        assert mapping is not None
         if self.direction == "missing-in-skill":
             return (
                 f"{mapping.name}: MCP server exposes tool '{self.tool}' "
@@ -350,6 +481,56 @@ class Drift:
             f"allow-lists mcp__{mapping.host_prefix}__{self.tool} "
             f"but the MCP server does not expose a tool by that name."
         )
+
+
+def _read_body(text: str) -> str:
+    """Return everything after the closing `---` frontmatter delimiter.
+
+    If there's no frontmatter, the whole file is body. Used by Bash-rule
+    body scans so frontmatter `allowed-tools:` entries (which may quote
+    the same command shapes) don't double-trigger the body pattern.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != FRONTMATTER_DELIM:
+        return text
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == FRONTMATTER_DELIM:
+            return "\n".join(lines[i + 1:])
+    return ""
+
+
+def check_bash_rules(rules: Iterable[BashRule]) -> tuple[list[Drift], list[str]]:
+    """Run the Bash-axis cross-checks. Returns (drift, info-messages).
+
+    Each rule fires drift when the SKILL.md body matches `body_pattern`
+    and no `Bash(...)` entry in `allowed-tools:` matches `required_allow`.
+    Drift entries piggyback on the existing `Drift` shape with mapping
+    name set to `bash:<skill-rel-path>` and direction `missing-bash-allow`.
+    """
+    info: list[str] = []
+    drift: list[Drift] = []
+    for rule in rules:
+        if not rule.skill_md.exists():
+            info.append(
+                f"bash-rule: skill md '{rule.skill_md}' missing -- skipping."
+            )
+            continue
+        text = rule.skill_md.read_text(encoding="utf-8")
+        body = _read_body(text)
+        if not rule.body_pattern.search(body):
+            continue  # Body doesn't reference the gated command; no rule fires.
+        entries = extract_skill_bash_entries(rule.skill_md)
+        allow_re = _allow_pattern(rule.required_allow)
+        if any(allow_re.match(e) for e in entries):
+            continue  # Allow-list satisfies the rule.
+        rel = rule.skill_md.relative_to(REPO_ROOT)
+        drift.append(Drift(
+            mapping_name=f"bash:{rel.as_posix()}",
+            direction="missing-bash-allow",
+            tool=rule.required_allow,
+        ))
+        info.append(f"bash-rule: {rule.description} -- DRIFT.")
+    return drift, info
 
 
 def check_mapping(mapping: Mapping) -> tuple[list[Drift], list[str]]:
@@ -449,7 +630,7 @@ def main(argv: Iterable[str]) -> int:
             print(f"  {k[0]} | {k[1]} | {k[2]}")
         return 0
 
-    all_drift: list[tuple[Mapping, Drift]] = []
+    all_drift: list[tuple[Mapping | None, Drift]] = []
     all_info: list[str] = []
     saw_setup_error = False
 
@@ -463,6 +644,14 @@ def main(argv: Iterable[str]) -> int:
         all_info.extend(info)
         for d in drift:
             all_drift.append((mapping, d))
+
+    # Bash-axis cross-checks (rf2-yiccf). These piggyback on the same drift
+    # accumulator but carry mapping=None — Drift.message handles the
+    # missing-bash-allow direction without a Mapping object.
+    bash_drift, bash_info = check_bash_rules(BASH_RULES)
+    all_info.extend(bash_info)
+    for d in bash_drift:
+        all_drift.append((None, d))
 
     if args.verbose:
         for line in all_info:

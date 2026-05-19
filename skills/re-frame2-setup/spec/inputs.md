@@ -9,7 +9,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 The skill teaches a four-file scaffolding (`deps.edn`, `package.json`, `shadow-cljs.edn`, `core.cljs`). Each file's shape is derived from:
 
 - **`day8/re-frame2`'s release artefacts** — the ten Maven coords (`day8/re-frame2`, `day8/re-frame2-reagent`, `day8/re-frame2-schemas`, `day8/re-frame2-machines`, `day8/re-frame2-routing`, `day8/re-frame2-flows`, `day8/re-frame2-http`, `day8/re-frame2-ssr`, `day8/re-frame2-epoch`, plus the test-support artefact). All ship in lockstep at a single VERSION; the skill reads that VERSION at discovery time rather than hardcoding it.
-- **`examples/reagent/counter/`** in the re-frame2 repo — the canonical first-counter shape. `reference/first-counter.md` is a trimmed version of this example.
+- **`examples/reagent/counter/`** in the re-frame2 repo — the canonical first-counter shape. `references/first-counter.md` is a trimmed version of this example.
 - **`examples/reagent/counter/shadow-cljs.edn`** — the canonical `shadow-cljs.edn` shape for a single-page browser app.
 - **`examples/reagent/counter/index.html`** — the canonical `index.html` (`<div id="app">`, `<script src="js/main.js">`).
 - **`day8/re-frame2-reagent`'s adapter export** — `re-frame.adapter.reagent/adapter` (a var holding the adapter spec map). The entry namespace's `(rf/init! reagent-adapter/adapter)` call comes from this surface.
@@ -35,7 +35,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 - **`skills/re-frame2/spec/design.md`** — the parent skill's locked design. This skill inherits the four pillars, the Q14 lock, the cardinal-rules format, the single-import contract (L9 here, L8 there).
 - **`skills/re-frame-migration/SKILL.md`** + **`skills/re-frame-migration/spec/`** — the closest structural sibling that already has a `spec/` triad. Voice / shape match this.
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for deep-dive content; the skill's routing-on-exit table cross-references it.
-- Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy" with explicit "use this skill whenever..." framing; SKILL.md under 500 lines; leaves one level deep; avoid time-sensitive content (deferred to `reference/deps-versions.md` lookup rather than hardcoded VERSIONs).
+- Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy" with explicit "use this skill whenever..." framing; SKILL.md under 500 lines; leaves one level deep; avoid time-sensitive content (deferred to `references/deps-versions.md` lookup rather than hardcoded VERSIONs).
 
 ## 5. What the skill does NOT consume
 
@@ -49,10 +49,10 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 When the artefact set or the greenfield contract changes:
 
-1. **A new artefact is split out** (e.g. a future `day8/re-frame2-stories`) → add a row to `reference/deps-versions.md`'s pay-as-you-go table; mention in SKILL.md if it's commonly needed on day one.
-2. **An existing artefact is renamed or merged** → grep `reference/` for the old name and update; verify the routing table at the end of SKILL.md still resolves correctly.
-3. **`re-frame.adapter.reagent`'s adapter contract changes** (e.g. new keys in the adapter spec map) → update `reference/entry-namespace.md`'s canonical shape; verify `reference/first-counter.md` still compiles.
-4. **`shadow-cljs.edn` greenfield shape changes** (rare — `:target :browser` is very stable) → update `reference/shadow-cljs.md`.
-5. **`rf/init!` signature changes** → update SKILL.md's Step 5 framing and `reference/entry-namespace.md`.
+1. **A new artefact is split out** (e.g. a future `day8/re-frame2-stories`) → add a row to `references/deps-versions.md`'s pay-as-you-go table; mention in SKILL.md if it's commonly needed on day one.
+2. **An existing artefact is renamed or merged** → grep `references/` for the old name and update; verify the routing table at the end of SKILL.md still resolves correctly.
+3. **`re-frame.adapter.reagent`'s adapter contract changes** (e.g. new keys in the adapter spec map) → update `references/entry-namespace.md`'s canonical shape; verify `references/first-counter.md` still compiles.
+4. **`shadow-cljs.edn` greenfield shape changes** (rare — `:target :browser` is very stable) → update `references/shadow-cljs.md`.
+5. **`rf/init!` signature changes** → update SKILL.md's Step 5 framing and `references/entry-namespace.md`.
 6. **A new common greenfield failure mode appears** → add a row to SKILL.md's Troubleshooting section (move to a dedicated leaf if it grows past ~30 lines per OQ3).
-7. **The `examples/reagent/counter/` shape changes** → re-derive `reference/first-counter.md` from the example.
+7. **The `examples/reagent/counter/` shape changes** → re-derive `references/first-counter.md` from the example.

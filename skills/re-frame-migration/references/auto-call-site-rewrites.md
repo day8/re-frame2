@@ -32,7 +32,7 @@ Per-file confirmation is not required — the author has already invoked the mig
 
 ### M-0 — Dep coord swap
 
-See `reference/setup.md` for the per-build-tool detail. Applied once, in Phase 2.
+See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 2.
 
 ### M-1 — Private-namespace requires
 

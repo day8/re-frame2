@@ -35,7 +35,7 @@ Type A is applied automatically; Type B halts and asks. This dichotomy comes fro
 
 ### L3 — Q14 — NO verification module
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `reference/verify.md`, no "verification mandatory before done" hard rule. The agent applies the rules; the author runs the tests. This matches the `re-frame2` skill's lock — consistent across the skill family.
+Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent applies the rules; the author runs the tests. This matches the `re-frame2` skill's lock — consistent across the skill family.
 
 **Why**: running tests is general software practice. Pillar 4 says don't teach what the AI already knows.
 
@@ -45,7 +45,7 @@ The "Done checklist" in SKILL.md lists the conditions for completion. The skill 
 
 ### L5 — Migration prompt = `migration/from-re-frame-v1/README.md` Part 2
 
-Mike's bead surfaced an open question: "Where does the `setup and obviously the migration prompt` material actually live?" Answer: **`migration/from-re-frame-v1/README.md` itself.** Part 2 of that doc is "Execution procedure ... written in second person to an AI agent performing the migration." It already is the migration prompt — the skill consumes it directly, and the paste-ready kickoff prompt in `reference/kickoff-prompt.md` is a thin wrapper that loads the skill and references MIGRATION.md.
+Mike's bead surfaced an open question: "Where does the `setup and obviously the migration prompt` material actually live?" Answer: **`migration/from-re-frame-v1/README.md` itself.** Part 2 of that doc is "Execution procedure ... written in second person to an AI agent performing the migration." It already is the migration prompt — the skill consumes it directly, and the paste-ready kickoff prompt in `references/kickoff-prompt.md` is a thin wrapper that loads the skill and references MIGRATION.md.
 
 ### L6 — JVM interop is in scope
 
@@ -94,7 +94,7 @@ skills/re-frame-migration/
 ├── LICENSE                        (MIT, mirrors re-frame2-setup)
 ├── package.json                   (npm metadata for distribution)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-├── reference/
+├── references/
 │   ├── kickoff-prompt.md           (~60 lines)
 │   ├── setup.md                    (~130 lines)
 │   ├── breaking-changes.md         (~180 lines)
@@ -161,8 +161,8 @@ These remain open at authoring time:
 
 ### OQ2 — Should there be a "before you start" diagnostic that profiles the codebase?
 
-**Status**: deferred. Useful as v0.2 — a profiler that grep-counts every M-rule trigger surface and reports `<N> Type A sites + <M> Type B sites` so the author can size the migration. The shape would be a `reference/profile.md` leaf and a corresponding script. Not blocking v0.1 because the agent can do the profiling inline during Phase 1 (Orient) without dedicated tooling.
+**Status**: deferred. Useful as v0.2 — a profiler that grep-counts every M-rule trigger surface and reports `<N> Type A sites + <M> Type B sites` so the author can size the migration. The shape would be a `references/profile.md` leaf and a corresponding script. Not blocking v0.1 because the agent can do the profiling inline during Phase 1 (Orient) without dedicated tooling.
 
 ### OQ3 — Where does the "migration prompt" material live?
 
-**Resolved (L5 above)**: it's `migration/from-re-frame-v1/README.md` Part 2. The kickoff prompt in `reference/kickoff-prompt.md` wraps it.
+**Resolved (L5 above)**: it's `migration/from-re-frame-v1/README.md` Part 2. The kickoff prompt in `references/kickoff-prompt.md` wraps it.

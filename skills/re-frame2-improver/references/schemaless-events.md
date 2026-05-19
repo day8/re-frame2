@@ -34,7 +34,7 @@ The runtime offers two complementary dev-time tools: handler `:spec` (validates 
 
 ## The canonical fix
 
-[`skills/re-frame2/reference/fundamentals/schemas.md`](../../re-frame2/reference/fundamentals/schemas.md) — at a minimum, an always-on gate at the boundary: the `[spec/at-boundary]` interceptor on the handler, or a Managed HTTP `:decode <Schema>` on the originating request, or an equivalent custom always-on Malli-check interceptor. `:spec` on the handler metadata and `reg-app-schema` on the destination path are valuable dev-time tools that surface mismatches early — but they do not satisfy this rule on their own, because both are elided when `goog.DEBUG` is false.
+[`skills/re-frame2/references/fundamentals/schemas.md`](../../re-frame2/references/fundamentals/schemas.md) — at a minimum, an always-on gate at the boundary: the `[spec/at-boundary]` interceptor on the handler, or a Managed HTTP `:decode <Schema>` on the originating request, or an equivalent custom always-on Malli-check interceptor. `:spec` on the handler metadata and `reg-app-schema` on the destination path are valuable dev-time tools that surface mismatches early — but they do not satisfy this rule on their own, because both are elided when `goog.DEBUG` is false.
 
 Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.error/schema-validation-failure` error category is the corresponding instrumentation signal.
 

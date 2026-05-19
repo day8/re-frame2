@@ -12,7 +12,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 >
 > *1. `skills/re-frame2-setup/spec/design.md` — the locked design decisions (L1 through L10). Pillars 1-4 in §2 are non-negotiable. Q14 lock applies (NO verification module).*
 > *2. `skills/re-frame2-setup/spec/inputs.md` — the canonical inputs the skill leans on.*
-> *3. `examples/reagent/counter/` — the canonical first-counter shape (`core.cljs`, `shadow-cljs.edn`, `index.html`). `reference/first-counter.md` is a trimmed version of this example.*
+> *3. `examples/reagent/counter/` — the canonical first-counter shape (`core.cljs`, `shadow-cljs.edn`, `index.html`). `references/first-counter.md` is a trimmed version of this example.*
 > *4. `implementation/core/src/re_frame/core.cljc` (for the `rf/init!` contract) + `implementation/reagent/src/re_frame/adapter/reagent.cljs` (for the adapter spec map shape).*
 > *5. `skills/re-frame-migration/SKILL.md` + `skills/re-frame-migration/spec/` — the closest structural sibling with an existing `spec/` triad. Voice / shape mirror this.*
 > *6. `skills/re-frame2/SKILL.md` — the parent skill the author switches to once setup is done. The setup skill's routing-on-exit table points here.*
@@ -26,7 +26,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 > ├── LICENSE                        (MIT)
 > ├── package.json                   (npm metadata)
 > ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-> ├── reference/
+> ├── references/
 > │   ├── deps-versions.md           (~120 lines; lockstep VERSION; pay-as-you-go artefact table)
 > │   ├── shadow-cljs.md             (~100 lines; minimal build shape, index.html)
 > │   ├── entry-namespace.md         (~120 lines; rf/init! + Reagent root contract)
@@ -59,7 +59,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 >
 > *Locks to preserve verbatim:*
 >
-> *- **L6 — NO verification module.** No `reference/verify.md`; no "verify before claiming done" hard rule. Done checklist lists conditions; author confirms.*
+> *- **L6 — NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. Done checklist lists conditions; author confirms.*
 > *- **L7 — No bead-ids in user-facing skill content.***
 > *- **L8 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L10 — Routing-on-exit table at the end of SKILL.md.** Every adjacent skill listed by name. The author leaves this skill confidently for the next one.*
@@ -70,7 +70,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 >
 > *Don't:*
 >
-> *- Don't hardcode versions in the leaves — point at `reference/deps-versions.md` for lookup.*
+> *- Don't hardcode versions in the leaves — point at `references/deps-versions.md` for lookup.*
 > *- Don't teach re-frame2's API beyond what the first counter requires.*
 > *- Don't branch into UIx/Helix substrates at greenfield.*
 > *- Don't write `*.md` documentation outside `skills/re-frame2-setup/`.*
@@ -86,12 +86,12 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
 - The prompt assumes the session has read access to the repo and access to `examples/reagent/counter/`.
 - The prompt does **not** ask the session to verify the resulting skill — Mike reads the PR and comments.
-- If the canonical `examples/reagent/counter/` shape has changed between authoring passes, `reference/first-counter.md` needs re-derivation.
+- If the canonical `examples/reagent/counter/` shape has changed between authoring passes, `references/first-counter.md` needs re-derivation.
 
 ## When to re-author
 
-- A new mandatory artefact ships in lockstep (the ten-artefact set grows) → update `reference/deps-versions.md` and the SKILL.md framing.
-- The `re-frame.adapter.reagent` contract changes materially → `reference/entry-namespace.md` and `reference/first-counter.md` need updates.
+- A new mandatory artefact ships in lockstep (the ten-artefact set grows) → update `references/deps-versions.md` and the SKILL.md framing.
+- The `re-frame.adapter.reagent` contract changes materially → `references/entry-namespace.md` and `references/first-counter.md` need updates.
 - `rf/init!`'s signature changes → all four reference leaves need a sweep.
 - Reagent v3 lands and supplants v2 → re-derive against the v3 counter example.
 - Anthropic skill conventions change materially → reauthor against the new conventions.

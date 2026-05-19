@@ -13,7 +13,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *1. `skills/re-frame-migration/spec/design.md` — the locked design decisions (L1 through L10). Q14 lock applies (NO verification module). Source of truth is `migration/from-re-frame-v1/README.md`.*
 > *2. `skills/re-frame-migration/spec/inputs.md` — the canonical inputs the skill leans on.*
 > *3. `migration/from-re-frame-v1/README.md` — the breaking-change spec the skill routes around. Part 1 has the rule corpus; Part 2 is the AI-agent execution procedure.*
-> *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/reference/**` — the voice / density / load-bearing-rules style to mirror.*
+> *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/references/**` — the voice / density / load-bearing-rules style to mirror.*
 > *5. `skills/re-frame2-setup/SKILL.md` + `skills/re-frame2-setup/{LICENSE,package.json,.claude-plugin/plugin.json}` — the closest structural analogue (per-build-tool detail, distribution metadata triad).*
 >
 > *Then write the skill at `skills/re-frame-migration/` with this exact file structure:*
@@ -25,7 +25,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > ├── LICENSE                        (mirror skills/re-frame2-setup/LICENSE)
 > ├── package.json                   (npm metadata; mirror re-frame2-setup pattern)
 > ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-> └── reference/
+> └── references/
 >     ├── kickoff-prompt.md           (~60 lines; paste-ready user prompt)
 >     ├── setup.md                    (~130 lines; M-0 operational detail)
 >     ├── breaking-changes.md         (~180 lines; rule index keyed to v1 triggers)
@@ -54,8 +54,8 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *Locks to preserve verbatim:*
 >
-> *- **L3 — NO verification module.** No `reference/verify.md`; no "verify before claiming done" hard rule. The agent applies rules; the author runs tests.*
-> *- **L5 — `migration/from-re-frame-v1/README.md` Part 2 IS the migration prompt.** The kickoff prompt in `reference/kickoff-prompt.md` wraps it; it doesn't replace it.*
+> *- **L3 — NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The agent applies rules; the author runs tests.*
+> *- **L5 — `migration/from-re-frame-v1/README.md` Part 2 IS the migration prompt.** The kickoff prompt in `references/kickoff-prompt.md` wraps it; it doesn't replace it.*
 > *- **L7 — Reagent v2 is the default substrate target.** Substrate migration (O-13 / O-14) is never part of a v1→v2 migration.*
 > *- **L9 — Smallest correct diff.** Opt-in modernisations (O-rules) are never auto-applied as part of a routine migration.*
 > *- **L10 — Findings stay local.** Don't commit `ai/` or `findings/` content.*

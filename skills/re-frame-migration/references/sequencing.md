@@ -129,7 +129,7 @@ Apply all the Type A rewrites first, present the Type B batch second. The author
 If the sweep is interrupted mid-flight:
 
 1. **Ask the author** to run a clean compile and paste the output. The compile errors tell you which group you're stuck in. (The skill never runs the compile itself — see [`../SKILL.md`](../SKILL.md) cardinal rule 10.)
-2. Look up the symbol or pattern in `reference/breaking-changes.md`. Find the rule id.
+2. Look up the symbol or pattern in `references/breaking-changes.md`. Find the rule id.
 3. Find the rule's group in this leaf — the groups before it should already be applied; the groups after it haven't started.
 4. Apply the rule. Continue with the rest of its group.
 

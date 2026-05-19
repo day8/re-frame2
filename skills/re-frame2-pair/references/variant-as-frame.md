@@ -9,7 +9,7 @@
 - You want to diff two scenarios of the same component side by side.
 - You're driving the four-phase lifecycle from re-frame2-pair (loaders → events → render → play) and need to know which dispatches land where.
 
-Do **not** load this leaf to author variants — that lives in `skills/re-frame2/reference/tooling/stories.md`. Load it for: the variant-id ↔ frame-id identity, the re-frame2-pair ops scoped to a variant, and the gotchas that flow from per-variant frame isolation.
+Do **not** load this leaf to author variants — that lives in `skills/re-frame2/references/tooling/stories.md`. Load it for: the variant-id ↔ frame-id identity, the re-frame2-pair ops scoped to a variant, and the gotchas that flow from per-variant frame isolation.
 
 ## The identity — variant-id IS the frame-id
 
@@ -82,7 +82,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/
 
 Legacy bash form: `scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'`.
 
-For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/reference/tooling/stories.md`.
+For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
 
 To discover the *active* variant in the user's canvas (the one currently visible), inspect frame metadata for the `:story/active?` flag set by Story's shell — or ask the user. Pair2 has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it.
 
@@ -97,8 +97,8 @@ To discover the *active* variant in the user's canvas (the one currently visible
 
 ## Cross-references
 
-- Authoring variants — [`skills/re-frame2/reference/tooling/stories.md`](../../re-frame2/reference/tooling/stories.md).
-- Story-MCP self-healing loop — [`skills/re-frame2/reference/tooling/story-mcp-loop.md`](../../re-frame2/reference/tooling/story-mcp-loop.md).
+- Authoring variants — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).
+- Story-MCP self-healing loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md).
 - Recipes driving variants from re-frame2-pair — [`recipes.md`](recipes.md) §Drive a Story variant, §Diff two variants, §Refine a variant interactively.
 - The frame primitive itself — [`spec/002-Frames.md`](../../../spec/002-Frames.md).
 - Story runtime spec — [`tools/story/spec/002-Runtime.md`](../../../tools/story/spec/002-Runtime.md).

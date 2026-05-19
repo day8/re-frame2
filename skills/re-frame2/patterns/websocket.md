@@ -120,7 +120,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's `:rf.cred/fetch` cofx resolves the pointer to a bearer at spawn time.
 
-If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), prefer writing it through a schema-sensitive app-db path — see [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md):
+If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), prefer writing it through a schema-sensitive app-db path — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md):
 
 ```clojure
 (rf/reg-event-fx :ws/rotate-cred-from-bearer
@@ -145,18 +145,18 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 **SSR.** No-ops server-side: `:invoke` spawn fx is `:platforms #{:client}`; `:after` timers don't schedule under SSR.
 
-**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:invoke`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../reference/state-machines/invoke.md` §Final states.
+**Final-state termination (`:final?` / `:on-done`).** Restricted to the *child* role. When the WS machine is `:invoke`'d by an outer session machine, mark a terminal-failed branch (e.g. `:permanently-failed`, distinct from recoverable `:failed`) `:final? true` — parent receives clean unrecoverable signal via `:on-done` with optional `:output-key`. Child heartbeat / handshake machines reaching `:expired` / `:handshake-failed` can similarly use `:final?` instead of dispatching custom outbound events. The top-level connection machine itself stays recoverable. See `../references/state-machines/invoke.md` §Final states.
 
 ## Anti-patterns
 
 - **Anchoring `:invoke` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
 - **Storing the `WebSocket` JS object in `app-db`.** Not a value, not serialisable, won't survive snapshot replay. Actor owns it host-side; only the actor id appears in `:data`.
 - **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved at actor spawn via a client-only cofx, and never re-enters dispatch.
-- **Routing a refresh bearer through dispatch without schema `:sensitive?` or handler metadata.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), gate it at the privacy seam in [`../reference/cross-cutting/privacy-and-elision.md`](../reference/cross-cutting/privacy-and-elision.md).
+- **Routing a refresh bearer through dispatch without schema `:sensitive?` or handler metadata.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), gate it at the privacy seam in [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md).
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.
-- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../reference/fundamentals/schemas.md`](../reference/fundamentals/schemas.md) §`at-boundary`.
+- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`at-boundary`.
 
 ## Worked example
 
@@ -166,7 +166,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 
 - Full pattern doc, request-reply correlation worked example, SSR composition → SKILL-REDIRECT.md → *Pattern — WebSocket*.
 - State-machine substrate (`:invoke`, `:after`, `:always`, hierarchical) → SKILL-REDIRECT.md → *EP — State machines (005)*.
-- `:final?` / `:on-done` / `:output-key` → `../reference/state-machines/invoke.md` §Final states.
+- `:final?` / `:on-done` / `:output-key` → `../references/state-machines/invoke.md` §Final states.
 - Connection-epoch idiom → SKILL-REDIRECT.md → *Pattern — Stale detection*.
 
 ---

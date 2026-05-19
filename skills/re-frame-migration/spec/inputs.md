@@ -28,8 +28,8 @@ This is the **human-facing** v1→v2 chapter in the narrative guide. It's not no
 These shape the skill's discipline but aren't quoted directly.
 
 - **`ai/findings/re-frame2-skill-design-v2.md`** — the design rationale for the `re-frame2` skill. The `re-frame-migration` skill inherits the four pillars, the leaf-loading shape, and the Q14 lock (NO verification module) from this doc.
-- **`skills/re-frame2/SKILL.md`** + **`skills/re-frame2/reference/**`** — the canonical example of the authoring pattern. Voice, structure, density, "load-bearing-rules" style all mirror this skill.
-- **`skills/re-frame2-setup/SKILL.md`** + **`skills/re-frame2-setup/reference/**`** — the closest structural analogue. Per-build-tool detail, the `LICENSE`/`package.json`/`.claude-plugin/plugin.json` triad, the README shape.
+- **`skills/re-frame2/SKILL.md`** + **`skills/re-frame2/references/**`** — the canonical example of the authoring pattern. Voice, structure, density, "load-bearing-rules" style all mirror this skill.
+- **`skills/re-frame2-setup/SKILL.md`** + **`skills/re-frame2-setup/references/**`** — the closest structural analogue. Per-build-tool detail, the `LICENSE`/`package.json`/`.claude-plugin/plugin.json` triad, the README shape.
 - **`docs/the-mayor-method.md`** — the methodology context for how Mike works with AI. Influences the "the user runs their tests; the skill teaches them what's likely to break" framing (Q14 lock).
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for AI skills. The migration skill references it as the place for full-API URLs and EP design rationale (rather than duplicating URLs in the leaves).
 
@@ -60,10 +60,10 @@ These are deliberately out of the loop:
 
 When MIGRATION.md changes, the skill needs targeted updates. The audit shape:
 
-1. **New rule added** to MIGRATION.md → add a row to `reference/breaking-changes.md` and pick its place in `reference/sequencing.md`. If the rule is Type A, add a shape to whichever of `reference/auto-call-site-rewrites.md` (per-call-site) or `reference/auto-cross-cutting.md` (cross-cutting) fits the rule's shape. If Type B, add a walkthrough to whichever of `reference/guided-handlers-state.md` (handlers / views / db-seeding) or `reference/guided-interceptors-subs.md` (interceptors / subs / payloads) fits the rule's surface.
+1. **New rule added** to MIGRATION.md → add a row to `references/breaking-changes.md` and pick its place in `references/sequencing.md`. If the rule is Type A, add a shape to whichever of `references/auto-call-site-rewrites.md` (per-call-site) or `references/auto-cross-cutting.md` (cross-cutting) fits the rule's shape. If Type B, add a walkthrough to whichever of `references/guided-handlers-state.md` (handlers / views / db-seeding) or `references/guided-interceptors-subs.md` (interceptors / subs / payloads) fits the rule's surface.
 2. **Rule's type changed** (A → B or B → A) → move it between the relevant `auto-*.md` and `guided-*.md` leaves and update its row in `breaking-changes.md`.
 3. **Rule removed / strikethrough'd** → mark its row in `breaking-changes.md` with strikethrough; remove the shape / walkthrough.
 4. **New per-feature artefact** split out → add a row to `setup.md`'s pay-as-you-go table and to `auto-cross-cutting.md`'s per-feature add table.
-5. **MIGRATION.md Part 2 changes** (the execution procedure) → audit `reference/kickoff-prompt.md` and `reference/output-format.md` for any phrasing that referenced the old shape.
+5. **MIGRATION.md Part 2 changes** (the execution procedure) → audit `references/kickoff-prompt.md` and `references/output-format.md` for any phrasing that referenced the old shape.
 
 The skill's `breaking-changes.md` is the integration point — every M-rule and O-rule in MIGRATION.md gets a row. A periodic audit greps both files and reports rules-in-MIGRATION-not-in-skill.

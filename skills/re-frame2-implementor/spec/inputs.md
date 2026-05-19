@@ -13,14 +13,14 @@ Path: `spec/` in the re-frame2 repo.
 The most load-bearing files for the skill:
 
 - **`spec/000-Vision.md`** — the load-bearing decisions framing. The host-profile matrix at §"Host-profile matrix"; the eight-language scope at §"The pattern (JS-cross-compile-language-agnostic)"; the seven required properties of the identity primitive at §"The identity primitive — required properties"; the four hard constraints + fourteen goals at §"Constraints and goals".
-- **`spec/Implementor-Checklist.md`** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus). The skill's `reference/phase-1-decisions.md` is the workflow shape of Part 1 + Part 2; `reference/decision-record.md` is the fill-in shape for the engineer's choices against the table.
-- **`spec/001-Registration.md`** — EP 001. The registry contract. Referenced in `reference/phase-2-impl-order.md`.
+- **`spec/Implementor-Checklist.md`** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus). The skill's `references/phase-1-decisions.md` is the workflow shape of Part 1 + Part 2; `references/decision-record.md` is the fill-in shape for the engineer's choices against the table.
+- **`spec/001-Registration.md`** — EP 001. The registry contract. Referenced in `references/phase-2-impl-order.md`.
 - **`spec/002-Frames.md`** — EP 002. Frames + events + effects + subs. The largest EP after 005; multiple references in `phase-2-impl-order.md`.
 - **`spec/004-Views.md`** — EP 004. The view contract.
 - **`spec/006-ReactiveSubstrate.md`** — EP 006. The adapter contract.
 - **`spec/009-Instrumentation.md`** — EP 009. Trace event stream, error contract, production elision.
 - **`spec/005-StateMachines.md`** — EP 005. Walked in Phase 2 only if D3 Q1 = yes; the spec's largest EP (~2,900 lines).
-- **`spec/conformance/README.md`** — the acceptance test. Capability tagging, the harness shape, the fixture format. The skill's `reference/conformance.md` is the operational walk of this doc.
+- **`spec/conformance/README.md`** — the acceptance test. Capability tagging, the harness shape, the fixture format. The skill's `references/conformance.md` is the operational walk of this doc.
 - **`spec/API.md`** — the consolidated signatures. Reference target in the SKILL.md done checklist.
 
 The skill cites every spec file by URL (the published docs URL: `https://day8.github.io/re-frame2/spec/<file>/`). Cross-references to specific sections use anchor links.
@@ -29,7 +29,7 @@ The skill cites every spec file by URL (the published docs URL: `https://day8.gi
 
 Path: `implementation/` in the re-frame2 repo.
 
-**The reference is a worked example, not normative.** The skill's `reference/reference-impl-tour.md` is the dedicated tour. The tour describes what the reference did; it does not prescribe what other implementations must do. Engineers reading the tour are told explicitly (top and bottom of the leaf) that the spec wins on any disagreement.
+**The reference is a worked example, not normative.** The skill's `references/reference-impl-tour.md` is the dedicated tour. The tour describes what the reference did; it does not prescribe what other implementations must do. Engineers reading the tour are told explicitly (top and bottom of the leaf) that the spec wins on any disagreement.
 
 The most load-bearing directories for the tour:
 
@@ -79,11 +79,11 @@ These are deliberately out of the loop:
 
 When `spec/` changes, the skill needs targeted updates. The audit shape:
 
-1. **New EP added** to `spec/` → add a section to `reference/phase-2-impl-order.md`; if optional, add a row to D3 in `reference/decision-record.md` template and `reference/phase-1-decisions.md`'s D3 block.
+1. **New EP added** to `spec/` → add a section to `references/phase-2-impl-order.md`; if optional, add a row to D3 in `references/decision-record.md` template and `references/phase-1-decisions.md`'s D3 block.
 2. **EP renamed / renumbered** → update every spec URL referenced in the leaves.
-3. **`spec/Implementor-Checklist.md` decision added** → add a sub-decision block to `reference/phase-1-decisions.md` and a template field to `reference/decision-record.md`.
-4. **New capability tag** added to `spec/conformance/README.md` → add a row to D7 in `reference/decision-record.md`.
-5. **CLJS reference implementation reorganises** → update `reference/reference-impl-tour.md`'s "Layout" tree and per-EP sections.
+3. **`spec/Implementor-Checklist.md` decision added** → add a sub-decision block to `references/phase-1-decisions.md` and a template field to `references/decision-record.md`.
+4. **New capability tag** added to `spec/conformance/README.md` → add a row to D7 in `references/decision-record.md`.
+5. **CLJS reference implementation reorganises** → update `references/reference-impl-tour.md`'s "Layout" tree and per-EP sections.
 6. **Anthropic skill conventions change materially** → reauthor SKILL.md against the new conventions.
 
 The skill's `phase-1-decisions.md` is the integration point for the Implementor-Checklist; periodic audits grep both files for drift.
@@ -93,6 +93,6 @@ The skill's `phase-1-decisions.md` is the integration point for the Implementor-
 - **Spec corpus reorganises significantly** (more than ~3 file renames or section restructures) → the existing leaves' URL references are stale; rebuilding from the new spec layout is easier than patching.
 - **The Q14 lock changes** → the design itself changes; this `spec/` folder needs updating first, then the skill.
 - **A second worked reference implementation lands** → the `reference-impl-tour.md` leaf needs restructuring (each impl gets its own tour section, or the tour becomes a per-impl directory).
-- **The conformance corpus's fixture format changes** → `reference/conformance.md` needs a rewrite.
+- **The conformance corpus's fixture format changes** → `references/conformance.md` needs a rewrite.
 
 Otherwise, edit the existing leaves directly; reauthoring from scratch is for major-version updates.

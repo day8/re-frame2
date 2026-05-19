@@ -147,7 +147,7 @@ and renders a placeholder:
 No tests registered for this variant
 
 Add a :play slot to register assertions.
-See: skills/re-frame2/reference/cross-cutting/testing.md
+See: skills/re-frame2/references/cross-cutting/testing.md
 ```
 
 The link forward-points to the canonical testing recipes leaf so a

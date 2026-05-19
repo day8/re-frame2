@@ -55,7 +55,7 @@ skills/re-frame-migration/
 ├── package.json
 ├── .claude-plugin/
 │   └── plugin.json
-├── reference/
+├── references/
 │   ├── kickoff-prompt.md          # Paste-ready prompt for a fresh session
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
 │   ├── causa-replaces-10x.md      # Devtools swap: re-frame-10x → Causa (preload, host, keybindings, parity)

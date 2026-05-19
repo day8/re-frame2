@@ -26,7 +26,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > ├── LICENSE                      (MIT)
 > ├── package.json                 (npm metadata; mirror re-frame-migration pattern)
 > ├── examples-map.md              (pattern → worked-example table)
-> ├── reference/
+> ├── references/
 > │   ├── fundamentals/
 > │   │   ├── events.md            (reg-event-{db,fx,ctx})
 > │   │   ├── fx.md                (reg-fx, :fx vector shape)
@@ -83,8 +83,8 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 >
 > *Locks to preserve verbatim:*
 >
-> *- **L3 — NO verification module.** No `reference/verify.md`; no "verify before claiming done" hard rule. The author runs tests.*
-> *- **L10 — No bead-ids in user-facing skill content.** `SKILL.md` + `reference/` + `patterns/` + `decision-trees/` carry no `rf2-XXXX` references.*
+> *- **L3 — NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The author runs tests.*
+> *- **L10 — No bead-ids in user-facing skill content.** `SKILL.md` + `references/` + `patterns/` + `decision-trees/` carry no `rf2-XXXX` references.*
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
 >
 > *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) explicitly so the AI routes correctly.*

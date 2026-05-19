@@ -13,7 +13,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > *1. `skills/re-frame2-implementor/spec/design.md` — the locked design decisions (L1 through L10) plus the resolutions to the three open questions from the bead. Q14 lock applies (NO verification module). Source of truth is `spec/`. CLJS reference impl is one worked example.*
 > *2. `skills/re-frame2-implementor/spec/inputs.md` — the canonical inputs the skill leans on.*
 > *3. `spec/000-Vision.md`, `spec/Implementor-Checklist.md`, `spec/conformance/README.md` — the three load-bearing spec files.*
-> *4. `skills/re-frame-migration/SKILL.md` + `skills/re-frame-migration/reference/**` — closest structural analogue (workflow skill, has spec/ folder, kickoff-prompt pattern). Mirror the voice / density / load-bearing-rules style.*
+> *4. `skills/re-frame-migration/SKILL.md` + `skills/re-frame-migration/references/**` — closest structural analogue (workflow skill, has spec/ folder, kickoff-prompt pattern). Mirror the voice / density / load-bearing-rules style.*
 > *5. `skills/re-frame2/SKILL.md` — the canonical authoring pattern. Voice and structure.*
 > *6. `skills/re-frame2-setup/{LICENSE,package.json,.claude-plugin/plugin.json}` — the distribution-metadata triad.*
 >
@@ -26,7 +26,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > ├── LICENSE                        (mirror skills/re-frame-migration/LICENSE)
 > ├── package.json                   (npm metadata; mirror re-frame-migration shape)
 > ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-> └── reference/
+> └── references/
 >     ├── kickoff-prompt.md          (~80 lines; paste-ready prompt)
 >     ├── phase-1-decisions.md       (~200 lines; D1-D7 walkthrough)
 >     ├── decision-record.md         (~120 lines; fill-in template)
@@ -53,11 +53,11 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > *- **L1 — `spec/` is the contract.** Never treat `implementation/` as normative. The tour leaf is the only place CLJS framings live, and even there they're tagged as descriptive.*
 > *- **L2 — Two-phase workflow.** Sequential; not collapsible.*
-> *- **L3 — Q14: NO verification module.** No `reference/verify.md`; no "verify before claiming done" hard rule. The engineer runs their builds; the skill walks the workflow.*
+> *- **L3 — Q14: NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The engineer runs their builds; the skill walks the workflow.*
 > *- **L4 — Substrate-agnostic phrasing throughout.** Identity primitive, render-tree, reactive container — generic.*
 > *- **L5 — Conformance corpus is the acceptance test.** The objective measure of "is this re-frame2?"*
 > *- **L6 — Spec gaps file GitHub issues against `day8/re-frame2`.** No silent extrapolation; no patching the spec inline. `bd` is monorepo-internal and never invoked from a published skill (rf2-hpkkx baseline).*
-> *- **L7 — No bead-ids in user-facing content.** SKILL.md / README / reference/ leaves carry no `rf2-XXXX` references.*
+> *- **L7 — No bead-ids in user-facing content.** SKILL.md / README / references/ leaves carry no `rf2-XXXX` references.*
 > *- **L8 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L9 — No AI attribution.** Commits and PR title/body read as Mike's own work.*
 > *- **L10 — Cross-link bidirectionally.** Update `skills/re-frame2/SKILL.md`, `skills/re-frame-migration/SKILL.md`, `docs/skills/re-frame2-implementor.md` (new), and `mkdocs.yml`.*

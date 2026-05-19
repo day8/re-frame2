@@ -1,0 +1,9 @@
+{
+  "name": "re-frame2-improver",
+  "version": "0.1.0-alpha.1",
+  "description": "Critique-mode for existing re-frame2 ClojureScript code. Reviews source against an anti-pattern catalogue, surfaces cross-linked findings, and may propose Edits — explicit-pull only.",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "status": "pre-alpha"
+}

@@ -63,14 +63,14 @@ skills/re-frame2-setup/
 ├── package.json
 ├── .claude-plugin/
 │   └── plugin.json
-└── reference/
+└── references/
     ├── deps-versions.md
     ├── shadow-cljs.md
     ├── entry-namespace.md
     └── first-counter.md
 ```
 
-`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `reference/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order.
+`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order.
 
 ## Install the skill in Claude Code
 
@@ -87,7 +87,7 @@ Clone, check out a release tag, review, then **copy** (not symlink) into your us
 git clone https://github.com/day8/re-frame2.git
 cd re-frame2
 git checkout <release-tag-or-commit>     # pin to a specific version you've reviewed
-# Review skills/re-frame2-setup/SKILL.md and reference/*.md before the next line
+# Review skills/re-frame2-setup/SKILL.md and references/*.md before the next line
 cp -r skills/re-frame2-setup ~/.claude/skills/re-frame2-setup
 ```
 
@@ -130,7 +130,7 @@ The skill's description auto-matches when you talk about starting a new re-frame
 
 ### What happens
 
-Claude reads `SKILL.md` and walks the seven-step path. For each step, it reads the matching `reference/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns skeleton, the counter source).
+Claude reads `SKILL.md` and walks the seven-step path. For each step, it reads the matching `references/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns skeleton, the counter source).
 
 When all seven steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
 

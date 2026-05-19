@@ -1,5 +1,5 @@
 ---
-name: causa
+name: re-frame2-causa
 description: >
   Read-only tour of **Causa** — the re-frame2 devtools panel. Use when the
   user wants to know how to *launch* Causa (in-app inline panel, pop-out
@@ -22,7 +22,7 @@ allowed-tools:
   - Glob
 ---
 
-# causa
+# re-frame2-causa
 
 A tour skill for **Causa** — the re-frame2 in-app devtools panel. Causa is
 the structural successor to re-frame-10x: where v1 organised debugging
@@ -79,7 +79,7 @@ situation.
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
 on tool-only pages, the `:layout/host-selector` knob, host-CSS-variable
-resize, pop-out lifecycle), see [`reference/launch-modes.md`](reference/launch-modes.md).
+resize, pop-out lifecycle), see [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys
 
@@ -108,7 +108,7 @@ The sidebar lists 13 panels in three groups (always-active, conditional,
 dormant). When the user asks "where is X?", route to the panel whose
 purpose covers it. For more detail on each — group membership, dormant
 state, activity badges, deeper "open it when…" guidance — see
-[`reference/panels.md`](reference/panels.md).
+[`references/panels.md`](references/panels.md).
 
 | Panel | One-line purpose | When you'd open it |
 |---|---|---|

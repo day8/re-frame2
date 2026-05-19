@@ -30,7 +30,7 @@ Do **not** use this skill for:
 
 ## Kickoff
 
-A paste-ready kickoff prompt ships with the skill at [`skills/re-frame2-implementor/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/reference/kickoff-prompt.md). The engineer opens a fresh Claude Code session in the root of the port's repo and pastes it verbatim. The session loads the skill on its own and walks Phase 1 first, then Phase 2 EP-by-EP, surfacing decisions back to the engineer at every block.
+A paste-ready kickoff prompt ships with the skill at [`skills/re-frame2-implementor/references/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/kickoff-prompt.md). The engineer opens a fresh Claude Code session in the root of the port's repo and pastes it verbatim. The session loads the skill on its own and walks Phase 1 first, then Phase 2 EP-by-EP, surfacing decisions back to the engineer at every block.
 
 Excerpted shape (full text in the kickoff file):
 
@@ -42,7 +42,7 @@ Two common amendments — *"minimum viable port"* (declare every optional capabi
 
 - Source: [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor)
 - `SKILL.md`: [`skills/re-frame2-implementor/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md)
-- Kickoff prompt: [`skills/re-frame2-implementor/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/reference/kickoff-prompt.md)
-- Reference leaves: [`skills/re-frame2-implementor/reference/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor/reference) — `phase-1-decisions.md` (the Phase 1 walkthrough), `decision-record.md` (the fill-in template), `phase-2-impl-order.md` (EP-by-EP order), `reference-impl-tour.md` (descriptive tour of the CLJS reference), `conformance.md` (harness shape + diagnosis), `output-format.md` (agent-output shapes).
+- Kickoff prompt: [`skills/re-frame2-implementor/references/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/kickoff-prompt.md)
+- Reference leaves: [`skills/re-frame2-implementor/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor/reference) — `phase-1-decisions.md` (the Phase 1 walkthrough), `decision-record.md` (the fill-in template), `phase-2-impl-order.md` (EP-by-EP order), `reference-impl-tour.md` (descriptive tour of the CLJS reference), `conformance.md` (harness shape + diagnosis), `output-format.md` (agent-output shapes).
 - Authoritative contract: the [spec corpus](../../spec/000-Vision.md) + [Implementor Checklist](../../spec/Implementor-Checklist.md) + [conformance corpus](../../spec/conformance/README.md).
 - One worked example: the CLJS reference at [`implementation/`](https://github.com/day8/re-frame2/tree/main/implementation) (descriptive, not normative).

@@ -185,7 +185,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 
 ## When to also open Causa
 
-A re-frame2-pair session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the 16-panel visual reading of what just happened). Reach for Causa alongside re-frame2-pair when:
+A re-frame2-pair session and a running Causa panel are **complementary** surfaces over the same trace bus + epoch history. Pair2 owns the *driving* (dispatch, hot-swap, restore-epoch); Causa owns the *seeing* (the 13-panel visual reading of what just happened — `skills/re-frame2-causa/` is the canonical source for Causa facts). Reach for Causa alongside re-frame2-pair when:
 
 | Pair2 just did | Open Causa to … |
 |---|---|
@@ -195,7 +195,7 @@ A re-frame2-pair session and a running Causa panel are **complementary** surface
 | Stepped into a machine transition | Open the Machine Inspector for the state-chart view with transition history. |
 | Triggered a schema violation | The Schema Violation Timeline surfaces it with recovery mode + source coord. |
 
-The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/reference/tooling/causa.md`](../re-frame2/reference/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
+The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/references/tooling/causa.md`](../re-frame2/references/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
 
 ---
 

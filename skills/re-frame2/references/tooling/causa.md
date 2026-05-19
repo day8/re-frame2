@@ -121,4 +121,4 @@ Causa's shell wraps in `[rf/frame-provider {:frame :rf/causa} ...]`. Every `subs
 - `tools/causa/spec/011-Launch-Modes.md` — normative launch-mode contract, full popout handling.
 - `tools/causa/spec/007-UX-IA.md` — five-region layout, keyboard map, density model.
 - `tools/causa/spec/008-Embedding-Contract.md` — the declarative `Panel` shape for embedding one panel inside the app.
-- `skills/re-frame-migration/reference/causa-replaces-10x.md` — the 10x → Causa migration view, including the keybinding-parity caveat.
+- `skills/re-frame-migration/references/causa-replaces-10x.md` — the 10x → Causa migration view, including the keybinding-parity caveat.

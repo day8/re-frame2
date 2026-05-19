@@ -365,12 +365,12 @@
     " slot to "
     [:code (str variant-id)]
     " to register assertions."]
-   [:a {:href       "https://github.com/day8/re-frame2/blob/main/skills/re-frame2/reference/cross-cutting/testing.md"
+   [:a {:href       "https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md"
         :style      (:empty-link styles)
         :data-test  "story-test-empty-link"
         :target     "_blank"
         :rel        "noopener noreferrer"}
-    "skills/re-frame2/reference/cross-cutting/testing.md"]])
+    "skills/re-frame2/references/cross-cutting/testing.md"]])
 
 ;; ---- top-level component -------------------------------------------------
 

@@ -25,11 +25,11 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — Never hardcode artefact versions in suggestions written to disk
 
-re-frame2 ships ten Maven artefacts in lockstep at a single VERSION. Versions change. The skill points the author at `reference/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded versions in suggestions are a documented anti-pattern.
+re-frame2 ships ten Maven artefacts in lockstep at a single VERSION. Versions change. The skill points the author at `references/deps-versions.md` for lookup; the cardinal rule lives in SKILL.md so it's read on every load. Hardcoded versions in suggestions are a documented anti-pattern.
 
 ### L2 — All ten artefacts ship at the same VERSION
 
-The author picks the VERSION once; every `day8/re-frame2-*` dep gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `reference/deps-versions.md`.
+The author picks the VERSION once; every `day8/re-frame2-*` dep gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
 
 ### L3 — Only add the per-feature artefacts the author actually uses
 
@@ -45,11 +45,11 @@ The skill stops at "the counter mounts". Anything after that — events, subs, m
 
 ### L6 — Q14 — NO verification module
 
-Consistent with the `re-frame2` skill: no `reference/verify.md`, no "verify before claiming done" hard rule. The Done checklist in SKILL.md lists the conditions; the author confirms. The skill never asserts completion.
+Consistent with the `re-frame2` skill: no `references/verify.md`, no "verify before claiming done" hard rule. The Done checklist in SKILL.md lists the conditions; the author confirms. The skill never asserts completion.
 
 ### L7 — No bead-ids in user-facing skill content
 
-`SKILL.md` + `reference/` carry no `rf2-XXXX` references. The `spec/` folder may; user-facing leaves do not.
+`SKILL.md` + `references/` carry no `rf2-XXXX` references. The `spec/` folder may; user-facing leaves do not.
 
 ### L8 — Findings stay local
 
@@ -90,7 +90,7 @@ skills/re-frame2-setup/
 ├── LICENSE                        (MIT)
 ├── package.json                   (npm metadata)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-├── reference/
+├── references/
 │   ├── deps-versions.md           (~120 lines; lockstep VERSION discipline)
 │   ├── shadow-cljs.md             (~100 lines; build shape, index.html)
 │   ├── entry-namespace.md         (~120 lines; rf/init! + Reagent root contract)
@@ -111,7 +111,7 @@ The `description` is "pushy" and lists every greenfield-trigger phrase: *"start 
 
 - **Hardcoding artefact versions in suggestions** — L1 cardinal rule.
 - **Mixing versions across the ten artefacts** — L2 cardinal rule.
-- **Adding per-feature artefacts defensively** — L3 cardinal rule + `reference/deps-versions.md`'s "pay-as-you-go" framing.
+- **Adding per-feature artefacts defensively** — L3 cardinal rule + `references/deps-versions.md`'s "pay-as-you-go" framing.
 - **Branching into UIx/Helix at greenfield** — L4. Substrate-switch is a separate conversation.
 - **Writing tests for the author** — L5 cardinal rule.
 - **Drifting into application-code authoring** — L10 routing table at the end of SKILL.md.
@@ -119,15 +119,15 @@ The `description` is "pushy" and lists every greenfield-trigger phrase: *"start 
 ## 8. Why this design diverges from `re-frame2`
 
 - **No patterns/ directory.** Setup is one workflow, not a library of recipes.
-- **No decision-trees/ directory.** The only decision is "which per-feature artefacts do I need on day one?" and lives inline in `reference/deps-versions.md`.
-- **No examples-map.md.** The one example is the first counter, inlined in `reference/first-counter.md`.
+- **No decision-trees/ directory.** The only decision is "which per-feature artefacts do I need on day one?" and lives inline in `references/deps-versions.md`.
+- **No examples-map.md.** The one example is the first counter, inlined in `references/first-counter.md`.
 - **Routing table at the end of SKILL.md.** The skill is the *entry point* into the family — the explicit routing-on-exit table tells the author where to go next.
 
 ## 9. Open questions (deferred to Mike)
 
 ### OQ1 — Should the skill cover UIx / Helix greenfield?
 
-Currently L4 makes Reagent the only greenfield path. A future v0.2 could add `reference/entry-namespace-uix.md` and `reference/entry-namespace-helix.md` once those substrates have a steady greenfield user-base. Status: deferred until there's evidence of demand.
+Currently L4 makes Reagent the only greenfield path. A future v0.2 could add `references/entry-namespace-uix.md` and `references/entry-namespace-helix.md` once those substrates have a steady greenfield user-base. Status: deferred until there's evidence of demand.
 
 ### OQ2 — Should the skill ship a runnable `setup.bb` script?
 
@@ -135,4 +135,4 @@ A `bb`-driven mechanical scaffolder ("generate the four files for me") would sho
 
 ### OQ3 — Should troubleshooting move to its own leaf?
 
-Currently inlined at the end of SKILL.md (`Troubleshooting`). If it grows beyond ~30 lines, promote to `reference/troubleshooting.md`. Status: monitored; not a blocker.
+Currently inlined at the end of SKILL.md (`Troubleshooting`). If it grows beyond ~30 lines, promote to `references/troubleshooting.md`. Status: monitored; not a blocker.

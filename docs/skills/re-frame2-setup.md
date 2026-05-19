@@ -37,4 +37,4 @@ The skill walks seven steps in order: discover the current artefact VERSION, add
 
 - Source: [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup)
 - `SKILL.md`: [`skills/re-frame2-setup/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md)
-- Reference leaves: [`skills/re-frame2-setup/reference/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/reference) — `deps-versions.md` (how to discover the current VERSION; lockstep contract), `shadow-cljs.md` (the minimal `shadow-cljs.edn` and `index.html` shape), `entry-namespace.md` (the canonical `core.cljs` shape; why `rf/init!` runs first), `first-counter.md` (the worked end-to-end counter).
+- Reference leaves: [`skills/re-frame2-setup/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/reference) — `deps-versions.md` (how to discover the current VERSION; lockstep contract), `shadow-cljs.md` (the minimal `shadow-cljs.edn` and `index.html` shape), `entry-namespace.md` (the canonical `core.cljs` shape; why `rf/init!` runs first), `first-counter.md` (the worked end-to-end counter).

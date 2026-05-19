@@ -27,7 +27,7 @@ Do **not** use this skill for:
 
 ## Kickoff
 
-A paste-ready kickoff prompt ships with the skill at [`skills/re-frame-migration/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/reference/kickoff-prompt.md). The author opens a fresh Claude Code session in the root of their v1 project and pastes it verbatim. The session loads the skill on its own and walks the six phases autonomously, surfacing decisions back to the author at the Type B checkpoints.
+A paste-ready kickoff prompt ships with the skill at [`skills/re-frame-migration/references/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/kickoff-prompt.md). The author opens a fresh Claude Code session in the root of their v1 project and pastes it verbatim. The session loads the skill on its own and walks the six phases autonomously, surfacing decisions back to the author at the Type B checkpoints.
 
 Excerpted shape (full text in the kickoff file):
 
@@ -39,7 +39,7 @@ The kickoff prompt also names two common amendments — *"also modernise"* (walk
 
 - Source: [`skills/re-frame-migration/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration)
 - `SKILL.md`: [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md)
-- Kickoff prompt: [`skills/re-frame-migration/reference/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/reference/kickoff-prompt.md)
-- Reference leaves: [`skills/re-frame-migration/reference/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration/reference) — `setup.md` (M-0 in operational detail), `breaking-changes.md` (one-page index of every rule by trigger surface), `sequencing.md`, `auto-call-site-rewrites.md` (Type A — per-call-site mechanical rewrites), `auto-cross-cutting.md` (Type A — cross-cutting renames / views / init / artefacts), `guided-handlers-state.md` (Type B — handler / view / db-seeding walkthroughs), `guided-interceptors-subs.md` (Type B — interceptor / sub / payload walkthroughs), `output-format.md` (the migration-report shape).
+- Kickoff prompt: [`skills/re-frame-migration/references/kickoff-prompt.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/kickoff-prompt.md)
+- Reference leaves: [`skills/re-frame-migration/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration/reference) — `setup.md` (M-0 in operational detail), `breaking-changes.md` (one-page index of every rule by trigger surface), `sequencing.md`, `auto-call-site-rewrites.md` (Type A — per-call-site mechanical rewrites), `auto-cross-cutting.md` (Type A — cross-cutting renames / views / init / artefacts), `guided-handlers-state.md` (Type B — handler / view / db-seeding walkthroughs), `guided-interceptors-subs.md` (Type B — interceptor / sub / payload walkthroughs), `output-format.md` (the migration-report shape).
 - Authoritative rule corpus: [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Narrative companion: [Guide chapter 18 — From re-frame v1](../guide/18-from-re-frame-v1.md).
