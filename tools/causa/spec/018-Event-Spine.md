@@ -508,8 +508,8 @@ as the developer scans.
    peer section between the handler-driven effects and any conceptual
    `RETURNED VALUE` slot). Reads `:rf.flow/computed` traces (op-type
    `:flow`) from the cascade's `:other` bucket per
-   [spec/013-Flows.md §Flow tracing](../../spec/013-Flows.md#flow-tracing)
-   and [spec/009-Instrumentation.md §Flow trace events](../../spec/009-Instrumentation.md#flow-trace-events).
+   [spec/013-Flows.md §Flow tracing](../../../spec/013-Flows.md#flow-tracing)
+   and [spec/009-Instrumentation.md §Flow trace events](../../../spec/009-Instrumentation.md#flow-trace-events).
    One row per firing in cascade order (the framework's topo-sorted
    walk):
    - `▸ :flow-id` (or `↳ :flow-id  via :upstream-flow` when the row's
@@ -525,7 +525,7 @@ as the developer scans.
      cleared)` instead of paths.
 
    `:rf.flow/skip` traces (value-equal dirty-check suppression per
-   [spec/013-Flows.md §Dirty-check semantics](../../spec/013-Flows.md#dirty-check-semantics))
+   [spec/013-Flows.md §Dirty-check semantics](../../../spec/013-Flows.md#dirty-check-semantics))
    are NOT rendered as rows — a flow that didn't recompute did not
    touch app-db, so it stays out of the cascade-detail by default.
 
