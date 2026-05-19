@@ -1,15 +1,20 @@
 ;; day8/re-frame2-mcp-base — shared primitives for the re-frame2 MCP
-;; tool triplet (re-frame2-pair-mcp, story-mcp, causa-mcp). Filed under rf2-vw4sq.
+;; tool pair (re-frame2-pair-mcp, story-mcp). Filed under rf2-vw4sq.
+;;
+;; (Historical: a third server `causa-mcp` was envisaged as part of an
+;; MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Causa
+;; state flows via re-frame2-pair-mcp against the framework-published
+;; Causa runtime API, so a dedicated causa-mcp is unnecessary.)
 ;;
 ;; ## Why this artefact exists
 ;;
-;; The three MCP servers in `tools/` consume the same Spec 009
+;; The MCP servers in `tools/` consume the same Spec 009
 ;; instrumentation API and emit the same Spec / Conventions wire
 ;; vocabulary (`:rf.mcp/*` markers, `:rf.size/*` markers, JSON-RPC
 ;; error codes, the spec/009 §Privacy `:sensitive?` default-suppress
 ;; filter). Each was implementing those primitives privately; this
 ;; jar lifts the genuinely-shared pieces into one place so the wire
-;; shapes stay byte-identical across the triplet and the agent learns
+;; shapes stay byte-identical across the pair and the agent learns
 ;; the vocabulary once.
 ;;
 ;; What lives here:
@@ -53,7 +58,7 @@
 ;; ## CLJC
 ;;
 ;; Sources are `.cljc` so they load identically into the JVM
-;; classpath (story-mcp, causa-mcp) and the shadow-cljs CLJS build
+;; classpath (story-mcp) and the shadow-cljs CLJS build
 ;; (re-frame2-pair-mcp). The tests target Clojure (test runner via
 ;; cognitect-labs/test-runner) — the algorithmic content is platform-
 ;; agnostic, so a JVM round-trip is the cheapest gate.
@@ -74,7 +79,7 @@
  ;; runtime via `requiring-resolve` / `resolve` and soft-passes when
  ;; Malli is absent. The test alias here puts Malli on the classpath so
  ;; the diff-encode tests can hard-assert schema acceptance and
- ;; rejection. Consumers (re-frame2-pair-mcp, story-mcp, causa-mcp) bring Malli
+ ;; rejection. Consumers (re-frame2-pair-mcp, story-mcp) bring Malli
  ;; themselves via their implementation deps; production CLJS bundles
  ;; can flip the goog-define `validate-patches?` to false to DCE the
  ;; validation branch outright. Pinning the same version used by

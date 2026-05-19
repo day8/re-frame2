@@ -57,7 +57,7 @@
   ## Cross-platform
 
   Pure CLJC. The `ResultIO` protocol resolves identically into the
-  JVM (story-mcp / causa-mcp) and CLJS (re-frame2-pair-mcp) — `defprotocol`
+  JVM (story-mcp) and CLJS (re-frame2-pair-mcp) — `defprotocol`
   reads the same way on both sides. mcp-base stays free of
   platform-specific deps (`js-interop`, JVM reflection, etc); those
   live in the consumer's IO instance."
@@ -69,10 +69,10 @@
 
 (defprotocol ResultIO
   "Per-consumer accessors over the MCP `tools/call` result shape. Each
-  MCP server (re-frame2-pair-mcp, story-mcp, causa-mcp) reifies this protocol
+  MCP server (re-frame2-pair-mcp, story-mcp) reifies this protocol
   once over its native result shape — `#js {:content #js [...]}` for
   re-frame2-pair-mcp's npm-SDK JS objects, `{:content [...]}` CLJ maps for
-  story-mcp / causa-mcp. The cap pipeline is then algorithm-only and
+  story-mcp. The cap pipeline is then algorithm-only and
   shape-agnostic."
 
   (content-texts [_io result]

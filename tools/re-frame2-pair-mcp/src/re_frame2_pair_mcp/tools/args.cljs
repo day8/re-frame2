@@ -15,10 +15,9 @@
     - EDN-encoded string   ⇒ read-string (e.g. `\"[:cart :items 3 :sku]\"`).
     - nil / missing        ⇒ nil (no path slicing).
 
-  Mirrors the causa-mcp wire-protocol Principles §\"2. Path slicing\"
-  convention: a path is an EDN-encoded vector of keys addressing a
-  subtree. The vocabulary is shared across re-frame2-pair-mcp / causa-mcp /
-  story-mcp so agents recognise the surface once."
+  A path is an EDN-encoded vector of keys addressing a subtree.
+  The vocabulary is shared across re-frame2-pair-mcp / story-mcp so
+  agents recognise the surface once."
   (:require [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]

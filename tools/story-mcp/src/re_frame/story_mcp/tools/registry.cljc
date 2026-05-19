@@ -26,8 +26,8 @@
   carries no useful slot either. Contrast pair-mcp's 3-arity shape
   `(fn [conn args extra])`. The divergence is deliberate and is
   documented at `tools/mcp-base/spec/handler-arity.md`; a phase-2
-  unification awaits a third server instance (causa-mcp) and lands as
-  a separate bead."
+  unification awaits a third server instance and lands as a separate
+  bead."
   (:require [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.docs :as docs]

@@ -291,10 +291,8 @@ Post-Lock additions accumulated as follows:
 - **rf2-zjz9q** added `subscription-info` — the "what streams are
   open?" diagnostic peer for the streaming pair, picked under the
   bare-noun read shape. Renamed to `list-subscriptions` per rf2-4y595
-  for cross-server NAMING.md conformance — matches causa-mcp's
-  same-named tool per
-  [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
-  Story-mcp Lock #12 / rf2-3we2k.
+  for cross-server NAMING.md conformance per
+  [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md).
 - **rf2-fnpqg** added `get-re-frame2-pair-instructions` — the
   agent-onboarding text blob read once at session start. Mirrors
   story-mcp's `get-story-instructions` under the cross-MCP `get-`
@@ -536,9 +534,7 @@ arg (integer; `0` disables the cap for explicit escape).
 2026-05-13 (Mike). Locked at rf2-rvyzy PR #641 merge. The cap
 itself landed in [`Principles.md`](Principles.md#tight-token-budget-per-response)
 with MUST wording; this lock captures the comparative reasoning
-that the principle alone doesn't carry. A future causa-mcp will
-bake the same five mechanisms into its spec, deliberately aligned
-with the posture locked here.
+that the principle alone doesn't carry.
 
 ### Trail-of-thought citations
 
@@ -551,8 +547,7 @@ with the posture locked here.
   §The universal `max-tokens` arg — the per-tool surface for
   the override.
 - The `:rf.mcp/overflow` / `:rf.mcp/summary` / `:rf.mcp/dedup-table`
-  reserved keys are shared cross-server with sibling MCP servers
-  (story-mcp today; causa-mcp when its impl lands).
+  reserved keys are shared cross-server with story-mcp.
 - `ai/findings/wire-protocol-bigapp-20260513-1541.md` — the
   source investigation (local-only) that motivated baking the
   posture into spec instead of leaving it as in-flight impl

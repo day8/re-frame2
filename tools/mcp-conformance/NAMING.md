@@ -2,20 +2,24 @@
 
 Source: rf2-mzf1r.
 
-The re-frame2 MCP triplet — `tools/re-frame2-pair-mcp/`, `tools/story-mcp/`,
-and `tools/causa-mcp/` (spec-only today) — exposes a deliberately
-bounded surface, catalogued per-server at
-[`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`](../re-frame2-pair-mcp/spec/003-Tool-Catalogue.md),
-[`tools/story-mcp/spec/002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md),
-and (when its impl lands)
-[`tools/causa-mcp/spec/`](../causa-mcp/spec/). Per the
-§"Single source of truth for tool counts" rule below, every count
-sits in one place: the catalogue. An agent host with two or three
-servers attached at once sees the union as one surface.
+The re-frame2 MCP pair — `tools/re-frame2-pair-mcp/` and
+`tools/story-mcp/` — exposes a deliberately bounded surface, catalogued
+per-server at
+[`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`](../re-frame2-pair-mcp/spec/003-Tool-Catalogue.md)
+and
+[`tools/story-mcp/spec/002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md).
+Per the §"Single source of truth for tool counts" rule below, every count
+sits in one place: the catalogue. An agent host with both servers
+attached at once sees the union as one surface.
 **The verb a tool uses is the first signal the agent parses**; verb
 drift across siblings makes that signal lossy (snapshot in re-frame2-pair ≠
-snapshot-identity in story; `read-` in story ≠ `get-` in causa) and
-pushes the agent towards trial-and-error rather than pattern-match.
+snapshot-identity in story) and pushes the agent towards trial-and-error
+rather than pattern-match.
+
+(Historical: a third server `causa-mcp` was envisaged; it was dropped
+per rf2-hvl1g — AI agent access to Causa state already flows via
+`re-frame2-pair-mcp` against the framework-published Causa runtime API,
+so a dedicated causa-mcp is unnecessary.)
 
 This doc locks the verb vocabulary the triplet picks from. New tools
 land against an existing verb; novel verbs require a Lock entry in
@@ -29,18 +33,18 @@ covers the catalogue surface.
 | Verb shape | Semantics | Examples | Notes |
 |---|---|---|---|
 | **`get-<thing>`** | Single-entity read by id / key / addressed path. Returns ONE record or value. | `get-app-db`, `get-path`, `get-story`, `get-variant`, `get-trace-buffer`, `get-epoch-history`, `get-machine-state`, `get-machine-list`, `get-issues`, `get-handlers`, `get-source-coord`, `get-story-instructions` | The most common verb. The agent supplies an id / path / filter; the server returns the addressed slice. `get-` is a pure read — no side-effects, no recompute. `get-trace-buffer` and `get-epoch-history` are `get-` rather than `list-` because they return slices addressed by filter, not full enumerations. |
-| **`list-<things>`** | Collection enumeration — no id, returns vector / set. | `list-stories`, `list-substrates`, `list-tags`, `list-modes`, `list-assertions` | Closed-set or registrar-derived enumeration. The returned shape is a vector of records (or ids); no filter axis collapses it to one entity. re-frame2-pair-mcp doesn't ship any `list-*` today (its catalogue is small enough that the per-frame snapshot covers the discovery workflow); causa-mcp uses `get-machine-list` rather than `list-machines` because the call carries a frame filter — borderline, but `get-` won when the canonical pin was chosen. New tools that match the pure-enumeration shape use `list-`. |
+| **`list-<things>`** | Collection enumeration — no id, returns vector / set. | `list-stories`, `list-substrates`, `list-tags`, `list-modes`, `list-assertions` | Closed-set or registrar-derived enumeration. The returned shape is a vector of records (or ids); no filter axis collapses it to one entity. re-frame2-pair-mcp doesn't ship any `list-*` today (its catalogue is small enough that the per-frame snapshot covers the discovery workflow). New tools that match the pure-enumeration shape use `list-`. |
 | **`read-<thing>`** | Diagnostic re-read of last-computed state. Same shape as `get-`, but reserved for the **no-recompute** read path against a previously-executed artefact. | `read-failures` | Distinguished from `get-` so the agent recognises "the run already happened; this is a cheap reflection" — not "fetch the live state". The difference matters when the value is expensive to recompute (story-mcp's `read-failures` reads the variant's accumulated `:rf.story/assertions` rather than re-running the play sequence). |
-| **`discover-<surface>`** | Session-bootstrap health probe. Returns `{:ok? ... :debug-enabled? ... :frames [...] :build-id ...}` or a structured `:reason` keyword. | `discover-app` | Run first every session. Universal across re-frame2-pair-mcp and causa-mcp; story-mcp doesn't ship `discover-app` because its runtime model is JVM-side (no nREPL handshake). |
-| **`dispatch`** | Fire a re-frame2 event. Bare verb, **universal across re-frame2-pair-mcp and causa-mcp**. Always tagged with `:origin :<server-name>` on the trace bus. | `dispatch` | Story-mcp does NOT ship `dispatch` — its mutations go through `register-variant` / `unregister-variant` instead. The bare verb is reserved for the framework's primary mutation primitive. |
-| **`eval-cljs`** | The escape hatch — evaluate an arbitrary CLJS form in the connected runtime. Bare verb, **universal across re-frame2-pair-mcp and causa-mcp**. Any side-effect the form triggers inherits the server's `:origin` tag. | `eval-cljs` | Story-mcp does NOT ship `eval-cljs` because its server runs JVM-side and there's no browser runtime to eval into. Causa-mcp ships the same shape as re-frame2-pair-mcp (per its DESIGN-RATIONALE Lock #5: closed-set catalogue, deliberate escape valve). |
-| **`restore-<thing>`** | Time-travel state restore. Mirrors a user-confirmed in-panel affordance. | `restore-epoch` | Mutating; tagged `:origin :<server-name>`. Causa-mcp only today. |
-| **`reset-<thing>`** | Replace state, bypassing the normal cascade. Mirrors a "try anyway" affordance. | `reset-frame-db` | Mutating; tagged `:origin :<server-name>`. Causa-mcp only today. |
+| **`discover-<surface>`** | Session-bootstrap health probe. Returns `{:ok? ... :debug-enabled? ... :frames [...] :build-id ...}` or a structured `:reason` keyword. | `discover-app` | Run first every session. Used by re-frame2-pair-mcp; story-mcp doesn't ship `discover-app` because its runtime model is JVM-side (no nREPL handshake). |
+| **`dispatch`** | Fire a re-frame2 event. Bare verb, used by re-frame2-pair-mcp. Always tagged with `:origin :<server-name>` on the trace bus. | `dispatch` | Story-mcp does NOT ship `dispatch` — its mutations go through `register-variant` / `unregister-variant` instead. The bare verb is reserved for the framework's primary mutation primitive. |
+| **`eval-cljs`** | The escape hatch — evaluate an arbitrary CLJS form in the connected runtime. Bare verb, used by re-frame2-pair-mcp. Any side-effect the form triggers inherits the server's `:origin` tag. | `eval-cljs` | Story-mcp does NOT ship `eval-cljs` because its server runs JVM-side and there's no browser runtime to eval into. |
+| **`restore-<thing>`** | Time-travel state restore. Mirrors a user-confirmed in-panel affordance. | `restore-epoch` | Mutating; tagged `:origin :<server-name>`. Reserved shape — no live server emits this today. |
+| **`reset-<thing>`** | Replace state, bypassing the normal cascade. Mirrors a "try anyway" affordance. | `reset-frame-db` | Mutating; tagged `:origin :<server-name>`. Reserved shape — no live server emits this today. |
 | **`register-<thing>` / `unregister-<thing>`** | Registry add / remove, symmetric pair. Both gated behind the server's write-allow flag where applicable. | `register-variant`, `unregister-variant` | Story-mcp only today. If a future tool surfaces "register a handler at the framework level via MCP" it adopts this verb. |
 | **`run-<thing>`** | Execute a definition and report **pass / fail** results. Implies a play sequence, an assertion vocabulary, or some explicit success criterion. | `run-variant`, `run-a11y` | Distinguished from `preview-` (no pass/fail) and `dispatch` (one event, not a sequence). Story-mcp only today. |
 | **`preview-<thing>`** | Execute and report **rendered / resolved state**, but no pass/fail. The "show me what this would look like" call. | `preview-variant` | The symmetric pair of `run-` for the same registry. Story-mcp only today. |
 | **`record-as-<thing>`** | Capture user / agent activity for a bounded duration; emit as an artefact (variant snippet, etc.). | `record-as-variant` | The bridge between live dispatches and the persisted registry. Story-mcp only today. |
-| **`subscribe` / `unsubscribe`** | Streaming pair. Bare verbs, **universal across re-frame2-pair-mcp and causa-mcp**. `subscribe` returns one `notifications/progress` per matching batch; `unsubscribe` closes out-of-band. | `subscribe`, `unsubscribe` | Topic vocabulary is per-server (re-frame2-pair ships `:trace` / `:epoch` / `:fx` / `:error`; causa-mcp ships the same set). Story-mcp does not ship streaming. |
+| **`subscribe` / `unsubscribe`** | Streaming pair. Bare verbs, used by re-frame2-pair-mcp. `subscribe` returns one `notifications/progress` per matching batch; `unsubscribe` closes out-of-band. | `subscribe`, `unsubscribe` | Topic vocabulary is per-server (re-frame2-pair ships `:trace` / `:epoch` / `:fx` / `:error`). Story-mcp does not ship streaming. |
 | **`tail-<thing>`** | Wait for an external state change to land. Polls until a probe condition flips or `wait-ms` expires. | `tail-build` | Today only `tail-build` exists (await hot-reload). Future variants (`tail-test`, `tail-deploy`) take the same shape: integer wait, probe form, structured timeout. |
 | **Mega-op bare verbs** | Reserved for derived projections / multi-registry reads that don't fit `get-<thing>`. Bare names, no prefix. | `snapshot`, `trace-window`, `watch-epochs` | These are re-frame2-pair-mcp's coarse-grained reads that span multiple registry kinds (`snapshot` covers app-db + sub-cache + machines + epochs + traces in one round-trip; `trace-window` and `watch-epochs` page over the trace bus). Adding a new bare verb requires a Lock entry in the relevant server's `DESIGN-RATIONALE.md`. |
 
@@ -65,13 +69,13 @@ out in PR review and pick from the table above instead.
 
 ## Server alignment today
 
-The triplet is **fully aligned** with this convention today
+The pair is **fully aligned** with this convention today
 (post-rf2-4y595). The table below is the audit; the table reflects
 the post-rename state — pair-mcp's two former deviations
 (`subscription-info`, `registry-list`) were renamed to
 `list-subscriptions` / `list-handlers` per rf2-4y595 (rf2-h1izl
 follow-on C5). The convention is the lock for **any future extension**
-to re-frame2-pair-mcp / story-mcp / causa-mcp.
+to re-frame2-pair-mcp / story-mcp.
 
 ### re-frame2-pair-mcp (14 tools)
 
@@ -86,7 +90,7 @@ to re-frame2-pair-mcp / story-mcp / causa-mcp.
 | `watch-epochs` | bare (mega-op) | Conformant — paginated projection. (Borderline: arguably a `list-` candidate, but the cursor / filter shape leans mega-op.) |
 | `get-path` | `get-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
-| `list-subscriptions` | `list-` | Conformant — renamed from `subscription-info` per rf2-4y595 (NAMING.md follow-on). Matches causa-mcp's same-named tool per rf2-3we2k Lock #12. No back-compat shim; the old name hard-errors with `:unknown-tool`. |
+| `list-subscriptions` | `list-` | Conformant — renamed from `subscription-info` per rf2-4y595 (NAMING.md follow-on). No back-compat shim; the old name hard-errors with `:unknown-tool`. |
 | `handler-meta` | bare-noun read | Conformant exception — bare-noun read of a single-record metadata map. Accepted under the bare-noun-exception clause when the return value is a structured metadata blob the agent reads as one record (same shape as story-mcp's `snapshot-identity`). Added by rf2-cibp8. |
 | `list-handlers` | `list-` | Conformant — renamed from `registry-list` per rf2-4y595 (NAMING.md follow-on). The `<noun>-list` suffix was flagged as rejected in §"What's NOT a locked verb" above; `list-<things>` prefix is the catalogued shape. The runtime's `(rf/registry-list kind)` accessor keeps its name (separate naming surface). Added by rf2-pctf8. |
 | `get-re-frame2-pair-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
@@ -115,28 +119,6 @@ to re-frame2-pair-mcp / story-mcp / causa-mcp.
 | `unregister-variant` | `unregister-` | Conformant. |
 | `record-as-variant` | `record-as-` | Conformant. |
 
-### Causa-mcp (18 tools per `tools/causa-mcp/spec/004-Tools-Catalogue.md`)
-
-| Tool | Verb shape | Notes |
-|---|---|---|
-| `discover-app` | `discover-` | Conformant. |
-| `eval-cljs` | bare (universal) | Conformant. |
-| `dispatch` | bare (universal) | Conformant. |
-| `tail-build` | `tail-` | Conformant. |
-| `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
-| `list-subscriptions` | `list-` | Conformant — enumeration of active streaming subscriptions; the cross-server-symmetric counterpart to re-frame2-pair-mcp's `list-subscriptions` (formerly `subscription-info`; renamed per rf2-4y595 once causa-mcp's Lock #12 picked the canonical verb). Per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../causa-mcp/spec/DESIGN-RATIONALE.md) (rf2-3we2k, 2026-05-14). |
-| `get-trace-buffer` | `get-` | Conformant — filter-addressed slice read. |
-| `get-epoch-history` | `get-` | Conformant — filter-addressed slice read. |
-| `get-app-db` | `get-` | Conformant. |
-| `get-app-db-diff` | `get-` | Conformant. |
-| `get-machine-state` | `get-` | Conformant. |
-| `get-machine-list` | `get-` | **Borderline** — a pure enumeration would be `list-machines`; the current name uses `get-` because the call carries a frame filter. Either shape is conformant; the current name is the spec'd pick and stays. |
-| `get-issues` | `get-` | Conformant. |
-| `get-handlers` | `get-` | Conformant. |
-| `get-source-coord` | `get-` | Conformant. |
-| `restore-epoch` | `restore-` | Conformant. |
-| `reset-frame-db` | `reset-` | Conformant. |
-
 ## Single source of truth for tool counts
 
 Each per-server spec carries its catalogue count in prose ("the 19 tools",
@@ -152,9 +134,9 @@ The convention for per-server tool-catalogue docs:
 - **One canonical count site per server.** Pin the integer in exactly one
   place — the catalogue file's `# <Server> — Tool Registry` heading or its
   introductory paragraph (`tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md`,
-  `tools/story-mcp/spec/002-Tool-Registry.md`, `tools/causa-mcp/spec/`
-  forthcoming). Every other doc that needs to cite the count **links to
-  the catalogue** rather than repeating the integer:
+  `tools/story-mcp/spec/002-Tool-Registry.md`). Every other doc that
+  needs to cite the count **links to the catalogue** rather than
+  repeating the integer:
   ```md
   See [`002-Tool-Registry.md`](002-Tool-Registry.md) for the full tool list.
   ```
@@ -191,8 +173,8 @@ cross-server discipline. Three reserved namespaces:
   verbatim by every server that ships epoch slices.
 - **`:<server-name>.error/*`** — server-specific failures
   (`:rf.story-mcp.error/write-gate-closed`,
-  `:rf.re-frame2-pair-mcp.error/runtime-not-preloaded`,
-  `:rf.causa-mcp.error/...`). Owned by the server.
+  `:rf.re-frame2-pair-mcp.error/runtime-not-preloaded`). Owned by the
+  server.
 
 Additional cross-server reserved keywords cover the wire-vocabulary
 markers (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`,
@@ -225,9 +207,6 @@ property the table exists to enforce.
   `spec/Principles.md`).
 - [`tools/story-mcp/spec/002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md)
   — story-mcp's tool catalogue.
-- [`tools/causa/spec/010-MCP-Server.md`](../causa/spec/010-MCP-Server.md)
-  §"Tool catalogue" — causa-mcp's catalogue prose (until
-  `tools/causa-mcp/spec/003-Tool-Catalogue.md` lands).
 - [`spec/Conventions.md`](../../spec/Conventions.md) §"Reserved
   namespaces (framework-owned)" — the `:rf.*` keyword discipline this
   doc inherits.

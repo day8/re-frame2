@@ -165,9 +165,8 @@
 ;;
 ;; These tests pin the grammar with positive and negative cases so a
 ;; future encoder refactor that drifts the tuple shape — and a future
-;; consumer (causa-mcp's Malli-based decoder per spec/004-Wire-Pipeline.md,
-;; the cross-MCP wire-vocab conformance test) that re-states the
-;; grammar — both trip this gate before reaching the wire.
+;; consumer (the cross-MCP wire-vocab conformance test) that re-states
+;; the grammar — both trip this gate before reaching the wire.
 ;; ---------------------------------------------------------------------------
 
 (deftest patch-schema-accepts-well-formed-tuples

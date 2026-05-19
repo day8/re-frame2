@@ -67,8 +67,8 @@
 
   The `:rf.mcp/diff-from` marker key follows the same `:rf.mcp/*`
   namespace convention as `:rf.mcp/overflow` (rf2-rvyzy),
-  `:rf.mcp/summary` (rf2-tygdv), and causa-mcp's `:rf.mcp/dedup-table`
-  (rf2-lwgg8 mechanism 5). Agents recognise the family once.
+  `:rf.mcp/summary` (rf2-tygdv), and `:rf.mcp/dedup-table` (rf2-lwgg8
+  mechanism 5). Agents recognise the family once.
 
   ## Patch grammar pinned via Malli (rf2-rgg7d)
 
@@ -78,15 +78,14 @@
   the tuple shape trips the dev-build gate before it reaches a consumer.
 
   The schema is published as a public def for downstream Malli-based
-  decoders (causa-mcp's spec/004-Wire-Pipeline.md) and for the
-  cross-MCP wire-vocab conformance test
+  decoders and for the cross-MCP wire-vocab conformance test
   (`tools/mcp-conformance/wire-vocab`). Both today re-state the grammar
   in their own source; pinning it here gives them a canonical home to
   refer to once they switch to consume the schema directly.
 
   Validation is soft-pass when Malli is not resolvable on the runtime
   classpath: mcp-base does not pull Malli into its own deps (consumers
-  bring their own — re-frame2-pair-mcp/story-mcp/causa-mcp all have Malli on the
+  bring their own — re-frame2-pair-mcp/story-mcp both have Malli on the
   classpath via the implementation deps or the story artefact). On
   CLJS the validation branch sits behind a `goog-define`'d
   `validate-patches?` flag so a production build with
@@ -118,10 +117,9 @@
   diffed value down to the leaf being assoc'd / dissoc'd; an empty
   vector denotes the root (root replacement / no-op dissoc).
 
-  Published as a public def so downstream decoders (causa-mcp
-  spec/004-Wire-Pipeline.md, the cross-MCP wire-vocab conformance
-  test) can consume the canonical schema rather than re-stating the
-  grammar."
+  Published as a public def so downstream decoders (the cross-MCP
+  wire-vocab conformance test) can consume the canonical schema
+  rather than re-stating the grammar."
   [:or
    [:tuple [:vector :any] [:= :assoc] :any]
    [:tuple [:vector :any] [:= :dissoc]]])
@@ -143,10 +141,9 @@
        :section-kind :added|:removed|:modified
        :patches      [<patch>...]}         ; subset of the flat patch list
 
-  Published as a public def so downstream decoders (causa-mcp's
-  forthcoming Wire-Pipeline schema, the cross-MCP wire-vocab
-  conformance test) can consume the canonical schema rather than
-  re-stating the grammar."
+  Published as a public def so downstream decoders (the cross-MCP
+  wire-vocab conformance test) can consume the canonical schema
+  rather than re-stating the grammar."
   [:map
    [:section-path [:vector :any]]
    [:section-kind [:enum :added :removed :modified]]
@@ -173,11 +170,10 @@
            ;; `diff-encode-db-after`.
            true)
    :clj  (def ^:const validate-patches?
-           "JVM-side: validation always on. JVM consumers (story-mcp,
-           causa-mcp) run on dev / server hosts where the tree-walk
-           cost is invisible against the surrounding diff. The
-           compile-time elision only meaningfully applies under CLJS
-           `:advanced`."
+           "JVM-side: validation always on. JVM consumers (story-mcp)
+           run on dev / server hosts where the tree-walk cost is
+           invisible against the surrounding diff. The compile-time
+           elision only meaningfully applies under CLJS `:advanced`."
            true))
 
 (defn- resolve-malli-validate

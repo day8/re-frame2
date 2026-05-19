@@ -83,7 +83,7 @@ Both story-mcp and re-frame2-pair-mcp implement this shape; the consumer-side de
 
 ## Cross-platform
 
-Pure-data tree walk over the path-keyed grammar. Loads identically into JVM (story-mcp / causa-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework dep beyond `org.clojure/clojure` for `assoc-in` / `update-in` / `dissoc`.
+Pure-data tree walk over the path-keyed grammar. Loads identically into JVM (story-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework dep beyond `org.clojure/clojure` for `assoc-in` / `update-in` / `dissoc`.
 
 ## Conformance posture
 

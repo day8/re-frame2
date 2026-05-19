@@ -1,8 +1,8 @@
-# Handler-arity divergence across the MCP triplet
+# Handler-arity divergence across the MCP pair
 
 Source: rf2-63s4e (rf2-h1izl follow-on C7).
 
-The two shipped MCP servers in the re-frame2 triplet use **different
+The two shipped MCP servers in the re-frame2 pair use **different
 registry-handler arities**:
 
 | Server                    | Handler shape                | Why                                                        |
@@ -28,11 +28,11 @@ The two source-of-truth declarations:
 
 Cross-MCP-aware tooling under `tools/mcp-base/` cannot abstract the
 handler invocation shape — each server's dispatcher is a distinct
-implementation. A future fourth MCP-server author who consults both
+implementation. A future third MCP-server author who consults both
 servers as examples sees two patterns rather than one. This is the
-**deliberate gap** acknowledged here pending a third instance
-(`causa-mcp`, blocked behind rf2-hvl1g's scope discussion at time of
-writing) crystallising the canonical shape.
+**deliberate gap** acknowledged here; the originally-anticipated
+third instance (`causa-mcp`) was dropped per rf2-hvl1g, so unification
+will wait until a fresh third server crystallises the canonical shape.
 
 ## Why the divergence stayed
 
@@ -49,10 +49,10 @@ The unification is **not** part of this bead. A separate follow-on
 will factor an explicit `ExecutionContext` type (likely a record /
 map with optional `:conn` / `:progress-callback` / `:request-meta`
 slots) into `tools/mcp-base/` and refit both servers to a uniform
-`(fn [ctx args])` handler shape. That bead will be filed once
-`causa-mcp` lands and the three-server pattern is observable; until
-then there's no reliable third instance to validate the shape
-against.
+`(fn [ctx args])` handler shape. That bead waits for a third server
+instance to land — the originally-anticipated `causa-mcp` was dropped
+per rf2-hvl1g, so there's no reliable third instance to validate the
+shape against today.
 
 When it lands, the unification should:
 
@@ -66,7 +66,7 @@ When it lands, the unification should:
 3. Refit `re-frame.story-mcp.tools.cap` / category descriptors to
    call handlers with `(handler ctx args)`; the JVM-side
    `:conn` / `:progress-callback` slots are nil and ignored.
-4. `causa-mcp` adopts the unified shape from day one when it lands.
+4. The new third server adopts the unified shape from day one.
 
 Until that bead lands, the divergence is the documented state.
 
@@ -76,7 +76,7 @@ Until that bead lands, the divergence is the documented state.
   — the existing list of tool-shaped surfaces that stay consumer-side
   (wire transport, cursor base64 codec, tool registries). Handler-arity
   belongs on that list in spirit but is broken out into its own doc
-  because the divergence is structural — a future fourth server
+  because the divergence is structural — a future third server
   WILL need to pick one shape, and this doc gives them the context.
 - [`tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs)
   — pair-mcp's 3-arity registry; ns docstring §"Handler arity

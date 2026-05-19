@@ -163,8 +163,7 @@ Mechanisms 1-6 align deliberately with the cross-MCP wire
 pipeline so that an agent learning the slot on one server
 gets the same slot on the others; mechanisms 7-8 are
 re-frame2-pair-mcp-specific (epoch-record diff encoding and
-streaming-subscribe budgets — both will likely absorb into a
-future causa-mcp's catalogue when its impl lands).
+streaming-subscribe budgets).
 Every catalogue entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) declares
 which mechanisms apply, with a **typical-token** hint
@@ -195,13 +194,11 @@ The eight mechanisms in re-frame2-pair-mcp:
 7. **Diff-encoded `:db-after`** (§"Diff-encoded `:db-after`") —
    path-keyed structural patches against the same record's
    `:db-before`. *re-frame2-pair-mcp-specific*: addresses the
-   epoch-record pair shape, which causa-mcp's `get-epoch` /
-   `get-epoch-history` will need to absorb when its impl lands.
+   epoch-record pair shape.
 8. **Streaming subscribe byte+event budget** (§"Streaming
    subscribe byte+event budget") — runtime-side queue feeding
    `subscribe` carries OR-combined event-count + byte caps.
-   *re-frame2-pair-mcp-specific*: causa-mcp's `subscribe` will share
-   the upstream-queue posture when its streaming impl lands.
+   *re-frame2-pair-mcp-specific*.
 
 The reserved `:rf.mcp/*` and `:rf.size/*` keyword namespaces
 are catalogued at
@@ -254,10 +251,8 @@ internals.
   JSON-RPC `arguments` key (string, kebab-case — the wire
   shape an agent host sends); **`:max-tokens`** as the parsed
   CLJS keyword inside the runtime. The pairing is normative —
-  re-frame2-pair-mcp, story-mcp, and causa-mcp all parse the same wire
-  slot to the same in-process key, so a forwarder that learned
-  one pairing on one server gets the same pairing on the
-  others. Per
+  re-frame2-pair-mcp and story-mcp both parse the same wire
+  slot to the same in-process key. Per
   [TOKEN-BUDGETS.md](../../mcp-conformance/TOKEN-BUDGETS.md).
 - **Overflow shape**: a tool that would exceed the cap MUST NOT
   silently truncate. Instead it MUST return a structured
@@ -275,24 +270,9 @@ internals.
   The agent host MUST treat `{:rf.mcp/overflow {:limit :reached}}`
   as a structured retry signal — narrow args, drop slices, or
   pass `max-tokens 0` if the full payload is genuinely needed.
-  The `:rf.mcp/overflow` key is reserved cross-server (re-frame2-pair-mcp,
-  story-mcp, causa-mcp use the same key) so an agent that
-  recognises it once recognises it everywhere.
-
-  *Differs from causa-mcp.* A future causa-mcp wire-pipeline
-  spec will document the overflow marker with slot names
-  `:cap` / `:would-be` / `:hint` / `:continuation`; re-frame2-pair-mcp's
-  implemented shape uses
-  `:limit :reached` plus `:token-count` / `:cap-tokens` /
-  `:tool` / `:hint` (per rf2-rvyzy). The divergence is
-  intentional — re-frame2-pair-mcp's wrapper measures the *post-shrunk*
-  payload after the diff-encode/dedup/elision pipeline, so the
-  continuation hint is tool-specific rather than a generic
-  `:continuation {:cursor ... :next-args ...}` shape. The
-  reserved keyword namespace (`:rf.mcp/overflow`) and the
-  retry-signal contract are identical; the slot vocabulary
-  differs. Cross-server alignment of the slot shape is tracked
-  separately — when both wrappers stabilise, one shape wins.
+  The `:rf.mcp/overflow` key is reserved cross-server
+  (re-frame2-pair-mcp, story-mcp use the same key) so an agent
+  that recognises it once recognises it everywhere.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
@@ -340,9 +320,8 @@ don't know which slice carries the answer") stays inside the
 cap by construction rather than relying on the cap as a
 backstop. The same wire-shape vocabulary (`{:rf.mcp/summary
 {:type :map :keys [...] :counts {...} :bytes ~N}}` on
-summarised slices) crosses to causa-mcp's catalogue under
-mechanism 4 (lazy summary) — single learning step on the
-agent side.
+summarised slices) is shared with story-mcp under mechanism
+4 (lazy summary) — single learning step on the agent side.
 
 ### Per-tool budget discipline
 
@@ -420,11 +399,10 @@ single op blow the session.
 
 ### Diff-encoded `:db-after` on epoch slices (rf2-1wdzp)
 
-Mechanism 7 — re-frame2-pair-mcp-specific. causa-mcp's catalogue will
-ship the same shape against `get-epoch` / `get-epoch-history`
-when its impl lands; the cross-server vocabulary
-(`:rf.mcp/diff-from`, the `[<path> :assoc <v>]` / `[<path>
-:dissoc]` patch grammar) is already pinned here.
+Mechanism 7 — re-frame2-pair-mcp-specific. The cross-server
+vocabulary (`:rf.mcp/diff-from`, the `[<path> :assoc <v>]` /
+`[<path> :dissoc]` patch grammar) is pinned here for any future
+sibling that adopts the same diff-encoding shape.
 
 Every `:rf/epoch-record` carries `:db-before` and `:db-after`
 — two near-identical full app-db snapshots
@@ -528,9 +506,8 @@ de-dupe library's companion `expand` function.
 **Cross-MCP vocabulary**. The `:rf.mcp/diff-from` marker key
 follows the `:rf.mcp/*` namespace convention shared with
 `:rf.mcp/overflow` (rf2-rvyzy), `:rf.mcp/summary` (rf2-tygdv),
-and causa-mcp's `:rf.mcp/dedup-table` (rf2-lwgg8 mechanism 5).
-Agents recognise the family once and pattern-match on the
-prefix.
+and `:rf.mcp/dedup-table` (rf2-lwgg8 mechanism 5). Agents
+recognise the family once and pattern-match on the prefix.
 
 ### Structural dedup (rf2-obpa9)
 
@@ -728,9 +705,9 @@ privacy / dedup defaults: shrink first, opt out explicitly.
 `[:rf.elision/at <path>]` are reserved per
 [`Conventions §Reserved namespaces / app-db keys / fx-ids`](../../../spec/Conventions.md)
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md).
-The shape is shared across re-frame2-pair-mcp, story-mcp, and a future
-causa-mcp — an agent that learned the slot on a sibling server
-sees the same slot here. The `:rf.size/*` family sits alongside the
+The shape is shared across re-frame2-pair-mcp and story-mcp —
+an agent that learned the slot on a sibling server sees the same
+slot here. The `:rf.size/*` family sits alongside the
 `:rf.mcp/*` family (per-tool wire-mechanism markers like
 `:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/diff-from`,
 `:rf.mcp/dedup-table`).
@@ -749,14 +726,9 @@ Mechanism 8 — re-frame2-pair-mcp-specific, applied at the *upstream*
 edge — the runtime-side queue feeding the `subscribe` tool —
 rather than at the wire boundary itself.
 
-*Differs from causa-mcp.* A future causa-mcp wire-pipeline spec
-will document `subscribe` as a per-notification cap with the
-upstream-queue model deferred to impl. re-frame2-pair-mcp ships a
-runtime-side OR-combined event-count + byte budget today; when
-causa-mcp's streaming impl lands it will absorb the same
-posture (the chatty-filter case and the large-payload-storm
-case both apply to causa-mcp's trace stream). The motivation is
-memory pressure: an event-count-only buffer (`:max-buffered
+re-frame2-pair-mcp ships a runtime-side OR-combined event-count
++ byte budget. The motivation is memory pressure: an
+event-count-only buffer (`:max-buffered
 500`) is misleading when event size varies by orders of
 magnitude. Five small trace events fit in ~500 bytes; five
 overflowed epoch records with diff-encoded 1MB app-db
@@ -918,8 +890,8 @@ the namespace once and recognises every marker.
 Tool names in re-frame2-pair-mcp's catalogue pick from the verb table at
 [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
-shared with story-mcp and causa-mcp. The shared verbs the
-triplet pins are `get-` / `list-` / `read-` / `discover-` /
+shared with story-mcp. The shared verbs the pair pins are
+`get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
 `preview-` / `record-as-` / `tail-` plus the bare universals
 `dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`, plus the
@@ -932,9 +904,8 @@ Pair2-mcp's fourteen current tools (`discover-app`, `eval-cljs`,
 `handler-meta`, `list-handlers`, `get-re-frame2-pair-instructions`) are all
 conformant against existing verbs after the rf2-4y595 rename
 (`subscription-info` → `list-subscriptions`, `registry-list` →
-`list-handlers` — see NAMING.md's audit table; `list-subscriptions`
-matches causa-mcp's same-named tool per rf2-3we2k Lock #12). New
-tools land against an existing verb, or via a Lock entry in
+`list-handlers` — see NAMING.md's audit table). New tools land
+against an existing verb, or via a Lock entry in
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension to
 the canonical table.
 

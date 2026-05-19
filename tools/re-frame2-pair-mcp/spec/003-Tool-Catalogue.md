@@ -98,7 +98,7 @@ The marker key `:rf.size/large-elided` and the handle
 vocabulary `[:rf.elision/at <path>]` are reserved per
 [`Conventions §Reserved namespaces`](../../../spec/Conventions.md)
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
-the shape is shared across re-frame2-pair-mcp, story-mcp, and causa-mcp.
+the shape is shared across re-frame2-pair-mcp and story-mcp.
 
 ## Universal: app-installed `:redact-fn` on epoch consumers
 
@@ -273,10 +273,9 @@ by passing `--allow-raw-state`. The per-call args then win again
 (`:include-sensitive true` / `:elision false` pass through to the
 walker unchanged).
 
-Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx) and
-causa-mcp's `--allow-eval` (rf2-zyoj2 — same gate as re-frame2-pair-mcp's
-`eval-cljs`). The same pattern across MCP servers gives operators one
-posture vocabulary.
+Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx).
+The same pattern across MCP servers gives operators one posture
+vocabulary.
 
 ## Universal: server resource controls (streaming surfaces)
 
@@ -984,8 +983,8 @@ frame-db / epoch-history / trace-buffer surfaces.
 
 **Naming note**: renamed from `subscription-info` per rf2-4y595 —
 NAMING.md catalogues `list-<things>` as the canonical enumeration
-verb, matching causa-mcp's `list-subscriptions` (rf2-3we2k Lock #12).
-No back-compat shim; the old name hard-errors with `:unknown-tool`.
+verb. No back-compat shim; the old name hard-errors with
+`:unknown-tool`.
 
 **Args** (all optional):
 
@@ -1035,10 +1034,6 @@ bodies; only registration metadata crosses the wire.
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :list-subscriptions-failed` (with `:message`) on any other
 failure.
-
-A future causa-mcp peer will ship `list-subscriptions` — same
-diagnostic shape, NAMING.md-conformant verb in causa-mcp's
-catalogue.
 
 ## handler-meta
 

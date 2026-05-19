@@ -342,7 +342,7 @@
   level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
   predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn
   / rf2-iwqu9, every consumer of `:sensitive?` (Causa, Story,
-  story-mcp, re-frame2-pair-mcp, causa-mcp) composes against ONE framework
+  story-mcp, re-frame2-pair-mcp) composes against ONE framework
   primitive rather than reimplementing the five-token check. Per Spec
   009 §Privacy."
   [ev]

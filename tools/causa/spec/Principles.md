@@ -22,9 +22,11 @@ The mechanism:
   explicit `Rewind here` button or `r` keypress.
 - Re-dispatch is a right-click context-menu action, never a single
   click.
-- The MCP server's mutation tools (`restore-epoch`, `reset-frame-db`,
-  `dispatch`) are tagged `:origin :causa-mcp` and surface in the
-  trace stream as distinguishable from app-issued mutations.
+- MCP-driven mutations (via `tools/re-frame2-pair-mcp/`) — typically
+  `dispatch` plus `eval-cljs` invocations of the runtime API's
+  `restore-epoch!` / `reset-frame-db!` accessors — are tagged
+  `:origin :re-frame2-pair-mcp` and surface in the trace stream as
+  distinguishable from app-issued mutations.
 
 This is the v1-of-10x mistake-not-repeated. `app-db-follows-events?`
 was too implicit; users accidentally rewound. Causa's posture:

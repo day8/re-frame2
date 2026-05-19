@@ -1,23 +1,25 @@
 (ns day8.re-frame2-causa.runtime
-  "Injected-runtime namespace for Causa-MCP (rf2-8xzoe.4 / F-4).
+  "Injected-runtime namespace exposing Causa's read/mutate accessors
+  to AI agents (rf2-8xzoe.4 / F-4, rf2-crhr8).
 
   Lives on the browser side of the stdio JSON-RPC pipe. Rides
   Causa-the-panel's `:devtools/preloads` (see `preload.cljs`'s require
   list) so a consumer app that already loads Causa-the-panel
-  automatically carries the runtime — no separate preload entry per
-  `tools/causa-mcp/spec/000-Vision.md` §Two namespaces, two sides.
+  automatically carries the runtime — no separate preload entry.
+
+  Per rf2-hvl1g (closure 2026-05-19) there is no dedicated `causa-mcp`
+  jar; AI agents reach this runtime via `tools/re-frame2-pair-mcp/`
+  (which can read this ns via `eval-cljs`). The accessors below are
+  the framework-published Causa runtime API.
 
   ## What this namespace is
 
-  Eighteen tool-shaped accessors backing the eighteen Causa-MCP tools
-  per [`tools/causa/spec/010-MCP-Server.md` §Tool catalogue]
-  (../../causa/spec/010-MCP-Server.md#tool-catalogue) and the
-  per-tool bindings at
-  [`tools/causa-mcp/spec/000-Vision.md`](../../causa-mcp/spec/000-Vision.md).
-  The MCP server (`day8.re-frame2-causa-mcp.*`, Node-side) renders
-  EDN forms addressed at `day8.re-frame2-causa.runtime/<accessor>`;
-  shadow-cljs evaluates each form in the browser tab; the return value
-  comes back over the bencode-framed nREPL socket.
+  Tool-shaped accessors (see [`API.md` §Causa runtime API](../../spec/API.md))
+  rendered as EDN forms addressed at
+  `day8.re-frame2-causa.runtime/<accessor>`; an MCP server (today
+  `tools/re-frame2-pair-mcp/`) renders the form against the nREPL
+  socket, shadow-cljs evaluates each form in the browser tab, and the
+  return value comes back over the bencode-framed channel.
 
   Plus three load-bearing supports:
 
@@ -29,36 +31,28 @@
     with a setup hint.
   - `current-origin` — `^:dynamic` var holding the `:tags :origin`
     value the runtime stamps onto every mutation it performs. The
-    default is `:causa-mcp` so a bare `(dispatch! ...)` call from the
-    MCP server already carries the tag; `eval-cljs` rebinds it for
-    the synchronous extent of the eval'd form per
-    [`tools/causa-mcp/spec/Principles.md` §Boundary semantics of
-    `eval-cljs` origin tagging](../../causa-mcp/spec/Principles.md).
+    default `:causa-mcp` is grandfathered from the original
+    causa-mcp design; revising the default to a more accurate tag
+    (e.g. `:causa-runtime`) is tracked separately as a follow-on.
+    The MCP server is expected to rebind it for the synchronous
+    extent of an eval'd form to its own `:origin` identifier.
   - `health` — one-call summary used by `discover-app`. Side-effect-free
     here; the runtime registers no listeners on its own.
 
   ## What this namespace is NOT
 
-  - Not a new framework registry. Per Causa-MCP Principles §Tool
-    consumes the framework; doesn't extend it, every accessor below
-    routes through an existing `re-frame.core/*` surface. We add no
-    new dispatch types, no new effect substrates, no new component
-    substrates.
-  - Not a re-frame2-pair-mcp port. Causa-MCP's tool catalogue (eighteen) is
-    distinct from re-frame2-pair-mcp's (fourteen); the accessor surface is
-    shaped to the Causa tools, not the pair-flow tools. The shape of
-    the runtime ns (session sentinel, dynamic origin var, install
-    hook, no listener registrations) mirrors re-frame2-pair's idiom; the
-    accessor names and signatures don't.
-  - Not a streaming substrate. The four streaming-band tools
-    (`subscribe`, `unsubscribe`, `list-subscriptions`) fan through
-    framework callbacks the MCP server installs on the
-    *server* side — the runtime just exposes
+  - Not a new framework registry. Every accessor below routes through
+    an existing `re-frame.core/*` surface. We add no new dispatch
+    types, no new effect substrates, no new component substrates.
+  - Not a re-frame2-pair-mcp port. The accessor surface is shaped to
+    the Causa-specific surfaces (trace buffer, epoch history,
+    app-db-diff, machine-state) rather than to re-frame2-pair-mcp's
+    own tool shapes.
+  - Not a streaming substrate. The runtime exposes
     `register-trace-cb!` / `register-epoch-cb!` indirection via
     re-frame.core, plus a thin `current-subscriptions` accessor for
-    the diagnostic. The per-tick queue / overflow bookkeeping lives
-    on the MCP-server side per [`tools/causa-mcp/spec/004-Wire-Pipeline.md`
-    §Streaming over batch](../../causa-mcp/spec/004-Wire-Pipeline.md).
+    the diagnostic; per-tick queue / overflow bookkeeping lives on
+    the MCP-server side.
 
   ## Why the install side-effect block is gated on `debug-enabled?`
 
@@ -71,9 +65,10 @@
   ## Cross-side coupling is one-way
 
   The MCP server depends on the accessor signatures below (the
-  contract); the runtime is independent of the server. Causa-the-panel
-  loads this ns without the MCP server running, and Causa-MCP can
-  attach later without the runtime needing to know."
+  contract); the runtime is independent of any server. Causa-the-panel
+  loads this ns without an MCP server running, and any MCP consumer
+  (re-frame2-pair-mcp today) can attach later without the runtime
+  needing to know."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
             ;; rf2-qwm0a: trace-buffer (and the rest of the listener +
@@ -107,7 +102,7 @@
 
 (def ^:private global-marker-key
   "Key under which the session-id mirror lives on `js/globalThis`. The
-  causa-mcp side runs `(some? (and (exists? js/globalThis) (.-<key>
+  MCP-server side runs `(some? (and (exists? js/globalThis) (.-<key>
   js/globalThis)))` as the cheap probe; centralising the string here
   keeps the runtime <-> server contract editable in one place."
   "__day8_re_frame2_causa_runtime")
@@ -127,14 +122,16 @@
 ;; Origin dynamic var
 ;; ---------------------------------------------------------------------------
 ;;
-;; Per `tools/causa-mcp/spec/Principles.md` §"Origin tagging is the
-;; convention, not a suggestion": every Causa-MCP-driven side-effect on
-;; the trace bus carries `:tags :origin :causa-mcp`. The MCP server
-;; renders a `binding` form that wraps the runtime's accessor call with
-;; `(binding [current-origin :causa-mcp] ...)`; mutating accessors
+;; Convention: every MCP-driven side-effect on the trace bus carries a
+;; `:tags :origin <server-name>` tag. The MCP server renders a
+;; `binding` form that wraps the runtime's accessor call with
+;; `(binding [current-origin <server-name>] ...)`; mutating accessors
 ;; read the bound value when they construct the dispatch payload.
 ;;
-;; The default value is `:causa-mcp` so a bare call from the server
+;; The default value is `:causa-mcp` (grandfathered from the original
+;; causa-mcp design — see DESIGN-RATIONALE.md Lock #6 supersedence;
+;; revising the default is tracked separately) so a bare call from the
+;; server
 ;; already carries the tag; `eval-cljs` keeps the binding for the
 ;; synchronous extent of the eval'd form only (the documented
 ;; async-tagging gap per Lock #4 / I6).
@@ -563,8 +560,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MCP-server side owns the per-subscription queue + per-tick
-;; overflow bookkeeping (per `tools/causa-mcp/spec/004-Wire-Pipeline.md`
-;; §Streaming over batch — one drain-batch per `notifications/progress`).
+;; overflow bookkeeping (one drain-batch per `notifications/progress`).
 ;; The runtime exposes the lightweight registration / lookup surface
 ;; the server's pump rides over.
 
@@ -580,10 +576,8 @@
   :filter <map>}`.
 
   The runtime records the subscription's metadata; the MCP server
-  owns the per-tick drain pump and the queue overflow bookkeeping
-  per [`004-Wire-Pipeline.md` §Streaming over batch]
-  (../../causa-mcp/spec/004-Wire-Pipeline.md). Recognised topics:
-  `:trace`, `:epoch`, `:fx`, `:error`."
+  owns the per-tick drain pump and the queue overflow bookkeeping.
+  Recognised topics: `:trace`, `:epoch`, `:fx`, `:error`."
   [{:keys [topic filter] :as _opts}]
   (cond
     (not (contains? #{:trace :epoch :fx :error} topic))
@@ -620,8 +614,7 @@
   The per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events`
   fields the spec lists live on the *server* side (each sub's pump
   carries the per-tick counters); the runtime supplies the topic /
-  filter / created-at slots the server merges into its own view per
-  [`tools/causa-mcp/spec/000-Vision.md` §Two namespaces, two sides]."
+  filter / created-at slots the server merges into its own view."
   ([] (list-subscriptions nil))
   ([{:keys [topic sub-id] :as _opts}]
    (let [subs (vals @subscriptions)

@@ -4,10 +4,15 @@
 
 ## What this is
 
-The three MCP servers under `tools/` — `re-frame2-pair-mcp`, `story-mcp`, and
-`causa-mcp` (spec-only today) — share a reserved cross-server **wire
-vocabulary**: namespaced map keys that an agent recognises identically
-across every server it talks to.
+The MCP servers under `tools/` — `re-frame2-pair-mcp` and `story-mcp` —
+share a reserved cross-server **wire vocabulary**: namespaced map keys
+that an agent recognises identically across every server it talks to.
+
+(Historical: a third server `causa-mcp` was envisaged in the vocabulary;
+it was dropped per rf2-hvl1g — AI agent access to Causa state flows via
+`re-frame2-pair-mcp` against the framework-published Causa runtime API.
+A prior false-start drop was tracked under rf2-bu21t; rf2-hvl1g is the
+final close-out.)
 
 There are **five top-level wire markers** plus one embedded fetch-handle
 tag (`:rf.elision/at`, pinned inside the `:rf.size/large-elided` body's
@@ -36,8 +41,7 @@ This test is the conformance gate. It asserts:
 
 1. **One canonical Malli schema per marker.** The schemas live in
    `wire_vocab_test.clj`, derived from
-   [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../../spec/Spec-Schemas.md),
-   [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"5 mechanisms"](../../causa-mcp/spec/004-Wire-Pipeline.md),
+   [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../../spec/Spec-Schemas.md)
    and [`tools/re-frame2-pair-mcp/src/.../tools.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools.cljs)
    (re-frame2-pair-mcp's `overflow-payload`, `tree-summary`, `dedup-value`,
    `diff-encode-db-after`).
@@ -45,9 +49,9 @@ This test is the conformance gate. It asserts:
    representing each server's actual / spec'd emission shape. They
    MUST validate against the same schema.
 3. **Source-text vocabulary pin.** A grep against each server's source
-   (`re-frame2-pair-mcp/src/`) and spec (`causa-mcp/spec/`) asserts the
-   canonical literal appears, and asserts that no near-miss spelling
-   (snake_case, pluralised, namespace-with-underscores) appears.
+   (`re-frame2-pair-mcp/src/`) asserts the canonical literal appears,
+   and asserts that no near-miss spelling (snake_case, pluralised,
+   namespace-with-underscores) appears.
 4. **story-mcp absence tripwire.** story-mcp does NOT currently emit
    any of the cross-MCP markers — it uses its own `:rf.story/*` /
    `:rf.assert/*` / `:rf.error/*` vocabularies. A test asserts that
@@ -90,18 +94,6 @@ server emits as response payloads. It does NOT need a live server: the
 schemas are normative, the fixtures are authored from each server's
 spec/source, and the grep step pins those authored fixtures to the
 actual source/spec text. Two complementary gates; one wire.
-
-## causa-mcp impl gap
-
-causa-mcp's implementation has not landed yet (its `tools/causa-mcp/`
-tree contains `README.md` + `spec/` but no `src/`). The fixtures and
-the spec-grep step against `tools/causa-mcp/spec/Principles.md` +
-`tools/causa-mcp/spec/004-Wire-Pipeline.md` cover the vocabulary today.
-When the impl lands, a follow-up bead extends this test to:
-
-- Grep `tools/causa-mcp/src/` for the canonical literals.
-- Add live-emission fixtures if their actual emitted shape diverges
-  from the spec snippets.
 
 ## When this test fails
 

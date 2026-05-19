@@ -9,10 +9,10 @@
   the agent's conversation without telling the agent.
 
   This namespace owns the SHAPE of the marker (so it stays byte-
-  identical across the triplet); the cap-enforcement glue (counting
+  identical across the pair); the cap-enforcement glue (counting
   tokens, replacing the payload) lives consumer-side because the
   payload representation differs (CLJS JS object for re-frame2-pair-mcp; CLJ
-  map for story-mcp/causa-mcp).
+  map for story-mcp).
 
   ## Token rule
 

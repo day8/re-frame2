@@ -81,9 +81,9 @@
         "the table itself is a hash-map keyed by namespaced symbols")))
 
 (deftest dedup-marker-key-is-the-cross-mcp-vocabulary
-  ;; The marker key matches causa-mcp's Principles §5 (Structural
-  ;; dedup): `{:rf.mcp/dedup-table ...}`. Agents that learned the
-  ;; slot on causa-mcp see the same slot here.
+  ;; The marker key matches the cross-MCP §5 (Structural dedup):
+  ;; `{:rf.mcp/dedup-table ...}`. Agents that learned the slot on a
+  ;; sibling server see the same slot here.
   (let [wrapped (dedup/dedup-value [{:a 1} {:a 1}] true)]
     (is (= [:rf.mcp/dedup-table] (vec (keys wrapped))))))
 

@@ -3,21 +3,18 @@
 
   ## Why this benchmark
 
-  `tools/causa-mcp/spec/004-Wire-Pipeline.md` §5 (Structural dedup)
-  asserts that `day8/de-dupe` 'typically compresses trace bursts
-  3-5× without semantic loss.' That claim was approximate-vibes —
-  no in-repo measurement bound it. When `003-Tool-Catalogue.md`
-  lands and the catalogue-entry-contract requires each tool to
-  declare its typical-token hint, every trace-bus-shaped tool's
-  hint would have inherited that imprecision.
+  Earlier vibes-quoted claims that `day8/de-dupe` 'typically
+  compresses trace bursts 3-5× without semantic loss' were
+  approximate — no in-repo measurement bound them. The
+  catalogue-entry-contract that each tool declare its
+  typical-token hint would have inherited that imprecision.
 
   This benchmark exercises `day8/de-dupe` against a representative
   trace-event corpus at three scales (100 / 1,000 / 10,000 events)
   with varying structural depth, measures the actual reduction
   ratio, and prints the numbers to the test log. The measured
-  factor is pinned in
-  [`tools/causa-mcp/spec/004-Wire-Pipeline.md`](../../../causa-mcp/spec/004-Wire-Pipeline.md)
-  §5 with this file cited as the source-of-truth.
+  factors below are the source-of-truth that any cross-MCP
+  documentation of structural-dedup compression should cite.
 
   ## Corpus shape
 
@@ -32,14 +29,11 @@
 
   ## Why not a separate `bench/` artefact
 
-  Causa-mcp is spec-only today (no `src/`); bootstrapping
-  `tools/causa-mcp/bench/` would mean a fresh deps.edn,
-  shadow-cljs.edn and package.json that the eventual impl-pass
-  would have to reconcile. re-frame2-pair-mcp already wires `day8/de-dupe`,
-  already runs CLJS-on-Node via shadow-cljs, and already houses
-  the load-bearing `dedup-value` helper this benchmark probes.
-  Reusing that runner is the path of least friction; the
-  measured factor it produces is what causa-mcp's spec cites.
+  re-frame2-pair-mcp already wires `day8/de-dupe`, already runs
+  CLJS-on-Node via shadow-cljs, and already houses the load-bearing
+  `dedup-value` helper this benchmark probes. Reusing that runner is
+  the path of least friction; the measured factors here are the
+  in-repo source of truth.
 
   ## Measured numbers (run 2026-05-14)
 
@@ -77,9 +71,8 @@
 
   The three regimes share the algorithm; their compression
   budgets differ because their shared-subtree cardinality differs.
-  `tools/causa-mcp/spec/004-Wire-Pipeline.md` §5 cites the raw-
-  burst and high-share numbers explicitly so the per-tool
-  typical-token hint matches the actual call-site shape.
+  Per-tool typical-token hints should match the actual call-site
+  shape against these numbers.
 
   ## Floor for assertion
 
@@ -351,7 +344,7 @@
       (is (>= (:ratio m) 8.0)
           (str "high-share burst ratio " (.toFixed (:ratio m) 2)
                "× fell below the 8× pinned floor — re-measure and "
-               "update tools/causa-mcp/spec/004-Wire-Pipeline.md §5."
+               "update the measured numbers in this file's ns docstring."
                "  row=" (row-str m))))
     (testing "round-trip on the high-share corpus"
       (is (= payload (tu/dedup-expand (:wrapped m)))))
@@ -383,6 +376,6 @@
           (str "1K-event raw burst ratio "
                (.toFixed (:ratio m) 2)
                "× fell below the 1.40× pinned floor — re-measure and "
-               "update tools/causa-mcp/spec/004-Wire-Pipeline.md §5.")))
+               "update the measured numbers in this file's ns docstring.")))
     (testing "round-trip on the pinned corpus"
       (is (= payload (tu/dedup-expand (:wrapped m)))))))

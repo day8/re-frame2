@@ -1,18 +1,18 @@
 (ns re-frame.mcp-base.vocab
   "Cross-MCP wire-vocabulary constants. One place to learn — and pin —
   the namespaced keys that the agent learns once and recognises across
-  every MCP tool in the re-frame2 triplet (re-frame2-pair-mcp, story-mcp,
-  causa-mcp).
+  every MCP tool in the re-frame2 pair (re-frame2-pair-mcp,
+  story-mcp).
 
   ## Why a vocab ns
 
   Every wire mechanism (overflow cap, cursor pagination, structural
   dedup, diff-encode, size-elision) decorates the payload with a
   marker key. The marker keys MUST stay byte-identical across the
-  triplet — an agent that learns `:rf.mcp/overflow` on re-frame2-pair-mcp must
-  see the same key shape from story-mcp / causa-mcp. Defining the
-  keys here, once, prevents per-consumer drift and gives a single
-  search target when the vocabulary grows.
+  pair — an agent that learns `:rf.mcp/overflow` on re-frame2-pair-mcp must
+  see the same key shape from story-mcp. Defining the keys here,
+  once, prevents per-consumer drift and gives a single search target
+  when the vocabulary grows.
 
   ## Two namespaces plus envelope slots
 
@@ -60,10 +60,7 @@
   "Top-level marker on a structurally-deduped payload. The value is the
   de-dupe library's flat cache map; the agent expands locally via
   `de-dupe.core/expand`.
-  Shape: `{:rf.mcp/dedup-table <cache-map>}`. Per rf2-obpa9.
-
-  causa-mcp uses the same key for its mechanism-5 dedup
-  (cross-MCP-conventions, per causa-mcp/spec/004-Wire-Pipeline.md §5)."
+  Shape: `{:rf.mcp/dedup-table <cache-map>}`. Per rf2-obpa9."
   :rf.mcp/dedup-table)
 
 (def diff-from-key

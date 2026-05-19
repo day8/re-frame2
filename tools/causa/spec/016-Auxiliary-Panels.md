@@ -78,11 +78,12 @@ Causa rendering surface.
 
 ### MCP Server panel — dropped
 
-The MCP Server panel is dropped from Causa. The `tools/causa-mcp/`
-artefact is dropped entirely (separate PR); there is no Causa-curated
-MCP surface to render. AI access to the running re-frame2 runtime
-goes through `tools/re-frame2-pair-mcp/` over raw nREPL — see
-[`000-Vision.md`](./000-Vision.md) §Where Causa fits.
+The MCP Server panel is dropped from Causa. The dedicated `causa-mcp`
+artefact was envisaged but dropped entirely (rf2-hvl1g, 2026-05-19);
+there is no Causa-curated MCP surface to render. AI access to the
+running re-frame2 runtime goes through `tools/re-frame2-pair-mcp/`
+over raw nREPL — see [`000-Vision.md`](./000-Vision.md) §Where Causa
+fits and DESIGN-RATIONALE.md Lock #6 supersedence.
 
 ### AI co-pilot — dropped
 
@@ -461,11 +462,12 @@ single nav-event that pertains to the focused cascade.
 
 ## MCP Server panel — dropped
 
-The MCP Server panel is dropped from Causa. The `tools/causa-mcp/`
-artefact is dropped entirely (separate PR); there is no Causa-curated
-MCP surface to render. AI access to the running re-frame2 runtime
-goes through `tools/re-frame2-pair-mcp/` over raw nREPL — see
-[`000-Vision.md`](./000-Vision.md) §Where Causa fits.
+The MCP Server panel is dropped from Causa. The dedicated `causa-mcp`
+artefact was envisaged but dropped entirely (rf2-hvl1g, 2026-05-19);
+there is no Causa-curated MCP surface to render. AI access to the
+running re-frame2 runtime goes through `tools/re-frame2-pair-mcp/`
+over raw nREPL — see [`000-Vision.md`](./000-Vision.md) §Where Causa
+fits and DESIGN-RATIONALE.md Lock #6 supersedence.
 
 Trace events tagged `:origin :re-frame2-pair-mcp` (the new agent-origin tag)
 appear in the **Trace tab** like any other tagged trace event — visible

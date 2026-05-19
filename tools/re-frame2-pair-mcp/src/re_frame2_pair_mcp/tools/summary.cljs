@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.summary
   "Tree-summary marker primitive (rf2-tygdv, generalised rf2-u2029).
 
-  Per causa-mcp's wire-protocol Principles §\"4. Lazy summary\", the
+  Per the cross-MCP wire-protocol §\"4. Lazy summary\", the
   default response mode for a rich nested value is a *summary*, not the
   full payload. The summary declares the shape without committing the
   token budget:
@@ -68,7 +68,7 @@
 
 (defn tree-summary
   "Compute a server-friendly tree summary of `v`. Returns the marker
-  shape causa-mcp's §Lazy-summary mechanism pins.
+  shape the cross-MCP §Lazy-summary mechanism pins.
 
   Cheap — one pass over the top-level structure, no deep walk. The
   marker itself is bounded: long key lists are truncated to

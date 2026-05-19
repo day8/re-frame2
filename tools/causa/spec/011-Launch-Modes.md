@@ -682,27 +682,35 @@ register-epoch-cb! call resolve to a no-op.
 
 ### Mechanism
 
-The MCP server (a future `tools/causa-mcp/` artefact) is an stdio
-JSON-RPC server launched by the agent host (Claude Code, Cursor, etc.)
-as a subprocess. The server connects over nREPL to the running
-shadow-cljs build (which is connected to the user's browser).
+AI agent access uses `tools/re-frame2-pair-mcp/` — an stdio JSON-RPC
+MCP server launched by the agent host (Claude Code, Cursor, etc.) as
+a subprocess. re-frame2-pair-mcp connects over nREPL to the running
+shadow-cljs build (which is connected to the user's browser), and
+reads the framework-published Causa runtime API on
+`day8.re-frame2-causa.runtime` (the same accessors the panel uses).
 
 The data path:
 
 ```
 AI agent
   ↓ (MCP / stdio)
-re-frame2-causa-mcp (Node process)
+re-frame2-pair-mcp (Node process)
   ↓ (nREPL / bencode)
 shadow-cljs JVM
   ↓ (cljs-eval / WebSocket)
-browser running the user's re-frame2 app
+browser running the user's re-frame2 app (with Causa runtime preloaded)
 ```
 
-The agent sees the **same trace bus and epoch history** that Causa-the-panel
-sees. Tool calls are read-mostly; writes (`restore-epoch`,
-`reset-frame-db`, `dispatch`) are confirmed by the agent host
-(typically Claude Code's tool-permission prompt).
+The agent sees the **same trace bus and epoch history** that
+Causa-the-panel sees, via the same runtime accessors. Tool calls are
+read-mostly; writes (`restore-epoch`, `reset-frame-db`, `dispatch`)
+are confirmed by the agent host (typically Claude Code's
+tool-permission prompt).
+
+(Per rf2-hvl1g — closure 2026-05-19 — there is no dedicated
+`tools/causa-mcp/` jar; an earlier design pictured one but it was
+dropped as unnecessary given the framework-published runtime API +
+re-frame2-pair-mcp. See DESIGN-RATIONALE.md Lock #6 supersedence.)
 
 ### Remote-attach
 
@@ -712,11 +720,11 @@ query the runtime. This works **whether or not Causa's panel is
 open** in the browser.
 
 The "developer A's browser, developer B's Claude" case is **not
-directly supported** at v1.0. The MCP server connects to
+directly supported** at v1.0. re-frame2-pair-mcp connects to
 `127.0.0.1:<nrepl-port>` by default; cross-machine MCP requires
 agent-host configuration (SSH tunnels, port-forwarding) that lives
-outside Causa's scope. Causa-MCP is the protocol; the network
-plumbing is the user's.
+outside Causa's scope. MCP is the protocol; the network plumbing is
+the user's.
 
 ### Why not a Chrome extension
 
@@ -748,29 +756,31 @@ VS-Code-specific extension.
 
 ## Coexistence
 
-The panel and the MCP server can run simultaneously without
+The panel and re-frame2-pair-mcp can run simultaneously without
 conflict:
 
 - The trace bus emits once; both subscribers (panel + MCP server's
-  ensure-runtime trace listener) see every event.
+  trace listener) see every event.
 - The epoch-history surface is read-mostly from both.
-- Mutations from the MCP server are tagged `:origin :causa-mcp`;
-  mutations from the panel's re-dispatch affordance are tagged
-  `:origin :causa`. Both are distinguishable in the event log.
+- Mutations from re-frame2-pair-mcp are tagged
+  `:origin :re-frame2-pair-mcp`; mutations from the panel's
+  re-dispatch affordance are tagged `:origin :causa`. Both are
+  distinguishable in the event log.
 
 A common workflow: the developer has the panel open for direct
 inspection; the AI assistant operates on the same runtime via MCP
-in parallel. The panel surfaces the agent's actions (the `:origin
-:causa-mcp` colour-coding is visible in the strip and event log).
+in parallel. The panel surfaces the agent's actions
+(the `:origin :re-frame2-pair-mcp` colour-coding is visible in the
+strip and event log).
 
 ## What this doesn't do
 
 - **No Chrome extension** (rejected, see above).
 - **No VS Code panel** (rejected, see above).
 - **No custom WebSocket remote-attach** (replaced by MCP).
-- **No standalone HTML viewer** at v1.0. The MCP server replaces
+- **No standalone HTML viewer** at v1.0. re-frame2-pair-mcp replaces
   this — if the agent needs to render a viewer-like surface, it
-  composes Causa-MCP tool calls.
+  composes re-frame2-pair-mcp tool calls against the runtime API.
 - **No mobile launch mode** (lock #5).
 - **No tablet-responsive standalone viewer** at v1.0. An earlier
   design proposed one; the lock-#9 hybrid retires the use case to
@@ -792,11 +802,13 @@ MCP, sibling artefact at `tools/re-frame2-pair-mcp/`) covers the agent-driven
 case. The remaining 5% (cross-machine, mobile) is explicitly out of
 scope at v1.0.
 
-Note: the **Causa-MCP** path (`tools/causa-mcp/`) was dropped per
+Note: a dedicated **causa-mcp** path was originally envisaged but
+dropped per rf2-hvl1g (closure 2026-05-19) — see
 [`000-Vision.md`](000-Vision.md) §What it isn't ("two doors, no
-compromises"). Agents access the runtime through re-frame2-pair-mcp (raw
-nREPL); Causa is the human-only observability surface. The split is
-intentional and load-bearing.
+compromises") and DESIGN-RATIONALE.md Lock #6 supersedence. Agents
+access the runtime through re-frame2-pair-mcp (raw nREPL) against
+the framework-published Causa runtime API; Causa is the human-only
+observability surface. The split is intentional and load-bearing.
 
 ## Vision — re-frame2-pair raw-nREPL launch path
 
@@ -815,11 +827,11 @@ Clojure eval) commands that drive Causa's panel through the existing
 ```
 
 The agent uses the same primitives Causa's chrome uses. No curated
-`causa-mcp` facade in front; whatever the agent wants to do, it does
-by evaluating Clojure against the runtime. This is the **two doors**
-split in practice — Causa is the human surface; re-frame2-pair-mcp is the AI
-access path; both read the same instrumentation; neither owns a
-curated middle layer.
+MCP facade in front; whatever the agent wants to do, it does by
+evaluating Clojure against the runtime. This is the **two doors**
+split in practice — Causa is the human surface; re-frame2-pair-mcp is
+the AI access path; both read the same instrumentation; neither owns
+a curated middle layer.
 
 ## Vision — coordination across multi-instance Causa
 

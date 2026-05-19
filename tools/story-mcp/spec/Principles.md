@@ -236,8 +236,8 @@ single op blow the session.
 Tool names in story-mcp's catalogue pick from the verb table at
 [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
-shared with re-frame2-pair-mcp and causa-mcp. The shared verbs the
-triplet pins are `get-` / `list-` / `read-` / `discover-` /
+shared with re-frame2-pair-mcp. The shared verbs the
+pair pins are `get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
 `preview-` / `record-as-` / `tail-` plus the bare universals
 `dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`. Story-mcp does
