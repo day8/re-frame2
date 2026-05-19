@@ -148,6 +148,11 @@
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
+   ;; rf2-y3l8z — interactive viewport adapter subs (zoom/pan + view-mode).
+   :rf.causa.machine-canvas/view-mode-by-id
+   :rf.causa.machine-canvas/view-mode-for
+   :rf.causa.machine-canvas/viewport-dims-for
+   :rf.causa.machine-canvas/viewport-for
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.causa/machine-transitions-for-focused-event
@@ -348,6 +353,15 @@
    ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
    :rf.causa/machine-chart-layout-pulse
    :rf.causa/machine-state-clicked
+   ;; rf2-y3l8z — interactive viewport adapter for the runtime Machines
+   ;; canvas (zoom/pan/fit + view-mode toggle).
+   :rf.causa.machine-canvas/apply-action
+   :rf.causa.machine-canvas/drag-end
+   :rf.causa.machine-canvas/drag-move
+   :rf.causa.machine-canvas/drag-start
+   :rf.causa.machine-canvas/hydrate-view-modes
+   :rf.causa.machine-canvas/measure
+   :rf.causa.machine-canvas/set-view-mode
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
    :rf.causa/open-edit-popup
@@ -490,6 +504,11 @@
    ;; save-edit-popup / delete-edit-popup) — every mutation round-trips
    ;; to localStorage in one place.
    :rf.causa.filters/persist
+   ;; rf2-y3l8z — interactive Machines canvas view-mode persistence
+   ;; side-effect. Writes the per-machine view-mode-by-id map to
+   ;; localStorage on every `:set-view-mode` mutation so the user's
+   ;; Canvas / List choice survives reloads.
+   :rf.causa.machine-canvas/persist-view-mode
    ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Causa surface invokes.
