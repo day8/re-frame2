@@ -47,7 +47,8 @@
                 focused-hits
                 redacted-modified-count
                 flow-writes
-                diff-triples]}
+                diff-triples
+                selected-epoch-id]}
         @(rf/subscribe [:rf.causa/app-db-diff])]
     [:section {:data-testid "rf-causa-app-db-diff"
                :style       {:height         "100%"
@@ -87,9 +88,15 @@
          ;; `[fx :db]`; when flows fired, sections covering a flow's
          ;; `:write-path` get `[flow :flow-id]` (or mixed if
          ;; coalesced).
+         ;; rf2-5kfxe.2 — pass `:epoch-id` so the renderer keys each
+         ;; section by epoch + path. A new cascade lands as a fresh
+         ;; React mount per section and the diff-flash keyframes
+         ;; auto-play (yellow wash decaying to transparent over 400ms,
+         ;; scaled by the `--rf-causa-motion-scale` seam).
          (diff-render/render-sections changed-sections "app-db-diff"
                                        {:flow-writes  flow-writes
-                                        :diff-triples diff-triples})
+                                        :diff-triples diff-triples
+                                        :epoch-id     selected-epoch-id})
          (sections/reserved-group changed-reserved)])]]))
 
 (defn install!

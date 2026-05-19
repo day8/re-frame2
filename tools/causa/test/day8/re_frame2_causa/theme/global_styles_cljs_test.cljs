@@ -41,6 +41,27 @@
     (let [href @#'gs/fonts-href]
       (is (re-find #"display=swap" href)))))
 
+;; ---- motion css ---------------------------------------------------------
+
+(deftest motion-css-declares-diff-flash-keyframes
+  (testing "rf2-5kfxe.2 — diff-flash keyframes are present in the
+            injected stylesheet; the animation name matches the one
+            referenced by the diff renderer."
+    (let [css @#'gs/motion-css]
+      (is (string? css))
+      (is (re-find #"@keyframes\s+rf-causa-diff-flash" css)
+          "keyframes block named rf-causa-diff-flash exists"))))
+
+(deftest motion-css-flash-decays-to-transparent
+  (testing "the keyframes geometry: yellow alpha hold at the front,
+            ease to transparent by 100%. The brief plateau (12%) gives
+            the wash a beat instead of an aimless linear fade."
+    (let [css @#'gs/motion-css]
+      ;; 20% alpha at 0% + 12%, alpha 0 at 100%.
+      (is (re-find #"0%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\.20\)" css))
+      (is (re-find #"12%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\.20\)" css))
+      (is (re-find #"100%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\)" css)))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document

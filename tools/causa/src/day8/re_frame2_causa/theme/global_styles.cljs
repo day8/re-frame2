@@ -97,6 +97,58 @@
     ;; The stylesheet link itself.
     (append-link! fonts-link-id "stylesheet" fonts-href [])))
 
+;; ---- motion keyframes (rf2-5kfxe.2 + rf2-5kfxe.3) ----------------------
+;;
+;; Both motion surfaces share one injected `<style>` block — the
+;; diff-flash for App-db section changes (rf2-5kfxe.2) and the L4 tab
+;; cross-fade (rf2-5kfxe.3, lands in the next commit). Co-locating
+;; them keeps the global CSS surface one node instead of two.
+;;
+;; The diff-flash keyframes are designed so the wash holds at full
+;; alpha for ~12% of the run before easing out. This is the standard
+;; "snap then settle" curve — the eye locks onto the bright start
+;; before the wash decays. Pure linear interpolation reads as a soft,
+;; aimless fade; the brief plateau gives the motion a beat.
+;;
+;; Yellow ~20% alpha (#FBBF2433) is loud enough that the eye notices on
+;; quick cascades but muted enough that a long burst of consecutive
+;; cascades doesn't strobe.
+
+(def ^:private motion-style-id
+  "rf-causa-motion-keyframes")
+
+(def ^:private motion-css
+  "Keyframes + the reduced-motion seam (rf2-5kfxe.5 expands this in a
+  later commit). The seam is a `:root` CSS variable
+  `--rf-causa-motion-scale` — consumers interpolate it into their
+  inline `animation-duration: calc(…ms * var(--rf-causa-motion-scale, 1))`
+  so a single media-query write at the top of the cascade disables every
+  downstream animation."
+  (str
+    ;; rf2-5kfxe.2 — diff-flash. Yellow tint at ~20% alpha (hex32 ≈ 20%)
+    ;; holds for the first 12% of the run so the eye locks on, then
+    ;; eases to transparent. The downstream `:animation-fill-mode:
+    ;; forwards` on the section element pins the end state.
+    "@keyframes rf-causa-diff-flash {\n"
+    "  0%   { background-color: rgba(251, 191, 36, 0.20); }\n"
+    "  12%  { background-color: rgba(251, 191, 36, 0.20); }\n"
+    "  100% { background-color: rgba(251, 191, 36, 0); }\n"
+    "}\n"))
+
+(defn- inject-motion-style!
+  "Append the motion `<style>` block to `<head>`. Idempotent — id-keyed
+  DOM probe before write."
+  []
+  (when (and (exists? js/document)
+             (.-head js/document)
+             (.-createElement js/document)
+             (.-getElementById js/document))
+    (when-not (.getElementById js/document motion-style-id)
+      (let [node (.createElement js/document "style")]
+        (set! (.-id node) motion-style-id)
+        (.appendChild node (.createTextNode js/document motion-css))
+        (.appendChild (.-head js/document) node)))))
+
 ;; ---- public entry ------------------------------------------------------
 
 (defonce ^:private installed?
@@ -107,11 +159,13 @@
 
 (defn install!
   "Idempotent — call from `shell-view`'s reg-view body. Triggers font
-  load on first paint of the shell. Future cluster commits add motion
-  keyframes + the reduced-motion seam to the same install path."
+  load + motion keyframes on first paint of the shell. Future cluster
+  commits add the L4 tab cross-fade keyframes, the reduced-motion
+  seam, the atmospheric grain overlay, and the display-face font."
   []
   (when-not @installed?
     (inject-fonts!)
+    (inject-motion-style!)
     (reset! installed? true))
   ;; Reference `tokens/tokens` so the future global-CSS injection (which
   ;; *will* consume token values) keeps this require honest under

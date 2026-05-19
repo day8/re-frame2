@@ -628,21 +628,50 @@
 
   `origin-tag` (optional) is the writer-attribution map (output of
   `app-db-diff-helpers/path-origin-tag`) the breadcrumb renders as a
-  chip. When omitted (older callers, test rigs), no chip renders."
-  ([s surface] (section s surface nil))
-  ([{:keys [path subtree]} surface origin-tag]
+  chip. When omitted (older callers, test rigs), no chip renders.
+
+  ## rf2-5kfxe.2 — diff-flash motion
+
+  When `flash?` is truthy the section wrapper carries an `:animation`
+  prop that drives the `rf-causa-diff-flash` keyframes (yellow wash
+  decaying to transparent over 400ms). The animation auto-plays on
+  every React mount of this element. The caller (`render-sections`)
+  arranges to key the section by `epoch-id` so a new cascade lands as
+  a fresh React mount and the wash retriggers.
+
+  Duration is `calc(400ms * var(--rf-causa-motion-scale, 1))` so the
+  reduced-motion seam (rf2-5kfxe.5) collapses the wash to a 0ms hold
+  — the visual signal disappears entirely under
+  `prefers-reduced-motion: reduce`. The `:animation-fill-mode forwards`
+  pins the end state (transparent) so the row settles at `bg-3` once
+  the wash decays."
+  ([s surface] (section s surface nil false))
+  ([s surface origin-tag] (section s surface origin-tag false))
+  ([{:keys [path subtree]} surface origin-tag flash?]
    (let [child-summary (if (= :children (at/op-of subtree))
                          (:child-summary subtree)
                          nil)
-         after-value   (subtree->after-value subtree)]
-     [:section {:data-testid (str "rf-causa-diff-section-"
-                                  (pr-str path))
-                :style {:margin         "8px 12px"
+         after-value   (subtree->after-value subtree)
+         base-style    {:margin         "8px 12px"
                         :background     (:bg-3 tokens)
                         :border         (str "1px solid "
                                              (:border-subtle tokens))
                         :border-radius  "4px"
-                        :overflow       "hidden"}}
+                        :overflow       "hidden"}
+         flash-style   (when flash?
+                         ;; The `--rf-causa-motion-scale` custom prop
+                         ;; (rf2-5kfxe.5 lands in a later commit and
+                         ;; sets it to 0 under reduced-motion). Default
+                         ;; via the `var(..., 1)` fallback keeps the
+                         ;; wash running even before that seam is
+                         ;; wired.
+                         {:animation
+                          (str "rf-causa-diff-flash "
+                               "calc(400ms * var(--rf-causa-motion-scale, 1)) "
+                               "ease-out forwards")})]
+     [:section {:data-testid (str "rf-causa-diff-section-"
+                                  (pr-str path))
+                :style (merge base-style flash-style)}
       (breadcrumb path child-summary after-value origin-tag)
       [:div {:style {:padding "8px 12px"
                      :font-family mono-stack
@@ -657,15 +686,21 @@
   an empty wrapper div so the caller can switch on the parent layout.
 
   `opts` (optional) supplies the inputs the rf2-s8r6c origin-tag chip
-  computation needs:
+  computation needs + the rf2-5kfxe.2 diff-flash motion input:
 
       {:flow-writes  [{:flow-id <kw> :write-path <vec>} ...]
-       :diff-triples [{:op … :path … :before … :after …} ...]}
+       :diff-triples [{:op … :path … :before … :after …} ...]
+       :epoch-id     <id>   ; rf2-5kfxe.2 — drives the per-section
+                           ;   React key so a fresh epoch lands as a
+                           ;   re-mount and the diff-flash keyframes
+                           ;   auto-play on every changed section.
+                           ;   Omit for legacy callers / test rigs.
+      }
 
   When `opts` is omitted (older callers, test rigs), no origin chip
-  renders — the legacy hiccup shape is preserved."
+  renders and no flash plays — the legacy hiccup shape is preserved."
   ([sections surface] (render-sections sections surface nil))
-  ([sections surface {:keys [flow-writes diff-triples] :as _opts}]
+  ([sections surface {:keys [flow-writes diff-triples epoch-id] :as _opts}]
    (if (empty? sections)
      [:div {:data-testid "rf-causa-diff-empty"
             :style {:padding "12px"
@@ -677,8 +712,29 @@
                         (when (or (seq flow-writes) (seq diff-triples))
                           (h/path-origin-tag section-path
                                              (or flow-writes [])
-                                             (or diff-triples []))))]
+                                             (or diff-triples []))))
+           ;; rf2-5kfxe.2 — the flash plays whenever an epoch-id is
+           ;; supplied (the caller is the live panel). Test rigs that
+           ;; omit `:epoch-id` get the legacy no-flash render so the
+           ;; hiccup-walking tests stay deterministic.
+           flash?     (some? epoch-id)]
        (into [:div {:data-testid "rf-causa-diff-sections"}]
              (for [s sections]
-               ^{:key (pr-str (:path s))}
-               (section s surface (origin-for (:path s)))))))))
+               ;; React key combines epoch-id + section path so a new
+               ;; epoch lands as a *fresh* element per section — React
+               ;; unmounts the previous wrapper and mounts a new one,
+               ;; which restarts the CSS `:animation` from frame 0.
+               ;; Without the epoch-id in the key React would reuse
+               ;; the same DOM node and the animation would never
+               ;; replay.
+               ;;
+               ;; Per rf2-ppzid: `^{:key …}` reader meta on a *list*
+               ;; form (the `(section ...)` call) is dropped when the
+               ;; call returns its fresh vector — Reagent's
+               ;; `get-react-key` only reads `:key` meta from vectors.
+               ;; `with-meta` on the returned vector is the correct
+               ;; surface.
+               (with-meta
+                 (section s surface (origin-for (:path s)) flash?)
+                 {:key (str (when epoch-id (str epoch-id "/"))
+                            (pr-str (:path s)))})))))))

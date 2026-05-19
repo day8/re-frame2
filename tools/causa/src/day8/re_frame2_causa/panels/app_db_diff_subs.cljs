@@ -297,8 +297,9 @@
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-redacted-modified-count]
     :<- [:rf.causa/selected-epoch-flow-writes]
+    :<- [:rf.causa/selected-epoch-id]
     (fn [[target db diff-triples sections focused-path focused-hits
-          history redacted-modified-count flow-writes]
+          history redacted-modified-count flow-writes selected-epoch-id]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
                                      (or diff-triples []))]
@@ -319,4 +320,8 @@
          ;; to tag each section header with `[fx :db]` /
          ;; `[flow :flow-id]` / mixed.
          :flow-writes               (or flow-writes [])
-         :diff-triples              (or diff-triples [])}))))
+         :diff-triples              (or diff-triples [])
+         ;; rf2-5kfxe.2 — surfaced so the renderer can key each
+         ;; section by epoch-id, forcing a React re-mount per cascade
+         ;; and replaying the diff-flash CSS animation.
+         :selected-epoch-id         selected-epoch-id}))))
