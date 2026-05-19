@@ -488,6 +488,38 @@ the resulting dialog state, and returns the EDN form as structured
 output. Filed as a separate P3 follow-up; this spec locks the
 runtime contract so the MCP side can build against a stable surface.
 
+## Design-system v1 ship list (chrome-identity differentiators)
+
+Beyond the panel features above, Story's v1 ships a **chrome-identity
+design system** as a SOTA differentiator. Per the rf2-38pb9 audit
+verdict, these are surfaces where Story is AHEAD of Storybook — not
+parity adds, but competitive proof that Story's chrome is crafted
+rather than commodity. The positive locks live in
+[`016-Design-Tokens.md`](016-Design-Tokens.md); the rejections of the
+Storybook commodity alternatives live in
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §Rejected
+(rf2-aezbb / rf2-nz4av).
+
+| Item | Source | Stage |
+|---|---|---|
+| Typography tokens — IBM Plex Sans + Plex Mono cascade; zero-raw-font-family contract | F4 / rf2-x6zw5 | Stage 4 |
+| Colour tokens — warm-slate substrate + amber accent palette (vs Storybook cold-grey + pink) | F5 / rf2-kvzkg | Stage 4 |
+| Motion contract — 180ms tab fade, diff-flash, `--motion-scale` seam; motion-as-language | F6 / rf2-1smrl | Stage 4 |
+| Gradient mesh + grain backdrop — anti-flat-chrome composition | F7 / rf2-4kqvw | Stage 4 |
+| Sidebar glyph rhythm — 5 SVG glyphs (story=◆, variant=●, workspace=▦, chevron, external-link); amber-diamond per-row; amber-active row border | F8 / rf2-ck4x5 | Stage 4 polish |
+| 5-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| REC with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |
+| Causa-in-Story per-panel embed — Causa's RHS panels (`:app-db`, `:event-detail`, `:trace`, `:machines`, `:views`, `:routing`, `:issues`) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
+| Phase 3 chrome surfaces — density knob, command palette, settings modal, polish sweep | rf2-38pb9 cluster | Stage 6 polish |
+
+These ship inside Story's v1 envelope; they are not deferrals. The
+density knob, palette nav, motion tiers, Fraunces-display
+experiments, and other Phase 3 chrome surfaces sit under the last row
+and land in the Stage 6 polish window alongside the v1 panel set.
+
+Read together with the v1 ship list table below: the panel-feature
+rows are the *capability* surface; the design-system rows are the
+*identity* surface. Both are v1.
+
 ## v1.1 deferrals
 
 ### Live performance ribbon

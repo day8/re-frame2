@@ -70,6 +70,39 @@ seam already — frames, decorators, registered effects — so the
 "addon" collapses to a three-line decorator citation in the variant
 body.
 
+### Identity stance (warm-slate + amber + Plex + motion)
+
+Story is a Storybook-class playground; it is **not** a Storybook
+look-alike. The chrome identity is a deliberate differentiator from
+commodity component-explorer styling:
+
+- **Warm-slate substrate + amber accent** instead of Storybook's
+  cold-grey + brand-pink. Two surfaces, two roles: amber-on-warm-slate
+  reads "workshop"; Causa's cyan-on-cool-grey reads "diagnostic" (per
+  [`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour).
+- **IBM Plex Sans + Plex Mono** instead of Inter / Nunito Sans /
+  system-ui. Plex carries an editorial bias — geometric without
+  sterility, characterful italics — that makes the chrome legible *as
+  a workshop* rather than as platform default
+  (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Typography).
+- **Motion as language** instead of instant transitions. 180ms tab
+  fades, diff-flash on app-db change, the `--motion-scale` seam for
+  reduced-motion. Choreography signals causality — what just changed,
+  why it matters — and Storybook ships effectively none of it
+  (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion).
+- **Gradient mesh + grain backdrop** instead of a flat solid panel.
+  The shell asserts that this is a *crafted* surface, not a default
+  one (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Backdrop).
+
+These are not aesthetic preferences. Storybook is the popular
+comparator — copying its identity-bearing choices would erase Story's
+identity. The named rejections live in
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §Rejected (Storybook
+commodity patterns — rf2-aezbb / rf2-nz4av); the positive locks live
+in [`016-Design-Tokens.md`](016-Design-Tokens.md). This subsection is
+the Vision-level pointer so future contributors meet the stance
+before they meet the token contracts.
+
 ## What re-frame2-story is for
 
 - **Visual development.** Iterate on a component in isolation; see
