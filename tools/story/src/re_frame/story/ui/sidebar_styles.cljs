@@ -4,41 +4,61 @@
   sidebar ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
             [re-frame.story.theme.colors :as colors]
             [re-frame.story.theme.motion :as motion]))
 
 (def styles
   {:wrap         {:width "260px"
-                  :background (:bg-2 colors/tokens)
+                  :background (:bg-1 colors/tokens)
                   :color (:text-primary colors/tokens)
-                  :font-family mono-stack
+                  :font-family sans-stack
                   :font-size (:body-tight typography/type-scale)
-                  :border-right "1px solid #444"
+                  :border-right (str "1px solid " (:border-default colors/tokens))
                   :overflow "auto"
-                  :padding "8px 0"
+                  :padding "8px 0 0 0"
                   :display "flex"
                   :flex-direction "column"}
    :tree         {:flex "1"
                   :overflow "auto"
                   :display "flex"
-                  :flex-direction "column"}
-   :header       {:padding "8px 12px"
-                  :font-weight "bold"
-                  :color (:info colors/tokens)
-                  :border-bottom "1px solid #333"
-                  :margin-bottom "4px"}
-   :section      {:padding "12px 0 4px 12px"
-                  :font-weight "bold"
-                  :color (:text-secondary colors/tokens)
+                  :flex-direction "column"
+                  :padding-bottom "8px"}
+   ;; rf2-p0wur — the sidebar header reads as Story's "Stories" lens
+   ;; label, parity with the RHS section headers (rf2-8rvu4 §rhs-section-h
+   ;; in shell-styles). Uppercase + wide tracking + nano scale + a
+   ;; subtle amber underline so the sidebar matches the workshop
+   ;; chrome's section-label vocabulary.
+   :header       {:padding "10px 12px 8px 12px"
+                  :font-family sans-stack
+                  :font-weight (str (:semibold typography/weights))
+                  :font-size (:nano typography/type-scale)
                   :text-transform "uppercase"
-                  :font-size (:micro typography/type-scale)
-                  :letter-spacing "0.5px"}
+                  :letter-spacing (:label-wide typography/letter-spacing)
+                  :color (:accent-amber colors/tokens)
+                  :border-bottom (str "1px solid " (:border-subtle colors/tokens))
+                  :box-shadow (str "0 1px 0 " (:accent-amber-soft colors/tokens))
+                  :margin-bottom "6px"
+                  :display "flex"
+                  :align-items "center"
+                  :gap "8px"}
+   :section      {:padding "16px 0 6px 12px"
+                  :margin-top "4px"
+                  :border-top (str "1px solid " (:border-subtle colors/tokens))
+                  :font-family sans-stack
+                  :font-weight (str (:semibold typography/weights))
+                  :color (:text-tertiary colors/tokens)
+                  :text-transform "uppercase"
+                  :font-size (:nano typography/type-scale)
+                  :letter-spacing (:label-wide typography/letter-spacing)
+                  :display "flex"
+                  :align-items "center"}
    :tag-row      {:display "flex"
                   :flex-direction "column"
                   :gap "6px"
-                  :padding "8px 12px"
-                  :border-bottom "1px solid #333"}
+                  :padding "8px 12px 10px 12px"
+                  :margin-bottom "6px"
+                  :border-bottom (str "1px solid " (:border-subtle colors/tokens))}
    ;; rf2-7ncf9 — faceted tag-filter: one labelled chip row per axis.
    :axis-row     {:display "flex"
                   :flex-direction "column"
@@ -61,20 +81,67 @@
                   :transition (:chip motion/transitions)}
    :tag-active   {:background (:accent-amber colors/tokens)
                   :color (:text-on-accent colors/tokens)}
-   :story-row    {:padding "4px 12px"
-                  :color (:warning colors/tokens)
-                  :font-weight "bold"
-                  :cursor "default"}
-   :variant-row  {:padding "2px 12px 2px 24px"
-                  :cursor "pointer"
+   ;; rf2-p0wur — top-level story rows + a generous inter-block gap so
+   ;; the sidebar tree breathes. Story rows lead with the diamond
+   ;; glyph (`re-frame.story.theme.glyphs/story-glyph`) — the sidebar
+   ;; component renders the glyph inline; the glyph itself wears the
+   ;; amber accent so each story's parent row reads as a labelled
+   ;; chapter heading.
+   :story-block  {:margin-bottom "12px"
+                  :padding-bottom "2px"}
+   :story-row    {:padding "6px 12px 6px 10px"
+                  :font-family sans-stack
                   :color (:text-primary colors/tokens)
+                  :font-weight (str (:semibold typography/weights))
+                  :font-size (:body-tight typography/type-scale)
+                  :letter-spacing "0.01em"
+                  :cursor "default"
                   :display "flex"
                   :align-items "center"
-                  :gap "6px"
+                  :gap "8px"}
+   :story-glyph  {:flex-shrink "0"
+                  :display "inline-flex"
+                  :align-items "center"
+                  :color (:accent-amber colors/tokens)}
+   :variant-row  {:padding "3px 12px 3px 26px"
+                  :cursor "pointer"
+                  :color (:text-secondary colors/tokens)
+                  :font-family mono-stack
+                  :display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :border-left (str "2px solid transparent")
                   :transition (:row motion/transitions)}
    :variant-row-active {:background (:bg-active colors/tokens)
                         :color (:accent-amber colors/tokens)
-                        :font-weight (str (:medium typography/weights))}
+                        :font-weight (str (:medium typography/weights))
+                        :border-left (str "2px solid " (:accent-amber colors/tokens))}
+   :variant-glyph {:flex-shrink "0"
+                   :display "inline-flex"
+                   :align-items "center"
+                   :justify-content "center"
+                   :width "10px"
+                   :height "10px"
+                   :opacity 0.55
+                   :color (:text-tertiary colors/tokens)}
+   :workspace-row {:padding "3px 12px 3px 14px"
+                   :cursor "pointer"
+                   :color (:text-secondary colors/tokens)
+                   :font-family mono-stack
+                   :display "flex"
+                   :align-items "center"
+                   :gap "8px"
+                   :border-left (str "2px solid transparent")
+                   :transition (:row motion/transitions)}
+   :workspace-row-active {:background (:bg-active colors/tokens)
+                          :color (:accent-amber colors/tokens)
+                          :font-weight (str (:medium typography/weights))
+                          :border-left (str "2px solid " (:accent-amber colors/tokens))}
+   :workspace-glyph {:flex-shrink "0"
+                     :display "inline-flex"
+                     :align-items "center"
+                     :color (:info colors/tokens)
+                     :opacity 0.75}
    :empty        {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
