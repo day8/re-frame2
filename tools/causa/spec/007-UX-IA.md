@@ -146,11 +146,18 @@ panel's outer edge (left edge when docked `:right-rail`; the default per
 `Settings → General → Panel position`). The handle SHALL:
 
 - Show `cursor: col-resize` on hover
-- Drag-to-update width with global mouse-capture
+- Drag-to-update width with global pointer-capture (mouse, touch,
+  and pen unified through pointer events; `touch-action: none` so a
+  touch-drag does not pan the page)
 - Clamp width to `[320px, 90vw]`
 - Persist via `configure! :settings :general :panel-width-px`
   (see [`015-Configuration.md`](./015-Configuration.md))
 - Reset to default width on double-click
+
+The CSS-variable cascade (`--rf-causa-inline-width` on the host's
+`flex-basis`) continues to work unchanged — the handle simply drives
+the same custom property reactively, so a `:root { --rf-causa-inline-
+width: 720px; }` override and a user drag write to the same surface.
 
 No textual affordance accompanies the handle (cursor change is sufficient
 signal per [`Conventions.md`](./Conventions.md) §UI text — silent by
@@ -161,6 +168,54 @@ change on edge hover, not via prose label.
 In `:popout` panel-position the browser's window controls govern size
 (no in-panel handle renders). In `:fullscreen` position the handle is
 suppressed — the panel fills the viewport.
+
+#### Auto-inject contract (rf2-70u8q)
+
+The handle is **auto-injected**. Consumers SHALL NOT need to wire any
+resize CSS on the layout host — dropping in
+`<aside data-rf-causa-host></aside>` and the minimal host CSS (no
+`resize: horizontal`, no `overflow: auto`) is sufficient. Causa's
+preload mounts the shell into the host once the substrate adapter is
+ready (per §The default landing view); the shell renders the handle as
+an absolutely-positioned child pinned to the host's left edge.
+
+The handle's styles are Causa-owned — the consumer's CSS surface
+remains exactly the four declarations the layout-host contract
+already requires (`flex`, `min-width`, `box-sizing`, `border-left`).
+
+##### Yield-to-consumer
+
+Causa MUST detect a consumer-asserted browser-native handle and yield:
+if `getComputedStyle(host).resize` is `"horizontal"` or `"both"`, the
+auto-injected handle SHALL render nil so the page does not carry two
+draggable affordances. The probe runs at render time on every paint,
+so a runtime CSS swap (devtools edit, theme switch) updates the yield
+decision on the next frame.
+
+The yield path is the **opt-out**. Pre-alpha posture is zero-config
+for the consumer; the opt-in to Causa's handle is "do nothing" and
+the opt-out to keep the browser-native handle is "set `resize:
+horizontal` on the host". No `configure!` knob, no preload flag.
+
+##### Keyboard contract
+
+The handle is keyboard-reachable (`tabindex="0"`, `role="separator"`,
+`aria-orientation="vertical"`, live `aria-valuenow` for the current
+width). Bindings:
+
+| Key | Action |
+|---|---|
+| `ArrowLeft` | Widen by 8px (matches drag-left semantics) |
+| `ArrowRight` | Narrow by 8px |
+| `Shift+ArrowLeft` | Widen by 32px (coarse step) |
+| `Shift+ArrowRight` | Narrow by 32px |
+| `Home` | Snap to upper clamp (registry applies the 90vw bound) |
+| `End` | Snap to lower clamp (registry applies the 320px floor) |
+| `Enter` / `Space` | Reset to default (matches double-click) |
+
+Unrecognised keys bubble normally so the surrounding chrome's
+`Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
+handle's focus position.
 
 ## The L1 ribbon
 

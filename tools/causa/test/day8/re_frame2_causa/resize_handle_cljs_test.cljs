@@ -129,11 +129,16 @@
 ;; ---- drag lifecycle ----------------------------------------------------
 
 (defn- stub-event
-  "Build a stub MouseEvent-shaped JS object carrying just the slots
+  "Build a stub PointerEvent-shaped JS object carrying just the slots
   the handle reads. `preventDefault` is a no-op stub so start-drag!
-  can call it without throwing in the test runner."
+  can call it without throwing in the test runner.
+
+  Pointer events extend MouseEvent so `pageX` is present at the same
+  shape; `pointerId` is the pointer-events-specific slot used by the
+  drag-state snapshot for capture release."
   [page-x]
   #js {:pageX          page-x
+       :pointerId      1
        :preventDefault (fn [])})
 
 (deftest start-drag-flips-state
@@ -227,6 +232,200 @@
           (handler nil))))
     (is (some #(= [:rf.causa/reset-panel-width] %) @dispatches)
         "double-click dispatched the reset event")))
+
+;; ---- keyboard navigation (rf2-70u8q a11y) -------------------------------
+
+(defn- stub-key-event [key shift?]
+  (let [prevented? (atom false)]
+    {:event #js {:key            key
+                 :shiftKey       shift?
+                 :preventDefault (fn [] (reset! prevented? true))}
+     :prevented? prevented?}))
+
+(deftest keydown-arrow-left-widens
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "ArrowLeft" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= [:rf.causa/set-panel-width-px 508] %) @dispatches)
+        "ArrowLeft adds the 8px fine step to current-width")))
+
+(deftest keydown-arrow-right-narrows
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "ArrowRight" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= [:rf.causa/set-panel-width-px 492] %) @dispatches)
+        "ArrowRight subtracts the 8px fine step from current-width")))
+
+(deftest keydown-shift-arrow-uses-coarse-step
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "ArrowLeft" true)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= [:rf.causa/set-panel-width-px 532] %) @dispatches)
+        "Shift+ArrowLeft uses the 32px coarse step (8 × 4)")))
+
+(deftest keydown-home-overshoots-to-upper-clamp
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "Home" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= :rf.causa/set-panel-width-px (first %)) @dispatches)
+        "Home dispatched a set-panel-width-px (registry clamp snaps to upper bound)")))
+
+(deftest keydown-end-undershoots-to-lower-clamp
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "End" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= :rf.causa/set-panel-width-px (first %)) @dispatches)
+        "End dispatched a set-panel-width-px (registry clamp snaps to lower bound)")))
+
+(deftest keydown-enter-dispatches-reset
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "Enter" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= [:rf.causa/reset-panel-width] %) @dispatches)
+        "Enter dispatched the reset event (matches double-click)")))
+
+(deftest keydown-space-dispatches-reset
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event " " false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/handle-keydown! event 500))
+    (is (some #(= [:rf.causa/reset-panel-width] %) @dispatches)
+        "Space dispatched the reset event")))
+
+(deftest keydown-unrecognised-key-no-op
+  (setup!)
+  (let [dispatches (atom [])
+        {:keys [event]} (stub-key-event "Tab" false)]
+    (with-redefs [rf/dispatch* (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (is (false? (resize-handle/handle-keydown! event 500))
+          "unrecognised key returns false (no preventDefault, bubble normally)"))
+    (is (empty? @dispatches)
+        "no dispatches for unrecognised key")))
+
+(deftest handle-renders-tabindex-and-aria-valuenow
+  (setup!)
+  (rf/with-frame :rf/causa
+    (let [tree (resize-handle/Handle :inline)
+          props (second tree)]
+      (is (= 0 (:tab-index props))
+          "handle is keyboard-reachable via tab")
+      (is (number? (:aria-valuenow props))
+          "handle exposes current width to assistive tech")
+      (is (= config/min-panel-width-px (:aria-valuemin props))
+          "handle exposes minimum width to assistive tech"))))
+
+;; ---- yield-to-consumer (rf2-70u8q) -------------------------------------
+
+(defn- ensure-stub-host! [resize-value]
+  (when (and (exists? js/document) (.-createElement js/document))
+    ;; Remove any prior host so the test is hermetic.
+    (when-let [old (.querySelector js/document "[data-rf-causa-host]")]
+      (when (.-parentNode old)
+        (.removeChild (.-parentNode old) old)))
+    (let [host (.createElement js/document "aside")]
+      (.setAttribute host "data-rf-causa-host" "")
+      ;; Set resize via inline style — getComputedStyle resolves it.
+      (when resize-value
+        (set! (-> host .-style .-resize) resize-value))
+      (when (.-body js/document)
+        (.appendChild (.-body js/document) host))
+      host)))
+
+(defn- remove-stub-host! [host]
+  (when (and host (.-parentNode host))
+    (.removeChild (.-parentNode host) host)))
+
+(deftest host-without-resize-does-not-yield
+  ;; Default: consumer drops `<aside data-rf-causa-host></aside>` with
+  ;; no explicit `resize:` declaration. Causa should render its own
+  ;; handle (the auto-inject zero-config path).
+  (when (exists? js/document)
+    (let [host (ensure-stub-host! nil)]
+      (try
+        (is (false? (resize-handle/host-asserts-own-handle?))
+            "no explicit resize → no yield → Causa handle renders")
+        (finally
+          (remove-stub-host! host))))))
+
+(deftest host-with-resize-horizontal-yields
+  ;; Consumer asserts their own browser-native handle by setting
+  ;; `resize: horizontal`. Causa MUST yield to avoid a double-handle.
+  (when (exists? js/document)
+    (let [host (ensure-stub-host! "horizontal")]
+      (try
+        (is (true? (resize-handle/host-asserts-own-handle?))
+            "explicit resize:horizontal → yield → Causa renders nil")
+        (finally
+          (remove-stub-host! host))))))
+
+(deftest host-with-resize-both-yields
+  ;; `resize: both` also gives the consumer a browser-native handle
+  ;; (covers a future vertical-resize use case too). Yield.
+  (when (exists? js/document)
+    (let [host (ensure-stub-host! "both")]
+      (try
+        (is (true? (resize-handle/host-asserts-own-handle?))
+            "explicit resize:both → yield → Causa renders nil")
+        (finally
+          (remove-stub-host! host))))))
+
+(deftest handle-renders-nil-when-host-yields
+  ;; The end-to-end yield: Handle short-circuits to nil when the host
+  ;; carries `resize: horizontal` in its computed style.
+  (when (exists? js/document)
+    (let [host (ensure-stub-host! "horizontal")]
+      (try
+        (setup!)
+        (rf/with-frame :rf/causa
+          (is (nil? (resize-handle/Handle :inline))
+              "yield path: Handle returns nil when consumer asserts own resize"))
+        (finally
+          (remove-stub-host! host))))))
+
+(deftest handle-renders-when-host-does-not-yield
+  ;; The end-to-end no-yield: Handle renders when host has no
+  ;; explicit resize declaration (the zero-config consumer path).
+  (when (exists? js/document)
+    (let [host (ensure-stub-host! nil)]
+      (try
+        (setup!)
+        (rf/with-frame :rf/causa
+          (let [tree (resize-handle/Handle :inline)]
+            (is (some? tree)
+                "no-yield path: Handle renders when consumer has no own resize")
+            (is (= "rf-causa-resize-handle" (:data-testid (second tree)))
+                "the rendered tree is the documented handle node")))
+        (finally
+          (remove-stub-host! host))))))
 
 ;; ---- apply-panel-width! (CSS var write) --------------------------------
 
