@@ -28,7 +28,7 @@ A re-frame2 effect is data: a `[fx-id args]` pair. The runtime walks the `:fx` v
 
 ## The canonical fix
 
-[`skills/re-frame2/reference/fundamentals/fx.md`](../../re-frame2/reference/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler. The fx-handler is the one place where imperative interop is legitimate.
+[`skills/re-frame2/references/fundamentals/fx.md`](../../re-frame2/reference/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler. The fx-handler is the one place where imperative interop is legitimate.
 
 Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx) and Cardinal Rule #1 (implementation is ground truth; the runtime's effect-map shape is closed — `:rf.error/effect-map-shape` fires if you try to sneak `:dispatch` or `:http` as a top-level key).
 

@@ -48,36 +48,36 @@ Exit this skill when the project compiles, tests pass, and Type B items have bee
 8. **Do not invent migration rules.** Leave the unmatched alone and flag for human review.
 9. **Warn before a mass file rewrite.** Migration is destructive — Type A rewrites edit the author's source in place. **Before touching any file**, the skill announces the upcoming sweep: the rule it's about to apply (e.g. *"M-8 — fold top-level `:dispatch` keys into `:fx`"*), the count of files matched, and a one- or two-line example of the diff shape on a representative call site. Then pause for the author to Ctrl-C or acknowledge. The author should always have a real window to abort or scope-limit before the edits land. Per-call-site approval is not required (trust the explicit invoker); the gate is the sweep-level announcement, not per-file confirmation.
 10. **The author runs builds, tests, and smoke-tests — not the skill.** Compile / `npm test` / `clj -M:test` / `shadow-cljs watch` / browser smoke-tests are arbitrary-code execution against the author's machine and dependencies. The skill **prints the exact command** for the author to run and waits for them to paste the result. It never invokes those commands itself. This holds for both freshly cloned and long-standing repos — a v1 project may still pull a compromised transitive dep at compile time. Verification is the author's loop, not the skill's. (`Bash(rg *)` is in `allowed-tools` because rg is a read-only search; build/test commands are not.)
-11. **The migration corpus must be pinned.** [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) is the contract for every rewrite. Load it from a **local checkout pinned to a specific `day8/re-frame2` commit or tag** — verify `git rev-parse HEAD` and `remote get-url origin` before reading. Do not fetch `MIGRATION.md` from GitHub at runtime; an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute. Record the pinned hash in the migration report (`reference/output-format.md`). Same rule for the VERSION pick — record the chosen v2 release in the report, never silently select "latest".
+11. **The migration corpus must be pinned.** [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) is the contract for every rewrite. Load it from a **local checkout pinned to a specific `day8/re-frame2` commit or tag** — verify `git rev-parse HEAD` and `remote get-url origin` before reading. Do not fetch `MIGRATION.md` from GitHub at runtime; an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute. Record the pinned hash in the migration report (`references/output-format.md`). Same rule for the VERSION pick — record the chosen v2 release in the report, never silently select "latest".
 
 ## The migration workflow
 
 Six phases. Each links to a leaf for the detail; the SKILL.md carries only the workflow shape.
 
-**Phase 1 — Orient.** Read the project's dep file (`deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), then [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) Part 1, then the project's test-suite shape. → [`reference/setup.md`](reference/setup.md) for the M-0 dep swap.
+**Phase 1 — Orient.** Read the project's dep file (`deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), then [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) Part 1, then the project's test-suite shape. → [`references/setup.md`](references/setup.md) for the M-0 dep swap.
 
-**Phase 2 — Bump the dep (M-0).** Swap `re-frame/re-frame` → `day8/re-frame2` + a substrate-adapter artefact (`day8/re-frame2-reagent` unless told otherwise), at the author-supplied `<v2-version>` (never auto-pick "latest"). Then ask the author to **compile** before applying any other rules — most codebases need no further changes. The skill prints the compile command for the project's build tool; the author runs it. → [`reference/setup.md`](reference/setup.md) for per-build-tool shapes and adapter picker.
+**Phase 2 — Bump the dep (M-0).** Swap `re-frame/re-frame` → `day8/re-frame2` + a substrate-adapter artefact (`day8/re-frame2-reagent` unless told otherwise), at the author-supplied `<v2-version>` (never auto-pick "latest"). Then ask the author to **compile** before applying any other rules — most codebases need no further changes. The skill prints the compile command for the project's build tool; the author runs it. → [`references/setup.md`](references/setup.md) for per-build-tool shapes and adapter picker.
 
-If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools panel), perform the **Causa swap** in the same pass — drop the 10x coord + its `:preloads` entry, add `day8/re-frame2-causa` + its preload, add the `[data-rf-causa-host]` layout host to the app's HTML. → [`reference/causa-replaces-10x.md`](reference/causa-replaces-10x.md). Not an M-rule; dev-build hygiene, but the natural moment to do it is alongside M-0.
+If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools panel), perform the **Causa swap** in the same pass — drop the 10x coord + its `:preloads` entry, add `day8/re-frame2-causa` + its preload, add the `[data-rf-causa-host]` layout host to the app's HTML. → [`references/causa-replaces-10x.md`](references/causa-replaces-10x.md). Not an M-rule; dev-build hygiene, but the natural moment to do it is alongside M-0.
 
 **Phase 3 — Sweep for breakage.** If Phase 2's compile/test surfaced failures, walk the rules in order.
-- [`reference/sequencing.md`](reference/sequencing.md) — recommended order, restated so an interrupted migration can resume.
-- [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites (ns requires, effect-map, dispatch shapes).
-- [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
-- [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15).
-- [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
-- [`reference/error-events.md`](reference/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-trace-cb!` (M-13, M-17, M-26).
-- [`reference/breaking-changes.md`](reference/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
+- [`references/sequencing.md`](references/sequencing.md) — recommended order, restated so an interrupted migration can resume.
+- [`references/auto-call-site-rewrites.md`](references/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites (ns requires, effect-map, dispatch shapes).
+- [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
+- [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15).
+- [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
+- [`references/error-events.md`](references/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-trace-cb!` (M-13, M-17, M-26).
+- [`references/breaking-changes.md`](references/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
 
 **Phase 4 — Verify.** The **author** recompiles, re-runs unit tests, and smoke-tests boot / dispatch / sub / hot-reload. The skill prints the exact compile / test commands for the author's project shape (e.g. `shadow-cljs compile app`, `clj -M:test`, the npm script), waits for the author to paste the output, and only then proceeds. If a step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
 
 **Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:invoke-all`, etc.). Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 under rf2-j9cm2 — binary fx is now required, not opt-in.)
 
-**Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`reference/output-format.md`](reference/output-format.md) — the format restated with one filled-in example.
+**Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`references/output-format.md`](references/output-format.md) — the format restated with one filled-in example.
 
 ## Kickoff (paste-ready)
 
-For delegating the migration to a fresh Claude session: [`reference/kickoff-prompt.md`](reference/kickoff-prompt.md). The author drops it into a session opened in the root of their v1 project; the session loads this skill and walks the six phases, surfacing Type B checkpoints.
+For delegating the migration to a fresh Claude session: [`references/kickoff-prompt.md`](references/kickoff-prompt.md). The author drops it into a session opened in the root of their v1 project; the session loads this skill and walks the six phases, surfacing Type B checkpoints.
 
 ## Done checklist
 
@@ -85,24 +85,24 @@ For delegating the migration to a fresh Claude session: [`reference/kickoff-prom
 - [ ] Project compiles cleanly with re-frame2 on the classpath.
 - [ ] Every tripped M-rule has been applied (Type A) or resolved by the author (Type B).
 - [ ] Existing test suite passes (or fails identically to pre-migration — no new failures introduced).
-- [ ] Migration report (per `MIGRATION.md` Part 2 / `reference/output-format.md`) produced and shared.
+- [ ] Migration report (per `MIGRATION.md` Part 2 / `references/output-format.md`) produced and shared.
 - [ ] Items flagged for human review are explicitly listed in the report.
 
 Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
 
 ## Reference files (all one level deep)
 
-- [`reference/kickoff-prompt.md`](reference/kickoff-prompt.md) — fresh-session kickoff prompt.
-- [`reference/setup.md`](reference/setup.md) — M-0 operational detail: dep-file shapes, substrate-adapter picker, VERSION discovery, artefact-split implications.
-- [`reference/causa-replaces-10x.md`](reference/causa-replaces-10x.md) — devtools swap: drop `day8.re-frame/re-frame-10x`, add `day8/re-frame2-causa` (preload, true-inline host, `--rf-causa-inline-width`, keybindings, 10x→Causa parity matrix).
-- [`reference/breaking-changes.md`](reference/breaking-changes.md) — compressed index of every M-/O-rule by trigger surface.
-- [`reference/sequencing.md`](reference/sequencing.md) — recommended walk order.
-- [`reference/auto-call-site-rewrites.md`](reference/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites.
-- [`reference/auto-cross-cutting.md`](reference/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
-- [`reference/guided-handlers-state.md`](reference/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
-- [`reference/guided-interceptors-subs.md`](reference/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
-- [`reference/error-events.md`](reference/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-trace-cb!` listeners.
-- [`reference/output-format.md`](reference/output-format.md) — migration-report shape with worked examples.
+- [`references/kickoff-prompt.md`](references/kickoff-prompt.md) — fresh-session kickoff prompt.
+- [`references/setup.md`](references/setup.md) — M-0 operational detail: dep-file shapes, substrate-adapter picker, VERSION discovery, artefact-split implications.
+- [`references/causa-replaces-10x.md`](references/causa-replaces-10x.md) — devtools swap: drop `day8.re-frame/re-frame-10x`, add `day8/re-frame2-causa` (preload, true-inline host, `--rf-causa-inline-width`, keybindings, 10x→Causa parity matrix).
+- [`references/breaking-changes.md`](references/breaking-changes.md) — compressed index of every M-/O-rule by trigger surface.
+- [`references/sequencing.md`](references/sequencing.md) — recommended walk order.
+- [`references/auto-call-site-rewrites.md`](references/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites.
+- [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
+- [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
+- [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
+- [`references/error-events.md`](references/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-trace-cb!` listeners.
+- [`references/output-format.md`](references/output-format.md) — migration-report shape with worked examples.
 
 ## Anti-patterns
 

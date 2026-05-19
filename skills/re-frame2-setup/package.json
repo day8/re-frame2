@@ -30,7 +30,7 @@
     "SKILL.md",
     "README.md",
     "LICENSE",
-    "reference/",
+    "references/",
     ".claude-plugin/"
   ],
   "publishConfig": {

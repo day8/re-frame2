@@ -26,7 +26,7 @@ skills/re-frame2/
 ├── examples-map.md                   One-paragraph index of every worked example.
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
-├── reference/
+├── references/
 │   ├── fundamentals/                 events, fx, cofx, subs, frames, schemas, event-state-cycle, project-structure.
 │   ├── state-machines/               reg-machine, regions, tags, invoke, cancellation.
 │   ├── tooling/                      Stories, routing.
@@ -80,7 +80,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `reference/fundamentals/`, `reference/state-machines/`, `reference/tooling/`, `reference/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
+**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
 
 ## License
 

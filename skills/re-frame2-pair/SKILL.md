@@ -195,7 +195,7 @@ A re-frame2-pair session and a running Causa panel are **complementary** surface
 | Stepped into a machine transition | Open the Machine Inspector for the state-chart view with transition history. |
 | Triggered a schema violation | The Schema Violation Timeline surfaces it with recovery mode + source coord. |
 
-The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/reference/tooling/causa.md`](../re-frame2/reference/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
+The authoring-side guidance for getting Causa mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/references/tooling/causa.md`](../re-frame2/reference/tooling/causa.md). When you're advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
 
 ---
 

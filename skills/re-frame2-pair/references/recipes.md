@@ -258,7 +258,7 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
 
 ## "Refine a variant interactively"
 
-**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/reference/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. Pair2 sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. Pair2 sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
 
 **Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play` body to make an assertion pass.
 

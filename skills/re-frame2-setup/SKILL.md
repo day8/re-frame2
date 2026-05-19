@@ -47,7 +47,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 
 ## Cardinal rules
 
-1. **Default to the re-frame2 repo's pinned baseline; never silently chase "latest from npm".** The greenfield baseline is the set of versions the re-frame2 repo itself builds against (`implementation/package.json`, `implementation/deps.edn`) at the **author-supplied pin** of `day8/re-frame2`. Treat that pinned baseline as known-good. The author may explicitly opt into "latest from npm" — but the skill never picks `latest` on its behalf. See [`reference/deps-versions.md`](reference/deps-versions.md).
+1. **Default to the re-frame2 repo's pinned baseline; never silently chase "latest from npm".** The greenfield baseline is the set of versions the re-frame2 repo itself builds against (`implementation/package.json`, `implementation/deps.edn`) at the **author-supplied pin** of `day8/re-frame2`. Treat that pinned baseline as known-good. The author may explicitly opt into "latest from npm" — but the skill never picks `latest` on its behalf. See [`references/deps-versions.md`](references/deps-versions.md).
 2. **All ten artefacts ship at the same VERSION.** Mixing versions across `day8/re-frame2-*` artefacts is unsupported. Use the single `<VERSION>` the author pinned at kickoff.
 3. **Only add per-feature artefacts the author actually uses.** Core + adapter are mandatory; `-schemas` / `-machines` / `-routing` / `-flows` / `-http` / `-ssr` / `-epoch` are pay-as-you-go.
 4. **Reagent adapter is the default reference substrate.** Unless the author explicitly says UIx or Helix, scaffold against Reagent.
@@ -56,12 +56,12 @@ Any non-setup question → route to the right skill; don't improvise here.
 
 ## Canonical greenfield path (seven steps)
 
-1. **Discover the current artefact VERSION.** → [`reference/deps-versions.md`](reference/deps-versions.md). Day-one deps: `day8/re-frame2` + `day8/re-frame2-reagent` only.
-2. **Add the two artefacts to `deps.edn`.** → `reference/deps-versions.md` §`deps.edn`.
-3. **Add `react`, `react-dom`, `shadow-cljs` to `package.json`; run `npm install`.** → `reference/deps-versions.md` §`package.json`.
-4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/run`, `:source-paths` including `src/`. If Causa is enabled, `index.html` must provide the true-inline `[data-rf-causa-host]` left layout column beside `#app`; Causa auto-opens there on app load. → [`reference/shadow-cljs.md`](reference/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
-5. **Write the entry namespace.** `your-app/core.cljs` requires `[re-frame.core :as rf]` and `[re-frame.adapter.reagent :as reagent-adapter]`, then calls `(rf/init! reagent-adapter/adapter)` **before any dispatch or render**. → [`reference/entry-namespace.md`](reference/entry-namespace.md) for the canonical shape, the React-root `defonce` pattern, and the order-of-operations contract.
-6. **Write the first counter.** A registered event, sub, view (`reg-view`), and mount — end-to-end in one file. → [`reference/first-counter.md`](reference/first-counter.md).
+1. **Discover the current artefact VERSION.** → [`references/deps-versions.md`](references/deps-versions.md). Day-one deps: `day8/re-frame2` + `day8/re-frame2-reagent` only.
+2. **Add the two artefacts to `deps.edn`.** → `references/deps-versions.md` §`deps.edn`.
+3. **Add `react`, `react-dom`, `shadow-cljs` to `package.json`; run `npm install`.** → `references/deps-versions.md` §`package.json`.
+4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/run`, `:source-paths` including `src/`. If Causa is enabled, `index.html` must provide the true-inline `[data-rf-causa-host]` left layout column beside `#app`; Causa auto-opens there on app load. → [`references/shadow-cljs.md`](references/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
+5. **Write the entry namespace.** `your-app/core.cljs` requires `[re-frame.core :as rf]` and `[re-frame.adapter.reagent :as reagent-adapter]`, then calls `(rf/init! reagent-adapter/adapter)` **before any dispatch or render**. → [`references/entry-namespace.md`](references/entry-namespace.md) for the canonical shape, the React-root `defonce` pattern, and the order-of-operations contract.
+6. **Write the first counter.** A registered event, sub, view (`reg-view`), and mount — end-to-end in one file. → [`references/first-counter.md`](references/first-counter.md).
 7. **Run and verify.** `npx shadow-cljs watch app` → open `http://localhost:<port>/`. Counter visible, `+`/`-` flips the number. **Done.**
 
 ## Done checklist
@@ -82,14 +82,14 @@ Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/sc
 - **`Could not locate reagent/dom/client.cljs`** — `react` / `react-dom` not installed. `npm install react react-dom`. Reagent 2.x needs React 19.
 - **Counter doesn't update, no errors** — `(rf/init! reagent-adapter/adapter)` not called, or called after `rdc/render`. Move it to the top of `run`.
 - **Blank page, no console errors** — `index.html` missing `<main id="app">` / `<div id="app">`, or entry ns looking up a different id.
-- **Causa logs missing layout host** — add the true-inline host markup/CSS from `reference/shadow-cljs.md`, or configure `{:layout/host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.
+- **Causa logs missing layout host** — add the true-inline host markup/CSS from `references/shadow-cljs.md`, or configure `{:layout/host-selector "..."}` before Causa auto-opens. The same actionable diagnostic is available through `window.day8.re_frame2_causa.status()`.
 - **`Uncaught ReferenceError: re_frame is not defined`** — `:init-fn` in `shadow-cljs.edn` doesn't match the entry-ns `run` symbol. Check `(defn ^:export run [] ...)` matches `:init-fn your-app.core/run`.
 
 Anything else: point at `re-frame2` or `SKILL-REDIRECT.md`.
 
 ## Reference files (all one level deep)
 
-- [`reference/deps-versions.md`](reference/deps-versions.md) — discover the current re-frame2 VERSION; lockstep contract; per-feature artefact decisions; `deps.edn` + `package.json` shapes.
-- [`reference/shadow-cljs.md`](reference/shadow-cljs.md) — minimal `shadow-cljs.edn`; `index.html`; `:asset-path` + `:devtools`.
-- [`reference/entry-namespace.md`](reference/entry-namespace.md) — canonical `core.cljs`; `rf/init!` before render; the React-root `defonce` pattern.
-- [`reference/first-counter.md`](reference/first-counter.md) — end-to-end worked example mirroring `examples/reagent/counter/core.cljs`.
+- [`references/deps-versions.md`](references/deps-versions.md) — discover the current re-frame2 VERSION; lockstep contract; per-feature artefact decisions; `deps.edn` + `package.json` shapes.
+- [`references/shadow-cljs.md`](references/shadow-cljs.md) — minimal `shadow-cljs.edn`; `index.html`; `:asset-path` + `:devtools`.
+- [`references/entry-namespace.md`](references/entry-namespace.md) — canonical `core.cljs`; `rf/init!` before render; the React-root `defonce` pattern.
+- [`references/first-counter.md`](references/first-counter.md) — end-to-end worked example mirroring `examples/reagent/counter/core.cljs`.

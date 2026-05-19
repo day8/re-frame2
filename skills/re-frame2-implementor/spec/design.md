@@ -27,7 +27,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve these 
 
 ### L1 — `spec/` is the contract; `implementation/` is one worked example
 
-The skill does not treat the CLJS reference as normative. Every "the reference did X" framing in `reference/reference-impl-tour.md` is explicitly tagged as descriptive. Engineers reading the tour are told repeatedly that the spec wins.
+The skill does not treat the CLJS reference as normative. Every "the reference did X" framing in `references/reference-impl-tour.md` is explicitly tagged as descriptive. Engineers reading the tour are told repeatedly that the spec wins.
 
 **Why**: re-frame2's stated goal is implementability from the spec alone. A skill that conflates the reference with the contract undercuts that goal.
 
@@ -39,19 +39,19 @@ Phase 1 locks decisions before any code is written. Phase 2 walks the EP corpus 
 
 ### L3 — Q14 — NO verification module
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `reference/verify.md`, no "verification mandatory before done" hard rule. The agent walks the workflow; the engineer runs the builds, the tests, the conformance harness. This matches the `re-frame2` and `re-frame-migration` skills — consistent across the family.
+Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent walks the workflow; the engineer runs the builds, the tests, the conformance harness. This matches the `re-frame2` and `re-frame-migration` skills — consistent across the family.
 
 **Why**: running tests is general software practice. Pillar 4 says don't teach what the AI already knows.
 
 ### L4 — Substrate-agnostic phrasing throughout
 
-The reference impl is CLJS+Reagent — keywords, hiccup, Reagent ratoms, Closure DCE for elision. These are *choices the reference made*. The skill's voice never leaks them as universal. References to "the identity primitive", "the render-tree", "the reactive container", "the production-elision mechanism" stay generic; the CLJS bindings are surfaced only in `reference/reference-impl-tour.md`, and that leaf is explicit about descriptive-not-normative framing.
+The reference impl is CLJS+Reagent — keywords, hiccup, Reagent ratoms, Closure DCE for elision. These are *choices the reference made*. The skill's voice never leaks them as universal. References to "the identity primitive", "the render-tree", "the reactive container", "the production-elision mechanism" stay generic; the CLJS bindings are surfaced only in `references/reference-impl-tour.md`, and that leaf is explicit about descriptive-not-normative framing.
 
 **Why**: a TypeScript-port engineer reading the skill should never feel like they're "diverging from re-frame2" when they pick branded strings over keywords. They're not diverging; the keyword choice was never the contract.
 
 ### L5 — Conformance corpus is the acceptance test
 
-The skill frames `spec/conformance/` consistently as the **objective measure of "is this re-frame2?"** Not the spec's prose, not the EPs' narrative, not the reference impl's behaviour — the corpus. The leaf `reference/conformance.md` walks the harness shape and the diagnosis algorithm (spec gap vs implementation bug).
+The skill frames `spec/conformance/` consistently as the **objective measure of "is this re-frame2?"** Not the spec's prose, not the EPs' narrative, not the reference impl's behaviour — the corpus. The leaf `references/conformance.md` walks the harness shape and the diagnosis algorithm (spec gap vs implementation bug).
 
 **Why**: without the corpus passing, no claim of "this is a re-frame2 implementation" is objectively verifiable. The corpus is the contract surface for downstream consumers.
 
@@ -65,7 +65,7 @@ When implementing surfaces a spec gap — a missing surface, an inconsistency, a
 
 ### L7 — No bead-ids in user-facing skill content
 
-User-facing skill content (SKILL.md, README.md, the reference/ leaves) carries no `rf2-XXXX` bead-id references. Bead ids are workflow-tracking; they're noise in the skill that the engineer is using. The skill's `spec/` folder may reference beads (workflow / authoring); user-facing leaves do not.
+User-facing skill content (SKILL.md, README.md, the references/ leaves) carries no `rf2-XXXX` bead-id references. Bead ids are workflow-tracking; they're noise in the skill that the engineer is using. The skill's `spec/` folder may reference beads (workflow / authoring); user-facing leaves do not.
 
 **Why**: the bead-id sweep landed for `docs/`; same discipline applies here.
 
@@ -114,7 +114,7 @@ skills/re-frame2-implementor/
 ├── LICENSE                        (MIT)
 ├── package.json                   (npm metadata)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
-├── reference/
+├── references/
 │   ├── kickoff-prompt.md          (paste-ready prompt; ~80 lines)
 │   ├── phase-1-decisions.md       (Phase 1 walkthrough; ~200 lines)
 │   ├── decision-record.md         (fill-in template; ~120 lines)
@@ -159,7 +159,7 @@ The acceptance gates are operational, not advisory: gate 1 between core + option
 
 ### OQ3 — How to annotate CLJS-specific framings when pointing at the reference impl
 
-**Resolved: a dedicated descriptive tour leaf with explicit framing.** `reference/reference-impl-tour.md` is the only leaf that walks the CLJS implementation's structure. It's explicit at the top and bottom that the tour is **descriptive, not normative**; every "the reference did X" is paired with a "what's CLJS-specific" callout and a "what's pattern-required" framing. Engineers consult the tour when they want to see how someone solved a problem; they consult `spec/` and the other leaves when they want to know what's required.
+**Resolved: a dedicated descriptive tour leaf with explicit framing.** `references/reference-impl-tour.md` is the only leaf that walks the CLJS implementation's structure. It's explicit at the top and bottom that the tour is **descriptive, not normative**; every "the reference did X" is paired with a "what's CLJS-specific" callout and a "what's pattern-required" framing. Engineers consult the tour when they want to see how someone solved a problem; they consult `spec/` and the other leaves when they want to know what's required.
 
 **Why**: separating descriptive (tour) from normative (spec) at the leaf level is the cleanest split. Annotating individual references in other leaves with "this is the CLJS shape; your $LANG will differ on…" would clutter every leaf with the disclaimer and bury the workflow signal. The tour is the place for descriptive framing; the rest of the skill stays in normative voice.
 

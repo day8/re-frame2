@@ -10,7 +10,7 @@ Help an AI write working re-frame2 ClojureScript application code while spending
 
 ## 2. Pillars (locked)
 
-1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **Q14 lock applies: NO verification module** — no `reference/verify.md`, no "verify before claiming done" hard rule. The author runs tests; the skill stops at writing the code.
+1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **Q14 lock applies: NO verification module** — no `references/verify.md`, no "verify before claiming done" hard rule. The author runs tests; the skill stops at writing the code.
 2. **Idiomaticness — verified against `implementation/**` + `examples/reagent/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
 3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~300-400 lines (under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
 4. **Assume training knowledge — teach only the re-frame2 binding.** The AI already knows what WebSockets, FSMs, optimistic updates, and HTTP retry are. The skill's job is to bridge that to the specific re-frame2 features (`reg-machine`, `:rf.http/managed`, `:fsm/parallel-regions`, etc.). The **cut-test**: if a sentence could be written about React, Vue, or Elm unchanged, it belongs in training data, not this skill.
@@ -29,7 +29,7 @@ When a pattern has a worked example, the leaf points at it and matches its shape
 
 ### L3 — Q14 — NO verification module
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `reference/verify.md`, no "verification mandatory before done" hard rule in SKILL.md. The AI applies the recipes; the author runs the tests, the compiler, the app. Running tests is general software practice — Pillar 4 says don't teach what the AI already knows.
+Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule in SKILL.md. The AI applies the recipes; the author runs the tests, the compiler, the app. Running tests is general software practice — Pillar 4 says don't teach what the AI already knows.
 
 ### L4 — Two-level routing only
 
@@ -57,7 +57,7 @@ Code talks to a frame. Default is `:rf/default`; multi-frame apps pass `{:frame 
 
 ### L10 — No bead-ids in user-facing skill content
 
-`SKILL.md` and the `reference/` / `patterns/` / `decision-trees/` leaves carry no `rf2-XXXX` references. Bead ids are workflow-tracking and would distract the agent using the skill. This `spec/` folder may reference beads; user-facing leaves do not.
+`SKILL.md` and the `references/` / `patterns/` / `decision-trees/` leaves carry no `rf2-XXXX` references. Bead ids are workflow-tracking and would distract the agent using the skill. This `spec/` folder may reference beads; user-facing leaves do not.
 
 ### L11 — Findings stay local
 
@@ -91,7 +91,7 @@ skills/re-frame2/
 ├── LICENSE                      (MIT)
 ├── package.json                 (npm metadata)
 ├── examples-map.md              (pattern → worked-example cross-ref)
-├── reference/
+├── references/
 │   ├── fundamentals/            (events, fx, cofx, subs, schemas, frames, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, regions, tags, invoke, cancellation)
 │   ├── tooling/                 (stories, routing)

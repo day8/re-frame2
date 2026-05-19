@@ -79,7 +79,7 @@ situation.
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
 on tool-only pages, the `:layout/host-selector` knob, host-CSS-variable
-resize, pop-out lifecycle), see [`reference/launch-modes.md`](reference/launch-modes.md).
+resize, pop-out lifecycle), see [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys
 
@@ -108,7 +108,7 @@ The sidebar lists 13 panels in three groups (always-active, conditional,
 dormant). When the user asks "where is X?", route to the panel whose
 purpose covers it. For more detail on each — group membership, dormant
 state, activity badges, deeper "open it when…" guidance — see
-[`reference/panels.md`](reference/panels.md).
+[`references/panels.md`](references/panels.md).
 
 | Panel | One-line purpose | When you'd open it |
 |---|---|---|

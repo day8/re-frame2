@@ -126,7 +126,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/invoke-all t
 
 **Progress UI from the machine.** Register subs on `[:rf/machine <id>]` and project `:data` fields into the view.
 
-**Final-state child completion (`:final?` / `:output-key`).** Cleaner than hand-rolling `:dispatch-done`: mark the child's `:done` as `:final? true` with `:output-key :shard-result`; `:invoke-all` recognises completion natively, parent receives the result via `:on-child-done`. Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-destroy fires first). See `../reference/state-machines/invoke.md` §Final states.
+**Final-state child completion (`:final?` / `:output-key`).** Cleaner than hand-rolling `:dispatch-done`: mark the child's `:done` as `:final? true` with `:output-key :shard-result`; `:invoke-all` recognises completion natively, parent receives the result via `:on-child-done`. Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-destroy fires first). See `../references/state-machines/invoke.md` §Final states.
 
 ## Anti-patterns
 
@@ -143,7 +143,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/invoke-all t
 
 ## Pointer to the spec
 
-Full rationale — `:invoke-all` runtime, join-state layout, `:join` modes (`:any`, `:n-of`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../reference/state-machines/invoke.md` §Final states.
+Full rationale — `:invoke-all` runtime, join-state layout, `:join` modes (`:any`, `:n-of`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/invoke.md` §Final states.
 
 ---
 

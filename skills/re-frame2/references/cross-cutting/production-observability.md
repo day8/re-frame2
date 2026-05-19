@@ -177,7 +177,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 - Guide chapter: [`docs/guide/22-trace-to-datadog.md`](../../../../docs/guide/22-trace-to-datadog.md) — narrative walkthrough with vendor-specific recipes.
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489) — substrate contracts.
 - Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — `:sensitive?` short-circuits BEFORE elision; payload already walked at listener entry.
-- Per-frame `:on-error` policy: [`reference/fundamentals/frames.md`](../fundamentals/frames.md) §`:on-error` — in-app recovery, sibling to the corpus-wide error listener.
+- Per-frame `:on-error` policy: [`references/fundamentals/frames.md`](../fundamentals/frames.md) §`:on-error` — in-app recovery, sibling to the corpus-wide error listener.
 
 ---
 
