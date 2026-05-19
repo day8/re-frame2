@@ -220,6 +220,22 @@
     [:li {:style (:list-item styles)}
      [:b "notes / a11y / layout-debug"] " — author notes, axe-core scan, visual guides."]]
 
+   [:div {:style (:section-h styles)} "Keyboard shortcuts"]
+   [:ul {:style (:list styles)
+         :data-test "story-help-shortcuts-table"}
+    [:li {:style (:list-item styles)}
+     [kw "f"] " — full-screen mode (canvas fills viewport)."]
+    [:li {:style (:list-item styles)}
+     [kw "s"] " — toggle the sidebar."]
+    [:li {:style (:list-item styles)}
+     [kw "a"] " — toggle the inspectors (RHS / addons)."]
+    [:li {:style (:list-item styles)}
+     [kw "t"] " — toggle the toolbar."]
+    [:li {:style (:list-item styles)}
+     [kw "⌘K"] " / " [kw "Ctrl-K"] " — open the command palette."]
+    [:li {:style (:list-item styles)}
+     [kw "Esc"] " — exit full-screen / close palette / clear search."]]
+
    [:div {:style (:section-h styles)} "Re-open"]
    [:ul {:style (:list styles)}
     [:li {:style (:list-item styles)}

@@ -70,6 +70,7 @@
             [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.element-inspector :as element-inspector]
             [re-frame.story.ui.help :as help]
+            [re-frame.story.ui.keybindings :as keybindings]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.play-status :as play-status]
@@ -598,26 +599,14 @@
   "Render the variant `canvas/canvas` wrapped with the effective
   viewport + background framing (rf2-zll4h).
 
-  The wrapper is a single `<div data-test=\"story-canvas-frame\">` so
-  Playwright specs can introspect the framed region. Resolution per
-  rf2-zll4h:
-    - per-variant `:viewport` / `:background` body slot wins
-    - then per-story `:viewport` / `:background` body slot
-    - then the chrome toolbar selection
-    - then the neutral defaults (`:full` / `:light`).
-
-  Both axes resolve via their respective switcher namespaces'
-  `effective-viewport` / `effective-background` helpers — keeping the
-  fallback logic in one place per axis so the chip label and the
-  rendered canvas always agree."
+  Per rf2-zgu68 also surfaces a viewport-px chip at the bottom-right
+  when a non-`:full` viewport mode is active. The chip self-elides
+  for `:full`."
   []
   (let [vp        (viewport-switcher/effective-viewport)
         bg        (backgrounds-switcher/effective-background)
         vp-style  (viewport/wrap-style vp)
         bg-style  (backgrounds/wrap-style bg)
-        ;; Match the canvas's own `.wrap` minimum so framed regions
-        ;; never collapse to zero height when the user picks a
-        ;; tiny custom viewport.
         wrap-style (merge {:padding    "16px"
                            :display    "flex"
                            :flex       "1"
@@ -625,11 +614,12 @@
                            :align-items "flex-start"
                            :justify-content "center"
                            :overflow   "auto"
-                           :box-sizing "border-box"}
+                           :box-sizing "border-box"
+                           ;; rf2-zgu68 — position relative so the
+                           ;; viewport-px chip's absolute slot anchors
+                           ;; against the framed region.
+                           :position   "relative"}
                           bg-style)
-        ;; When sizing is in effect, wrap canvas/canvas in an
-        ;; intermediate div with explicit width/height. Otherwise the
-        ;; framed-canvas just applies the background.
         sized?   (some? vp-style)]
     [:div {:style       wrap-style
            :data-test   "story-canvas-frame"
@@ -639,7 +629,9 @@
        [:div {:style     vp-style
               :data-test "story-canvas-frame-sized"}
         [canvas/canvas]]
-       [canvas/canvas])]))
+       [canvas/canvas])
+     ;; rf2-zgu68 — viewport-px indicator chip. Self-elides for `:full`.
+     [canvas/viewport-indicator vp]]))
 
 (defn- main-pane
   "The main content pane — workspace if one is selected, otherwise the
@@ -805,6 +797,16 @@
          ;; Reagent / DOM. Idempotent.
          (save-variant-ui/install!)
          (rails/hydrate!)
+         ;; rf2-g8l8x — hydrate per-panel chrome-visibility map from
+         ;; localStorage BEFORE the embed-flag pass (embed is URL-
+         ;; driven, must not be clobbered by stale persisted slot).
+         (keybindings/hydrate!)
+         ;; rf2-pucku — hydrate the `:embed?` slot from the
+         ;; `?embed=1` URL flag. One-shot at mount.
+         (url-state/hydrate-embed-flag! state/shell-state-atom)
+         ;; rf2-g8l8x / rf2-p3i0t — install the chrome-level hotkey
+         ;; listener. Cmd-K palette ships its own listener.
+         (keybindings/install!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid)
            ;; rf2-v1ach: per-panel embed manages its own mount on
@@ -829,6 +831,9 @@
      (fn [_]
        (stop-hot-reload-poll!)
        (remove-selection-watcher!)
+       ;; rf2-g8l8x / rf2-p3i0t — tear down the chrome-level hotkey
+       ;; listener so a re-mount doesn't accumulate handlers.
+       (keybindings/remove!)
        (recorder-ui/remove-trace-listener!)
        ;; rf2-d5u89: tear down DOM-capture listeners alongside the
        ;; trace listener so we don't leak listeners across re-mounts.
@@ -843,42 +848,45 @@
        (teardown-all-listeners!))
      :reagent-render
      (fn []
-       (let [widths  (rails/current-widths)
-             narrow? (rails/narrow-viewport?)]
-         ;; rf2-3lt89: `data-rf-story-root` is the focus-visible scope
-         ;; declared in motion-css — the standardised amber outline +
-         ;; reduced-motion override target this root. The four chrome
-         ;; landmarks (toolbar / sidebar / main / right) ride staggered
-         ;; entrance keyframes via inline :animation styles so shell
-         ;; mount reveals as a choreographed 360ms sequence rather than
-         ;; a single synchronous paint. Each landmark wraps its child
-         ;; in a flex container so the animation root doesn't disrupt
-         ;; the layout.
+       (let [widths     (rails/current-widths)
+             narrow?    (rails/narrow-viewport?)
+             ;; rf2-p3i0t / rf2-g8l8x / rf2-pucku — chrome visibility
+             ;; resolution. Embed-mode + full-screen both hide every
+             ;; chrome pane; per-pane toggles win when neither absolute
+             ;; mode is on.
+             shell      @state/shell-state-atom
+             show-tb?   (state/chrome-pane-visible? :toolbar shell)
+             show-sb?   (state/chrome-pane-visible? :sidebar shell)
+             show-rhs?  (state/chrome-pane-visible? :rhs shell)]
          [:div {:style (:root styles)
-                :data-rf-story-root true}
-          ;; rf2-xi9zk: chrome-level toolbar — horizontal strip above the
-          ;; three-pane row. Stamped with the stagger entrance via a
-          ;; thin wrap so the toolbar strip ns doesn't need to reach
-          ;; into motion tokens.
-          [:div {:style {:animation (motion/stagger-animation :toolbar)
-                         :flex-shrink "0"}}
-           [toolbar/toolbar-strip]]
+                :data-rf-story-root true
+                :data-rf-chrome-fullscreen (str (get-in shell [:chrome-visibility :full-screen?] false))
+                :data-rf-chrome-embed      (str (get-in shell [:chrome-visibility :embed?] false))}
+          ;; rf2-g8l8x — `t` key + embed/full-screen suppress the strip.
+          (when show-tb?
+            [:div {:style {:animation (motion/stagger-animation :toolbar)
+                           :flex-shrink "0"}}
+             [toolbar/toolbar-strip]])
           [:div {:style (merge (:body styles)
                                (when narrow? (:body-narrow styles)))}
-           [sidebar/sidebar {:style (merge {:width       (str (:left widths) "px")
-                                            :flex-basis  (str (:left widths) "px")
-                                            :flex-shrink "0"
-                                            :animation   (motion/stagger-animation :sidebar)}
-                                           (when narrow?
-                                             {:width "auto"
-                                              :flex-basis "auto"
-                                              :max-height "42vh"}))}]
-           (when-not narrow?
+           ;; rf2-g8l8x / rf2-p3i0t / rf2-pucku — sidebar visibility.
+           (when show-sb?
+             [sidebar/sidebar {:style (merge {:width       (str (:left widths) "px")
+                                              :flex-basis  (str (:left widths) "px")
+                                              :flex-shrink "0"
+                                              :animation   (motion/stagger-animation :sidebar)}
+                                             (when narrow?
+                                               {:width "auto"
+                                                :flex-basis "auto"
+                                                :max-height "42vh"}))}])
+           (when (and show-sb? (not narrow?))
              [rails/splitter :left])
            [main-pane]
-           (when-not narrow?
+           (when (and show-rhs? (not narrow?))
              [rails/splitter :right])
-           [right-panel]]
+           ;; rf2-g8l8x / rf2-p3i0t / rf2-pucku — RHS visibility.
+           (when show-rhs?
+             [right-panel])]
           ;; rf2-381i: first-time help overlay + persistent re-open chip.
           ;; The chip lives in a fixed-position slot so it floats above the
           ;; chrome regardless of which panels are visible. Per rf2-pxeko

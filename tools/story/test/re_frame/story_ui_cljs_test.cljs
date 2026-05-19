@@ -1152,8 +1152,18 @@
        :events    []})
     (let [result (docs/docs-view :story.dv/x)]
       (is (vector? result))
-      ;; Root is a <section> per the read-only contract.
-      (is (= :section (first result))))
+      ;; Per rf2-8c7tk the docs-view wraps the body section + TOC in a
+      ;; flex `<div>` so the sticky TOC anchors to the right edge. The
+      ;; inner body still renders as `<section data-test="story-docs-
+      ;; view">`.
+      (is (= :div (first result)))
+      (let [children (drop 2 result)
+            section  (some (fn [c]
+                             (when (and (vector? c) (= :section (first c)))
+                               c))
+                           children)]
+        (is (some? section))
+        (is (= "story-docs-view" (:data-test (second section))))))
     ;; The fn returns nil when given no variant id (the shell already
     ;; gates this, but the helper guards itself too).
     (is (nil? (docs/docs-view nil)))))

@@ -54,11 +54,13 @@
   `:agent`); unknown tags fall back to a neutral grey. The badges are
   inert (the filter row owns interaction) — purely a scan affordance."
   (:require [clojure.string                   :as str]
+            [reagent.core                     :as r]
             [re-frame.story.runtime           :as runtime]
             [re-frame.story.async             :as async]
             [re-frame.story.registrar         :as registrar]
             [re-frame.story.theme.colors      :as colors]
             [re-frame.story.theme.glyphs      :as glyphs]
+            [re-frame.story.ui.sidebar-search :as search]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
             [re-frame.story.ui.state          :as state]))
 
@@ -237,8 +239,26 @@
                    :title     (str tag)}
             (name tag)]))])))
 
+(defn- highlighted-label
+  "rf2-yngai — render a variant / story label with the matched
+  substring wrapped in an amber-tint span. Returns a hiccup fragment
+  suitable for splatting inside the row `<span>`. No-search shortcut
+  returns the raw string unwrapped so the no-search path stays quiet."
+  [label query]
+  (let [segments (search/highlight-segments label query)]
+    (if (and (= 1 (count segments)) (not (:match? (first segments))))
+      [(:text (first segments))]
+      (vec
+        (for [[i {:keys [text match?]}] (map-indexed vector segments)]
+          (if match?
+            ^{:key (str "hit-" i)}
+            [:span {:style (:search-hit styles)
+                    :data-test "story-sidebar-search-hit"} text]
+            ^{:key (str "txt-" i)}
+            [:span text]))))))
+
 (defn- variant-row
-  [variant-id selected? testable? status tags]
+  [variant-id selected? testable? status tags query]
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
@@ -261,7 +281,9 @@
      [status-dot status]
      [:span {:style (:variant-glyph styles)}
       [glyphs/variant-glyph 10]])
-   [:span (str "/" (name variant-id))]
+   ;; rf2-yngai — wrap label so matched substrings render with the
+   ;; amber-tint highlight when a search query is in flight.
+   (into [:span] (highlighted-label (str "/" (name variant-id)) query))
    [tag-badges tags]])
 
 (defn- story-block
@@ -270,22 +292,21 @@
   produced by `state/group-variants-by-story`).
 
   rf2-p0wur: story rows lead with an amber diamond glyph + carry an
-  inter-story spacer so the sidebar tree breathes — pre-rf2-p0wur the
-  rows packed flush with no whitespace breaks between top-level stories.
-  The glyph wears `:accent-amber` so the parent row reads as a labelled
-  chapter heading."
-  [{:keys [story-id variants]} selected-variant testable-set test-runs]
+  inter-story spacer.
+  rf2-yngai: story labels carry the amber-tint match highlight when
+  a search query is in flight."
+  [{:keys [story-id variants]} selected-variant testable-set test-runs query]
   [:div {:style (:story-block styles)}
    [:div {:style (:story-row styles)}
     [:span {:style (:story-glyph styles)}
      [glyphs/story-glyph 13]]
-    [:span (str (or story-id "(no story)"))]]
+    (into [:span] (highlighted-label (str (or story-id "(no story)")) query))]
    (for [[vid body] variants]
      (let [testable? (contains? testable-set vid)
            status    (or (get-in test-runs [vid :status]) :pending)
            tags      (:tags body)]
        ^{:key vid}
-       [variant-row vid (= vid selected-variant) testable? status tags]))])
+       [variant-row vid (= vid selected-variant) testable? status tags query]))])
 
 (defn- workspace-row
   [workspace-id selected?]
@@ -466,74 +487,102 @@
                                                (not watch-on?)))}
           (if watch-on? "● watching" "○ watch")]]])])))
 
+(defn- search-input
+  "rf2-yngai — search-as-you-type input row. Filters the tree in-place
+  on every keystroke. Esc clears the query AND blurs the input."
+  [query-ratom]
+  [:div {:style     (:search-row styles)
+         :data-test "story-sidebar-search-row"}
+   [:input {:type        "search"
+            :style       (:search-input styles)
+            :placeholder "Search stories…"
+            :value       @query-ratom
+            :data-test   "story-sidebar-search-input"
+            :aria-label  "Filter stories and variants"
+            :on-change   (fn [^js evt]
+                           (reset! query-ratom (.. evt -target -value)))
+            :on-key-down (fn [^js evt]
+                           (when (= "Escape" (.-key evt))
+                             (.preventDefault evt)
+                             (reset! query-ratom "")
+                             (some-> (.-target evt) .blur)))}]
+   (when (seq @query-ratom)
+     [:button {:style       (:search-clear styles)
+               :data-test   "story-sidebar-search-clear"
+               :aria-label  "Clear search"
+               :title       "Clear search"
+               :on-click    (fn [_] (reset! query-ratom ""))}
+      "×"])])
+
 (defn sidebar
   "Top-level sidebar component. Reads the registry snapshot + shell
   state, builds the filtered tree, and renders.
 
-  Per rf2-xc65 the sidebar renders as a `<nav>` landmark with
-  `tabindex=\"0\"` so axe-core's `region` rule passes and keyboard
-  users can focus the scrollable tree.
-
-  Per rf2-q0irb the sidebar carries two extra surfaces — the per-
-  variant status dots (rendered inside each variant row when the
-  variant is `:test`-tagged + `:play`-bearing) and the chrome-level
-  test widget at the foot. Both read from `[:tests :runs]`; the widget
-  drives `run-variant` over the testable set on click.
-
-  HOT PATH (rf2-dtj61): every shell-state ratom change re-renders this
-  component, which re-walks the registry to build the view model. We
-  compute `testable-variant-ids` ONCE here — both the per-row
-  `testable?` check (set membership) and the chrome-level `test-widget`
-  share the same derivation. Deeper memoisation keyed on
-  `(registrar-tick, tag-filter)` can wait until corpus size justifies."
+  Per rf2-xc65 the sidebar renders as a `<nav>` landmark.
+  Per rf2-q0irb carries per-variant status dots + chrome test widget.
+  Per rf2-yngai carries a search-as-you-type input above the tree
+  (ephemeral local state; not persisted across reloads)."
   ([] (sidebar nil))
   ([opts]
-  (let [shell           @state/shell-state-atom
-        registry        (state/registry-snapshot)
-        tag-filter      (:tag-filter shell)
-        sel-variant     (:selected-variant shell)
-        sel-ws          (:selected-workspace shell)
-        ;; rf2-7ncf9 — faceted filter: AND across axes, OR within.
-        ;; The axis-index reads from the tag registrar; passing it to
-        ;; `filter-variants` activates the 3-arity facet-aware form.
-        tag->axis       (registrar/tag->axis-index)
-        visible         (state/filter-variants (:variants registry)
-                                               tag-filter
-                                               tag->axis)
-        grouped         (state/group-variants-by-story visible)
-        workspaces      (:workspaces registry)
-        test-runs       (get-in shell [:tests :runs])
-        testable-vec    (state/testable-variant-ids (:variants registry))
-        testable-set    (set testable-vec)]
-    [:nav {:style      (merge (:wrap styles) (:style opts))
-           :data-test  "story-sidebar"
-           :aria-label "Stories and workspaces"
-           :tab-index  "0"}
-     [:div {:style (:tree styles)}
-      [:div {:style (:header styles)}
-       [:span {:style {:display "inline-flex" :align-items "center"
-                       :color (:accent-amber colors/tokens)}}
-        [glyphs/story-glyph 12]]
-       [:span "Stories"]]
-      [tag-filter-row (:variants registry) tag-filter tag->axis]
-      (if (empty? grouped)
-        [:div {:style (:empty styles)}
-         (if (empty? (:variants registry))
-           "no variants registered"
-           "no variants match the active tag filter")]
-        (for [{:keys [story-id] :as entry} grouped]
-          ^{:key (or story-id :nostory)}
-          [story-block entry sel-variant testable-set test-runs]))
-      (when (seq workspaces)
-        [:div
-         [:div {:style (:section styles)}
-          [:span {:style {:display "inline-flex" :align-items "center"
-                          :color (:info colors/tokens)
-                          :margin-right "6px"
-                          :vertical-align "-2px"}}
-           [glyphs/workspace-glyph 11]]
-          "Workspaces"]
-         (for [[wid _body] (sort-by key workspaces)]
-           ^{:key wid}
-           [workspace-row wid (= wid sel-ws)])])]
-     [test-widget shell registry testable-vec]])))
+   (let [query-ratom (r/atom "")]
+     (fn [opts]
+       (let [shell           @state/shell-state-atom
+             registry        (state/registry-snapshot)
+             tag-filter      (:tag-filter shell)
+             sel-variant     (:selected-variant shell)
+             sel-ws          (:selected-workspace shell)
+             tag->axis       (registrar/tag->axis-index)
+             visible         (state/filter-variants (:variants registry)
+                                                    tag-filter
+                                                    tag->axis)
+             grouped-all     (state/group-variants-by-story visible)
+             query           @query-ratom
+             grouped         (search/filter-grouped-tree grouped-all query)
+             workspaces      (search/filter-workspaces
+                               (:workspaces registry) query)
+             test-runs       (get-in shell [:tests :runs])
+             testable-vec    (state/testable-variant-ids (:variants registry))
+             testable-set    (set testable-vec)
+             searching?      (seq (str/trim query))]
+         [:nav {:style      (merge (:wrap styles) (:style opts))
+                :data-test  "story-sidebar"
+                :aria-label "Stories and workspaces"
+                :tab-index  "0"}
+          [:div {:style (:tree styles)}
+           [:div {:style (:header styles)}
+            [:span {:style {:display "inline-flex" :align-items "center"
+                            :color (:accent-amber colors/tokens)}}
+             [glyphs/story-glyph 12]]
+            [:span "Stories"]]
+           [search-input query-ratom]
+           [tag-filter-row (:variants registry) tag-filter tag->axis]
+           (if (empty? grouped)
+             [:div {:style     (:empty styles)
+                    :data-test (if searching?
+                                 "story-sidebar-search-empty"
+                                 "story-sidebar-empty")}
+              (cond
+                searching?
+                (str "no matches for '" query "'")
+
+                (empty? (:variants registry))
+                "no variants registered"
+
+                :else
+                "no variants match the active tag filter")]
+             (for [{:keys [story-id] :as entry} grouped]
+               ^{:key (or story-id :nostory)}
+               [story-block entry sel-variant testable-set test-runs query]))
+           (when (seq workspaces)
+             [:div
+              [:div {:style (:section styles)}
+               [:span {:style {:display "inline-flex" :align-items "center"
+                               :color (:info colors/tokens)
+                               :margin-right "6px"
+                               :vertical-align "-2px"}}
+                [glyphs/workspace-glyph 11]]
+               "Workspaces"]
+              (for [[wid _body] (sort-by key workspaces)]
+                ^{:key wid}
+                [workspace-row wid (= wid sel-ws)])])]
+          [test-widget shell registry testable-vec]])))))

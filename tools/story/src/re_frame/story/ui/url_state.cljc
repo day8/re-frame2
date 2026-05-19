@@ -255,6 +255,29 @@
                  (share/parse-params (params->getter usp)))
                (catch :default _ nil))))))
 
+     (defn embed-flag-from-current-url
+       "Read the `?embed=1` flag (rf2-pucku) from
+       `window.location.search`. Returns true when the param is present
+       and recognised as truthy (`1`/`true`/`yes`/`on`,
+       case-insensitive); false otherwise.
+
+       The flag is intentionally NOT round-tripped through
+       `share/parse-params` because it's chrome-state, not shell-state
+       — it never hydrates the registrar-indexed slots and never
+       writes back to the URL."
+       []
+       (when-let [w (safe-window)]
+         (let [search (.-search (.-location w))]
+           (boolean
+             (when (and (string? search) (seq search))
+               (try
+                 (let [usp (js/URLSearchParams. search)
+                       raw (.get usp "embed")]
+                   (when (string? raw)
+                     (let [v (str/lower-case (str/trim raw))]
+                       (contains? #{"1" "true" "yes" "on"} v))))
+                 (catch :default _ false)))))))
+
      (defonce ^:private hydrating?-atom (atom false))
 
      (defn hydrating?
@@ -370,6 +393,23 @@
            (fn []
              (swap! shell-state-atom apply-fn parsed)))
          parsed))
+
+     (defn hydrate-embed-flag!
+       "Seed `[:chrome-visibility :embed?]` from the `?embed=1` URL
+       flag (rf2-pucku). One-shot at shell mount; embed-mode is URL-
+       driven and not persisted, so this runs every mount without
+       storage involvement.
+
+       Wrapped in the hydration guard so the state-watcher does not
+       react with a pushState back."
+       [shell-state-atom]
+       (let [embed? (embed-flag-from-current-url)]
+         (with-hydration-guard
+           (fn []
+             (swap! shell-state-atom
+                    update :chrome-visibility
+                    (fn [m] (assoc (or m {}) :embed? embed?)))))
+         embed?))
 
      (defn tear-down! [shell-state-atom]
        (remove-state-watcher! shell-state-atom)

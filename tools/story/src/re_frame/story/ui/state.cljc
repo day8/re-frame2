@@ -139,7 +139,16 @@
    ;; `:viewport` / `:background` override on the story / variant body
    ;; takes precedence over the chrome-wide selection at resolve time.
    :viewport            nil
-   :background          nil})
+   :background          nil
+   ;; rf2-p3i0t / rf2-g8l8x / rf2-pucku — per-panel chrome visibility
+   ;; toggled by muscle-memory hotkeys (`f` full-screen, `s` sidebar,
+   ;; `a` RHS, `t` toolbar) and the `?embed=1` URL flag. Defaults: every
+   ;; pane visible; full-screen + embed are opt-in.
+   :chrome-visibility   {:full-screen? false
+                         :sidebar?     true
+                         :rhs?         true
+                         :toolbar?     true
+                         :embed?       false}})
 
 ;; ---- pure transitions (extracted to state.transitions, rf2-gcpon) -------
 
@@ -161,6 +170,14 @@
 (def record-fingerprints       state.transitions/record-fingerprints)
 (def pin-snapshot              state.transitions/pin-snapshot)
 (def toggle-panel              state.transitions/toggle-panel)
+
+;; ---- chrome visibility re-exports (rf2-p3i0t / rf2-g8l8x / rf2-pucku) ---
+
+(def chrome-visibility-defaults state.transitions/chrome-visibility-defaults)
+(def chrome-visibility         state.transitions/chrome-visibility)
+(def toggle-chrome-visibility  state.transitions/toggle-chrome-visibility)
+(def set-chrome-visibility     state.transitions/set-chrome-visibility)
+(def chrome-pane-visible?      state.transitions/chrome-pane-visible?)
 
 ;; ---- mode-tab (rf2-9hc8) re-exports --------------------------------------
 
