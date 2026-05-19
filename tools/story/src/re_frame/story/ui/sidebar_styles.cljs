@@ -237,4 +237,39 @@
    :tag-badge-screenshot   {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
    :tag-badge-experimental {:background (:tag-experimental-bg colors/tokens) :color (:tag-experimental-fg colors/tokens)}
    :tag-badge-internal     {:background (:tag-internal-bg colors/tokens) :color (:danger colors/tokens)}
-   :tag-badge-agent        {:background (:tag-agent-bg colors/tokens) :color (:success colors/tokens)}})
+   :tag-badge-agent        {:background (:tag-agent-bg colors/tokens) :color (:success colors/tokens)}
+   ;; rf2-yngai — search-as-you-type input row + amber-tint highlight.
+   :search-row     {:padding "0 12px 8px 12px"
+                    :display "flex"
+                    :align-items "center"
+                    :gap "6px"
+                    :border-bottom (str "1px solid " (:border-subtle colors/tokens))
+                    :margin-bottom "6px"
+                    :position "relative"}
+   :search-input   {:width "100%"
+                    :box-sizing "border-box"
+                    :background (:bg-input colors/tokens)
+                    :color (:text-primary colors/tokens)
+                    :border (str "1px solid " (:border-subtle colors/tokens))
+                    :border-radius "4px"
+                    :font-family mono-stack
+                    :font-size (:caption typography/type-scale)
+                    :padding "5px 24px 5px 8px"
+                    :outline "none"
+                    :transition (:chip motion/transitions)}
+   :search-clear   {:position "absolute"
+                    :right "18px"
+                    :top "50%"
+                    :transform "translateY(-50%)"
+                    :background "transparent"
+                    :border "none"
+                    :color (:text-tertiary colors/tokens)
+                    :cursor "pointer"
+                    :padding "0 4px"
+                    :font-family mono-stack
+                    :font-size (:caption typography/type-scale)
+                    :line-height "1"}
+   :search-hit     {:background (:accent-amber-soft colors/tokens)
+                    :color (:accent-amber colors/tokens)
+                    :border-radius "2px"
+                    :padding "0 1px"}})

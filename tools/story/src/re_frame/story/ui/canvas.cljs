@@ -21,6 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.story.config :as config]
+            [re-frame.story.loaders :as story-loaders]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
@@ -132,7 +133,122 @@
                :margin "2px 0"
                :font-family mono-stack
                :font-size (:caption typography/type-scale)
-               :background (:danger-bg colors/tokens)}})
+               :background (:danger-bg colors/tokens)}
+   ;; rf2-0s4p1 — identity-bearing loading skeleton during the
+   ;; four-phase loader lifecycle. Reads as "workshop loading" — amber-
+   ;; shimmer pulse on a slate ground — not the generic Storybook
+   ;; skeleton-row pattern.
+   :skeleton {:position "relative"
+              :padding "32px"
+              :min-height "240px"
+              :display "flex"
+              :flex-direction "column"
+              :gap "12px"
+              :background (:bg-canvas colors/tokens)
+              :border-radius "6px"
+              :overflow "hidden"
+              :font-family mono-stack
+              :color (:text-tertiary colors/tokens)}
+   :skeleton-bar {:height "12px"
+                  :width "78%"
+                  :background (str "linear-gradient(90deg, "
+                                   (:bg-3 colors/tokens) " 0%, "
+                                   (:accent-amber-soft colors/tokens) " 50%, "
+                                   (:bg-3 colors/tokens) " 100%)")
+                  :background-size "200% 100%"
+                  :border-radius "3px"
+                  :animation (str "rf-story-shimmer 1400ms "
+                                  "cubic-bezier(0.4, 0.0, 0.2, 1) infinite")}
+   :skeleton-bar-medium {:width "62%"}
+   :skeleton-bar-short  {:width "44%"}
+   :skeleton-edge {:position "absolute"
+                   :inset "0"
+                   :pointer-events "none"
+                   :border (str "1px solid " (:accent-amber-deep colors/tokens))
+                   :border-radius "6px"
+                   :box-shadow (str "inset 0 0 0 1px " (:accent-amber-soft colors/tokens))}
+   :skeleton-label {:font-size (:micro typography/type-scale)
+                    :text-transform "uppercase"
+                    :letter-spacing "0.12em"
+                    :color (:accent-amber colors/tokens)
+                    :margin-bottom "4px"}
+   ;; rf2-zgu68 — viewport-px indicator chip. Shows e.g. "375 × 667"
+   ;; at canvas bottom-right when a viewport mode is active.
+   :viewport-chip {:position "absolute"
+                   :bottom "12px"
+                   :right "16px"
+                   :padding "3px 8px"
+                   :background (:bg-overlay colors/tokens)
+                   :border (str "1px solid " (:border-subtle colors/tokens))
+                   :border-radius "4px"
+                   :color (:text-secondary colors/tokens)
+                   :font-family mono-stack
+                   :font-size (:micro typography/type-scale)
+                   :letter-spacing "0.04em"
+                   :pointer-events "none"
+                   :user-select "none"}})
+
+;; ---- loading skeleton (rf2-0s4p1) ---------------------------------------
+
+(defn loading-phase?
+  "Pure: is the variant in a phase where the loading skeleton should
+  render? True when the lifecycle machine is in `:pre-mount`,
+  `:mounting`, or `:loading` AND no first render has been committed
+  yet.
+
+  Returns false when `phase` is nil or `:ready` / `:error`."
+  [phase first-rendered?]
+  (boolean
+    (and (not first-rendered?)
+         (contains? #{:pre-mount :mounting :loading} phase))))
+
+(defn loading-skeleton
+  "Hiccup component rendering the identity-bearing loading skeleton
+  per rf2-0s4p1. Three amber-shimmer bars on a slate ground with the
+  inset amber edge that matches the canvas-frame chrome — reads as
+  'workshop loading' rather than generic skeleton-row.
+
+  Behind `prefers-reduced-motion: reduce` the shimmer falls back to a
+  static amber inset edge."
+  []
+  [:div {:style       (:skeleton styles)
+         :data-test   "story-canvas-loading-skeleton"
+         :role        "status"
+         :aria-live   "polite"
+         :aria-label  "Variant loading"}
+   [:div {:style (:skeleton-label styles)} "loading"]
+   [:div {:style (:skeleton-bar styles)}]
+   [:div {:style (merge (:skeleton-bar styles)
+                        (:skeleton-bar-medium styles))}]
+   [:div {:style (merge (:skeleton-bar styles)
+                        (:skeleton-bar-short styles))}]
+   [:div {:style (:skeleton-edge styles)
+          :aria-hidden "true"}]])
+
+;; ---- viewport-px indicator chip (rf2-zgu68) ------------------------------
+
+(defn- viewport-indicator-text
+  "Pure: render the chip text e.g. `\"375 × 667\"` from a resolved
+  viewport `{:width :height :label}` map. Returns nil when the preset
+  has no width/height (e.g. `:full`)."
+  [{:keys [width height]}]
+  (when (and width height)
+    (str width " × " height)))
+
+(defn viewport-indicator
+  "Hiccup component rendering the bottom-right viewport-px chip per
+  rf2-zgu68. Hidden when no viewport mode is active.
+
+  Takes the resolved viewport preset map produced by
+  `viewport/resolve`. The chip is `pointer-events: none` so it never
+  intercepts hits on the underlying canvas content."
+  [resolved-viewport]
+  (when-let [text (viewport-indicator-text resolved-viewport)]
+    [:div {:style       (:viewport-chip styles)
+           :data-test   "story-canvas-viewport-indicator"
+           :data-viewport-dims text
+           :aria-hidden "true"}
+     text]))
 
 ;; ---- variant view resolution --------------------------------------------
 
@@ -246,6 +362,28 @@
 (defonce ^:private canvas-last-run-key
   (atom nil))
 
+;; rf2-0s4p1 — per-variant first-render sentinel. Once a variant has
+;; committed its first render, the skeleton never re-appears (a hot-
+;; reload re-run is brief enough that re-flashing the skeleton would
+;; read as a glitch).
+(defonce ^:private first-rendered? (atom #{}))
+
+(defn mark-variant-rendered!
+  "Stamp `variant-id` as 'has committed a first render'. Public for tests."
+  [variant-id]
+  (when variant-id
+    (swap! first-rendered? conj variant-id)))
+
+(defn variant-first-rendered?
+  "True when `variant-id` has committed a first canvas render."
+  [variant-id]
+  (contains? @first-rendered? variant-id))
+
+(defn reset-first-rendered!
+  "Clear the first-rendered sentinel."
+  ([] (reset! first-rendered? #{}) nil)
+  ([variant-id] (swap! first-rendered? disj variant-id) nil))
+
 (defn- run-if-needed!
   []
   (when config/enabled?
@@ -293,7 +431,16 @@
                                   [:cell-overrides variant-id])})
         assertions     (runtime/read-assertions variant-id)
         substrates     (variant-substrate-set variant-id)
-        multi?         (and variant-id (> (count substrates) 1))]
+        multi?         (and variant-id (> (count substrates) 1))
+        ;; rf2-0s4p1 — skeleton gating. The lifecycle machine reports
+        ;; :pre-mount / :mounting / :loading while the four-phase
+        ;; loader cascade runs; once :ready / :error lands, the
+        ;; first-rendered sentinel flips (in component-did-mount /
+        ;; -did-update) and the skeleton hides.
+        lifecycle-phase (try (story-loaders/current-state variant-id)
+                             (catch :default _ nil))
+        first?         (variant-first-rendered? variant-id)
+        show-skeleton? (loading-phase? lifecycle-phase first?)]
     [:div {:style (:frame styles)}
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
@@ -336,6 +483,13 @@
        (nil? view-id)
        [:div {:style (:empty styles)}
         "variant has no :component registered — register one on the story or variant body"]
+
+       ;; rf2-0s4p1: identity-bearing skeleton while the lifecycle
+       ;; machine is still draining loaders AND no first render has
+       ;; committed. Hides immediately once :ready / :error lands and
+       ;; the lifecycle hook flips `first-rendered?`.
+       show-skeleton?
+       [loading-skeleton]
 
        multi?
        ;; Stage 6: multi-substrate side-by-side grid. Per IMPL-SPEC §2.2
@@ -381,6 +535,20 @@
      (render-errors (:errors decorator-pack))
      (render-assertions assertions)]))
 
+(defn- mark-rendered-if-ready!
+  "Lifecycle helper: flip the first-rendered sentinel for the focused
+  variant when the lifecycle machine reports `:ready` or `:error`. The
+  skeleton (rf2-0s4p1) hides on the next render pass."
+  []
+  (when config/enabled?
+    (let [shell      @state/shell-state-atom
+          variant-id (:selected-variant shell)]
+      (when variant-id
+        (let [phase (try (story-loaders/current-state variant-id)
+                         (catch :default _ nil))]
+          (when (contains? #{:ready :error} phase)
+            (mark-variant-rendered! variant-id)))))))
+
 (def canvas
   "Render the focused variant. Triggers a `run-variant` on mount and on
   each `:hot-reload-tick` bump. Renders the variant's `:component` view
@@ -389,17 +557,24 @@
      {:display-name "rf-story-canvas"
       :component-did-mount
       (fn [_this]
-        (run-if-needed!))
+        (run-if-needed!)
+        (mark-rendered-if-ready!))
       :component-did-update
       (fn [_this _old-argv]
         ;; Re-run only when the variant runtime inputs change. The old
         ;; unconditional update path re-fired `:events` on every app-db
         ;; render, resetting interactive state and polluting recorder
         ;; output with fixture setup events.
-        (run-if-needed!))
+        (run-if-needed!)
+        ;; rf2-0s4p1 — flip the first-rendered sentinel once the
+        ;; lifecycle machine reports :ready / :error.
+        (mark-rendered-if-ready!))
       :component-will-unmount
       (fn [_this]
-        (reset! canvas-last-run-key nil))
+        (reset! canvas-last-run-key nil)
+        ;; rf2-0s4p1 — clear the first-rendered sentinel on unmount so a
+        ;; re-mount sees the skeleton for the appropriate loader window.
+        (reset-first-rendered!))
      :reagent-render
      (fn []
        (let [shell      @state/shell-state-atom

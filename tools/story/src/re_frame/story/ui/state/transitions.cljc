@@ -265,6 +265,80 @@
   [state panel-id]
   (update-in state [:panel-visibility panel-id] not))
 
+;; ---- chrome visibility (rf2-p3i0t / rf2-g8l8x / rf2-pucku) --------------
+
+(def chrome-visibility-defaults
+  "Canonical default shape for the `:chrome-visibility` slot. Used by
+  state hydration + tests so a missing slot reads the same as a
+  full-defaults map.
+
+  - `:full-screen?` is the `f`-key toggle (rf2-p3i0t): true → hide
+    sidebar + RHS + toolbar; canvas fills the viewport.
+  - `:sidebar?` / `:rhs?` / `:toolbar?` are per-panel toggles
+    (`s` / `a` / `t` keys, rf2-g8l8x). Each defaults to true.
+  - `:embed?` is hydrated from `?embed=1` (rf2-pucku). When true the
+    shell renders canvas-only — overrides every individual pane toggle.
+    Stateless / non-persisted (embeds are stateless by intent)."
+  {:full-screen? false
+   :sidebar?     true
+   :rhs?         true
+   :toolbar?     true
+   :embed?       false})
+
+(defn chrome-visibility
+  "Read the chrome-visibility map from `state`, merged over the default
+  shape so a fresh state (or one persisted before this slot existed)
+  still returns a well-formed map. Pure data → data."
+  [state]
+  (merge chrome-visibility-defaults (:chrome-visibility state)))
+
+(defn toggle-chrome-visibility
+  "Flip the boolean at `slot` (one of `:full-screen?` / `:sidebar?` /
+   `:rhs?` / `:toolbar?` / `:embed?`) on the chrome-visibility map.
+  Pure data → data."
+  [state slot]
+  (update-in state [:chrome-visibility slot]
+             (fn [v]
+               (let [defaults chrome-visibility-defaults
+                     prev     (if (some? v) v (get defaults slot))]
+                 (not prev)))))
+
+(defn set-chrome-visibility
+  "Set the boolean at `slot` on the chrome-visibility map to `value`.
+  Pure data → data."
+  [state slot value]
+  (assoc-in state [:chrome-visibility slot] (boolean value)))
+
+;; ---- effective per-pane visibility derivations --------------------------
+;;
+;; Embed-mode (rf2-pucku) wins absolutely: every chrome pane hides.
+;; Full-screen (rf2-p3i0t) hides every chrome pane but leaves canvas +
+;; in-canvas affordances. Per-pane toggles (rf2-g8l8x) win when neither
+;; absolute mode is on.
+
+(defn chrome-pane-visible?
+  "Resolve whether `pane` (`:sidebar` / `:rhs` / `:toolbar`) should render
+  given the chrome-visibility map. Pure data → data; JVM-testable.
+
+  Resolution: embed-mode > full-screen > per-pane toggle.
+
+  `:full-screen?` and `:embed?` both elide chrome; the difference is
+  intent — full-screen is a per-shell toggle the user drives via `f`,
+  embed is an outer-context signal carried in the URL. Both project to
+  'every chrome pane hidden' here."
+  [pane state]
+  (let [v (chrome-visibility state)
+        slot-key (case pane
+                   :sidebar :sidebar?
+                   :rhs     :rhs?
+                   :toolbar :toolbar?
+                   nil)]
+    (cond
+      (:embed? v)       false
+      (:full-screen? v) false
+      (nil? slot-key)   true
+      :else             (boolean (get v slot-key true)))))
+
 ;; ---- mode-tab (rf2-9hc8) -------------------------------------------------
 
 (def mode-tabs

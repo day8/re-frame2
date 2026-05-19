@@ -49,7 +49,8 @@
   never invoke it — closure DCEs the lot."
   (:require [re-frame.story.predicates :as pred]
             [re-frame.story.registrar  :as registrar]
-            #?@(:cljs [[re-frame.story.args :as args]
+            #?@(:cljs [[reagent.core :as r]
+                       [re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
                        [re-frame.story.ui.state :as state]])
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
@@ -473,24 +474,164 @@
                  (state/swap-state! state/toggle-tag-filter tag))}
               (str tag)])])])))
 
+;; ---- pure: TOC entries (rf2-8c7tk) --------------------------------------
+
+(def docs-toc-entries
+  "Canonical TOC entry table for the `:docs` mode pane (rf2-8c7tk).
+  Pure data → data so JVM tests can assert the table shape. The
+  header section renders as the variant's `<h1>` and is intentionally
+  NOT in the TOC list — it sits beside that h1 and would self-reference."
+  [{:id "docs-prose"      :label "Prose"      :level 2 :conditional? true}
+   {:id "docs-args"       :label "Args"       :level 2}
+   {:id "docs-decorators" :label "Decorators" :level 2}
+   {:id "docs-parameters" :label "Parameters" :level 2}
+   {:id "docs-tags"       :label "Tags"       :level 2}])
+
+(defn visible-toc-entries
+  "Pure data → data: prune conditional TOC entries that don't apply to
+  this variant. The prose section is the only conditional one — we
+  drop it when `(prose-for-variant variant-id)` returns empty."
+  [variant-id]
+  (let [prose? (seq (prose-for-variant variant-id))]
+    (vec
+      (remove (fn [{:keys [id conditional?]}]
+                (and conditional?
+                     (= id "docs-prose")
+                     (not prose?)))
+              docs-toc-entries))))
+
+#?(:cljs
+   (defn- toc-pane-styles []
+     {:wrap        {:position "sticky"
+                    :top "16px"
+                    :max-height "calc(100vh - 64px)"
+                    :overflow-y "auto"
+                    :width "180px"
+                    :flex-shrink "0"
+                    :padding "12px 12px 12px 16px"
+                    :margin-left "20px"
+                    :border-left (str "1px solid " (:border-subtle colors/tokens))
+                    :font-family sans-stack
+                    :font-size (:nano typography/type-scale)
+                    :color (:text-secondary colors/tokens)}
+      :label      {:text-transform "uppercase"
+                   :letter-spacing "0.08em"
+                   :color (:text-tertiary colors/tokens)
+                   :font-size (:nano typography/type-scale)
+                   :margin-bottom "6px"}
+      :list       {:list-style "none"
+                   :margin 0
+                   :padding 0
+                   :display "flex"
+                   :flex-direction "column"
+                   :gap "2px"}
+      :item       {:padding "3px 8px"
+                   :border-radius "3px"
+                   :cursor "pointer"
+                   :background "transparent"
+                   :border "none"
+                   :text-align "left"
+                   :color (:text-secondary colors/tokens)
+                   :font-family sans-stack
+                   :font-size (:caption typography/type-scale)}
+      :item-active {:background (:accent-amber-soft colors/tokens)
+                    :color (:accent-amber colors/tokens)}}))
+
+#?(:cljs
+   (defn- jump-to-anchor!
+     [anchor-id]
+     (when (and (exists? js/document) anchor-id)
+       (when-let [el (.getElementById js/document anchor-id)]
+         (try
+           (.scrollIntoView el #js {:behavior "smooth" :block "start"})
+           (catch :default _ nil))))))
+
+#?(:cljs
+   (defn- responsive-toc?
+     "Spec rf2-8c7tk: TOC auto-hides below 1024px (more aggressive than
+     Storybook's 1200px since our RHS is already present)."
+     []
+     (boolean
+       (when (exists? js/window)
+         (try (>= (.-innerWidth js/window) 1024)
+              (catch :default _ false))))))
+
+#?(:cljs
+   (defn- toc-pane
+     "Render the TOC pane at the docs page right edge. Tracks the
+     currently-visible section via IntersectionObserver so the active
+     entry highlights as the user scrolls."
+     [variant-id]
+     (let [active   (r/atom nil)
+           observer (atom nil)]
+       (r/create-class
+         {:display-name "rf-story-docs-toc"
+          :component-did-mount
+          (fn [_]
+            (when (and (exists? js/window) (.-IntersectionObserver js/window))
+              (try
+                (let [entries (visible-toc-entries variant-id)
+                      io (js/IntersectionObserver.
+                           (fn [entries-arr _obs]
+                             (doseq [e (array-seq entries-arr)]
+                               (when (.-isIntersecting e)
+                                 (reset! active (.-id (.-target e))))))
+                           #js {:rootMargin "-30% 0px -60% 0px"})]
+                  (reset! observer io)
+                  (doseq [{:keys [id]} entries]
+                    (when-let [el (.getElementById js/document id)]
+                      (.observe io el))))
+                (catch :default _ nil))))
+          :component-will-unmount
+          (fn [_]
+            (when-let [io @observer]
+              (try (.disconnect io) (catch :default _ nil))
+              (reset! observer nil)))
+          :reagent-render
+          (fn [variant-id]
+            (let [s         (toc-pane-styles)
+                  entries   (visible-toc-entries variant-id)
+                  active-id @active]
+              (when (and (responsive-toc?) (seq entries))
+                [:nav {:style     (:wrap s)
+                       :data-test "story-docs-toc"
+                       :aria-label "Documentation table of contents"}
+                 [:div {:style (:label s)} "Contents"]
+                 [:ul {:style (:list s)}
+                  (for [{:keys [id label]} entries]
+                    ^{:key id}
+                    [:li
+                     [:button
+                      {:style       (merge (:item s)
+                                           (when (= id active-id)
+                                             (:item-active s)))
+                       :data-test       "story-docs-toc-item"
+                       :data-toc-target id
+                       :aria-current    (if (= id active-id) "location" "false")
+                       :on-click        (fn [_] (jump-to-anchor! id))}
+                      label]])]])))}))))
+
 #?(:cljs
    (defn docs-view
      "Top-level `:docs` mode pane for `variant-id`.
 
      Renders the six sections (header / prose / args / decorators /
-     parameters / tags) inside a single scrollable container styled
-     to match the render-shell chrome (rf2-2uwv contrast palette).
-
-     Per spec/008 the pane is read-only — no inputs. All editing
-     happens in the `:dev` (Canvas) mode's controls panel."
+     parameters / tags) inside a flex layout alongside a sticky TOC
+     pane on the right edge (rf2-8c7tk; auto-hides below 1024px)."
      [variant-id]
      (when variant-id
-       [:section {:style     (:wrap styles)
-                  :data-test "story-docs-view"
-                  :aria-label "Variant documentation"}
-        [header variant-id]
-        [prose-section variant-id]
-        [args-section variant-id]
-        [decorators-section variant-id]
-        [parameters-section variant-id]
-        [tags-section variant-id]])))
+       [:div {:style     {:display "flex"
+                          :flex "1"
+                          :overflow "auto"
+                          :background (:bg-canvas colors/tokens)}
+              :data-test "story-docs-layout"}
+        [:section {:style     (:wrap styles)
+                   :data-test "story-docs-view"
+                   :aria-label "Variant documentation"}
+         [header variant-id]
+         [:section {:id "docs-prose"} [prose-section variant-id]]
+         [:section {:id "docs-args"} [args-section variant-id]]
+         [:section {:id "docs-decorators"} [decorators-section variant-id]]
+         [:section {:id "docs-parameters"} [parameters-section variant-id]]
+         [:section {:id "docs-tags"} [tags-section variant-id]]]
+        [toc-pane variant-id]])))
