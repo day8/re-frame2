@@ -1,31 +1,40 @@
 (ns day8.re-frame2-causa.panels.routing-helpers
-  "Pure projection helpers for the Causa Routing tab (rf2-nrbs9).
+  "Pure projection helpers for the Causa Routing tab (rf2-nrbs9, rf2-lq0ef).
 
   ## Why a separate `.cljc` ns
 
-  The panel view in `routing.cljs` paints the route-tree lens. The
-  *logic* — project the registered-routes registrar into a stable
-  tree structure, derive the current-vs-from-vs-to highlight from
-  the focused cascade's trace events + app-db slice — is pure data
-  → data. Splitting the algebra into `.cljc` so it runs under the
-  JVM unit-test target (`clojure -M:test`) is required by the
-  standing rule `feedback_jvm_interop_must_work.md`.
+  The panel view in `routing.cljs` paints the routes lens. The
+  *logic* — project the registered-routes registrar into a flat
+  catalogue, derive the current-vs-from-vs-to highlight from the
+  focused cascade, filter by a substring query, and simulate a URL
+  against the registered patterns — is pure data → data. Splitting
+  the algebra into `.cljc` so it runs under the JVM unit-test target
+  (`clojure -M:test`) is required by the standing rule
+  `feedback_jvm_interop_must_work.md`.
 
-  ## Lens model
+  ## Lens model (post-rf2-lq0ef reshape)
 
-  Always-shown structure: the full route tree (every registered
-  route, sorted by path so the rendering is deterministic).
+  The lens is a **flat catalogue sorted by `:path`** — never a tree.
+  The audit (`ai/findings/2026-05-19-routing-inheritance-audit.md`
+  verdict B) found that the previous URL-path-segmentation indentation
+  was decorative: routes are flat in the spec + impl, `:parent` plays
+  no role in matching, and the match-resolver is structural
+  (6-rule rank on URL pattern). The previous tree conflated URL-prefix
+  similarity with semantic hierarchy.
 
-  Per-focused-event highlighting:
+  The flat-list shape mirrors the contract. The load-bearing
+  interactive surface is **Simulate-URL** — paste a URL and see the
+  6-rule rank tuple per candidate plus the winner; that exposes the
+  match contract Causa users actually need to reason about.
+
+  Per-focused-event highlighting (unchanged from rf2-nrbs9):
 
   - `◆ HERE` on the current matched route (always — orientation).
   - `◆ FROM` / `◆ TO` arrow when the focused cascade caused
-    navigation; the `:rf.route.nav-token/allocated` trace event
-    plus the slice change identify the FROM (prior route) and TO
-    (newly matched route).
-  - Show params + query for the active route.
-  - No transition arrow when the focused event has no routing
-    impact (still shows `◆ HERE`).
+    navigation; the `:rf.route.nav-token/allocated` trace event plus
+    the slice change identify the FROM (prior route) and TO (newly
+    matched route).
+  - Show params + query + fragment for the active route.
   - When the app has no routes registered: every projection helper
     returns the silent shape (`{:routes [] :silent? true}`) and the
     view honours silent-by-default per rf2-g3ghh.
@@ -35,60 +44,184 @@
   The composite the view consumes:
 
       {:silent?    <bool>             ;; true when no routes registered
-       :routes     [<row> ...]        ;; the route tree, sorted by path
+       :routes     [<row> ...]        ;; flat, sorted by :path
        :current    <route-slice>      ;; the active :rf/route slice
        :from-id    <route-id-or-nil>  ;; nav origin when the focused
                                       ;; cascade caused navigation
        :to-id      <route-id-or-nil>  ;; nav destination when the
                                       ;; focused cascade caused navigation
-       :navigated? <bool>}            ;; true iff the focused cascade
+       :navigated? <bool>             ;; true iff the focused cascade
                                       ;; carries a :rf.route.nav-token/
                                       ;; allocated trace event
+       :query      <string-or-nil>    ;; substring filter applied to rows
+       :sim-url    <string-or-nil>    ;; URL pasted into the simulator
+       :sim-result <map-or-nil>}      ;; result of simulate-url for sim-url
 
   Each `<row>` is:
 
       {:route-id   <keyword>
        :path       <string>
-       :depth      <int>              ;; tree depth (0 = root)
        :doc        <string-or-nil>
-       :marker     <:here :from :to nil>}  ;; render glyph hint"
-  (:require [clojure.string :as str]))
+       :parent     <route-id-or-nil>   ;; from registrar meta
+       :tags       <set-or-nil>        ;; from registrar meta
+       :has-on-match? <bool>
+       :has-can-leave? <bool>
+       :rank       <vector-or-nil>     ;; the 6-tuple :rf.route/rank
+       :meta       <map>               ;; full registrar meta (for click-to-expand)
+       :marker     <:here :from :to nil>}"
+  (:require [clojure.string :as str]
+            [re-frame.routing.match :as match]))
 
-;; ---- route tree projection ----------------------------------------------
+;; ---- route catalogue projection -----------------------------------------
 
-(defn- path-segments
-  "Split a route path into its `/`-delimited segments. The root path
-  `/` collapses to `[]` so it slots in at depth 0; an empty / nil
-  path is treated as the root."
-  [path]
-  (let [p (or path "")]
-    (->> (str/split p #"/")
-         (remove str/blank?)
-         vec)))
-
-(defn- path-depth
-  "Tree depth for a route path. Root (`/` or empty) sits at depth 0;
-  every `/`-separated segment adds one level."
-  [path]
-  (count (path-segments path)))
-
-(defn project-route-tree
+(defn project-routes
   "Project the registered-routes map (`{<id> <meta>}`) into a vector
-  of `{:route-id :path :depth :doc}` rows sorted by path. The path
-  sort is lexicographic so siblings under a common prefix render
-  contiguously; depth comes for free from the path itself.
+  of catalogue rows sorted lexicographically by `:path`. Each row
+  carries the route-id, path, doc, parent, tags, the rank tuple, and
+  the full meta map (so the view's click-to-expand surface can render
+  the registrar entry verbatim).
+
+  Per the audit (verdict B): no `:depth` field, no indentation hint.
+  Routes are flat in the spec + impl; the catalogue mirrors that.
 
   Returns `[]` when the registrar is empty — the silent-by-default
   branch the view honours per rf2-g3ghh."
   [routes-map]
   (->> routes-map
        (map (fn [[id meta]]
-              {:route-id id
-               :path     (or (:path meta) "")
-               :depth    (path-depth (:path meta))
-               :doc      (:doc meta)}))
+              {:route-id        id
+               :path            (or (:path meta) "")
+               :doc             (:doc meta)
+               :parent          (:parent meta)
+               :tags            (:tags meta)
+               :has-on-match?   (some? (:on-match meta))
+               :has-can-leave?  (some? (:can-leave meta))
+               :rank            (:rf.route/rank meta)
+               :meta            meta}))
        (sort-by :path)
        vec))
+
+;; ---- substring filter ---------------------------------------------------
+
+(defn- row-haystack
+  "Compose the searchable haystack for a single row — route-id, path,
+  and doc, joined with spaces. Lower-cased once at projection time so
+  the filter can do case-insensitive `clojure.string/includes?` without
+  re-lowering."
+  [row]
+  (str/lower-case
+    (str (some-> (:route-id row) str) " "
+         (:path row) " "
+         (or (:doc row) ""))))
+
+(defn filter-rows
+  "Substring filter. Empty / blank query returns rows verbatim;
+  otherwise keep rows whose route-id, path, or doc contains the
+  lower-cased query as a substring. Case-insensitive — the user's
+  query is lower-cased once and matched against pre-lowered haystacks."
+  [rows query]
+  (let [q (some-> query str/trim)]
+    (if (or (nil? q) (= "" q))
+      rows
+      (let [needle (str/lower-case q)]
+        (filterv (fn [row] (str/includes? (row-haystack row) needle))
+                 rows)))))
+
+;; ---- Simulate-URL -------------------------------------------------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params §match-url, ranking is the
+;; pre-sorted route table walked in :rf.route/rank descending order;
+;; the first pattern that matches the path is the winner. For the
+;; simulator we want to surface ALL matching candidates with their
+;; rank tuples, not just the winner — that's the load-bearing
+;; interactive surface that exposes the 6-rule cascade.
+
+(defn- split-url
+  "Strip fragment + query off a URL string, returning just the path
+  segment. Mirrors the splitting `match-url` performs before invoking
+  `match-against`. Fragments are dropped (do not participate in
+  matching per Spec 012 §Fragments); query strings are dropped
+  (route patterns match against the path only)."
+  [url]
+  (when (string? url)
+    (let [[no-frag] (str/split url #"#" 2)
+          [path]    (str/split no-frag #"\?" 2)]
+      (cond
+        (str/blank? path) "/"
+        :else             path))))
+
+(defn- normalize-path
+  "Strip a trailing slash from a multi-segment path so `/cart/` and
+  `/cart` both match the same pattern. Single `/` is preserved.
+  Mirrors `normalize-match-path` in re-frame.routing — the simulator
+  must use the same normalization so its results match what
+  match-url would actually return."
+  [path]
+  (cond
+    (or (nil? path) (= "/" path)) (or path "/")
+    (and (str/ends-with? path "/") (< 1 (count path))) (subs path 0 (dec (count path)))
+    :else path))
+
+(defn- compile-pattern-on-demand
+  "If a registrar entry was seeded without `:rf.route/compiled` (e.g.
+  test fixtures pass bare `{:path ...}` maps), compile the pattern on
+  the fly. The 6-tuple ranks at the test-only override slot will not
+  have the `(- reg-index)` trailing element, but the structural 5-tuple
+  is enough to demonstrate the simulator's contract; the production
+  path always has the full 6-tuple."
+  [meta]
+  (or (:rf.route/compiled meta)
+      (when-let [path (:path meta)]
+        (try
+          (match/parse-pattern path)
+          (catch #?(:clj Exception :cljs :default) _ nil)))))
+
+(defn simulate-url
+  "Run `url` against every registered route's pattern. Returns
+  {:url <input>
+   :path <stripped path>
+   :candidates [{:route-id :rank :params :winner? :path} ...]
+   :winner <route-id-or-nil>}
+
+  Candidates are sorted by `:rf.route/rank` descending — the same
+  order `match-url` walks the registry table. The first candidate is
+  the winner (the route `match-url` would resolve to). Non-matching
+  routes are excluded; an empty `:candidates` vector means
+  `match-url` would return nil for this URL.
+
+  This is purely structural — query coercion and `:params` / `:query`
+  schema validation are out of scope for the simulator. The lens is
+  about the rank cascade, not full match semantics."
+  [routes-map url]
+  (let [trimmed (some-> url str/trim)]
+    (cond
+      (or (nil? trimmed) (= "" trimmed))
+      {:url        nil
+       :path       nil
+       :candidates []
+       :winner     nil}
+
+      :else
+      (let [path (normalize-path (split-url trimmed))
+            candidates
+            (->> routes-map
+                 (keep (fn [[id meta]]
+                         (when-let [compiled (compile-pattern-on-demand meta)]
+                           (when-let [params (match/match-against compiled path)]
+                             {:route-id id
+                              :path     (:path meta)
+                              :rank     (or (:rf.route/rank meta)
+                                            (:rank compiled))
+                              :params   params}))))
+                 (sort-by :rank #(compare %2 %1))
+                 vec)
+            winner-id (some-> candidates first :route-id)
+            decorated (mapv #(assoc % :winner? (= (:route-id %) winner-id))
+                            candidates)]
+        {:url        trimmed
+         :path       path
+         :candidates decorated
+         :winner     winner-id}))))
 
 ;; ---- focused-cascade routing detection ----------------------------------
 
@@ -196,11 +329,6 @@
                 marker (cond
                          (and to-id (= id to-id))          :to
                          (and from-id (= id from-id))      :from
-                         ;; HERE shows whether or not we navigated —
-                         ;; it's the orientation glyph. When :to is
-                         ;; set the same row carries :to, so HERE
-                         ;; only surfaces independently when the
-                         ;; cascade didn't navigate.
                          (and (not navigated?)
                               current-id
                               (= id current-id))
@@ -213,8 +341,9 @@
 
 (defn project-data
   "The view-facing composite. Folds the registered-routes map +
-  current route slice + focused cascade into the shape the panel
-  consumes (see ns doc §Data shape contract).
+  current route slice + focused cascade + UI controls (search query +
+  Simulate-URL) into the shape the panel consumes (see ns doc §Data
+  shape contract).
 
   Inputs are all pre-projected by the registry sub layer; this fn is
   pure data → data so it slots into the JVM unit-test target.
@@ -222,16 +351,26 @@
   Silent-by-default per rf2-g3ghh: when no routes are registered the
   fn returns `{:silent? true :routes [] ...}` and the view renders
   the empty section (no `(none)` placeholder)."
-  [routes-map current-slice focused-cascade]
-  (let [rows         (project-route-tree routes-map)
-        silent?      (empty? rows)
-        nav          (from-to-from-cascade focused-cascade current-slice)
-        decorated    (assign-markers rows
-                                     (assoc nav
-                                       :current-id (:id current-slice)))]
-    {:silent?    silent?
-     :routes     decorated
-     :current    current-slice
-     :from-id    (:from-id nav)
-     :to-id      (:to-id nav)
-     :navigated? (:navigated? nav)}))
+  ([routes-map current-slice focused-cascade]
+   (project-data routes-map current-slice focused-cascade nil nil))
+  ([routes-map current-slice focused-cascade query sim-url]
+   (let [rows         (project-routes routes-map)
+         silent?      (empty? rows)
+         nav          (from-to-from-cascade focused-cascade current-slice)
+         decorated    (assign-markers rows
+                                      (assoc nav
+                                        :current-id (:id current-slice)))
+         filtered     (filter-rows decorated query)
+         sim-result   (when (and sim-url (not (str/blank? sim-url)))
+                        (simulate-url routes-map sim-url))]
+     {:silent?       silent?
+      :routes        filtered
+      :total-routes  (count rows)
+      :filtered?     (not= (count rows) (count filtered))
+      :current       current-slice
+      :from-id       (:from-id nav)
+      :to-id         (:to-id nav)
+      :navigated?    (:navigated? nav)
+      :query         query
+      :sim-url       sim-url
+      :sim-result    sim-result})))

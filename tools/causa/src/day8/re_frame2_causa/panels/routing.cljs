@@ -1,45 +1,44 @@
 (ns day8.re-frame2-causa.panels.routing
-  "Routing tab — the 7th L4 tab (rf2-nrbs9).
+  "Routes tab — the 7th L4 tab (rf2-nrbs9, reshaped per rf2-lq0ef).
 
-  Per Mike's design call (2026-05-18 16:35): Routing earns its own
+  Per Mike's design call (2026-05-18 16:35): Routes earns its own
   top-level tab in the Causa shell rather than piling into App-db
   (`app-db panel gets busy`). Routing slices are a cohesive sub-domain
-  — the route tree + the current match + nav transitions — and the
-  bd memory `cohesive-subdomains-get-their-own-tab` codifies the
+  — the route catalogue + the current match + nav transitions — and
+  the bd memory `cohesive-subdomains-get-their-own-tab` codifies the
   posture: cohesive sub-domains earn their own lens tab.
 
-  ## Lens model (parallel to Machines)
+  ## Lens model (post-rf2-lq0ef reshape)
 
-  Always-shown structure: the full route tree (every registered
-  route, sorted by path). The tree is the orientation surface — a
-  Causa user can flip to the Routing tab and immediately see the
-  app's routing topology without having to dig through code.
+  Routes are FLAT in the spec + impl. The previous tree projection
+  indented rows by URL-path-segment depth — purely decorative, no
+  semantic load (audit verdict B,
+  `ai/findings/2026-05-19-routing-inheritance-audit.md`). The new
+  lens mirrors the actual contract:
 
-  Per-focused-event highlighting:
+  - **Flat catalogue** sorted by `:path` (lexicographic). No
+    indentation, no depth derivation.
+  - **Per-row chips**: route-id + path + doc, with small letter
+    badges (`M` / `L` / `T` / `P`) for routes carrying `:on-match` /
+    `:can-leave` / `:tags` / `:parent`. Click the row to expand the
+    full registrar meta inline.
+  - **Substring search** across route-id + path + doc.
+  - **Simulate-URL** — paste a URL, see every route that matches
+    plus its 6-rule `:rf.route/rank` tuple; the winner is the
+    first row by rank-descending (mirrors `match-url`).
+  - **`:parent` annotation** — when a row carries `:parent`, render
+    a compact `↑ → :route/account` inline pointer; expanding the row
+    surfaces the full `:rf.route/chain`.
 
-  - `◆ HERE` on the current matched route (always — the orientation
-    glyph; even when the focused event has no routing impact).
+  Per-focused-event highlighting (unchanged from rf2-nrbs9):
+
+  - `◆ HERE` on the current matched route (always — orientation).
   - `◆ FROM` / `◆ TO` arrow when the focused cascade caused
     navigation (the cascade carries a
     `:rf.route.nav-token/allocated` trace event).
-  - Params + query for the active route surface below the tree.
+  - Params + query for the active route surface below the catalogue.
   - When the app has no routing registered: tab content silent
     (no `(none)` placeholder per rf2-g3ghh silent-by-default).
-
-  ## ASCII sketch (focused event caused navigation)
-
-      ROUTING
-        /
-        ├ /cart            ◆ FROM ━━━━━━━━━━━━━━━━━━┓
-        ├ /checkout                                  ┃
-        │   ├ /payment              ━━━━━━━━━━━━━━━━┛
-        │   └ /confirm     ◆ TO    (matched)
-        ├ /admin
-        │   └ /audit
-        └ /404
-
-        Params: {:order-id \"ord-1234\"}
-        Query:  {:source \"cart\"}
 
   ## Pure hiccup (rf2-tijr)
 
@@ -51,10 +50,10 @@
 
   ## Helpers
 
-  Pure-data projection (`project-route-tree`, `project-data`,
-  `from-to-from-cascade`, `assign-markers`) lives in
-  `routing_helpers.cljc` so the algebra runs under the JVM unit-test
-  target."
+  Pure-data projection (`project-routes`, `project-data`,
+  `from-to-from-cascade`, `assign-markers`, `filter-rows`,
+  `simulate-url`) lives in `routing_helpers.cljc` so the algebra runs
+  under the JVM unit-test target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.routing-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
@@ -81,31 +80,97 @@
                               :font-family   sans-stack
                               :font-size     "11px"
                               :letter-spacing "0.3px"
-                              :margin-left   "12px"
+                              :margin-left   "8px"
                               :white-space   "nowrap"}}
          label]))))
 
+(defn- meta-badge
+  "Single-letter badge surfacing presence of a metadata key. Letters
+  are deliberate one-glyph hints — `M` = `:on-match`, `L` =
+  `:can-leave`, `T` = `:tags`, `P` = `:parent`. The colour scheme
+  maps to the semantic palette: `:can-leave` is yellow (guard),
+  `:on-match` is cyan (event), `:tags` is magenta (user labels),
+  `:parent` is violet (hierarchy hint)."
+  [kind]
+  (let [{:keys [letter colour title]}
+        (case kind
+          :on-match  {:letter "M" :colour (:cyan tokens)         :title ":on-match"}
+          :can-leave {:letter "L" :colour (:yellow tokens)       :title ":can-leave"}
+          :tags      {:letter "T" :colour (:magenta tokens)      :title ":tags"}
+          :parent    {:letter "P" :colour (:accent-violet tokens) :title ":parent"}
+          nil)]
+    (when letter
+      [:span {:data-testid (str "rf-causa-routing-badge-" (name kind))
+              :title       title
+              :style       {:display         "inline-block"
+                            :min-width       "14px"
+                            :height          "14px"
+                            :line-height     "14px"
+                            :padding         "0 3px"
+                            :margin-right    "4px"
+                            :background      (:bg-3 tokens)
+                            :color           colour
+                            :border          (str "1px solid " colour)
+                            :border-radius   "3px"
+                            :font-family     mono-stack
+                            :font-size       "9px"
+                            :font-weight     700
+                            :text-align      "center"}}
+       letter])))
+
+(defn- parent-annotation
+  "Compact inline `↑ :route/account` pointer rendered next to a row
+  with `:parent`. The audit found this is the ONLY semantically
+  load-bearing `:parent` axis (`:rf.route/chain` for view-shell
+  composition); the lens surfaces it as a per-row hint rather than
+  a tree-defining structure."
+  [parent-id]
+  (when parent-id
+    [:span {:data-testid "rf-causa-routing-parent-ptr"
+            :style       {:color       (:text-tertiary tokens)
+                          :font-family mono-stack
+                          :font-size   "11px"
+                          :margin-left "8px"
+                          :white-space "nowrap"}}
+     (str "↑ " parent-id)]))
+
+(defn- meta-expander
+  "Click-to-expand registrar meta map. Renders the full meta as
+  `pr-str` text, indented under the row. Used when the user has
+  clicked the row's chevron to drill in."
+  [row]
+  [:pre {:data-testid (str "rf-causa-routing-meta-"
+                           (subs (pr-str (:route-id row)) 1))
+         :style       {:margin "4px 0 8px 24px"
+                       :padding "8px 12px"
+                       :background (:bg-1 tokens)
+                       :border-left (str "2px solid " (:border-default tokens))
+                       :color (:text-secondary tokens)
+                       :font-family mono-stack
+                       :font-size "11px"
+                       :white-space "pre-wrap"
+                       :overflow-x "auto"
+                       :max-height "200px"
+                       :overflow-y "auto"}}
+   (with-out-str
+     (println "; route" (:route-id row))
+     (println (pr-str (:meta row))))])
+
 (defn- route-row
-  "One row in the route tree. Indentation is depth × 16px so nested
-  routes visually sit under their parents. Each row carries the
-  route's path + the route-id (mono-font) + a marker chip when
-  highlighted."
-  [{:keys [route-id path depth marker doc] :as _row}]
+  "One row in the catalogue. No indentation — routes are flat.
+  Each row carries: chevron (expand toggle), marker chip column,
+  badges, route-id (mono), path (highlighted), doc (italic), and
+  the parent pointer when present."
+  [{:keys [route-id path marker doc parent has-on-match? has-can-leave? tags]
+    :as row}
+   {:keys [expanded? on-toggle]}]
   ;; testid uses the fully-qualified keyword (namespace + name) so two
   ;; routes whose simple names collide (e.g. `:cart/edit` and
-  ;; `:admin/edit`) render with distinct testids. `pr-str` round-trips
-  ;; the keyword's whole reader form (`:route/cart`); strip the leading
-  ;; `:` so the resulting attribute reads as `rf-causa-routing-row-
-  ;; route/cart` — namespace-bearing but stripped of the colon prefix
-  ;; that confuses CSS selectors (a leading `:` would be parsed as a
-  ;; pseudo-class).
+  ;; `:admin/edit`) render with distinct testids.
   [:li {:data-testid (str "rf-causa-routing-row-" (subs (pr-str route-id) 1))
         :data-marker (when marker (name marker))
-        :style       {:display        "flex"
-                      :align-items    "center"
-                      :gap            "8px"
-                      :padding        "3px 8px"
-                      :padding-left   (str (+ 8 (* (or depth 0) 16)) "px")
+        :style       {:display        "block"
+                      :padding        "0"
                       :font-family    mono-stack
                       :font-size      "12px"
                       :color          (:text-primary tokens)
@@ -120,36 +185,234 @@
                                         :here (str "2px solid " (:accent-violet tokens))
                                         "2px solid transparent")
                       :border-radius  "2px"
-                      :line-height    "20px"
-                      :white-space    "nowrap"}}
-   [:span {:style {:color (:text-tertiary tokens)
+                      :line-height    "20px"}}
+   [:div {:style {:display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :padding "3px 8px"
+                  :cursor "pointer"
+                  :white-space "nowrap"
+                  :overflow "hidden"}
+          :on-click on-toggle}
+    [:span {:data-testid (str "rf-causa-routing-chevron-"
+                              (subs (pr-str route-id) 1))
+            :style {:color (:text-tertiary tokens)
+                    :font-size "10px"
+                    :min-width "12px"
+                    :user-select "none"}}
+     (if expanded? "▾" "▸")]
+    [:span {:style {:color (:accent-violet tokens)
+                    :font-weight 500
+                    :min-width "120px"}}
+     path]
+    [:span {:style {:color (:text-tertiary tokens)
+                    :font-size "11px"
+                    :min-width "140px"}}
+     (str route-id)]
+    [:span {:style {:display "inline-flex"
+                    :align-items "center"
+                    :margin-left "4px"}}
+     (when has-on-match?  (meta-badge :on-match))
+     (when has-can-leave? (meta-badge :can-leave))
+     (when (seq tags)     (meta-badge :tags))
+     (when parent         (meta-badge :parent))]
+    (when doc
+      [:span {:style {:color (:text-secondary tokens)
+                      :font-size "11px"
+                      :font-style "italic"
+                      :font-family sans-stack
+                      :overflow "hidden"
+                      :text-overflow "ellipsis"
+                      :flex 1}}
+       doc])
+    (parent-annotation parent)
+    (marker-chip marker)]
+   (when expanded?
+     (meta-expander row))])
+
+;; ---- search box ---------------------------------------------------------
+
+(defn- search-box
+  "Substring filter input. Matches against route-id + path + doc per
+  `routing_helpers/filter-rows`."
+  [query total-routes filtered?]
+  [:div {:data-testid "rf-causa-routing-search"
+         :style       {:display "flex"
+                       :align-items "center"
+                       :gap "8px"
+                       :padding "8px 16px"
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :font-family sans-stack}}
+   [:label {:style {:color (:text-tertiary tokens)
+                    :font-size "10px"
+                    :text-transform "uppercase"
+                    :letter-spacing "0.5px"
+                    :min-width "60px"}}
+    "Search"]
+   [:input {:type        "text"
+            :data-testid "rf-causa-routing-search-input"
+            :placeholder "route-id, path, or doc…"
+            :value       (or query "")
+            :on-change   (fn [e]
+                           (rf/dispatch [:rf.causa.routing/set-query
+                                         (-> e .-target .-value)]
+                                        {:frame :rf/causa}))
+            :style       {:flex 1
+                          :background (:bg-3 tokens)
+                          :color (:text-primary tokens)
+                          :border (str "1px solid " (:border-default tokens))
+                          :border-radius "3px"
+                          :padding "4px 8px"
+                          :font-family mono-stack
+                          :font-size "12px"}}]
+   [:span {:data-testid "rf-causa-routing-search-count"
+           :style {:color (:text-tertiary tokens)
+                   :font-family mono-stack
                    :font-size "11px"
-                   :min-width "16px"
+                   :min-width "60px"
                    :text-align "right"}}
-    ;; A small `·` for non-root, blank for root — gives the tree a
-    ;; faint grid feel without ascii-art tree glyphs (those don't
-    ;; survive font-substitution well).
-    (if (pos? (or depth 0)) "·" "")]
+    (cond
+      filtered?              (str "match")
+      (= 1 total-routes)     "1 route"
+      :else                  (str total-routes " routes"))]])
+
+;; ---- Simulate-URL -------------------------------------------------------
+
+(defn- rank-cell
+  "Render a single rank tuple as compact mono text. The 6-tuple is
+  `[static total -splat catch-all? -optional -reg-index]` per
+  `parse-pattern`; we surface it verbatim — the lens is about exposing
+  the cascade, not interpreting it."
+  [rank]
+  [:span {:style {:font-family mono-stack
+                  :font-size "11px"
+                  :color (:text-secondary tokens)}}
+   (pr-str rank)])
+
+(defn- sim-candidate-row
+  "One row in the Simulate-URL result table — winner highlighted."
+  [{:keys [route-id rank params winner? path]}]
+  [:li {:data-testid (str "rf-causa-routing-sim-candidate-"
+                          (subs (pr-str route-id) 1))
+        :data-winner (when winner? "true")
+        :style       {:display "flex"
+                      :align-items "center"
+                      :gap "8px"
+                      :padding "3px 8px"
+                      :background (if winner? (:bg-active tokens) "transparent")
+                      :border-left (if winner?
+                                     (str "2px solid " (:green tokens))
+                                     "2px solid transparent")
+                      :border-radius "2px"
+                      :font-family mono-stack
+                      :font-size "12px"
+                      :white-space "nowrap"}}
+   [:span {:style {:color (if winner? (:green tokens) (:text-tertiary tokens))
+                   :font-weight 600
+                   :font-size "10px"
+                   :min-width "50px"}}
+    (if winner? "WINNER" "")]
    [:span {:style {:color (:accent-violet tokens)
-                   :font-weight 500}}
+                   :min-width "140px"}}
     path]
    [:span {:style {:color (:text-tertiary tokens)
-                   :font-size "11px"}}
+                   :font-size "11px"
+                   :min-width "160px"}}
     (str route-id)]
-   (when doc
+   (rank-cell rank)
+   (when (seq params)
      [:span {:style {:color (:text-secondary tokens)
                      :font-size "11px"
-                     :font-style "italic"
-                     :font-family sans-stack
-                     :overflow "hidden"
-                     :text-overflow "ellipsis"}}
-      doc])
-   (marker-chip marker)])
+                     :margin-left "8px"}}
+      (pr-str params)])])
+
+(defn- simulate-url-section
+  "URL simulator surface — paste a URL, see every matching route and
+  its rank tuple, winner highlighted."
+  [sim-url sim-result]
+  [:div {:data-testid "rf-causa-routing-sim"
+         :style       {:padding "10px 16px"
+                       :border-top (str "1px solid " (:border-subtle tokens))
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :background (:bg-1 tokens)}}
+   [:div {:style {:display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :font-family sans-stack}}
+    [:label {:style {:color (:text-tertiary tokens)
+                     :font-size "10px"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.5px"
+                     :min-width "60px"}}
+     "Try URL"]
+    [:input {:type        "text"
+             :data-testid "rf-causa-routing-sim-input"
+             :placeholder "/cart  or  /checkout/payment?step=2"
+             :value       (or sim-url "")
+             :on-change   (fn [e]
+                            (rf/dispatch [:rf.causa.routing/set-sim-url
+                                          (-> e .-target .-value)]
+                                         {:frame :rf/causa}))
+             :style       {:flex 1
+                           :background (:bg-3 tokens)
+                           :color (:text-primary tokens)
+                           :border (str "1px solid " (:border-default tokens))
+                           :border-radius "3px"
+                           :padding "4px 8px"
+                           :font-family mono-stack
+                           :font-size "12px"}}]
+    (when (and sim-url (not= "" sim-url))
+      [:button {:data-testid "rf-causa-routing-sim-clear"
+                :on-click (fn [_]
+                            (rf/dispatch [:rf.causa.routing/set-sim-url ""]
+                                         {:frame :rf/causa}))
+                :style {:background "transparent"
+                        :border (str "1px solid " (:border-default tokens))
+                        :border-radius "3px"
+                        :color (:text-tertiary tokens)
+                        :padding "3px 8px"
+                        :font-family sans-stack
+                        :font-size "11px"
+                        :cursor "pointer"}}
+       "clear"])]
+   (when sim-result
+     (let [{:keys [path candidates winner]} sim-result]
+       [:div {:data-testid "rf-causa-routing-sim-result"
+              :style {:margin-top "8px"}}
+        [:div {:style {:font-family mono-stack
+                       :font-size "11px"
+                       :color (:text-tertiary tokens)
+                       :padding "0 8px 4px 8px"}}
+         (str "matched against path " (pr-str path) " — "
+              (cond
+                (empty? candidates) "no route matches (match-url → nil)"
+                :else (str (count candidates)
+                           (if (= 1 (count candidates)) " candidate" " candidates")
+                           "; winner = " winner)))]
+        (when (seq candidates)
+          [:div {:style {:display "grid"
+                         :grid-template-columns "50px 140px 160px 1fr"
+                         :column-gap "8px"
+                         :padding "0 8px 2px 8px"
+                         :font-family sans-stack
+                         :font-size "10px"
+                         :color (:text-tertiary tokens)
+                         :text-transform "uppercase"
+                         :letter-spacing "0.4px"}}
+           [:span ""] [:span "path"] [:span "route-id"] [:span "rank · params"]])
+        (into [:ul {:style {:list-style "none"
+                            :margin "0"
+                            :padding "0"
+                            :display "flex"
+                            :flex-direction "column"
+                            :gap "1px"}}]
+              (for [c candidates]
+                ^{:key (str (:route-id c))}
+                [sim-candidate-row c]))]))])
+
+;; ---- header / slice-detail / empty-state --------------------------------
 
 (defn- header
-  "Tab header — title + a brief explainer of the lens model. Always
-  rendered (even when silent) so the user knows the tab exists; the
-  body switches between the tree and the silent state."
   [{:keys [navigated? to-id]}]
   [:div {:data-testid "rf-causa-routing-header"
          :style       {:display       "flex"
@@ -165,20 +428,21 @@
                   :text-transform "uppercase"
                   :letter-spacing "0.5px"
                   :color      (:text-primary tokens)}}
-     "Routing"]
+     "Routes"]
     [:p {:style {:margin "4px 0 0 0"
                  :color  (:text-tertiary tokens)
                  :font-size "11px"
                  :line-height 1.4}}
-     "Lens on the focused event — the full route tree, with "
+     "Flat catalogue of registered routes — search above, paste a URL "
+     "into Try URL to see the 6-rule rank cascade. "
      [:span {:style {:color (:accent-violet tokens) :font-weight 600}} "◆ HERE"]
-     " marking the active route"
+     " marks the active route"
      (when navigated?
-       [:span " and "
+       [:span "; "
         [:span {:style {:color (:cyan tokens) :font-weight 600}} "◆ FROM"]
         " / "
         [:span {:style {:color (:green tokens) :font-weight 600}} "◆ TO"]
-        " marking the navigation transition"])
+        " mark the navigation transition"])
      "."]]
    (when (and navigated? to-id)
      [:span {:data-testid "rf-causa-routing-nav-summary"
@@ -188,9 +452,7 @@
       (str "→ " to-id)])])
 
 (defn- slice-detail
-  "Params / query / fragment breakdown for the current route slice.
-  Three labelled rows; absent slots render as `—` so the lens always
-  shows the same skeleton (predictable scanning)."
+  "Params / query / fragment breakdown for the current route slice."
   [{:keys [params query fragment] :as _current}]
   [:div {:data-testid "rf-causa-routing-slice-detail"
          :style       {:padding     "10px 16px"
@@ -212,10 +474,6 @@
       [:span (pr-str fragment)]])])
 
 (defn- empty-state
-  "Silent state — rendered when the host app has no routes registered.
-  Per rf2-g3ghh silent-by-default the panel emits an empty section so
-  the chrome stays consistent across tabs (every tab carries the
-  header + an empty body when its data source is empty)."
   []
   [:div {:data-testid "rf-causa-routing-empty"
          :style       {:padding "16px"
@@ -223,21 +481,21 @@
                        :font-family sans-stack
                        :font-size "11px"
                        :font-style "italic"}}
-   ;; Terse one-liner so the panel skeleton doesn't look broken (mirror
-   ;; of the Issues panel's :no-issues empty state). Honours silent-by-
-   ;; default — no `(none)` chip, no marketing copy.
    "No routes registered."])
 
 ;; ---- public view --------------------------------------------------------
 
 (rf/reg-view Panel
-  "The Routing tab's root view. Subscribes to
-  `:rf.causa/routing-tab-data` and renders the route tree + slice
-  detail or the silent state."
+  "The Routes tab's root view. Subscribes to
+  `:rf.causa/routing-tab-data` and renders the flat catalogue +
+  Simulate-URL + slice detail (or the silent state when no routes
+  are registered)."
   []
-  (let [{:keys [silent? routes current to-id navigated?]
+  (let [{:keys [silent? routes total-routes filtered? current to-id navigated?
+                query sim-url sim-result]
          :as _data}
-        @(rf/subscribe [:rf.causa/routing-tab-data])]
+        @(rf/subscribe [:rf.causa/routing-tab-data])
+        expanded @(rf/subscribe [:rf.causa.routing/expanded])]
     [:section {:data-testid "rf-causa-routing"
                :style       {:height         "100%"
                              :display        "flex"
@@ -247,11 +505,13 @@
                              :font-family    sans-stack
                              :font-size      "14px"}}
      (header {:navigated? navigated? :to-id to-id})
-     [:div {:style {:flex 1 :overflow "auto"}}
-      (if silent?
-        (empty-state)
-        [:<>
-         (into [:ul {:data-testid "rf-causa-routing-tree"
+     (if silent?
+       (empty-state)
+       [:<>
+        (search-box query total-routes filtered?)
+        (simulate-url-section sim-url sim-result)
+        [:div {:style {:flex 1 :overflow "auto"}}
+         (into [:ul {:data-testid "rf-causa-routing-list"
                      :style       {:list-style "none"
                                    :margin     "8px 0 0 0"
                                    :padding    "0 8px"
@@ -260,42 +520,46 @@
                                    :gap        "1px"}}]
                (for [row routes]
                  ^{:key (str (:route-id row))}
-                 [route-row row]))
+                 [route-row row
+                  {:expanded? (contains? expanded (:route-id row))
+                   :on-toggle (fn [_]
+                                (rf/dispatch [:rf.causa.routing/toggle-row
+                                              (:route-id row)]
+                                             {:frame :rf/causa}))}]))
          (when current
-           (slice-detail current))])]]))
+           (slice-detail current))]])]))
 
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
-  "Idempotent install for the Routing panel's Causa-side registrations
-  (rf2-nrbs9). Registers:
+  "Idempotent install for the Routes panel's Causa-side registrations
+  (rf2-nrbs9, reshaped per rf2-lq0ef). Registers:
 
     - `:rf.causa/registered-routes` — flat `{<route-id> <meta>}` map
-      sourced from `(rf/registrations :route)` (the framework's
-      registrar). Falls back to a test-only override slot so JVM /
-      node-test fixtures can drive the projection without booting
-      a host that registers routes.
+      sourced from `(rf/registrations :route)`. Falls back to a
+      test-only override slot so JVM / node-test fixtures can drive
+      the projection without booting a host that registers routes.
     - `:rf.causa/current-route-slice` — composite over the spine's
-      target-frame app-db reading the `:rf/route` slice. Mirrors how
-      `app-db-diff` reaches the host's app-db.
+      target-frame app-db reading the `:rf/route` slice.
     - `:rf.causa/routing-tab-data` — view-facing composite folding
-      the registered-routes map + current route slice + focused
-      cascade into the shape the view consumes (see
+      registered-routes + current slice + focused cascade + search
+      query + Simulate-URL into the shape the view consumes (see
       `routing_helpers/project-data`).
+    - `:rf.causa.routing/query` + `:rf.causa.routing/sim-url` +
+      `:rf.causa.routing/expanded` — UI state slots (search input,
+      Simulate-URL input, expanded-row set).
+    - `:rf.causa.routing/set-query`,
+      `:rf.causa.routing/set-sim-url`,
+      `:rf.causa.routing/toggle-row` — dispatch hooks the view fires.
     - `:rf.causa/set-registered-routes-override-for-test` — test-only
       override hook the gallery fixtures + JVM tests use to seed the
       registered-routes slot without registering real routes.
     - `:rf.causa/set-current-route-slice-override-for-test` — same
-      pattern for the current slice (drives the HERE marker)."
+      pattern for the current slice."
   []
 
-  ;; Test-only override slot for the registered-routes registrar
-  ;; lookup. When set (non-nil), the `:rf.causa/registered-routes`
-  ;; sub returns this verbatim; when nil the sub falls through to
-  ;; `(rf/registrations :route)`. Mirrors the
-  ;; `:rf.causa/set-registered-machines-override-for-test` pattern
-  ;; (machine_inspector.cljs) so fixtures can seed without a live
-  ;; registrar.
+  ;; Test-only override slots --------------------------------------------
+
   (rf/reg-event-db :rf.causa/set-registered-routes-override-for-test
     (fn [db [_ ov]]
       (if (nil? ov)
@@ -306,22 +570,6 @@
     (fn [db _query]
       (get db :registered-routes-override)))
 
-  ;; The registrar lookup — production reads through `rf/registrations`
-  ;; (process-global atom outside re-frame's reactive graph; the sub
-  ;; re-fires whenever the trace-buffer writes, which is the same
-  ;; cadence the palette uses to recompute its handler index — see
-  ;; palette/subs.cljs §palette-index). For the panel this is over-
-  ;; eager (the route registrar rarely changes) but the cost is
-  ;; bounded by the number of registered routes (typically < 30) and
-  ;; the dependency chain keeps the override surface clean.
-  (rf/reg-sub :rf.causa/registered-routes
-    :<- [:rf.causa/trace-buffer]
-    :<- [:rf.causa/registered-routes-override]
-    (fn [[_buffer override] _query]
-      (or override (rf/registrations :route))))
-
-  ;; Test-only override slot for the current route slice. Same pattern
-  ;; as registered-routes above.
   (rf/reg-event-db :rf.causa/set-current-route-slice-override-for-test
     (fn [db [_ ov]]
       (if (nil? ov)
@@ -332,12 +580,48 @@
     (fn [db _query]
       (get db :current-route-slice-override)))
 
-  ;; The current route slice — production reads through the
-  ;; target-frame-db sub (registered by `app-db-diff/install!`); that
-  ;; sub composes `:rf.causa/target-frame` + `rf/get-frame-db` so
-  ;; switching the L1 frame picker re-binds the lens to the new
-  ;; frame's route slice. The override slot wins when set (test
-  ;; fixtures + JVM coverage).
+  ;; UI state (search query, simulate-URL input, expanded rows) ----------
+
+  (rf/reg-event-db :rf.causa.routing/set-query
+    (fn [db [_ q]]
+      (if (or (nil? q) (= "" q))
+        (dissoc db :rf.causa.routing/query)
+        (assoc db :rf.causa.routing/query q))))
+
+  (rf/reg-sub :rf.causa.routing/query
+    (fn [db _]
+      (get db :rf.causa.routing/query)))
+
+  (rf/reg-event-db :rf.causa.routing/set-sim-url
+    (fn [db [_ url]]
+      (if (or (nil? url) (= "" url))
+        (dissoc db :rf.causa.routing/sim-url)
+        (assoc db :rf.causa.routing/sim-url url))))
+
+  (rf/reg-sub :rf.causa.routing/sim-url
+    (fn [db _]
+      (get db :rf.causa.routing/sim-url)))
+
+  (rf/reg-event-db :rf.causa.routing/toggle-row
+    (fn [db [_ route-id]]
+      (let [expanded (or (:rf.causa.routing/expanded db) #{})]
+        (assoc db :rf.causa.routing/expanded
+               (if (contains? expanded route-id)
+                 (disj expanded route-id)
+                 (conj expanded route-id))))))
+
+  (rf/reg-sub :rf.causa.routing/expanded
+    (fn [db _]
+      (or (:rf.causa.routing/expanded db) #{})))
+
+  ;; Production data subs -------------------------------------------------
+
+  (rf/reg-sub :rf.causa/registered-routes
+    :<- [:rf.causa/trace-buffer]
+    :<- [:rf.causa/registered-routes-override]
+    (fn [[_buffer override] _query]
+      (or override (rf/registrations :route))))
+
   (rf/reg-sub :rf.causa/current-route-slice
     :<- [:rf.causa/target-frame-db]
     :<- [:rf.causa/current-route-slice-override]
@@ -347,19 +631,18 @@
         (map? target-db) (:rf/route target-db)
         :else            nil)))
 
-  ;; View-facing composite — folds registered-routes + current slice
-  ;; + focused cascade (via `:rf.causa/cascades` + `:rf.causa/focus`)
-  ;; into the shape `project-data` returns. The view subscribes to
-  ;; this single sub; every component prop the renderer needs is in
-  ;; the returned map.
+  ;; View-facing composite -----------------------------------------------
+
   (rf/reg-sub :rf.causa/routing-tab-data
     :<- [:rf.causa/registered-routes]
     :<- [:rf.causa/current-route-slice]
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/focus]
-    (fn [[routes-map slice cascades focus] _query]
+    :<- [:rf.causa.routing/query]
+    :<- [:rf.causa.routing/sim-url]
+    (fn [[routes-map slice cascades focus query sim-url] _query]
       (let [focused-cascade (h/focused-cascade cascades
                                                (:dispatch-id focus))]
-        (h/project-data routes-map slice focused-cascade))))
+        (h/project-data routes-map slice focused-cascade query sim-url))))
 
   nil)

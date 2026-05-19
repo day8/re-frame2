@@ -91,7 +91,7 @@
 
 (defn- causa-event-id? [id]
   (and (keyword? id)
-       (#{"rf.causa" "rf.causa.issues"} (namespace id))))
+       (#{"rf.causa" "rf.causa.issues" "rf.causa.routing"} (namespace id))))
 
 (defn- catalogued-causa-event-id? [id]
   (causa-event-id? id))
@@ -155,12 +155,19 @@
    :rf.causa/palette-query
    :rf.causa/palette-results
    :rf.causa/registered-machines
-   ;; rf2-nrbs9 — Routing tab (7th L3 tab) sub family.
+   ;; rf2-nrbs9 — Routes tab (7th L3 tab) sub family.
    :rf.causa/registered-routes
    :rf.causa/registered-routes-override
    :rf.causa/current-route-slice
    :rf.causa/current-route-slice-override
    :rf.causa/routing-tab-data
+   ;; rf2-lq0ef — Routes lens UI state (search query, Simulate-URL
+   ;; input, expanded-row set). Per-panel `:rf.causa.routing/*` group
+   ;; per the `:rf.causa.<panel>/*` convention in
+   ;; tools/causa/spec/014-Registry-Catalogue.md §Naming convention.
+   :rf.causa.routing/query
+   :rf.causa.routing/sim-url
+   :rf.causa.routing/expanded
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -317,9 +324,14 @@
    :rf.causa/set-frame
    :rf.causa/set-machine-definitions-override-for-test
    :rf.causa/set-machine-snapshots-override-for-test
-   ;; rf2-nrbs9 — Routing tab test-only override events.
+   ;; rf2-nrbs9 — Routes tab test-only override events.
    :rf.causa/set-current-route-slice-override-for-test
    :rf.causa/set-registered-routes-override-for-test
+   ;; rf2-lq0ef — Routes lens UI-state events (search input,
+   ;; Simulate-URL input, expand-row toggle).
+   :rf.causa.routing/set-query
+   :rf.causa.routing/set-sim-url
+   :rf.causa.routing/toggle-row
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
    ;; rf2-x8h9y — resize-handle live update event.
@@ -464,22 +476,14 @@
     ;; rf2-piye4: +3 events (:rf.causa/filter-by-{machine,http-correlation,fx}).
     ;;
     ;; rf2-y9xmf — Machine Inspector collapse to event-driven Runtime panel.
-    ;; Drops the Mode A/B/C picker / sub-strip / arc / mini-scrubber surfaces
-    ;; (Sim engine + browse-all index preserved; UI ribbons gone). Sibling
-    ;; bead rf2-r4nao will re-host the dropped UI under the future Static
-    ;; surface.
-    ;;   Subs:   -13 (forced-machine-mode, machine-arc-*, machine-instances*,
-    ;;                mode-c-*) +1 (machine-transitions-for-focused-event)
-    ;;                = net -12 → 93.
-    ;;   Events: -8 (clear-mode-c-selection, set-forced-machine-mode,
-    ;;               set-machine-instances-override, set-mode-c-cluster-by,
-    ;;               set-mode-c-context-key, set-arc-hover, toggle-mode-c-*)
-    ;;           -1 duplicate (clear-machine-selection appeared twice)
-    ;;           +2 (machine-focus-prev / machine-focus-next)
-    ;;           = net -7. Plus rf2-piye4's +3 events still present →
-    ;;           115 - 7 + 3 = 111.
-    (is (= 93  (count all-sub-names)))
-    (is (= 111 (count all-event-names)))
+    ;; (Mode A/B/C / sub-strip / arc / mini-scrubber dropped; Sim engine
+    ;; preserved.) Net subs -12 → 93; events -7+3 (piye4) → 111.
+    ;;
+    ;; rf2-lq0ef — Routes lens reshape: +3 subs (query/sim-url/expanded);
+    ;; +3 events (set-query/set-sim-url/toggle-row).
+    ;; Combined post-rebase: 93+3=96 subs, 111+3=114 events.
+    (is (= 96  (count all-sub-names)))
+    (is (= 114 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent

@@ -53,6 +53,20 @@
          ;; apps that don't install Causa don't get epoch unless they ask.
          day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
 
+         ;; Per rf2-lq0ef — `day8/re-frame2-routing` is a hard dep of
+         ;; Causa. The Routes lens uses `re-frame.routing.match` directly
+         ;; for the Simulate-URL surface: paste a URL, the lens runs
+         ;; `match-against` on every registered route's compiled pattern
+         ;; and ranks the matching candidates by `:rf.route/rank`. The
+         ;; helper ns (`day8.re-frame2-causa.panels.routing-helpers`)
+         ;; `:require`s `re-frame.routing.match` at load time so a host
+         ;; without the routing artefact on its classpath would crash
+         ;; Causa's preload. Most real hosts already pull routing, but
+         ;; the Routes lens must work even for hosts that haven't
+         ;; registered any routes yet — same posture as the
+         ;; re-frame2-epoch dep above.
+         day8/re-frame2-routing {:local/root "../../implementation/routing"}
+
          ;; Per rf2-wl5pa — Causa targets day8/reagent-slim (the rewrite)
          ;; rather than stock Reagent. Causa has zero direct `reagent.*`
          ;; requires under tools/causa/src/ (the dep is purely the

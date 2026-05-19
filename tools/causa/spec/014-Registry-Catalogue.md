@@ -413,30 +413,36 @@ side-effect it performs).
 
 ## Routes panel
 
-Spec: [`spec/012-Routing.md`](../../../spec/012-Routing.md). Surfaces
-registered routes, the active `:rf/route` slice, and recent navigation
-history (the `:rf.route.nav-token/*` + `:rf.route/url-changed` trace
-stream).
+Spec: [`spec/012-Routing.md`](../../../spec/012-Routing.md) (framework
+substrate) + [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md)
+§Routes tab (Causa-side lens). Surfaces registered routes as a flat
+catalogue, the active `:rf/route` slice, and per-focused-event
+FROM/TO markers. Search + Simulate-URL drive the interactive
+surface; the previous URL-path-segmentation tree was dropped per
+rf2-lq0ef (audit verdict B).
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.causa/registered-routes` | `(rf/registrations :route)`. Wrapped in `try` for older builds without the `:route` kind. Test override via `:registered-routes-override`. |
-| `:rf.causa/active-route-slice` | The `:rf/route` slot off the target-frame's `app-db`. |
-| `:rf.causa/active-route-slice-override` | Test override for the slice — wired separately from the live slice sub so integration tests can override the slice without disturbing the target-frame-db chain. |
-| `:rf.causa/route-history-events` | Trace-buffer's route-history slice — filtered to the three operations Spec 012 §Trace events enumerates. |
-| `:rf.causa/selected-route-id` | Route-id or `nil`. |
-| `:rf.causa/routes-data` | Composite — `{:rows :total :active-route :selected-route-id :history :empty-kind}`. |
+| `:rf.causa/registered-routes` | `(rf/registrations :route)`. Test override via `:registered-routes-override`. |
+| `:rf.causa/registered-routes-override` | Test override slot. |
+| `:rf.causa/current-route-slice` | The `:rf/route` slot off the target-frame's `app-db`. |
+| `:rf.causa/current-route-slice-override` | Test override slot. |
+| `:rf.causa/routing-tab-data` | View-facing composite per `routing_helpers/project-data` — `{:silent? :routes :total-routes :filtered? :current :from-id :to-id :navigated? :query :sim-url :sim-result}`. |
+| `:rf.causa.routing/query` | Substring search input value. |
+| `:rf.causa.routing/sim-url` | Simulate-URL input value. |
+| `:rf.causa.routing/expanded` | Set of route-ids whose meta-expander is open. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/select-route` | `[_ route-id]` | Sets selection. |
-| `:rf.causa/clear-route-selection` | `[_]` | Clears selection. |
+| `:rf.causa.routing/set-query` | `[_ s]` | Sets the substring search filter; blank clears. |
+| `:rf.causa.routing/set-sim-url` | `[_ s]` | Sets the Simulate-URL input; blank clears. |
+| `:rf.causa.routing/toggle-row` | `[_ route-id]` | Toggles the meta-expander for a row. |
 | `:rf.causa/set-registered-routes-override-for-test` | `[_ ov]` | Test-only override hook. |
-| `:rf.causa/set-active-route-slice-override-for-test` | `[_ ov]` | Test-only slice override. |
+| `:rf.causa/set-current-route-slice-override-for-test` | `[_ ov]` | Test-only slice override. |
 
 ## Machine inspector
 
