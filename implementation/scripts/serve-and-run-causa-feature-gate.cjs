@@ -87,6 +87,25 @@ function compileSurfaces() {
   }
 }
 
+// rf2-jzqs9 — shared per-substrate stylesheets + favicon + OG assets
+// (rf2-nfg15 / rf2-3zibv). Example index.html files reference these via
+// relative paths like `_shared/css/reagent.css`, so any staged surface
+// whose HTML lives under `examples/` gets the `_shared/` tree mirrored
+// alongside its main.js + index.html. Mirrors the equivalent
+// `stageShared` step in examples/scripts/serve-and-run-examples-tests.cjs
+// (rf2-sivlu — without this the counter index.html 404s on its
+// stylesheet under the Causa gate, the inline layout breaks, and the
+// `source coordinates and launch-mode availability` scenario fails on
+// `Host app controls are not laid out to the left of Causa`).
+const SHARED_SRC = relPath(['examples', '_shared']);
+
+function stageSharedIfReferenced(surface, outDir) {
+  const htmlSrc = relPath(surface.html);
+  if (!htmlSrc.startsWith(relPath(['examples']) + path.sep)) return;
+  if (!fs.existsSync(SHARED_SRC)) return;
+  copyDirRecursive(SHARED_SRC, path.join(outDir, '_shared'));
+}
+
 function stageSurfaces() {
   for (const surface of STAGED_SURFACES) {
     const bundleSrc = implPath(surface.bundleDir);
@@ -100,6 +119,7 @@ function stageSurfaces() {
     }
     copyDirRecursive(bundleSrc, outDir);
     fs.copyFileSync(htmlSrc, path.join(outDir, 'index.html'));
+    stageSharedIfReferenced(surface, outDir);
 
     for (const extra of surface.extraFiles || []) {
       const src = relPath(extra.src);
