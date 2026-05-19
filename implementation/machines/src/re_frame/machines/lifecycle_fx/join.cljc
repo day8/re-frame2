@@ -150,8 +150,14 @@
 
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
-  all-completed, or some-completed."
-  [parent-id invoke-id spec join-state'' child-id child-extra
+  all-completed, or some-completed.
+
+  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture admission
+  (`re-frame.epoch.capture/capture-event!` silently drops events whose
+  tags lack `:frame`). The caller threads `frame-id` (resolved from
+  `(:rf/frame machine)` at the interceptor's entry) so the join
+  resolution traces reach the cascade's `:trace-events` slot."
+  [frame-id parent-id invoke-id spec join-state'' child-id child-extra
    {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
     (trace/emit! :machine :rf.machine.invoke-all/any-failed
@@ -160,18 +166,21 @@
                   :failed-id  child-id
                   :reason     child-extra
                   :failed     (:failed join-state'')
-                  :done       (:done   join-state'')}))
+                  :done       (:done   join-state'')
+                  :frame      frame-id}))
   (when success-fired?
     (if (= :all (:join spec :all))
       (trace/emit! :machine :rf.machine.invoke-all/all-completed
                    {:machine-id parent-id
                     :invoke-id  invoke-id
-                    :done       (:done join-state'')})
+                    :done       (:done join-state'')
+                    :frame      frame-id})
       (trace/emit! :machine :rf.machine.invoke-all/some-completed
                    {:machine-id parent-id
                     :invoke-id  invoke-id
                     :done       (:done join-state'')
-                    :join       (:join spec)}))))
+                    :join       (:join spec)
+                    :frame      frame-id}))))
 
 (defn- build-resolution-fx
   "Build the fx vector to fire on resolution: per-survivor
@@ -181,8 +190,14 @@
   carrying the decisive child's forwarded payload. Per Spec 005
   §Spawn-and-join, the dispatched event shape is:
 
-      [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]"
-  [parent-id invoke-id spec join-state'' child-id child-extra
+      [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
+
+  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture admission
+  (`re-frame.epoch.capture/capture-event!` silently drops events whose
+  tags lack `:frame`). The caller threads `frame-id` (resolved from
+  `(:rf/frame machine)` at the interceptor's entry) so the per-survivor
+  cancellation traces reach the cascade's `:trace-events` slot."
+  [frame-id parent-id invoke-id spec join-state'' child-id child-extra
    {:keys [resolved? resolution-event join-event-kw]}]
   (let [cancel? (let [c (:cancel-on-decision? spec)]
                   (if (nil? c) true (boolean c)))
@@ -199,7 +214,8 @@
                             :invoke-id  invoke-id
                             :child-id   cid
                             :spawned-id spawned-id
-                            :join-event join-event-kw}))
+                            :join-event join-event-kw
+                            :frame      frame-id}))
             (mapv (fn [[_ spawned-id]]
                     [:rf.machine/destroy spawned-id])
                   survivors)))
@@ -222,7 +238,15 @@
   destroys + the join-event dispatch)."
   [machine db _path snapshot parent-id inner-event]
   (let [inner-id (first inner-event)
-        match    (find-active-invoke-all machine snapshot inner-id)]
+        match    (find-active-invoke-all machine snapshot inner-id)
+        ;; Per rf2-ko8jb: resolve the live frame from the runtime-stamped
+        ;; machine (registration.cljc/prepare-machine-ctx assoc'd
+        ;; `:rf/frame` before handing the machine to the interceptor).
+        ;; Threaded into `emit-resolution-traces!` / `build-resolution-fx`
+        ;; AND used inline for the late-completion + bad-child-id error
+        ;; traces — all of these are dropped by epoch-capture without
+        ;; `:frame`.
+        frame-id (:rf/frame machine)]
     (when match
       (let [{:keys [invoke-id spec kind]} match
             child-id   (second inner-event)
@@ -253,7 +277,8 @@
                            {:machine-id parent-id
                             :invoke-id  invoke-id
                             :child-id   child-id
-                            :kind       kind})
+                            :kind       kind
+                            :frame      frame-id})
               {:db db :fx []})
 
           ;; Forged / unknown child-id: the inbound `child-id` is NOT in
@@ -272,6 +297,7 @@
                                   :child-id   child-id
                                   :children   (set (keys (:children join-state)))
                                   :kind       kind
+                                  :frame      frame-id
                                   :recovery   :event-dropped})
               {:db db :fx []})
 
@@ -283,9 +309,9 @@
                               :failed (update join-state :failed (fnil conj #{}) child-id))
                 resolution   (compute-resolution spec join-state' kind)
                 join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
-            (emit-resolution-traces! parent-id invoke-id spec join-state''
+            (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
                                      child-id child-extra resolution)
-            (let [fx (build-resolution-fx parent-id invoke-id spec join-state''
+            (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                           child-id child-extra resolution)]
               {:db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')
                :fx fx})))))))

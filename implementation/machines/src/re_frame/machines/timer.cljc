@@ -125,6 +125,7 @@
                  (catch #?(:clj Throwable :cljs :default) e
                    (trace/emit-error! :rf.error/machine-after-fn-threw
                                       {:exception e
+                                       :frame     frame-id
                                        :recovery  :no-clock-configured})
                    nil))]
       [v nil])
@@ -139,6 +140,7 @@
                             (trace/emit-error! :rf.error/machine-after-sub-threw
                                                {:exception e
                                                 :sub-id    (first delay-key)
+                                                :frame     frame-id
                                                 :recovery  :no-clock-configured})
                             nil)))]
       [v reaction])
@@ -199,7 +201,8 @@
                     :state      state
                     :delay      prior-ms
                     :reason     :sub-changed
-                    :sub-id     (first delay-key)})
+                    :sub-id     (first delay-key)
+                    :frame      frame-id})
       (cancel-after-timer-entry! frame-id k)
       (when-let [db (frame/frame-app-db-value frame-id)]
         (let [snap (get-in db [:rf/machines parent-id])
@@ -273,6 +276,7 @@
                           :state        state
                           :delay-key    delay-key
                           :delay-source delay-source
+                          :frame        frame-id
                           :recovery     :skipped}))
 
           :else
@@ -282,7 +286,8 @@
                                           :state        state
                                           :delay        resolved-ms
                                           :delay-source delay-source
-                                          :epoch        epoch}
+                                          :epoch        epoch
+                                          :frame        frame-id}
                                    (= :sub delay-source)
                                    (assoc :sub-id (first delay-key)))))
                 handle
@@ -311,6 +316,7 @@
                                      {:exception  e
                                       :machine-id parent-id
                                       :sub-id     (first delay-key)
+                                      :frame      frame-id
                                       :recovery   :static-delay}))))
             (swap! after-timers assoc-in [frame-id k]
                    {:handle          handle
