@@ -1762,6 +1762,8 @@ External observers see one machine event per externally-visible transition; the 
 
 If machines are event handlers and actors are machines, then **each spawned actor gets a dynamically-registered event handler whose id is the actor's address.** The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
+> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`.
+
 > **Frame-local registration is load-bearing.** A spawn registers its handler in the **frame-local** tier of the two-tier registry, not in the central boot-time tier. This is what makes spawning compatible with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): when a frame's value is reverted to a prior point, every actor spawned since that point disappears with it (its frame-local handler entry rolls back along with its `[:rf/machines <id>]` snapshot). If spawn instead added entries to the central registry, undo would leave dangling handlers behind, and the AI / undo / time-travel guarantees in [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) would not hold.
 >
 > **v1 status — partial.** The snapshot side of the contract holds: a frame revert restores `[:rf/machines <id>]` atomically with the rest of `app-db`. The handler-registration side currently relaxes to the **global registrar** in the v1 CLJS reference (a frame revert does not yet clear the actor's event-handler entry); a separate tracking bead covers the migration to the frame-local tier. Reads of the spec that conclude "frame revert wipes spawned actor handlers entirely" should treat that as the post-v1 target shape, not the v1 behaviour. Snapshot-side revert is unaffected.
@@ -3137,11 +3139,7 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Auto-cleanup of orphaned actors" classifies as **`:post-v1 tracked`** (file a bead to drive the `:owned-by` design when needed). The Globally-registered guards/actions `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule. Stately.ai / XState JSON interop is out of scope for v1; see rf2-6urjd (SCXML) for the v1.1+ interop family.
-
-### Auto-cleanup of orphaned actors
-
-When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the Globally-registered guards/actions `(RESOLVED)` entry and the "Auto-cleanup of orphaned actors" entry that previously lived here have both been migrated to `## Resolved decisions` per SA-4's migration rule. Stately.ai / XState JSON interop is out of scope for v1; see rf2-6urjd (SCXML) for the v1.1+ interop family.
 
 ## Resolved decisions
 
@@ -3164,6 +3162,10 @@ Resolved: the dispatch shape for events targeting a machine is the sub-event for
 ### Multiple machine instances at one path
 
 Snapshots live at the runtime-managed path `[:rf/machines <id>]`, keyed by the registered id. Two registrations sharing an id collide at the registry layer (last-write-wins per the standard registration semantics, with a re-registration trace event); a single id never has two snapshot locations. The earlier "two machines at one `:path`" scenario cannot arise because users no longer pick a path. Per-frame isolation falls out of each frame having its own `app-db` and thus its own `:rf/machines` map. See [§Where snapshots live](#where-snapshots-live).
+
+### Auto-cleanup of orphaned actors — explicit `:rf.machine/destroy` for v1 (RESOLVED)
+
+Resolved (per rf2-rkedz, closing rf2-ocp7a): v1 requires **explicit teardown** via `[:rf.machine/destroy <actor-id>]`. Auto-cleanup via an opt-in `:owned-by` ownership relation (whereby an actor whose owner is destroyed is itself destroyed) is a v1.1+ direction. The explicit-destroy surface matches `make-frame` / `destroy-frame!` and keeps the v1 lifecycle model uniform: every actor's life ends at a named, traceable site. Tooling and conformance fixtures can rely on the absence of implicit-destroy cascades; ports do not need to model an ownership graph to be v1-conformant. See [§Spawning — dynamic actors](#spawning--dynamic-actors) for the spawn / destroy surface; the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) is the one composed-with cascade that fires off a `:rf.machine/destroy`.
 
 ### Spawn id format — `<id-prefix>#<n>` keyword (RESOLVED)
 
