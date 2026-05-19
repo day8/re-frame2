@@ -103,3 +103,96 @@
         (is (= #{:error :where :recovery :reason :cycle}
                (set (keys data)))
             "ex-data carries exactly the standard slots + :cycle (no extras, no missing)")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-m05md — depends-on? direct function-boundary tests
+;; (follow-on from rf2-q1z1u F4)
+;;
+;; `depends-on?` is the load-bearing helper that `topo-sort` consumes
+;; when building the dependency graph (each flow's set of dep ids is
+;; the set of OTHER flows it `depends-on?`). It is exercised
+;; transitively by the topo-sort tests above and by the integration
+;; tests in flows_test.clj — but a regression that flipped a base case
+;; (self-edge, missing dep, multi-hop transitive) would cascade into
+;; incorrect topo-sort output without a sharp signal at the helper's
+;; name.
+;;
+;; Per Spec 013 §Topological sort: B depends on A iff A's :path and
+;; any of B's :inputs share a path prefix in either direction.
+;; ---------------------------------------------------------------------------
+
+(deftest depends-on?-direct-prefix-match
+  (testing "rf2-m05md — depends-on? is true when one of B's :inputs IS
+            A's :path (the canonical case — B reads exactly the slot
+            A writes)"
+    (let [a {:id :a :path [:foo]   :inputs [[:other]]}
+          b {:id :b :path [:bar]   :inputs [[:foo]]}]
+      (is (true? (topo/depends-on? b a))
+          "B's :inputs include A's :path exactly → B depends on A"))))
+
+(deftest depends-on?-true-when-input-is-prefix-of-output-path
+  (testing "rf2-m05md — depends-on? is true when one of B's :inputs is
+            a PREFIX of A's :path (B reads a parent slot of what A
+            writes — Spec 013 'prefix in either direction')"
+    (let [a {:id :a :path [:foo :bar :baz] :inputs []}
+          b {:id :b :path [:other]         :inputs [[:foo]]}]
+      (is (true? (topo/depends-on? b a))
+          "B reads :foo (a prefix of A's :path [:foo :bar :baz])"))))
+
+(deftest depends-on?-true-when-output-path-is-prefix-of-input
+  (testing "rf2-m05md — depends-on? is true when A's :path is a PREFIX
+            of one of B's :inputs (B reads a CHILD slot of what A
+            writes — also covered by 'prefix in either direction')"
+    (let [a {:id :a :path [:foo]              :inputs []}
+          b {:id :b :path [:other]            :inputs [[:foo :bar :baz]]}]
+      (is (true? (topo/depends-on? b a))
+          "A writes [:foo] which is a prefix of B's input [:foo :bar :baz]"))))
+
+(deftest depends-on?-self-edge-via-overlapping-path
+  (testing "rf2-m05md — depends-on? returns true for a self-edge if a
+            flow's own :inputs share a prefix with its own :path. The
+            consumer (topo-sort) explicitly filters self-edges out via
+            `(not= id %)` so this only matters at the helper boundary
+            — pinning the truth of the helper's prefix rule
+            independent of its caller's self-edge guard."
+    (let [a {:id :a :path [:foo] :inputs [[:foo]]}]
+      (is (true? (topo/depends-on? a a))
+          "A's own :inputs include A's own :path → depends-on? returns
+           true; topo-sort filters this self-edge separately"))))
+
+(deftest depends-on?-false-when-no-overlap
+  (testing "rf2-m05md — depends-on? returns false when no input shares
+            a prefix with A's :path in either direction"
+    (let [a {:id :a :path [:foo :bar] :inputs []}
+          b {:id :b :path [:other]    :inputs [[:unrelated] [:other-thing]]}]
+      (is (false? (topo/depends-on? b a))
+          "B's inputs are disjoint from A's :path tree → no dependency"))))
+
+(deftest depends-on?-false-when-paths-share-no-prefix-but-share-element
+  (testing "rf2-m05md — depends-on? is PREFIX-based, not element-
+            membership-based: a shared NON-PREFIX element does NOT
+            create a dependency edge"
+    (let [a {:id :a :path [:foo :bar] :inputs []}
+          ;; B's input [:bar :foo] shares both elements with A's :path
+          ;; but neither is a prefix of the other → no dependency.
+          b {:id :b :path [:other]    :inputs [[:bar :foo]]}]
+      (is (false? (topo/depends-on? b a))
+          "shared elements without a prefix relationship → false"))))
+
+(deftest depends-on?-empty-inputs
+  (testing "rf2-m05md — depends-on? returns false when B has no :inputs
+            (cannot depend on anything if it reads nothing)"
+    (let [a {:id :a :path [:foo] :inputs []}
+          b {:id :b :path [:bar] :inputs []}]
+      (is (false? (topo/depends-on? b a))
+          "B has no :inputs → cannot depend on A (or anything else)"))))
+
+(deftest depends-on?-multiple-inputs-any-match-wins
+  (testing "rf2-m05md — depends-on? is an `or` across B's :inputs: a
+            single matching input is enough to establish the
+            dependency edge"
+    (let [a {:id :a :path [:foo] :inputs []}
+          b {:id :b :path [:bar] :inputs [[:unrelated] [:foo] [:other]]}]
+      (is (true? (topo/depends-on? b a))
+          "B's second input matches A's :path → dependency established
+           despite the surrounding non-matching inputs"))))
