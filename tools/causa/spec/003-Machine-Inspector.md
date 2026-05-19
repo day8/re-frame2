@@ -21,7 +21,7 @@
 > Static re-host effort; they no longer describe what the Runtime
 > Machines panel renders.
 
-The Machines tab (tab 5 of 6 in the 4-layer chrome — see
+The Machines tab (tab 5 of 7 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
 state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
@@ -116,6 +116,22 @@ tools/causa/  ─requires→  implementation/machines/
   it.
 - **Isolation invariant:** the tab shows ONLY the selected frame's
   machines per [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3.
+
+<!-- ============================================================ -->
+<!--  STATIC RE-HOST REFERENCE (rf2-r4nao — deferred)               -->
+<!-- ============================================================ -->
+
+> **Static re-host reference (rf2-r4nao — deferred).** The sections
+> below describe the UC1 Sim engine and UC2 Mode A/B/C dynamic-instance
+> UI as they existed pre-collapse (rf2-y9xmf). They are preserved as
+> design-reference for the future **Static** surface re-host effort
+> (rf2-r4nao). **They DO NOT describe what the Runtime Machines panel
+> renders today** — the Runtime panel is event-driven only (see the
+> collapse note at the top of this doc and the "Post-collapse Runtime
+> panel shape" section above).
+>
+> Read everything below this divider as historical design-reference,
+> not as a normative description of the current Runtime panel.
 
 ## Definition view — Mode A resting state
 

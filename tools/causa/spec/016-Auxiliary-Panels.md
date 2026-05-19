@@ -18,6 +18,37 @@ The per-tab content this doc covers:
 | Routing tab content (7th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
 
+## 13-panel inventory (rf2-crhr8 + rf2-3r3ao)
+
+Every Causa panel is independently mountable per
+[`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract. The
+4-tier surface inventory totals 13 panels — 11 independently
+mountable, 2 internal sub-components. The canonical Panel-component
+mount paths and L3-tab backing (when applicable) are:
+
+| # | Tier | Panel | Mount path (`day8.re-frame2-causa.panels.*`) | Backs L3 tab |
+|---|---|---|---|---|
+| 1  | 1 | Event tab            | `event-detail/Panel`                | Event |
+| 2  | 1 | App-db tab           | `app-db-diff/Panel`                 | App-db |
+| 3  | 1 | Views tab            | `views/Panel`                       | Views |
+| 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
+| 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
+| 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
+| 7  | 1 | Issues tab           | `issues-ribbon/Panel`               | Issues |
+| 8  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
+| 9  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
+| 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
+| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | embedded in Event tab |
+| 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
+| 13 | 4 | Sim side-rail                      | `machine-inspector-sim/SimSideRail`     | sub of Machines tab |
+
+Panel-by-panel detail (subs / events / interactions) lives in the
+sections below. Tier 4 sub-components are geometry-coupled to
+`machine-inspector/Panel` and are NOT independently mountable; they
+ship under `mount-machine-inspector!`. Modal overlays the 4-layer
+shell owns (Settings dialog, command palette, share modal) are
+shell chrome and NOT counted here.
+
 ### Performance — dropped (cross-link to Chrome DevTools)
 
 The Performance panel is dropped from Causa. The framework already
@@ -135,7 +166,7 @@ holds no `:event/dispatched` events.
 ## Effects content — folded into Event tab
 
 The pre-rewrite Effects panel is GONE. Its content folds into the
-**Event tab** (tab 1 of 6) as the "fx handlers that ran" block — see
+**Event tab** (tab 1 of 7) as the "fx handlers that ran" block — see
 [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 for the canonical
 wireframe.
 
@@ -146,21 +177,33 @@ Effects panel) is reachable via the Cmd-K palette under the `:fx`
 source — registered handler ids + invocation counts. No standalone
 tab.
 
-## Flows content — folded into Views tab
+## Flows content — Event tab FLOWS section (rf2-lo37i)
 
-The pre-rewrite Flows panel is GONE. Flows surface where they actually
-matter: in the **Views tab** (tab 3 of 6) "Re-rendered" group, when a
-flow's downstream sub recomputed.
+The pre-rewrite Flows panel is GONE. Flows surface as the **8th
+section of the Event tab** — the canonical home for per-cascade flow
+firings is [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 FLOWS
+section. For each flow that fired during the focused cascade the
+FLOWS section lists, in cascade order:
 
-When a flow's output sub appears in a view's "Rerendered because" list
-(per [`012-Views.md`](./012-Views.md) §Three-group layout
-Re-rendered), the sub-id renders with a `⊳` flow-glyph prefix to
-distinguish flow-output subs from hand-written subs. The flow's input
-paths + output path + recompute reason are surfaced in the
-per-component drilldown's "Subs consumed" block.
+- `wrote <path>` — the flow's `:output` write target with the
+  after-value rendered inline.
+- `read <input-path-1> <input-path-2> …` — the flow's `:inputs`,
+  shown so the reader can see which paths caused the recompute.
 
-A registered-flows-overview reachable via the Cmd-K palette under the
-`:flow` source: flow-id, inputs, output path, last recompute. No
+The FLOWS section sits as a peer of EFFECTS / HANDLERS RAN / the
+returned-value slot under the per-event cascade view (see 018 §5.1
+lines 442-451 wireframe, 507-531 row contract).
+
+A **secondary** appearance is in the **Views tab** "Re-rendered"
+group (cross-cutting): when a flow's downstream sub appears in a
+view's *Rerendered because* list (per
+[`012-Views.md`](./012-Views.md) §Three-group layout Re-rendered),
+the sub-id carries a `⊳` flow-glyph prefix that distinguishes
+flow-output subs from hand-written subs. Click-through from the
+Views entry jumps to the Event tab's FLOWS section for that cascade.
+
+A registered-flows-overview is reachable via the Cmd-K palette under
+the `:flow` source: flow-id, inputs, output path, last recompute. No
 standalone tab.
 
 ## Issues ribbon
@@ -618,7 +661,7 @@ for popout-geometry; add **Actions** for factory-reset + clear-buffer):
 | Section | v1 | Future |
 |---|---|---|
 | **Theme** | dark / light / dim | + custom palettes |
-| **Density** | compact / cosy / comfy | (stable) |
+| **Density** | compact / cosy (`:comfy` dropped per 015 §Density) | (stable) |
 | **Editor** | URI scheme + project-root | (stable) |
 | **Trace** | sensitive-data gate + filter algebra | + security-advisory toggle |
 | **Keybindings** | — | Full rebind UI; conflict-detection; reset-to-defaults |
@@ -628,7 +671,7 @@ for popout-geometry; add **Actions** for factory-reset + clear-buffer):
 
 ## Cross-references
 
-- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 6-tab
+- [`000-Vision.md`](./000-Vision.md) — the canonical-questions + 7-tab
   inventory.
 - [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) —
   the 5-idioms × 4-areas matrix driving the per-tab content growth

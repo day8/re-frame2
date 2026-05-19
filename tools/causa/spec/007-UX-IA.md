@@ -58,7 +58,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 7 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -79,7 +79,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ⚠Issues 1            │   L3 — 6 tabs
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ⚠Issues 1        │   L3 — 7 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -87,18 +87,22 @@ Wireframe at default (800px popout, "cosy" density):
 
 The four layers, top to bottom:
 
-1. **L1 — Top ribbon (56px).** Five clusters: nav (`◀` `▶` `⏭`) ·
-   frame picker · filter pills (IN/OUT) · mode pill (`● LIVE` / `◐
-   RETRO`) · right-icons (settings `⚙` + popout `⛶` + close `✕`).
-   Anatomy in §The L1 ribbon below.
+1. **L1 — Top ribbon (56px).** Four clusters: nav (`◀` `▶` `⏭`) ·
+   frame picker · filter pills (IN/OUT) · right-icons (settings `⚙`
+   + popout `⛶` + close `✕`). The Mode pill widget that earlier
+   drafts placed between filter pills and right-icons was dropped —
+   LIVE/RETRO surfaces in the L2 event-list spine itself. Anatomy in
+   §The L1 ribbon below.
 2. **L2 — Event list.** 8 single-line rows default; vertically
    resizable (min 2); latest-on-bottom; virtualised. Single row shape
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Six tabs: Event / App-db / Views / Trace /
-   Machines / Issues. Letter mnemonics: `e` `a` `v` `t` `m` `i`. Count
-   badges (`Views 8`) update with focused cascade.
+3. **L3 — Tab bar (40px).** Seven tabs: Event / App-db / Views / Trace /
+   Machines / Routing / Issues. Letter mnemonics: `e` `a` `v` `t` `m`
+   `r` `i`. Count badges (`Views 8`) update with focused cascade.
+   Routing was promoted to its own L3 tab in rf2-nrbs9 (cohesive
+   sub-domains earn their own lens tab).
 4. **L4 — Detail panel.** Fills remaining canvas (60% default;
    resizable via L2/L3 drag handle). Per-tab content; all values
    rendered via the cljs-devtools-shaped renderer (see §Detail panel
@@ -106,9 +110,10 @@ The four layers, top to bottom:
 
 **No bottom rail.** The pass-2/round-1 "L0" rail (with scrubber +
 mode pill + classification totals) is gone — the ribbon's `[◀ ▶ ⏭]`
-cluster IS the seek, the event list IS the timeline, the mode pill
-lives in the ribbon right-cluster, classification totals live in the
-mode-pill tooltip + per-row markers.
+cluster IS the seek, the event list IS the timeline (and the L2 spine
+itself indicates LIVE / RETRO via the head-row pulse / pinned-row
+glyph; the dedicated Mode pill widget was dropped). Classification
+totals live in per-row + per-panel renderings.
 
 Below 1200px viewport: pop-out detaches if user opens it; chrome stays
 within the inline host.
@@ -219,14 +224,15 @@ handle's focus position.
 
 ## The L1 ribbon
 
-Five clusters, fixed order left to right:
+Four clusters, fixed order left to right. (The Mode pill widget that
+earlier drafts placed between filter pills and right-icons was
+dropped; LIVE/RETRO surfaces in the L2 event-list spine itself.)
 
 | Cluster | Width | Content | Keys |
 |---|---|---|---|
 | **Nav** | 84px | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
 | **Frame** | flex 0 1 200px | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select only.** Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
 | **Filter pills** | flex 1 1 auto | IN pills (green `+`) + OUT pills (magenta `×`) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Mode pill** | 80px | `● LIVE` (green, 2s pulse) / `◐ RETRO @ #N` (cyan, static). Tooltip on hover shows `[● REDACTED N · ● ELIDED M]` classification totals. | `L` snap-LIVE, `Space` pause/resume |
 | **Right-icons** | 96px | `⚙` settings popup · `⛶` popout (`window.open` whole shell) · `✕` close shell | `,` or `s` · `o` · `Esc` |
 
 Full anatomy + filter-pill edit popup in
@@ -245,7 +251,7 @@ On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
   to static label).
 - **Filter pills: empty by default** — first session is honest about
   what's filtered; Recommended quick-add available via add-pill.
-- **Mode pill: `● LIVE`** with 2s pulse.
+- **L2 spine: head row pulses** (LIVE cue; the dedicated Mode pill widget was dropped).
 
 ## Single-line event-list rows (L2)
 
@@ -422,15 +428,16 @@ under `npm run test:browser`.
 
 ## Density slider
 
-Three settings: **compact** / **cosy** / **comfy**. Default **cosy**.
-Density is a vertical-rhythm knob, not a redesign — applies to L2 row
-height + L4 row padding + base type token.
+Two settings: **compact** / **cosy**. Default **cosy**. Density is a
+vertical-rhythm knob, not a redesign — applies to L2 row height + L4
+row padding + base type token. The third `:comfy` tier was dropped
+per [`015-Configuration.md`](015-Configuration.md) §Density (two tiers
+cover the rhythm need; the third had no observed demand).
 
 | Setting | L2 row height | L4 vertical rhythm | Body type |
 |---|---|---|---|
 | **Compact** | 22px | tighter | -1px |
 | **Cosy** (default) | 28px | (baseline) | (baseline) |
-| **Comfy** | 36px | looser | +1px |
 
 What does *not* change between densities: icon weights, border radii,
 animation durations, accent colours. Configurable in Settings → View.
@@ -468,8 +475,8 @@ AFTER:   :some.namespace…/blah-blah-blah  ⎘                     (with hover-
          (keep first ns segment; elide middle; keep keyword name)
 ```
 
-Algorithm: when event-id exceeds N chars (compact 28; cosy 36; comfy
-44; configurable via Settings → View → Long-keyword threshold), elide
+Algorithm: when event-id exceeds N chars (compact 28; cosy 36;
+configurable via Settings → View → Long-keyword threshold), elide
 the middle of the NAMESPACE only. Keep first ns segment and the
 keyword name (after `/`) intact. Un-namespaced keywords fall back to
 tail-elide.
@@ -576,16 +583,19 @@ Specific motions:
 - Error pulse: single 600ms expand-fade red ring (no looping).
 - Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
   continuous animation in chrome, only on the machine chart).
-- Mode pill LIVE pulse: 2s gentle 600ms expand-fade on the `●` glyph
-  (continuous while LIVE; stops in RETRO).
+- L2 head-row LIVE pulse: 2s gentle 600ms expand-fade on the head
+  row's `●` gutter glyph (continuous while LIVE; stops in RETRO).
+  Replaces the dropped Mode pill widget as the LIVE/RETRO cue.
 - Tab count badge flash: 200ms violet → settle on LIVE update.
 
 ### `prefers-reduced-motion`
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
 needs to settle. The error pulse becomes a static red ring for 1.5s;
-the machine pulse stops entirely; the mode-pill LIVE pulse stops (`●`
-stays statically rendered).
+the machine pulse stops entirely; the L2 head-row LIVE pulse stops
+(the `●` gutter glyph stays statically rendered). The Mode pill
+widget that earlier drafts carried the LIVE pulse on was dropped;
+the rule now applies to the spine's head-row cue.
 
 ## Keyboard
 
@@ -910,10 +920,25 @@ a master `mount-shell!` for the full 4-layer chrome.
 
 ### Mountable surface inventory
 
-The panel-surface inventory splits across four tiers, with 11
-surfaces independently mountable as standalone user-facing mount
-targets and the remainder living as internal sub-components that
-render under their owning panel.
+The Causa panel-surface inventory totals **13 panels** across four
+tiers — **11 are independently mountable** as standalone user-facing
+mount targets, and **2 are internal sub-components** that render
+under their owning panel. The 4-tier split is:
+
+- **Tier 1 — L3 tab panels (7):** one per L3 detail-panel tab.
+- **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
+  the shell composes at its root.
+- **Tier 3 — inline content surface (1):** the managed-fx
+  wire-boundary diff template embedded in the Event tab.
+- **Tier 4 — internal sub-components (2):** auxiliary inspectors
+  geometry-coupled to `machine-inspector/Panel` (after-rings
+  overlay, sim side-rail).
+
+Tiers 1 + 2 + 3 sum to the **11 independently mountable** surfaces;
+adding Tier 4's 2 internal sub-components reaches the **13-panel**
+total. Modal overlays managed by the shell (Settings dialog,
+command palette, share modal) are NOT counted here — they are shell
+chrome, not panel content.
 
 **Tier 1 — L3 tab panels (7):** one per `:rf.causa/selected-tab`
 value.

@@ -12,11 +12,11 @@ main read**.
 
 - **[000-Vision.md](000-Vision.md)** — The claim. Causa shows you what
   happens when an event fires. The five canonical questions; the audience;
-  the "two doors" split (Causa = human; re-frame2-pair-mcp = AI); the 6-tab
+  the "two doors" split (Causa = human; re-frame2-pair-mcp = AI); the 7-tab
   inventory.
 - **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
-  spine sub `:rf.causa/focus`, the 6-tab inventory, the popover invocation
+  spine sub `:rf.causa/focus`, the 7-tab inventory, the popover invocation
   contract, the data-classification rendering contract. Reading order:
   read THIS after 000-Vision, then per-tab specs.
 - **[019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md)** — The
@@ -32,11 +32,16 @@ main read**.
   age-out. Future: branch-and-explore; "find me when path P last changed"
   walker.
 - **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — The Machines
-  tab. UC1 simulation + UC2 dynamic Mode A/B/C; cancellation cascade
-  visualiser; `:after` timer countdown rings; `:invoke-all` join
-  inspector; per-instance "why am I stuck" trace; shift-click divergence;
-  ELK+SVG primitive Causa-internal. **The bug catalogue at the bottom
-  (M.1–M.10) is the per-feature motivation.**
+  tab. **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused
+  event has no machine activity; per-machine section when it did
+  (topology + transition highlight + guards + actions + cancellation
+  cascade + `:after` rings). Cross-cutting Causa surfaces:
+  `:after`-timer countdown rings, `:invoke-all` join inspector,
+  cancellation-cascade visualiser, per-instance "why am I stuck" trace.
+  UC1 Sim + UC2 Mode A/B/C dynamic-instance UI preserved as Static
+  re-host reference below the §STATIC RE-HOST REFERENCE divider
+  (rf2-r4nao — deferred). ELK+SVG primitive Causa-internal. **The bug
+  catalogue at the bottom (M.1–M.10) is the per-feature motivation.**
 - **[004-App-DB-Diff.md](004-App-DB-Diff.md)** — Slice-centric (not
   tree-centric) app-db panel. Future: branch-aware diff (for Story
   sim-clones); cross-frame diff; pin-two-epochs side-by-side.
@@ -103,7 +108,7 @@ main read**.
    ("Causa shows you what happens when an event fires") and the five
    canonical questions.
 2. **Read [`018-Event-Spine.md`](018-Event-Spine.md) next** for the
-   chrome architecture — the 4-layer + spine + 6 tabs + popovers.
+   chrome architecture — the 4-layer + spine + 7 tabs + popovers.
 3. **Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
    third** for the matrix of features across the four cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).
