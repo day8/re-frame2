@@ -31,6 +31,11 @@
     (fn [db _query]
       (or (get db :settings-active-tab) :general)))
 
+  ;; rf2-ttnst — Buffer tab nested clear-confirm modal open state.
+  (rf/reg-sub :rf.causa/settings-clear-confirm-open?
+    (fn [db _query]
+      (boolean (get db :settings-clear-confirm-open? false))))
+
   ;; Parameterised slot read. The `events/install!` `:settings-open`
   ;; handler seeds `:settings` from the atom; before that seed (or
   ;; for a consumer reading the sub before the user has opened the
@@ -61,5 +66,34 @@
                      (:diff (config/get-settings)))]
         {:highlight-fn-ref-changes? (boolean
                                       (:highlight-fn-ref-changes? diff))})))
+
+  ;; rf2-ttnst — convenience sub for the density knob. Reads
+  ;; `:general :density` (`:cosy` or `:compact`). Views detail rows
+  ;; + App-db diff rows branch padding/line-height off this value.
+  ;; The Comfy tier is intentionally absent (Mike 2026-05-19); a
+  ;; persisted `:comfy` (from a prior schema) is treated as `:cosy`.
+  (rf/reg-sub :rf.causa/density
+    (fn [db _query]
+      (let [d (or (get-in db [:settings :general :density])
+                  (config/get-setting :general :density)
+                  :cosy)]
+        (if (#{:cosy :compact} d) d :cosy))))
+
+  ;; rf2-ttnst — convenience sub: should the L1 frame-picker dropdown
+  ;; include tool frames (`:rf/causa`, `:rf/pair2`)? OFF by default
+  ;; per spec/007-UX-IA.md §Frame-observation isolation invariant I1.
+  (rf/reg-sub :rf.causa/show-tool-frames?
+    (fn [db _query]
+      (boolean (or (get-in db [:settings :general :show-tool-frames?])
+                   (config/get-setting :general :show-tool-frames?)))))
+
+  ;; rf2-ttnst — convenience sub: long-keyword wrap threshold (chars).
+  ;; Default 24 (was a fixed constant; now user-tuneable per spec/007-
+  ;; UX-IA.md §Long-keyword treatment).
+  (rf/reg-sub :rf.causa/long-keyword-threshold
+    (fn [db _query]
+      (or (get-in db [:settings :general :long-keyword-threshold])
+          (config/get-setting :general :long-keyword-threshold)
+          24)))
 
   nil)

@@ -181,12 +181,17 @@
    ;; rf2-vbbq0 — L2 row relative-time chip clock (1s ticker writes here).
    :rf.causa/relative-time-now-ms
    :rf.causa/selected-tab
+   ;; rf2-ttnst — Settings popup expansion convenience subs.
+   :rf.causa/density
+   :rf.causa/long-keyword-threshold
    ;; rf2-9poxq — Settings popup subs.
    :rf.causa/setting
    :rf.causa/settings
    :rf.causa/settings-active-tab
+   :rf.causa/settings-clear-confirm-open?
    :rf.causa/settings-open?
    :rf.causa/show-me-when-this-changed-result
+   :rf.causa/show-tool-frames?
    ;; rf2-v869p Phase 2 — UC1 Sim sub-mode subs.
    :rf.causa/sim-active?
    :rf.causa/sim-available-transitions
@@ -331,7 +336,12 @@
    :rf.causa/set-target-frame
    :rf.causa/set-trace-filter
    ;; rf2-9poxq — Settings popup events.
+   ;; rf2-ttnst — Settings popup Buffer-tab clear-buffer family
+   ;; (confirm / cancel / clear).
+   :rf.causa/settings-cancel-clear-buffer
+   :rf.causa/settings-clear-buffer
    :rf.causa/settings-close
+   :rf.causa/settings-confirm-clear-buffer
    :rf.causa/settings-open
    :rf.causa/settings-select-tab
    :rf.causa/settings-toggle
@@ -447,8 +457,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 98  (count all-sub-names)))
-    (is (= 113 (count all-event-names)))
+    (is (= 102 (count all-sub-names)))
+    (is (= 116 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent

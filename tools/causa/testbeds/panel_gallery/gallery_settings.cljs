@@ -44,10 +44,11 @@
 
   (story/reg-tag :feature/causa-settings-popup
     {:axis :feature
-     :doc  "Causa Settings popup modal — 3-tab strip (General /
-            Filters / Theme) per spec/018-Event-Spine §9. Telemetry
-            tab removed per rf2-jh9ws (no endpoint exists; chrome
-            must not pretend)."})
+     :doc  "Causa Settings popup modal — 6-tab strip (General /
+            Theme / Filters / Keybindings / Buffer / Diff) per
+            spec/007-UX-IA.md §Settings popup (rf2-ttnst expansion of
+            the original 3-tab strip from rf2-9poxq). Telemetry tab
+            was removed earlier per rf2-jh9ws (no endpoint exists)."})
 
   (story/reg-story :story.causa.settings-popup
     {:doc        "Visual gallery of the Causa Settings popup modal.
@@ -114,6 +115,52 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
+  ;; ----- 4. Keybindings tab — read-only chord catalogue (rf2-ttnst).
+  (story/reg-variant :story.causa.settings-popup/keybindings
+    {:doc        "Settings popup open on Keybindings tab. v1 is
+                 READ-ONLY — a chord catalogue mirroring spec/007-
+                 UX-IA.md §Keyboard plus a master 'Handle keys?'
+                 toggle. Rebind UI lands in v1.1."
+     :events     [[:panel-gallery.chrome/seed!
+                   {:trace-buffer (fixtures/n-cascades 3)
+                    :selected-tab :event
+                    :after-seeds
+                    [[:rf.causa/settings-open]
+                     [:rf.causa/settings-select-tab :keybindings]]}]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 5. Buffer tab — three numeric knobs + destructive Clear
+  ;; (rf2-ttnst).
+  (story/reg-variant :story.causa.settings-popup/buffer
+    {:doc        "Settings popup open on Buffer tab. Three numeric
+                 inputs (retained-epochs, trace-buffer/keep,
+                 inspector-collapse-threshold) plus a destructive
+                 'Clear buffer now' button. Clicking Clear opens a
+                 confirmation modal (Cancel / Clear)."
+     :events     [[:panel-gallery.chrome/seed!
+                   {:trace-buffer (fixtures/n-cascades 3)
+                    :selected-tab :event
+                    :after-seeds
+                    [[:rf.causa/settings-open]
+                     [:rf.causa/settings-select-tab :buffer]]}]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 6. Diff tab — opt-in fn-ref-changes toggle (rf2-i39w2).
+  (story/reg-variant :story.causa.settings-popup/diff
+    {:doc        "Settings popup open on Diff tab. The opt-in
+                 :highlight-fn-ref-changes? toggle for the hiccup-diff
+                 micro-engine (rf2-i39w2 Phase 3)."
+     :events     [[:panel-gallery.chrome/seed!
+                   {:trace-buffer (fixtures/n-cascades 3)
+                    :selected-tab :event
+                    :after-seeds
+                    [[:rf.causa/settings-open]
+                     [:rf.causa/settings-select-tab :diff]]}]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
   ;; (Telemetry tab removed per rf2-jh9ws — no endpoint exists,
   ;; chrome must not pretend; section + variant deleted.)
 
@@ -124,7 +171,8 @@
   ;; The last variant to seed wins the shared interior; canvas-mode
   ;; (sidebar pick) is where per-variant fidelity is fully observable.
   (story/reg-workspace :Workspace.causa.settings-popup/all
-    {:doc      "All three Settings popup variants. The chrome
+    {:doc      "All Settings popup variants (General / Filters /
+                Theme / Keybindings / Buffer / Diff). The chrome
                 internally wraps :rf/causa via a hardcoded frame-
                 provider, so workspace cells share interior state —
                 see canvas-mode (sidebar pick) for per-variant

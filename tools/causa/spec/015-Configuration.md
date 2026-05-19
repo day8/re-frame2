@@ -250,16 +250,56 @@ alone.
 
 ### `:settings`
 
-Bulk-replace the Settings popup state map (rf2-9poxq). Shape mirrors
-the `default-settings` block in `config.cljc`:
+Bulk-replace the Settings popup state map (rf2-9poxq; expanded by
+rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
+`default-settings` block in `config.cljc`:
 
 ```clojure
-{:general   {:text-size           13          ; px; slider range 10–18
-             :panel-position      :right-rail ; :right-rail | :popout | :fullscreen
-             :panel-width-px      480         ; number; clamped [320, 0.9 × viewport-width-px]
-             :auto-open-on-error? false}
- :theme     :dark}                             ; :dark | :light
+{:general   {:text-size              13          ; px; slider range 10–18
+             :panel-position         :right-rail ; :right-rail | :popout | :fullscreen
+             :panel-width-px         480         ; number; clamped [320, 0.9 × viewport-width-px]
+             :auto-open-on-error?    false
+             :density                :cosy       ; #{:cosy :compact} — no :comfy in v1
+             :show-tool-frames?      false       ; reveal :rf/causa + :rf/pair2 in L1 picker
+             :long-keyword-threshold 24}         ; chars; long-keyword elision threshold
+ :theme     :dark                                ; :dark | :light
+ :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
+ :buffer    {:retained-epochs                    200    ; epoch buffer depth
+             :trace-buffer/keep                  1000   ; raw trace-event ring depth
+             :app-db/inspector-collapse-threshold 50}}  ; inspector auto-collapse branching
 ```
+
+The `:general` slot carries three knobs introduced by rf2-ttnst:
+
+- `:density` — `:cosy` (default) or `:compact`. Drives the Views
+  detail rows + App-db diff rows vertical rhythm. The `:comfy` tier
+  catalogued earlier in spec/007-UX-IA.md §Density slider is dropped
+  in v1; persisted `:comfy` values from prior schemas are treated as
+  `:cosy` by the `:rf.causa/density` convenience sub.
+- `:show-tool-frames?` — boolean. When `true` the L1 frame-picker
+  dropdown reveals `:rf/causa` + `:rf/pair2`. Default `false` per
+  spec/007-UX-IA.md §Frame-observation isolation invariants §I1.
+- `:long-keyword-threshold` — integer (chars). Fully-qualified
+  keywords longer than the threshold elide in compact list cells.
+  Default `24`, was previously a fixed constant; now user-tuneable
+  per spec/007-UX-IA.md §Long-keyword treatment.
+
+The `:buffer` slot carries the buffer-depth tunables surfaced in the
+Buffer tab:
+
+- `:retained-epochs` — count of epochs Causa retains in its causal
+  ring. Default `200`.
+- `:trace-buffer/keep` — count of raw trace events kept. Mirrors
+  `trace-bus/default-buffer-depth` (`1000`).
+- `:app-db/inspector-collapse-threshold` — branch factor above which
+  the App-db inspector auto-collapses. Default `50`.
+
+The Buffer tab also exposes a destructive "Clear buffer now" action
+that fires `trace-bus/clear-buffer!` after a confirmation modal
+(`"Clear buffer? This deletes all retained epochs."` → Cancel /
+Clear). The action is dispatch-only and carries no `configure!`
+counterpart; hosts that need a programmatic clear call the trace-bus
+helper directly.
 
 The `:panel-width-px` slot (rf2-x8h9y) drives the
 `:right-rail` panel's horizontal width. The Causa drag handle (per
