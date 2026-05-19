@@ -103,6 +103,18 @@
         (and (= section :general) (= key :panel-width-px))
         (effects/apply-panel-width! value)
 
+        ;; rf2-i40us — density radio writes the resolved px into
+        ;; `--rf-causa-font-size` so the whole `theme/tokens/type-scale`
+        ;; rescales in lockstep (every entry is
+        ;; `calc(var(--rf-causa-font-size, 13px) * <multiplier>)`).
+        ;; Mapping: compact 12 / cosy 13 / comfy 14 — see
+        ;; `effects/density->font-size-px`. The persisted value the
+        ;; settings atom carries also drives the `:rf.causa/density`
+        ;; sub (Views row padding + App-db diff-row line-height); the
+        ;; font-size write here is the one-knob loop's missing leg.
+        (and (= section :general) (= key :density))
+        (effects/apply-density-font-size! value)
+
         (and (= section :theme) (nil? key))
         (effects/apply-theme! value)
 

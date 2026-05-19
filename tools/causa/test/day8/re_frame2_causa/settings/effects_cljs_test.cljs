@@ -27,6 +27,7 @@
             [day8.re-frame2-causa.settings.effects :as effects]
             [day8.re-frame2-causa.settings.view :as view]
             [day8.re-frame2-causa.test-support :as causa-test-support]
+            [day8.re-frame2-causa.theme.tokens :as tokens]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- fixture -----------------------------------------------------------
@@ -241,3 +242,90 @@
       (is (= "700px"
              (.getPropertyValue (.-style html) "--rf-causa-inline-width"))
           "<html> --rf-causa-inline-width carries the persisted value"))))
+
+;; ---- density → font-size knob (rf2-i40us) ------------------------------
+
+(deftest density->font-size-px-mapping
+  (testing "density keyword resolves to the canonical px value the
+            radio writes into `--rf-causa-font-size`. Compact tightens
+            by 1px, cosy is the baseline (matches
+            `tokens/font-size-default`), comfy loosens by 1px."
+    (is (= 12 (:compact effects/density->font-size-px)))
+    (is (= 13 (:cosy    effects/density->font-size-px)))
+    (is (= 14 (:comfy   effects/density->font-size-px)))
+    (is (= "13px" tokens/font-size-default)
+        "cosy mapping matches the type-scale's baseline default")))
+
+(deftest density->px-falls-back-to-cosy-on-unknown
+  ;; The `:rf.causa/density` sub coerces unknown values to `:cosy`;
+  ;; the apply-fn mirrors that posture so a persisted pre-2026-05-19
+  ;; `:comfy` payload (now dropped from the radio enumeration) lands
+  ;; on a coherent px value rather than nil/throw.
+  (is (= 13 (effects/density->px :cosy)))
+  (is (= 12 (effects/density->px :compact)))
+  (is (= 14 (effects/density->px :comfy)))
+  (is (= 13 (effects/density->px :something-weird))
+      "unknown density coerces to the cosy default")
+  (is (= 13 (effects/density->px nil))
+      "nil density coerces to the cosy default"))
+
+(deftest apply-density-font-size-writes-css-var
+  (ensure-stub-shell-root!)
+  (effects/apply-density-font-size! :compact)
+  (when-let [el (shell-root)]
+    (is (= "12px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+        "shell root --rf-causa-font-size carries the compact value"))
+  (when-let [html (html-root)]
+    (is (= "12px" (.getPropertyValue (.-style html) "--rf-causa-font-size"))
+        "<html> --rf-causa-font-size carries the compact value"))
+  (effects/apply-density-font-size! :cosy)
+  (when-let [el (shell-root)]
+    (is (= "13px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+        "shell root rewrites to 13px on cosy flip"))
+  (effects/apply-density-font-size! :comfy)
+  (when-let [el (shell-root)]
+    (is (= "14px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+        "shell root rewrites to 14px on comfy")))
+
+(deftest apply-density-font-size-handles-missing-shell-root
+  (remove-stub-shell-root!)
+  (is (nil? (effects/apply-density-font-size! :compact))
+      "no-op when shell root absent; no throw"))
+
+(deftest update-event-applies-density-font-size-effect
+  (testing "Dispatching `[:rf.causa/settings-update :general :density
+            :compact]` flips `--rf-causa-font-size` to 12px so the
+            whole `type-scale` rescales on the next paint."
+    (setup!)
+    (ensure-stub-shell-root!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-update
+                         :general :density :compact]))
+    (when-let [el (shell-root)]
+      (is (= "12px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+          "dispatch writes 12px on compact"))
+    ;; Persistence — the dual-write goes to the in-memory atom +
+    ;; localStorage shim via `config/update-setting!`.
+    (is (= :compact (config/get-setting :general :density))
+        "settings atom carries the new density")
+    ;; Flip to cosy — verify the inline write rewrites (not just adds).
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-update
+                         :general :density :cosy]))
+    (when-let [el (shell-root)]
+      (is (= "13px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+          "dispatch writes 13px on cosy"))))
+
+(deftest apply-all-restores-density-font-size
+  (testing "rf2-i40us — boot path restores the persisted density so
+            the user's saved knob rescales the type scale BEFORE first
+            paint. The CSS var lands on the shell root + `<html>`."
+    (ensure-stub-shell-root!)
+    (config/update-setting! :general :density :compact)
+    (effects/apply-all!)
+    (when-let [el (shell-root)]
+      (is (= "12px" (.getPropertyValue (.-style el) "--rf-causa-font-size"))
+          "shell root --rf-causa-font-size carries the persisted compact value"))
+    (when-let [html (html-root)]
+      (is (= "12px" (.getPropertyValue (.-style html) "--rf-causa-font-size"))
+          "<html> --rf-causa-font-size carries the persisted compact value"))))
