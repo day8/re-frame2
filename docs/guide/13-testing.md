@@ -138,6 +138,92 @@ Two pieces are doing work here:
 - **`dispatch-sync` drains synchronously to fixed point.** The whole event cascade — including any follow-up `:dispatch` fxs — settles before `dispatch-sync` returns. Assertions immediately after see committed state, no race.
 - **`:fx-overrides`** redirects a registered fx for one dispatch (or one frame, if specified on `reg-frame`). The override is an id-redirect, not a mock — the same dispatch shape the real `:rf.http/managed` produces lands in the test handler. No JSDOM, no fake fetch.
 
+### Asserting the view shows the right thing
+
+Up to this point every test has driven events and read `app-db`. That's the bulk of what re-frame2 testing covers — handlers and subs and machines are pure, and pure tests are cheap. But two classes of bug live in the gap between state and screen:
+
+1. **State-correct, view-broken.** The handler updated `app-db`, the sub computes the right value — and the view reads from the wrong path, or formats it wrong, or forgets to render one branch. Every state assertion stays green; the user sees a broken screen.
+2. **Wrong-frame dispatch.** The view wires `:on-click` to dispatch into the wrong frame (or no frame at all). State assertions in the host frame stay green; the click in production fires into a sibling and nothing happens.
+
+Both are caught by **calling the view-fn directly and walking its returned hiccup**. The view-fn is a function; the hiccup is a vector. No React, no JSDOM, no `act()` — JVM and CLJS pay the same low cost.
+
+`re-frame.test-helpers` ships the walker and the handler-pluck:
+
+```clojure
+(:require [re-frame.test-helpers :as h])
+```
+
+It exposes a small surface: `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix` to anchor on stable elements, `text-content` to read what the user would see, `extract-handler` / `invoke-handler` to read or fire `:on-click` (and friends), and `testid` as a small authoring-side convenience for views that want a tidy attrs map. All of it operates on plain hiccup data and recursively expands nested function components, so a parent view-fn that mounts a child function-component is fully walked from one call site.
+
+#### Pattern 1 — state-and-view assertion
+
+Dispatch, call the view-fn, walk the result. Catches the "state correct, view broken" class:
+
+```clojure
+(deftest counter-view-shows-current-count
+  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (rf/dispatch-sync [:counter/inc])
+    (rf/dispatch-sync [:counter/inc])
+    ;; state assertion — the handler updated the db
+    (is (= 2 (:n (rf/get-frame-db f))))
+    ;; view assertion — the view actually shows that value
+    (let [tree  (counter-view {:n (:n (rf/get-frame-db f))})
+          label (h/find-by-testid tree "counter-label")]
+      (is (= "Count: 2" (h/text-content label))))))
+```
+
+The view-fn is just a function in your `views.cljs`. Its `:data-testid` is a stable handle that survives layout changes — search for `"counter-label"` in code and you find both the view and every test that references it.
+
+#### Pattern 2 — drive a click, assert the dispatch
+
+Pull `:on-click` off the hiccup node and invoke it. Catches the "wrong-frame dispatch" class — if the handler dispatches into the wrong frame, the assertion against the host frame fails:
+
+```clojure
+(deftest counter-button-fires-inc
+  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (let [tree (counter-view {:n 0})
+          btn  (h/find-by-testid tree "counter-inc")]
+      (h/invoke-handler btn :on-click nil)            ;; fires :on-click
+      (is (= 1 (:n (rf/get-frame-db f)))))))         ;; state moved
+```
+
+`invoke-handler` finds the testid'd element, pulls the handler off the attrs map, and calls it with the supplied args. If the view's `:on-click` is `#(rf/dispatch [:counter/inc])`, the dispatch threads through whatever frame is currently bound by `with-frame`, the cascade drains synchronously, and the next-line assertion sees the result. If the view dispatched to the wrong frame, the host-frame assertion fails — the bug is loud and reproducible without a browser.
+
+#### Authoring side — the `testid` helper
+
+A view that wants to be testable benefits from carrying a `:data-testid` on its outer element (or any element a test will want to anchor on). The `h/testid` helper standardises the attrs fragment:
+
+```clojure
+;; views.cljs
+(defn counter-view [{:keys [n]}]
+  [:div (h/testid "counter-root")
+   [:span (h/testid "counter-label") (str "Count: " n)]
+   [:button (h/testid "counter-inc"
+                      {:on-click #(rf/dispatch [:counter/inc])})
+    "+"]])
+```
+
+Equivalent to writing `{:data-testid "counter-inc" :on-click ...}` by hand. Pick whichever reads better in your view; both work with `find-by-testid`.
+
+#### When to use this vs. `render-to-string`
+
+Two flavours of view-content testing coexist:
+
+- `render-to-string` (covered in [chapter 11 — Server-side](11-server-side.md)) emits HTML. Best when the assertion is about the rendered markup — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". Output is a string.
+- The hiccup-walk pattern in this section operates on hiccup data. Best when the assertion is about **structure** ("is the testid present?") or **handlers** ("what does the button fire?"), or when the test wants to drive interaction by invoking `:on-click` directly.
+
+Reach for `render-to-string` when the test cares about HTML; reach for hiccup-walk when the test cares about handlers or testid-keyed structure.
+
+#### Single-frame vs. multi-frame setups
+
+The patterns above are for a **single application frame** — the host frame is the only frame; views are application views; tests assert against the same frame the events fire into. That's the canonical shape for testing your own app and the one this section is about.
+
+A different shape exists for tool / observer code — code that runs in one frame and observes another (re-frame-10x, Causa, custom dashboards). Those tests need *two* frames in one process: the application frame plus the observer frame, with a trace path between them. That shape — the harness, the trace-bus wiring, the cross-frame subscribe — is exercised by the framework's own tool suite ([`tools/causa/test/.../test_helpers/e2e_multi_frame.cljs`](https://github.com/day8/re-frame2/blob/main/tools/causa/test/day8/re_frame2_causa/test_helpers/e2e_multi_frame.cljs)) and is **not** the right shape for testing your application's views. Single-app tests stay in a single frame; reach for the multi-frame harness only when you're building observer-side tooling.
+
+#### Runnable companion
+
+The code shapes in this section are exercised end-to-end by [`implementation/core/test/re_frame/test_helpers_cljs_test.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/core/test/re_frame/test_helpers_cljs_test.cljc) — the helper's own unit suite uses the same `counter-view` / `counter-button` shape these snippets sketch. Copy from there if you want a working template.
+
 ### Subscriptions
 
 Two ways to test a sub:
