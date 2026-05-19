@@ -1,0 +1,55 @@
+;; day8/re-frame2-machines-viz — the substrate-agnostic MachineChart
+;; component + read-only viewer surfaces. Scaffolded per
+;; tools/machines-viz/spec/000-Vision.md; src landing per rf2-o9arp
+;; (the rf2-0yil0 audit cluster's first bead, which extracts the
+;; chart implementation out of Causa and into its own jar).
+;;
+;; ## Bundle isolation
+;;
+;; Per tools/README.md the machines-viz artefact is bundle-isolated
+;; from production code: nothing under implementation/ may :require
+;; anything from this jar. The chart consumes the framework's
+;; public surfaces (`rf/machine-meta`, the `:rf/machines` slot,
+;; the trace bus) but adds no new framework primitives.
+;;
+;; ## Lockstep version with implementation/core
+;;
+;; Same posture as tools/causa/deps.edn — :local/root during
+;; development; the release workflow rewrites :local/root →
+;; :mvn/version pinned to the same VERSION file the core artefact
+;; reads so machines-viz's published version equals the framework's
+;; published version at every release.
+{:paths ["src"]
+ :deps  {;; rf2-o9arp — the chart code is pure-data hiccup + a thin
+         ;; ELK adapter. The only framework surface it touches is
+         ;; the public registrar API for `rf/machine-meta` (a future
+         ;; capability bead wires the live snapshot read through
+         ;; `re-frame.core`). For Phase-1 src-landing we ship with
+         ;; the framework core as the sole transitive dep — Causa
+         ;; brings its own substrate adapter on the consumer side.
+         day8/re-frame2 {:local/root "../../implementation/core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet
+                       {:local/root "../../implementation/test-quiet"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+
+  ;; Clojars deploy. Mirrors tools/causa/deps.edn — the release
+  ;; workflow rewrites :local/root → :mvn/version before invoking
+  ;; clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-machines-viz
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}

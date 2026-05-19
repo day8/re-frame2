@@ -1,12 +1,13 @@
-(ns day8.re-frame2-causa.chart.layout-cljs-test
-  "Pure-data tests for the chart-layout primitive (rf2-2tkza Phase 1).
+(ns day8.re-frame2-machines-viz.chart.layout-cljs-test
+  "Pure-data tests for the chart-layout primitive (rf2-2tkza Phase 1;
+  relocated to machines-viz under rf2-o9arp).
 
   Dual-target convention: `.cljc` + `_cljs_test` ns name so the
   Cognitect runner (CLJ) and Shadow's `:node-test` build both pick
   it up via their default suffix regex."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-causa.chart.layout :as layout]))
+            [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---- fixtures ----------------------------------------------------------
 

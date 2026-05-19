@@ -1,0 +1,202 @@
+(ns day8.re-frame2-machines-viz.theme.tokens
+  "Design tokens for the Machines-Viz chart (rf2-o9arp).
+
+  ## Why machines-viz owns its own tokens
+
+  Machines-Viz is bundle-isolated from Causa per the
+  tools/README.md contract — a host that embeds `MachineChart`
+  outside Causa (Story, the read-only viewer page, a user dev
+  shell) must not transitively pull Causa's full theme module just
+  to render a chart. The slice the chart needs is small (palette +
+  two font stacks + the motion seam) so we publish it here.
+
+  The palette mirrors Causa's `theme/tokens` at the values level —
+  the two will track each other until a CSS-variable migration
+  consolidates them. Host applications can override the palette by
+  wrapping `MachineChart` in a context that rebinds these vars (a
+  v1.x affordance; the current chart consumes the dark palette
+  directly).
+
+  ## Tint helper
+
+  rf2-pyvmr — `with-alpha` resolves a token key to its hex value
+  and returns an `rgba(...)` string. Eliminates inline hex literals
+  in chart code; a palette shift propagates through every tint
+  without a per-call-site edit.
+
+  ## Motion seam
+
+  rf2-xfx6l — the chart's heartbeat pulse + transition glow
+  interpolate their `animation-duration` through the same
+  `--rf-causa-motion-scale` CSS custom property Causa publishes at
+  `:root`. The chart's host (Causa today) ensures the variable is
+  set; when machines-viz ships standalone the chart's own SVG
+  `<style>` block declares the variable + the
+  `prefers-reduced-motion` override so the chart honours the user's
+  setting without a host-side install. See `chart/svg`
+  `inline-stylesheet`.
+
+  ## Visual constants
+
+  rf2-g6cig — chart-shape constants (corner radius, stroke widths,
+  paddings, font sizes, durations) live in `visual-constants` so
+  the chart's visual character is locked in one map rather than
+  scattered across magic numbers."
+  {:no-doc true}
+  (:require [clojure.string :as str]))
+
+;; ---- palette -----------------------------------------------------------
+
+(def dark-palette
+  "Dark-theme colour tokens. Mirrors `day8.re-frame2-causa.theme.tokens`
+  at the values level so the chart renders identically whether embedded
+  by Causa, Story, the read-only viewer, or a user dev shell."
+  {:bg-0           "#0E0F12"
+   :bg-1           "#15171B"
+   :bg-2           "#1B1E24"
+   :bg-3           "#232730"
+   :bg-active      "#2A2F3D"
+
+   :border-subtle  "#232730"
+   :border-default "#2F3441"
+
+   :text-primary   "#E8EAF0"
+   :text-secondary "#A8AEC0"
+   :text-tertiary  "#6B7080"
+
+   :accent-violet  "#7C5CFF"
+   :cyan           "#43C3D0"
+   :green          "#4ADE80"
+   :yellow         "#FBBF24"
+   :orange         "#FB923C"
+   :red            "#F87171"
+   :magenta        "#E879F9"
+
+   :red-deep       "#a83a3a"
+   :white          "#ffffff"})
+
+(def tokens
+  "Backwards-compatible alias for the dark palette — same shape
+  Causa's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
+  call sites read identically."
+  dark-palette)
+
+;; ---- font stacks -------------------------------------------------------
+
+(def mono-stack
+  "JetBrains Mono stack — used by chart node + edge labels (data
+  surface)."
+  "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace")
+
+(def sans-stack
+  "Inter stack — used by chrome (caption strip, empty-state fallback,
+  compound-container title)."
+  "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+
+;; ---- tint helper (rf2-pyvmr) -------------------------------------------
+
+(defn- parse-hex-byte
+  "Parse a two-character hex string to an int (0..255). Portable
+  JVM+CLJS. Returns nil for malformed input."
+  [^String s]
+  #?(:clj  (try (Integer/parseInt s 16) (catch Exception _ nil))
+     :cljs (let [n (js/parseInt s 16)]
+             (when-not (js/isNaN n) n))))
+
+(defn- hex->rgb
+  "Parse a 6- or 8-digit hex colour into `[r g b]`. Returns nil for
+  malformed input so callers can degrade gracefully (the chart
+  defaults to opaque token when this returns nil)."
+  [^String hex]
+  (let [s (str/replace (or hex "") #"^#" "")
+        n (count s)]
+    (when (or (= 6 n) (= 8 n))
+      (let [r (parse-hex-byte (subs s 0 2))
+            g (parse-hex-byte (subs s 2 4))
+            b (parse-hex-byte (subs s 4 6))]
+        (when (and r g b) [r g b])))))
+
+(defn with-alpha
+  "Resolve `token-key` to its hex value through `tokens` and return an
+  `rgba(<r>, <g>, <b>, <alpha>)` string. `alpha` is a fraction in
+  `[0.0, 1.0]`.
+
+  Pure data → string; JVM-portable. rf2-pyvmr eliminates inline hex /
+  rgba literals from chart code — a palette shift on the source token
+  propagates to every tint without a per-call-site edit.
+
+  Returns the token's solid hex unchanged when `alpha` is `nil` or
+  the hex fails to parse (defensive fallback so a malformed entry
+  cannot blank out the chart)."
+  ([token-key alpha]
+   (with-alpha token-key alpha tokens))
+  ([token-key alpha palette]
+   (let [hex (get palette token-key)]
+     (cond
+       (nil? alpha) hex
+       (nil? hex)   nil
+       :else (if-let [[r g b] (hex->rgb hex)]
+               (str "rgba(" r ", " g ", " b ", " alpha ")")
+               hex)))))
+
+;; ---- motion seam (rf2-xfx6l) -------------------------------------------
+
+(def motion
+  "Motion-axis tokens (mirrors Causa's `theme/tokens/motion`).
+
+  - `:scale-var-name`        — CSS custom property name; consumers
+                               interpolate it into their inline
+                               `animation-duration: calc(...)`.
+  - `:pulse-duration-ms`     — heartbeat pulse cycle on the active
+                               state node (rf2-xfx6l).
+  - `:glow-duration-ms`      — transition-edge glow flash duration
+                               (rf2-xfx6l).
+
+  Both durations interpolate through `--rf-causa-motion-scale`
+  (collapsed to 0.001 under `prefers-reduced-motion: reduce`)."
+  {:scale-var-name    "--rf-causa-motion-scale"
+   :pulse-duration-ms 2000
+   :glow-duration-ms  400})
+
+(defn duration-css
+  "Build the canonical `calc(<ms>ms * var(--rf-causa-motion-scale, 1))`
+  CSS string a consumer passes as `animation-duration`. Under
+  `prefers-reduced-motion: reduce` the seam collapses durations so
+  the keyframes resolve in a single frame.
+
+  Pure data → string; JVM-portable."
+  [ms]
+  (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
+
+;; ---- tag-pill palette (rf2-m1b88) --------------------------------------
+
+(def tag-pill-palette
+  "Deterministic colour rotation for state-tag pills (rf2-m1b88).
+  Skips `:red` and `:accent-violet` — both are reserved for chart
+  semantics (`:red` for cancellation glyphs, `:accent-violet` for the
+  initial-state marker + FROM-highlight). The remaining five spread
+  across cool/warm/neutral so a typical 2-4 tag count reads
+  distinctly."
+  [:cyan :green :yellow :orange :magenta])
+
+(defn- char-code
+  "Portable char → int. JVM uses `int`; CLJS reaches for
+  `charCodeAt` on the string at the per-char index."
+  [^String s idx]
+  #?(:clj  (int (.charAt s ^int idx))
+     :cljs (.charCodeAt s idx)))
+
+(defn tag-pill-color
+  "Map a tag keyword to a stable palette entry. Deterministic — the
+  same tag id resolves to the same token across renders. Pure data
+  → keyword."
+  [tag]
+  (let [^String s (str (when-let [n (and (keyword? tag) (namespace tag))]
+                         (str n "/"))
+                       (if (keyword? tag) (name tag) (str tag)))
+        n (count s)
+        h (loop [i 0 acc 0]
+            (if (< i n)
+              (recur (inc i) (+ acc (char-code s i)))
+              acc))]
+    (nth tag-pill-palette (mod h (count tag-pill-palette)))))

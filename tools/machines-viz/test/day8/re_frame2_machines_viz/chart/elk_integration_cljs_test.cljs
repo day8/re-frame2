@@ -1,4 +1,4 @@
-(ns day8.re-frame2-causa.chart.elk-integration-cljs-test
+(ns day8.re-frame2-machines-viz.chart.elk-integration-cljs-test
   "Browser-only integration tests for the ELK adapter (rf2-m7co9 Phase 4).
 
   These tests exercise the actual ELK.js lazy loader path against a
@@ -12,9 +12,9 @@
   the body via a host check so this file is also safe to ship in the
   node-test classpath."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
-            [day8.re-frame2-causa.chart.layout :as layout]
-            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
-            [day8.re-frame2-causa.chart.svg :as chart-svg]))
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.elk-layout :as elk-layout]
+            [day8.re-frame2-machines-viz.chart.svg :as chart-svg]))
 
 ;; ---- fixtures -----------------------------------------------------------
 

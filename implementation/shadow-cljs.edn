@@ -89,6 +89,15 @@
                 ;; implementation/ may :require anything under tools/.
                 "../tools/causa/src"
                 "../tools/causa/test"
+                ;; tools/machines-viz (MachineChart artefact, rf2-o9arp).
+                ;; Bundle-isolation contract identical to tools/causa above —
+                ;; nothing under implementation/ may :require here. Source +
+                ;; test paths added so the :node-test build picks up the
+                ;; chart suite that moved out of tools/causa under the
+                ;; rf2-0yil0 audit cluster (Causa now re-exports the chart
+                ;; via thin shims under tools/causa/src/day8/re_frame2_causa/chart/).
+                "../tools/machines-viz/src"
+                "../tools/machines-viz/test"
                 ;; tools/causa/testbeds (rf2-p8f2s — examples-split step 1).
                 ;; Tool-owned testbeds colocate the testbed app source (where
                 ;; an app is needed — perf-counter) with the spec that drives
