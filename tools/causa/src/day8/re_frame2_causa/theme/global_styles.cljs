@@ -53,12 +53,21 @@
   "rf-causa-fonts-link")
 
 (def ^:private fonts-href
-  "Google Fonts CSS endpoint that ships Inter (400/500/600/700) and
-  JetBrains Mono (400/500/600/700) as WOFF2 with `font-display: swap`.
-  Single CDN request → two font families → file fetches on demand."
+  "Google Fonts CSS endpoint that ships Inter (400/500/600/700),
+  JetBrains Mono (400/500/600/700), and Fraunces (the display face,
+  rf2-5kfxe.9 — optical-size axis 9-144, weight 500/600/700/900) as
+  WOFF2 with `font-display: swap`. Single CDN request → three font
+  families → file fetches on demand.
+
+  Fraunces is the deliberately distinctive serif Causa uses for L4
+  panel <h1>s only (panel body / chrome stays Inter). The variable
+  optical-size axis lets the renderer pick a 'display'-tuned glyph
+  shape at the panel-title size — fuller serifs, tighter spacing,
+  more character than Inter's neutral grotesque."
   (str "https://fonts.googleapis.com/css2"
        "?family=Inter:wght@400;500;600;700"
        "&family=JetBrains+Mono:wght@400;500;600;700"
+       "&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900"
        "&display=swap"))
 
 (defn- append-link!

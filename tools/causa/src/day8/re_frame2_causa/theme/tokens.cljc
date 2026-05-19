@@ -188,6 +188,27 @@
   labels, prose, and every non-mono surface in the panels."
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
 
+(def display-stack
+  "Fraunces stack — Causa's display face (rf2-5kfxe.9).
+
+  Fraunces is a variable serif (open-source, by Undercase Type) with
+  optical-size + SOFT + WONK axes designed to be characterful at
+  large sizes. Deliberately *not* another grotesque sans — the
+  frontend-design rubric flags 'Inter at every size' as a generic
+  AI-aesthetic. The body chrome stays Inter; only L4 panel <h1>s
+  reach for this face so the visual hierarchy is unmistakeable.
+
+  Fallback chain: `ui-serif` is the modern serif system pointer
+  (Safari/Chrome resolve it to the platform's native serif —
+  Georgia on macOS, Cambria on Windows). Then the explicit
+  Georgia/Cambria/Times so older browsers + locked-down
+  enterprise envs still land on *some* serif rather than falling
+  through to a sans.
+
+  ~30KB WOFF2 (variable, optical-size axis 9-144). Loaded via the
+  Google Fonts CSS link in `theme/global-styles/inject-fonts!`."
+  "Fraunces, ui-serif, Georgia, Cambria, Times, serif")
+
 (def type-scale
   "Causa shell typography sizes (rf2-pcitk).
 

@@ -41,6 +41,16 @@
     (let [href @#'gs/fonts-href]
       (is (re-find #"display=swap" href)))))
 
+(deftest fonts-href-loads-fraunces-display-face
+  (testing "rf2-5kfxe.9 — Fraunces (the variable serif display face)
+            is requested alongside Inter + JetBrains Mono. Variable
+            axes opsz (optical size) + wght so the renderer can pick
+            a display-tuned glyph shape at panel-title sizes."
+    (let [href @#'gs/fonts-href]
+      (is (re-find #"family=Fraunces" href))
+      (is (re-find #"opsz,wght@" href)
+          "variable axes are requested (opsz + wght)"))))
+
 ;; ---- motion css ---------------------------------------------------------
 
 (deftest motion-css-declares-diff-flash-keyframes

@@ -152,3 +152,24 @@
           "the border ends with a hex colour")
       (is (string? (:padding-left s))
           "padding-left compensates for the border so text doesn't shift"))))
+
+;; ---- display face (rf2-5kfxe.9) ----------------------------------------
+
+(deftest display-stack-is-fraunces-first
+  (testing "rf2-5kfxe.9 — the L4 panel title face is Fraunces (the
+            variable serif). NOT Inter (already the body face) so
+            the title font is a deliberate hierarchy signal rather
+            than a weight bump."
+    (is (string? t/display-stack))
+    (is (re-find #"^Fraunces" t/display-stack)
+        "Fraunces is the first face in the stack")))
+
+(deftest display-stack-falls-back-to-system-serif
+  (testing "the stack falls through to `ui-serif` (modern system
+            serif) then Georgia/Cambria/Times — never a sans. The
+            hierarchy contrast survives even if the WOFF2 fails to
+            load."
+    (is (re-find #"ui-serif" t/display-stack))
+    (is (re-find #"Georgia" t/display-stack))
+    (is (re-find #"serif$" t/display-stack)
+        "the chain terminates at the generic `serif` family")))

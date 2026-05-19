@@ -89,7 +89,7 @@
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :as t
-             :refer [tokens mono-stack sans-stack]]
+             :refer [tokens mono-stack sans-stack display-stack]]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- axis labelling -----------------------------------------------------
@@ -231,8 +231,11 @@
                   :gap         "12px"}}
     ;; rf2-5kfxe.8 — domain-coloured accent stripe (:orange for Trace
     ;; — events 'in flight'; orange is the firing/heat tone).
-    [:h1 {:style (merge {:font-size   "16px"
+    ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
+    [:h1 {:style (merge {:font-size   "20px"
+                         :font-family display-stack
                          :font-weight 600
+                         :letter-spacing "-0.01em"
                          :margin      0
                          :color       (:text-primary tokens)}
                         (t/accent-stripe-style :trace))}
