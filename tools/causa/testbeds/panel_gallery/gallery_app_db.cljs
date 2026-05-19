@@ -3,9 +3,13 @@
   (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
   The App-db tab body is the `app-db-diff/Panel` view: the changed-
-  slices + pinned-slices + reserved-keys group + 'Show me when this
-  changed' walker. Each variant seeds its frame's `:epoch-history`
-  via REAL Causa init events fired into the variant frame.
+  slices + reserved-keys group + 'Show me when this changed' walker.
+  Each variant seeds its frame's `:epoch-history` via REAL Causa init
+  events fired into the variant frame.
+
+  rf2-e9tb0 — the pinned-watches strip was dropped in favour of the
+  segment-inspector popup; the gallery's variants no longer touch
+  `:pinned-slices-store`.
 
   ## Frame isolation
 
@@ -13,9 +17,8 @@
   variant-id}]`. Subscriptions inside the rendered tree resolve to
   the variant frame; `:rf.causa/app-db-diff` reads the seeded
   `:epoch-history` (and any `:selected-epoch-id` /
-  `:pinned-slices-store` / `:focused-slice-path`). Each variant
-  therefore observes its own bespoke history in isolation; no two
-  variants share state."
+  `:focused-slice-path`). Each variant therefore observes its own
+  bespoke history in isolation; no two variants share state."
   (:require [re-frame.story :as story]
             [panel-gallery.fixtures-app-db :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -33,9 +36,10 @@
 
   (story/reg-tag :feature/causa-app-db
     {:axis :feature
-     :doc  "Causa App-db tab — changed slices, pinned slices,
-            reserved-keys group, and the 'Show me when this changed'
-            walker (per spec/018-Event-Spine §5.2)."})
+     :doc  "Causa App-db tab — changed slices, reserved-keys group,
+            and the 'Show me when this changed' walker (per spec/018-
+            Event-Spine §5.2). Pinned-watches strip dropped under
+            rf2-e9tb0."})
 
   (story/reg-story :story.causa.app-db
     {:doc        "Visual gallery of the Causa App-db tab under varying
@@ -58,7 +62,8 @@
   ;; ----- 2. empty (no epochs) -----------------------------------------
   (story/reg-variant :story.causa.app-db/empty
     {:doc        "No epochs in history. Panel renders the empty-state
-                 + pinned + reserved scaffolding only."
+                 + reserved scaffolding only (rf2-e9tb0 dropped the
+                 pinned-watches strip)."
      :events     [[:rf.causa/sync-epoch-history (fixtures/empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})

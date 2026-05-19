@@ -20,9 +20,10 @@ that you weren't expecting (a reset, a clobber).
 
 A **slice-centric view** — the slices that changed in this epoch,
 each shown with `before` and `after` values, colour-coded by op
-(`:added` green, `:modified` yellow, `:removed` red). Plus **pinned
-watches** — slices the user explicitly marked, always visible across
-epochs. The full tree is one click away via the escape hatch.
+(`:added` green, `:modified` yellow, `:removed` red). Plus
+**clickable path segments** — every segment of every diff path opens
+a popup inspector at that path-prefix, so the user can inspect
+arbitrary sub-trees of `app-db` on demand.
 
 This is the **single most-used Causa surface** after the Event tab.
 The 400ms yellow → transparent diff-flash on touched slices is the
@@ -30,8 +31,10 @@ attention-cue that keeps the user oriented across cascades.
 
 ## Affordance
 
-App-db tab — slice-centric mini-panels above pinned-slices above the
-`Show full app-db tree ▸` escape hatch.
+App-db tab — slice-centric mini-panels. Each section's breadcrumb
+path renders as individually clickable segments; clicking any
+segment opens an inspector popup at the path-prefix up to and
+including that segment.
 
 ---
 
@@ -47,26 +50,25 @@ watching.
 A stack of focused slice mini-panels:
 
 ```
-┌─ Slice 1: [:cart :items]  (modified) ─────────────┐
+┌─ [:cart :items]   (modified) ─────────────────────┐
+│   ↑     ↑                                         │
+│   each segment is clickable; click opens the      │
+│   segment-inspector popup at that path-prefix     │
+│                                                   │
 │  before:  [{:id 7 :qty 1}]                        │
 │  after:   [{:id 7 :qty 1} {:id 22 :qty 1}]        │
 └────────────────────────────────────────────────────┘
 
-┌─ Slice 2: [:cart :totals :gross]  (added) ────────┐
+┌─ [:cart :totals :gross]   (added) ────────────────┐
 │  added:   $48.00                                  │
 └────────────────────────────────────────────────────┘
-
-┌─ Pinned slices ───────────────────────────────────┐
-│  [:user :auth :status]           :authenticated   │
-│  [:nav :route]                   :app/cart        │
-└────────────────────────────────────────────────────┘
-
-[Show full app-db tree ▸]
 ```
 
 The panel never renders the whole tree by default. Slice mini-panels
 are bounded by the size of the touched path. A 50MB `app-db` with
-two touched slices renders the same as a 100KB one.
+two touched slices renders the same as a 100KB one. Clicking the
+root segment of any breadcrumb opens the popup at `[]` — that's the
+escape hatch for 'show me app-db in its entirety'.
 
 ## Changed-paths derivation
 
@@ -97,18 +99,51 @@ The diff flash on epoch land is a 400ms tween (yellow → transparent)
 on each newly-touched slice. Respects `prefers-reduced-motion` — the
 tween becomes a static yellow border for 600ms.
 
-## Pinned slices
+## Clickable path segments (rf2-e9tb0)
 
-Right-click any value in the runtime → **Pin this slice**. The path
-persists to localStorage and renders in the Pinned-slices list across
-sessions.
+For each diff path like `[:cart :items 0 :price]`, each segment is
+independently clickable:
 
-- **Each pin shows the path and current value** (live-updating on
-  every epoch).
-- **Right-click a pin** → Unpin · Edit path · Open source (jumps to the
-  most-recent `reg-event-*` registration that touched this path).
-- **Pin order** is user-controlled (drag to reorder); persisted.
-- **Pins are per-frame.** Switching frames switches the pin set.
+- Click `:cart` → popup shows app-db at `[:cart]`
+- Click `:items` → popup shows app-db at `[:cart :items]`
+- Click `0` → popup shows app-db at `[:cart :items 0]`
+- Click `:price` → popup shows app-db at `[:cart :items 0 :price]`
+  (the leaf)
+
+The popup renders the value at the inspected path via Causa's
+existing data-inspector primitive — the same cljs-devtools-shaped
+expandable tree every L4 detail panel uses.
+
+Discoverability: segments carry a dotted underline + pointer cursor
+on hover, and a `Inspect app-db at <prefix>` tooltip on hover. The
+underlying path colour stays accent-violet so the inline path still
+scans as a single phrase when the user isn't pointing at it.
+
+Three close affordances:
+
+  1. `Esc` while the popup is focused.
+  2. Click outside (backdrop) — the backdrop swallows clicks and
+     dispatches close; the dialog stops propagation so click-throughs
+     on its body don't close.
+  3. `✕` button in the header.
+
+The popup is a transient overlay (modal-light, not a full-window
+modal). The escape-hatch use case ('let me see app-db in its
+entirety') is served by clicking the leftmost segment of any
+breadcrumb — that path-prefix is `[<first-seg>]`, so to inspect the
+whole root the user clicks the root segment of the synthesised
+`(root)` breadcrumb on a `:children` section rooted at `[]`. The
+popup body then renders the entire `app-db` as an expandable tree.
+
+## What this replaces (rf2-e9tb0)
+
+The pinned-watches strip was DROPPED when clickable path segments
+landed (Mike 2026-05-19 Q13). The diff already identifies changes
+surgically; the pin-this-up-front flow was redundant when any prefix
+of any diff path can be inspected with one click on its breadcrumb
+segment. The `:rf.causa/pin-slice` / `:rf.causa/unpin-slice` /
+`:rf.causa/reorder-pinned-slices` events and the corresponding
+`:pinned-slices-store` slot are no longer registered.
 
 ## Reserved-keys group
 
@@ -149,17 +184,10 @@ for `:rf/machines`.")
 
 ## Full-tree escape hatch
 
-The `Show full app-db tree ▸` row at the bottom expands to fill the
-canvas:
-
-- Virtualised lazy-expand collapsible tree.
-- Only first 100 keys at each level eager-render; deeper levels load
-  on click.
-- Search input at the top filters by path or value substring.
-- Persistent breadcrumb at the top of the tree shows the currently
-  focused path.
-- Path-click → copies the path to clipboard (for pasting into a sub
-  or for a pin).
+Per rf2-e9tb0 the explicit `Show full app-db tree ▸` row was dropped
+in favour of segment-inspector reuse — clicking the root segment of
+any breadcrumb opens the popup at the inspected path; chaining up
+from any diff section to the root is a one-click affordance.
 
 The full tree is rarely needed; the slice-centric view answers most
 questions.
@@ -236,11 +264,10 @@ truth; pokes from the debugger are out of scope.
 
 The user can:
 
-- Right-click → Copy value
-- Right-click → Copy path
-- Right-click → Pin this slice
-- Right-click → Show me when this changed *(pivots the canvas to a
-  list of epochs that touched the path; see below)*
+- Click a breadcrumb segment → opens the segment-inspector popup
+  (rf2-e9tb0)
+- Click the Copy value / Copy path / Show me when this changed
+  affordance buttons in the section header
 
 Not present:
 
@@ -283,10 +310,11 @@ faster than re-reading the source.
 - **Slice virtualisation** for slices whose `after` value is large
   (e.g., a 10k-entry vector). The slice mini-panel renders the head
   and tail, with a `… 9970 entries …` ellipsis; click expands.
-- **Pinned-slice deref** is bounded to one path per pin per epoch;
-  pinned slices add O(pins) per epoch, not O(db-size).
-- **Full-tree** virtualises rows past the viewport; never DOM-mounts
-  more than ~80 rows.
+- **Segment-inspector popup** resolves the inspected value via
+  `get-in` (O(path-depth)) against the live target-frame db; no
+  separate watch graph. Per-node expand-state is shared with the
+  data-inspector slot in `:rf/causa` app-db so a value the user
+  drilled into in the inspector stays drilled when reopened.
 
 ## Empty state
 
@@ -297,8 +325,6 @@ Before any dispatches:
    No diffs yet — every dispatch will land here with the slices
    it touched.
 ```
-
-The pinned-slices area is empty until the user pins something.
 
 ## Vision
 

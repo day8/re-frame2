@@ -4,7 +4,7 @@
   Renders each public slice fn (`empty-state`, `slice-row`,
   `changed-slices-stack`) once and asserts the load-bearing
   `data-testid` hook is present in the produced hiccup."
-  (:require [cljs.test :refer-macros [deftest is]]
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-causa.panels.app-db-diff-slices :as slices]))
 
 (defn- has-testid? [tree testid]
@@ -20,11 +20,20 @@
     (is (has-testid? tree "rf-causa-app-db-diff-empty"))))
 
 (deftest slice-row-renders-with-action-buttons
-  (let [tree (slices/slice-row {:op :modified :path [:cart :items]
-                                :before [] :after [{:id 7}]})]
-    (is (has-testid? tree "rf-causa-app-db-diff-slice-[:cart :items]"))
-    (is (has-testid? tree "rf-causa-app-db-diff-pin-[:cart :items]"))
-    (is (has-testid? tree "rf-causa-app-db-diff-show-when-[:cart :items]"))))
+  (testing "rf2-e9tb0 — Pin button dropped from slice-row in lockstep
+            with the pinned-watches strip removal. Show-me-when stays
+            (independent affordance)."
+    (let [tree (slices/slice-row {:op :modified :path [:cart :items]
+                                  :before [] :after [{:id 7}]})]
+      (is (has-testid? tree "rf-causa-app-db-diff-slice-[:cart :items]"))
+      (is (nil? (some (fn [node]
+                        (and (vector? node)
+                             (map? (second node))
+                             (= "rf-causa-app-db-diff-pin-[:cart :items]"
+                                (:data-testid (second node)))))
+                      (tree-seq (some-fn vector? seq?) seq tree)))
+          "Pin button is gone — pinned-watches feature dropped (rf2-e9tb0)")
+      (is (has-testid? tree "rf-causa-app-db-diff-show-when-[:cart :items]")))))
 
 (deftest changed-slices-stack-renders-no-changes-state-on-empty
   (is (has-testid? (slices/changed-slices-stack [])

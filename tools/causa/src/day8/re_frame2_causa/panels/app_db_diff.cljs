@@ -16,7 +16,17 @@
   Canonical exemplar of the panel facade pattern documented in
   `tools/causa/spec/Conventions.md` — facade owns the public
   `reg-view`, leaves expose plain fns + `install!`, the facade's
-  `install!` chains leaf installs and returns `nil`."
+  `install!` chains leaf installs and returns `nil`.
+
+  ## rf2-e9tb0 — pinned-watches dropped
+
+  The pinned-slices strip was removed when path-segment click-to-
+  inspect landed (Mike 2026-05-19 Q13). The diff already identifies
+  changes surgically; pinning paths up-front is redundant when any
+  prefix of any diff path can be opened in the segment inspector via
+  one click on its breadcrumb segment. The escape-hatch use case
+  ('let me see app-db in its entirety') is now served by clicking the
+  root segment of any breadcrumb."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.render :as diff-render]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
@@ -33,7 +43,6 @@
                 history-empty?
                 changed-sections
                 changed-reserved
-                pinned-slices
                 focused-path
                 focused-hits
                 redacted-modified-count]}
@@ -60,7 +69,6 @@
         history-empty?
         [:div
          (sections/empty-state target-frame)
-         (sections/pinned-group pinned-slices)
          (sections/reserved-group changed-reserved)]
 
         :else
@@ -71,7 +79,6 @@
          ;; subtrees.
          (sections/redacted-modified-chip redacted-modified-count)
          (diff-render/render-sections changed-sections "app-db-diff")
-         (sections/pinned-group pinned-slices)
          (sections/reserved-group changed-reserved)])]]))
 
 (defn install!

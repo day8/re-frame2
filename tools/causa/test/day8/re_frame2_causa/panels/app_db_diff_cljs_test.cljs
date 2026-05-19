@@ -10,10 +10,12 @@
      returns the panel's render data; the pin / unpin / focus events
      write into `:rf/causa`'s app-db.
 
-  2. **Pin / unpin / reorder / focus events update Causa's frame.**
-     Per spec §Pinned slices + §'Show me when this changed' — the
-     view fires `:rf.causa/pin-slice` etc. and the state lives in
-     the Causa frame.
+  2. **Focus events update Causa's frame.**
+     Per spec §'Show me when this changed' — the view fires
+     `:rf.causa/focus-slice-path` and the state lives in the Causa
+     frame. (Pin / unpin / reorder events were dropped under rf2-e9tb0
+     when path-segment click-to-inspect superseded the pinned-watches
+     strip.)
 
   3. **Reserved-keys segregation at the panel level.** The view
      renders the `[runtime]` group separately from the slice mini-
@@ -147,27 +149,41 @@
 ;; ---- (1) registry wires the subs / events -------------------------------
 
 (deftest registry-installs-app-db-diff-subs
-  (testing "register-causa-handlers! installs the Phase 5 subs"
+  (testing "register-causa-handlers! installs the Phase 5 subs.
+            Pinned-slices subs were removed under rf2-e9tb0 (clickable
+            path segments replaced the pinned-watches strip)."
     (registry/register-causa-handlers!)
     (is (some? (registrar/handler :sub :rf.causa/target-frame-db)))
     (is (some? (registrar/handler :sub :rf.causa/selected-epoch-record)))
     (is (some? (registrar/handler :sub :rf.causa/selected-epoch-diff)))
-    (is (some? (registrar/handler :sub :rf.causa/pinned-slices-store)))
-    (is (some? (registrar/handler :sub :rf.causa/pinned-slices)))
     (is (some? (registrar/handler :sub :rf.causa/focused-slice-path)))
     (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
-    (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))))
+    (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))
+    ;; rf2-e9tb0 — segment-inspector subs registered alongside.
+    (is (some? (registrar/handler :sub :rf.causa/segment-inspector-open?)))
+    (is (some? (registrar/handler :sub :rf.causa/segment-inspector-path)))
+    (is (some? (registrar/handler :sub :rf.causa/segment-inspector-value)))
+    ;; Pinned-slices subs are gone.
+    (is (nil? (registrar/handler :sub :rf.causa/pinned-slices-store)))
+    (is (nil? (registrar/handler :sub :rf.causa/pinned-slices)))))
 
 (deftest registry-installs-app-db-diff-events
-  (testing "register-causa-handlers! installs the Phase 5 events"
+  (testing "register-causa-handlers! installs the Phase 5 events.
+            Pin / unpin / reorder events were removed under rf2-e9tb0;
+            the segment-inspector open / close events landed in their
+            place."
     (registry/register-causa-handlers!)
-    (is (some? (registrar/handler :event :rf.causa/pin-slice)))
-    (is (some? (registrar/handler :event :rf.causa/unpin-slice)))
-    (is (some? (registrar/handler :event :rf.causa/reorder-pinned-slices)))
     (is (some? (registrar/handler :event :rf.causa/focus-slice-path)))
     (is (some? (registrar/handler :event :rf.causa/clear-slice-focus)))
     (is (some? (registrar/handler :event :rf.causa/copy-value-to-clipboard)))
-    (is (some? (registrar/handler :event :rf.causa/copy-path-to-clipboard)))))
+    (is (some? (registrar/handler :event :rf.causa/copy-path-to-clipboard)))
+    ;; rf2-e9tb0 — segment-inspector events registered.
+    (is (some? (registrar/handler :event :rf.causa/open-segment-inspector)))
+    (is (some? (registrar/handler :event :rf.causa/close-segment-inspector)))
+    ;; Pin events are gone.
+    (is (nil? (registrar/handler :event :rf.causa/pin-slice)))
+    (is (nil? (registrar/handler :event :rf.causa/unpin-slice)))
+    (is (nil? (registrar/handler :event :rf.causa/reorder-pinned-slices)))))
 
 (deftest registry-installs-clipboard-fx
   (testing "register-causa-handlers! installs the :rf.causa.fx/copy-to-
@@ -178,7 +194,10 @@
 ;; ---- (2) composite sub returns sane defaults ----------------------------
 
 (deftest app-db-diff-sub-defaults
-  (testing ":rf.causa/app-db-diff returns sane defaults on a fresh frame"
+  (testing ":rf.causa/app-db-diff returns sane defaults on a fresh frame.
+            rf2-e9tb0 — `:pinned-slices` was dropped from the composite
+            when the pinned-watches strip was replaced by the segment-
+            inspector popup."
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (frame/reg-frame :rf/default {})
@@ -187,8 +206,9 @@
         (is (= :rf/default (:target-frame data)))
         (is (true? (:history-empty? data)))
         (is (nil? (:focused-path data)))
-        (is (= [] (:pinned-slices data)))
         (is (= [] (:focused-hits data)))
+        (is (not (contains? data :pinned-slices))
+            "the composite no longer carries :pinned-slices")
         ;; rf2-bz1cl — chip count defaults to 0 (no history → no
         ;; redacted-modified paths anywhere).
         (is (= 0 (:redacted-modified-count data)))))))
@@ -374,63 +394,68 @@
         (is (contains? reserved-keys-shown :rf/route))
         (is (contains? reserved-keys-shown :rf/machines))))))
 
-;; ---- (5) pin / unpin events write to Causa frame ------------------------
+;; ---- (5) rf2-e9tb0 — segment-inspector events + state ------------------
 
-(deftest pin-slice-event-writes-to-causa-frame
-  (testing ":rf.causa/pin-slice lands the path on :rf/causa's
-            :pinned-slices-store, NOT on the host's app-db"
+(deftest open-segment-inspector-writes-path-to-causa-frame
+  (testing "rf2-e9tb0 — :rf.causa/open-segment-inspector writes the
+            requested path into Causa's frame at :segment-inspector.
+            The path is normalised to a vector so callers can pass
+            seqs / lists / vectors interchangeably."
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
     (frame/reg-frame :rf/default {})
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:user :auth :status]]))
-    (is (= {:rf/default [[:user :auth :status]]}
-           (:pinned-slices-store (frame/frame-app-db-value :rf/causa))))
-    (is (nil? (:pinned-slices-store (frame/frame-app-db-value :rf/default))))))
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector
+                         (list :cart :items 0 :price)])
+      (is (= {:path [:cart :items 0 :price]}
+             (:segment-inspector (frame/frame-app-db-value :rf/causa)))))))
 
-(deftest pin-and-unpin-roundtrip
-  (testing ":rf.causa/pin-slice then :rf.causa/unpin-slice → empty pin vector"
+(deftest close-segment-inspector-drops-slot
+  (testing "rf2-e9tb0 — :rf.causa/close-segment-inspector dissocs the
+            slot so the popup reg-view's `when`-gate short-circuits"
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
-    (frame/reg-frame :rf/default {})
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:a]])
-      (rf/dispatch-sync [:rf.causa/pin-slice [:b]])
-      (let [s1 (:pinned-slices-store (frame/frame-app-db-value :rf/causa))]
-        (is (= [[:a] [:b]] (get s1 :rf/default))))
-      (rf/dispatch-sync [:rf.causa/unpin-slice [:a]])
-      (let [s2 (:pinned-slices-store (frame/frame-app-db-value :rf/causa))]
-        (is (= [[:b]] (get s2 :rf/default)))))))
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector [:cart]])
+      (is (some? (:segment-inspector (frame/frame-app-db-value :rf/causa))))
+      (rf/dispatch-sync [:rf.causa/close-segment-inspector])
+      (is (nil? (:segment-inspector (frame/frame-app-db-value :rf/causa)))))))
 
-(deftest reorder-pinned-slices-replaces-pin-order
-  (testing ":rf.causa/reorder-pinned-slices replaces the per-frame pin
-            vector with the supplied permutation"
+(deftest segment-inspector-open?-tracks-slot-presence
+  (testing "rf2-e9tb0 — :rf.causa/segment-inspector-open? is true iff
+            the :segment-inspector slot is non-nil"
     (registry/register-causa-handlers!)
     (frame/reg-frame :rf/causa {})
-    (frame/reg-frame :rf/default {})
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:a]])
-      (rf/dispatch-sync [:rf.causa/pin-slice [:b]])
-      (rf/dispatch-sync [:rf.causa/pin-slice [:c]])
-      (rf/dispatch-sync [:rf.causa/reorder-pinned-slices [[:c] [:a] [:b]]])
-      (let [s (:pinned-slices-store (frame/frame-app-db-value :rf/causa))]
-        (is (= [[:c] [:a] [:b]] (get s :rf/default)))))))
+      (is (false? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector [:cart :items]])
+      (is (true? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
+      (rf/dispatch-sync [:rf.causa/close-segment-inspector])
+      (is (false? @(rf/subscribe [:rf.causa/segment-inspector-open?]))))))
 
-(deftest pinned-slices-sub-derefs-live-values
-  (testing ":rf.causa/pinned-slices returns live values from the host
-            frame's current app-db"
-    (seed-causa! {:user {:auth {:status :authenticated}}
-                  :cart {:items [{:id 7}]}}
+(deftest segment-inspector-value-resolves-against-target-frame-db
+  (testing "rf2-e9tb0 — :rf.causa/segment-inspector-value reads through
+            :rf.causa/target-frame-db with `get-in` so the popup always
+            shows the picker-selected frame's current value at the
+            inspected path. Empty path yields the whole db (root
+            inspection)."
+    (seed-causa! {:cart {:items [{:id 7 :qty 1}]
+                         :gross 42}
+                  :user "ada"}
                  [])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:user :auth :status]])
-      (rf/dispatch-sync [:rf.causa/pin-slice [:cart :items]])
-      (let [slices @(rf/subscribe [:rf.causa/pinned-slices])]
-        (is (= 2 (count slices)))
-        (is (= {:path [:user :auth :status] :value :authenticated}
-               (first slices)))
-        (is (= {:path [:cart :items] :value [{:id 7}]}
-               (second slices)))))))
+      ;; Leaf at [:cart :gross]
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector [:cart :gross]])
+      (is (= 42 @(rf/subscribe [:rf.causa/segment-inspector-value])))
+      ;; Sub-map at [:cart]
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector [:cart]])
+      (is (= {:items [{:id 7 :qty 1}] :gross 42}
+             @(rf/subscribe [:rf.causa/segment-inspector-value])))
+      ;; Root: empty path → whole db.
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector []])
+      (is (= {:cart {:items [{:id 7 :qty 1}] :gross 42}
+              :user "ada"}
+             @(rf/subscribe [:rf.causa/segment-inspector-value]))))))
 
 ;; ---- (6) focus event + 'Show me when this changed' result ---------------
 
@@ -579,36 +604,18 @@
         (is (some? (find-by-testid tree
                                    "rf-causa-app-db-diff-focus-hit-:e-1")))))))
 
-(deftest pinned-group-renders-when-pins-present
-  (testing "the Pinned-slices section renders when pins exist for the
-            current target-frame"
+(deftest pinned-group-absent-after-rf2-e9tb0
+  (testing "rf2-e9tb0 — the Pinned-slices section was removed from the
+            App-DB Diff panel when the pinned-watches strip was
+            superseded by the segment-inspector popup. The panel
+            never renders the pinned-group testid hook anymore."
     (seed-causa! {:user {:auth {:status :authenticated}}}
                  [])
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:user :auth :status]])
       (let [tree (app-db-diff/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-app-db-diff-pinned-group"))
-            "pinned group container present")
-        (is (some? (find-by-testid tree
-                                   "rf-causa-app-db-diff-pinned-[:user :auth :status]"))
-            "pinned row for the pinned path is present")))))
-
-(deftest pin-slice-event-still-wired
-  (testing "the :rf.causa/pin-slice event remains registered and lands
-            the pin in the Causa frame. The Pin button UI moved off the
-            slice mini-panel under rf2-gfxmk Phase 1 (slices are now
-            rendered as sections-per-cluster); pin / show-me-when
-            affordances on the section header are a follow-on."
-    (seed-causa! {:cart {:items [{:id 7}]}}
-                 [(mk-record :e-1 [:cart/add]
-                             {:cart {:items []}}
-                             {:cart {:items [{:id 7}]}})])
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:cart :items]])
-      (let [causa-db (frame/frame-app-db-value :rf/causa)]
-        (is (= [[:cart :items]]
-               (get-in causa-db [:pinned-slices-store :rf/default]))
-            "pin landed in :rf/causa's :pinned-slices-store")))))
+        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-pinned-group"))
+            "pinned-group is gone — the panel surface no longer carries
+             the pinned-watches strip")))))
 
 (deftest focus-slice-path-event-still-wired
   (testing "the :rf.causa/focus-slice-path event remains registered. UI

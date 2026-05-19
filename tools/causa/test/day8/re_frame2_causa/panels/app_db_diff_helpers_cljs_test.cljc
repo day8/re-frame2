@@ -33,12 +33,16 @@
        triples whose path roots in `:rf/machines` / `:rf/route` /
        etc. into a separate group.
 
-    4. **Pin-store transitions.** Pin / unpin / reorder transitions
-       are pure-data → updated-store, and `live-pinned-slices`
-       derefs the current value against `app-db`.
+    4. **`epochs-touching-path` walks the history.** Returns only
+       epochs that touched the focused path, classified by op.
 
-    5. **`epochs-touching-path` walks the history.** Returns only
-       epochs that touched the focused path, classified by op."
+  ## rf2-e9tb0 — pin-store helpers dropped
+
+  Pin-store tests (`pin-path`, `unpin-path`, `reorder-paths`,
+  `slice-pins-for-frame`, `live-pinned-slices`) were removed when the
+  pinned-watches strip was superseded by the segment-inspector popup.
+  The helpers themselves are gone — the matching test deftests have
+  been pulled in lockstep."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]))
@@ -227,62 +231,7 @@
               [:rf/route {:id :app/home}]]
              summary)))))
 
-;; ---- (4) pin-store transitions ------------------------------------------
-
-(deftest pin-path-appends-to-empty-store
-  (let [out (h/pin-path {} :rf/default [:user :auth :status])]
-    (is (= {:rf/default [[:user :auth :status]]} out))))
-
-(deftest pin-path-rejects-duplicates
-  (testing "re-pinning an existing path is a no-op"
-    (let [s0 (h/pin-path {} :rf/default [:a])
-          s1 (h/pin-path s0 :rf/default [:a])]
-      (is (= s0 s1)))))
-
-(deftest pin-path-per-frame-isolation
-  (testing "pins on one frame don't leak into another"
-    (let [s (-> {}
-                (h/pin-path :rf/default [:a])
-                (h/pin-path :rf/other [:b]))]
-      (is (= [[:a]] (get s :rf/default)))
-      (is (= [[:b]] (get s :rf/other))))))
-
-(deftest unpin-path-drops-the-path
-  (let [s0 (-> {} (h/pin-path :rf/default [:a]) (h/pin-path :rf/default [:b]))
-        s1 (h/unpin-path s0 :rf/default [:a])]
-    (is (= [[:b]] (get s1 :rf/default)))))
-
-(deftest unpin-path-noop-on-miss
-  (let [s {:rf/default [[:a]]}]
-    (is (= s (h/unpin-path s :rf/default [:nope]))
-        "removing a missing path returns the store unchanged")))
-
-(deftest reorder-paths-replaces-pin-order
-  (let [s0 (-> {} (h/pin-path :rf/default [:a])
-               (h/pin-path :rf/default [:b])
-               (h/pin-path :rf/default [:c]))
-        s1 (h/reorder-paths s0 :rf/default [[:c] [:a] [:b]])]
-    (is (= [[:c] [:a] [:b]] (get s1 :rf/default))
-        "user-supplied permutation overwrites the previous order")))
-
-(deftest slice-pins-for-frame-defaults-to-empty
-  (is (= [] (h/slice-pins-for-frame {} :rf/default))))
-
-(deftest live-pinned-slices-derefs-against-current-db
-  (testing "live-pinned-slices projects per-pin :path + current :value"
-    (let [store {:rf/default [[:cart :items]
-                              [:user :auth :status]
-                              [:missing :path]]}
-          db    {:cart {:items [{:id 7}]}
-                 :user {:auth {:status :authenticated}}}
-          out   (h/live-pinned-slices store :rf/default db)]
-      (is (= 3 (count out)))
-      (is (= [{:path [:cart :items]         :value [{:id 7}]}
-              {:path [:user :auth :status]  :value :authenticated}
-              {:path [:missing :path]       :value nil}]
-             out)))))
-
-;; ---- (5) 'Show me when this changed' walker -----------------------------
+;; ---- (4) 'Show me when this changed' walker -----------------------------
 
 (defn- mk-record
   "Build a minimal `:rf/epoch-record` for diff-walker tests. The

@@ -136,11 +136,17 @@
    label])
 
 (defn- breadcrumb-segments
-  "Render the section path as individual clickable segments. Plain click
-  copies the absolute path up to and including the clicked segment;
-  Cmd-click (or Ctrl-click on non-Mac) is the explicit modifier the
-  design (§5.1) calls out — both gestures dispatch
-  `:rf.causa/copy-path-to-clipboard` with the prefix path."
+  "Render the section path as individual clickable segments (rf2-e9tb0).
+  Each segment is independently clickable; a click opens the App-DB
+  segment-inspector popup at the path-prefix up to and INCLUDING that
+  segment. So clicking `:cart` in `[:cart :items 0 :price]` opens the
+  popup at `[:cart]`; clicking `:price` opens it at the full leaf path.
+
+  Hover styling — a dotted underline + pointer cursor — makes the
+  segments discoverable as click targets without screaming through the
+  diff body. The colour stays the same accent-violet that all path
+  text uses, so the inline path still scans as a single phrase when
+  the user isn't pointing at it."
   [section-path]
   (if (empty? section-path)
     [:span {:data-testid (str "rf-causa-diff-section-path-"
@@ -158,33 +164,40 @@
                   prefix     (vec (take (inc i) section-path))
                   on-click   (fn [^js e]
                                (.preventDefault e)
+                               (.stopPropagation e)
                                (rf/dispatch
-                                 [:rf.causa/copy-path-to-clipboard prefix]
+                                 [:rf.causa/open-segment-inspector prefix]
                                  {:frame :rf/causa}))]
               ^{:key i}
               [:span {:data-testid (str "rf-causa-diff-breadcrumb-segment-"
                                         (pr-str section-path) "-" i)
                       :on-click    on-click
-                      :title       (str "Copy path up to "
-                                        (pr-str prefix)
-                                        " (or Cmd-click)")
-                      :style       {:cursor      "pointer"
-                                    :color       (:accent-violet tokens)
-                                    :text-decoration "none"}}
+                      :title       (str "Inspect app-db at "
+                                        (pr-str prefix))
+                      :style       {:cursor          "pointer"
+                                    :color           (:accent-violet tokens)
+                                    :text-decoration "underline"
+                                    :text-decoration-style "dotted"
+                                    :text-underline-offset "2px"
+                                    :text-decoration-color (:border-default tokens)}}
                (pr-str seg)])))))
 
 (defn breadcrumb
   "Sticky path-header breadcrumb (per design §5.1) carrying the section
   path + the per-section affordance row (rf2-ykjl5):
 
-      [:cart :items]  ⟨Pin⟩ ⟨Show me when this changed⟩
+      [:cart :items]  ⟨Show me when this changed⟩
                       ⟨Copy path⟩ ⟨Copy value⟩
                                             ◴ 3 changes
 
-  Path segments are individually clickable — a plain click copies the
-  absolute path up to and including that segment (the design's Cmd-
-  click integration in §5.1; we make plain click suffice and also keep
-  Cmd-click compatible since the click handler always fires).
+  Path segments are individually clickable (rf2-e9tb0) — clicking any
+  segment opens the App-DB segment-inspector popup at the path-prefix
+  up to and including that segment. Discoverable via a dotted
+  underline + pointer cursor on hover.
+
+  The Pin affordance is dropped (rf2-e9tb0 — pinned-watches replaced
+  by on-demand segment inspection); the diff already identifies
+  changes surgically, so pinning paths up-front is redundant.
 
   The container is `position: sticky; top: 0` so it stays pinned as
   the user scrolls through a long section body. Per the design's
@@ -221,18 +234,14 @@
                        :color          (:text-primary tokens)
                        :font-weight    600}}
       (breadcrumb-segments section-path)
-      ;; Affordance row — Pin / Show-me-when / Copy path / Copy value.
+      ;; Affordance row — Show-me-when / Copy path / Copy value.
+      ;; Pin was dropped under rf2-e9tb0 when pinned-watches was
+      ;; superseded by the clickable-segment inspector popup.
       [:div {:data-testid (str "rf-causa-diff-section-affordances-"
                                (pr-str section-path))
              :style       {:display     "inline-flex"
                            :gap         "4px"
                            :align-items "center"}}
-       (header-button
-         {:testid   (str "rf-causa-diff-section-pin-" (pr-str section-path))
-          :label    "Pin"
-          :colour   (:cyan tokens)
-          :on-click #(rf/dispatch [:rf.causa/pin-slice path-vec]
-                                  {:frame :rf/causa})})
        (header-button
          {:testid   (str "rf-causa-diff-section-show-when-"
                          (pr-str section-path))

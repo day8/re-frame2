@@ -151,8 +151,11 @@
    :rf.causa/mode-c-selection
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
    :rf.causa/now-ms
-   :rf.causa/pinned-slices
-   :rf.causa/pinned-slices-store
+   ;; rf2-e9tb0 — App-DB segment-inspector popup subs.
+   :rf.causa/segment-inspector-open?
+   :rf.causa/segment-inspector-path
+   :rf.causa/segment-inspector-slot
+   :rf.causa/segment-inspector-value
    :rf.causa/palette-active-item
    :rf.causa/palette-cursor
    :rf.causa/palette-index
@@ -252,6 +255,8 @@
    :rf.causa/clear-selected-dispatch-id
    :rf.causa/clear-slice-focus
    :rf.causa/clear-trace-buffer
+   ;; rf2-e9tb0 — App-DB segment-inspector popup close event.
+   :rf.causa/close-segment-inspector
    :rf.causa/clear-trace-filters
    :rf.causa/close-edit-popup
    :rf.causa/close-shell
@@ -283,6 +288,8 @@
    :rf.causa/note-trace-event
    :rf.causa/open-edit-popup
    :rf.causa/open-in-editor
+   ;; rf2-e9tb0 — App-DB segment-inspector popup open event.
+   :rf.causa/open-segment-inspector
    :rf.causa/open-settings
    :rf.causa/open-share-url-in-new-tab
    :rf.causa/palette-close
@@ -293,13 +300,11 @@
    :rf.causa/palette-open
    :rf.causa/palette-set-query
    :rf.causa/palette-toggle
-   :rf.causa/pin-slice
    :rf.causa/preview-cascade
    ;; rf2-vbbq0 — L2 row relative-time chip ticker (writes `:rf.causa/
    ;; relative-time-now-ms` once per second so chips recompute coherently).
    :rf.causa/relative-time-tick
    :rf.causa/remove-filter
-   :rf.causa/reorder-pinned-slices
    ;; rf2-x8h9y — resize-handle double-click reset.
    :rf.causa/reset-panel-width
    :rf.causa/reset-suppressed-counters
@@ -368,7 +373,6 @@
    :rf.causa/toggle-live-pause
    :rf.causa/toggle-mode-c-cluster-expanded
    :rf.causa/toggle-mode-c-selection
-   :rf.causa/unpin-slice
    ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
    ;; panel events. See `tools/causa/spec/012-Views.md`.
    :rf.causa/views-collapse-all-rows
@@ -457,8 +461,12 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 102 (count all-sub-names)))
-    (is (= 116 (count all-event-names)))
+    ;; rf2-e9tb0 — net +2 subs (–2 pinned-slices, +4 segment-inspector)
+    ;; and –1 events (–3 pin/unpin/reorder, +2 open/close segment-
+    ;; inspector). Against the post-rf2-ttnst Settings expansion
+    ;; baseline (102 subs / 116 events) → 104 subs / 115 events.
+    (is (= 104 (count all-sub-names)))
+    (is (= 115 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -792,11 +800,17 @@
     (rf/with-frame :rf/causa
       (is (= [] @(rf/subscribe [:rf.causa/epoch-history]))))))
 
-(deftest sub-pinned-slices-store-defaults-empty
-  (testing ":rf.causa/pinned-slices-store defaults to {}"
+;; rf2-e9tb0 — :rf.causa/pinned-slices-store sub was dropped when the
+;; pinned-watches strip was superseded by the segment-inspector popup.
+
+(deftest sub-segment-inspector-defaults-closed
+  (testing "rf2-e9tb0 — :rf.causa/segment-inspector-open? defaults to
+            false on a fresh frame; :rf.causa/segment-inspector-path
+            defaults to nil"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= {} @(rf/subscribe [:rf.causa/pinned-slices-store]))))))
+      (is (false? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
+      (is (nil? @(rf/subscribe [:rf.causa/segment-inspector-path]))))))
 
 (deftest sub-issues-filters-default-disabled
   (testing ":rf.causa/issues-filters has empty axes on a fresh frame"
@@ -835,7 +849,9 @@
         (is (nil? (:selected-cascade data)))))))
 
 (deftest sub-app-db-diff-shape-on-empty-history
-  (testing ":rf.causa/app-db-diff returns history-empty? true with no epochs"
+  (testing ":rf.causa/app-db-diff returns history-empty? true with no epochs.
+            rf2-e9tb0 — :pinned-slices was dropped from the composite
+            (pinned-watches strip removed)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (let [data @(rf/subscribe [:rf.causa/app-db-diff])]
@@ -843,7 +859,7 @@
         (is (= :rf/default (:target-frame data)))
         (is (contains? data :changed-non-reserved))
         (is (contains? data :changed-reserved))
-        (is (= [] (:pinned-slices data)))
+        (is (not (contains? data :pinned-slices)))
         (is (nil? (:focused-path data)))
         (is (= [] (:focused-hits data)))))))
 
@@ -996,16 +1012,19 @@
       (rf/dispatch-sync [:rf.causa/views-set-component-filter nil])
       (is (nil? @(rf/subscribe [:rf.causa/views-component-filter]))))))
 
-(deftest event-pin-slice-and-unpin-slice
-  (testing ":rf.causa/pin-slice + unpin-slice update :pinned-slices-store"
+(deftest event-segment-inspector-open-and-close
+  (testing "rf2-e9tb0 — :rf.causa/open-segment-inspector writes the
+            requested path into Causa's frame; close drops it. The
+            popup is then visible / invisible via the open? sub."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/pin-slice [:users :count]])
-      (let [store @(rf/subscribe [:rf.causa/pinned-slices-store])]
-        (is (= [[:users :count]] (get store :rf/default))))
-      (rf/dispatch-sync [:rf.causa/unpin-slice [:users :count]])
-      (let [store @(rf/subscribe [:rf.causa/pinned-slices-store])]
-        (is (= [] (get store :rf/default [])))))))
+      (rf/dispatch-sync [:rf.causa/open-segment-inspector [:users :count]])
+      (is (true? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
+      (is (= [:users :count]
+             @(rf/subscribe [:rf.causa/segment-inspector-path])))
+      (rf/dispatch-sync [:rf.causa/close-segment-inspector])
+      (is (false? @(rf/subscribe [:rf.causa/segment-inspector-open?])))
+      (is (nil? @(rf/subscribe [:rf.causa/segment-inspector-path]))))))
 
 (deftest event-focus-slice-path-and-clear
   (testing ":rf.causa/focus-slice-path + clear-slice-focus round-trip"

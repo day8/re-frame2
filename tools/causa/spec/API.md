@@ -356,15 +356,12 @@ Corruption (schema fails) → Causa wipes the slot and writes the
 default shape, surfacing a one-time toast: "Settings were corrupted
 and have been reset to defaults."
 
-Per-frame-app-db pinned slices live under a separate key:
-`day8.re-frame2-causa/pinned-slices/<frame-id>/v1`.
-
-```clojure
-{:pinned-slices [{:path [:user :auth :status]
-                  :label "auth status"
-                  :pinned-at 1715518800000}
-                 ...]}
-```
+> **rf2-e9tb0 — pinned-slices localStorage slot deprecated.** The
+> per-frame-app-db pinned-slices key (`day8.re-frame2-causa/pinned-
+> slices/<frame-id>/v1`) is no longer written; the pinned-watches
+> strip was superseded by the App-DB Diff segment-inspector popup
+> (per `004-App-DB-Diff.md` §Clickable path segments). Legacy slots
+> are ignored on read — Causa never resurrects them.
 
 ## Trace-event tags Causa emits
 

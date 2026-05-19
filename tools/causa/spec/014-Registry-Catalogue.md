@@ -175,23 +175,29 @@ Slice-centric `app-db` inspector. Reads the host frame's `app-db` via
 | Sub | Returns |
 |---|---|
 | `:rf.causa/selected-epoch-diff` | Diff triples for the selected (or newest) epoch. Composite over history + selection. |
-| `:rf.causa/pinned-slices-store` | `{frame-id [path ...]}` — separate from time-travel's `:pin-store` (whole-epoch pins); this is per-frame slice-path pinning. |
-| `:rf.causa/pinned-slices` | Live-derefed pinned slices for the current target-frame: `[{:path <vec> :value <current>} ...]`. |
 | `:rf.causa/focused-slice-path` | The "Show me when this changed" focused path, or `nil`. |
 | `:rf.causa/show-me-when-this-changed-result` | Vector of epoch hit-maps for epochs touching the focused path. `[]` when no focus. |
-| `:rf.causa/app-db-diff` | Composite — `{:target-frame :history-empty? :changed-non-reserved :changed-reserved :pinned-slices :focused-path :focused-hits}`. The `[runtime]` group always renders current `:rf/*` slot contents per spec §Reserved-keys group. |
+| `:rf.causa/app-db-diff` | Composite — `{:target-frame :history-empty? :changed-non-reserved :changed-reserved :focused-path :focused-hits :redacted-modified-count}`. The `[runtime]` group always renders current `:rf/*` slot contents per spec §Reserved-keys group. |
+| `:rf.causa/segment-inspector-open?` | rf2-e9tb0 — true iff the segment-inspector popup is open. |
+| `:rf.causa/segment-inspector-path` | rf2-e9tb0 — the inspected path (vector), or `nil` when closed. |
+| `:rf.causa/segment-inspector-value` | rf2-e9tb0 — the current value at the inspected path against the target-frame db. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/pin-slice` | `[_ path]` | Pins a slice path. Duplicates are dropped at the helper layer. |
-| `:rf.causa/unpin-slice` | `[_ path]` | Unpins. |
-| `:rf.causa/reorder-pinned-slices` | `[_ new-order]` | Replaces pin order; the caller computes the permutation. |
 | `:rf.causa/focus-slice-path` | `[_ path]` | Sets the "Show me when this changed" focused path. |
 | `:rf.causa/clear-slice-focus` | `[_]` | Drops the focus. |
 | `:rf.causa/copy-value-to-clipboard` | `[_ value]` | `event-fx` — emits `{:fx [[:rf.causa.fx/copy-to-clipboard {:text (pr-str value)}]]}`. |
 | `:rf.causa/copy-path-to-clipboard` | `[_ path]` | `event-fx` — same shape, `pr-str path`. |
+| `:rf.causa/open-segment-inspector` | `[_ path]` | rf2-e9tb0 — opens the segment-inspector popup at `path` (vector). |
+| `:rf.causa/close-segment-inspector` | `[_]` | rf2-e9tb0 — closes the popup. |
+
+> **rf2-e9tb0 — pinned-slices removed.** The `:rf.causa/pin-slice`,
+> `:rf.causa/unpin-slice`, `:rf.causa/reorder-pinned-slices` events
+> and the `:rf.causa/pinned-slices-store` + `:rf.causa/pinned-slices`
+> subs were dropped when the pinned-watches strip was superseded by
+> the segment-inspector popup. Catalogued here for the audit trail.
 
 ### Effects
 
