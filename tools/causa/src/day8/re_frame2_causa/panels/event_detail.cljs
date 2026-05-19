@@ -4,7 +4,7 @@
 
   This panel replaces the v1 'six-domino' renderer with a focused
   Event lens shaped after Chrome DevTools: top-of-panel cascade-outcome
-  line + seven stacked sections that read top-to-bottom as the developer
+  line + eight stacked sections that read top-to-bottom as the developer
   scans:
 
       ▼ DISPATCH SITE         where the dispatch happened (source coord)
@@ -14,6 +14,7 @@
       ▼ HANDLER               where the handler is defined (source coord)
       ▼ EFFECTS RETURNED      the {:db ... :fx [...]} the handler returned
       ▼ EFFECTS HANDLERS RAN  per-fx-handler rows + managed-fx inline
+      ▼ FLOWS                 auto-fired flow recomputes (silent when none)
 
   All other v1 dominos (subs, renders, other / errors) move to their
   own tabs (Views / Issues). See `tools/causa/spec/018-Event-Spine.md`
@@ -62,7 +63,8 @@
     - install! (selection slot + composite sub + select/clear events)
     - cascade-list (no-event-selected empty state)
     - tier-dot (reused in cascade-outcome + per-fx duration)"
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as string]
+            [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
@@ -766,6 +768,240 @@
                   (fx-handler-row row (managed-fx-record-for-row records id))
                   {:key id})))))))
 
+;; ---- §8 FLOWS ----------------------------------------------------------
+;; rf2-lo37i — Flows fire automatically AFTER fx handlers run. Each flow's
+;; `:output` fn reads from `:inputs` paths and writes to a `:path`. Without
+;; first-class visibility here a developer cannot attribute an app-db
+;; change to the flow that caused it. Surfaced as a peer section sitting
+;; after §7 EFFECTS HANDLERS RAN — the cascade-order placement: flows are
+;; the framework's automatic step after the handler-effects complete.
+;;
+;; Per spec/013-Flows.md + spec/009-Instrumentation.md:
+;;   `:rf.flow/computed` (op-type `:flow`) carries `:flow-id`,
+;;   `:input-values`, `:result`, `:path`, `:frame` in `:tags`. Input
+;;   PATHS are not in the trace — they live on the flow registry entry
+;;   and are looked up via `(rf/handler-meta :flow id)` at render time.
+;;
+;; The before-value at the output path (the value the flow OVERWROTE)
+;; is not in the current trace; rf2-qlzh4 (open) adds a `:before` slot
+;; to `:rf.flow/computed` for full self-containment. Until then we
+;; render `(after-value)` only — better partial visibility than zero.
+
+(defn- flow-computed?
+  [ev]
+  (= :rf.flow/computed (:operation ev)))
+
+(defn- flow-skip?
+  [ev]
+  (= :rf.flow/skip (:operation ev)))
+
+(defn flows-fired
+  "Project the ordered seq of flow firings from a cascade's `:other`
+  bucket. Each row is the projection of one `:rf.flow/computed` trace
+  in cascade firing order (which is the framework's topo order — a
+  flow downstream of another flow's output ALWAYS fires after the
+  upstream flow).
+
+  Per-row shape:
+
+      {:flow-id      <keyword>      ;; the flow's :id
+       :write-path   <vec>          ;; the flow's :path (where it wrote)
+       :input-values <vec>          ;; raw values read from input paths
+       :result       <any>          ;; the new output value at :path
+       :frame        <kw-or-nil>    ;; the host frame
+       :trace-id     <int>}         ;; trace event :id (stable row key)
+
+  Pure data → data. Returns an empty vector when the cascade carries
+  no `:rf.flow/computed` events (silent-by-default — the section is
+  OMITTED entirely for the empty state)."
+  [{:keys [other]}]
+  (vec
+    (for [ev (filterv flow-computed? (or other []))]
+      (let [tags (:tags ev)]
+        {:flow-id      (:flow-id tags)
+         :write-path   (:path tags)
+         :input-values (:input-values tags)
+         :result       (:result tags)
+         :frame        (:frame tags)
+         :trace-id     (:id ev)}))))
+
+(defn flows-skipped
+  "Project the ordered seq of `:rf.flow/skip` firings (value-equal
+  dirty-check suppression per Spec 013 §Dirty-check semantics).
+
+  Skips are NOT rendered as flow rows — a flow that didn't recompute
+  didn't write app-db, so it's noise inside the cascade-detail. The
+  helper exists for tests + future surfaces (a future toggle could
+  expose them; for the silent-by-default rendering policy they stay
+  hidden)."
+  [{:keys [other]}]
+  (vec
+    (for [ev (filterv flow-skip? (or other []))]
+      (let [tags (:tags ev)]
+        {:flow-id  (:flow-id tags)
+         :reason   (:reason tags)
+         :frame    (:frame tags)
+         :trace-id (:id ev)}))))
+
+(defn flow-read-paths
+  "Look up the registered `:inputs` paths for a flow id. Reads
+  `(rf/handler-meta :flow flow-id)` so the read paths render even
+  though the per-firing `:rf.flow/computed` trace doesn't carry them.
+
+  Returns the input-paths vector (e.g. `[[:cart :items] [:tax :rate]]`)
+  or `nil` when the flow is no longer registered (e.g. cleared
+  mid-session via `:rf.fx/clear-flow`)."
+  [flow-id]
+  (when flow-id
+    (some-> (rf/handler-meta :flow flow-id) :inputs)))
+
+(defn flows-with-chain-marks
+  "Tag each flow row with `:via?` — true when ANY of its read paths
+  matches a preceding flow row's write path. Subtle indicator for
+  the chained-flow case (Mike's §13 design — '↳ via :upstream-flow').
+
+  Pure data → data. Walks rows left-to-right; the `:via?` decision
+  depends on every preceding row's `:write-path`, so the result is
+  order-sensitive — call AFTER `flows-fired` (which preserves
+  cascade order).
+
+  Returns a vector matching the input order, each row enriched with:
+
+    `:read-paths`  — input-paths vec (looked up from registry; nil
+                      when the flow is no longer registered)
+    `:via?`        — true iff at least one read-path overlaps with a
+                      preceding row's write-path
+    `:via-flow-ids` — vec of upstream flow-ids the chain rides on
+                      (empty when `:via?` is false). Stable order:
+                      first-write-wins per upstream path."
+  [rows]
+  (vec
+    (reduce
+      (fn [acc {:keys [flow-id] :as row}]
+        (let [read-paths   (flow-read-paths flow-id)
+              path->writer (into {} (map (juxt :write-path :flow-id) acc))
+              via-flows    (vec (distinct
+                                  (keep path->writer (or read-paths []))))]
+          (conj acc
+                (assoc row
+                       :read-paths   (vec read-paths)
+                       :via?         (boolean (seq via-flows))
+                       :via-flow-ids via-flows))))
+      []
+      (or rows []))))
+
+(defn- flow-row
+  "One row inside the §8 FLOWS section. Shape per design:
+
+      ▸ :flow-id              wrote [:write :path]   <result>
+                              read  [:in1] [:in2]
+      ↳ :chained-flow         wrote [:other :path]   <result>
+                              read  [:in :read :the-upstream :wrote]"
+  [{:keys [flow-id write-path result read-paths via? via-flow-ids trace-id]}]
+  (let [suffix (interceptor-testid-suffix flow-id)]
+    [:div {:data-testid (str "rf-causa-event-detail-flow-row-" suffix)
+           :data-via    (str via?)
+           :style {:padding     "4px 0"
+                   :padding-left (if via? "20px" "0")}}
+     ;; Header line: glyph + flow-id + via attribution
+     [:div {:style {:display     "flex"
+                    :align-items "center"
+                    :gap         "8px"
+                    :flex-wrap   "wrap"}}
+      [:span {:data-testid (str "rf-causa-event-detail-flow-row-glyph-" suffix)
+              :style {:color       (if via?
+                                     (:text-secondary tokens)
+                                     (:text-tertiary tokens))
+                      :font-weight 600
+                      :font-size   "12px"}}
+       (if via? "↳" "▸")]
+      [:span {:data-testid (str "rf-causa-event-detail-flow-row-id-" suffix)
+              :style {:color       (:accent-violet tokens)
+                      :font-weight 600
+                      :min-width   "160px"}}
+       (pr-str flow-id)]
+      (when via?
+        [:span {:data-testid (str "rf-causa-event-detail-flow-row-via-" suffix)
+                :style {:color       (:text-tertiary tokens)
+                        :font-family sans-stack
+                        :font-style  "italic"
+                        :font-size   "11px"}}
+         (str "via "
+              (string/join
+                ", "
+                (map pr-str via-flow-ids)))])]
+     ;; wrote line
+     [:div {:data-testid (str "rf-causa-event-detail-flow-row-wrote-" suffix)
+            :style {:display      "flex"
+                    :align-items  "flex-start"
+                    :padding      "2px 0 2px 24px"}}
+      [:span {:style {:color       (:text-tertiary tokens)
+                      :margin-right "10px"
+                      :min-width   "48px"
+                      :font-family sans-stack
+                      :font-size   "11px"}}
+       "wrote"]
+      [:span {:data-testid (str "rf-causa-event-detail-flow-row-write-path-" suffix)
+              :style {:color       (:cyan tokens)
+                      :margin-right "12px"}}
+       (pr-str write-path)]
+      [:span {:style {:color    (:text-primary tokens)
+                      :min-width 0
+                      :flex     1}}
+       (inspector/inspect result
+                          (str "event-detail/flow/"
+                               (or trace-id "x")
+                               "/result"))]]
+     ;; read line — placeholder when registry lookup failed (flow cleared)
+     [:div {:data-testid (str "rf-causa-event-detail-flow-row-read-" suffix)
+            :style {:display     "flex"
+                    :align-items "flex-start"
+                    :padding     "2px 0 2px 24px"}}
+      [:span {:style {:color       (:text-tertiary tokens)
+                      :margin-right "10px"
+                      :min-width   "48px"
+                      :font-family sans-stack
+                      :font-size   "11px"}}
+       "read"]
+      (if (seq read-paths)
+        (into [:span {:style {:color (:text-secondary tokens)
+                              :flex 1
+                              :word-break "break-word"}}]
+              (for [p read-paths]
+                [:span {:style {:color (:cyan tokens)
+                                :margin-right "8px"}}
+                 (pr-str p)]))
+        [:span {:data-testid (str "rf-causa-event-detail-flow-row-read-absent-" suffix)
+                :style {:color       (:text-tertiary tokens)
+                        :font-style  "italic"
+                        :font-size   "11px"}}
+         "input paths unavailable (flow may have been cleared)"])]]))
+
+(defn- flows-section
+  "§8 FLOWS — peer section between §7 EFFECTS HANDLERS RAN and any
+  future RETURNED-VALUE / handler-return section. Renders one row per
+  `:rf.flow/computed` trace in cascade firing order. Chained flows
+  (a downstream flow that reads from an upstream flow's write path)
+  carry the `↳ via :upstream` indicator.
+
+  Silent-by-default per Mike's policy (rf2-yn86j wave + bead): when
+  the cascade carries NO flow firings the section is ABSENT entirely.
+  A no-op cascade should not produce a 'FLOWS — none fired' row."
+  [cascade]
+  (let [rows (flows-with-chain-marks (flows-fired cascade))]
+    (when (seq rows)
+      (section/section-row
+        {:label "FLOWS"
+         :count* (count rows)
+         :testid "rf-causa-event-detail-section-flows"}
+        (into [:div]
+              (for [{:keys [trace-id flow-id] :as row} rows]
+                (with-meta
+                  (flow-row row)
+                  ;; Trace-id is the stable per-firing key. Fall back to
+                  ;; flow-id when the trace lacks an :id (older fixtures).
+                  {:key (or trace-id flow-id)})))))))
+
 ;; ---- handler-threw footnote --------------------------------------------
 
 (defn- handler-threw-footer
@@ -786,10 +1022,13 @@
 ;; ---- the lens (replaces v1 cascade-detail) -----------------------------
 
 (defn- event-lens
-  "Render the 7-section Event lens for a cascade. Replaces the v1
+  "Render the 8-section Event lens for a cascade. Replaces the v1
   `cascade-detail` six-domino renderer per rf2-zh2qc; COEFFECTS slot
   added in rf2-jhhqt + section order corrected to honour Mike's Q1
-  answer (DISPATCH SITE first, then EVENT).
+  answer (DISPATCH SITE first, then EVENT); FLOWS slot added in
+  rf2-lo37i — peer section after EFFECTS HANDLERS RAN that surfaces
+  the framework's automatic-after-fx flow firings (Spec 013 cascade
+  step 4 — previously invisible to Causa).
 
   Order (top → bottom):
     §1 DISPATCH SITE         where the dispatch happened (source coord)
@@ -798,7 +1037,8 @@
     §4 INTERCEPTORS          non-standard chain (silent when zero)
     §5 HANDLER               where the handler is defined (source coord)
     §6 EFFECTS RETURNED      {:db ... :fx [...]} the handler returned
-    §7 EFFECTS HANDLERS RAN  per-fx-handler rows + managed-fx inline"
+    §7 EFFECTS HANDLERS RAN  per-fx-handler rows + managed-fx inline
+    §8 FLOWS                 auto-fired flow recomputes in cascade order"
   [{:keys [dispatch-id frame event] :as cascade}]
   (let [event-id   (when (vector? event) (first event))
         meta       (when event-id (rf/handler-meta :event event-id))
@@ -817,6 +1057,8 @@
        (effects-returned-section cascade))
      (when-not threw?
        (effects-handlers-ran-section cascade))
+     (when-not threw?
+       (flows-section cascade))
      (when threw?
        (handler-threw-footer))]))
 

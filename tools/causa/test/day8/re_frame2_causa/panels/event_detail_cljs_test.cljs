@@ -535,6 +535,306 @@
         (is (some? inline)
             "managed-fx record-panel mounts inline beneath fx-handler row")))))
 
+;; ---- (8.4) FLOWS section — rf2-lo37i ----------------------------------
+
+(defn- flow-computed-ev
+  "Build one `:rf.flow/computed` trace event ready to seed into the
+  cascade's `:other` bucket. Matches the per-firing trace shape
+  Spec 009 §Flow trace events documents (and the JVM
+  flows_trace_test.clj canon)."
+  [dispatch-id id-base flow-id {:keys [write-path input-values result frame]
+                                 :or   {frame :rf/default}}]
+  {:id        id-base
+   :op-type   :flow
+   :operation :rf.flow/computed
+   :tags      {:dispatch-id  dispatch-id
+               :flow-id      flow-id
+               :path         write-path
+               :input-values input-values
+               :result       result
+               :frame        frame}})
+
+(deftest flows-section-absent-when-no-flows-fired
+  (testing "rf2-lo37i — silent-by-default: a cascade with zero
+            `:rf.flow/computed` traces in `:other` renders NO FLOWS
+            section (the section is OMITTED entirely, not '(none)')"
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-flows"))
+            "FLOWS section absent when no flows fired")))))
+
+(deftest flows-section-renders-one-row-per-rf-flow-computed
+  (testing "rf2-lo37i — each `:rf.flow/computed` trace in `:other`
+            renders as one flow row with the id + write-path + after-
+            value (result)"
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :cart-total
+                    :inputs [[:cart :items]]
+                    :output (fn [_] 0)
+                    :path   [:cart :total]}))
+    (seed-buffer!
+      (concat (cascade-evs 100 [:cart/add-item] 0)
+              [(flow-computed-ev 100 50 :cart-total
+                                  {:write-path  [:cart :total]
+                                   :input-values [[:apple :banana]]
+                                   :result      52.5})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree "rf-causa-event-detail-section-flows"))
+            "FLOWS section present")
+        (is (some? (find-by-testid tree "rf-causa-event-detail-flow-row-cart-total"))
+            "per-flow row renders for :cart-total")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-flow-row-id-cart-total"))
+            "flow-id chip present in row")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-flow-row-write-path-cart-total"))
+            "write-path renders")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-flow-row-wrote-cart-total"))
+            "'wrote' line renders")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-flow-row-read-cart-total"))
+            "'read' line renders")))))
+
+(deftest flows-section-renders-input-paths-from-registry
+  (testing "rf2-lo37i — `:rf.flow/computed` does not carry input PATHS
+            (only :input-values). The render-time lookup via
+            `(rf/handler-meta :flow id)` recovers the paths from the
+            registered flow"
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :tax-due
+                    :inputs [[:cart :total] [:tax :rate]]
+                    :output (fn [t r] (* t r))
+                    :path   [:tax :due]}))
+    (seed-buffer!
+      (concat (cascade-evs 100 [:cart/add-item] 0)
+              [(flow-computed-ev 100 50 :tax-due
+                                  {:write-path  [:tax :due]
+                                   :input-values [50.0 0.105]
+                                   :result      5.25})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            read-row (find-by-testid tree
+                                      "rf-causa-event-detail-flow-row-read-tax-due")
+            text (->> (hiccup-seq read-row) (filter string?) (apply str))]
+        (is (some? read-row) "'read' line renders")
+        (is (re-find #":cart :total" text)
+            "first input path rendered")
+        (is (re-find #":tax :rate" text)
+            "second input path rendered")
+        (is (nil? (find-by-testid tree
+                                   "rf-causa-event-detail-flow-row-read-absent-tax-due"))
+            "no 'absent' placeholder when registry resolves the paths")))))
+
+(deftest flows-section-read-line-shows-placeholder-when-flow-cleared
+  (testing "rf2-lo37i — when a flow id appears in trace but the
+            registry no longer carries it (cleared mid-session) the
+            'read' line renders the absent-placeholder"
+    (seed-buffer!
+      (concat (cascade-evs 100 [:cart/add-item] 0)
+              [(flow-computed-ev 100 50 :gone-flow
+                                  {:write-path  [:cart :total]
+                                   :input-values [1 2]
+                                   :result      3})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-flow-row-read-absent-gone-flow"))
+            "absent placeholder renders when registry lookup fails")))))
+
+(deftest flows-section-renders-chained-via-marker-when-downstream-of-prior-flow
+  (testing "rf2-lo37i — when a flow reads a path that an EARLIER flow
+            in the same cascade wrote, the downstream row carries the
+            `↳ via :upstream` marker"
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :cart-total
+                    :inputs [[:cart :items]]
+                    :output (fn [_] 0)
+                    :path   [:cart :total]})
+      (rf/reg-flow {:id     :tax-due
+                    :inputs [[:cart :total]]
+                    :output (fn [t] t)
+                    :path   [:tax :due]}))
+    (seed-buffer!
+      (concat (cascade-evs 100 [:cart/add-item] 0)
+              [(flow-computed-ev 100 50 :cart-total
+                                  {:write-path  [:cart :total]
+                                   :input-values [[:apple]]
+                                   :result      52.5})
+               (flow-computed-ev 100 51 :tax-due
+                                  {:write-path  [:tax :due]
+                                   :input-values [52.5]
+                                   :result      5.25})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            up    (find-by-testid tree "rf-causa-event-detail-flow-row-cart-total")
+            down  (find-by-testid tree "rf-causa-event-detail-flow-row-tax-due")
+            via   (find-by-testid tree
+                                   "rf-causa-event-detail-flow-row-via-tax-due")]
+        (is (some? up)   "upstream :cart-total row present")
+        (is (some? down) "downstream :tax-due row present")
+        (is (some? via)  "↳ via marker renders on downstream row")
+        (is (nil? (find-by-testid tree
+                                   "rf-causa-event-detail-flow-row-via-cart-total"))
+            "upstream row does NOT carry a via marker (no preceding writer)")))))
+
+(deftest flows-section-rows-preserve-cascade-firing-order
+  (testing "rf2-lo37i — rows render in cascade firing order (topo-sorted
+            by the framework). Asserting on the document-order of
+            row testids is the contract."
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :a-flow
+                    :inputs [[:in]]
+                    :output identity :path [:a]})
+      (rf/reg-flow {:id     :b-flow
+                    :inputs [[:a]]
+                    :output identity :path [:b]})
+      (rf/reg-flow {:id     :c-flow
+                    :inputs [[:b]]
+                    :output identity :path [:c]}))
+    (seed-buffer!
+      (concat (cascade-evs 100 [:trigger] 0)
+              [(flow-computed-ev 100 50 :a-flow
+                                  {:write-path [:a] :input-values [1] :result 1})
+               (flow-computed-ev 100 51 :b-flow
+                                  {:write-path [:b] :input-values [1] :result 1})
+               (flow-computed-ev 100 52 :c-flow
+                                  {:write-path [:c] :input-values [1] :result 1})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)
+            row-tids (->> (hiccup-seq tree)
+                          (keep (fn [n]
+                                  (when (and (vector? n) (map? (second n)))
+                                    (let [tid (str (or (:data-testid (second n)) ""))]
+                                      (when (and (str/starts-with?
+                                                   tid "rf-causa-event-detail-flow-row-")
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-id-"))
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-wrote-"))
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-read-"))
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-write-path-"))
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-glyph-"))
+                                                  (not (str/starts-with?
+                                                         tid "rf-causa-event-detail-flow-row-via-")))
+                                        tid)))))
+                          (distinct)
+                          (vec))]
+        (is (= ["rf-causa-event-detail-flow-row-a-flow"
+                "rf-causa-event-detail-flow-row-b-flow"
+                "rf-causa-event-detail-flow-row-c-flow"]
+               row-tids)
+            "flow rows appear in cascade firing order")))))
+
+(deftest flows-section-sits-between-effects-handlers-ran-and-handler-threw-footer
+  (testing "rf2-lo37i — FLOWS is a peer section that sits AFTER §7
+            EFFECTS HANDLERS RAN. Asserts section order via the
+            section-root testids walker"
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :a-flow
+                    :inputs [[:in]] :output identity :path [:a]}))
+    (seed-buffer!
+      (concat (cascade-evs 100 [:trigger] 0)
+              [(flow-computed-ev 100 50 :a-flow
+                                  {:write-path [:a] :input-values [1] :result 1})]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree   (event-detail/Panel)
+            tids   (->> (hiccup-seq tree)
+                        (keep (fn [n]
+                                (when (and (vector? n) (map? (second n)))
+                                  (let [tid (str (or (:data-testid (second n)) ""))]
+                                    (when (#{"rf-causa-event-detail-section-effects-ran"
+                                             "rf-causa-event-detail-section-flows"}
+                                            tid)
+                                      tid)))))
+                        (distinct)
+                        (vec))]
+        (is (= ["rf-causa-event-detail-section-effects-ran"
+                "rf-causa-event-detail-section-flows"]
+               tids)
+            "FLOWS appears AFTER EFFECTS HANDLERS RAN in document order")))))
+
+(deftest flows-section-absent-when-handler-threw
+  (testing "rf2-lo37i — when the handler threw, the effects walk never
+            ran, so flows never fired. The FLOWS section should be
+            absent (mirrors §6 + §7 suppression)"
+    (seed-buffer!
+      (concat (cascade-evs 100 [:checkout/submit] 0
+                            {:fx nil :db-present? false})
+              [{:id 50 :op-type :error :operation :rf.error/handler-exception
+                :tags {:dispatch-id 100 :event-id :checkout/submit
+                       :exception-message "NullPointerException"}}]))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree (event-detail/Panel)]
+        (is (nil? (find-by-testid tree "rf-causa-event-detail-section-flows"))
+            "FLOWS section absent when handler threw")))))
+
+(deftest flows-fired-helper-projects-rows-from-other-bucket
+  (testing "rf2-lo37i — `flows-fired` reads `:rf.flow/computed` traces
+            off the cascade's `:other` bucket and returns one row per
+            firing, preserving event-list order"
+    (let [cascade {:other [{:id 1 :op-type :flow :operation :rf.flow/computed
+                            :tags {:flow-id :a :path [:a] :input-values [1]
+                                   :result 1 :frame :rf/default}}
+                           {:id 2 :op-type :flow :operation :rf.flow/skip
+                            :tags {:flow-id :b :reason :inputs-value-equal}}
+                           {:id 3 :op-type :flow :operation :rf.flow/computed
+                            :tags {:flow-id :c :path [:c] :input-values [2]
+                                   :result 4 :frame :rf/default}}
+                           ;; Unrelated noise the projection must ignore:
+                           {:id 4 :op-type :error :operation :rf.error/handler-exception
+                            :tags {}}]}
+          rows    (event-detail/flows-fired cascade)]
+      (is (= 2 (count rows)) "skip traces are NOT projected as rows")
+      (is (= [:a :c] (mapv :flow-id rows)) "order preserved")
+      (is (= [[:a] [:c]] (mapv :write-path rows)))
+      (is (= [1 4] (mapv :result rows))))))
+
+(deftest flows-skipped-helper-projects-skips-from-other-bucket
+  (testing "rf2-lo37i — `flows-skipped` reads `:rf.flow/skip` traces;
+            useful for tests + future surfaces"
+    (let [cascade {:other [{:id 1 :op-type :flow :operation :rf.flow/skip
+                            :tags {:flow-id :b :reason :inputs-value-equal}}
+                           {:id 2 :op-type :flow :operation :rf.flow/computed
+                            :tags {:flow-id :a :path [:a] :input-values [1]
+                                   :result 1}}]}
+          rows    (event-detail/flows-skipped cascade)]
+      (is (= [:b] (mapv :flow-id rows)) "only skip rows projected")
+      (is (= [:inputs-value-equal] (mapv :reason rows))))))
+
+(deftest flows-with-chain-marks-flags-via-when-input-overlaps-prior-write
+  (testing "rf2-lo37i — `flows-with-chain-marks` is pure data → data.
+            Flows whose input paths intersect a PRECEDING row's write
+            path get :via? true + :via-flow-ids populated"
+    (rf/with-frame :rf/default
+      (rf/reg-flow {:id     :upstream
+                    :inputs [[:in]] :output identity :path [:upstream-out]})
+      (rf/reg-flow {:id     :downstream
+                    :inputs [[:upstream-out]] :output identity :path [:final]}))
+    (let [rows [{:flow-id :upstream   :write-path [:upstream-out]}
+                {:flow-id :downstream :write-path [:final]}]
+          enriched (event-detail/flows-with-chain-marks rows)]
+      (is (false? (:via? (first enriched)))
+          "first row never marked :via? (no preceding rows)")
+      (is (true? (:via? (second enriched)))
+          "second row marked :via? — its [:upstream-out] read matches
+           the first row's write-path")
+      (is (= [:upstream] (:via-flow-ids (second enriched)))
+          ":via-flow-ids names the upstream flow"))))
+
 ;; ---- (8.5) COEFFECTS section — silent-by-default + rendering -----------
 
 (deftest coeffects-section-absent-when-zero-user-coeffects
