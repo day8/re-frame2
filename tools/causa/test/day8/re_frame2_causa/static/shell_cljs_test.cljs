@@ -293,8 +293,9 @@
   "Static tab ids that have a real panel installed — the placeholder
   card for these tabs is no longer rendered. Sibling beads tick one
   off each time they land."
-  ;; rf2-o5f5f.3 — :routes now mounts the Static Routes panel.
-  #{:routes})
+  ;; rf2-o5f5f.2 — :machines mounts the Static Machines panel.
+  ;; rf2-o5f5f.3 — :routes   mounts the Static Routes panel.
+  #{:machines :routes})
 
 (deftest static-placeholder-cards-name-sibling-bead
   (testing "each placeholder card surfaces its sibling-bead id
@@ -314,6 +315,18 @@
               (str "card text names a sibling bead id (got: " text ")"))
           (is (re-find #"will fill this" text)
               "card mentions 'will fill this'"))))))
+
+(deftest static-machines-mounts-live-panel-not-placeholder
+  (testing "rf2-o5f5f.2 — the :machines sub-tab mounts the live Static
+            Machines panel (replaces the placeholder card)"
+    (causa-setup!)
+    (rf/with-frame :rf/causa
+      (frame-dispatch [:rf.causa.static/select-tab :machines])
+      (let [tree (static-shell/surface)]
+        (is (some? (find-by-testid tree "rf-causa-static-machines-panel"))
+            "live Machines panel mounts")
+        (is (nil? (find-by-testid tree "rf-causa-static-placeholder-machines"))
+            "placeholder card no longer renders for :machines")))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) Static tab routing — selection + isolation

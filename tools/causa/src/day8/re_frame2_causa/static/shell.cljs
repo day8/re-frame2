@@ -84,6 +84,7 @@
     - rf2-o5f5f.5 — Views registry browse (Fiber-walker consumer)
     - rf2-o5f5f.6 — Events registry browse + interceptor stack"
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.static.machines.panel :as static-machines]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
             [day8.re-frame2-causa.static.routes.panel :as routes-panel]
             [day8.re-frame2-causa.theme.tokens
@@ -321,8 +322,15 @@
 
 (rf/reg-view detail-panel
   "L4 detail panel — case-switch on `:rf.causa.static/selected-tab`.
-  Phase 1 (this bead) renders placeholder cards; the sibling beads
-  replace each placeholder with real catalogue content.
+  Phase 1 (rf2-o5f5f.1) landed placeholder cards for every tab; sibling
+  beads (.2 / .3 / .4 / .5 / .6) progressively replace each placeholder
+  with real catalogue content.
+
+  Live mounts:
+    :machines → `static.machines.panel/panel` (rf2-o5f5f.2)
+
+  Placeholder still-pending (the sibling-bead card):
+    :routes :schemas :views :events
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -337,9 +345,9 @@
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
      (cond
-       ;; rf2-o5f5f.3 — Static Routes panel replaces the placeholder.
-       ;; Sibling rf2-o5f5f.2 (Machines) will replace the :machines
-       ;; branch in parallel; trivial 5-line rebase if both land.
+       (= selected :machines)
+       [static-machines/panel]
+
        (= selected :routes)
        [routes-panel/Panel]
 

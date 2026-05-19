@@ -209,6 +209,16 @@
    ;; rf2-o5f5f.1 — Runtime ↔ Static mode slot + Static-scoped tab.
    :rf.causa/mode
    :rf.causa.static/selected-tab
+   ;; rf2-o5f5f.2 — Static Machines sub-tab subs (browse-all + per-
+   ;; machine sub-mode). Composite + raw slots feeding the L4 master-
+   ;; detail surface.
+   :rf.causa.static.machines/data
+   :rf.causa.static.machines/rows
+   :rf.causa.static.machines/search
+   :rf.causa.static.machines/selected-id
+   :rf.causa.static.machines/sort-key
+   :rf.causa.static.machines/sub-mode
+   :rf.causa.static.machines/sub-mode-by-id
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.causa/panel-width-px
    ;; rf2-vbbq0 — L2 row relative-time chip clock (1s ticker writes here).
@@ -372,6 +382,19 @@
    :rf.causa/set-mode
    :rf.causa/toggle-mode
    :rf.causa.static/select-tab
+   ;; rf2-o5f5f.2 — Static Machines sub-tab events. Selection +
+   ;; search + sort + sub-mode + hydrate (post-localStorage restore) +
+   ;; two no-op slots (state-clicked + open-chart-popout) reserved so
+   ;; click affordances land on a known handler rather than emitting
+   ;; `:rf.warning/no-handler`.
+   :rf.causa.static.machines/clear-search
+   :rf.causa.static.machines/cycle-sort
+   :rf.causa.static.machines/hydrate
+   :rf.causa.static.machines/open-chart-popout
+   :rf.causa.static.machines/select
+   :rf.causa.static.machines/set-search
+   :rf.causa.static.machines/set-sub-mode
+   :rf.causa.static.machines/state-clicked
    ;; rf2-a1z3b — focus-navigation primitive write event.
    :rf.causa/set-focus
    :rf.causa/set-frame
@@ -473,6 +496,14 @@
    ;; handlers; writes the post-mutation mode to localStorage in one
    ;; place (mirrors the filter-persistence shape above).
    :rf.causa.static/persist-mode
+   ;; rf2-o5f5f.2 — Static Machines sub-tab persistence side-effects.
+   ;; Bound to the `:rf.causa.static.machines/select` +
+   ;; `:rf.causa.static.machines/set-sub-mode` handlers; mirrors the
+   ;; mode-persist shape above (one fx per slot so future surfaces
+   ;; can compose against them without re-implementing the LS round-
+   ;; trip).
+   :rf.causa.static.machines/persist-selection
+   :rf.causa.static.machines/persist-sub-mode
    ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Lives under
    ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.causa.fx/*`
    ;; because the rf2-cm93v allowlist seam is editor-related, not
