@@ -57,6 +57,19 @@
 
 ;; ---- guards + actions lists --------------------------------------------
 
+(defn- safe-name
+  "Render `x` to a string suitable for `data-testid` suffixes. Belt-and-
+  braces over the projection layer's `ref-display-id` (which normalises
+  guard/action refs into keywords). If a future trace shape pipes a fn
+  through unprojected the view still won't blow up — `cljs.core/name`
+  on a fn throws `Doesn't support name: function ...` (rf2-ujra6)."
+  [x]
+  (cond
+    (nil? x)                          ""
+    (or (keyword? x) (symbol? x))     (name x)
+    (string? x)                       x
+    :else                             (str x)))
+
 (defn- guards-list
   "Render the per-transition Guards section. Empty list = no surface
   (silent-by-default per rf2-g3ghh)."
@@ -82,7 +95,7 @@
            (for [{:keys [guard-id input outcome]} guards]
              ^{:key (str guard-id)}
              [:li {:data-testid (str "rf-causa-machine-focused-event-guard-"
-                                     (when guard-id (name guard-id)))
+                                     (safe-name guard-id))
                    :style {:display "flex"
                            :align-items "center"
                            :gap "8px"
@@ -122,7 +135,7 @@
            (for [{:keys [action-id input outcome]} actions]
              ^{:key (str action-id)}
              [:li {:data-testid (str "rf-causa-machine-focused-event-action-"
-                                     (when action-id (name action-id)))
+                                     (safe-name action-id))
                    :style {:display "flex"
                            :align-items "center"
                            :gap "8px"
