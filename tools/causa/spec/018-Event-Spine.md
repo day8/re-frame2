@@ -73,6 +73,99 @@ Layers are stacked top-to-bottom; only L2/L3 has a user-draggable resize handle.
 
 ---
 
+## §2.5 Static surface (3-layer chrome)
+
+Causa exposes **two modes** per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — the **Runtime** surface specified in §2 above (event-coupled spine + 4-layer chrome) and a peer **Static** surface (event-INDEPENDENT registry browse + 3-layer chrome). This section owns the Static architectural contract; visual-language details (mode pill widget chrome, edge stripe colour tokens, motion dampening durations) live in [`007-UX-IA.md`](007-UX-IA.md) §Static mode.
+
+### 3-layer silhouette
+
+Runtime is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail panel). **Static drops L2 — there is no spine in Static mode because Static is event-INDEPENDENT** — and renders 3 layers:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ LAYER 1  Top ribbon (56px) — mode pill + right icons                    │   scope controls
+├─────────────────────────────────────────────────────────────────────────┤
+│ LAYER 3  Tab bar (40px) — 5 tabs                                        │   projection selector
+├─────────────────────────────────────────────────────────────────────────┤
+│ LAYER 4  Detail panel (fills remaining canvas)                          │   per-tab content
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+L2's absence is itself a functional signal — see §The 4 mode signals below. The L1 ribbon retains the mode pill (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Runtime ribbon's nav cluster, frame picker, and filter pills are HIDDEN because Static is event-independent — those clusters have no meaning here.
+
+### The 4 mode signals (chrome silhouette + 3 reinforcing)
+
+The user reads "Static" at a glance via **four stacked signals**; together they telegraph the mode without the user needing to look at any one widget. Lock #14 commits to all four, on the principle that mode confusion is the failure mode to defend against.
+
+| # | Signal | Runtime | Static |
+|---|---|---|---|
+| 1 | **Mode pill** at ribbon-left — two-segment radio (`[● Runtime] [○ Static]`), 160px total, accent-violet active segment, 200ms cross-fade. Lives in BOTH modes (it's the toggle, not the indicator). | `[● Runtime] [○ Static]` | `[○ Runtime] [● Static]` |
+| 2 | **2-px left-edge ribbon stripe.** | `:accent-violet` | `:cyan` (existing palette token — zero new tokens) |
+| 3 | **Motion dampening.** | LIVE pulse + machine-active pulse + 180ms tab fade | All continuous pulses dropped; tab fade collapses to 0ms instant. Honours `prefers-reduced-motion: reduce` via `--rf-causa-motion-scale`. |
+| 4 | **Chrome silhouette.** | 4-layer (L1 · L2 · L3 · L4) | 3-layer (L1 · L3 · L4 — no spine) |
+
+The pill is wired to the same handler the `Cmd-Shift-M` / `Ctrl+Shift+M` global chord (per §11 Keyboard map) fires — chord and pill share the toggle.
+
+### Mode-state lifecycle slots
+
+Two app-db slots on the `:rf/causa` frame carry the mode user-state:
+
+| Slot | Type | Default | Notes |
+|---|---|---|---|
+| `:rf.causa/mode` | `:runtime` \| `:static` | `:runtime` | Active mode. Drives the surface composer in `shell.cljs`. |
+| `:rf.causa.static/selected-tab` | `:machines` \| `:routes` \| `:schemas` \| `:views` \| `:events` | `:machines` | Static-scoped tab choice. **Separate from the Runtime `:rf.causa/active-tab` slot** so flipping modes preserves both choices. |
+
+Three event handlers drive the lifecycle:
+
+- **`:rf.causa/set-mode`** `(fn [{:keys [db]} [_ mode]] …)` — writes a specific mode. Used by the mode-pill segment-click path, hydration after localStorage read, and test fixtures.
+- **`:rf.causa/toggle-mode`** `(fn [{:keys [db]} _] …)` — flips between modes. Used by the `Cmd-Shift-M` chord (see `keybinding.cljs`) and as the canonical mode-flip path.
+- **`:rf.causa.static/select-tab`** `(fn [{:keys [db]} [_ tab-id]] …)` — flips the Static-scoped tab. Unknown values are rejected (validated against the registered Static tab inventory).
+
+`set-mode` and `toggle-mode` attach the `:rf.causa.static/persist-mode` fx so every mutation round-trips through localStorage in one place.
+
+### localStorage persistence — `causa.mode`
+
+The user's mode choice survives reloads via localStorage under the canonical key **`causa.mode`** (a bare string — `"runtime"` or `"static"`). A bare string keeps the slot cheap to read + cheap to inspect from browser devtools; modes are an enum, not a structured value. Unknown / malformed values normalise back to `:runtime` (the conservative default — the existing chrome).
+
+The namespace prefix is `causa.mode` (not `re-frame2.causa.mode.v1`) deliberately — it mirrors the spec-published name from the rf2-o5f5f findings doc, is short, and reads naturally in browser devtools. The filter-persistence slot uses the longer versioned form because its shape may evolve; the mode slot is a fixed enum, so versioning would be overkill.
+
+Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) ride their own localStorage keys under the `causa.static.*` prefix — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface.
+
+### Feature flag — `:experimental/static-mode?`
+
+Static is gated behind the `:experimental/static-mode?` config flag (per [`015-Configuration.md`](015-Configuration.md)), **default `false`**. Hosts opt in via:
+
+```clojure
+(causa-config/configure! {:experimental/static-mode? true})
+```
+
+before the Causa preload runs.
+
+| Flag state | Mode pill | `Cmd-Shift-M` chord | Surface composer |
+|---|---|---|---|
+| OFF (default) | absent | falls through to host / browser | ALWAYS renders Runtime — byte-identical to the pre-Static chrome |
+| ON | mounts at ribbon-left | dispatches `:rf.causa/toggle-mode` against `:rf/causa` | composer switches on `:rf.causa/mode` |
+
+**Flip-to-default-on criterion.** The flag flips to default-on once sibling beads rf2-o5f5f.2 … .6 fill the placeholder Static sub-tabs (a separate decision; the v1.0 Static surface is the Machines tab + Routes tab landing — the other three remain placeholders until their re-host beads ship).
+
+### Mnemonic mode-scoping rule
+
+The 5-letter Static sub-tab mnemonics (`m` Machines · `r` Routes · `c` Schemas · `v` Views · `e` Events per [`007-UX-IA.md`](007-UX-IA.md) §Static mode) are **mode-scoped**: the same letter dispatches the active mode's tab, not a globally-fixed target. `m` in Runtime opens the Machines instance-inspector (per §5); `m` in Static opens the Machines registry browse (per [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface). The keybinding wiring rides the same chord-detection ns (`keybinding.cljs`) but routes through a mode-aware dispatcher.
+
+The mode-scoping rule is what lets the mnemonic vocabulary stay small (single letters) without colliding across modes — switching modes flips both the chrome AND the meaning of the letter keys, and the user reads which is active from the 4 stacked mode signals above.
+
+### Frame isolation
+
+Same discipline as the Runtime chrome (per §8 Frame-observation isolation invariants). The Static surface composer inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame :rf/causa}]`; every subscribe + dispatch inside the surface resolves to `:rf/causa`. Each subscribing region is `reg-view`-registered so its rendered component carries `:contextType frame-context` (rf2-in6l2 + Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
+
+### See also
+
+- [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Runtime + Static).
+- [`007-UX-IA.md`](007-UX-IA.md) §Static mode — visual-language details (mode pill widget chrome, edge stripe colour tokens, motion dampening durations, sub-tab mnemonics, design language).
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface — concrete Static Machines surface description (4-mode sub-strip · Topology · Sim placeholder · Instances JUMP · Cascade dimmed).
+
+---
+
 ## §3 Top ribbon anatomy (Layer 1)
 
 Five clusters, fixed order left to right:
@@ -1162,7 +1255,7 @@ Complete map for the spine + chrome:
 | **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest. (The dedicated Mode pill widget was dropped — the L2 spine itself indicates LIVE / LIVE-paused / RETRO; only the widget is gone.) |
-| **Surface toggle** | `Cmd-Shift-M` / `Ctrl+Shift+M` toggle between **Runtime** and **Static** surfaces (rf2-r4nao — Static surface lands when the re-host effort lands; the chord is reserved). |
+| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Runtime** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Gated on the `:experimental/static-mode?` config flag — when OFF the chord falls through to the host / browser; when ON it dispatches `:rf.causa/toggle-mode` against the `:rf/causa` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
 | **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `Esc` close modal / return to canvas |
 
 ### Retired keys (from pre-rewrite spec)
@@ -1361,8 +1454,9 @@ not Causa.
 
 ## §14 Cross-references
 
+- [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — Lock #14 (Two modes — Runtime + Static) is the direction-setting decision behind §2.5 Static surface above.
 - [`000-Vision.md`](000-Vision.md) — 7-tab inventory; philosophy shift to human-only surface.
-- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Runtime Machines panel (rf2-y9xmf); UC1 Sim + UC2 Mode A/B/C are preserved as Static re-host reference (rf2-r4nao) below the §STATIC RE-HOST REFERENCE divider in that doc.
+- [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Runtime Machines panel (rf2-y9xmf) + §Static Machines surface (the shipped Static-mode Machines surface — 4-mode sub-strip with Topology / Sim placeholder / Instances JUMP / Cascade dimmed-with-tooltip). The UC1 Sim engine and UC2 Mode A/B/C historical prose remain below as Sim re-host reference (rf2-r4nao — deferred).
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
 - [`012-Views.md`](012-Views.md) — Views tab three-group layout (mounted / re-rendered / unmounted); nested subs; cluster-large-grids.
