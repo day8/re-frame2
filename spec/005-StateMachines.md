@@ -390,6 +390,15 @@ If the composition is reused, name it in the machine's `:actions` map:
 
 This is the design rule from above: imperative composition is fns, not data DSLs; named entries in the machine's `:actions` map add semantic content visualisers and AIs can read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-action`. Cross-machine reuse: define a Clojure var and reference it from each machine's `:actions` map.
 
+### Trace events — guard evaluations and action runs
+
+Every user-declared guard evaluation and every user-declared action invocation emits a public trace event under the reserved `:rf.machine/*` namespace (per [009 §The `:rf.machine/*` reserved namespace for trace events](009-Instrumentation.md) and rf2-2nwfd):
+
+- **`:rf.machine/guard-evaluated`** — emitted from the unified `evaluate-guard` helper at every user-declared guard call site (`:on`, `:after`, `:always`, `:invoke-all/join`). `:tags {:machine-id <id> :guard-id <kw-or-fn> :input {:data <data> :event <event-vec>} :outcome :pass | :fail}`. The synthesised always-true returned by `resolve-guard` for a nil guard-ref is NOT a user-declared evaluation — no trace. First-fail short-circuit on compound guards is preserved: subsequent legs simply do not evaluate.
+- **`:rf.machine/action-ran`** — emitted from `run-action` for every user-declared action invocation. `:tags {:machine-id <id> :action-id <kw-or-fn> :input {:data <data> :event <event-vec>} :outcome <return-value> | :ok | :rf.error/action-threw :exception <Throwable on the throw path>}`. Success-with-nil-return collapses to `:outcome :ok` (action returned `nil`; the runtime treats it as the no-op `{}`). The throwing path emits one trace with `:outcome :rf.error/action-threw` and `:exception <Throwable>` before propagating the `result/fail` Result; the failure subsequently surfaces as `:rf.error/machine-action-exception` per [§Errors](#errors). The synthesised `(constantly nil)` no-op for a nil action-ref is NOT user-declared — no trace.
+
+Both traces flow through the standard trace bus, so `*handler-scope*` auto-stamps `:dispatch-id` into `:tags`. Downstream cascade-correlation (Causa's `:rf.causa/machine-transitions-for-focused-event` sub, devtools epoch buffers, conformance fixtures) groups guard/action traces with the originating event without any explicit threading. The payload schemas are pinned in [Spec-Schemas §`MachineGuardEvaluatedTags` and §`MachineActionRanTags`](Spec-Schemas.md). The `:sensitive?` inheritance contract per [§Privacy — `:sensitive?` inheritance on machine trace events](#privacy--sensitive-inheritance-on-machine-trace-events) applies to both — handler-scope metadata stamps the whole cascade, so `:input :data` and `:input :event` are scrubbed at the boundary alongside the surrounding `:rf.machine/transition` payload.
+
 ## Action effect map — `{:data :fx}`
 
 Actions return:
@@ -1761,6 +1770,8 @@ External observers see one machine event per externally-visible transition; the 
 ## Spawning — dynamic actors
 
 If machines are event handlers and actors are machines, then **each spawned actor gets a dynamically-registered event handler whose id is the actor's address.** The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
+
+> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`.
 
 > **Frame-local registration is load-bearing.** A spawn registers its handler in the **frame-local** tier of the two-tier registry, not in the central boot-time tier. This is what makes spawning compatible with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): when a frame's value is reverted to a prior point, every actor spawned since that point disappears with it (its frame-local handler entry rolls back along with its `[:rf/machines <id>]` snapshot). If spawn instead added entries to the central registry, undo would leave dangling handlers behind, and the AI / undo / time-travel guarantees in [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) would not hold.
 >
@@ -3137,11 +3148,7 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ## Open questions
 
-> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Auto-cleanup of orphaned actors" classifies as **`:post-v1 tracked`** (file a bead to drive the `:owned-by` design when needed). The Globally-registered guards/actions `(RESOLVED)` entry that previously lived here was migrated to `## Resolved decisions` per SA-4's migration rule. Stately.ai / XState JSON interop is out of scope for v1; see rf2-6urjd (SCXML) for the v1.1+ interop family.
-
-### Auto-cleanup of orphaned actors
-
-When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
+> **SA-4 classification (rf2-p6xyh).** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the Globally-registered guards/actions `(RESOLVED)` entry and the "Auto-cleanup of orphaned actors" entry that previously lived here have both been migrated to `## Resolved decisions` per SA-4's migration rule. Stately.ai / XState JSON interop is out of scope for v1; see rf2-6urjd (SCXML) for the v1.1+ interop family.
 
 ## Resolved decisions
 
@@ -3164,6 +3171,10 @@ Resolved: the dispatch shape for events targeting a machine is the sub-event for
 ### Multiple machine instances at one path
 
 Snapshots live at the runtime-managed path `[:rf/machines <id>]`, keyed by the registered id. Two registrations sharing an id collide at the registry layer (last-write-wins per the standard registration semantics, with a re-registration trace event); a single id never has two snapshot locations. The earlier "two machines at one `:path`" scenario cannot arise because users no longer pick a path. Per-frame isolation falls out of each frame having its own `app-db` and thus its own `:rf/machines` map. See [§Where snapshots live](#where-snapshots-live).
+
+### Auto-cleanup of orphaned actors — explicit `:rf.machine/destroy` for v1 (RESOLVED)
+
+Resolved (per rf2-rkedz, closing rf2-ocp7a): v1 requires **explicit teardown** via `[:rf.machine/destroy <actor-id>]`. Auto-cleanup via an opt-in `:owned-by` ownership relation (whereby an actor whose owner is destroyed is itself destroyed) is a v1.1+ direction. The explicit-destroy surface matches `make-frame` / `destroy-frame!` and keeps the v1 lifecycle model uniform: every actor's life ends at a named, traceable site. Tooling and conformance fixtures can rely on the absence of implicit-destroy cascades; ports do not need to model an ownership graph to be v1-conformant. See [§Spawning — dynamic actors](#spawning--dynamic-actors) for the spawn / destroy surface; the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) is the one composed-with cascade that fires off a `:rf.machine/destroy`.
 
 ### Spawn id format — `<id-prefix>#<n>` keyword (RESOLVED)
 
@@ -3244,7 +3255,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
-- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list).
+- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list and [§Trace events — guard evaluations and action runs](#trace-events--guard-evaluations-and-action-runs) for the guard/action payload contract).
 - The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, and `:rf.error/machine-invoke-all-with-invoke` error categories. (The pre-rf2-3y3y `:rf.error/machine-invoke-timeout-*` categories are retired alongside `:timeout-ms` itself; per [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-invoke--invoke-all--use-parent-states-after).)
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.

@@ -847,6 +847,28 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:machine-id :keyword]
    [:state      :any]])
 
+;; --- runtime: machine guard / action trace payloads
+;;     (per [005 §Trace events — guard evaluations and action runs] and rf2-2nwfd) ---
+
+(def MachineGuardEvaluatedTags
+  [:map
+   [:machine-id :keyword]
+   [:guard-id   :any]                       ;; keyword OR inline fn
+   [:input      [:map
+                 [:data  :any]
+                 [:event [:vector :any]]]]
+   [:outcome    [:enum :pass :fail]]])
+
+(def MachineActionRanTags
+  [:map
+   [:machine-id :keyword]
+   [:action-id  :any]                       ;; keyword OR inline fn
+   [:input      [:map
+                 [:data  :any]
+                 [:event [:vector :any]]]]
+   [:outcome    :any]                       ;; <return-value> | :ok | :rf.error/action-threw
+   [:exception  {:optional true} :any]])    ;; present only on the throw path
+
 (def SystemIdCollisionTags
   [:map
    [:category         :keyword]
