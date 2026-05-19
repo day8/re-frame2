@@ -443,6 +443,52 @@
         (is (= :issue-token (-> rec :actions first :action-id)))
         (is (= :ok          (-> rec :actions first :outcome)))))))
 
+(deftest project-focused-event-coerces-fn-refs-to-renderable-ids
+  ;; rf2-ujra6 — per spec/Spec-Schemas `:guard-id` / `:action-id` carry
+  ;; the user-declared ref as-is, which is "keyword OR inline fn". The
+  ;; deep-machine testbed (`testbeds/deep_machine/core.cljs`) declares
+  ;; state-node `:entry` slots as raw fns; when those fire the
+  ;; `:rf.machine/action-ran` trace carries the fn itself in
+  ;; `:action-id`. Before #1601 these traces lacked `:frame` and were
+  ;; dropped by epoch-capture; post-#1601 they flow into
+  ;; `:trace-events` and through this projection. The view renders
+  ;; `:action-id` via `(name ...)` to build a `data-testid` suffix —
+  ;; which throws `Doesn't support name: function ...` on fn values.
+  ;; The projection coerces fn refs to renderable keywords so the view
+  ;; contract stays simple.
+  (testing "anonymous inline fn ref normalises to :rf.machine/anonymous-fn"
+    (let [anon-fn (fn [_data _ev] {:data {}})
+          events  [(t-event 1 :auth/login :idle :authing [:auth/submit])
+                   {:id 2 :time 11 :operation :rf.machine/action-ran
+                    :tags {:machine-id :auth/login
+                           :action-id  anon-fn
+                           :outcome    :ok}}]
+          records (h/project-focused-event-transitions events)
+          a-id    (-> records first :actions first :action-id)]
+      (is (keyword? a-id)
+          "fn ref must be coerced to a keyword so the view's `name` call works")
+      (is (= :rf.machine/anonymous-fn a-id))))
+  (testing "named fn ref via :name metadata normalises to a keyword carrying that name"
+    (let [named-fn (with-meta (fn [_data _ev] {:data {}})
+                              {:name 'action-bump-tick})
+          events   [(t-event 1 :auth/login :idle :authing [:auth/submit])
+                    {:id 2 :time 11 :operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :auth/login
+                            :guard-id   named-fn
+                            :outcome    :pass}}]
+          records  (h/project-focused-event-transitions events)
+          g-id     (-> records first :guards first :guard-id)]
+      (is (keyword? g-id))
+      (is (= :rf.machine/action-bump-tick g-id))))
+  (testing "keyword refs flow through untouched"
+    (let [events  [(t-event 1 :auth/login :idle :authing [:auth/submit])
+                   {:id 2 :time 11 :operation :rf.machine/action-ran
+                    :tags {:machine-id :auth/login
+                           :action-id  :issue-token
+                           :outcome    :ok}}]
+          records (h/project-focused-event-transitions events)]
+      (is (= :issue-token (-> records first :actions first :action-id))))))
+
 ;; ---- (11) focused-epoch-record (rf2-a9cke) ------------------------------
 
 (deftest focused-epoch-record-empty-history

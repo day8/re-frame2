@@ -381,11 +381,24 @@
 ;;   - `:rf.machine.microstep/transition` — `:always`-driven microstep;
 ;;     same tag shape (some tests use `:from`/`:to` tag fallbacks).
 ;;
-;; The substrate does NOT yet emit `:rf.machine/guard-evaluated` or
-;; `:rf.machine/action-ran` per-step traces. The helper looks for those
-;; ops anyway (set in `guard-operations` / `action-operations`) so when
-;; the substrate gains them, the lens lights up without further work.
-;; In the meantime guards/actions render as empty lists per transition.
+;; The substrate emits `:rf.machine/guard-evaluated` /
+;; `:rf.machine/action-ran` per rf2-2nwfd (see spec/009 §Trace event
+;; vocabulary). Before rf2-ko8jb (#1601) those emits carried no
+;; `:frame` tag and were silently dropped by epoch-capture; post-#1601
+;; they reach the focused epoch's `:trace-events` and flow through
+;; this projection.
+;;
+;; The `:guard-id` / `:action-id` slot is the user-declared ref AS-IS
+;; (per spec/Spec-Schemas: "keyword OR inline fn"). When a transition
+;; declares `:guard :user-has-credentials?` the slot is a keyword;
+;; when it inlines `:guard (fn [data ev] ...)` OR the state-node's
+;; `:entry` slot points at a raw fn, the slot is the fn itself. The
+;; view renders the id via `(name ...)` to build a `data-testid`
+;; suffix — and `cljs.core/name` blows up on fn values (`Doesn't
+;; support name: function ...`). `ref-display-id` coerces the
+;; ref into a renderable keyword (named via `:name` meta when
+;; available, `:rf.machine/anonymous-fn` otherwise) so the view
+;; contract stays simple. (rf2-ujra6.)
 ;;
 ;; Per spec/005-StateMachines.md the guard / action functions are
 ;; resolved off the transition object on the machine definition; we
@@ -455,12 +468,47 @@
      :guards       []
      :actions      []}))
 
+(defn- ref-display-id
+  "Coerce a guard/action ref to a renderable id for the per-transition
+  Guards / Actions list.
+
+  Per spec/Spec-Schemas §`:rf.machine/guard-evaluated` and
+  §`:rf.machine/action-ran`, the trace's `:guard-id` / `:action-id` slot
+  carries the user-declared ref AS-IS — a keyword when the transition
+  declared `:guard :foo` / `:action :foo`, or the fn itself when the
+  transition inlined `:guard (fn [...] ...)` / `:action (fn [...] ...)`
+  or pulled a raw fn from a state-node's `:entry` / `:exit` slot. The
+  view renders the id via `(name ...)` to build a stable data-testid
+  suffix, which blows up on fn values (`Doesn't support name:
+  function ...`).
+
+  Coerce to a renderable form here so the view contract is simple:
+
+    - keyword / string / symbol → return as-is (the view's `name`/`str`
+      both work).
+    - fn → return either `:rf.machine/<the fn's :name meta>` when the
+      fn carries `:name` metadata (named `(defn ...)` or `(fn name
+      [...] ...)`) or `:rf.machine/anonymous-fn` for truly anonymous
+      inline fns. The keyword form keeps the view's `(name ...)` call
+      working AND surfaces the fn's declared name when available, which
+      is what a consumer wants to see in the Guards / Actions list."
+  [ref]
+  (cond
+    (nil? ref)                          nil
+    (or (keyword? ref) (symbol? ref))   ref
+    (string? ref)                       ref
+    (fn? ref)
+    (if-let [nm (some-> ref meta :name)]
+      (keyword "rf.machine" (str nm))
+      :rf.machine/anonymous-fn)
+    :else                               ref))
+
 (defn- guard-record
   "Project a guard-evaluated trace event into the record the view
   renders inside the per-transition Guards section."
   [ev]
   (let [tags (get ev :tags {})]
-    {:guard-id (or (:guard-id tags) (:guard tags))
+    {:guard-id (ref-display-id (or (:guard-id tags) (:guard tags)))
      :input    (or (:input tags) (:args tags))
      :outcome  (cond
                  (contains? tags :outcome) (:outcome tags)
@@ -474,7 +522,7 @@
   inside the per-transition Actions section."
   [ev]
   (let [tags (get ev :tags {})]
-    {:action-id (or (:action-id tags) (:action tags))
+    {:action-id (ref-display-id (or (:action-id tags) (:action tags)))
      :input     (or (:input tags) (:args tags))
      :outcome   (cond
                   (contains? tags :outcome)   (:outcome tags)
