@@ -34,6 +34,7 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.panels.views :as facade]
             [day8.re-frame2-causa.panels.views-view :as view]
@@ -119,15 +120,7 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/views-set-component-filter :cart/list]))
     (let [chip    (#'view/filter-chip :cart/list)
-          ;; chip is [:div … [:span …] [:button { :data-testid "...-clear" } …]]
-          ;; — find the clear button by walking the tree.
-          clear   (some (fn [node]
-                          (when (and (vector? node)
-                                     (map? (second node))
-                                     (= "rf-causa-views-filter-chip-clear"
-                                        (:data-testid (second node))))
-                            node))
-                        (tree-seq (some-fn vector? seq?) seq chip))
+          clear   (th/find-by-testid chip "rf-causa-views-filter-chip-clear")
           handler (:on-click (second clear))]
       (is (fn? handler) "filter-chip clear exposes an :on-click handler")
       (handler (fake-event))
