@@ -13,7 +13,8 @@
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.frame :as frame]
             [re-frame.ssr.error-projector :as error-projector]
-            [re-frame.ssr.response :as response]))
+            [re-frame.ssr.response :as response]
+            [re-frame.trace :as trace]))
 
 (defn- candidate-frame-for-error
   "Select the frame to project against for a trace-event. Prefer the
@@ -99,6 +100,68 @@
          (response/swap-response! frame-id
                                   (fn [r] (assoc r :status (:status public)))))
        public))))
+
+(defn project-render-exception!
+  "Route a render-time `Throwable` through the SSR error projector for
+  `frame-id`. Synthesises a `:rf.error/ssr-render-failed` trace event
+  carrying the exception and drives the projector via
+  `apply-error-projection!` so the response accumulator's `:status`
+  is stamped with the projector's output. Also emits the trace on the
+  trace bus so monitoring listeners (`register-trace-cb!`) see the
+  rich internal detail (Spec 011 §Internal trace events are not
+  leaked).
+
+  Returns the public-error map produced by the projector (the
+  caller's contract for rendering the wire error body), or `nil`
+  when projection is not applicable (frame missing / not a server
+  frame).
+
+  Per Spec 011 §Server error projection — unifies render-time
+  failures (tag-name validator, view-fn throw, hiccup-walk error)
+  with drain-time failures (fx-handler, sub-handler exceptions)
+  under the same projector pipeline (rf2-zwgsv / rf2-i9f0g
+  Option B)."
+  [frame-id ^Throwable t]
+  (when (and frame-id (error-projector/server-frame? frame-id))
+    (let [tags {:frame             frame-id
+                :exception         t
+                :exception-message #?(:clj  (.getMessage t)
+                                      :cljs (.-message t))
+                :ex-class          #?(:clj  (.getName (class t))
+                                      :cljs (str (type t)))
+                :recovery          :projected-to-public-error}
+          ;; Build the event in the same envelope shape the trace bus
+          ;; produces, so projector implementations that case on
+          ;; :operation see the same key whether the event arrived via
+          ;; the listener-buffer drain (drain-time errors) or our
+          ;; synthesised render-time path (Spec 011 §Server error
+          ;; projection §Pipeline step 1: "an exception occurs
+          ;; (handler, fx, sub, render-time view)").
+          trace-event {:op-type   :error
+                       :operation :rf.error/ssr-render-failed
+                       :tags      tags}]
+      ;; Drain the listener buffer first so an earlier in-drain trace
+      ;; (e.g. an :rf.error/fx-handler-exception that fired during
+      ;; on-create) is not silently dropped if the render-time throw
+      ;; reaches us after a drain that buffered a trace. The 1-arity
+      ;; call is a no-op when the buffer is empty.
+      (apply-error-projection! frame-id)
+      ;; Emit on the trace bus so monitoring listeners see the rich
+      ;; internal trace event for the render-time failure. The
+      ;; listener will buffer the trace under :ssr.error/render-failed;
+      ;; we drain it again via the 1-arity call below so the buffer
+      ;; clears.
+      (trace/emit-error! :rf.error/ssr-render-failed tags)
+      ;; Apply directly with the synthesised trace event — this is
+      ;; the projection that stamps :status on the response and
+      ;; returns the public-error map the caller uses to render the
+      ;; wire body.
+      (let [public (apply-error-projection! frame-id trace-event)]
+        ;; Clear any duplicate buffer entry the listener appended above
+        ;; (apply-error-projection! 2-arity does not drain). Without
+        ;; this a later peek/flush would re-project the same event.
+        (consume-pending-traces! frame-id)
+        public))))
 
 (defn error-projection-listener
   "Trace-event listener — captures error trace events bound to a server
