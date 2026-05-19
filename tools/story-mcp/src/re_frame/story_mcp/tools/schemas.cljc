@@ -80,40 +80,38 @@
 ;; payload as a JS-coerced object; this fragment describes its shape so
 ;; agent hosts can validate the result client-side.
 ;;
-;; Two shapes:
-;;   - `default-output-schema` — generic object envelope; permissive
-;;     (`additionalProperties: true`) so per-tool payload slots ride
-;;     without us re-enumerating them per tool (the catalogue prose at
-;;     spec/002-Tool-Registry.md is the canonical per-tool source).
-;;   - `wire-bounded-marker-output-schema` — paired alternative for
-;;     tools that ride the cap pipeline. Currently story-mcp doesn't
-;;     emit `:rf.mcp/cache-hit` (no per-session cache) but it CAN emit
-;;     `:rf.mcp/overflow` when the cap fires, so the `oneOf` includes
-;;     the overflow shape.
+;; MCP-spec constraint: the official `ListToolsResultSchema` (Zod) pins
+;; `outputSchema.type` to the literal string \"object\" and rejects any
+;; other shape (notably top-level `oneOf` / `anyOf` — those are NOT
+;; valid MCP outputSchemas). Per spec we describe one flat object
+;; envelope, permissive on tool-specific slots, and document the
+;; wire-bounded marker alternatives in the prose description (the
+;; catalogue prose at spec/002-Tool-Registry.md is the canonical
+;; per-tool source).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private result-envelope
+(def default-output-schema
+  "Default outputSchema for story-mcp tools — a flat object envelope.
+  Permissive (`additionalProperties: true`) so per-tool payload slots
+  ride without us re-enumerating them; the catalogue prose carries
+  the per-tool shape definitively. The wire-bounded `:rf.mcp/overflow`
+  marker (rf2-rvyzy) lands as an extra top-level key when the cap
+  fires; it satisfies `additionalProperties` and is documented in
+  prose rather than encoded as a `oneOf` alternative (the MCP
+  outputSchema contract pins `type` to the literal \"object\" and
+  rejects top-level alternation)."
   {:type "object"
    :additionalProperties true
    :properties {"isError" {:type "boolean"
-                            :description "Present and true on error envelopes (per MCP §Error Handling)."}}})
-
-(def ^:private rf-mcp-overflow-schema
-  {:type "object"
-   :additionalProperties true
-   :properties {"rf.mcp/overflow" {:type "object" :additionalProperties true}}})
-
-(def default-output-schema
-  "Default outputSchema for story-mcp tools — a `oneOf` between the
-  tool's normal structuredContent envelope and the wire-bounded
-  `:rf.mcp/overflow` marker. Permissive `additionalProperties: true`
-  for per-tool payload slots; the catalogue prose carries the per-
-  tool shape definitively."
-  {:oneOf [result-envelope
-           rf-mcp-overflow-schema]
-   :description (str "Result envelope: a structuredContent object carrying the tool's payload, or "
-                     "the wire-bounded `:rf.mcp/overflow` marker when the cap step fires. See "
-                     "spec/002-Tool-Registry.md for the per-tool payload shape.")})
+                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+                "rf.mcp/overflow" {:type "object"
+                                   :additionalProperties true
+                                   :description (str "Wire-bounded marker (rf2-rvyzy). Present iff the wire-boundary "
+                                                     "token cap fired and replaced the tool's normal payload; carries "
+                                                     ":dropped-bytes etc.")}}
+   :description (str "Result envelope: a structuredContent object carrying the tool's payload. "
+                     "Optional :isError on the error path; optional :rf.mcp/overflow marker when "
+                     "the cap step fires. See spec/002-Tool-Registry.md for the per-tool payload shape.")})
 
 ;; ---------------------------------------------------------------------------
 ;; Tool annotations (rf2-94p8q)
@@ -166,13 +164,23 @@
   `unregister-variant`, `record-as-variant` with `:write-back? true`).
   Includes the gated-error shape — when the operator-only
   `--allow-writes` flag is closed, the tool returns
-  `{:isError true :structuredContent {:gated true :tool \"<name>\"}}`."
-  {:oneOf [result-envelope
-           rf-mcp-overflow-schema
-           {:type "object"
-            :additionalProperties true
-            :properties {"gated" {:type "boolean"}
-                          "tool" {:type "string"}}}]
+  `{:isError true :structuredContent {:gated true :tool \"<name>\"}}`.
+
+  Single flat object envelope (MCP outputSchema pins `type` to
+  \"object\" and disallows top-level alternation); the success / error
+  / gated-error variants ride on the optional slots described below
+  plus `additionalProperties: true` for per-tool payload."
+  {:type "object"
+   :additionalProperties true
+   :properties {"isError" {:type "boolean"
+                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+                "gated"   {:type "boolean"
+                            :description "Present and true when the operator-only --allow-writes gate is closed."}
+                "tool"    {:type "string"
+                            :description "Name of the tool whose write was gated; present iff :gated true."}
+                "rf.mcp/overflow" {:type "object"
+                                   :additionalProperties true
+                                   :description "Wire-bounded marker (rf2-rvyzy); present iff the cap step fired."}}
    :description (str "Result envelope: success / error / gated-error map (the write surface is "
                      "default-off behind --allow-writes; closed gate emits {:gated true :tool ...}). "
                      "See spec/003-Write-Surface-Gating.md.")})

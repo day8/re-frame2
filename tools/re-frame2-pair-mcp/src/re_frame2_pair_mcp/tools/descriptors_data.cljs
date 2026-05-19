@@ -42,49 +42,46 @@
 ;;
 ;;   2. Wire-bounded markers — `{:rf.mcp/cache-hit ...}` and
 ;;      `{:rf.mcp/overflow ...}`. These envelopes replace a tool's
-;;      result when the cache step or cap step fires. The schema is
-;;      a `oneOf` between the tool's normal envelope and the marker
-;;      envelopes — agent hosts that match on `:rf.mcp/*` markers
-;;      see them as a valid alternative.
+;;      result when the cache step or cap step fires. The agent host
+;;      pattern-matches on the marker keys.
+;;
+;; MCP-spec constraint: the official `ListToolsResultSchema` (Zod) pins
+;; `outputSchema.type` to the literal string \"object\" and rejects any
+;; other shape — notably top-level `oneOf` / `anyOf` are NOT valid MCP
+;; outputSchemas. Per spec we ship one flat object envelope per tool,
+;; describing the contract bones plus the marker keys as optional
+;; top-level slots; tool-specific payload rides on
+;; `additionalProperties: true`. The marker semantics (cache-hit /
+;; overflow REPLACE the normal envelope) are documented in prose at
+;; spec/003-Tool-Catalogue.md §Universal.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private result-envelope
-  "Generic success/error envelope schema — every tool's
-  `:structuredContent` is at least this shape: a JS object with an
-  optional `:ok?` boolean and optional `:reason` keyword (as string)
-  on the error path. Tool-specific slots ride on
-  `additionalProperties: true` per the catalogue prose."
+(def ^:private envelope-or-marker
+  "Default outputSchema — a flat object envelope describing the
+  contract bones (`ok?`, `reason`) plus the wire-bounded marker keys
+  (`rf.mcp/cache-hit`, `rf.mcp/overflow`) as optional top-level
+  slots. Read tools get this shape; permissive
+  (`additionalProperties: true`) so per-tool payload slots ride.
+
+  The marker shapes REPLACE the normal envelope on the wire (cache
+  hits and cap overflows ship a payload whose ONLY top-level key is
+  the marker); agent hosts dispatch on presence of the marker key.
+  We don't encode that as `oneOf` because the MCP outputSchema
+  contract pins `type` to the literal \"object\"."
   {:type "object"
    :additionalProperties true
    :properties {"ok?"    {:type "boolean"
                            :description "True on success; false on error (with :reason)."}
                 "reason" {:type "string"
-                           :description "Error reason keyword (as a string). Present iff :ok? false."}}})
-
-(def ^:private rf-mcp-cache-hit-schema
-  "Wire-bounded marker envelope — the cache-hit replacement (rf2-3rt1f).
-  Replaces a tool's result on a per-session cache hit."
-  {:type "object"
-   :additionalProperties true
-   :properties {"rf.mcp/cache-hit" {:type "object" :additionalProperties true}}})
-
-(def ^:private rf-mcp-overflow-schema
-  "Wire-bounded marker envelope — the overflow replacement (rf2-rvyzy).
-  Replaces a tool's result when the wire-boundary token cap fires."
-  {:type "object"
-   :additionalProperties true
-   :properties {"rf.mcp/overflow" {:type "object" :additionalProperties true}}})
-
-(def ^:private envelope-or-marker
-  "Default outputSchema — a `oneOf` of the tool's normal envelope
-  and the two wire-bounded marker envelopes (`:rf.mcp/cache-hit` for
-  cacheable tools that hit; `:rf.mcp/overflow` for any tool whose
-  result exceeds the per-call cap). Read tools get this shape; the
-  shape is permissive (`additionalProperties: true`) so per-tool
-  slots ride."
-  {:oneOf [result-envelope
-           rf-mcp-cache-hit-schema
-           rf-mcp-overflow-schema]
+                           :description "Error reason keyword (as a string). Present iff :ok? false."}
+                "rf.mcp/cache-hit" {:type "object"
+                                    :additionalProperties true
+                                    :description (str "Wire-bounded marker (rf2-3rt1f). When present, REPLACES the "
+                                                      "normal envelope; ships on a per-session cache hit.")}
+                "rf.mcp/overflow"  {:type "object"
+                                    :additionalProperties true
+                                    :description (str "Wire-bounded marker (rf2-rvyzy). When present, REPLACES the "
+                                                      "normal envelope; ships when the cap step fires.")}}
    :description (str "Result envelope: success / error map carrying :ok? + tool-specific slots. "
                      "Wire-bounded markers (:rf.mcp/cache-hit, :rf.mcp/overflow) replace the "
                      "tool's normal envelope when the cache or cap step fires; the agent host "
