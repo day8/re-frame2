@@ -225,6 +225,11 @@
    :rf.causa/selected-machine-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/modal-positioning
+   ;; rf2-ikuwt — per-event-id mute filter subs.
+   :rf.causa/mute-manager-open?
+   :rf.causa/muted-event-ids
+   :rf.causa/muted-event-ids-count
+   :rf.causa/row-context-menu
    ;; rf2-o5f5f.1 — Runtime ↔ Static mode slot + Static-scoped tab.
    :rf.causa/mode
    :rf.causa.static/selected-tab
@@ -365,6 +370,15 @@
    :rf.causa/follow-head
    :rf.causa/hide-event-type
    :rf.causa/hydrate-filters
+   ;; rf2-ikuwt — per-event-id mute filter events.
+   :rf.causa/clear-muted-event-ids
+   :rf.causa/close-mute-manager
+   :rf.causa/close-row-context-menu
+   :rf.causa/hydrate-muted-event-ids
+   :rf.causa/mute-event-id
+   :rf.causa/open-mute-manager
+   :rf.causa/open-row-context-menu
+   :rf.causa/unmute-event-id
    ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
    :rf.causa/machine-chart-layout-pulse
    :rf.causa/machine-state-clicked
@@ -530,6 +544,11 @@
    ;; frame survives a reload. Lives under the frame-switcher-specific
    ;; prefix (mirror of the filter-persistence shape).
    :rf.causa.frame-switcher/persist
+   ;; rf2-ikuwt — per-event-id mute filter persistence side-effect.
+   ;; Bound to mute / unmute / clear handlers; writes the post-mutation
+   ;; set to localStorage in one place (mirrors the filter-persistence
+   ;; shape above).
+   :rf.causa.spine-filters/persist
    ;; rf2-y3l8z — interactive Machines canvas view-mode persistence
    ;; side-effect. Writes the per-machine view-mode-by-id map to
    ;; localStorage on every `:set-view-mode` mutation so the user's

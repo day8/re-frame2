@@ -29,7 +29,8 @@
             [day8.re-frame2-causa.filters.edit-popup :as edit-popup]
             [day8.re-frame2-causa.filters.matcher :as matcher]
             [day8.re-frame2-causa.filters.persistence :as persistence]
-            [day8.re-frame2-causa.filters.typed-predicates :as typed]))
+            [day8.re-frame2-causa.filters.typed-predicates :as typed]
+            [day8.re-frame2-causa.spine-filters :as spine-filters]))
 
 ;; ---- Modal --------------------------------------------------------------
 
@@ -165,14 +166,23 @@
   ;; persisted under `{:pattern <kw-or-str>}` hydrate as
   ;; `:event-id-pattern` via `canonicalise-pill` — no migration step
   ;; needed.
+  ;; rf2-ikuwt — the muted-event-ids set rides at the END of the
+  ;; filter chain so right-click → 'Mute :event-id' strips the row
+  ;; from L2 regardless of any IN-pill state. (An IN pill says 'keep
+  ;; only these'; mute says 'never these'. Composition is OUT-like
+  ;; semantically, but the mute set is a separate slot so it persists
+  ;; independently of the pill set and the unmute manager has a clean
+  ;; surface to enumerate.)
   (rf/reg-sub :rf.causa/filtered-cascades
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/active-filters]
     :<- [:rf.causa/focus-slot]
-    (fn [[cascades filters focus-slot] _query]
+    :<- [:rf.causa/muted-event-ids]
+    (fn [[cascades filters focus-slot muted] _query]
       (-> cascades
           (matcher/filter-cascades-by-frame (:frame focus-slot))
-          (typed/filter-cascades filters))))
+          (typed/filter-cascades filters)
+          (spine-filters/filter-cascades muted))))
 
   ;; Popup state — three slots so the open / trigger / draft tiers
   ;; are individually subscribable.

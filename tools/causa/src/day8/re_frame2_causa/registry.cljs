@@ -42,6 +42,7 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.spine-filters :as spine-filters]
             [day8.re-frame2-causa.static.machines.panel :as static-machines-panel]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
@@ -612,6 +613,17 @@
     ;; idempotency sentinel above prevents the hydrate-dispatch from
     ;; firing twice on shadow-cljs `:after-load`.
     (filters/install!)
+    ;; Per-event-id mute filter (rf2-ikuwt). Installs the
+    ;; `:rf.causa/muted-event-ids` slot + the mute / unmute / clear
+    ;; events + the localStorage persistence fx + the unmute manager
+    ;; modal open / close state. Installs AFTER `filters/install!` so
+    ;; the `:rf.causa/filtered-cascades` sub it composes against is
+    ;; already registered; the mute filter wraps the filtered-cascades
+    ;; via the standalone `:rf.causa/spine-filtered-cascades` sub
+    ;; below (the L2 event list + spine consumers swap their dependency
+    ;; from `filtered-cascades` → `spine-filtered-cascades` so the
+    ;; mute strip rides atop the existing IN/OUT pill filter).
+    (spine-filters/install!)
     ;; Spine MUST install before event-detail / time-travel — their
     ;; legacy selection events shim writes through the spine slot,
     ;; and the slot's reducer helpers live in spine.cljs.

@@ -121,6 +121,7 @@
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
+            [day8.re-frame2-causa.spine-filters :as spine-filters]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
             [day8.re-frame2-causa.static.shell :as static-shell]
             [day8.re-frame2-causa.theme.global-styles :as global-styles]
@@ -625,6 +626,11 @@
         ;; sees in L2.
         show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
+        ;; rf2-ikuwt — mute-count drives the L1 ribbon indicator next
+        ;; to the REDACTED indicator. Reading the count sub (not the
+        ;; raw set) means the ribbon re-renders only when the count
+        ;; changes; the indicator's click opens the unmute manager.
+        muted-count     @(rf/subscribe [:rf.causa/muted-event-ids-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])
         focused-id      (:dispatch-id focus)
         ;; Per rf2-fzbrw: the boundary predicates must align with the
@@ -688,6 +694,11 @@
      [frame-switcher/frame-switcher-view]
      [ribbon-filter-pills {:filters filters}]
      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+      ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
+      ;; REDACTED indicator. Both are silent-by-default surfaces that
+      ;; only paint when their count is positive. Click → unmute
+      ;; manager modal.
+      [spine-filters/ribbon-mute-indicator muted-count]
       [ribbon-redacted-indicator redacted-count]]
      [ribbon-right-icons]]))
 
@@ -856,13 +867,19 @@
   the Event tab in L4 with the full untruncated content.
 
   Right-click (`on-context-menu`) lowers per spec/018 §7 'Right-click
-  event-row → context menu' into `:rf.causa/hide-event-type <event-
-  id>` — a one-step 'always hide this event-type' that opens the
-  edit popup pre-populated with the row's event-id + OUT default.
-  Pre-alpha the popup is the only context-menu surface (the rich
-  multi-item menu lands behind a follow-on bead); preventing the
-  browser context menu keeps the affordance discoverable on first
-  right-click.
+  event-row → context menu' into `:rf.causa/open-row-context-menu`
+  (rf2-ikuwt) — a small floating context menu with two items:
+
+    - 'Mute <event-id>' — one-step mute via
+      `:rf.causa/mute-event-id`; the row disappears from the spine
+      and the L1 ribbon's mute-count indicator increments.
+    - 'Always hide this event-type…' — opens the rich OUT-filter
+      popup via `:rf.causa/hide-event-type` (the existing flow).
+
+  The menu state lives in app-db (`:row-context-menu`) so the menu
+  renders at the shell-view root and floats above the L2 list's
+  overflow-hidden clipping. preventDefault on the right-click
+  suppresses the browser's native menu.
 
   ## Focus gutter (rf2-a1z3b)
 
@@ -965,10 +982,21 @@
     [:li (cond-> {:data-testid (str "rf-causa-event-row-" (str id))
                   :on-click    body-click
                   :on-context-menu (fn [^js e]
+                                     ;; rf2-ikuwt — open the row's
+                                     ;; floating context menu at the
+                                     ;; click coords. The menu (mounted
+                                     ;; at shell-view root via
+                                     ;; `spine-filters/RowContextMenu`)
+                                     ;; carries both 'Mute' (one-step)
+                                     ;; and 'Always hide…' (rich
+                                     ;; OUT-pill popup) items.
                                      (when ev-id
                                        (.preventDefault e)
                                        (rf/dispatch
-                                         [:rf.causa/hide-event-type ev-id]
+                                         [:rf.causa/open-row-context-menu
+                                          {:event-id ev-id
+                                           :x        (.-clientX e)
+                                           :y        (.-clientY e)}]
                                          {:frame :rf/causa})))
                   ;; Round-3 rf2-cmtkw — dropped fields (full event
                   ;; vector with args, sequence number, frame, source
@@ -1592,6 +1620,18 @@
     ;; `:rf/causa` frame-provider; closed-state cost is one subscribe
     ;; + a when-gate.
     [share-modal/Modal]
+    ;; Mute manager modal (rf2-ikuwt) — lists every muted event-id
+    ;; with per-row unmute buttons + a 'Unmute all' affordance. Same
+    ;; mount discipline as the other modals: shell-root mount so the
+    ;; subscribes resolve through the `:rf/causa` frame-provider;
+    ;; closed-state cost is one subscribe + a when-gate.
+    [spine-filters/Modal]
+    ;; Row context menu (rf2-ikuwt) — small floating popover opened
+    ;; by right-click on an L2 event row. Carries 'Mute <event-id>'
+    ;; + 'Always hide this event-type…'. Mounted at shell-view root
+    ;; so the menu floats above the L2 list's overflow:hidden
+    ;; clipping. Closed-state cost is one subscribe + a when-gate.
+    [spine-filters/RowContextMenu]
     ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
     ;; path-segment in the App-DB Diff breadcrumb is clicked. Same
     ;; mount discipline as the other modals: shell-root mount so the

@@ -68,26 +68,29 @@
                   :frame       :rf/default
                   :dispatch-id id}})
 
-(defn- mk-event
-  "Fake preventable Event object the on-context-menu handler reads.
-  Returns the JS event + a `:called` atom we flip on preventDefault."
+;; -------------------------------------------------------------------------
+;; (1) Right-click row opens the context menu (rf2-ikuwt)
+;; -------------------------------------------------------------------------
+
+(defn- mk-context-event
+  "Right-click event stub. Carries clientX/clientY so the menu can
+  position itself at the cursor."
   []
   (let [called? (atom false)]
-    {:event  #js {:preventDefault (fn [] (reset! called? true))}
+    {:event  #js {:preventDefault (fn [] (reset! called? true))
+                  :clientX        128
+                  :clientY        256}
      :called called?}))
 
-;; -------------------------------------------------------------------------
-;; (1) Right-click row dispatches :rf.causa/hide-event-type
-;; -------------------------------------------------------------------------
-
-(deftest right-click-row-dispatches-hide-event-type
-  (testing "spec/018 §7 — `on-context-menu` on a row fires
-            `:rf.causa/hide-event-type <event-id>` and calls
-            preventDefault so the browser context menu doesn't open"
+(deftest right-click-row-opens-context-menu
+  (testing "rf2-ikuwt — `on-context-menu` on a row fires
+            `:rf.causa/open-row-context-menu` with the event-id +
+            click coords. The browser context menu is suppressed via
+            preventDefault."
     (causa-setup!)
     (trace-bus/collect-trace! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
     (let [dispatches      (atom [])
-          {:keys [event called]} (mk-event)]
+          {:keys [event called]} (mk-context-event)]
       (with-redefs [rf/dispatch* (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
@@ -101,10 +104,12 @@
       (is @called "preventDefault called so the browser menu is suppressed")
       (is (some (fn [ev]
                   (and (vector? ev)
-                       (= :rf.causa/hide-event-type (first ev))
-                       (= :user/mouse-move (second ev))))
+                       (= :rf.causa/open-row-context-menu (first ev))
+                       (= :user/mouse-move (:event-id (second ev)))
+                       (= 128 (:x (second ev)))
+                       (= 256 (:y (second ev)))))
                 @dispatches)
-          ":rf.causa/hide-event-type fired with the row's event-id"))))
+          ":rf.causa/open-row-context-menu fired with event-id + coords"))))
 
 (deftest hide-event-type-handler-pre-populates-popup
   (testing "the handler that on-context-menu dispatches opens the
