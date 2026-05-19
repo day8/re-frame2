@@ -17,6 +17,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-causa.test-helpers.host-fixtures.counter :as counter]))
 
@@ -63,3 +64,40 @@
         (e2e/dispatch-host [:counter/inc])
         (is (= :compact (e2e/sub-causa [:rf.causa/density]))
             "density reset on host dispatch — wrong-frame state class")))))
+
+;; ---- rf2-w991t — CSS-var-equivalent (pure fn) mirrors the radio choice ----
+;;
+;; The radio writes `--rf-causa-font-size` via `effects/apply-density-font-
+;; size!` so the whole type scale rescales in lockstep. In node-test there
+;; is no `<html>` to inspect, but the pure CSS-var-equivalent helper
+;; (`effects/density->px`) is the JVM-portable mirror — same lookup table,
+;; same fallback. The original Phase 3 bead (rf2-mpqxn) wanted the test
+;; to assert the CSS-var-equivalent moves with the radio; we read the
+;; helper against the live density sub so a regression that decoupled the
+;; px map from the sub would surface here.
+
+(deftest causa-density-px-tracks-radio
+  (testing "rf2-w991t — density→px helper mirrors the radio's choice"
+    (e2e/with-host-and-causa-frames
+      {:install-host counter/install-and-init!}
+      (fn []
+        (e2e/dispatch-causa [:rf.causa/settings-update :general :density :compact])
+        (let [d (e2e/sub-causa [:rf.causa/density])]
+          (is (= 12 (settings-effects/density->px d))
+              ":compact density did not resolve to 12px via density->px"))
+        (e2e/dispatch-causa [:rf.causa/settings-update :general :density :cosy])
+        (let [d (e2e/sub-causa [:rf.causa/density])]
+          (is (= 13 (settings-effects/density->px d))
+              ":cosy density did not resolve to 13px via density->px"))
+        ;; The radio choice's CSS-var value MUST differ between pills
+        ;; — that is the "differently-shaped CSS surface per pill"
+        ;; assertion the original Playwright scenario expressed by
+        ;; comparing computed font-size.
+        (e2e/dispatch-causa [:rf.causa/settings-update :general :density :compact])
+        (let [compact-px (settings-effects/density->px
+                           (e2e/sub-causa [:rf.causa/density]))]
+          (e2e/dispatch-causa [:rf.causa/settings-update :general :density :cosy])
+          (let [cosy-px (settings-effects/density->px
+                          (e2e/sub-causa [:rf.causa/density]))]
+            (is (not= compact-px cosy-px)
+                "compact and cosy resolved to the same px — CSS-var-equivalent collapse")))))))
