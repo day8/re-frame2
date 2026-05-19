@@ -105,6 +105,8 @@
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panels.app-db-segment-inspector
+             :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
@@ -1420,4 +1422,11 @@
     ;; modals: shell-root mount so subscribes resolve through the
     ;; `:rf/causa` frame-provider; closed-state cost is one subscribe
     ;; + a when-gate.
-    [share-modal/Modal]]])
+    [share-modal/Modal]
+    ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
+    ;; path-segment in the App-DB Diff breadcrumb is clicked. Same
+    ;; mount discipline as the other modals: shell-root mount so the
+    ;; popup's subscribes resolve through the shell's `:rf/causa`
+    ;; frame-provider; closed-state cost is one subscribe + a when-
+    ;; gate.
+    [app-db-segment-inspector/Popup]]])

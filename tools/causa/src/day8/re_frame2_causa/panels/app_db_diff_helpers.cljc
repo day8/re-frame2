@@ -37,12 +37,14 @@
   those keys render in a separate `[runtime]` group; the rest render
   as slice mini-panels.
 
-  ## Pin store — `pin-path` / `unpin-path` / `reorder-paths`
+  ## rf2-e9tb0 — pin-store helpers dropped
 
-  The pin store is per-frame: `{frame-id [path-1 path-2 ...]}`. Order
-  preserved by vector. Pins are paths (vectors of keys), not values —
-  the live value derefs against the current target-frame on each
-  recompute (per spec §Performance — O(pins) per epoch, not O(db)).
+  `pin-path` / `unpin-path` / `reorder-paths` / `slice-pins-for-frame`
+  / `live-pinned-slices` and their `pinned-slices-store` slot were
+  removed when path-segment click-to-inspect replaced the pinned-
+  watches strip (Mike 2026-05-19 Q13). The matching subs / events
+  were pulled in lockstep from `app_db_diff_subs.cljs` and
+  `app_db_diff_events.cljs`.
 
   ## 'Show me when this changed' — `epochs-touching-path`
 
@@ -235,61 +237,6 @@
     (for [k (sort reserved-app-db-keys)
           :when (contains? db k)]
       [k (get db k)])))
-
-;; ---- pin store -----------------------------------------------------------
-
-(defn slice-pins-for-frame
-  "Return the slice-path pin vector for `frame-id` in `store`, or `[]`
-  when none. The slice-pin store is `{frame-id [path-1 path-2 ...]}`;
-  vector order is the user's drag-reorder order. Sibling helper
-  `time-travel-helpers/epoch-pins-for-frame` returns the per-frame
-  epoch-pin vector for the Time-Travel scrubber; both helpers
-  destructure a different `store` shape so they aren't
-  interchangeable."
-  [store frame-id]
-  (vec (get store frame-id [])))
-
-(defn pin-path
-  "Add `path` to the pin vector for `frame-id` in `store`. Duplicates
-  are dropped (re-pinning an existing path is a no-op). Pure data →
-  updated store.
-
-  Refusing duplicates is the spec's implied contract — the pin list
-  is a vector of paths, and the user's mental model is 'pin this once'
-  not 'pin this every time I click'."
-  [store frame-id path]
-  (let [existing (vec (get store frame-id []))]
-    (if (some #(= path %) existing)
-      store
-      (assoc store frame-id (conj existing path)))))
-
-(defn unpin-path
-  "Remove `path` from the pin vector for `frame-id`. Pure data →
-  updated store. No-op when `path` is absent."
-  [store frame-id path]
-  (update store frame-id
-          (fn [pins]
-            (vec (remove #(= path %) (or pins []))))))
-
-(defn reorder-paths
-  "Replace the pin vector for `frame-id` with `new-order`. The caller
-  is responsible for supplying a vector that's a permutation of the
-  current pin vector — this fn is the thin write-through; the drag-
-  reorder UI computes the permutation.
-
-  Pure data → updated store."
-  [store frame-id new-order]
-  (assoc store frame-id (vec new-order)))
-
-(defn live-pinned-slices
-  "Project the pin vector for `frame-id` into a vector of
-  `{:path :value}` maps where `:value` is the current value of the
-  path in `db`. Used by the panel's Pinned-slices group.
-
-  Pure data → data. JVM-runnable."
-  [store frame-id db]
-  (mapv (fn [path] {:path path :value (get-in db path)})
-        (slice-pins-for-frame store frame-id)))
 
 ;; ---- 'Show me when this changed' walker ---------------------------------
 

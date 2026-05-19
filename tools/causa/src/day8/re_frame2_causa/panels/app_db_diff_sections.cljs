@@ -107,60 +107,16 @@
            (for [pair reserved-pairs]
              (with-meta (reserved-row pair) {:key (pr-str (first pair))})))]))
 
-(defn- pinned-row
-  [{:keys [path value]}]
-  [:div {:data-testid (str "rf-causa-app-db-diff-pinned-" (pr-str path))
-         :style       {:display "flex"
-                       :justify-content "space-between"
-                       :gap "12px"
-                       :padding "4px 12px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family mono-stack
-                       :font-size "12px"}}
-   [:span {:style {:color (:text-primary tokens)}}
-    (f/truncate (f/format-edn path) 36)]
-   [:span {:style {:display "flex" :gap "8px" :align-items "center"}}
-    [:span {:style {:color (:text-tertiary tokens)}}
-     (f/truncate (f/format-edn value) 36)]
-    [:button {:data-testid (str "rf-causa-app-db-diff-unpin-" (pr-str path))
-              :on-click    #(rf/dispatch [:rf.causa/unpin-slice path]
-                                         {:frame :rf/causa})
-              :style       {:background "transparent"
-                            :border     "none"
-                            :color      (:text-tertiary tokens)
-                            :cursor     "pointer"
-                            :font-family mono-stack
-                            :font-size  "11px"}
-              :title       "Unpin"}
-     "✕"]]])
-
-(defn pinned-group
-  [pinned-slices]
-  (when (seq pinned-slices)
-    [:section {:data-testid "rf-causa-app-db-diff-pinned-group"
-               :style       {:margin "12px 12px"
-                             :background (:bg-3 tokens)
-                             :border (str "1px solid " (:border-subtle tokens))
-                             :border-radius "4px"}}
-     [:header {:style {:padding "6px 12px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family sans-stack
-                       :font-size "11px"
-                       :font-weight 600
-                       :text-transform "uppercase"
-                       :letter-spacing "0.5px"
-                       :color (:text-secondary tokens)}}
-      "Pinned slices"]
-     (into [:div]
-           ;; `^{:key …}` reader meta on the `(pinned-row p)` call
-           ;; below would be attached to the source list and lost when
-           ;; the call returns its fresh vector — Reagent's
-           ;; `get-react-key` only reads `:key` meta from vectors (see
-           ;; reagent2.impl.template). `pinned-row` always returns a
-           ;; `[:div …]` vector, so apply the key directly via
-           ;; `with-meta`. (rf2-ppzid)
-           (for [p pinned-slices]
-             (with-meta (pinned-row p) {:key (pr-str (:path p))})))]))
+;; ---- rf2-e9tb0 — pinned-slices dropped --------------------------------
+;;
+;; The pinned-watches strip and its `pinned-row` / `pinned-group`
+;; renderers were removed when path-segment click-to-inspect landed
+;; (Mike 2026-05-19 Q13). The App-DB Diff body no longer carries a
+;; pinned-slices section; the matching subs / events / helpers were
+;; pulled from `app_db_diff_subs.cljs`, `app_db_diff_events.cljs`, and
+;; `app_db_diff_helpers.cljc` in the same commit. The user inspects
+;; arbitrary app-db paths on demand via the segment-inspector popup
+;; that opens when any path-segment in a diff breadcrumb is clicked.
 
 (defn- focus-result-row
   [{:keys [epoch-id event op before after] :as _hit}]

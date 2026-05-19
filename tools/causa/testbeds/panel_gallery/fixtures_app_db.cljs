@@ -2,18 +2,20 @@
   "Pure fixture builders for the Causa App-db tab gallery
   (rf2-sszlr — rebuild for new 6-tab Causa shape).
 
-  The app-db-diff panel reads four slots from the Causa frame:
+  The app-db-diff panel reads three slots from the Causa frame:
 
     - `:epoch-history`         — vector of `:rf/epoch-record` maps
     - `:selected-epoch-id`     — optional, drives 'diff this epoch'
-    - `:pinned-slices-store`   — `{frame-id [path ...]}`
     - `:focused-slice-path`    — optional, drives 'Show me when this
                                  changed' result
 
   The composite `:rf.causa/app-db-diff` projects these into the map the
-  facade view destructures (`:changed-non-reserved`, `:pinned-slices`,
-  `:changed-reserved`, `:focused-path`, `:focused-hits`,
-  `:history-empty?`, `:target-frame`).
+  facade view destructures (`:changed-non-reserved`, `:changed-reserved`,
+  `:focused-path`, `:focused-hits`, `:history-empty?`, `:target-frame`).
+
+  rf2-e9tb0 — `:pinned-slices-store` and `:pinned-slices` were
+  dropped when the pinned-watches strip was superseded by the
+  segment-inspector popup.
 
   ## Why seed via `:rf.causa/sync-epoch-history`
 
@@ -63,7 +65,8 @@
 
 (defn empty-buffer
   "No epochs — panel renders the `[empty]` state with the
-  pinned/reserved scaffolding only."
+  reserved-keys scaffolding only (rf2-e9tb0 dropped the pinned-watches
+  strip)."
   []
   [])
 

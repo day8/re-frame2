@@ -1,30 +1,18 @@
 (ns day8.re-frame2-causa.panels.app-db-diff-events
-  "Events and effects for the App-DB Diff panel."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.defaults :as defaults]
-            [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]))
+  "Events and effects for the App-DB Diff panel.
+
+  ## rf2-e9tb0 — pinned-slices events dropped
+
+  The `:rf.causa/pin-slice`, `:rf.causa/unpin-slice`, and
+  `:rf.causa/reorder-pinned-slices` events were removed when the
+  pinned-watches strip was superseded by the path-segment inspector
+  popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
+  / `reorder-paths` helpers were pulled in lockstep."
+  (:require [re-frame.core :as rf]))
 
 (defn install!
   "Install the App-DB Diff events and effects."
   []
-  (rf/reg-event-db :rf.causa/pin-slice
-    (fn [db [_ path]]
-      (let [target (get db :target-frame defaults/default-target-frame)]
-        (update db :pinned-slices-store
-                h/pin-path target path))))
-
-  (rf/reg-event-db :rf.causa/unpin-slice
-    (fn [db [_ path]]
-      (let [target (get db :target-frame defaults/default-target-frame)]
-        (update db :pinned-slices-store
-                h/unpin-path target path))))
-
-  (rf/reg-event-db :rf.causa/reorder-pinned-slices
-    (fn [db [_ new-order]]
-      (let [target (get db :target-frame defaults/default-target-frame)]
-        (update db :pinned-slices-store
-                h/reorder-paths target new-order))))
-
   (rf/reg-event-db :rf.causa/focus-slice-path
     (fn [db [_ path]]
       (assoc db :focused-slice-path path)))

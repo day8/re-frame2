@@ -20,7 +20,7 @@
                 (reset! subs/annotated-tree-cache {})
                 (reset! subs/redacted-modified-cache {}))}))
 
-(deftest leaf-install-registers-the-twelve-subs
+(deftest leaf-install-registers-the-active-subs
   (subs/install!)
   ;; rf2-fvplw — `:rf.causa/observed-frame` is the picker/focus-aware
   ;; seam that replaces the legacy `:rf.causa/target-frame` read inside
@@ -31,13 +31,14 @@
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-diff)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-annotated-tree)))
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-sections)))
-  (is (some? (registrar/handler :sub :rf.causa/pinned-slices-store)))
-  (is (some? (registrar/handler :sub :rf.causa/pinned-slices)))
   (is (some? (registrar/handler :sub :rf.causa/focused-slice-path)))
   (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
   ;; rf2-bz1cl — redacted-paths-modified hint sub.
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-redacted-modified-count)))
-  (is (some? (registrar/handler :sub :rf.causa/app-db-diff))))
+  (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))
+  ;; rf2-e9tb0 — pinned-slices subs are gone.
+  (is (nil? (registrar/handler :sub :rf.causa/pinned-slices-store)))
+  (is (nil? (registrar/handler :sub :rf.causa/pinned-slices))))
 
 (deftest diff-caches-are-leaf-level-atoms
   (is (some? subs/diff-cache))

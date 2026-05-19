@@ -229,17 +229,6 @@
                 n)))
           0))))
 
-  (rf/reg-sub :rf.causa/pinned-slices-store
-    (fn [db _query]
-      (get db :pinned-slices-store {})))
-
-  (rf/reg-sub :rf.causa/pinned-slices
-    :<- [:rf.causa/pinned-slices-store]
-    :<- [:rf.causa/target-frame]
-    :<- [:rf.causa/target-frame-db]
-    (fn [[store target db] _query]
-      (h/live-pinned-slices store target db)))
-
   (rf/reg-sub :rf.causa/focused-slice-path
     (fn [db _query]
       (get db :focused-slice-path)))
@@ -262,12 +251,11 @@
     :<- [:rf.causa/target-frame-db]
     :<- [:rf.causa/selected-epoch-diff]
     :<- [:rf.causa/selected-epoch-sections]
-    :<- [:rf.causa/pinned-slices]
     :<- [:rf.causa/focused-slice-path]
     :<- [:rf.causa/show-me-when-this-changed-result]
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-redacted-modified-count]
-    (fn [[target db diff-triples sections pinned focused-path focused-hits
+    (fn [[target db diff-triples sections focused-path focused-hits
           history redacted-modified-count]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
@@ -277,7 +265,6 @@
          :changed-non-reserved      non-reserved
          :changed-sections          sections
          :changed-reserved          (h/reserved-summary db)
-         :pinned-slices             pinned
          :focused-path              focused-path
          :focused-hits              focused-hits
          ;; rf2-bz1cl — redacted-paths-modified hint chip surface.

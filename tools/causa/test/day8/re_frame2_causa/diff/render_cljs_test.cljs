@@ -191,9 +191,11 @@
             node))
         (tree-seq (some-fn vector? seq?) seq tree)))
 
-(deftest section-header-renders-four-affordance-buttons
-  (testing "rf2-ykjl5 — each section header carries Pin, Show-me-when,
-            Copy-path, Copy-value buttons in the affordance row"
+(deftest section-header-renders-three-affordance-buttons
+  (testing "rf2-ykjl5 — section header carries Show-me-when, Copy-path,
+            Copy-value buttons in the affordance row. rf2-e9tb0 — the
+            Pin button was dropped when pinned-watches was replaced by
+            the segment-inspector popup."
     (let [tree     (at/diff-tree {:cart {:items []}}
                                  {:cart {:items [{:id 7}]}})
           sections (sg/group-into-sections tree)
@@ -206,9 +208,9 @@
                                  (str "rf-causa-diff-section-affordances-"
                                       suffix)))
           "affordance row container present")
-      (is (some? (find-by-testid hiccup
-                                 (str "rf-causa-diff-section-pin-" suffix)))
-          "Pin button present")
+      (is (nil? (find-by-testid hiccup
+                                (str "rf-causa-diff-section-pin-" suffix)))
+          "Pin button is gone — pinned-watches feature dropped (rf2-e9tb0)")
       (is (some? (find-by-testid hiccup
                                  (str "rf-causa-diff-section-show-when-"
                                       suffix)))
@@ -250,26 +252,6 @@
 (defn- click-handler [hiccup testid]
   (let [btn (find-by-testid hiccup testid)]
     (:on-click (second btn))))
-
-(deftest section-header-pin-button-dispatches-pin-slice
-  (testing "rf2-ykjl5 — clicking the Pin button on a section header
-            dispatches :rf.causa/pin-slice with the section path,
-            targeted at the :rf/causa frame."
-    (let [tree     (at/diff-tree {:cart {:items []}}
-                                 {:cart {:items [{:id 7}]}})
-          sections (sg/group-into-sections tree)
-          hiccup   (render/render-sections sections "app-db-diff")
-          {:keys [path]} (first sections)
-          on-click (click-handler hiccup
-                                  (str "rf-causa-diff-section-pin-"
-                                       (pr-str path)))
-          captured (with-dispatch-capture*
-                     #(do (is (fn? on-click))
-                          (on-click #js {})))]
-      (is (= 1 (count captured)))
-      (is (= [:rf.causa/pin-slice path] (first (first captured))))
-      (is (= {:frame :rf/causa} (second (first captured)))
-          "dispatch targeted at the :rf/causa frame"))))
 
 (deftest section-header-show-when-button-dispatches-focus-slice-path
   (testing "rf2-ykjl5 — Show-me-when button dispatches
@@ -356,13 +338,13 @@
              (first (first captured)))
           "Copy-value sends the subtree's :value (the after-container)"))))
 
-(deftest breadcrumb-segment-click-copies-prefix-path
-  (testing "rf2-ykjl5 — the breadcrumb renders one clickable segment per
-            path element; plain click copies the absolute path-prefix
-            up to AND INCLUDING that segment (design §5.1). Cmd-click
-            is also supported because the click handler always fires —
-            we just `preventDefault` so the browser's native Cmd-click
-            behaviour does not interfere."
+(deftest breadcrumb-segment-click-opens-segment-inspector
+  (testing "rf2-e9tb0 — the breadcrumb renders one clickable segment
+            per path element; a plain click opens the App-DB segment-
+            inspector popup at the absolute path-prefix up to AND
+            INCLUDING that segment. So clicking `:cart` in
+            `[:cart :items 0 :price]` opens the popup at `[:cart]`;
+            clicking `:price` opens it at the full leaf path."
     ;; Drive `breadcrumb` directly with a known multi-segment path so
     ;; the test is independent of the grouper's coalesce behaviour.
     (let [section-path [:user :prefs :theme]
@@ -380,7 +362,8 @@
                              (is (fn? handler)
                                  (str "segment " i " has on-click"))
                              (swap! segment-clicks conj i)
-                             (handler #js {:preventDefault (fn [])})))
+                             (handler #js {:preventDefault  (fn [])
+                                            :stopPropagation (fn [])})))
           captured (with-dispatch-capture*
                      #(doseq [i (range (count section-path))]
                         (click-segment! i)))]
@@ -390,11 +373,61 @@
       (doseq [i (range (count section-path))]
         (let [expected-prefix (vec (take (inc i) section-path))
               [event opts]    (nth captured i)]
-          (is (= [:rf.causa/copy-path-to-clipboard expected-prefix]
+          (is (= [:rf.causa/open-segment-inspector expected-prefix]
                  event)
-              (str "click on segment " i " dispatches copy-path with prefix "
+              (str "click on segment " i " opens the inspector at prefix "
                    (pr-str expected-prefix)))
           (is (= {:frame :rf/causa} opts)))))))
+
+(deftest breadcrumb-segments-have-hover-styling
+  (testing "rf2-e9tb0 — clickable segments carry discoverable hover
+            styling (dotted underline + pointer cursor + a tooltip) so
+            the user knows they're interactive without screaming
+            through the diff body"
+    (let [section-path [:cart :items]
+          hdr          (render/breadcrumb section-path
+                                          {:added 0 :removed 0
+                                           :modified 1 :children 0}
+                                          nil)
+          seg          (find-by-testid
+                         hdr
+                         (str "rf-causa-diff-breadcrumb-segment-"
+                              (pr-str section-path) "-0"))
+          props        (second seg)
+          style        (:style props)]
+      (is (= "pointer" (:cursor style))
+          "pointer cursor advertises click affordance")
+      (is (= "underline" (:text-decoration style))
+          "underline marks the segment as clickable text")
+      (is (= "dotted" (:text-decoration-style style))
+          "dotted underline keeps the chrome quiet")
+      (is (string? (:title props))
+          "tooltip text explains what clicking does"))))
+
+(deftest breadcrumb-segments-have-no-pin-affordance
+  (testing "rf2-e9tb0 — clicking a segment opens the inspector; it
+            does NOT pin the path. Pinned-watches was the dropped
+            alternative — this regression guard catches any future
+            attempt to reintroduce pin-on-segment-click."
+    (let [section-path [:cart]
+          hdr          (render/breadcrumb section-path
+                                          {:added 0 :removed 0
+                                           :modified 1 :children 0}
+                                          nil)
+          seg          (find-by-testid
+                         hdr
+                         (str "rf-causa-diff-breadcrumb-segment-"
+                              (pr-str section-path) "-0"))
+          handler      (:on-click (second seg))
+          captured     (with-dispatch-capture*
+                         #(handler #js {:preventDefault  (fn [])
+                                        :stopPropagation (fn [])}))]
+      (is (= 1 (count captured)))
+      (is (not= :rf.causa/pin-slice (first (first (first captured))))
+          "click MUST NOT dispatch :rf.causa/pin-slice")
+      (is (= :rf.causa/open-segment-inspector
+             (first (first (first captured))))
+          "click opens the segment inspector"))))
 
 (deftest breadcrumb-renders-root-when-section-path-empty
   (testing "rf2-ykjl5 — empty section-path still renders the '(root)'
@@ -406,11 +439,12 @@
                                  "rf-causa-diff-section-affordances-[]"))
           "affordance row still ships for the root section"))))
 
-(deftest breadcrumb-three-arity-back-compat-works
+(deftest breadcrumb-two-arity-back-compat-works
   (testing "rf2-ykjl5 — the legacy `[path summary]` arity remains
             callable; Copy-value just sends nil (no subtree-value
-            supplied)"
+            supplied). rf2-e9tb0 — pin testid was dropped; assert on
+            the copy-path button instead."
     (let [hdr (render/breadcrumb [:a] {:added 1 :removed 0
                                        :modified 0 :children 0})]
       (is (vector? hdr))
-      (is (some? (find-by-testid hdr "rf-causa-diff-section-pin-[:a]"))))))
+      (is (some? (find-by-testid hdr "rf-causa-diff-section-copy-path-[:a]"))))))

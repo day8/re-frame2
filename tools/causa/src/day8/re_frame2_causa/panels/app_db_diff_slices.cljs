@@ -87,21 +87,14 @@
                       :text-transform "uppercase"
                       :letter-spacing "0.5px"}}
        (f/op->label op)]]
+     ;; rf2-e9tb0 — Pin button dropped here too. The legacy slice-row /
+     ;; changed-slices-stack pair is the pre-rf2-gfxmk fallback that
+     ;; the live panel no longer renders (sections-per-cluster replaced
+     ;; it); the cleanup keeps the fallback consistent with the active
+     ;; surface.
      [:div {:style {:display "flex"
                     :gap "6px"
                     :margin-bottom "6px"}}
-      [:button {:data-testid (str "rf-causa-app-db-diff-pin-" (pr-str path))
-                :on-click    #(rf/dispatch [:rf.causa/pin-slice path]
-                                           {:frame :rf/causa})
-                :style       {:background  "transparent"
-                              :color       (:cyan tokens)
-                              :border      (str "1px solid " (:border-default tokens))
-                              :padding     "1px 6px"
-                              :border-radius "4px"
-                              :cursor      "pointer"
-                              :font-family sans-stack
-                              :font-size   "10px"}}
-       "Pin"]
       [:button {:data-testid (str "rf-causa-app-db-diff-show-when-"
                                   (pr-str path))
                 :on-click    #(rf/dispatch [:rf.causa/focus-slice-path path]

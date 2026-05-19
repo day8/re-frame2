@@ -24,11 +24,9 @@
 (deftest reserved-group-collapses-when-empty
   (is (nil? (sections/reserved-group []))))
 
-(deftest pinned-group-renders-when-slices-present
-  (let [tree (sections/pinned-group
-               [{:path [:cart :items] :value [{:id 7}]}])]
-    (is (has-testid? tree "rf-causa-app-db-diff-pinned-group"))
-    (is (has-testid? tree "rf-causa-app-db-diff-pinned-[:cart :items]"))))
+;; rf2-e9tb0 — `pinned-group` and `pinned-row` were dropped when path-
+;; segment click-to-inspect replaced the pinned-watches strip; the
+;; matching render tests went with them.
 
 (deftest focus-result-panel-renders-no-hits-message
   (let [tree (sections/focus-result-panel [:cart :items] [])]
@@ -76,14 +74,6 @@
         rows (find-vectors-with-key-meta tree)]
     (is (>= (count rows) 2) "at least one row per pair carries :key meta")
     (is (every? vector? rows) "every keyed row is a vector")))
-
-(deftest pinned-group-rows-carry-key-meta
-  (let [tree (sections/pinned-group
-               [{:path [:cart :items] :value [{:id 7}]}
-                {:path [:user :id]    :value 99}])
-        rows (find-vectors-with-key-meta tree)]
-    (is (>= (count rows) 2))
-    (is (every? vector? rows))))
 
 (deftest focus-result-panel-hits-carry-key-meta
   (let [tree (sections/focus-result-panel

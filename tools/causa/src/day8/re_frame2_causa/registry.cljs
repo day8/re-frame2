@@ -43,6 +43,8 @@
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panels.app-db-segment-inspector
+             :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
@@ -543,6 +545,14 @@
     ;; and the slot's reducer helpers live in spine.cljs.
     (spine/install!)
     (app-db-diff/install!)
+    ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
+    ;; path-segment in the App-DB Diff breadcrumb is clicked. Installs
+    ;; after `app-db-diff` so the segment-inspector's
+    ;; `:rf.causa/segment-inspector-value` sub can chain off
+    ;; `:rf.causa/target-frame-db` (registered by app-db-diff's subs).
+    ;; Registration order is cosmetic — re-frame resolves `:<-` lazily;
+    ;; the top-down dependency reading is the rationale.
+    (app-db-segment-inspector/install!)
     ;; Cancellation-cascade visualiser (rf2-59e7k) — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
     ;; popover. The view-side `reg-view`s are picked up at ns-load.
