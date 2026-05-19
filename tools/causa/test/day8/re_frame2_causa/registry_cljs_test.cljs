@@ -173,6 +173,9 @@
    :rf.causa/palette-index
    :rf.causa/palette-open?
    :rf.causa/palette-query
+   ;; rf2-ybjkx — recents vector (last-used commands, persisted to
+   ;; localStorage).
+   :rf.causa/palette-recents
    :rf.causa/palette-results
    :rf.causa/registered-machines
    ;; rf2-nrbs9 — Routes tab (7th L3 tab) sub family.
@@ -468,6 +471,14 @@
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Causa surface invokes.
    :rf.causa.palette.fx/popout
+   ;; rf2-ybjkx — palette snapshot-app-db side-effect. Drops the
+   ;; focused frame's app-db onto the JS console + clipboard so the
+   ;; user can share a session state.
+   :rf.causa.palette.fx/snapshot-app-db
+   ;; rf2-ybjkx — palette recents localStorage round-trip. Bound to
+   ;; every `:command` invocation so the persisted list is always
+   ;; current.
+   :rf.causa.palette.fx/persist-recents
    ;; rf2-o5f5f.1 — Runtime ↔ Static mode persistence side-effect.
    ;; Bound to the `:rf.causa/set-mode` + `:rf.causa/toggle-mode`
    ;; handlers; writes the post-mutation mode to localStorage in one

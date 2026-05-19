@@ -106,6 +106,45 @@
     (is (contains? ids :open-popout))
     (is (contains? ids :close-palette))))
 
+;; ---- rf2-ybjkx — mode-aware command surface ----------------------------
+
+(deftest command-items-include-rf2-ybjkx-verbs
+  ;; rf2-ybjkx — new commands per the bead's scope: theme toggle,
+  ;; reduced-motion cycle, snapshot, jump-to-settings, toggle-mode,
+  ;; clear-epoch-history.
+  (let [items (sources/command-items)
+        ids   (set (map :id items))]
+    (is (contains? ids :toggle-theme))
+    (is (contains? ids :cycle-reduced-motion))
+    (is (contains? ids :snapshot-app-db))
+    (is (contains? ids :jump-to-settings))
+    (is (contains? ids :toggle-mode))
+    (is (contains? ids :clear-epoch-history))))
+
+(deftest command-items-carry-modes-set
+  (let [items (sources/command-items)]
+    (is (every? #(set? (:modes %)) items)
+        "every command carries a `:modes` set per rf2-ybjkx")
+    (let [toggle (first (filter #(= :toggle-mode (:id %)) items))]
+      (is (= #{:runtime :static} (:modes toggle))
+          "toggle-mode surfaces in BOTH modes (chord parity)"))
+    (let [clear-trace (first (filter #(= :clear-trace-buffer (:id %)) items))]
+      (is (= #{:runtime} (:modes clear-trace))
+          "trace-buffer clear is Runtime-only"))))
+
+(deftest static-tab-items-shape
+  (let [tabs  [{:id :machines :label "Machines"}
+               {:id :routes   :label "Routes"}]
+        items (sources/static-tab-items tabs)]
+    (is (= 2 (count items)))
+    (is (every? #(= :panel (:source %)) items))
+    (is (every? #(= #{:static} (:modes %)) items)
+        "static tab jumps are Static-only")
+    (is (= [:palette/select-static-tab :machines]
+           (-> items first :action)))
+    (is (= [:static :machines] (-> items first :id))
+        "id namespaced under :static so it doesn't collide with Runtime panel ids")))
+
 ;; ---- build-index --------------------------------------------------------
 
 (deftest build-index-includes-every-source
@@ -189,3 +228,94 @@
   (is (false? (sources/popoutable? {:popout? false})))
   (is (false? (sources/popoutable? {}))
       "default: items are not popoutable unless they say so"))
+
+;; ---- rf2-ybjkx — build-index mode-awareness ----------------------------
+
+(deftest build-index-runtime-mode-filters-static-tabs
+  (let [index (sources/build-index
+                {:panels      sample-panels
+                 :static-tabs [{:id :machines :label "Machines"}
+                               {:id :routes   :label "Routes"}]
+                 :mode        :runtime})
+        static-ids (set (map :id (filter #(and (= :panel (:source %))
+                                               (vector? (:id %))
+                                               (= :static (first (:id %))))
+                                         index)))]
+    (is (empty? static-ids)
+        "Runtime mode hides Static-only items per rf2-ybjkx")))
+
+(deftest build-index-static-mode-hides-runtime-only-items
+  (let [index   (sources/build-index
+                  {:panels       sample-panels
+                   :static-tabs  [{:id :machines :label "Machines"}]
+                   :trace-buffer sample-trace-buffer
+                   :frame-ids    sample-frames
+                   :mode         :static})
+        ids     (set (map :id index))
+        sources (set (map :source index))]
+    (is (not (contains? ids :clear-trace-buffer))
+        "trace buffer clear is Runtime-only — hidden in Static")
+    (is (not (contains? sources :recent-event))
+        "recent-event source is event-coupled — hidden in Static")
+    (is (not (contains? sources :frame))
+        "frame-picker shortcuts are Runtime-only")
+    (is (contains? ids :toggle-mode)
+        "mode toggle surfaces in BOTH modes (chord parity)")
+    (is (contains? ids :toggle-theme))
+    (is (contains? ids :jump-to-settings))
+    (is (some #(= [:static :machines] (:id %)) index)
+        "Static tab jump surfaces in Static mode")))
+
+(deftest build-index-nil-mode-preserves-pre-bead-behaviour
+  ;; Backward-compat: a nil :mode keeps every item — the pre-bead
+  ;; contract before mode filtering shipped.
+  (let [index   (sources/build-index
+                  {:panels       sample-panels
+                   :trace-buffer sample-trace-buffer
+                   :frame-ids    sample-frames
+                   :handlers     sample-handlers})
+        sources (set (map :source index))]
+    (is (contains? sources :command))
+    (is (contains? sources :panel))
+    (is (contains? sources :recent-event))
+    (is (contains? sources :frame))))
+
+;; ---- rf2-ybjkx — recents boost -----------------------------------------
+
+(deftest build-index-recents-boost-bumps-recent-commands
+  (let [index-baseline (sources/build-index
+                         {:panels sample-panels})
+        index-with-rec (sources/build-index
+                         {:panels  sample-panels
+                          :recents [:toggle-theme]})
+        find-theme     (fn [idx]
+                         (first (filter #(= :toggle-theme (:id %)) idx)))
+        base-boost     (:boost (find-theme index-baseline))
+        bumped-boost   (:boost (find-theme index-with-rec))]
+    (is (> bumped-boost base-boost)
+        "a recent command's boost is higher than the baseline")
+    (is (= (+ base-boost sources/recents-boost-max) bumped-boost)
+        "position-0 (most recent) gets the full recents-boost-max bump")))
+
+(deftest build-index-recents-boost-decays-with-position
+  (let [index (sources/build-index
+                {:panels  sample-panels
+                 :recents [:toggle-theme :toggle-mode :jump-to-settings]})
+        boost (fn [id] (:boost (first (filter #(= id (:id %)) index))))]
+    (is (> (boost :toggle-theme) (boost :toggle-mode))
+        "position 0 beats position 1")
+    (is (> (boost :toggle-mode) (boost :jump-to-settings))
+        "position 1 beats position 2")))
+
+(deftest rank-empty-query-surfaces-recents-first
+  ;; The bead's "top-3 recent surfaced first" contract: with an empty
+  ;; query the recent commands should appear at the top of the
+  ;; results.
+  (let [index   (sources/build-index
+                  {:panels  sample-panels
+                   :recents [:toggle-theme]})
+        results (sources/rank index "" 100)
+        top     (first results)]
+    (is (= :command (:source top)))
+    (is (= :toggle-theme (:id top))
+        "the most recently invoked command surfaces at index 0")))

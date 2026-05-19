@@ -30,7 +30,10 @@
   dispatcher of a single uniform event id."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
+            [day8.re-frame2-causa.palette.recents :as recents]
             [day8.re-frame2-causa.palette.sources :as sources]))
 
 ;; ---- effect: mount-level pop-out -----------------------------------------
@@ -90,6 +93,78 @@
       (assoc :palette-query "")
       (reset-cursor)))
 
+;; ---- rf2-ybjkx — recents ------------------------------------------------
+
+(defn- record-recent
+  "Pure reducer. Update `db`'s `:palette-recents` slot to put
+  `command-id` at the head (dedup'd, capped). Returns the new db.
+  No-op for nil ids."
+  [db command-id]
+  (if (nil? command-id)
+    db
+    (assoc db :palette-recents
+              (recents/record (get db :palette-recents []) command-id))))
+
+;; ---- rf2-ybjkx — snapshot app-db ---------------------------------------
+;;
+;; Snapshot the focused frame's app-db onto the JS console as a single
+;; `console.log(value)` call. Side effect; never blocks. Reads the
+;; focused frame via Causa's app-db `:target-frame` slot (the frame
+;; the user picked in the L1 frame-picker) — defaulting to `:rf/default`
+;; when unset. We also try to copy a pretty-printed EDN string to the
+;; clipboard via `navigator.clipboard.writeText` when available so the
+;; user can paste into a teammate's chat / a gist. Clipboard writes
+;; can reject (insecure context, no permission); we swallow the throw
+;; so the console log lands either way.
+
+(defn- snapshot-app-db!
+  "Side-effect: drop `(rf/get-frame-db target-frame)` onto the JS
+  console and copy a pr-str of it to the clipboard when reachable.
+  No-op when neither console nor clipboard is present (test
+  runtimes). Returns nil."
+  [target-frame]
+  (try
+    (let [tf  (or target-frame :rf/default)
+          db  (when (some? (frame/frame tf))
+                (rf/get-frame-db tf))
+          tag (str "[rf2-causa] palette snapshot · frame "
+                   (pr-str tf))]
+      (when (and (exists? js/console) (.-log js/console))
+        (try
+          (.log js/console tag db)
+          (catch :default _ nil)))
+      (when (and (exists? js/navigator)
+                 (.-clipboard js/navigator)
+                 (.-writeText (.-clipboard js/navigator)))
+        (try
+          (.writeText (.-clipboard js/navigator) (pr-str db))
+          (catch :default _ nil))))
+    (catch :default _ nil))
+  nil)
+
+;; ---- rf2-ybjkx — theme cycle -------------------------------------------
+
+(defn- next-theme
+  "Pure helper. Cycle `:dark → :light → :dark`. Anything unknown lands
+  on `:dark` (the canonical default per `config/default-settings`)."
+  [current]
+  (case current
+    :dark  :light
+    :light :dark
+    :dark))
+
+;; ---- rf2-ybjkx — reduced-motion cycle ----------------------------------
+
+(defn- next-motion-override
+  "Pure helper. Cycle `:os → :always → :never → :os`. Unknown lands on
+  `:os` (the conservative default)."
+  [current]
+  (case current
+    :os      :always
+    :always  :never
+    :never   :os
+    :os))
+
 ;; ---- install --------------------------------------------------------------
 
 (defn install!
@@ -102,14 +177,38 @@
 
   (rf/reg-fx :rf.causa.palette.fx/popout popout-fx!)
 
+  ;; rf2-ybjkx — snapshot app-db fx. Side-effect handler; reads the
+  ;; focused frame's db and ships it to the JS console + clipboard.
+  ;; Late-bound through the framework's `frame/frame` registry so a
+  ;; nil-frame ctx is a silent no-op rather than a throw.
+  (rf/reg-fx :rf.causa.palette.fx/snapshot-app-db
+    (fn [_ctx {:keys [target-frame]}]
+      (snapshot-app-db! target-frame)))
+
+  ;; rf2-ybjkx — recents persistence fx. The pure reducer writes the
+  ;; vector into app-db; this fx mirrors the same vector into
+  ;; localStorage so a reload surfaces the user's recents. Best-effort
+  ;; — `recents/save!` swallows quota / availability failures.
+  (rf/reg-fx :rf.causa.palette.fx/persist-recents
+    (fn [_ctx recents-vec]
+      (recents/save! recents-vec)))
+
   ;; ---- open / close / toggle --------------------------------------------
+  ;;
+  ;; rf2-ybjkx — on open we ensure the `:palette-recents` slot is
+  ;; seeded from localStorage. Open is rare (user-driven keystroke)
+  ;; so the load cost is negligible; lazy-seed means we don't have to
+  ;; thread a preload hook through every test that drives the registry.
 
   (rf/reg-event-db :rf.causa/palette-open
     (fn [db _event]
-      (-> db
-          (assoc :palette-open? true)
-          (assoc :palette-query "")
-          (reset-cursor))))
+      (let [seeded (if (contains? db :palette-recents)
+                     db
+                     (assoc db :palette-recents (recents/load)))]
+        (-> seeded
+            (assoc :palette-open? true)
+            (assoc :palette-query "")
+            (reset-cursor)))))
 
   (rf/reg-event-db :rf.causa/palette-close
     (fn [db _event]
@@ -119,10 +218,13 @@
     (fn [db _event]
       (if (get db :palette-open? false)
         (close-palette db)
-        (-> db
-            (assoc :palette-open? true)
-            (assoc :palette-query "")
-            (reset-cursor)))))
+        (let [seeded (if (contains? db :palette-recents)
+                       db
+                       (assoc db :palette-recents (recents/load)))]
+          (-> seeded
+              (assoc :palette-open? true)
+              (assoc :palette-query "")
+              (reset-cursor))))))
 
   ;; ---- query / cursor ---------------------------------------------------
 
@@ -160,24 +262,49 @@
   (rf/reg-event-fx :rf.causa/palette-invoke
     (fn [{:keys [db]} [_ item popout?]]
       (let [[verb & args]    (:action item)
-            close-db         (close-palette db)
+            ;; rf2-ybjkx — record recents for `:command` source items
+            ;; only. Panels / frames / handlers / settings already
+            ;; have their own recency surface (the recent-event source
+            ;; and the user's session memory); the palette's recents
+            ;; track command verbs.
+            recent-id        (when (= :command (:source item)) (:id item))
+            db-with-recent   (record-recent db recent-id)
+            close-db         (close-palette db-with-recent)
             ;; Pop-out is gated on the item's own opt-in (per
             ;; sources/popoutable?) — Ctrl+Enter on a non-popoutable
             ;; item invokes normally so the user never gets surprised
             ;; with a no-op.
             popout-now?      (and popout? (sources/popoutable? item))
+            ;; rf2-ybjkx — persist the recents vector on every command
+            ;; invoke so the next session surfaces the user's history.
+            ;; Pure recents reads (no command invoked) skip this.
             base-fx          (cond-> []
                                popout-now?
-                               (conj [:rf.causa.palette.fx/popout {}]))]
+                               (conj [:rf.causa.palette.fx/popout {}])
+                               (some? recent-id)
+                               (conj [:rf.causa.palette.fx/persist-recents
+                                      (get db-with-recent :palette-recents)]))]
         (case verb
           :palette/select-panel
-          ;; Panel ids in `palette-panels` are the 6 L3 tab ids per
+          ;; Panel ids in `palette-panels` are the 7 L3 tab ids per
           ;; spec/018 §5 (rf2-qy0nu trimmed the 14-id legacy list).
           ;; Dispatch into `:rf.causa/select-tab` so the visible tab
           ;; flips; the legacy `:rf.causa/select-panel` slot is no
           ;; longer read by the 4-layer shell.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.causa/select-tab (first args)]])}
+
+          :palette/select-static-tab
+          ;; rf2-ybjkx — Static-mode L3 tab jump. Routes through
+          ;; `:rf.causa.static/select-tab` (the Static-scoped tab slot
+          ;; that the static shell's tab-bar reads). The dispatch is
+          ;; safe even when `:experimental/static-mode?` is OFF — the
+          ;; event handler is registered regardless; the surface
+          ;; composer just doesn't read the slot until the flag flips
+          ;; on. The palette filter prevents Static jumps from
+          ;; surfacing in Runtime mode in the first place.
+          {:db close-db
+           :fx (conj base-fx [:dispatch [:rf.causa.static/select-tab (first args)]])}
 
           :palette/select-event
           ;; Future: route to event-detail with the event pre-
@@ -191,12 +318,16 @@
            :fx base-fx}
 
           :palette/select-frame
-          ;; Frame focus is a Causa-side annotation today (rf2-wm7z4
-          ;; Phase 1 — frame picker UI lives at the top strip per
-          ;; spec/007-UX-IA.md). Store the choice; a follow-on bead
-          ;; wires the picker UI to read it.
-          {:db (assoc close-db :selected-target-frame (first args))
-           :fx base-fx}
+          ;; rf2-ybjkx — drive the frame-picker spine event so the
+          ;; user's choice flows through every per-frame composite
+          ;; (App-DB Diff, Views, Routing). The pre-bead behaviour
+          ;; just stamped `:selected-target-frame` into Causa's app-db
+          ;; with no plumb-through; this dispatches the canonical
+          ;; `:rf.causa/set-frame` event the L1 frame-picker uses so
+          ;; the palette is wire-compatible with the rest of the
+          ;; chrome.
+          {:db close-db
+           :fx (conj base-fx [:dispatch [:rf.causa/set-frame (first args)]])}
 
           :palette/inspect-handler
           ;; Phase 1: route to a Causa-side store of the inspected
@@ -227,16 +358,87 @@
             {:db close-db
              :fx base-fx})
 
+          :palette/clear-epoch-history
+          ;; rf2-ybjkx — drop Causa's epoch ring. The slot lives in
+          ;; Causa's app-db at `:epoch-history`; clearing it lets the
+          ;; user start a fresh session without restarting the host
+          ;; app. App-DB Diff + Views read off this slot so the next
+          ;; epoch lands cleanly.
+          {:db (dissoc close-db :epoch-history)
+           :fx base-fx}
+
           :palette/reset-suppressed-counters
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.causa/reset-suppressed-counters]])}
 
-          :palette/open-popout
+          :palette/snapshot-app-db
+          ;; rf2-ybjkx — Snapshot the FOCUSED frame's app-db onto the
+          ;; console + clipboard. The focused-frame is the slot the
+          ;; L1 frame-picker writes (`:target-frame`); falling back to
+          ;; `:rf/default` when unset.
           {:db close-db
-           :fx [[:rf.causa.palette.fx/popout {}]]}
+           :fx (conj base-fx
+                     [:rf.causa.palette.fx/snapshot-app-db
+                      {:target-frame
+                       (or (get db-with-recent :target-frame) :rf/default)}])}
+
+          :palette/toggle-theme
+          ;; rf2-ybjkx — flip the Settings popup's theme slot via the
+          ;; existing settings-update event. Routes through the same
+          ;; reducer that the popup's radio uses so the popup's
+          ;; reactive sub re-fires + the localStorage round-trip
+          ;; lands + `apply-theme!` flips the `<html>` class. Reads
+          ;; the current theme from `config/get-setting` (the live
+          ;; atom; the popup-seeded app-db slot mirrors the same
+          ;; value but reading the atom keeps the toggle pure on the
+          ;; cold path — no settings-open prerequisite).
+          {:db close-db
+           :fx (conj base-fx
+                     [:dispatch
+                      [:rf.causa/settings-update :theme nil
+                       (next-theme (config/get-setting :theme nil))]])}
+
+          :palette/cycle-reduced-motion
+          ;; rf2-ybjkx — cycle the user-side reduced-motion override
+          ;; (:os → :always → :never → :os). Routes through the
+          ;; settings-update event so the apply-fn + persist path are
+          ;; the canonical ones — no parallel state.
+          {:db close-db
+           :fx (conj base-fx
+                     [:dispatch
+                      [:rf.causa/settings-update :general
+                       :reduced-motion-override
+                       (next-motion-override
+                         (config/get-setting :general :reduced-motion-override))]])}
+
+          :palette/jump-to-settings
+          ;; rf2-ybjkx — open the Settings popup. Routes through the
+          ;; existing `:rf.causa/settings-open` event so the popup's
+          ;; open path is the canonical one (lifts the atom snapshot
+          ;; into app-db, defaults the active-tab to `:general`).
+          {:db close-db
+           :fx (conj base-fx [:dispatch [:rf.causa/settings-open]])}
+
+          :palette/toggle-mode
+          ;; rf2-ybjkx — flip Runtime ↔ Static. Routes through the
+          ;; existing `:rf.causa/toggle-mode` event (also bound to
+          ;; Cmd/Ctrl+Shift+M). Single source of truth for the
+          ;; mode-flip + persistence side-effect.
+          {:db close-db
+           :fx (conj base-fx [:dispatch [:rf.causa/toggle-mode]])}
+
+          :palette/open-popout
+          ;; The :open-popout verb always pops out — guard against
+          ;; double-fire when the user also held Ctrl/Meta (popout-now?
+          ;; would have appended the popout fx to `base-fx`).
+          {:db close-db
+           :fx (cond-> base-fx
+                 (not popout-now?)
+                 (conj [:rf.causa.palette.fx/popout {}]))}
 
           :palette/close
-          {:db close-db}
+          {:db close-db
+           :fx base-fx}
 
           ;; Unknown verb — close the palette and log to console so
           ;; the dev sees the gap. Never silently swallow.
@@ -245,6 +447,7 @@
               (.warn js/console
                      (str "[rf2-causa] palette: unknown action verb "
                           (pr-str verb))))
-            {:db close-db})))))
+            {:db close-db
+             :fx base-fx})))))
 
   nil)

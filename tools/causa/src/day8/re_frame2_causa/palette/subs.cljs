@@ -53,6 +53,18 @@
    {:id :routing  :label "Routing"}
    {:id :issues   :label "Issues"}])
 
+;; rf2-ybjkx — Static-mode L3 tabs (5 entries; mirrors `static/shell.cljs/
+;; tabs`). The palette holds its own copy so Static-mode tab jumps land
+;; without forming a `palette → static.shell → palette` cycle. The list
+;; is small (5 entries) and stable — Static is a sealed enumeration per
+;; the parent epic (rf2-o5f5f.1).
+(def palette-static-tabs
+  [{:id :machines :label "Machines"}
+   {:id :routes   :label "Routes"}
+   {:id :schemas  :label "Schemas"}
+   {:id :views    :label "Views"}
+   {:id :events   :label "Events"}])
+
 (defn- handler-entries
   "Flat seq of `{:id :kind :doc :file :line}` rows from the framework
   registrar. Kinds covered: :event, :sub, :fx, :cofx — the four the
@@ -90,21 +102,36 @@
     (fn [db _query]
       (max 0 (or (get db :palette-cursor) 0))))
 
+  ;; rf2-ybjkx — last-used commands. Vector of command keyword ids
+  ;; (most-recent first; capped at `recents/max-recents`). The slot is
+  ;; seeded from localStorage on first palette-open (see events.cljs
+  ;; `:rf.causa/palette-open`) and bumped on every `:command`
+  ;; invocation. Drives the recents boost in `sources/build-index`.
+  (rf/reg-sub :rf.causa/palette-recents
+    (fn [db _query]
+      (vec (get db :palette-recents []))))
+
   ;; Layer-2 — aggregates the searchable corpus. Depends on
-  ;; `:rf.causa/trace-buffer` (recent events) so it re-fires on every
-  ;; trace push; the registrar / frame snapshot lookups happen inside
-  ;; the body and ride that same recompute cadence.
+  ;; `:rf.causa/trace-buffer` (recent events) + `:rf.causa/mode`
+  ;; (rf2-ybjkx mode filter) + `:rf.causa/palette-recents` (rf2-ybjkx
+  ;; recents boost). The registrar / frame snapshot lookups happen
+  ;; inside the body and ride the same recompute cadence.
   (rf/reg-sub :rf.causa/palette-index
     :<- [:rf.causa/trace-buffer]
-    (fn [buffer _query]
+    :<- [:rf.causa/mode]
+    :<- [:rf.causa/palette-recents]
+    (fn [[buffer mode recents] _query]
       ;; The sub fn does not receive `db`; we reach into the registrar
       ;; (a process-global atom) + the framework's frame registry
       ;; via the public rf wrappers.
       (sources/build-index
         {:panels             palette-panels
+         :static-tabs        palette-static-tabs
          :trace-buffer       buffer
          :frame-ids          (rf/frame-ids)
-         :handlers           (handler-entries)})))
+         :handlers           (handler-entries)
+         :mode               mode
+         :recents            recents})))
 
   ;; Layer-3 — ranked results for the current query.
   (rf/reg-sub :rf.causa/palette-results
