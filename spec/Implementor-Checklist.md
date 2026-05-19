@@ -195,7 +195,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### S2. Snapshot/restore mechanism
 
-- **Why it matters.** Test fixtures (`make-restore-fn`), epoch history, and time-travel all depend on full-frame-state capture-and-restore being a value swap.
+- **Why it matters.** Test fixtures, epoch history (`epoch/restore-epoch` + `epoch/reset-frame-db!`), and time-travel all depend on full-frame-state capture-and-restore being a value swap.
 - **Options by host.** With persistent collections (per **F2**), a snapshot is a pointer; restore is `replace-container!`. Without persistent collections, snapshot is deep-copy and expensive.
 - **Reference-impl picks.** CLJS captures the full app-db value; restore swaps it.
 - **Trade-offs.** This is why **F2** is pattern-required — the cost profile of revertibility depends on it.

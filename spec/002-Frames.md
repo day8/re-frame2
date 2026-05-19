@@ -749,18 +749,6 @@ The shape that drains as part of the surrounding cascade is `:fx [[:dispatch eve
 
 The same-frame check above is strict: a `dispatch-sync!` against the caller's own frame during its drain is rejected. The cross-frame case is *not* rejected. A `dispatch-sync!` against a **different** frame while the caller's frame is mid-drain interleaves the cascades — frame B runs to settled, then frame A continues. This is intentional (frames are independent state machines per [§Rules rule 1](#rules) — no cross-frame drain), but rarely the caller's intent, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) so observability tools spot the pattern. The dispatch proceeds; `:recovery :no-recovery`. For fire-and-forget cross-frame coordination prefer the async form `(rf/dispatch event {:frame other})` — it queues on the target frame's router and drains on a later cycle, after the caller's cascade settles. Per rf2-fp97.
 
-### Preserved low-level APIs are per-frame
-
-The router/queue helpers preserved from v1 operate on a *specific* frame's router state. Multi-frame routing made them under-specified in v1; v1.x of re-frame2 locks the rule:
-
-> **Every preserved low-level router helper takes an explicit `frame-id` argument. The zero-arg form targets `:rf/default`.**
-
-`make-restore-fn` is the v1 surface that survives this rule today: it captures a named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback. The single-arg form `(rf/make-restore-fn)` targets `:rf/default`; the explicit-frame form `(rf/make-restore-fn :todo)` targets a specific frame. (The v1 helpers `add-post-event-callback` / `remove-post-event-callback` / `purge-event-queue` are dropped in v2 — see [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
-
-**What `make-restore-fn` actually restores.** The captured snapshot is the frame's **value-shape**: `app-db` plus the frame-local registry tier (so a test that spawned dynamic actors during the cascade sees those registrations roll back when the closure runs). The **sub-cache** is *not* snapshotted — restoration clears it, and live subscriptions re-materialise lazily on next deref against the restored `app-db`. This matches the pre-deref behaviour of an unrestored frame: the cache is a derivative of `app-db`, not part of the frame's identity. Headless test code that asserts on subscription values after `(restore!)` should re-deref, not expect cached values from the pre-restore session. (The same constraint applies to substrate-agnostic disposal — see [§Open questions — Sub-cache disposal on frame destroy](#sub-cache-disposal-on-frame-destroy).)
-
-These helpers are not part of the dispatch envelope and don't propagate across frames — they are operational helpers, not data-flow primitives. Tools (10x, re-frame-pair) call them per-frame as part of session management.
-
 ## Run-to-completion dispatch (drain semantics)
 
 re-frame2 dispatches **run to completion**: when an external event is processed, every event dispatched (synchronously) during its handler — and every event those handlers dispatch in turn — drains to fixed point before any further external event is processed *for this frame*, and before any view re-renders.
