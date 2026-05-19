@@ -102,6 +102,22 @@
         [db false])
       (try
         (let [new-output (apply (:output flow) new-inputs)
+              ;; Per rf2-qlzh4: capture the pre-write value at the
+              ;; flow's `:path` BEFORE we assoc-in the new output.
+              ;; This becomes the `:before` slot on the
+              ;; `:rf.flow/computed` trace below — consumers (Causa
+              ;; Event Detail, re-frame-10x flow panel) no longer
+              ;; need to walk the epoch's `:db-before` snapshot to
+              ;; render "wrote [:cart :total] 47.50 -> 52.50". The
+              ;; read happens against `db` (the loop accumulator
+              ;; that includes prior flows' writes in this drain), so
+              ;; a downstream flow whose `:path` overlaps an upstream
+              ;; flow's `:path` sees the UPSTREAM's just-written
+              ;; value as its `:before` — the correct cascade-local
+              ;; semantics. Gated to dev-only so the read is DCE'd
+              ;; under `:advanced` + `goog.DEBUG=false`.
+              old-output (when interop/debug-enabled?
+                           (get-in db (:path flow)))
               new-db     (assoc-in db (:path flow) new-output)]
           (swap! last-inputs assoc-in [flow-id frame-id] new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/computed`
@@ -109,24 +125,24 @@
           ;; `=`-equality so this only fires when inputs actually
           ;; changed.
           ;;
-          ;; Wire-bearing payloads (`:input-values`, `:result`) ride
-          ;; through `elision/elide-wire-value` per Spec 009 §Size
-          ;; elision in traces — the walker is the single normative
-          ;; emission site for `:rf.size/large-elided` (and the
-          ;; `:rf/redacted` privacy sentinel). Without this the flow
-          ;; trace bypassed the elision contract that every other
-          ;; wire-emitting surface honours; a flow reading or
-          ;; producing a large or sensitive value would surface raw
-          ;; on the trace bus. Off-box defaults match `event-emit` /
-          ;; `error-emit`.
+          ;; Wire-bearing payloads (`:input-values`, `:result`,
+          ;; `:before`) ride through `elision/elide-wire-value` per
+          ;; Spec 009 §Size elision in traces — the walker is the
+          ;; single normative emission site for `:rf.size/large-
+          ;; elided` (and the `:rf/redacted` privacy sentinel).
+          ;; Without this the flow trace bypassed the elision
+          ;; contract that every other wire-emitting surface honours;
+          ;; a flow reading or producing a large or sensitive value
+          ;; would surface raw on the trace bus. Off-box defaults
+          ;; match `event-emit` / `error-emit`.
           ;;
           ;; The `:path` opt on each walker call names where in the
-          ;; slice's root the wrapped value lives — `:result` IS the
-          ;; value at the flow's output path; each `:input-values`
-          ;; entry is the value at the matching input path. The
-          ;; walker reads `[:rf/elision :declarations <path>]` and
-          ;; emits the marker for schema-declared
-          ;; large slots.
+          ;; slice's root the wrapped value lives — `:result` and
+          ;; `:before` BOTH live at the flow's output path; each
+          ;; `:input-values` entry is the value at the matching input
+          ;; path. The walker reads `[:rf/elision :declarations
+          ;; <path>]` and emits the marker for schema-declared large
+          ;; slots.
           ;;
           ;; Outer `interop/debug-enabled?` gate keeps the elision
           ;; walker out of CLJS prod builds (rf2-drr4z) — Closure
@@ -141,6 +157,9 @@
                                                   {:frame frame-id :path input-path}))
                                               (:inputs flow)
                                               new-inputs)
+                          :before       (elision/elide-wire-value
+                                          old-output
+                                          {:frame frame-id :path (:path flow)})
                           :result       (elision/elide-wire-value
                                           new-output
                                           {:frame frame-id :path (:path flow)})

@@ -222,7 +222,7 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 | `:operation` | Fires when |
 |---|---|
 | `:rf.flow/registered` | `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, after cycle detection passes. |
-| `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). |
+| `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). Carries `:before` (the value at `:path` immediately before this drain's write — `nil` when the slot had never been written) alongside `:result`, so consumers render the wrote-line "wrote `[:path]` `<before>` → `<after>`" without walking the surrounding epoch's `:db-before` snapshot. Both ride through `elide-wire-value` against the flow's `:path` (rf2-qlzh4). |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; rf2-719e value-equal recompute suppression). |
 | `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
 | `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the four-rule contract (prior writes preserved, failing-flow's `last-inputs` not advanced, cascade halts, router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
