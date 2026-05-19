@@ -1,6 +1,20 @@
 (ns day8.re-frame2-causa.spine
   "The single-axis spine substrate (rf2-adve5).
 
+  ## rf2-r9lyy — `:ungrouped` opt-in surface
+
+  By default the spine strips the `:ungrouped` pseudo-cascade bucket
+  from every walk (`focusable-cascades`) so the bucket is never a
+  focus target — pinning to it degrades the L4 panels into an
+  aggregate look (rf2-fzbrw). Mike's 2026-05-19 closure of rf2-q60yf
+  flipped this from a hard contract to an opt-in: the new
+  `:settings/show-ungrouped?` knob (defaults `false`) reveals the
+  bucket in L2 and lets the user click it to focus. When the flag
+  is `true`, the spine's helpers/reducers include `:ungrouped` in
+  their walks; when `false`, the existing strict behaviour is
+  preserved. Every public arity that previously walked
+  `focusable-cascades` gains an additive arity that takes the flag.
+
   Per `tools/causa/spec/018-Event-Spine.md` §6 Spine binding the spine
   sub `:rf.causa/focus` is the one axis every dependent surface reads
   from. When a user clicks a row, EVERY dependent surface (count
@@ -44,6 +58,7 @@
   updates the legacy slots."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
+            [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.focus-helpers :as fh]
             [day8.re-frame2-causa.panels.common-helpers :as common]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -55,9 +70,9 @@
   time'. The `:ungrouped` bucket produced by `projection/group-cascades`
   for registry-time emits / frame lifecycle outside a drain / REPL
   evals carries no event vector and is therefore NOT a valid focus
-  target: pinning to it leaves every event-detail / app-db / views
-  panel with no cascade to render, which degrades into the unwanted
-  'all subs / all handlers' aggregate look.
+  target BY DEFAULT: pinning to it leaves every event-detail / app-db
+  / views panel with no cascade to render, which degrades into the
+  unwanted 'all subs / all handlers' aggregate look.
 
   Strip the bucket before any spine walk so:
     - the head/tail boundary predicates align with what the user sees
@@ -67,10 +82,23 @@
     - `compose-focus` cannot resolve an effective dispatch-id to
       `:ungrouped` for a stored slot that was already pointing there.
 
+  ## rf2-r9lyy — opt-in inclusion
+
+  Mike 2026-05-19 closure of rf2-q60yf: pass `show-ungrouped? true`
+  (the 2-arity) to KEEP the bucket. Users debugging SSR / REPL /
+  registry-time flows opt in via Settings → General → Power user
+  → 'Show :ungrouped pseudo-cascade events in L2'. When the flag
+  is on, the bucket appears as a focusable target so clicking it
+  populates the downstream panels with its trace events.
+
   Pure data; JVM-runnable; idempotent (re-filtering a cleaned vector
   is a no-op)."
-  [cascades]
-  (filterv #(not= :ungrouped (:dispatch-id %)) cascades))
+  ([cascades]
+   (focusable-cascades cascades false))
+  ([cascades show-ungrouped?]
+   (if show-ungrouped?
+     (vec cascades)
+     (filterv #(not= :ungrouped (:dispatch-id %)) cascades))))
 
 (defn head-cascade
   "The latest cascade in the projected list — the cascade whose
@@ -94,9 +122,15 @@
   Used for click-on-head detection (rf2-xzzih): clicking the visible
   head event should stay LIVE; the raw `head-dispatch-id` would treat
   an `:ungrouped` bucket as the head if it sorted last, which the
-  user never sees as a focusable row."
-  [cascades]
-  (head-dispatch-id (focusable-cascades cascades)))
+  user never sees as a focusable row.
+
+  rf2-r9lyy — the 2-arity threads `show-ungrouped?` through
+  `focusable-cascades` so the head-detection also lights up the
+  bucket when the user has opted in."
+  ([cascades]
+   (focusable-head-id cascades false))
+  ([cascades show-ungrouped?]
+   (head-dispatch-id (focusable-cascades cascades show-ungrouped?))))
 
 (defn focusable-head-frame-id
   "The `:frame` of the head focusable cascade — i.e. the frame whose
@@ -111,7 +145,12 @@
   boot empty-state for `:cart-frame` (the observed frame) because
   `:epoch-history` was seeded from `:rf/default` (the legacy default).
   Picker-driven `set-frame-reducer` already aligns the same two axes
-  on a frame change; this helper extends that alignment to mount."
+  on a frame change; this helper extends that alignment to mount.
+
+  Mount-seed callers stay on the 1-arity (which always strips
+  `:ungrouped`) because the bucket carries `:frame nil` — seeding
+  `:target-frame nil` is never useful regardless of the
+  `:show-ungrouped?` knob."
   [cascades]
   (:frame (head-cascade (focusable-cascades cascades))))
 
@@ -234,9 +273,20 @@
   Without this scoping the composer would pick the global head
   (whatever frame fired the latest event), which under multi-frame
   apps drifts focus off the picker's frame on every cross-frame
-  dispatch."
-  [focus cascades]
-  (let [focusable* (focusable-cascades cascades)
+  dispatch.
+
+  ## rf2-r9lyy — `:show-ungrouped?` opt-in
+
+  Pass `show-ungrouped? true` via the 3-arity to include the
+  `:ungrouped` bucket as a valid focus target. When on:
+    - the head walk considers `:ungrouped` as a possible head;
+    - a stored `:dispatch-id :ungrouped` is pinnable (does not snap
+      to head).
+  When off (default 2-arity), the existing strict behaviour applies."
+  ([focus cascades]
+   (compose-focus focus cascades false))
+  ([focus cascades show-ungrouped?]
+  (let [focusable* (focusable-cascades cascades show-ungrouped?)
         slot-frame (:frame focus)
         focusable  (if slot-frame
                      (filterv #(= slot-frame (:frame %)) focusable*)
@@ -245,11 +295,15 @@
         slot-id    (:dispatch-id focus)
         paused?    (boolean (:paused? focus))
         ;; rf2-fzbrw — a slot pointing at nil OR the :ungrouped bucket
-        ;; is NOT a valid focus pin. (Evicted ids are still a valid
-        ;; pin: the event-detail panel surfaces its orphaned-state
-        ;; copy off them, so we don't conflate "evicted" with "never
-        ;; valid".)
-        slot-pinnable? (and slot-id (not= :ungrouped slot-id))
+        ;; is NOT a valid focus pin BY DEFAULT. (Evicted ids are still
+        ;; a valid pin: the event-detail panel surfaces its orphaned-
+        ;; state copy off them, so we don't conflate "evicted" with
+        ;; "never valid".) rf2-r9lyy — when `show-ungrouped?` is on,
+        ;; `:ungrouped` IS pinnable so the user's click on the bucket
+        ;; row sticks.
+        slot-pinnable? (and slot-id
+                            (or show-ungrouped?
+                                (not= :ungrouped slot-id)))
         mode       (or (:mode focus)
                        (if (or (nil? slot-id) (= slot-id head-id))
                          :live
@@ -292,7 +346,7 @@
      :head?       (or (nil? eff-id)
                       (= eff-id head-id))
      :previewing? (boolean (:previewing? focus))
-     :paused?     paused?}))
+     :paused?     paused?})))
 
 ;; ---- pure reducers exposed for direct unit testing ----------------------
 
@@ -369,12 +423,16 @@
   The 3-arg arity (back-compat for callers that don't have the epoch
   buffer handy) treats `epoch-history` as empty so `:epoch-id`
   resolves to nil. Production callers in `install!` go through the
-  4-arg arity."
+  4-arg arity. rf2-r9lyy — the 5-arg arity threads
+  `show-ungrouped?` so the step walk includes the `:ungrouped`
+  bucket when the user has opted in."
   ([db cascades delta]
-   (focus-step-reducer db cascades [] delta))
+   (focus-step-reducer db cascades [] delta false))
   ([db cascades epoch-history delta]
+   (focus-step-reducer db cascades epoch-history delta false))
+  ([db cascades epoch-history delta show-ungrouped?]
    (let [slot-frame (get-in db [:focus :frame])
-         focusable* (focusable-cascades cascades)
+         focusable* (focusable-cascades cascades show-ungrouped?)
          ;; rf2-oziyr — when the frame-picker has restricted the
          ;; inspectable surface, the step walk MUST honour that
          ;; restriction so [◀ ▶ ⏭] / j / k step through the picker's
@@ -385,8 +443,9 @@
          ;; rf2-s0s5x Phase A: resolve current-id through the same
          ;; composer the spine sub uses, so in LIVE mode `j` steps
          ;; back from the CURRENT head rather than from a stale
-         ;; stored id.
-         current-id (:dispatch-id (compose-focus (get db :focus) cascades))
+         ;; stored id. rf2-r9lyy — pass show-ungrouped? so the
+         ;; composer's pinnability check honours the opt-in.
+         current-id (:dispatch-id (compose-focus (get db :focus) cascades show-ungrouped?))
          ;; rf2-a1z3b — when a focus-set is active, step skips past
          ;; out-of-focus cascades to the next/prev in-focus row. When
          ;; no focus-set is active, fall through to the plain
@@ -573,6 +632,18 @@
   [db]
   (get db :epoch-history []))
 
+(defn- db->show-ungrouped?
+  "Read the live `:show-ungrouped?` opt-in flag (rf2-r9lyy) off the
+  Causa app-db's seeded settings slot, falling back to the config
+  atom for callers that fire before the settings popup has been
+  opened (the popup's `:settings-open` handler seeds the slot from
+  the atom on first open). Mirrors the read shape used by the
+  `:rf.causa/show-ungrouped?` sub in `settings/subs.cljs`."
+  [db]
+  (boolean
+    (or (get-in db [:settings :general :show-ungrouped?])
+        (config/get-setting :general :show-ungrouped?))))
+
 (defn install!
   "Idempotent install — register the `:rf.causa/focus` sub + its
   driving events. Called from `registry.cljs`'s
@@ -593,25 +664,36 @@
   (rf/reg-sub :rf.causa/focus
     :<- [:rf.causa/focus-slot]
     :<- [:rf.causa/cascades]
-    (fn [[focus cascades] _query]
-      (compose-focus focus cascades)))
+    :<- [:rf.causa/show-ungrouped?]
+    (fn [[focus cascades show-ungrouped?] _query]
+      (compose-focus focus cascades show-ungrouped?)))
 
   ;; ---- events ----------------------------------------------------------
+  ;;
+  ;; rf2-r9lyy — the focus-cascade / focus-cascade-prev / next handlers
+  ;; read the live `:show-ungrouped?` setting off the db so the step /
+  ;; head detection walks include the `:ungrouped` bucket when the user
+  ;; has opted in. The settings popup writes through the same slot;
+  ;; pre-popup-seed reads fall back to the config atom via the helper
+  ;; below (mirrors the `:rf.causa/show-ungrouped?` sub).
 
   (rf/reg-event-db :rf.causa/focus-cascade
     (fn [db [_ dispatch-id frame-id]]
-      (let [cascades (db->cascades db)
-            head-id  (focusable-head-id cascades)
-            epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+      (let [cascades       (db->cascades db)
+            show-ungrouped? (db->show-ungrouped? db)
+            head-id        (focusable-head-id cascades show-ungrouped?)
+            epoch-id       (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
         (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
 
   (rf/reg-event-db :rf.causa/focus-cascade-prev
     (fn [db _event]
-      (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1)))
+      (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1
+                          (db->show-ungrouped? db))))
 
   (rf/reg-event-db :rf.causa/focus-cascade-next
     (fn [db _event]
-      (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1)))
+      (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1
+                          (db->show-ungrouped? db))))
 
   (rf/reg-event-db :rf.causa/follow-head
     (fn [db _event]

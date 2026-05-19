@@ -471,6 +471,90 @@
         (is (empty? (find-all-by-testid-prefix tree "rf-causa-event-row-"))
             "no event rows render — the :ungrouped bucket is filtered out")))))
 
+;; -------------------------------------------------------------------------
+;; rf2-r9lyy — :ungrouped opt-in surface (Option B)
+;;
+;; The `:settings/show-ungrouped?` knob (Settings → General → Power user)
+;; flips the bucket from "always filtered" to "revealed as a muted L2
+;; row". Default OFF preserves silent-by-default. The opt-in:
+;;   - reveals the :ungrouped bucket as an L2 row carrying
+;;     `data-rf-causa-ungrouped="true"`;
+;;   - the row's body-click dispatches `:rf.causa/focus-cascade
+;;     :ungrouped` so the spine pins to the bucket;
+;;   - the spine reducer + composer accept the pin under the opt-in
+;;     (covered directly by spine_cljs_test.cljs).
+;; -------------------------------------------------------------------------
+
+(deftest event-list-reveals-ungrouped-bucket-when-opt-in
+  (testing "rf2-r9lyy — `:show-ungrouped? true` reveals the :ungrouped
+            row in L2 with a distinct muted treatment"
+    (causa-setup!)
+    (config/update-setting! :general :show-ungrouped? true)
+    (try
+      (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+      (trace-bus/collect-trace! {:id 50 :op-type :registry
+                                 :operation :sub/registered
+                                 :tags {:sub-id :foo/bar}})
+      (rf/with-frame :rf/causa
+        (let [tree (shell/shell-view)
+              rows (find-all-by-testid-prefix tree "rf-causa-event-row-")
+              ungrouped-row (find-by-testid tree "rf-causa-event-row-:ungrouped")]
+          (is (= 2 (count rows))
+              "both the real event AND the :ungrouped bucket render under opt-in")
+          (is (some? ungrouped-row)
+              ":ungrouped bucket row is present")
+          (is (= "true"
+                 (:data-rf-causa-ungrouped (second ungrouped-row)))
+              ":ungrouped row carries the data attribute for visual treatment")))
+      (finally
+        (config/update-setting! :general :show-ungrouped? false)))))
+
+(deftest event-list-hides-ungrouped-bucket-by-default
+  (testing "rf2-r9lyy — silent-by-default. The opt-in defaults OFF; the
+            :ungrouped bucket is not rendered in L2."
+    (causa-setup!)
+    ;; Belt-and-braces: assert the default; do not flip the knob.
+    (is (false? (config/get-setting :general :show-ungrouped?))
+        ":show-ungrouped? defaults OFF (silent-by-default)")
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-bus/collect-trace! {:id 50 :op-type :registry
+                               :operation :sub/registered
+                               :tags {:sub-id :foo/bar}})
+    (rf/with-frame :rf/causa
+      (let [tree (shell/shell-view)
+            rows (find-all-by-testid-prefix tree "rf-causa-event-row-")]
+        (is (= 1 (count rows))
+            "only the real event renders — :ungrouped is filtered out")
+        (is (nil? (find-by-testid tree "rf-causa-event-row-:ungrouped"))
+            ":ungrouped row is absent by default")))))
+
+(deftest event-list-ungrouped-row-click-dispatches-focus-cascade
+  (testing "rf2-r9lyy — clicking the revealed :ungrouped row dispatches
+            `:rf.causa/focus-cascade :ungrouped` so the spine pins the
+            bucket and downstream panels populate"
+    (causa-setup!)
+    (config/update-setting! :general :show-ungrouped? true)
+    (try
+      (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+      (trace-bus/collect-trace! {:id 50 :op-type :registry
+                                 :operation :sub/registered
+                                 :tags {:sub-id :foo/bar}})
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch* (fn
+                                     ([ev]       (swap! dispatches conj ev) nil)
+                                     ([ev _opts] (swap! dispatches conj ev) nil))]
+          (rf/with-frame :rf/causa
+            (let [tree (shell/shell-view)
+                  row  (find-by-testid tree "rf-causa-event-row-:ungrouped")
+                  handler (:on-click (second row))]
+              (is (some? row) ":ungrouped row is present")
+              (when handler (handler nil)))))
+        (is (some #(and (= :rf.causa/focus-cascade (first %))
+                        (= :ungrouped (second %))) @dispatches)
+            ":rf.causa/focus-cascade fired with `:ungrouped` as the id"))
+      (finally
+        (config/update-setting! :general :show-ungrouped? false)))))
+
 (deftest event-row-click-dispatches-focus-cascade
   (testing "spec/018 §6 — row click dispatches :rf.causa/focus-cascade,
             spine flips to :retro, every dependent surface rebinds"

@@ -195,6 +195,8 @@
    :rf.causa/settings-open?
    :rf.causa/show-me-when-this-changed-result
    :rf.causa/show-tool-frames?
+   ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-cascade bucket.
+   :rf.causa/show-ungrouped?
    ;; rf2-v869p Phase 2 — UC1 Sim sub-mode subs.
    :rf.causa/sim-active?
    :rf.causa/sim-available-transitions
@@ -461,11 +463,9 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    ;; rf2-e9tb0 — net +2 subs (–2 pinned-slices, +4 segment-inspector)
-    ;; and –1 events (–3 pin/unpin/reorder, +2 open/close segment-
-    ;; inspector). Against the post-rf2-ttnst Settings expansion
-    ;; baseline (102 subs / 116 events) → 104 subs / 115 events.
-    (is (= 104 (count all-sub-names)))
+    ;; rf2-e9tb0 + rf2-r9lyy combined deltas against post-rf2-ttnst
+    ;; baseline (102 / 116): e9tb0 +2 subs / -1 event; r9lyy +1 sub / 0 events.
+    (is (= 105 (count all-sub-names)))
     (is (= 115 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 

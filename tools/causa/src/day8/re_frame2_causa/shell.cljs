@@ -266,6 +266,26 @@
   [cascade]
   (some? (event-id-of-cascade cascade)))
 
+(defn ungrouped-cascade?
+  "True iff `cascade` is the `:ungrouped` bucket produced by
+  `re-frame.trace.projection/group-cascades`. Used to give the
+  bucket a distinct muted treatment in L2 when the rf2-r9lyy
+  opt-in (`:settings/show-ungrouped?`) is on."
+  [cascade]
+  (= :ungrouped (:dispatch-id cascade)))
+
+(defn l2-cascade-visible?
+  "Pure helper. Should `cascade` render as a row in the L2 event
+  list? Always true for cascades carrying a real `:event` vector;
+  for the `:ungrouped` bucket, only true when the user has opted
+  in via Settings → General → Power user → 'Show :ungrouped pseudo-
+  cascade events in L2' (rf2-r9lyy). The ribbon nav (`◀ ▶ ⏭`) and
+  L2 walk both compose against this predicate so the visible row
+  set, the boundary detection, and the focus walk all agree."
+  [cascade show-ungrouped?]
+  (or (cascade-has-event? cascade)
+      (and show-ungrouped? (ungrouped-cascade? cascade))))
+
 (defn gutter-glyph
   "Pick the gutter glyph per spec/018 §4 Row anatomy. The selected row
   gets `◉`; an errored row gets `x`; a wholly-redacted row gets `▥`;
@@ -666,21 +686,26 @@
         cascades        @(rf/subscribe [:rf.causa/cascades])
         focus-set       @(rf/subscribe [:rf.causa/focus-set])
         show-tool?      false   ; Hardcoded — Power-user toggle UI not built yet
+        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
+        ;; bucket. Default OFF preserves silent-by-default; ON
+        ;; includes the bucket in L2 + the ribbon's boundary walk
+        ;; so the nav cluster's `[◀ ▶ ⏭]` agrees with what the user
+        ;; sees in L2.
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
         frames          (distinct-frames cascades show-tool?)
         redacted-count  @(rf/subscribe [:rf.causa/suppressed-sensitive-count])
         filters         @(rf/subscribe [:rf.causa/active-filters])
         focused-id      (:dispatch-id focus)
         ;; Per rf2-fzbrw: the boundary predicates must align with the
         ;; user-visible event list. The L2 list filters `:ungrouped`
-        ;; (registry-time emits / lifecycle / REPL evals) via
-        ;; `cascade-has-event?`; if the ribbon walked the raw cascade
-        ;; vector instead, a buffer containing one real event PLUS the
-        ;; `:ungrouped` bucket would compute `at-tail?` against
-        ;; `:ungrouped` (= false) and leave `[<]` ENABLED on what the
-        ;; user sees as the first (only) event — clicking it would
-        ;; pin focus to the `:ungrouped` bucket and degrade the L4
-        ;; panels into an aggregate-across-all-events render.
-        event-cascades  (filterv cascade-has-event? cascades)
+        ;; (registry-time emits / lifecycle / REPL evals) by default;
+        ;; when the rf2-r9lyy opt-in is on the bucket appears in L2
+        ;; and the ribbon's walk MUST include it too, otherwise the
+        ;; user could click a visible bucket row in L2 that the
+        ;; `[<]` boundary refuses to step past. The `l2-cascade-
+        ;; visible?` predicate is the single source of truth — both
+        ;; surfaces compose against it.
+        event-cascades  (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
         ;; rf2-a1z3b — when a focus-set is active the nav buttons walk
         ;; ONLY the in-focus subset. Boundary predicates honour that
         ;; so `[◀]` greys at the first in-focus row and `[▶]` greys at
@@ -902,6 +927,13 @@
         pivot?      (and focus-set (= id (:pivot-id focus-set)))
         focus-active? (some? focus-set)
         out-of-focus? (and focus-active? (not in-focus?))
+        ;; rf2-r9lyy — the `:ungrouped` pseudo-cascade bucket renders
+        ;; with a distinct muted treatment when the opt-in is on (the
+        ;; bucket only reaches this row when the user has flipped the
+        ;; Settings → Power user → 'Show :ungrouped' toggle ON, per
+        ;; `l2-cascade-visible?`). Muted background + zero event vector
+        ;; signal "this is a pseudo-cascade outside any dispatch".
+        ungrouped?  (ungrouped-cascade? cascade)
         glyph       (gutter-glyph cascade focused-id)
         badges      (row-badges cascade)
         ev-id       (event-id-of-cascade cascade)
@@ -911,10 +943,20 @@
                       (= "x" glyph)                           (:red tokens)
                       (= "▥" glyph)                           (:magenta tokens)
                       :else                                   (:text-tertiary tokens))
-        bg          (if focused? (:bg-active tokens) "transparent")
-        border      (if focused?
-                      (str "1px solid " (:cyan tokens))
-                      "1px solid transparent")
+        bg          (cond
+                      focused?   (:bg-active tokens)
+                      ;; Muted background for the :ungrouped bucket so it
+                      ;; reads as visually distinct from the real-event
+                      ;; rows (rf2-r9lyy). Falls back to the same bg-2
+                      ;; the list uses if `:bg-2` is the only neutral
+                      ;; muted token available; the ribbon's own canvas
+                      ;; is bg-1 so this still reads as a recessed row.
+                      ungrouped? (:bg-2 tokens)
+                      :else      "transparent")
+        border      (cond
+                      focused?   (str "1px solid " (:cyan tokens))
+                      ungrouped? (str "1px dashed " (:border-subtle tokens))
+                      :else      "1px solid transparent")
         ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
         ;; auto-tracking branch carries a ref. RETRO and non-focused rows
         ;; get nil (no DOM-side scroll work, no per-render cost).
@@ -961,12 +1003,15 @@
                   ;; coord, handler duration) surface in this hover
                   ;; tooltip + the L4 Event tab on click. Default row
                   ;; body shows only `event-id + ⚠/🌐/🤖`.
-                  :title (row-tooltip-text cascade)
+                  :title (if ungrouped?
+                           ":ungrouped — events outside any dispatch (:rf.ssr/*, registry-time emits, REPL evals, frame lifecycle). Click to focus the bucket."
+                           (row-tooltip-text cascade))
                   :data-rf-causa-in-focus (cond
                                             (not focus-active?) "n/a"
                                             in-focus?           "true"
                                             :else               "false")
                   :data-rf-causa-pivot    (if pivot? "true" "false")
+                  :data-rf-causa-ungrouped (if ungrouped? "true" "false")
                   :style {:display       "flex"
                           :align-items   "center"
                           :gap           "6px"
@@ -979,7 +1024,10 @@
                           :border-radius "2px"
                           :font-family   mono-stack
                           :font-size     (:mono-body type-scale)
-                          :color         (:text-primary tokens)
+                          :color         (if ungrouped?
+                                           (:text-secondary tokens)
+                                           (:text-primary tokens))
+                          :font-style    (if ungrouped? "italic" "normal")
                           :white-space   "nowrap"
                           :overflow      "hidden"
                           :text-overflow "ellipsis"
@@ -989,9 +1037,16 @@
                           ;; we don't need a stylesheet round-trip; the
                           ;; CSS-var fallback keeps host overrides
                           ;; possible.
-                          :opacity       (if out-of-focus?
+                          ;; rf2-r9lyy — :ungrouped rows render at 0.7
+                          ;; opacity even when in-focus so the bucket
+                          ;; reads as visually recessed against the real
+                          ;; cascade rows. Out-of-focus still wins (the
+                          ;; 0.4 dim is more aggressive).
+                          :opacity       (cond
+                                           out-of-focus?
                                            "var(--rf-causa-row-dim-opacity, 0.4)"
-                                           1)}}
+                                           ungrouped? 0.7
+                                           :else      1)}}
            ref-fn (assoc :ref ref-fn))
      ;; Gutter — FOCUS surface (rf2-a1z3b). Click sets/toggles focus
      ;; on the row's inferred dimension. The hit-area is the 14px
@@ -1033,7 +1088,16 @@
              :style {:flex "1 1 auto" :overflow "hidden"
                      :text-overflow "ellipsis"
                      :min-width "0"}}
-      (render-event-id-only event-vec)]
+      (if ungrouped?
+        ;; rf2-r9lyy — the :ungrouped pseudo-cascade has no event
+        ;; vector by construction. Render a clear muted label instead
+        ;; of the defence-in-depth `<no event>` fallback so the user
+        ;; understands they're looking at the bucket of events outside
+        ;; any dispatch.
+        [:span {:style {:color      (:text-tertiary tokens)
+                        :font-style "italic"}}
+         ":ungrouped (pseudo-cascade)"]
+        (render-event-id-only event-vec))]
      (when (seq badges)
        [:span {:data-testid "rf-causa-row-badges"
                :style {:display "flex" :gap "4px" :flex-shrink 0
@@ -1100,6 +1164,11 @@
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
         focus          @(rf/subscribe [:rf.causa/focus])
         focus-set      @(rf/subscribe [:rf.causa/focus-set])
+        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-cascade
+        ;; bucket. Default OFF preserves silent-by-default; ON
+        ;; surfaces the bucket as a muted L2 row that focuses the
+        ;; bucket on click so downstream panels populate.
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
         ;; rf2-vbbq0 — one subscribe per render drives every chip's
         ;; relative-time text. Falls back to `(interop/now-ms)` before
         ;; the first tick lands so the chips render correctly on the
@@ -1114,7 +1183,7 @@
         auto-track?    (and (= :live (:mode focus))
                             (:head? focus)
                             (not (:paused? focus)))
-        event-cascades (filterv cascade-has-event? cascades)
+        event-cascades (filterv #(l2-cascade-visible? % show-ungrouped?) cascades)
         ;; rf2-a1z3b — precompute the focus predicate ONCE per render
         ;; so the per-row work is a single fn call rather than a
         ;; predicate rebuild per row.
