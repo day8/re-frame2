@@ -162,7 +162,7 @@ Because every machine's snapshot lives in `app-db` at `[:rf/machines <id>]` — 
 - **Conformance fixtures.** A fixture's `:fixture/expect :final-app-db` covers machine state without needing a machine-specific assertion.
 - **Schema validation.** `(rf/reg-app-schema [:rf/machines] ...)` validates the whole machine map; per-machine `:data` schemas refine it (per [§Where snapshots live](#where-snapshots-live)).
 - **Trace replay.** Tool-Pair epochs replay events against `:db-before` to reproduce a session; machine transitions replay along with everything else because their state is in the db.
-- **`make-restore-fn`.** The standard restore fn captures `app-db` and reapplies it; machines come back with the rest of state.
+- **Snapshot-and-restore.** The epoch surface (`epoch/restore-epoch` + `epoch/reset-frame-db!`) captures `app-db` and reapplies it; machines come back with the rest of state.
 
 The argument: **the Single Store invariant pays off again.** Every `app-db` capability re-frame already ships extends to machines without a single line of machine-specific implementation. This is why machine snapshots live in the db rather than in a parallel substrate. The undo / redo, time-travel, persistence, and snapshot-restore items above are not coincidences — they are the concrete consequences of the named [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) when machine state lives inside the frame's persistent value.
 

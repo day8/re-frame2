@@ -124,7 +124,6 @@ Causa is a from-scratch reimplementation against re-frame2's trace bus and epoch
 - `:<-` chained subs and `reg-sub` sugar variants.
 - `path`, `unwrap`, `inject-cofx` interceptors; `->interceptor` primitive.
 - The `:fx` slot in effect maps (the inner shape `[[fx-id args] ...]`).
-- `make-restore-fn`.
 - `reg-fx` / `reg-cofx` without `:platforms` (defaults to universal).
 - `reg-flow` / `flow<-` / `clear-flow` (in `re-frame.core`; underlying impl ships under `re-frame2-flows`).
 - `re-frame.std-interceptors` namespace.
