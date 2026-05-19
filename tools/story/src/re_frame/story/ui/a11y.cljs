@@ -51,7 +51,8 @@
             [re-frame.trace :as trace]
             [re-frame.story.config :as config]
             [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- state ---------------------------------------------------------------
 
@@ -388,7 +389,7 @@
                  :background "#252526"
                  :border-top "1px solid #444"
                  :color "#cccccc"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :header      {:display "flex"
                  :justify-content "space-between"
@@ -425,7 +426,7 @@
    :v-help      {:font-weight "bold" :margin-bottom "2px"}
    :v-desc      {:color "#aaa" :font-size "10px"}
    :v-target    {:color "#9cdcfe" :font-size "10px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :margin-top "2px"}
    :overlay-css {:position "absolute"
                  :pointer-events "none"

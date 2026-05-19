@@ -33,7 +33,8 @@
             [re-frame.core :as rf]
             [re-frame.story.args :as args]
             [re-frame.story.registrar :as registrar]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -52,7 +53,7 @@
                 :flex-direction "column"
                 :min-height "160px"
                 :color "#cccccc"
-                :font-family "monospace"
+                :font-family mono-stack
                 :font-size "11px"
                 :position "relative"}
    :cell-head  {:padding "6px 10px"
@@ -70,7 +71,7 @@
                 :border "1px solid #be4040"
                 :color "#fdd"
                 :border-radius "4px"
-                :font-family "monospace"
+                :font-family mono-stack
                 :font-size "11px"}
    :error-head {:padding "6px 10px"
                 :background "#7a2727"

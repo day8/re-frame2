@@ -3,13 +3,14 @@
   dependency. Extracted from `controls.cljs` per rf2-gv5kq so the
   controls ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
-  CLJS-only.")
+  CLJS-only."
+  (:require [re-frame.story.theme.typography :refer [mono-stack]]))
 
 (def styles
   {:wrap        {:padding "8px"
                  :background "#252526"
                  :color "#cccccc"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"
                  :border-top "1px solid #444"}
    :section     {:margin-bottom "12px"}
@@ -43,14 +44,14 @@
                  :color "#cccccc"
                  :border "1px solid #444"
                  :padding "2px 6px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"
                  :width "100%"}
    :textarea    {:background "#1e1e1e"
                  :color "#cccccc"
                  :border "1px solid #444"
                  :padding "4px 6px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"
                  :width "100%"
                  :min-height "48px"

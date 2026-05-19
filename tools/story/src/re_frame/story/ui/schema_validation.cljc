@@ -82,7 +82,8 @@
                        [re-frame.story.config     :as config]
                        [re-frame.story.registrar  :as story-registrar]
                        [re-frame.story.ui.trace-buffer :as trace-buffer]
-                       [re-frame.registrar        :as framework-registrar]])))
+                       [re-frame.registrar        :as framework-registrar]])
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- pure: classify a trace event ---------------------------------------
 
@@ -338,7 +339,7 @@
      {:wrap         {:padding "8px"
                      :background "#252526"
                      :color "#cccccc"
-                     :font-family "monospace"
+                     :font-family mono-stack
                      :font-size "11px"
                      :border-top "1px solid #444"
                      :overflow "auto"

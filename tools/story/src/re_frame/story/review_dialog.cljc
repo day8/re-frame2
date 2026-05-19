@@ -78,7 +78,8 @@
                    snippet string from it before passing the snippet
                    to the renderer."
   (:require [clojure.string :as str]
-            #?(:cljs [reagent.core :as r])))
+            #?(:cljs [reagent.core :as r])
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: initial state + transitions
@@ -312,7 +313,7 @@
                      :border         "1px solid #444"
                      :border-radius  "6px"
                      :padding        "16px"
-                     :font-family    "monospace"
+                     :font-family    mono-stack
                      :font-size      "12px"
                      :display        "flex"
                      :flex-direction "column"
@@ -327,7 +328,7 @@
                      :color         "white"
                      :border        "1px solid #444"
                      :border-radius "3px"
-                     :font-family   "monospace"
+                     :font-family   mono-stack
                      :font-size     "12px"
                      :width         "100%"
                      :box-sizing    "border-box"}
@@ -339,7 +340,7 @@
                      :white-space   "pre"
                      :overflow      "auto"
                      :max-height    "44vh"
-                     :font-family   "monospace"
+                     :font-family   mono-stack
                      :font-size     "11px"
                      :line-height   "1.45"
                      :flex          "1 1 auto"}
@@ -352,7 +353,7 @@
                      :border        "none"
                      :border-radius "3px"
                      :cursor        "pointer"
-                     :font-family   "monospace"
+                     :font-family   mono-stack
                      :font-size     "11px"}
       :btn-muted    {:padding       "5px 12px"
                      :background    "transparent"
@@ -360,7 +361,7 @@
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :cursor        "pointer"
-                     :font-family   "monospace"
+                     :font-family   mono-stack
                      :font-size     "11px"}
       :hint         {:color       "#9a9a9a"
                      :font-style  "italic"

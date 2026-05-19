@@ -51,7 +51,8 @@
             [re-frame.story.registrar  :as registrar]
             #?@(:cljs [[re-frame.story.args :as args]
                        [re-frame.story.decorators :as decorators]
-                       [re-frame.story.ui.state :as state]])))
+                       [re-frame.story.ui.state :as state]])
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 ;; ---- pure: prose lookup -------------------------------------------------
 
@@ -181,16 +182,16 @@
                       :padding          "20px 28px"
                       :background       "#1e1e1e"
                       :color            "#cccccc"
-                      :font-family      "system-ui, sans-serif"
+                      :font-family      sans-stack
                       :font-size        "13px"
                       :line-height      "1.5"}
-      :h1            {:font-family      "monospace"
+      :h1            {:font-family      mono-stack
                       :font-size        "18px"
                       :font-weight      "bold"
                       :color            "white"
                       :margin           "0 0 4px 0"}
       :sub           {:color            "#b0b0b0"
-                      :font-family      "monospace"
+                      :font-family      mono-stack
                       :font-size        "11px"
                       :margin-bottom    "10px"}
       :section       {:margin-top       "24px"}
@@ -210,15 +211,15 @@
                       :background       "#252526"
                       :border-left      "3px solid #0e639c"
                       :color            "#dcdcdc"
-                      :font-family      "system-ui, sans-serif"
+                      :font-family      sans-stack
                       :white-space      "pre-wrap"}
       :prose-source  {:color            "#b0b0b0"
-                      :font-family      "monospace"
+                      :font-family      mono-stack
                       :font-size        "10px"
                       :margin-bottom    "4px"}
       :table         {:width            "100%"
                       :border-collapse  "collapse"
-                      :font-family      "monospace"
+                      :font-family      mono-stack
                       :font-size        "11px"}
       :th            {:text-align       "left"
                       :padding          "6px 8px"
@@ -235,7 +236,7 @@
       :td-key        {:color            "#9cdcfe"
                       :white-space      "nowrap"}
       :td-value      {:color            "#ce9178"
-                      :font-family      "monospace"
+                      :font-family      mono-stack
                       :white-space      "pre-wrap"}
       :td-doc        {:color            "#b0b0b0"
                       :font-style       "italic"}
@@ -254,7 +255,7 @@
                       :border           "none"
                       :border-radius    "10px"
                       :cursor           "pointer"
-                      :font-family      "monospace"
+                      :font-family      mono-stack
                       :font-size        "10px"
                       :user-select      "none"}
       :chip-active   {:background       "#0e639c"

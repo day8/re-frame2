@@ -69,7 +69,8 @@
   Lives in the Story CLJS bundle; production builds elide the entire
   UI shell so this ns never enters a release bundle."
   (:require [re-frame.story.config :as config]
-            [re-frame.source-coords.editor-uri :as editor-uri]))
+            [re-frame.source-coords.editor-uri :as editor-uri]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -80,7 +81,7 @@
                :border          "1px solid #555"
                :border-radius   "3px"
                :cursor          "pointer"
-               :font-family     "monospace"
+               :font-family     mono-stack
                :font-size       "10px"
                :margin-left     "8px"
                :text-decoration "none"
@@ -91,7 +92,7 @@
                :border          "1px solid #444"
                :border-radius   "2px"
                :cursor          "pointer"
-               :font-family     "monospace"
+               :font-family     mono-stack
                :font-size       "10px"
                :margin-left     "8px"
                :text-decoration "none"

@@ -3,13 +3,14 @@
   dependency. Extracted from `shell.cljs` per rf2-gv5kq so the shell
   ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
-  CLJS-only.")
+  CLJS-only."
+  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 (def styles
   {:root      {:display "flex"
                :flex-direction "column"
                :height "100vh"
-               :font-family "system-ui, sans-serif"
+               :font-family sans-stack
                :background "#1e1e1e"
                :color "#ddd"}
    :body      {:display "flex"
@@ -56,7 +57,7 @@
    :tab-bar   {:display "flex"
                :background "#2d2d30"
                :border-bottom "1px solid #444"
-               :font-family "monospace"
+               :font-family mono-stack
                :font-size "11px"}
    :tab       {:padding "6px 12px"
                :cursor "pointer"

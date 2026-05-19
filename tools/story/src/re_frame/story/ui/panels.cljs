@@ -54,7 +54,8 @@
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.a11y :as a11y]
             [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.ui.schema-validation :as schema-validation]))
+            [re-frame.story.ui.schema-validation :as schema-validation]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -62,7 +63,7 @@
   {:stub-wrap    {:padding "12px"
                   :background "#252526"
                   :color "#cccccc"
-                  :font-family "monospace"
+                  :font-family mono-stack
                   :font-size "11px"
                   :border-top "1px solid #444"}
    :stub-title   {:color "#9cdcfe"
@@ -83,7 +84,7 @@
    :layout-wrap  {:padding "8px"
                   :background "#252526"
                   :color "#cccccc"
-                  :font-family "monospace"
+                  :font-family mono-stack
                   :font-size "11px"
                   :border-top "1px solid #444"}
    :layout-title {:font-weight "bold"
@@ -270,7 +271,7 @@
                  :background "#2d2d30"
                  :border-bottom "1px solid #444"
                  :color "#b0b0b0"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "10px"
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}})

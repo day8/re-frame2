@@ -70,7 +70,8 @@
             #?(:cljs [reagent.core            :as r])
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
-            #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])))
+            #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- pure: payload parsing -----------------------------------------------
 
@@ -446,7 +447,7 @@
 #?(:cljs
    (def ^:private styles
      {:panel          {:padding "8px"
-                       :font-family "monospace"
+                       :font-family mono-stack
                        :font-size "11px"
                        :border-top "1px solid #444"
                        :background "#1e1e1e"
@@ -480,7 +481,7 @@
                        :border "1px solid #444"
                        :border-radius "3px"
                        :padding "3px 6px"
-                       :font-family "monospace"
+                       :font-family mono-stack
                        :font-size "11px"
                        :outline "none"}
       :btn-row        {:display "flex"
@@ -491,7 +492,7 @@
                        :color "#d0d0d0"
                        :border "1px solid #444"
                        :border-radius "3px"
-                       :font-family "monospace"
+                       :font-family mono-stack
                        :font-size "10px"
                        :cursor "pointer"}
       :btn-primary    {:background "#0e639c"

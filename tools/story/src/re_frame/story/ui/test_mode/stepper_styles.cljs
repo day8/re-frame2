@@ -1,7 +1,8 @@
 (ns re-frame.story.ui.test-mode.stepper-styles
   "Style map for the play step-debugger (rf2-ulw5m + spec/009 §Play
   step-debugger). Pure data; no Reagent dependency. Matches the rest of
-  the test pane chrome (rf2-2uwv palette).")
+  the test pane chrome (rf2-2uwv palette)."
+  (:require [re-frame.story.theme.typography :refer [mono-stack]]))
 
 (def styles
   {;; ---- section wrap ---------------------------------------------------
@@ -24,7 +25,7 @@
                     :align-items      "center"
                     :gap              "10px"
                     :margin-bottom    "6px"
-                    :font-family      "monospace"
+                    :font-family      mono-stack
                     :font-size        "10px"
                     :font-weight      "bold"
                     :color            "#b0b0b0"
@@ -60,7 +61,7 @@
                     :border-color     "#0e639c"
                     :border-radius    "3px"
                     :cursor           "pointer"
-                    :font-family      "monospace"
+                    :font-family      mono-stack
                     :font-size        "11px"
                     :letter-spacing   "0.3px"}
    :ctrl-btn-soft  {:padding-top      "4px"
@@ -74,7 +75,7 @@
                     :border-color     "#4a4a4a"
                     :border-radius    "3px"
                     :cursor           "pointer"
-                    :font-family      "monospace"
+                    :font-family      mono-stack
                     :font-size        "11px"
                     :letter-spacing   "0.3px"}
    :ctrl-btn-disabled
@@ -106,7 +107,7 @@
                     :padding-right        "6px"
                     :padding-bottom       "3px"
                     :padding-left         "6px"
-                    :font-family          "monospace"
+                    :font-family          mono-stack
                     :font-size            "11px"
                     :color                "#dcdcdc"
                     :cursor               "pointer"
@@ -157,7 +158,7 @@
                     :padding-bottom   "0"
                     :padding-left     "4px"
                     :cursor           "pointer"
-                    :font-family      "monospace"}
+                    :font-family      mono-stack}
 
    ;; outcome tinting (small)
    :outcome-pass   {:color            "#4ec9b0"}
@@ -168,6 +169,6 @@
    ;; ---- inactive placeholder ------------------------------------------
    :inactive       {:padding          "6px 0"
                     :color            "#9a9a9a"
-                    :font-family      "monospace"
+                    :font-family      mono-stack
                     :font-size        "11px"
                     :font-style       "italic"}})

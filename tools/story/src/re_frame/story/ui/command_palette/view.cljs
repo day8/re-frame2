@@ -5,7 +5,8 @@
             [re-frame.story.config :as config]
             [re-frame.story.ui.command-palette :as palette]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.toolbar :as toolbar]))
+            [re-frame.story.ui.toolbar :as toolbar]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 (defn shortcut-event?
   "True when `event` is Story's global command-palette shortcut."
@@ -82,7 +83,7 @@
                  :border-radius "12px"
                  :box-shadow "0 24px 80px rgba(0, 0, 0, 0.5)"
                  :overflow "hidden"
-                 :font-family "ui-monospace, SFMono-Regular, Consolas, monospace"
+                 :font-family mono-stack
                  :color "#f2f2f2"}
    :input-wrap  {:border-bottom "1px solid #3b3b42"
                  :padding "12px"}

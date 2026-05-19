@@ -3,7 +3,8 @@
   Reagent dependency. Extracted from `view.cljs` per rf2-gv5kq so the
   view ns drops below the 250-LoC leaf-size ceiling (rf2-zkca8).
 
-  CLJS-only — the JVM pure helpers don't need styles.")
+  CLJS-only — the JVM pure helpers don't need styles."
+  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 (def styles
   {:wrap          {:flex             "1"
@@ -11,16 +12,16 @@
                    :padding          "20px 28px"
                    :background       "#1e1e1e"
                    :color            "#cccccc"
-                   :font-family      "system-ui, sans-serif"
+                   :font-family      sans-stack
                    :font-size        "13px"
                    :line-height      "1.5"}
-   :h1            {:font-family      "monospace"
+   :h1            {:font-family      mono-stack
                    :font-size        "18px"
                    :font-weight      "bold"
                    :color            "white"
                    :margin           "0 0 4px 0"}
    :sub           {:color            "#b0b0b0"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"
                    :margin-bottom    "10px"}
    :header-row    {:display          "flex"
@@ -34,14 +35,14 @@
                    :border           "none"
                    :border-radius    "3px"
                    :cursor           "pointer"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"
                    :letter-spacing   "0.3px"}
    :rerun-running {:background       "#37373d"
                    :color            "#b0b0b0"
                    :cursor           "not-allowed"}
    :last-run      {:color            "#b0b0b0"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "10px"}
    :section       {:margin-top       "16px"}
    :section-h     {:font-weight      "bold"
@@ -58,7 +59,7 @@
                    :margin-bottom    "8px"}
    :pill          {:padding          "4px 10px"
                    :border-radius    "10px"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"
                    :font-weight      "bold"
                    :text-transform   "uppercase"
@@ -70,14 +71,14 @@
    :pill-empty    {:background       "#37373d"
                    :color            "#b0b0b0"}
    :counts        {:color            "#b0b0b0"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"}
    :count-pass    {:color            "#4ec9b0"}
    :count-fail    {:color            "#f48771"}
    :count-skip    {:color            "#9a9a9a"}
    :table         {:width            "100%"
                    :border-collapse  "collapse"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"}
    :th            {:text-align       "left"
                    :padding          "6px 8px"
@@ -103,7 +104,7 @@
                    :color            "#9cdcfe"
                    :background       "none"
                    :border           "none"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"
                    :padding          "0"
                    :text-decoration  "underline"}
@@ -112,7 +113,7 @@
                    :padding          "8px 12px"
                    :margin-top       "6px"
                    :color            "#dcdcdc"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "11px"
                    :white-space      "pre-wrap"}
    :detail-key    {:color            "#9cdcfe"}
@@ -122,12 +123,12 @@
    :empty         {:padding          "32px"
                    :color            "#9a9a9a"
                    :font-style       "italic"
-                   :font-family      "system-ui, sans-serif"
+                   :font-family      sans-stack
                    :text-align       "center"
                    :background       "#1e1e1e"
                    :flex             "1"}
    :empty-link    {:color            "#9cdcfe"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :margin-top       "8px"
                    :display          "block"}
 
@@ -158,7 +159,7 @@
                    :text-align       "center"
                    :border-radius    "3px"
                    :cursor           "pointer"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "10px"
                    :padding          "0 4px"
                    :user-select      "none"}
@@ -175,7 +176,7 @@
    :scrub-slider  {:width            "100%"
                    :margin           "4px 0"}
    :scrub-detail  {:color            "#9a9a9a"
-                   :font-family      "monospace"
+                   :font-family      mono-stack
                    :font-size        "10px"
                    :margin-top       "4px"
                    :display          "flex"
@@ -188,4 +189,4 @@
                    :border-radius    "3px"
                    :cursor           "pointer"
                    :font-size        "10px"
-                   :font-family      "monospace"}})
+                   :font-family      mono-stack}})

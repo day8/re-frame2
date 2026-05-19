@@ -34,7 +34,8 @@
   Production builds with `re-frame.story.config/enabled?` false never
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
-            [re-frame.story.config :as config]))
+            [re-frame.story.config :as config]
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -102,7 +103,7 @@
                  :max-width     "92vw"
                  :max-height    "86vh"
                  :overflow      "auto"
-                 :font-family   "system-ui, sans-serif"
+                 :font-family   sans-stack
                  :font-size     "13px"
                  :line-height   "1.5"}
    :header      {:display         "flex"
@@ -135,7 +136,7 @@
                  :padding    "0"}
    :list-item   {:margin-bottom "4px"}
    :kw          {:color       "#dcdcaa"
-                 :font-family "monospace"}
+                 :font-family mono-stack}
    :muted       {:color "#b0b0b0"}
    :footer      {:display         "flex"
                  :justify-content "flex-end"
@@ -149,14 +150,14 @@
                  :border-radius "3px"
                  :cursor        "pointer"
                  :font-size     "12px"
-                 :font-family   "system-ui, sans-serif"}
+                 :font-family   sans-stack}
    :help-btn    {:padding       "2px 9px"
                  :background    "#37373d"
                  :color         "#9cdcfe"
                  :border        "1px solid #555"
                  :border-radius "12px"
                  :cursor        "pointer"
-                 :font-family   "monospace"
+                 :font-family   mono-stack
                  :font-size     "11px"
                  :line-height   "1.2"}})
 

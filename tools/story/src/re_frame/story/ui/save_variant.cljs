@@ -30,7 +30,8 @@
   (:require [reagent.core :as r]
             [re-frame.story.config        :as config]
             [re-frame.story.review-dialog :as review-dialog]
-            [re-frame.story.save-variant  :as save-variant]))
+            [re-frame.story.save-variant  :as save-variant]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog ratom — the impure mirror of `review-dialog/initial-state`.
@@ -94,7 +95,7 @@
                      :cursor        "pointer"
                      :font-size     "10px"
                      :margin-top    "8px"
-                     :font-family   "monospace"}
+                     :font-family   mono-stack}
    :button-disabled {:padding       "4px 8px"
                      :background    "#2d2d30"
                      :color         "#777"
@@ -103,7 +104,7 @@
                      :cursor        "not-allowed"
                      :font-size     "10px"
                      :margin-top    "8px"
-                     :font-family   "monospace"}})
+                     :font-family   mono-stack}})
 
 ;; ---------------------------------------------------------------------------
 ;; Controls-panel button
@@ -159,7 +160,7 @@
                    :color "#e0a060"
                    :border "1px solid #a06030"
                    :border-radius "3px"
-                   :font-family "monospace"
+                   :font-family mono-stack
                    :font-size "10px"
                    :line-height "1.5"}}
      [:div {:style {:font-weight "bold" :margin-bottom "4px"}}

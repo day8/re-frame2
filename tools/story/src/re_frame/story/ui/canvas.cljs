@@ -28,7 +28,8 @@
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 ;; ---- namespace-preserving frame-provider --------------------------------
 ;;
@@ -73,7 +74,7 @@
               :min-height "200px"
               :overflow "auto"
               :color "#ddd"
-              :font-family "system-ui, sans-serif"}
+              :font-family sans-stack}
    :frame    {:background "#252526"
               :border "1px solid #3c3c3c"
               :border-radius "4px"
@@ -85,20 +86,20 @@
    :title    {:font-weight "bold"
               :margin-bottom "8px"
               :color "#9cdcfe"
-              :font-family "monospace"
+              :font-family mono-stack
               :font-size "12px"}
    :error    {:background "#5a1d1d"
               :border "1px solid #be4040"
               :color "#fdd"
               :padding "8px"
               :margin-top "8px"
-              :font-family "monospace"
+              :font-family mono-stack
               :font-size "11px"
               :border-radius "3px"}
    :assertion {:padding "4px 8px"
                :border-left "3px solid #be4040"
                :margin "2px 0"
-               :font-family "monospace"
+               :font-family mono-stack
                :font-size "11px"
                :background "#332"}})
 

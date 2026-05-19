@@ -58,7 +58,8 @@
             [re-frame.story.ui.test-mode.pure          :as pure]
             [re-frame.story.ui.test-mode.state         :as state]
             [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
-            [re-frame.story.ui.test-mode.view-styles   :refer [styles]]))
+            [re-frame.story.ui.test-mode.view-styles   :refer [styles]]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
 ;; leaf, no Reagent dep). Required as `styles` above so the in-file
@@ -188,7 +189,7 @@
            [:div {:style     {:color       "#9a9a9a"
                               :font-style  "italic"
                               :font-size   "11px"
-                              :font-family "monospace"}
+                              :font-family mono-stack}
                   :data-test "story-test-scrubber-no-epochs"}
             "epoch buffer empty — scrubber unavailable (run is non-elided?)"]
            [:div

@@ -81,6 +81,7 @@
             [re-frame.story.ui.url-state :as url-state]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
+            [re-frame.story.theme.typography :as theme-typography]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.test-mode.view :as test-mode-view]
             [re-frame.story.ui.toolbar :as toolbar]
@@ -693,6 +694,15 @@
      :component-did-mount
      (fn [_]
        (when config/enabled?
+         ;; rf2-2rwdc: inject IBM Plex `@font-face` rules into the
+         ;; document head BEFORE the first render so the chrome's
+         ;; `font-family: "IBM Plex Sans"` / `"IBM Plex Mono"`
+         ;; declarations resolve immediately. Idempotent — the helper's
+         ;; internal sentinel collapses subsequent calls. Safe in static
+         ;; builds (re-frame.story.config/static-mode? still passes
+         ;; config/enabled?; the helper renders <style>@font-face..</style>
+         ;; which static export captures correctly).
+         (theme-typography/inject-font-faces!)
          ;; rf2-xi9zk: hydrate chrome-wide :active-modes from URL +
          ;; localStorage before the first render of the toolbar /
          ;; canvas. URL wins over localStorage per spec/010 §URL deep-

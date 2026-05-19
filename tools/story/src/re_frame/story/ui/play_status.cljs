@@ -41,7 +41,8 @@
             [re-frame.story.config           :as config]
             [re-frame.story.play.dom         :as dom]
             [re-frame.story.play.runner      :as runner]
-            [re-frame.story.play.runner-events :as runner-events]))
+            [re-frame.story.play.runner-events :as runner-events]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- styles ---------------------------------------------------------------
 
@@ -52,7 +53,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :user-select     "none"
                  :display         "inline-flex"
@@ -73,7 +74,7 @@
                   :border          "1px solid #264f78"
                   :border-radius   "3px"
                   :cursor          "pointer"
-                  :font-family     "monospace"
+                  :font-family     mono-stack
                   :font-size       "10px"
                   :margin-left     "4px"}
    :dropdown-btn {:padding         "0 4px"
@@ -81,7 +82,7 @@
                   :color           "inherit"
                   :border          "none"
                   :cursor          "pointer"
-                  :font-family     "monospace"
+                  :font-family     mono-stack
                   :font-size       "10px"
                   :line-height     "1"}
    :dropdown-panel {:position       "absolute"
@@ -92,7 +93,7 @@
                     :color          "#cccccc"
                     :border         "1px solid #3c3c3c"
                     :border-radius  "4px"
-                    :font-family    "monospace"
+                    :font-family    mono-stack
                     :font-size      "11px"
                     :min-width      "220px"
                     :max-width      "320px"
@@ -110,7 +111,7 @@
                   :color           "inherit"
                   :width           "100%"
                   :text-align      "left"
-                  :font-family     "monospace"
+                  :font-family     mono-stack
                   :font-size       "11px"}
    :dropdown-row-active {:background "#264f78"
                          :color      "white"}
@@ -131,12 +132,12 @@
                          :border          "none"
                          :background      "transparent"
                          :color           "#7bbcff"
-                         :font-family     "monospace"
+                         :font-family     mono-stack
                          :font-size       "11px"}
    :banner       {:background     "#5a1d1d"
                   :color          "#fde0e0"
                   :padding        "8px 14px"
-                  :font-family    "monospace"
+                  :font-family    mono-stack
                   :font-size      "12px"
                   :border-bottom  "2px solid #be4040"
                   :display        "flex"
@@ -154,7 +155,7 @@
                   :border          "1px solid #fde0e0"
                   :border-radius   "3px"
                   :cursor          "pointer"
-                  :font-family     "monospace"
+                  :font-family     mono-stack
                   :font-size       "10px"}})
 
 ;; ---- chip helpers ---------------------------------------------------------

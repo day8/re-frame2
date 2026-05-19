@@ -51,7 +51,8 @@
             [re-frame.story.recorder                      :as recorder]
             [re-frame.story.recorder.play-export          :as export]
             [re-frame.story.recorder.play-export-events   :as export-events]
-            [re-frame.story.review-dialog                 :as review-dialog]))
+            [re-frame.story.review-dialog                 :as review-dialog]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog state — a single Reagent ratom carrying the dialog's
@@ -189,7 +190,7 @@
                  :border         "1px solid #444"
                  :border-radius  "6px"
                  :padding        "16px"
-                 :font-family    "monospace"
+                 :font-family    mono-stack
                  :font-size      "12px"
                  :display        "flex"
                  :flex-direction "column"
@@ -213,7 +214,7 @@
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "12px"
                  :flex "1 1 auto"
                  :box-sizing "border-box"}
@@ -225,7 +226,7 @@
                  :white-space   "pre"
                  :overflow      "auto"
                  :max-height    "40vh"
-                 :font-family   "monospace"
+                 :font-family   mono-stack
                  :font-size     "11px"
                  :line-height   "1.45"
                  :flex          "1 1 auto"}
@@ -242,7 +243,7 @@
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
@@ -250,12 +251,12 @@
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :status-pill {:padding "2px 8px"
                  :border-radius "10px"
                  :font-size "10px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :margin-left "auto"}
    :pill-pass   {:background "#1f5e2b" :color "#cdf7d4"}
    :pill-fail   {:background "#7a2020" :color "#ffd1d1"}

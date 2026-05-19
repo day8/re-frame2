@@ -39,7 +39,8 @@
   `#b0b0b0` inactive foreground, white active foreground, `#1e1e1e`
   active background. Reuses the shape of the tab-bar/tab/tab-active
   styles already defined in `re-frame.story.ui.shell`."
-  (:require [re-frame.story.ui.state :as state]))
+  (:require [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
 
 ;; ---- localStorage persistence -------------------------------------------
 ;;
@@ -122,7 +123,7 @@
   {:strip       {:display          "flex"
                  :background       "#2d2d30"
                  :border-bottom    "1px solid #444"
-                 :font-family      "monospace"
+                 :font-family      mono-stack
                  :font-size        "11px"
                  :padding          "0"}
    ;; rf2-c4m8x: longhand-only border sides on every chip. The
@@ -141,7 +142,7 @@
                  :border-right        "1px solid #444"
                  :border-bottom       "none"
                  :border-left         "none"
-                 :font-family         "monospace"
+                 :font-family         mono-stack
                  :font-size           "11px"
                  :letter-spacing      "0.3px"}
    :tab-active  {:color            "white"
@@ -152,7 +153,7 @@
    :placeholder {:padding          "32px"
                  :color            "#9a9a9a"
                  :font-style       "italic"
-                 :font-family      "system-ui, sans-serif"
+                 :font-family      sans-stack
                  :text-align       "center"
                  :background       "#1e1e1e"
                  :flex             "1"}})

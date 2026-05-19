@@ -54,7 +54,8 @@
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.ui.viewport-switcher :as viewport-switcher]))
+            [re-frame.story.ui.viewport-switcher :as viewport-switcher]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- localStorage --------------------------------------------------------
 
@@ -214,7 +215,7 @@
                  :padding        "6px 12px"
                  :background     "#252526"
                  :border-bottom  "1px solid #444"
-                 :font-family    "monospace"
+                 :font-family    mono-stack
                  :font-size      "11px"
                  :min-height     "32px"
                  :box-sizing     "border-box"
@@ -236,7 +237,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :max-width       "20em"
                  :overflow        "hidden"
@@ -252,7 +253,7 @@
                  :border        "1px solid #444"
                  :border-radius "3px"
                  :cursor        "pointer"
-                 :font-family   "monospace"
+                 :font-family   mono-stack
                  :font-size     "10px"}
    :empty       {:color       "#9a9a9a"
                  :font-style  "italic"

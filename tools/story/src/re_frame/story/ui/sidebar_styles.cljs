@@ -3,13 +3,14 @@
   dependency. Extracted from `sidebar.cljs` per rf2-gv5kq so the
   sidebar ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
-  CLJS-only.")
+  CLJS-only."
+  (:require [re-frame.story.theme.typography :refer [mono-stack]]))
 
 (def styles
   {:wrap         {:width "260px"
                   :background "#252526"
                   :color "#cccccc"
-                  :font-family "monospace"
+                  :font-family mono-stack
                   :font-size "12px"
                   :border-right "1px solid #444"
                   :overflow "auto"
@@ -98,7 +99,7 @@
    :widget-counts {:display "flex"
                    :flex-wrap "wrap"
                    :gap "8px"
-                   :font-family "monospace"
+                   :font-family mono-stack
                    :font-size "11px"
                    :color "#cccccc"}
    :widget-pass  {:color "#4ec9b0"}
@@ -112,7 +113,7 @@
                   :border "none"
                   :border-radius "3px"
                   :cursor "pointer"
-                  :font-family "monospace"
+                  :font-family mono-stack
                   :font-size "11px"}
    :widget-btn-disabled {:background "#37373d"
                          :color "#9a9a9a"
@@ -131,7 +132,7 @@
                   :border          "1px solid #444"
                   :border-radius   "10px"
                   :cursor          "pointer"
-                  :font-family     "monospace"
+                  :font-family     mono-stack
                   :font-size       "10px"
                   :letter-spacing  "0.3px"
                   :display         "inline-flex"
@@ -149,7 +150,7 @@
                   :background    "#37373d"
                   :color         "#cccccc"
                   :border-radius "8px"
-                  :font-family   "monospace"
+                  :font-family   mono-stack
                   :font-size     "9px"
                   :line-height   "14px"
                   :user-select   "none"

@@ -68,7 +68,8 @@
             [re-frame.story.recorder.dom-capture         :as recorder-dom]
             [re-frame.story.review-dialog                :as review-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
-            [re-frame.story.ui.state                     :as state]))
+            [re-frame.story.ui.state                     :as state]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reagent mirror of the recorder state
@@ -133,7 +134,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
@@ -146,7 +147,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :user-select     "none"
                  :font-weight     "bold"
@@ -161,7 +162,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "not-allowed"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
@@ -179,7 +180,7 @@
                  :color        "#fdd"
                  :padding      "6px 10px"
                  :border-radius "4px"
-                 :font-family  "monospace"
+                 :font-family  mono-stack
                  :font-size    "11px"
                  :box-shadow   "0 4px 10px rgba(0,0,0,0.6)"
                  :display      "flex"
@@ -197,7 +198,7 @@
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
@@ -205,7 +206,7 @@
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :hint        {:color "#9a9a9a"
                  :font-style "italic"
@@ -217,7 +218,7 @@
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"}
    :picker-back {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
@@ -234,7 +235,7 @@
                  :border "1px solid #444"
                  :border-radius "6px"
                  :padding "14px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "12px"
                  :display "flex"
                  :flex-direction "column"
@@ -254,7 +255,7 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :text-align "left"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"
                  :display "flex"
                  :flex-direction "column"
@@ -274,7 +275,7 @@
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "12px"
                  :width "100%"
                  :box-sizing "border-box"}
@@ -289,7 +290,7 @@
                  :white-space "pre"
                  :overflow "auto"
                  :max-height "30vh"
-                 :font-family "monospace"
+                 :font-family mono-stack
                  :font-size "11px"
                  :line-height "1.4"}})
 

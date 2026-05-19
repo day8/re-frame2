@@ -88,7 +88,8 @@
                        ;; namespace-dropping provider would scope the
                        ;; subtree to `:y` — a frame that does not exist.
                        [re-frame.story.ui.canvas :as canvas]
-                       [re-frame.story.ui.state :as state]])))
+                       [re-frame.story.ui.state :as state]])
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- pure: layout resolution --------------------------------------------
 
@@ -156,7 +157,7 @@
                       :overflow "auto"}
       :title         {:font-weight "bold"
                       :color "#9cdcfe"
-                      :font-family "monospace"
+                      :font-family mono-stack
                       :margin-bottom "12px"}
       :grid          {:display "grid"
                       :grid-template-columns "repeat(auto-fit, minmax(280px, 1fr))"
@@ -167,7 +168,7 @@
                       :padding "8px"
                       :min-height "160px"
                       :color "#cccccc"
-                      :font-family "monospace"
+                      :font-family mono-stack
                       :font-size "11px"}
       :cell-title    {:color "#dcdcaa"
                       :font-weight "bold"
@@ -428,7 +429,7 @@
                     :border         "1px solid #3c3c3c"
                     :border-radius  "3px 3px 0 0"
                     :color          "#cccccc"
-                    :font-family    "monospace"
+                    :font-family    mono-stack
                     :font-size      "11px"
                     :padding        "4px 10px"
                     :cursor         "pointer"}
@@ -522,7 +523,7 @@
                     :border        "1px solid #3c3c3c"
                     :border-radius "3px"
                     :color         "#cccccc"
-                    :font-family   "monospace"
+                    :font-family   mono-stack
                     :font-size     "11px"
                     :padding       "4px 10px"
                     :cursor        "pointer"}
@@ -530,7 +531,7 @@
                             :color       "#666666"
                             :cursor      "not-allowed"}
       :nav-label   {:color       "#9cdcfe"
-                    :font-family "monospace"
+                    :font-family mono-stack
                     :font-size   "11px"
                     :font-weight "bold"}
       :nav-body    {:display "block"}}))

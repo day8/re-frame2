@@ -20,7 +20,8 @@
             [re-frame.story.registrar :as registrar]
             [re-frame.story.qr :as qr]
             [re-frame.story.share :as share]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -31,7 +32,7 @@
                :border        "1px solid #555"
                :border-radius "3px"
                :cursor        "pointer"
-               :font-family   "monospace"
+               :font-family   mono-stack
                :font-size     "10px"
                :margin-left   "8px"}
    :popover   {:position      "absolute"
@@ -44,7 +45,7 @@
                :z-index       1000
                :box-shadow    "0 4px 12px rgba(0,0,0,0.6)"
                :min-width     "220px"
-               :font-family   "monospace"
+               :font-family   mono-stack
                :font-size     "11px"
                :color         "#cccccc"}
    :url-label {:color "#b0b0b0"
@@ -193,7 +194,7 @@
                          :color "#e0a060"
                          :border "1px solid #a06030"
                          :border-radius "3px"
-                         :font-family "monospace"
+                         :font-family mono-stack
                          :font-size "11px"
                          :display "flex"
                          :align-items "center"

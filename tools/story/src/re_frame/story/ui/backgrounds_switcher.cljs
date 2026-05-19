@@ -25,7 +25,8 @@
             [re-frame.story.config           :as config]
             [re-frame.story.predicates       :as pred]
             [re-frame.story.registrar        :as registrar]
-            [re-frame.story.ui.state         :as state]))
+            [re-frame.story.ui.state         :as state]
+            [re-frame.story.theme.typography :refer [mono-stack]]))
 
 ;; ---- dropdown state ------------------------------------------------------
 
@@ -109,7 +110,7 @@
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :user-select     "none"
                  :display         "inline-flex"
@@ -136,7 +137,7 @@
                  :display         "flex"
                  :flex-direction  "column"
                  :gap             "2px"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"}
    :item        {:display         "flex"
                  :align-items     "center"
@@ -147,7 +148,7 @@
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "11px"
                  :text-align      "left"
                  :width           "100%"}
@@ -173,7 +174,7 @@
                  :border          "none"
                  :border-radius   "3px"
                  :cursor          "pointer"
-                 :font-family     "monospace"
+                 :font-family     mono-stack
                  :font-size       "10px"}
    :backdrop    {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
