@@ -4,10 +4,12 @@
   "description": "MCP (Model Context Protocol) server for re-frame2-pair — pair-program with a live re-frame application over a persistent nREPL connection.",
   "license": "MIT",
   "bin": {
-    "re-frame2-pair-mcp": "./out/server.js"
+    "re-frame2-pair-mcp": "./out/server.js",
+    "re-frame2-pair-mcp-probe-path": "./bin/probe-mcp-path.cjs"
   },
   "files": [
     "out/server.js",
+    "bin/probe-mcp-path.cjs",
     "README.md",
     "LICENSE"
   ],
@@ -16,7 +18,9 @@
     "watch": "shadow-cljs watch server",
     "test": "shadow-cljs compile server-test && node out/server-test.js",
     "start": "node out/server.js",
-    "stdio-roundtrip": "node test/stdio-roundtrip.js"
+    "stdio-roundtrip": "node test/stdio-roundtrip.js",
+    "probe-mcp-path": "node bin/probe-mcp-path.cjs",
+    "test:probe-mcp-path": "node test/probe-mcp-path-test.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

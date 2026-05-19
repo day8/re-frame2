@@ -89,7 +89,7 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
   - **[Security](https://day8.github.io/re-frame2/guide/23a-privacy-secrets/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here. There is also a spec-level [Security Contract](spec/Security.md).
   - **Large Things** — PDF blobs and other large things shouldn't accidentally get logged to Datadog. There are mechanisms for that too.
-  - **MCP servers** — two Model Context Protocol servers ([re-frame2-pair-mcp](tools/re-frame2-pair-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
+  - **MCP servers** — two Model Context Protocol servers ([re-frame2-pair-mcp](tools/re-frame2-pair-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI. If the re-frame2-pair MCP server fails to start after pulling a fresh `main`, run [`npm run probe-mcp-path`](tools/re-frame2-pair-mcp/#path-drift-probe-rf2-vsxgz) from `tools/re-frame2-pair-mcp/` — it surfaces stale `~/.claude.json` path references read-only.
 
 ## The Reference Implementation
 
