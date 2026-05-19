@@ -568,3 +568,82 @@
       (is (some? (find-by-testid
                    hdr "rf-causa-diff-section-origin-[:cart :total]"))
           "chip renders next to the path breadcrumb"))))
+
+;; ---- rf2-5kfxe.2 — diff-flash motion -----------------------------------
+
+(defn- find-section
+  "Locate the rendered `[:section ...]` for `path` inside a
+  `render-sections` hiccup tree."
+  [hiccup path]
+  (let [testid (str "rf-causa-diff-section-" (pr-str path))]
+    (some (fn [node]
+            (when (and (vector? node)
+                       (= :section (first node))
+                       (map? (second node))
+                       (= testid (:data-testid (second node))))
+              node))
+          (tree-seq (some-fn vector? seq?) seq hiccup))))
+
+(deftest section-omits-flash-without-epoch-id
+  (testing "legacy callers / test rigs that omit :epoch-id keep the
+            pre-rf2-5kfxe.2 hiccup shape — no `:animation` style"
+    (let [tree     (at/diff-tree {:a 1} {:a 2})
+          sections (sg/group-into-sections tree)
+          hiccup   (render/render-sections sections "app-db-diff")
+          sec      (find-section hiccup [:a])]
+      (is (some? sec) "section exists")
+      (is (nil? (get-in sec [1 :style :animation]))
+          "no :animation style without an :epoch-id opt"))))
+
+(deftest section-renders-flash-when-epoch-id-supplied
+  (testing "rf2-5kfxe.2 — :epoch-id present → each changed section
+            carries the `rf-causa-diff-flash` :animation prop. Duration
+            is interpolated through the --rf-causa-motion-scale seam
+            (rf2-5kfxe.5) so prefers-reduced-motion can disable it."
+    (let [tree     (at/diff-tree {:a 1} {:a 2})
+          sections (sg/group-into-sections tree)
+          hiccup   (render/render-sections sections "app-db-diff"
+                                           {:epoch-id 42})
+          sec      (find-section hiccup [:a])
+          anim     (get-in sec [1 :style :animation])]
+      (is (some? sec))
+      (is (string? anim))
+      (is (re-find #"rf-causa-diff-flash" anim)
+          "animation references the diff-flash keyframes")
+      (is (re-find #"var\(--rf-causa-motion-scale" anim)
+          "animation duration is calc()'d through the motion-scale seam")
+      (is (re-find #"forwards" anim)
+          "fill-mode forwards pins the end state (transparent)"))))
+
+(deftest section-react-key-includes-epoch-id
+  (testing "rf2-5kfxe.2 — the React key for each section is
+            `<epoch-id>/<path>`, so a fresh cascade forces React to
+            re-mount the section element + replay the CSS animation
+            from frame 0. Without this, React would reuse the same
+            DOM node and the keyframes wouldn't restart."
+    (let [tree     (at/diff-tree {:a 1} {:a 2})
+          sections (sg/group-into-sections tree)
+          hiccup-a (render/render-sections sections "app-db-diff"
+                                           {:epoch-id 1})
+          hiccup-b (render/render-sections sections "app-db-diff"
+                                           {:epoch-id 2})
+          ;; Locate the section under both keys via the wrapper's
+          ;; child list. The `(into [:div …] (for [s sections]
+          ;; ^{:key …} …))` lays out the children in order, so we can
+          ;; introspect the metadata on element index 1 (skip the
+          ;; opening `:div` + props map).
+          key-of   (fn [hiccup]
+                     ;; hiccup is `[:div {:data-testid ...} child]`.
+                     ;; The `child` carries `:key` via reader-meta —
+                     ;; React's key extraction reads it from the
+                     ;; vector's meta.
+                     (-> hiccup
+                         (nth 2)
+                         meta
+                         :key))]
+      (is (re-find #"^1/" (key-of hiccup-a))
+          "epoch 1's section key starts with `1/`")
+      (is (re-find #"^2/" (key-of hiccup-b))
+          "epoch 2's section key starts with `2/`")
+      (is (not= (key-of hiccup-a) (key-of hiccup-b))
+          "different epoch-ids yield different React keys"))))

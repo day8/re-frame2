@@ -52,22 +52,23 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-causa.config :as config]
+            [day8.re-frame2-causa.theme.tokens
+             :refer [tokens mono-stack]]
             [re-frame.source-coords.editor-uri :as editor-uri]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private chip-styles
-  ;; Aligned with the Causa shell's dark-theme tokens
-  ;; (`day8.re-frame2-causa.shell/tokens`). Inline styles in Phase 1;
-  ;; the v1 styling pass moves these to CSS variables when the per-
-  ;; panel beads land.
+  ;; Resolved through `theme/tokens` per rf2-5kfxe.4 — the palette has
+  ;; exactly one source of truth. Inline styles for now; the CSS-
+  ;; variable migration is the v1 styling pass.
   {:chip {:padding         "1px 8px"
           :background      "transparent"
-          :color           "#7C5CFF"
-          :border          "1px solid #2F3441"
+          :color           (:accent-violet tokens)
+          :border          (str "1px solid " (:border-default tokens))
           :border-radius   "3px"
           :cursor          "pointer"
-          :font-family     "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"
+          :font-family     mono-stack
           :font-size       "10px"
           :margin-left     "8px"
           :text-decoration "none"

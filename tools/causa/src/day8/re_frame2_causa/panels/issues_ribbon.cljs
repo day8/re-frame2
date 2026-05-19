@@ -55,7 +55,8 @@
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens mono-stack sans-stack]]))
+             :as t
+             :refer [tokens mono-stack sans-stack display-stack]]))
 
 ;; ---- chip helpers -------------------------------------------------------
 
@@ -170,10 +171,15 @@
    [:div {:style {:display     "flex"
                   :align-items "baseline"
                   :gap         "12px"}}
-    [:h1 {:style {:font-size "16px"
-                  :font-weight 600
-                  :margin 0
-                  :color  (:text-primary tokens)}}
+    ;; rf2-5kfxe.8 — domain-coloured accent stripe (:red for Issues).
+    ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
+    [:h1 {:style (merge {:font-size "20px"
+                         :font-family display-stack
+                         :font-weight 600
+                         :letter-spacing "-0.01em"
+                         :margin 0
+                         :color  (:text-primary tokens)}
+                        (t/accent-stripe-style :issues))}
      "Issues"]
     [:span {:data-testid "rf-causa-issues-counts"
             :style {:font-size   "11px"

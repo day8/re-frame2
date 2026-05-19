@@ -312,7 +312,10 @@
                            {:frame :rf/causa})))))
     :style       {:background (:yellow tokens)
                   :border "none"
-                  :color "#1c2030"
+                  ;; rf2-5kfxe.4 — dark text on yellow uses :bg-1
+                  ;; (between bg-0 and bg-2; AA-grade on the yellow
+                  ;; accent without competing with primary text).
+                  :color (:bg-1 tokens)
                   :padding "6px 14px"
                   :border-radius "4px"
                   :cursor "pointer"

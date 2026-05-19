@@ -57,6 +57,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.routing-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
+             :as t
              :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- visual primitives --------------------------------------------------
@@ -422,12 +423,16 @@
                        :border-bottom (str "1px solid " (:border-subtle tokens))
                        :font-family   sans-stack}}
    [:div
-    [:h2 {:style {:margin     "0"
-                  :font-size  "13px"
-                  :font-weight 600
-                  :text-transform "uppercase"
-                  :letter-spacing "0.5px"
-                  :color      (:text-primary tokens)}}
+    ;; rf2-5kfxe.8 — domain-coloured accent stripe (:yellow for
+    ;; Routing — side-channel attention tone, distinguished from
+    ;; app-db's main colour).
+    [:h2 {:style (merge {:margin     "0"
+                         :font-size  "13px"
+                         :font-weight 600
+                         :text-transform "uppercase"
+                         :letter-spacing "0.5px"
+                         :color      (:text-primary tokens)}
+                        (t/accent-stripe-style :routing))}
      "Routes"]
     [:p {:style {:margin "4px 0 0 0"
                  :color  (:text-tertiary tokens)

@@ -164,7 +164,7 @@
 
 (defn- primary-button-style []
   {:background       (:accent-violet tokens)
-   :color            "#fff"
+   :color            (:white tokens)
    :border           "none"
    :padding          "6px 14px"
    :border-radius    "4px"
@@ -758,8 +758,8 @@
      [:p {:style (hint-style)} hint])])
 
 (defn- danger-button-style []
-  {:background       "#a83a3a"
-   :color            "#fff"
+  {:background       (:red-deep tokens)
+   :color            (:white tokens)
    :border           "none"
    :padding          "6px 14px"
    :border-radius    "4px"

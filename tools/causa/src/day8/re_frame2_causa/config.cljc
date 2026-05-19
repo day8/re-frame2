@@ -25,7 +25,8 @@
   Causa shell (gated on `interop/debug-enabled?` in preload.cljs); the
   atom survives but is never read. CLJC so the JVM test corpus can
   cover the round-trip without a CLJS runtime."
-  (:require [re-frame.privacy :as privacy]
+  (:require [day8.re-frame2-causa.theme.tokens :as tokens]
+            [re-frame.privacy :as privacy]
             [re-frame.source-coords.editor-uri :as editor-uri]
             #?@(:cljs [[cljs.reader]
                        [re-frame.core :as rf]
@@ -133,10 +134,11 @@
 
 (def default-accent
   "Default value Causa publishes for `--rf-causa-accent` — the
-  violet `#7C5CFF` from `theme/tokens.cljc` (`:accent-violet`).
-  Matches the brand accent catalogued in `spec/007-UX-IA.md`
-  §Colour system."
-  "#7C5CFF")
+  violet from `theme/tokens.cljc` (`:accent-violet`). Resolved
+  through the canonical tokens map so the brand hex has exactly one
+  source of truth (rf2-5kfxe.4). Matches the accent catalogued in
+  `spec/007-UX-IA.md` §Colour system."
+  (:accent-violet tokens/tokens))
 
 (def default-layout-host-snippet
   ;; DOM order is `<main>` first, host `<aside>` second — flex flow

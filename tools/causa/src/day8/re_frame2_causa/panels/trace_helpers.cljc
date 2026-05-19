@@ -47,6 +47,7 @@
   the panel's projection + per-axis chip enumeration on top."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.panels.common-helpers :as common]
+            [day8.re-frame2-causa.theme.tokens :as tokens]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
 ;; ---- the canonical 13-axis vocabulary -----------------------------------
@@ -791,19 +792,28 @@
 ;; `common-helpers` (alongside issues-ribbon, routes, mcp-server).
 (def format-time common/format-time-hms)
 
+(def op-type->token
+  "Pure semantic map from op-type keyword to token keyword. The hex
+  resolution happens via `op-type-colour`, which looks up
+  `theme/tokens`. Splitting the semantic mapping from the hex lookup
+  keeps the map pure-data + tokens consolidated (rf2-5kfxe.4)."
+  {:error              :red
+   :warning            :yellow
+   :info               :cyan
+   :event              :accent-violet
+   :event/db-changed   :accent-violet
+   :fx                 :green
+   :sub/run            :cyan
+   :sub/create         :cyan
+   :view/render        :magenta
+   :frame              :text-secondary})
+
 (defn op-type-colour
   "Colour swatch for an op-type. Drives the per-row dot + the
-  op-type chip styling. Pure data → string; JVM-testable."
+  op-type chip styling. Resolves the semantic token keyword
+  through `theme/tokens` (rf2-5kfxe.4) so the palette has exactly
+  one source of truth. Falls back to `:text-secondary` for unknown
+  op-types."
   [op-type]
-  (case op-type
-    :error              "#F87171"  ; :red
-    :warning            "#FBBF24"  ; :yellow
-    :info               "#43C3D0"  ; :cyan
-    :event              "#7C5CFF"  ; :accent-violet
-    :event/db-changed   "#7C5CFF"
-    :fx                 "#4ADE80"  ; :green
-    :sub/run            "#43C3D0"
-    :sub/create         "#43C3D0"
-    :view/render        "#E879F9"  ; :magenta
-    :frame              "#A8AEC0"  ; :text-secondary
-    "#A8AEC0"))
+  (get tokens/tokens
+       (get op-type->token op-type :text-secondary)))

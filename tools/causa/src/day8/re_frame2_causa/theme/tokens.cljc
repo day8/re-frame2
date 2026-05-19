@@ -55,10 +55,14 @@
   rather than rolling it into the shared palette."
   {:no-doc true})
 
-(def tokens
+;; ---- per-theme palettes -------------------------------------------------
+
+(def dark-palette
   "Dark-theme colour tokens lifted from `spec/007-UX-IA.md` §Dark theme
-  tokens. Phase 1 uses inline styles; the v1.0 styling pass replaces
-  these with CSS variables."
+  tokens. The default Causa palette; `tokens` is an alias of this map
+  so the 357 inline `(:bg-1 tokens)` call sites keep resolving without
+  a runtime switch (the CSS-variable migration is the v1.0 styling
+  pass)."
   {;; ── surfaces ──
    :bg-0           "#0E0F12"
    :bg-1           "#15171B"
@@ -82,7 +86,96 @@
    :yellow         "#FBBF24"
    :orange         "#FB923C"
    :red            "#F87171"
-   :magenta        "#E879F9"})
+   :magenta        "#E879F9"
+
+   ;; ── deep variants (rf2-5kfxe.4) ──
+   ;; Darker variant of `:red` used as a danger-button background. The
+   ;; default `:red` is the standard text-on-bg accent (high lightness
+   ;; for readability over the dark canvas); a button surface that
+   ;; FILLS the rectangle wants a deeper hue so white text on red
+   ;; stays AA-grade.
+   :red-deep       "#a83a3a"
+
+   ;; Universal white — readable on the violet accent + the deep
+   ;; reds. Catalogued here so the few "white text on coloured
+   ;; surface" spots (primary / danger buttons) flow through tokens
+   ;; like every other colour.
+   :white          "#ffffff"})
+
+(def light-palette
+  "Light-theme colour tokens per `spec/007-UX-IA.md` §Colour system —
+  'Light theme inverts lightness (bg-0 #FAFBFC, bg-1 #F1F3F6, bg-2
+  #FFFFFF); accents darken slightly to maintain contrast'. (rf2-5kfxe.6)
+
+  Surfaces invert (bg-0 is the *lightest* deepest-canvas tone, bg-3
+  the most saturated chrome); text inverts so primary is near-black;
+  borders subtle in greys; accents darken ~15-20% to maintain AA
+  contrast on the white canvas.
+
+  Consumed via the per-theme CSS custom-property block emitted by
+  `theme/global-styles/themes-css`. The class toggle
+  (`rf-causa-theme-light` on the shell root, written by
+  `settings/effects/apply-theme!`) flips which block is in scope. The
+  357 inline-style call sites that read `(:bg-1 tokens)` continue to
+  resolve against the dark palette — the light-theme surface is the
+  CSS-variable layer until the v1.0 sweep migrates inline styles
+  through to it."
+  {;; ── surfaces ── (lighter as the depth increases — bg-2 is the
+   ;; brightest 'top' canvas, bg-0 the gentlest 'recess')
+   :bg-0           "#FAFBFC"
+   :bg-1           "#F1F3F6"
+   :bg-2           "#FFFFFF"
+   :bg-3           "#E6E9EE"
+   :bg-active      "#DCE0E7"
+
+   ;; ── borders ── (lighter mid-greys; the gap between subtle and
+   ;; default mirrors the dark palette's discrimination)
+   :border-subtle  "#E6E9EE"
+   :border-default "#CFD4DC"
+
+   ;; ── text ── (near-black down to mid-grey)
+   :text-primary   "#15171B"
+   :text-secondary "#4B5160"
+   :text-tertiary  "#8B92A1"
+
+   ;; ── accents + semantic ── (each ~15-20% darker than the dark
+   ;; palette to maintain ≥4.5:1 contrast on the white canvas)
+   :accent-violet  "#5538D8"
+   :cyan           "#2A8B96"
+   :green          "#2F9E5C"
+   :yellow         "#B07A05"
+   :orange         "#C2570F"
+   :red            "#C84444"
+   :magenta        "#B146C2"
+
+   ;; ── deep variants ──
+   ;; On the light canvas the danger button stays close to the
+   ;; semantic red — depth is signalled by saturation, not lightness.
+   :red-deep       "#9A3030"
+
+   :white          "#ffffff"})
+
+(def themes
+  "Map of theme-name → palette map. The shell toggles
+  `rf-causa-theme-<name>` on its root via
+  `settings/effects/apply-theme!`; `theme/global-styles/themes-css`
+  emits one CSS custom-property block per theme keyed by the matching
+  class selector.
+
+  Adding a new theme is one entry here + one default in
+  `settings/effects/apply-theme!`'s drop-class list (so the toggle
+  stays exclusive)."
+  {:dark  dark-palette
+   :light light-palette})
+
+(def tokens
+  "Backward-compatible alias for the dark palette. The 357 inline-style
+  call sites that read `(:bg-1 tokens)` keep resolving against the
+  dark palette; the light theme is layered on top via CSS custom
+  properties (see `theme/global-styles/themes-css`). The v1.0 styling
+  pass migrates each call site through to the CSS-variable surface so
+  the inline-style indirection collapses."
+  dark-palette)
 
 (def mono-stack
   "JetBrains Mono stack per spec/007-UX-IA.md §Typography. Used by
@@ -94,6 +187,34 @@
   "Inter stack per spec/007-UX-IA.md §Typography. Used by chrome,
   labels, prose, and every non-mono surface in the panels."
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+
+(def display-stack
+  "Fraunces stack — Causa's display face (rf2-5kfxe.9).
+
+  Fraunces is a variable serif (open-source, by Undercase Type) with
+  optical-size + SOFT + WONK axes designed to be characterful at
+  large sizes. Deliberately *not* another grotesque sans — the
+  frontend-design rubric flags 'Inter at every size' as a generic
+  AI-aesthetic. The body chrome stays Inter; only L4 panel <h1>s
+  reach for this face so the visual hierarchy is unmistakeable.
+
+  Fallback chain: `ui-serif` is the modern serif system pointer
+  (Safari/Chrome resolve it to the platform's native serif —
+  Georgia on macOS, Cambria on Windows). Then the explicit
+  Georgia/Cambria/Times so older browsers + locked-down
+  enterprise envs still land on *some* serif rather than falling
+  through to a sans.
+
+  ~30KB WOFF2 (variable, optical-size axis 9-144). The shell auto-
+  injects `local()`-only `@font-face` declarations (see
+  `theme/global-styles/font-faces-css`) so an OS-installed Fraunces
+  resolves automatically; absent that, the fallback chain above takes
+  over with zero HTTP fetch. Consuming projects that want web-hosted
+  Fraunces inject their own `@font-face` rules with `url()` entries
+  pointing at vendored / CDN-hosted WOFF2s — CSS layers candidates
+  by family + weight so the host-side rules compose with the
+  `local()` defaults."
+  "Fraunces, ui-serif, Georgia, Cambria, Times, serif")
 
 (def type-scale
   "Causa shell typography sizes (rf2-pcitk).
@@ -135,3 +256,102 @@
   in earlier Causa redesigns and the now-unused `:sidebar-width` /
   `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee)."
   {:top-strip-height "56px"})
+
+;; ---- motion (rf2-5kfxe.5) ----------------------------------------------
+
+(def motion
+  "Motion-axis tokens (rf2-5kfxe.5). Every Causa animation interpolates
+  its duration through `--rf-causa-motion-scale`, a CSS custom
+  property set on `:root` by `theme/global-styles`. A single media-
+  query rule overrides the property to ~0 under `prefers-reduced-
+  motion: reduce`, collapsing every downstream animation to its end
+  state in a single frame.
+
+  - `:scale-var-name`   — CSS variable name; consumers write
+                          `\"var(\" :scale-var-name \", 1)\"` in their
+                          inline `animation-duration` `calc(...)`
+                          expressions so the seam stays one
+                          identifier.
+  - `:flash-duration-ms` — the canonical 400ms diff-flash duration
+                          (rf2-5kfxe.2). Catalogued here so the
+                          renderer can read it without forking the
+                          number.
+  - `:fade-duration-ms`  — the canonical 180ms tab cross-fade
+                          duration (rf2-5kfxe.3).
+
+  The CSS keyframes themselves live in `theme/global-styles/motion-
+  css`; this map is the symbolic surface for consumers that need to
+  reason about durations / the seam variable in cljs-land."
+  {:scale-var-name    "--rf-causa-motion-scale"
+   :flash-duration-ms 400
+   :fade-duration-ms  180})
+
+(defn duration-css
+  "Build the canonical `calc(<ms>ms * var(--rf-causa-motion-scale, 1))`
+  CSS string a consumer passes as `animation-duration`. The
+  `prefers-reduced-motion: reduce` seam in `theme/global-styles`
+  collapses the var to a vanishingly small value, so motion-using
+  surfaces that build their duration through this helper honour
+  reduced-motion without any per-component branching.
+
+  Pure data → string; JVM-portable."
+  [ms]
+  (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
+
+;; ---- L4 panel domain colours (rf2-5kfxe.8) -----------------------------
+
+(def panel-domain->token
+  "Pure semantic map from L4 tab keyword → token keyword used as the
+  panel's domain colour. Each panel renders a 3px left-border on its
+  `<h1>` in this colour so panels are distinguishable at a glance
+  without restructuring the header chrome.
+
+  Choices mirror the existing semantic colour usage across panels:
+
+    :event     → :accent-violet  (the causal-chain accent everywhere
+                                  in the Event lens)
+    :app-db    → :cyan           (the App-db diff already uses cyan
+                                  for highlighted state)
+    :views     → :cyan           (Views is a peer of App-db; both
+                                  read state, hence the shared hue —
+                                  same way the spec groups them)
+    :trace     → :orange         (Trace = events 'in flight'; orange
+                                  is the firing/heat tone in the
+                                  perf scale)
+    :machines  → :green          (machine state lands in green for
+                                  'final' across the inspector)
+    :routing   → :yellow         (routing is the side-channel
+                                  attention tone — distinguishes
+                                  from app-db's main colour)
+    :issues    → :red            (issues = errors; semantic red)
+
+  JVM-portable pure data → keyword. Call sites do
+  `(get tokens (panel-domain->token tab))` to materialise the hex."
+  {:event    :accent-violet
+   :app-db   :cyan
+   :views    :cyan
+   :trace    :orange
+   :machines :green
+   :routing  :yellow
+   :issues   :red})
+
+(defn panel-accent
+  "Resolve the L4 panel's accent hex from the canonical
+  `panel-domain->token` map through `tokens`. Falls back to the
+  violet accent for unknown tab keywords so the stripe always
+  renders."
+  [tab]
+  (get tokens
+       (get panel-domain->token tab :accent-violet)))
+
+(defn accent-stripe-style
+  "Build an inline-style map that paints the per-panel accent as a
+  3px left border on the panel's `<h1>` (or whichever element the
+  caller applies it to). Inline style so per-panel call sites stay
+  small + the stripe is co-located with the header chrome.
+
+  `tab` is the L4 tab keyword (`:event` / `:app-db` / …). Returns a
+  map merge-able into an existing `:style`. Per rf2-5kfxe.8."
+  [tab]
+  {:border-left   (str "3px solid " (panel-accent tab))
+   :padding-left  "10px"})

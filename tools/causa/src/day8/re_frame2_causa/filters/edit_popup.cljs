@@ -140,7 +140,7 @@
                          primary? (:accent-violet tokens)
                          :else    (:border-default tokens)))
    :color         (cond
-                    primary? "#0E0F12"           ; bg-0 — readable on violet
+                    primary? (:bg-0 tokens)      ; readable on violet
                     danger?  (:red tokens)
                     :else    (:text-primary tokens))
    :padding       "6px 14px"

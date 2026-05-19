@@ -34,7 +34,8 @@
              :as sections]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-causa.theme.tokens
-             :refer [tokens sans-stack]]))
+             :as t
+             :refer [tokens sans-stack display-stack]]))
 
 (rf/reg-view Panel
   "The App-DB Diff panel's root view."
@@ -47,7 +48,8 @@
                 focused-hits
                 redacted-modified-count
                 flow-writes
-                diff-triples]}
+                diff-triples
+                selected-epoch-id]}
         @(rf/subscribe [:rf.causa/app-db-diff])]
     [:section {:data-testid "rf-causa-app-db-diff"
                :style       {:height         "100%"
@@ -58,10 +60,20 @@
                              :font-family    sans-stack
                              :font-size      "14px"}}
      [:header {:style {:padding "16px 16px 8px 16px"}}
-      [:h1 {:style {:font-size   "16px"
-                    :font-weight 600
-                    :margin      0
-                    :color       (:text-primary tokens)}}
+      ;; rf2-5kfxe.8 — domain-coloured 3px left border via the
+      ;; canonical `theme.tokens/accent-stripe-style` helper. App-db's
+      ;; domain colour is `:cyan` — see `panel-domain->token`.
+      ;; rf2-5kfxe.9 — the L4 title carries the display face
+      ;; (Fraunces). Body / chrome stays Inter — only this <h1>
+      ;; reaches for the serif so the visual hierarchy is
+      ;; unmistakeable.
+      [:h1 {:style (merge {:font-size   "20px"
+                           :font-family display-stack
+                           :font-weight 600
+                           :letter-spacing "-0.01em"
+                           :margin      0
+                           :color       (:text-primary tokens)}
+                          (t/accent-stripe-style :app-db))}
        "App-db diff"]]
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
@@ -87,9 +99,15 @@
          ;; `[fx :db]`; when flows fired, sections covering a flow's
          ;; `:write-path` get `[flow :flow-id]` (or mixed if
          ;; coalesced).
+         ;; rf2-5kfxe.2 — pass `:epoch-id` so the renderer keys each
+         ;; section by epoch + path. A new cascade lands as a fresh
+         ;; React mount per section and the diff-flash keyframes
+         ;; auto-play (yellow wash decaying to transparent over 400ms,
+         ;; scaled by the `--rf-causa-motion-scale` seam).
          (diff-render/render-sections changed-sections "app-db-diff"
                                        {:flow-writes  flow-writes
-                                        :diff-triples diff-triples})
+                                        :diff-triples diff-triples
+                                        :epoch-id     selected-epoch-id})
          (sections/reserved-group changed-reserved)])]]))
 
 (defn install!

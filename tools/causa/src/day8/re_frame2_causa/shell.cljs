@@ -118,7 +118,10 @@
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
-            [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
+            [day8.re-frame2-causa.theme.global-styles :as global-styles]
+            [day8.re-frame2-causa.theme.tokens
+             :as t
+             :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
 
@@ -1052,6 +1055,14 @@
      ;; on the row's inferred dimension. The hit-area is the 14px
      ;; gutter cell; stopPropagation prevents the body-click handler
      ;; from also firing.
+     ;;
+     ;; rf2-5kfxe.10 — cascade-chain timeline gutter. The gutter cell
+     ;; carries a 1px violet inset border on its LEFT EDGE so stacked
+     ;; rows render as a continuous vertical thread — visually
+     ;; expressing the spine's timeline rather than reading as a flat
+     ;; list. `:ungrouped` rows break the thread (the bucket isn't on
+     ;; the cascade timeline). The thread is `align-self: stretch` so
+     ;; it spans the full row height edge-to-edge.
      [:span (cond-> {:data-testid (str "rf-causa-row-gutter-" (str id))
                      :style       {:width        "14px"
                                    :flex-shrink  0
@@ -1061,7 +1072,20 @@
                                    :align-self   "stretch"
                                    :cursor       (if gutter-click "pointer" "default")
                                    :color        focus-marker-col
-                                   :font-size    "11px"}
+                                   :font-size    "11px"
+                                   ;; rf2-5kfxe.10 — the timeline
+                                   ;; thread. `box-shadow inset` paints
+                                   ;; a 1px violet line on the left
+                                   ;; edge of the gutter without
+                                   ;; consuming any layout width
+                                   ;; (border-left would shift the
+                                   ;; glyph). Ungrouped rows break the
+                                   ;; thread because they're off-
+                                   ;; timeline.
+                                   :box-shadow   (if ungrouped?
+                                                   "none"
+                                                   (str "inset 1px 0 0 0 "
+                                                        (:accent-violet tokens)))}
                      :title       (cond
                                     pivot?
                                     (str "Clear focus on " (fh/dimension-label focus-set))
@@ -1320,7 +1344,23 @@
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`. The wrapping `<div>` paints `bg-2` as a contrast
   safety net (rf2-q8154 — defence-in-depth for panels that fail to
-  set their own background)."
+  set their own background).
+
+  ## rf2-5kfxe.3 — 180ms cross-fade on tab switch
+
+  Spec/007 §Motion + animation calls for a 180ms cross-fade when the
+  user switches L4 tabs. The case-switch above is otherwise an instant
+  DOM swap. The trick: wrap the chosen panel in an inner `<div>`
+  *keyed on `selected`*. When the key changes Reagent unmounts the
+  previous wrapper + mounts a new one, which auto-plays the
+  `rf-causa-fade-in` CSS animation declared in
+  `theme/global-styles/motion-css`. Duration is interpolated through
+  the `--rf-causa-motion-scale` seam (rf2-5kfxe.5) so the fade
+  collapses to 0ms under `prefers-reduced-motion: reduce`.
+
+  The outer `<div>` keeps its `data-testid` stable across tab swaps so
+  existing tests + `getByTestId` lookups still resolve — the cross-fade
+  wrapper is purely internal."
   []
   (let [selected (or @(rf/subscribe [:rf.causa/selected-tab])
                      default-tab)]
@@ -1330,24 +1370,45 @@
                    :overflow    "auto"
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
-     (case selected
-       :event    [event-detail/Panel]
-       :app-db   [app-db-diff/Panel]
-       ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
-       ;; replaced the legacy Subscriptions panel with Views; the 4-
-       ;; layer chrome surfaces it as the L3 `:views` tab rather than a
-       ;; sidebar entry).
-       :views    [views/Panel]
-       :trace    [trace/Panel]
-       :machines [machine-inspector/Panel]
-       ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
-       ;; event over the registered-routes tree per spec/016 §Routing
-       ;; tab content. Mike's design call (2026-05-18): cohesive sub-
-       ;; domains earn their own lens tab rather than overloading
-       ;; App-db.
-       :routing  [routing/Panel]
-       :issues   [issues-ribbon/Panel]
-       [unknown-tab-stub selected])]))
+     ;; rf2-5kfxe.3 — re-mount on selected-tab change so the fade-in
+     ;; keyframes auto-play. The `^{:key selected}` reader-meta is on a
+     ;; *vector literal* (the wrapper `[:div ...]`), so Reagent's
+     ;; `get-react-key` picks it up via the vector's meta (no
+     ;; `with-meta` needed here — different from the function-call
+     ;; case in `render-sections`).
+     ^{:key selected}
+     [:div {:data-testid (str "rf-causa-detail-panel-fade-"
+                              (name selected))
+            :style {:height     "100%"
+                    ;; Keyframes named in `global-styles/motion-css`.
+                    ;; Duration interpolated through the
+                    ;; `--rf-causa-motion-scale` seam (rf2-5kfxe.5)
+                    ;; via `theme.tokens/duration-css` so the
+                    ;; 180ms constant + the seam-var name both live
+                    ;; in tokens.cljc — one source of truth.
+                    ;; `forwards` pins the end state (opacity 1) so
+                    ;; the panel stays visible after the fade settles.
+                    :animation  (str "rf-causa-fade-in "
+                                     (t/duration-css (:fade-duration-ms t/motion))
+                                     " ease-out forwards")}}
+      (case selected
+        :event    [event-detail/Panel]
+        :app-db   [app-db-diff/Panel]
+        ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
+        ;; replaced the legacy Subscriptions panel with Views; the 4-
+        ;; layer chrome surfaces it as the L3 `:views` tab rather than a
+        ;; sidebar entry).
+        :views    [views/Panel]
+        :trace    [trace/Panel]
+        :machines [machine-inspector/Panel]
+        ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
+        ;; event over the registered-routes tree per spec/016 §Routing
+        ;; tab content. Mike's design call (2026-05-18): cohesive sub-
+        ;; domains earn their own lens tab rather than overloading
+        ;; App-db.
+        :routing  [routing/Panel]
+        :issues   [issues-ribbon/Panel]
+        [unknown-tab-stub selected])]]))
 
 ;; ---- shell view ----------------------------------------------------------
 
@@ -1387,6 +1448,13 @@
   see the bead trail."
   [& [{:keys [mode modal-positioning]
        :or   {mode :inline modal-positioning :fixed}}]]
+  ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
+  ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
+  ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
+  ;; cluster commits extend this install with `@keyframes` + the
+  ;; reduced-motion seam so all global stylesheet writes converge on
+  ;; one entry point.
+  (global-styles/install!)
   ;; Idempotent app-db write so every modal can read the positioning
   ;; via the `:rf.causa/modal-positioning` sub. Guarded against
   ;; re-dispatch by comparing the current slot to the prop — once the
