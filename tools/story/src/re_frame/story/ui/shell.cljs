@@ -91,6 +91,7 @@
             [re-frame.story.backgrounds :as backgrounds]
             [re-frame.story.viewport :as viewport]
             [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]
             [re-frame.story.theme.motion :as motion]))
 
 ;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
@@ -716,6 +717,13 @@
          ;; Idempotent. Behind config/enabled? — production short-
          ;; circuits before the DOM touch.
          (motion/inject-motion-css!)
+         ;; rf2-ypd6h: inject grain overlay stylesheet — an SVG-feTurbulence
+         ;; noise sheet rendered as a `::before` pseudo on
+         ;; `[data-rf-story-root]` so the bare slate grounds carry studio
+         ;; texture rather than reading as 'editor pane'. Self-elides on
+         ;; prefers-contrast more / when config/enabled? is false.
+         ;; Idempotent.
+         (depth/inject-grain-css!)
          ;; rf2-xi9zk: hydrate chrome-wide :active-modes from URL +
          ;; localStorage before the first render of the toolbar /
          ;; canvas. URL wins over localStorage per spec/010 §URL deep-

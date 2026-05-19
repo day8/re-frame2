@@ -30,7 +30,8 @@
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]))
 
 ;; ---- namespace-preserving frame-provider --------------------------------
 ;;
@@ -76,10 +77,15 @@
               :overflow "auto"
               :color (:text-primary colors/tokens)
               :font-family sans-stack}
-   :frame    {:background (:bg-2 colors/tokens)
-              :border "1px solid #3c3c3c"
-              :border-radius "4px"
-              :padding "12px"}
+   :frame    {;; rf2-ypd6h: the workshop region. Atmospheric amber-halo
+              ;; backdrop + amber inset edge so the variant render lifts
+              ;; visibly above the surrounding chrome — the user's eye
+              ;; lands here automatically.
+              :background (:canvas-frame depth/backdrops)
+              :border "1px solid transparent"
+              :border-radius "6px"
+              :padding "16px"
+              :box-shadow (:canvas-edge depth/shadows)}
    :empty    {:color (:text-tertiary colors/tokens)
               :font-style "italic"
               :text-align "center"

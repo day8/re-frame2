@@ -37,6 +37,7 @@
             [re-frame.story.config :as config]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]
             [re-frame.story.theme.motion :as motion]))
 
 ;; ---- localStorage flag --------------------------------------------------
@@ -99,18 +100,20 @@
                  :animation   (str "rf-story-overlay-in "
                                    (:overlay-fade motion/timing) " "
                                    (:enter motion/easing) " both")}
-   :panel       {:background    (:bg-2 colors/tokens)
+   :panel       {:background    (:overlay-glass depth/backdrops)
                  :color         (:text-primary colors/tokens)
-                 :border        "1px solid #555"
-                 :border-radius "5px"
-                 :box-shadow    "0 8px 32px rgba(0,0,0,0.7)"
+                 :border        (str "1px solid " (:border-strong colors/tokens))
+                 :border-radius "8px"
+                 :box-shadow    (:elev-overlay depth/shadows)
                  :width         "560px"
                  :max-width     "92vw"
                  :max-height    "86vh"
                  :overflow      "auto"
                  :font-family   sans-stack
                  :font-size     (:body typography/type-scale)
-                 :line-height   "1.5"}
+                 :line-height   "1.5"
+                 :backdrop-filter "blur(8px)"
+                 :-webkit-backdrop-filter "blur(8px)"}
    :header      {:display         "flex"
                  :justify-content "space-between"
                  :align-items     "center"

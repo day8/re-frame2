@@ -5,14 +5,18 @@
 
   CLJS-only."
   (:require [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
-            [re-frame.story.theme.colors :as colors]))
+            [re-frame.story.theme.colors :as colors]
+            [re-frame.story.theme.depth :as depth]))
 
 (def styles
   {:root      {:display "flex"
                :flex-direction "column"
                :height "100vh"
                :font-family sans-stack
-               :background (:bg-canvas colors/tokens)
+               ;; rf2-ypd6h: atmospheric backdrop — radial-gradient mesh
+               ;; over the deepest slate ground, lifts the shell out of
+               ;; the 'editor pane' flat-solid floor.
+               :background (:shell-root depth/backdrops)
                :color (:text-primary colors/tokens)}
    :body      {:display "flex"
                :flex-direction "row"
@@ -30,8 +34,9 @@
                :flex-shrink "0"
                :display "flex"
                :flex-direction "column"
-               :border-left "1px solid #444"
-               :background (:bg-2 colors/tokens)
+               :border-left (str "1px solid " (:border-default colors/tokens))
+               :background (:bg-1 colors/tokens)
+               :box-shadow (:elev-1 depth/shadows)
                :overflow "auto"}
    :right-narrow {:width "auto"
                   :max-height "42vh"
