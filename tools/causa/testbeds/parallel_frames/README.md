@@ -39,7 +39,7 @@ isolated frames.
 | Feature       | Wiring                                                                                  | Causa lens that lights up                                |
 |---------------|-----------------------------------------------------------------------------------------|----------------------------------------------------------|
 | **Counter**   | `+ / −` buttons. Events: `::counter-inc`, `::counter-dec`. Sub: `::counter`.            | Event list; App-db diff (`:counter` slot)                |
-| **Clock**     | Self-perpetuating tick chain via `:dispatch-later` @ 1s. Sub: `::clock-ticks`.          | Trace lens (`:event/dispatched` rows); App-db diff       |
+| **Clock**     | Per-frame **Tick** button — each click dispatches `::clock-tick` once against the surrounding frame. Sub: `::clock-ticks`. (rf2-gxgmt: the auto-tick chain was retired — spine pollution outweighed teaching value.) | Event list (one row per click); App-db diff (`:clock :ticks` slot) |
 | **Title HTTP**| Refresh / Force-error buttons. Drives `:title/flow` machine through `:idle → :loading → :loaded / :error`. Mock fx resolves ~600ms after dispatch. | Machines lens (state chart + transitions); Trace lens (HTTP-shaped rows); Issues lens (slow effect, ~600ms) |
 
 ## Frame isolation — the load-bearing rule
@@ -80,10 +80,14 @@ HTTP, Issues, Trace) panel between observing `:above` and `:below`.
    list is empty for `:below`; the App-db diff shows no `:counter`
    movement.
 
-2. **Independent clocks.** Watch the App-db diff under `:above` vs
-   `:below`. Each frame's `:clock :ticks` advances on its own cadence;
-   the two are not synchronised (each `:dispatch-later` chain runs in
-   its own frame's router).
+2. **Independent clocks.** Click **Tick** in `:above` a few times,
+   then click **Tick** in `:below` once. Watch the App-db diff under
+   `:above` vs `:below`: only the frame whose Tick button you clicked
+   sees its `:clock :ticks` advance. The same `::clock-tick` handler
+   is registered once globally and resolves against whichever frame
+   the dispatch envelope targets via the frame-provider context —
+   proving on-demand per-frame isolation without continuous spine
+   noise. (rf2-gxgmt — the previous auto-tick chain was retired.)
 
 3. **Per-frame machine state.** Click Refresh on `:below`. Open the
    Machines tab — `:title/flow` reads `:loading`. Switch frame picker
@@ -123,8 +127,10 @@ shop testbed's deletion now that this clean exemplar lands.
 - `index.html` — minimal static host with the standard
   `[data-rf-causa-host]` aside so the Causa preload auto-mounts inline.
 - `spec.cjs` — Playwright smoke that asserts both frames mount, the
-  counters are isolated, Refresh on `:below` doesn't move `:above`,
-  Force-error on `:above` doesn't disturb `:below`'s `:loaded` state.
+  counters are isolated, the per-frame Tick buttons advance only
+  their own `:clock :ticks` slot, Refresh on `:below` doesn't move
+  `:above`, and Force-error on `:above` doesn't disturb `:below`'s
+  `:loaded` state.
 
 ## Running
 

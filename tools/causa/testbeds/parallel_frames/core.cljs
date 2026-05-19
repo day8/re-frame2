@@ -31,11 +31,15 @@
 
     Counter        — `+ / −` buttons. Demonstrates events, app-db
                      evolution, simple sub recomputation.
-    Clock          — auto-ticking every second via `:dispatch-later`.
-                     Demonstrates continuous events + sub recomputation
-                     and (because the two frames start their tick chains
-                     at slightly different points in time) the two
-                     clocks naturally drift out of phase across reloads.
+    Clock          — per-frame Tick button increments the local
+                     `:ticks` counter once per click. Demonstrates
+                     event-driven sub recomputation cleanly on demand,
+                     and (because each frame's `:ticks` slot is
+                     independent) the parallel-frame isolation: ticking
+                     :above does not move :below's counter and vice
+                     versa. The auto-tick dispatch chain that used to
+                     drive this was retired in rf2-gxgmt — spine
+                     pollution outweighed teaching value.
     Title (HTTP)   — Refresh button dispatches an event that, via the
                      `:title/flow` state machine, fires an in-process
                      mock-HTTP effect. The mock resolves ~600ms after
@@ -88,9 +92,10 @@
 ;; ============================================================================
 
 (def CLOCK-TICK-MS
-  "Clock tick period. One second matches a wall-clock display
-  cleanly; the dispatch-later chain self-perpetuates so each frame
-  ticks at its own cadence."
+  "Clock tick period — referenced only by the parked `::clock-start`
+  handler (currently unused; see rf2-gxgmt). Kept so any future
+  opt-in auto-tick toggle can re-enable the self-perpetuating chain
+  without re-introducing the magic number."
   1000)
 
 (def HTTP-MOCK-DELAY-MS
@@ -112,24 +117,40 @@
 (rf/reg-event-fx ::initialise
   ;; Single `:on-create` boot event per Spec 002 §Frame creation —
   ;; `:on-create` accepts ONE event vector; multi-step initialisation
-  ;; fans out via the effect map. We seed app-db, start the clock
-  ;; tick chain, AND ping the title machine (so its `:idle` snapshot
-  ;; materialises immediately rather than lazily-on-first-refresh —
-  ;; the Causa Machines panel and the smoke's :idle assertion both
-  ;; want the snapshot live on first paint). The `:rf/init` ping is
-  ;; not declared on the `:idle` state's `:on` map, so it is a no-op
-  ;; transition — but the runtime synthesises the initial snapshot
-  ;; on first dispatch (Spec 005 §Initial-state cascading), which is
-  ;; exactly the side-effect we want.
+  ;; fans out via the effect map. We seed app-db AND ping the title
+  ;; machine (so its `:idle` snapshot materialises immediately rather
+  ;; than lazily-on-first-refresh — the Causa Machines panel and the
+  ;; smoke's :idle assertion both want the snapshot live on first
+  ;; paint). The `:rf/init` ping is not declared on the `:idle`
+  ;; state's `:on` map, so it is a no-op transition — but the runtime
+  ;; synthesises the initial snapshot on first dispatch (Spec 005
+  ;; §Initial-state cascading), which is exactly the side-effect we
+  ;; want.
+  ;;
+  ;; rf2-gxgmt — the clock-tick chain is no longer started here. The
+  ;; per-frame Tick button dispatches `::clock-tick` on demand
+  ;; instead, demonstrating parallel-frame isolation without
+  ;; continuous spine pollution.
   (fn [_ctx _ev]
     {:db {:counter   0
+          ;; rf2-gxgmt — `:clock {:tick-gen 0 :ticks 0}` still seeded
+          ;; here so the per-frame Tick button (which dispatches
+          ;; `[::clock-tick 0]`) finds both slots present on first
+          ;; click. `:tick-gen` stays at 0 in on-demand mode; it's
+          ;; the parking spot for a future Reset/Pause toggle.
           :clock     {:tick-gen 0
                       :ticks    0}
           :title     {:value    "Parallel-Frames (untouched)"
                       :error    nil
                       :requests 0}}
-     :fx [[:dispatch [::clock-start]]
-          [:dispatch [:title/flow [:rf/init]]]]}))
+     ;; Clock-tick chain disabled (rf2-gxgmt — annoying + low value;
+     ;; spine pollution from recursive ::clock-tick dispatch). The
+     ;; per-frame Tick buttons drive `::clock-tick` on demand instead —
+     ;; isolation visible without continuous spine noise.
+     ;; ::clock-start / ::clock-tick / ::clock-ticks remain registered
+     ;; below; ::clock-start is now unused (kept for a future opt-in
+     ;; "auto-tick" toggle if it ever becomes useful again).
+     :fx [[:dispatch [:title/flow [:rf/init]]]]}))
 
 ;; ============================================================================
 ;; COUNTER — events + sub
@@ -144,37 +165,42 @@
 (rf/reg-sub ::counter (fn [db _] (:counter db)))
 
 ;; ============================================================================
-;; CLOCK — periodic tick via :dispatch-later
+;; CLOCK — on-demand tick via per-frame "Tick" button
 ;; ============================================================================
 ;;
-;; The clock tick chain self-perpetuates through `:dispatch-later`,
-;; matching the shape of `examples/reagent/7Guis/timer/timer.cljs`.
-;; Each tick carries the `:tick-gen` value it was scheduled with;
-;; future Reset support (or a Pause toggle) bumps `:tick-gen` so any
-;; stale in-flight tick from the previous generation no-ops. Today
-;; the testbed only ever runs one generation per frame, but the
-;; generation guard is idiomatic and costs nothing.
+;; rf2-gxgmt — the auto-ticking dispatch chain was removed. Each frame
+;; now exposes a "Tick" button that dispatches `::clock-tick` once
+;; against the surrounding frame. Clicking Tick on :above increments
+;; only :above's tick counter; clicking Tick on :below increments only
+;; :below's. The isolation is visible on demand without continuous
+;; spine pollution.
 ;;
-;; Because the two frames start ticking at slightly different points
-;; in time (`:on-create` runs once per `reg-frame` registration; the
-;; first `::clock-start` dispatch happens during the boot sequence
-;; for each), their tick chains naturally drift out of phase. Causa's
-;; frame-picker switching surfaces the divergence.
+;; ::clock-start is no longer wired (`:on-create` doesn't dispatch it
+;; any more) but stays registered as a parking spot for any future
+;; opt-in auto-tick toggle. The `:tick-gen` generation guard in
+;; ::clock-tick stays idiomatic — costs nothing and pairs with a
+;; future Reset/Pause affordance if one materialises.
 
 (rf/reg-event-fx ::clock-start
+  ;; Currently unused — the testbed runs in on-demand mode (rf2-gxgmt).
+  ;; Left registered so a future auto-tick toggle can re-enable the
+  ;; self-perpetuating chain without touching the registration graph.
   (fn [{:keys [db]} _ev]
     (let [gen (get-in db [:clock :tick-gen])]
       {:fx [[:dispatch-later {:ms    CLOCK-TICK-MS
                               :event [::clock-tick gen]}]]})))
 
 (rf/reg-event-fx ::clock-tick
+  ;; On-demand single-tick handler (rf2-gxgmt). The per-frame "Tick"
+  ;; button dispatches `[::clock-tick gen]` with the current
+  ;; `:tick-gen`; the handler increments `:ticks` and stops. The
+  ;; generation guard stays idiomatic — `:tick-gen` lets a future
+  ;; Reset bump the generation so any stale in-flight ticks no-op.
   (fn [{:keys [db]} [_ gen]]
     (if (not= gen (get-in db [:clock :tick-gen]))
       ;; Stale tick from a retired generation. Drop it silently.
       {}
-      {:db (update-in db [:clock :ticks] (fnil inc 0))
-       :fx [[:dispatch-later {:ms    CLOCK-TICK-MS
-                              :event [::clock-tick gen]}]]})))
+      {:db (update-in db [:clock :ticks] (fnil inc 0))})))
 
 (rf/reg-sub ::clock-ticks
   (fn [db _] (get-in db [:clock :ticks])))
@@ -363,14 +389,21 @@
        "+"]]
 
      ;; --- Clock ---------------------------------------------------------
+     ;; rf2-gxgmt — on-demand tick (auto-tick chain retired). Clicking
+     ;; the per-frame Tick button increments only this frame's :ticks
+     ;; slot; the other frame stays put. Parallel-frame isolation
+     ;; visible without continuous spine noise.
      [:div {:style {:margin "0.5em 0"
                     :display "flex" :gap "8px" :align-items "center"}}
       [:strong "Clock:"]
+      [:button {:data-testid (str frame-label "-clock-tick")
+                :on-click    #(dispatch [::clock-tick 0])}
+       "Tick"]
       [:span {:data-testid (str frame-label "-clock-ticks")
               :style       {:font-family "monospace"}}
        (str ticks " tick" (when (not= 1 ticks) "s"))]
       [:span {:style {:font-size "11px" :color "#888"}}
-       "auto-tick @ 1s"]]
+       "on-demand"]]
 
      ;; --- Title (HTTP) --------------------------------------------------
      [:div {:style {:margin "0.5em 0 0 0"
@@ -466,9 +499,10 @@
   (causa-config/configure! {:project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Register the two frames. Each `:on-create` seeds its own app-db
-  ;; synchronously and then kicks off its clock-tick chain. The
-  ;; `::initialise` and `::clock-start` handlers are registered once
-  ;; globally and resolve against whichever frame the dispatch
+  ;; synchronously (rf2-gxgmt — the clock-tick chain is no longer
+  ;; auto-started; the per-frame Tick button drives `::clock-tick` on
+  ;; demand instead). The `::initialise` handler is registered once
+  ;; globally and resolves against whichever frame the dispatch
   ;; envelope targets — per-frame state evolution is automatic.
   (rf/reg-frame frame-above {:on-create [::initialise]})
   (rf/reg-frame frame-below {:on-create [::initialise]})
