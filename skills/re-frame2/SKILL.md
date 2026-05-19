@@ -94,6 +94,43 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 | Wiring Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
 | Authoring head/meta (`reg-head` / `render-head` / `active-head`) or a custom `:rf/hydrate` handler dispatching the version + schema-digest check fxs | `references/cross-cutting/ssr-authoring.md` |
 
+## Testing your views
+
+When the user asks how to test a re-frame2 view — "does the screen show the right thing?", "does the button dispatch the right event?" — suggest the **hiccup-walk pattern**, not a browser-mount.
+
+1. Dispatch events via `rf/dispatch-sync` into the test frame (standard re-frame2 testing surface).
+2. Call the view-fn directly. It returns hiccup; that's just data.
+3. Walk the hiccup with `re-frame.test-helpers` (`find-by-testid` / `text-content` / `invoke-handler`).
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.test-helpers :as h])
+
+(deftest counter-view-shows-and-fires
+  (rf/with-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (let [tree (counter-view {:n 0})
+          btn  (h/find-by-testid tree "counter-inc")]
+      (h/invoke-handler btn :on-click nil)
+      (is (= 1 (:n (rf/get-frame-db f)))))))
+```
+
+**Single-frame vs. multi-frame.** Application tests use ONE frame — the host frame. Views, events, subs, asserts all reference the same frame. Multi-frame test harnesses exist (e.g. `tools/causa/.../e2e_multi_frame.cljs`) but they are for **observer / tool code** — code that runs in one frame and watches another. Do NOT propose a multi-frame harness for testing a regular application view.
+
+**State alone is not enough.** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes:
+- *State-correct, view-broken* — handler updated db, view reads wrong path / forgets a branch.
+- *Wrong-frame dispatch* — `:on-click` dispatches into the wrong frame; host-frame state never changes.
+
+The hiccup-walk + invoke-handler pattern catches both, on JVM and Node-CLJS, with no browser. Full pattern walkthrough lives at [`docs/guide/13-testing.md` §Asserting the view shows the right thing](../../docs/guide/13-testing.md).
+
+The `h/testid` authoring helper standardises the attrs fragment at view call sites:
+
+```clojure
+[:button (h/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])})
+ "+"]
+```
+
+Use it whenever you write a new view that wants a test handle.
+
 ## Where the depth lives
 
 Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
