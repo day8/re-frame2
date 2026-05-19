@@ -301,10 +301,10 @@ The v1.0 `MachineChart` is built on:
   Hierarchical / compound-graph layout, handles nested states,
   parallel regions, multi-source edges with bundling. Same engine
   Stately Studio runs on; VS Code's `mermaid-state-machine`
-  preview also uses it. Bundle ~600 KB. License: **EPL-2.0**.
-  Compatibility check against re-frame2's MIT posture is OWED
-  (5-minute legal sign-off; EPL-2.0 is compatible with MIT use
-  but the sign-off is deliberate — see decision-trace row below).
+  preview also uses it. Bundle ~600 KB. License: **EPL-2.0** —
+  compatibility with re-frame2's MIT posture verified 2026-05-19
+  (rf2-9lath); see §License compatibility below and the
+  §License chain decision-trace row.
 - **Interactive renderer: hand-rolled SVG.** No React Flow, no
   Cytoscape, no general-purpose graph library. Direct SVG output
   driven by ELK's layout result. Cost: ~weeks of polish to reach
@@ -461,16 +461,18 @@ ELK). The product's value-add lives behind a SaaS / commercial
 licence; the OSS pieces sit underneath.
 
 **re-frame2's choice:** **MIT throughout, with a deliberate
-EPL-2.0 sign-off for ELK.** Same OSS posture as the rest of
-re-frame2; no closed components; no SaaS layer.
+EPL-2.0 sign-off for ELK (verified 2026-05-19, rf2-9lath).** Same
+OSS posture as the rest of re-frame2; no closed components; no
+SaaS layer.
 
 **Rationale if diverge:** This is divergence on **business
-model**, not on the OSS pieces. The 5-minute sign-off owed:
-EPL-2.0 (ELK's license) is compatible with MIT use — EPL-2.0
-copyleft applies to modifications of the EPL-2.0 code itself, not
-to consumers that link against it — but the sign-off is on the
-checklist before the MachineChart implementation bead is
-dispatched. (Owner: Mike. Tracked as a follow-on of rf2-04gvh.)
+model**, not on the OSS pieces. EPL-2.0 (ELK's license) is
+compatible with MIT use — EPL-2.0 is weak copyleft at the file
+level: copyleft applies to modifications of the EPL-2.0 source
+files themselves, not to consumers that import and link against
+them as a runtime dependency. The 5-minute sign-off owed in
+rf2-04gvh's closure was completed 2026-05-19 (rf2-9lath); see
+§License compatibility below for the full verdict.
 
 ### Active-state highlighting transport
 
@@ -500,6 +502,43 @@ optimised for "attach my external inspector to a running
 production app from another window"; that use case is served by
 `tools/re-frame2-pair-mcp/` over raw nREPL (the AI-pair surface),
 not by `MachineChart`'s rendering plane.
+
+## License compatibility
+
+ELK.js ships under **EPL-2.0** (Eclipse Public License 2.0).
+re-frame2 ships under **MIT**.
+
+**Compatibility verified 2026-05-19 (rf2-9lath):** EPL-2.0 is a
+weak copyleft license operating at the **file level**, not the
+project level. Using ELK.js as a runtime dependency in a
+re-frame2-derived consumer bundle is permitted: the ELK.js code
+retains EPL-2.0 within the combined work; the consumer's own code
+retains MIT. Modifications to the ELK.js source files (if any)
+must remain EPL-2.0; the wider project does not inherit copyleft
+obligations.
+
+For this project specifically: Machines-Viz imports and consumes
+ELK.js as a **black-box runtime dependency**. We do not patch,
+fork, or modify ELK.js source. No additional obligations arise
+from EPL-2.0 beyond preserving the license notice in
+distributions (the standard attribution rule, satisfied by
+shipping the upstream license alongside the dependency in any
+distribution that bundles it — handled by the package manager's
+license-passthrough in the WASM/JS asset chain).
+
+The same posture applies transitively. Anything downstream of
+re-frame2 that includes ELK.js — consumer apps embedding the
+`MachineChart` component in their bundles — inherits the same
+weak-copyleft-at-the-file-level obligation. ELK.js source stays
+EPL-2.0 within their bundle; their app code stays under whatever
+license they choose. No relicensing is required.
+
+References:
+
+- [EPL-2.0 full text](https://www.eclipse.org/legal/epl-2.0/)
+- [EPL FAQ (eclipse.org)](https://www.eclipse.org/legal/eplfaq.php)
+- [ELK project (eclipse.org)](https://www.eclipse.org/elk/)
+- [`elkjs` npm package](https://www.npmjs.com/package/elkjs)
 
 ## Scope and roadmap
 
