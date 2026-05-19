@@ -189,6 +189,29 @@ each substrate **inline** in its own pane.
 The rationale for inline-rendering substrate failures is documented in
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures.
 
+### Substrate-portable post-render hook
+
+DOM-mutating chrome that runs against the rendered output of a variant
+(axe-core a11y scans; the layout-debug overlay trio — measure, outline,
+pseudo) uses the **`:adapter/after-render`** late-bind hook the
+framework publishes from each substrate adapter (Reagent / UIx /
+Helix — rf2-334d9). The hook is `(re-frame.interop/after-render f)`,
+which dispatches through the late-bind directory to whichever
+substrate the active variant runs under; UIx and Helix wire it via
+`useLayoutEffect`, Reagent via its post-render queue. Each adapter
+publishes the hook at startup so panel code stays substrate-agnostic.
+
+At v1 Story's own UI shell is Reagent-only (§UI shell substrate above)
+and the load-bearing post-render work happens inside the chrome's
+Reagent layer, so the hook is not used by the shell itself today.
+**At Stage 8** — when the Story chrome migrates to multi-substrate
+per §Bundle implications and when the a11y / layout-debug panels
+attach against a variant whose substrate is not Reagent — these panels
+attach via `:adapter/after-render` rather than substrate-specific
+escape hatches. The hook is the canonical portable surface; panel
+authors writing for the multi-substrate world should target it
+directly.
+
 ## Workspace persistence (both modes)
 
 Workspace layouts persist **both** ways:

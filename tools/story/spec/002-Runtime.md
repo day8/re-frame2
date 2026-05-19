@@ -23,6 +23,24 @@ At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
 Hot-reload preserves the side-table; a re-registration of the same
 variant calls `reset-frame!` and re-runs the lifecycle.
 
+### Machine lifecycle on variant unmount
+
+When `destroy-variant!` fires, any
+[spec/005 state machines](../../../spec/005-StateMachines.md) the
+variant's lifecycle spawned receive their `:rf.machine/destroy` event
+as part of frame teardown (per
+[spec/005 §`:rf.machine/destroy`](../../../spec/005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx),
+rf2-rkedz). The destroy event runs the actor's `:exit` action,
+dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears
+its event handler from the frame-local registry — symmetric with the
+`:rf.machine/spawn` that brought the actor into being. Story is a
+passive consumer of this contract; the variant frame's own
+`destroy-frame!` walk drives the destroy emissions, and Story does not
+add a parallel cleanup path. Authors writing `:exit` actions that
+need teardown semantics (close a websocket, cancel a timer, persist
+state) should rely on this contract rather than the variant's own
+unmount hook.
+
 ## Coexistence with hosting application state
 
 Story installs runtime slots into every variant frame's `app-db` under
