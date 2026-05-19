@@ -9,14 +9,14 @@
 
     2. **Lazy loader fallback** — `ensure-elk!` rolls into the
        `:failed` state when no `js/window.ELK` stub is present and
-       `js/import` is unavailable (the node-test rig). The
-       `layout-or-fallback` fn then returns the layered fallback so
-       the panel always has a renderable graph.
+       `shadow.esm/dynamic-import` is unavailable (the node-test
+       rig). The `layout-or-fallback` fn then returns the layered
+       fallback so the panel always has a renderable graph.
 
   Tests are CLJS-only (`.cljs`, `_cljs_test`) because the loader uses
-  `js/window` and `js/import`. The pure adapter helpers happen to be
-  CLJC-friendly but the loader pulls them into a CLJS-only consumer
-  so we colocate the test."
+  `js/window` and `shadow.esm/dynamic-import`. The pure adapter helpers
+  happen to be CLJC-friendly but the loader pulls them into a CLJS-only
+  consumer so we colocate the test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.elk-layout :as elk-layout]))
@@ -202,7 +202,7 @@
 ;; ---- loader fallback ----------------------------------------------------
 
 (deftest ensure-elk-rolls-to-failed-without-stub-or-import
-  (testing "with no js/window.ELK stub and no working js/import the
+  (testing "with no js/window.ELK stub and no working dynamic-import the
             loader rolls into :failed state and the callback fires
             with nil — the panel then falls back to layered"
     (elk-layout/reset-elk-state-for-test!)

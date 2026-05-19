@@ -17,8 +17,8 @@
   time would inflate every Causa dev session whether the user opens
   the Machine Inspector or not. The loader:
 
-    - First call from the panel triggers a `js/import` of
-      `elkjs/lib/elk.bundled.js`.
+    - First call from the panel triggers a `shadow.esm/dynamic-import`
+      of `elkjs/lib/elk.bundled.js`.
     - Subsequent calls fast-path off a `defonce` atom that tracks
       `nil → :loading → {:elk <inst>} | {:failed <msg>}`.
     - If the import rejects (node-test rig, CSP block, offline) the
@@ -26,6 +26,19 @@
       the layered placement.
     - Tests can pre-stub `js/window.ELK` to short-circuit the import
       (sync wrap path) without bundling ELK into the test rig.
+
+  ### Why `shadow.esm/dynamic-import` (not raw `js/import`)
+
+  shadow-cljs's `:infer-externs` walks every form in the build and
+  emits a JS extern for any unknown `js/<global>` reference. Raw
+  `(js/import \"...\")` would emit `var import;` into externs.shadow.js
+  — `import` is a JS reserved keyword, which the Closure compiler
+  rejects with a parse error (`externs.shadow.js:10 Parse error.
+  'identifier' expected`). shadow-cljs ships
+  `shadow.esm/dynamic-import` for exactly this case: it routes through
+  the build's `js/shadow_esm_import` runtime helper (a non-reserved
+  identifier shadow-cljs's compiler knows about), so externs
+  inference produces valid JS.
 
   ## Async layout, sync consumer
 
@@ -58,7 +71,8 @@
 
   Both deferrals keep the data shape stable so the SVG renderer keeps
   rendering without per-engine branching."
-  (:require [day8.re-frame2-machines-viz.chart.layout :as layout]))
+  (:require [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [shadow.esm :as shadow-esm]))
 
 ;; ---- ELK lazy-load state -------------------------------------------------
 
@@ -108,8 +122,9 @@
   Three load paths:
 
     1. Pre-stubbed `js/window.ELK` — sync wrap, no import.
-    2. `js/import` resolves `\"elkjs/lib/elk.bundled.js\"` — production
-       browser session.
+    2. `shadow.esm/dynamic-import` resolves `\"elkjs/lib/elk.bundled.js\"`
+       — production browser session. See the ns docstring §Why
+       `shadow.esm/dynamic-import` for why we don't use raw `js/import`.
     3. Both fail → state flips to `{:failed ...}` and `done-fn` fires
        with nil; subsequent calls fast-path with nil."
   [done-fn]
@@ -137,7 +152,7 @@
               (done-fn nil)))
           (try
             (let [p (try
-                      (js/import "elkjs/lib/elk.bundled.js")
+                      (shadow-esm/dynamic-import "elkjs/lib/elk.bundled.js")
                       (catch :default _ nil))]
               (if (and p (.-then p))
                 (-> p
@@ -154,7 +169,7 @@
                               (reset! elk-state {:failed (or (.-message e) "import failed")})
                               (done-fn nil))))
                 (do
-                  (reset! elk-state {:failed "js/import unavailable"})
+                  (reset! elk-state {:failed "dynamic-import unavailable"})
                   (done-fn nil))))
             (catch :default e
               (reset! elk-state {:failed (or (.-message e) "import threw")})

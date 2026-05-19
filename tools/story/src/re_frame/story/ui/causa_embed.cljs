@@ -52,6 +52,8 @@
   Token data + pure helpers are .cljc-friendly; the React
   component + mount-driving side effects are CLJS-only."
   (:require [reagent.core :as r]
+            [day8.re-frame2-causa.mount :as causa-mount]
+            [day8.re-frame2-causa.panels :as causa-panels]
             [re-frame.story.causa-preset :as causa-preset]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
@@ -120,46 +122,35 @@
       default-panel)))
 
 ;; ---- mount-fn dispatch ---------------------------------------------------
-
-(defn- resolve-fn
-  "Feature-detect-safe symbol → fn lookup. Mirrors the
-  `causa-preset/resolve-fn` shape so Causa can be absent without
-  killing the shell render."
-  [sym]
-  (try
-    (let [ns-str   (namespace sym)
-          name-str (name sym)
-          ns-obj   (when ns-str (find-ns-obj (symbol ns-str)))]
-      (when ns-obj
-        (let [munged (-> name-str
-                         (.replace #"-" "_")
-                         (.replace #"\?" "_QMARK_")
-                         (.replace #"\!" "_BANG_"))
-              v      (aget ns-obj munged)]
-          (when (fn? v) v))))
-    (catch :default _ nil)))
-
-(def panel-id->mount-fn-sym
-  "Pure data → data: map a panel-id to the fully-qualified
-  `day8.re-frame2-causa.panels/mount-<panel>!` symbol. Used by the
-  mount-fn dispatch below; pure so JVM tests can assert the
-  contract without booting Reagent."
-  {:event-detail 'day8.re-frame2-causa.panels/mount-event-detail!
-   :app-db       'day8.re-frame2-causa.panels/mount-app-db-diff!
-   :views        'day8.re-frame2-causa.panels/mount-views!
-   :trace        'day8.re-frame2-causa.panels/mount-trace!
-   :machines     'day8.re-frame2-causa.panels/mount-machine-inspector!
-   :routing      'day8.re-frame2-causa.panels/mount-routing!
-   :issues       'day8.re-frame2-causa.panels/mount-issues-ribbon!})
+;;
+;; rf2-senbl: previously this ns used `find-ns-obj` + `aget` to feature-
+;; detect the Causa mount fns at runtime. That walk relied on top-level
+;; def'd fns being exposed as properties of the parent namespace's JS
+;; object — shadow-cljs's namespace organisation does not guarantee
+;; that (only sub-namespace refs hang off the parent), so every lookup
+;; returned nil and the panel-host never painted. The fix: direct
+;; `:require` of `day8.re-frame2-causa.panels` + a `case` dispatch on
+;; panel-id. Causa is on the same shadow-cljs source-path as Story (see
+;; implementation/shadow-cljs.edn :source-paths), so the require is a
+;; compile-time symbol resolution; bundle-isolation still holds because
+;; the gate only forbids `implementation/` → `tools/` requires, not
+;; `tools/story` → `tools/causa` (the inverse is explicitly fine — see
+;; this fix's PR body for the dep-arrow analysis).
 
 (defn mount-fn-for
-  "Return the Causa `mount-<panel>!` fn for `panel-id`, or nil
-  when Causa is not on the classpath / the panel-id is unknown.
-  Feature-detect-safe — every call site treats a nil result as a
-  no-op render."
+  "Return the Causa `mount-<panel>!` fn for `panel-id`, or nil when
+  `panel-id` is unknown. Compile-time symbol resolution via the
+  `case` dispatch — no runtime namespace walk."
   [panel-id]
-  (when-let [sym (get panel-id->mount-fn-sym panel-id)]
-    (resolve-fn sym)))
+  (case panel-id
+    :event-detail causa-panels/mount-event-detail!
+    :app-db       causa-panels/mount-app-db-diff!
+    :views        causa-panels/mount-views!
+    :trace        causa-panels/mount-trace!
+    :machines     causa-panels/mount-machine-inspector!
+    :routing      causa-panels/mount-routing!
+    :issues       causa-panels/mount-issues-ribbon!
+    nil))
 
 ;; ---- popout escape hatch -------------------------------------------------
 
@@ -169,17 +160,14 @@
   popout carries the full chrome the per-panel embed elides so
   power users have one click to the whole-shell shape.
 
-  Feature-detect-safe — when Causa is absent the chip click is a
-  console.warn breadcrumb."
+  Gated on `causa-available?` so the chip remains a graceful no-op
+  when Causa's preload is not on the build (e.g. a pre-rf2-v1ach
+  Story-only build); the direct `:require` of
+  `day8.re-frame2-causa.mount` above pulls the popout symbol onto
+  the compile classpath."
   []
   (when (and config/enabled? (causa-preset/causa-available?))
-    (if-let [popout! (resolve-fn 'day8.re-frame2-causa.mount/popout!)]
-      (popout!)
-      (when (and (exists? js/console) (.-warn js/console))
-        (.warn js/console
-               "[re-frame.story.ui.causa-embed] popout! not loaded — "
-               "day8.re-frame2-causa.mount/popout! is the canonical "
-               "second-window mount surface")))))
+    (causa-mount/popout!)))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -291,30 +279,126 @@
       :else                           (resolve-panel variant-id))))
 
 ;; ---- React component: panel-host (drives mount on panel change) ----------
+;;
+;; rf2-4l7t2: React 18+ throws "Attempted to synchronously unmount a root
+;; while React was already rendering" whenever a Causa-owned React root is
+;; torn down inside the outer Story-Reagent render cascade. The previous
+;; shape ("React key on the panel-host slot, sync unmount in
+;; componentWillUnmount") cycled the host React class on every chip click,
+;; which fired the inner root's unmount inside the parent's chip-click
+;; re-render commit — exactly what React 18+ refuses.
+;;
+;; The fix is the option-(b) shape from rf2-4l7t2: one persistent host
+;; class, panel-id drives an internal swap. The lifecycle invariants:
+;;
+;;   (1) The outer hiccup MUST NOT key `panel-host-component` on
+;;       `active-panel`. The host React class stays alive across panel-id
+;;       swaps; `:component-did-update` drives the internal mount/unmount
+;;       round-trip after the parent's commit phase has completed.
+;;
+;;   (2) Each panel-id swap mounts the new Causa root into a FRESH child
+;;       `<div>` inside the stable host element. The previous panel's
+;;       child node and its React root are released on the next microtask
+;;       (the child stays in the DOM until after `.unmount` so React's
+;;       commit-phase DOM walk sees what it expects; then we remove the
+;;       node).
+;;
+;;       Why a fresh child per mount and not the same host node:
+;;       `ReactDOMClient.createRoot()` REFUSES a container that already
+;;       has a root attached. With a single persistent container, even
+;;       deferring the prior `.unmount` to a microtask would race the
+;;       next `createRoot` call ("createRoot on a container that has
+;;       already been passed to createRoot before"). Per-panel child
+;;       containers sidestep that constraint entirely — each Causa
+;;       `mount-<panel>!` sees a clean node it owns exclusively.
+;;
+;;   (3) Every `.unmount` (the internal panel swap AND the host's own
+;;       `:component-will-unmount`) is deferred via `js/queueMicrotask`
+;;       so the React 18+ root API never sees a synchronous unmount
+;;       inside the outer render cycle.
+;;
+;; Pin: `tools/story/testbeds/causa_rhs_smoke/spec.cjs` asserts that the
+;; chip-click round-trip still flips `data-active-panel` AND paints the
+;; new panel's root — both behaviours survive because the new mount runs
+;; synchronously into the fresh child container; only the prior root's
+;; release is queued.
 
 (defn- panel-host-component
-  "Reagent class-3 component owning the DOM mount lifecycle for
-  ONE Causa panel. On mount + on panel-id change, calls the
-  Causa `mount-<panel>!` fn into our `<div>` ref; on unmount,
-  calls the unmount fn the mount returned.
+  "Reagent class-3 component owning the DOM mount lifecycle for the
+  Causa panel-host `<div>` across an arbitrary number of panel-id
+  swaps. On mount + on panel-id change, mounts the Causa
+  `mount-<panel>!` fn into a fresh child `<div>` of the host; on
+  unmount, releases every still-mounted Causa root via microtask
+  so the React 18+ root API never sees a synchronous unmount
+  inside the parent render cycle.
 
-  Why a class-3 component: every panel swap is a full unmount →
-  mount round-trip. Reagent's :component-did-update + lifecycle
-  hooks give us a clean seam to drive this without a render-loop
-  race. The `<div>` ref is stable across re-renders so the
-  Causa adapter can find its mount-point reliably."
+  Lifecycle invariants (rf2-4l7t2):
+
+  - The host React class persists across panel-id swaps —
+    `:component-did-update` drives the in-place mount/unmount
+    round-trip. The host `<div>` ref is stable so the Causa
+    adapter can rely on a known parent across swaps.
+  - Each `mount-<panel>!` call gets its own fresh child container,
+    so `ReactDOMClient.createRoot()` never sees a container that
+    already owns a root.
+  - Every Causa `unmount!` thunk + DOM node removal runs inside
+    `js/queueMicrotask` so the React 18+ root API never sees a
+    synchronous unmount inside the outer render cycle (the source
+    of the 'Attempted to synchronously unmount a root while React
+    was already rendering' warning that previously fired 17× per
+    Story-Causa browser-gate run)."
   [_panel-id]
   (let [host-ref    (atom nil)
-        unmount-ref (atom nil)
+        ;; `mounted-ref` holds `{:unmount fn :container <div>}` for the
+        ;; currently-mounted Causa root, or nil. Cleared eagerly when
+        ;; swapping; the actual `.unmount` + DOM node removal is queued
+        ;; on a microtask so React's outer commit phase has released
+        ;; before the inner root unmounts.
+        mounted-ref (atom nil)
+        release!    (fn []
+                      (when-let [{:keys [unmount container]} @mounted-ref]
+                        (reset! mounted-ref nil)
+                        (js/queueMicrotask
+                          (fn []
+                            (try (unmount) (catch :default _ nil))
+                            (when-let [parent (some-> container .-parentNode)]
+                              (try (.removeChild parent container)
+                                   (catch :default _ nil)))))))
         do-mount!   (fn [pid]
-                      (when-let [unmount! @unmount-ref]
-                        (try (unmount!) (catch :default _ nil))
-                        (reset! unmount-ref nil))
+                      (release!)
                       (when-let [host @host-ref]
                         (when-let [mount-fn (mount-fn-for pid)]
                           (try
-                            (let [unmount! (mount-fn host)]
-                              (reset! unmount-ref unmount!))
+                            (let [container (.createElement js/document "div")]
+                              ;; Mark the container so DOM-level
+                              ;; assertions / dev-tools can identify
+                              ;; which Causa panel owns it. The
+                              ;; outer host carries `data-test` /
+                              ;; `data-rf-causa-panel-host` already;
+                              ;; this attr is the inner counterpart
+                              ;; for the per-mount child container.
+                              (.setAttribute container
+                                             "data-rf-causa-panel-mount"
+                                             (name pid))
+                              ;; Make the inner container a transparent
+                              ;; flex passthrough — it inherits the host's
+                              ;; flex-column behaviour so the Causa panel
+                              ;; lays out as if it were a direct child of
+                              ;; the host. `display: contents` would
+                              ;; vanish from layout entirely but has
+                              ;; accessibility-tree quirks across
+                              ;; browsers; a plain flex-column passthrough
+                              ;; is more robust.
+                              (set! (.. container -style -display) "flex")
+                              (set! (.. container -style -flexDirection) "column")
+                              (set! (.. container -style -flex) "1 1 auto")
+                              (set! (.. container -style -minHeight) "0")
+                              (set! (.. container -style -overflow) "hidden")
+                              (.appendChild host container)
+                              (let [unmount! (mount-fn container)]
+                                (reset! mounted-ref
+                                        {:unmount unmount!
+                                         :container container})))
                             (catch :default e
                               (when (and (exists? js/console)
                                          (.-warn js/console))
@@ -334,9 +418,7 @@
              (do-mount! new-pid))))
        :component-will-unmount
        (fn [_this]
-         (when-let [unmount! @unmount-ref]
-           (try (unmount!) (catch :default _ nil))
-           (reset! unmount-ref nil)))
+         (release!))
        :reagent-render
        (fn [pid]
          [:div {:ref (fn [node] (reset! host-ref node))
@@ -389,11 +471,24 @@
             :on-click (fn [_] (popout-full-shell!))}
            [:span "Pop out"]
            [glyphs/external-link 11]]]
-         ;; the panel-host — keyed by panel-id so a swap forces a
-         ;; fresh mount through the lifecycle. The component
-         ;; itself ALSO handles the swap via componentDidUpdate;
-         ;; the React key is belt-and-braces so a Causa internal
-         ;; bug (e.g. a panel that doesn't release its DOM)
-         ;; can't carry state across panel-ids.
-         ^{:key (str variant-id "::" active-panel)}
+         ;; the panel-host. rf2-4l7t2: NO React key on this slot —
+         ;; the host class persists across panel-id swaps so
+         ;; `:component-did-update` handles the in-place mount round-
+         ;; trip. Keying the slot on `active-panel` (the pre-fix
+         ;; "belt-and-braces" shape) would force a full unmount/remount
+         ;; of the host on every chip click, and the synchronous
+         ;; `.unmount` of the Causa-owned React root would fire inside
+         ;; the parent's chip-click render cycle — exactly the
+         ;; "Attempted to synchronously unmount a root while React was
+         ;; already rendering" warning React 18+ guards against. The
+         ;; host's `:component-did-update` lifecycle keyed by panel-id
+         ;; argv-diff drives the swap; the inner unmount runs deferred
+         ;; (see `release!` inside `panel-host-component`).
+         ;;
+         ;; Variant focus changes still re-render this hiccup via the
+         ;; outer `effective-panel` resolution; the host's argv-diff
+         ;; in `:component-did-update` re-runs the mount when the
+         ;; resolved panel-id changes, and same-panel-id variant
+         ;; changes are absorbed by the Causa panel's own subs
+         ;; (`:rf.causa/focus` tracks the variant-driven cascade).
          [panel-host-component active-panel]]))))
