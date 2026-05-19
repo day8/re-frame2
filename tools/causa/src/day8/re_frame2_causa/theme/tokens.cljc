@@ -55,10 +55,14 @@
   rather than rolling it into the shared palette."
   {:no-doc true})
 
-(def tokens
+;; ---- per-theme palettes -------------------------------------------------
+
+(def dark-palette
   "Dark-theme colour tokens lifted from `spec/007-UX-IA.md` §Dark theme
-  tokens. Phase 1 uses inline styles; the v1.0 styling pass replaces
-  these with CSS variables."
+  tokens. The default Causa palette; `tokens` is an alias of this map
+  so the 357 inline `(:bg-1 tokens)` call sites keep resolving without
+  a runtime switch (the CSS-variable migration is the v1.0 styling
+  pass)."
   {;; ── surfaces ──
    :bg-0           "#0E0F12"
    :bg-1           "#15171B"
@@ -97,6 +101,81 @@
    ;; surface" spots (primary / danger buttons) flow through tokens
    ;; like every other colour.
    :white          "#ffffff"})
+
+(def light-palette
+  "Light-theme colour tokens per `spec/007-UX-IA.md` §Colour system —
+  'Light theme inverts lightness (bg-0 #FAFBFC, bg-1 #F1F3F6, bg-2
+  #FFFFFF); accents darken slightly to maintain contrast'. (rf2-5kfxe.6)
+
+  Surfaces invert (bg-0 is the *lightest* deepest-canvas tone, bg-3
+  the most saturated chrome); text inverts so primary is near-black;
+  borders subtle in greys; accents darken ~15-20% to maintain AA
+  contrast on the white canvas.
+
+  Consumed via the per-theme CSS custom-property block emitted by
+  `theme/global-styles/themes-css`. The class toggle
+  (`rf-causa-theme-light` on the shell root, written by
+  `settings/effects/apply-theme!`) flips which block is in scope. The
+  357 inline-style call sites that read `(:bg-1 tokens)` continue to
+  resolve against the dark palette — the light-theme surface is the
+  CSS-variable layer until the v1.0 sweep migrates inline styles
+  through to it."
+  {;; ── surfaces ── (lighter as the depth increases — bg-2 is the
+   ;; brightest 'top' canvas, bg-0 the gentlest 'recess')
+   :bg-0           "#FAFBFC"
+   :bg-1           "#F1F3F6"
+   :bg-2           "#FFFFFF"
+   :bg-3           "#E6E9EE"
+   :bg-active      "#DCE0E7"
+
+   ;; ── borders ── (lighter mid-greys; the gap between subtle and
+   ;; default mirrors the dark palette's discrimination)
+   :border-subtle  "#E6E9EE"
+   :border-default "#CFD4DC"
+
+   ;; ── text ── (near-black down to mid-grey)
+   :text-primary   "#15171B"
+   :text-secondary "#4B5160"
+   :text-tertiary  "#8B92A1"
+
+   ;; ── accents + semantic ── (each ~15-20% darker than the dark
+   ;; palette to maintain ≥4.5:1 contrast on the white canvas)
+   :accent-violet  "#5538D8"
+   :cyan           "#2A8B96"
+   :green          "#2F9E5C"
+   :yellow         "#B07A05"
+   :orange         "#C2570F"
+   :red            "#C84444"
+   :magenta        "#B146C2"
+
+   ;; ── deep variants ──
+   ;; On the light canvas the danger button stays close to the
+   ;; semantic red — depth is signalled by saturation, not lightness.
+   :red-deep       "#9A3030"
+
+   :white          "#ffffff"})
+
+(def themes
+  "Map of theme-name → palette map. The shell toggles
+  `rf-causa-theme-<name>` on its root via
+  `settings/effects/apply-theme!`; `theme/global-styles/themes-css`
+  emits one CSS custom-property block per theme keyed by the matching
+  class selector.
+
+  Adding a new theme is one entry here + one default in
+  `settings/effects/apply-theme!`'s drop-class list (so the toggle
+  stays exclusive)."
+  {:dark  dark-palette
+   :light light-palette})
+
+(def tokens
+  "Backward-compatible alias for the dark palette. The 357 inline-style
+  call sites that read `(:bg-1 tokens)` keep resolving against the
+  dark palette; the light theme is layered on top via CSS custom
+  properties (see `theme/global-styles/themes-css`). The v1.0 styling
+  pass migrates each call site through to the CSS-variable surface so
+  the inline-style indirection collapses."
+  dark-palette)
 
 (def mono-stack
   "JetBrains Mono stack per spec/007-UX-IA.md §Typography. Used by

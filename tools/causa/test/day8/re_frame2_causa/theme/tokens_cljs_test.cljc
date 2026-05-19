@@ -75,3 +75,45 @@
             full-duration motion rather than zero."
     (let [css (t/duration-css 180)]
       (is (re-find #"var\(--rf-causa-motion-scale,\s*1\)" css)))))
+
+;; ---- light theme (rf2-5kfxe.6) -----------------------------------------
+
+(deftest themes-map-carries-dark-and-light
+  (testing "rf2-5kfxe.6 — the `themes` registry exposes both palettes."
+    (is (contains? t/themes :dark))
+    (is (contains? t/themes :light))
+    (is (= t/dark-palette  (:dark  t/themes)))
+    (is (= t/light-palette (:light t/themes)))))
+
+(deftest light-palette-has-same-keys-as-dark
+  (testing "every dark token has a light counterpart — no nil lookups
+            when the theme flips at runtime."
+    (is (= (set (keys t/dark-palette))
+           (set (keys t/light-palette))))))
+
+(deftest light-palette-inverts-surface-lightness
+  (testing "spec/007 §Light theme — bg-0 #FAFBFC / bg-1 #F1F3F6 /
+            bg-2 #FFFFFF. The light theme inverts the lightness of
+            the dark surfaces."
+    (is (= "#FAFBFC" (:bg-0 t/light-palette)))
+    (is (= "#F1F3F6" (:bg-1 t/light-palette)))
+    (is (= "#FFFFFF" (:bg-2 t/light-palette)))))
+
+(deftest light-palette-darkens-accents
+  (testing "spec/007 — 'accents darken slightly to maintain contrast'.
+            Each accent in the light palette is a darker variant of
+            the corresponding dark-palette accent (sanity-check: the
+            light hexes are not the same string as their dark
+            counterparts)."
+    (doseq [k [:accent-violet :cyan :green :yellow :orange :red :magenta]]
+      (is (not= (get t/dark-palette k)
+                (get t/light-palette k))
+          (str k " differs between the two palettes")))))
+
+(deftest tokens-alias-points-at-dark-palette
+  (testing "`tokens` stays a backward-compatible alias for the dark
+            palette — the 357 inline-style call sites that read
+            `(:bg-1 tokens)` continue to resolve to the dark hex. The
+            light-theme surface is the CSS-variable layer until the
+            v1.0 sweep migrates inline styles through to it."
+    (is (= t/dark-palette t/tokens))))

@@ -95,6 +95,43 @@
           "the override value is a hair above zero — runs to completion
            in a single frame so the end state is reached immediately"))))
 
+;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
+
+(deftest themes-css-publishes-root-defaults
+  (testing "rf2-5kfxe.6 — the :root block publishes the dark palette
+            as the default so any descendant that reads
+            `var(--rf-causa-bg-1)` resolves to the dark hex even
+            before any theme class is attached."
+    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B" :accent-violet "#7C5CFF"}
+                                  :light {:bg-1 "#F1F3F6" :accent-violet "#5538D8"}})]
+      (is (re-find #":root\s*\{[^}]*--rf-causa-bg-1:\s*#15171B" css)
+          "root block carries the dark bg-1")
+      (is (re-find #":root\s*\{[^}]*--rf-causa-accent-violet:\s*#7C5CFF" css)
+          "root block carries the dark accent-violet"))))
+
+(deftest themes-css-emits-per-theme-class-blocks
+  (testing "rf2-5kfxe.6 — `.rf-causa-theme-dark` and
+            `.rf-causa-theme-light` each declare the full palette.
+            settings/effects/apply-theme! toggles which class is on
+            the shell root, switching every `var(--rf-causa-…)`
+            descendant in one assignment."
+    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B"}
+                                  :light {:bg-1 "#F1F3F6"}})]
+      (is (re-find #"\.rf-causa-theme-dark\s*\{[^}]*--rf-causa-bg-1:\s*#15171B" css))
+      (is (re-find #"\.rf-causa-theme-light\s*\{[^}]*--rf-causa-bg-1:\s*#F1F3F6" css)))))
+
+(deftest themes-css-uses-rf-causa-prefix
+  (testing "every variable name is namespaced under `--rf-causa-` so
+            host stylesheets can't accidentally collide with Causa's
+            tokens."
+    (let [css (@#'gs/themes-css {:dark {:bg-1 "x" :red-deep "y" :accent-violet "z"}
+                                  :light {:bg-1 "x" :red-deep "y" :accent-violet "z"}})]
+      (is (re-find #"--rf-causa-bg-1" css))
+      (is (re-find #"--rf-causa-red-deep" css))
+      (is (re-find #"--rf-causa-accent-violet" css))
+      (is (not (re-find #"(?<!--rf-causa-)bg-1:" css))
+          "no unprefixed `bg-1:` declarations leaked into the CSS"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document

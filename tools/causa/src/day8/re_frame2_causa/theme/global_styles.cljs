@@ -97,6 +97,76 @@
     ;; The stylesheet link itself.
     (append-link! fonts-link-id "stylesheet" fonts-href [])))
 
+;; ---- per-theme CSS custom properties (rf2-5kfxe.6) ---------------------
+;;
+;; Emit one CSS custom-property block per theme keyed by the theme
+;; class the shell carries (`rf-causa-theme-dark` / `rf-causa-theme-
+;; light`). Properties land at `:root` for the active theme so any
+;; descendant can read them via `var(--rf-causa-bg-1)`. The dark
+;; block also publishes at `:root` *unconditionally* as a default —
+;; until the shell mounts (or under a host that never adds a theme
+;; class) the dark palette is the safe fallback.
+;;
+;; The 357 inline-style call sites keep reading dark hexes through
+;; `(:bg-1 tokens)` for now; the v1.0 styling pass migrates each one
+;; through to the CSS-variable surface so the toggle takes effect
+;; everywhere.
+
+(def ^:private themes-style-id
+  "rf-causa-themes")
+
+(defn- token-key->css-var
+  "Map a `:bg-1` token key to a `--rf-causa-bg-1` CSS variable name.
+  Pure data → string."
+  [k]
+  (str "--rf-causa-" (name k)))
+
+(defn- palette->declarations
+  "Build the body of a CSS rule from a palette map: `--rf-causa-<key>:
+  <hex>;` one per token. Sorted for deterministic output."
+  [palette]
+  (->> palette
+       (sort-by key)
+       (map (fn [[k v]] (str "  " (token-key->css-var k) ": " v ";\n")))
+       (apply str)))
+
+(defn- themes-css
+  "Build the per-theme CSS block. The dark palette publishes at `:root`
+  (the safe fallback) AND at `.rf-causa-theme-dark` (so the class
+  toggle has a matched landing). The light palette publishes at
+  `.rf-causa-theme-light` so the class toggle activates it."
+  [themes]
+  (str
+    ;; Default — :root carries the dark palette so any descendant
+    ;; reading `var(--rf-causa-bg-1)` resolves it even before the
+    ;; shell class is attached.
+    ":root {\n"
+    (palette->declarations (:dark themes))
+    "}\n"
+    ;; Explicit class blocks — `apply-theme!` (settings/effects.cljs)
+    ;; writes one of these classes on the shell + `<html>` root.
+    ".rf-causa-theme-dark {\n"
+    (palette->declarations (:dark themes))
+    "}\n"
+    ".rf-causa-theme-light {\n"
+    (palette->declarations (:light themes))
+    "}\n"))
+
+(defn- inject-themes-style!
+  "Append the per-theme `<style>` block to `<head>`. Idempotent —
+  id-keyed DOM probe."
+  [themes]
+  (when (and (exists? js/document)
+             (.-head js/document)
+             (.-createElement js/document)
+             (.-getElementById js/document))
+    (when-not (.getElementById js/document themes-style-id)
+      (let [node (.createElement js/document "style")]
+        (set! (.-id node) themes-style-id)
+        (.appendChild node (.createTextNode js/document
+                                            (themes-css themes)))
+        (.appendChild (.-head js/document) node)))))
+
 ;; ---- motion keyframes (rf2-5kfxe.2 + rf2-5kfxe.3) ----------------------
 ;;
 ;; Both motion surfaces share one injected `<style>` block — the
@@ -203,16 +273,13 @@
 
 (defn install!
   "Idempotent — call from `shell-view`'s reg-view body. Triggers font
-  load + motion keyframes on first paint of the shell. Future cluster
-  commits add the L4 tab cross-fade keyframes, the reduced-motion
-  seam, the atmospheric grain overlay, and the display-face font."
+  load + motion keyframes + per-theme CSS custom properties on first
+  paint of the shell. Future cluster commits add the atmospheric
+  grain overlay and the display-face font."
   []
   (when-not @installed?
     (inject-fonts!)
     (inject-motion-style!)
+    (inject-themes-style! tokens/themes)
     (reset! installed? true))
-  ;; Reference `tokens/tokens` so the future global-CSS injection (which
-  ;; *will* consume token values) keeps this require honest under
-  ;; shadow-cljs's dead-require pruning. Cheap — single keyword lookup.
-  tokens/tokens
   nil)
