@@ -471,7 +471,14 @@
                           ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
                            container new-db)))
            :dispatch! (fn [event frame-id]
-                        (rf/dispatch event {:frame frame-id}))}
+                        (rf/dispatch event {:frame frame-id}))
+           ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync
+           ;; from an fx handler body trips the router's in-drain guard
+           ;; and surfaces :rf.error/dispatch-sync-in-handler. Fixtures
+           ;; that pin the ban use [:dispatch-sync event-vec] from their
+           ;; fx body; the realise-fx-handler routes that pair here.
+           :dispatch-sync! (fn [event frame-id]
+                             (rf/dispatch-sync event {:frame frame-id}))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]

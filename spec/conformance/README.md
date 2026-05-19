@@ -212,6 +212,7 @@ The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-
 | `[:fx fx-id args]` | id, args | Emit a single fx as if returned in `:fx`. |
 | `[:fx [[fx-id args] [fx-id args] ...]]` | vector of pairs | Emit multiple fx in declaration order. |
 | `[:dispatch event-vec]` | event vector | Convenience for `[:fx :dispatch event-vec]`. |
+| `[:dispatch-sync event-vec]` | event vector | (fx handler bodies) invokes `dispatch-sync` synchronously through the runner. The router's `:in-drain?` guard catches the call and emits `:rf.error/dispatch-sync-in-handler` (Cross-Spec Interaction §14). Used by fixtures pinning the ban; outside of that the `:dispatch` async path is the canonical chain shape. |
 
 **Control / failure ops:**
 
@@ -358,6 +359,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `cross-spec-frame-destroy-with-machines.edn` | `:cross-spec/frame-destroy-with-machines` | Cross-Spec #1 (Frames × Machines): `destroy-frame!` while a singleton machine snapshot is live emits `:rf.machine.lifecycle/destroyed` BEFORE `:frame/destroyed`, carrying `:reason :parent-frame-destroyed` |
 | `cross-spec-machine-microstep-subscribe.edn` | `:cross-spec/machine-microstep-subscribe` | Cross-Spec #2 (Frames × Machines): subs return the COMMITTED post-cascade snapshot, never an intermediate microstep value. The sub-cache invalidation fires once after macrostep commit, not per-microstep |
 | `cross-spec-machines-under-ssr.edn` | `:cross-spec/machines-under-ssr` | Cross-Spec #4 (Machines × SSR): under `:platform :server`, entering an `:after`-bearing state emits `:rf.machine.timer/skipped-on-server` in place of `/scheduled` — no host-clock timer is installed; the machine's snapshot still lands at the `:after`-bearing state |
+| `cross-spec-dispatch-sync-in-handler.edn` | `:cross-spec/dispatch-sync-in-handler` | Cross-Spec #14 (Drain loop × Substrate): a handler that triggers `dispatch-sync` mid-drain (directly or transitively via a naive fx-side chain) trips the router's `:in-drain?` guard and emits `:rf.error/dispatch-sync-in-handler` with `:no-recovery`; the would-be leaf handler does NOT run. Pins the substrate-level ban; render-time observables are out-of-scope so the fx path is the corpus's testable seam |
 
 Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
 

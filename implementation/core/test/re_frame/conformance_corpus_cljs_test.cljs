@@ -445,7 +445,11 @@
                         (let [container (frame/get-frame-db frame-id)]
                           (substrate-adapter/replace-container! container new-db)))
            :dispatch! (fn [event frame-id]
-                        (rf/dispatch event {:frame frame-id}))}
+                        (rf/dispatch event {:frame frame-id}))
+           ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync
+           ;; from an fx handler body trips the router's in-drain guard.
+           :dispatch-sync! (fn [event frame-id]
+                             (rf/dispatch-sync event {:frame frame-id}))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]

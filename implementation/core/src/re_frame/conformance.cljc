@@ -344,6 +344,14 @@
     :dispatch  (let [ev (resolve-value (second step) ctx)]
                  (assoc ctx :fx (conj (or fx []) [:dispatch ev])))
 
+    ;; Per Cross-Spec Interaction §14 (rf2-60szl): a fixture may emit a
+    ;; `[:dispatch-sync event-vec]` step from an fx handler body. The
+    ;; realise-fx-handler invokes the runner's dispatch-sync! helper for
+    ;; each such pair, which calls rf/dispatch-sync while mid-drain so
+    ;; the router's in-drain guard surfaces :rf.error/dispatch-sync-in-handler.
+    :dispatch-sync (let [ev (resolve-value (second step) ctx)]
+                     (assoc ctx :fx (conj (or fx []) [:dispatch-sync ev])))
+
     :throw     (throw (ex-info (str (second step))
                                {:from-fixture? true}))
 
@@ -457,9 +465,16 @@
   to the body as if it were an 'event' — i.e. [:event-arg 1] resolves
   to the args value (the synthetic event is [fx-id args]).
 
-  read-db!/write-db!/dispatch! are wired by the runner so this namespace
-  stays free of internal substrate / router deps."
-  [fx-id steps {:keys [read-db! write-db! dispatch!]}]
+  Per Cross-Spec Interaction §14 (rf2-60szl) the body may also carry
+  `[:dispatch-sync event-vec]` — used by fixtures that pin the
+  framework's `dispatch-sync-in-handler` ban. The op invokes the
+  runner's `dispatch-sync!` helper, which calls `rf/dispatch-sync` while
+  the surrounding handler is mid-drain; the router's `:in-drain?` guard
+  surfaces `:rf.error/dispatch-sync-in-handler`.
+
+  read-db!/write-db!/dispatch!/dispatch-sync! are wired by the runner so
+  this namespace stays free of internal substrate / router deps."
+  [fx-id steps {:keys [read-db! write-db! dispatch! dispatch-sync!]}]
   (fn [{:keys [frame]} args]
     (let [db              (read-db! frame)
           synthetic-event [fx-id args]
@@ -470,9 +485,16 @@
       (when (not= db (:db final))
         (write-db! frame (:db final)))
       ;; Any :dispatch fx the body produced are enqueued on the same frame.
+      ;; Per rf2-60szl, :dispatch-sync forms are invoked synchronously
+      ;; through the helper — the router's in-drain guard surfaces the
+      ;; structured error when this fires inside a handler cascade.
       (doseq [pair (:fx final)]
-        (when (and (vector? pair) (= :dispatch (first pair)))
-          (dispatch! (second pair) frame)))
+        (cond
+          (and (vector? pair) (= :dispatch (first pair)))
+          (dispatch! (second pair) frame)
+
+          (and (vector? pair) (= :dispatch-sync (first pair)) dispatch-sync!)
+          (dispatch-sync! (second pair) frame)))
       nil)))
 
 (defn- needs-fx-handler?
