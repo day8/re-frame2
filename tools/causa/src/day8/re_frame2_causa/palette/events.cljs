@@ -318,16 +318,21 @@
            :fx base-fx}
 
           :palette/select-frame
-          ;; rf2-ybjkx — drive the frame-picker spine event so the
-          ;; user's choice flows through every per-frame composite
+          ;; rf2-ybjkx — drive the frame-picker selection event so
+          ;; the user's choice flows through every per-frame composite
           ;; (App-DB Diff, Views, Routing). The pre-bead behaviour
           ;; just stamped `:selected-target-frame` into Causa's app-db
-          ;; with no plumb-through; this dispatches the canonical
-          ;; `:rf.causa/set-frame` event the L1 frame-picker uses so
-          ;; the palette is wire-compatible with the rest of the
-          ;; chrome.
+          ;; with no plumb-through.
+          ;;
+          ;; Per rf2-iwwou this dispatches the canonical `:rf.causa/
+          ;; select-frame` event-fx (NOT the spine's `:rf.causa/set-
+          ;; frame` primitive directly) — every persistence /
+          ;; instrumentation layer attached to the frame-switcher
+          ;; contract lives behind the one event surface, so the
+          ;; palette + the L1 ribbon picker + headless tests all
+          ;; share the same write path.
           {:db close-db
-           :fx (conj base-fx [:dispatch [:rf.causa/set-frame (first args)]])}
+           :fx (conj base-fx [:dispatch [:rf.causa/select-frame (first args)]])}
 
           :palette/inspect-handler
           ;; Phase 1: route to a Causa-side store of the inspected

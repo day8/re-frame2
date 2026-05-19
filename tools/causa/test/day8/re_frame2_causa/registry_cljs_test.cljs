@@ -143,6 +143,12 @@
    ;; rf2-a1z3b — focus-navigation primitive slot sub.
    :rf.causa/focus-set
    :rf.causa/focus-slot
+   ;; rf2-iwwou — hardened L1 frame-switcher slot. Public contract
+   ;; every frame-aware feature reaches through: the ribbon picker,
+   ;; the Cmd-K palette's `:select-frame` verb, future panel-by-frame
+   ;; surfaces. See `frame_switcher.cljs` for the full contract.
+   :rf.causa/current-frame
+   :rf.causa/available-frames
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
@@ -396,6 +402,13 @@
    :rf.causa/save-edit-popup
    :rf.causa/select-dispatch-id
    :rf.causa/select-epoch
+   ;; rf2-iwwou — canonical frame-switcher write surface. Dispatches
+   ;; the spine's `:rf.causa/set-frame` + fires `:rf.causa.frame-
+   ;; switcher/persist` for localStorage. The L1 ribbon picker and the
+   ;; Cmd-K palette's `:palette/select-frame` verb both dispatch this
+   ;; event so every persistence / instrumentation layer lives in one
+   ;; place.
+   :rf.causa/select-frame
    :rf.causa/select-machine-id
    :rf.causa/select-tab
    ;; rf2-o5f5f.1 — Runtime ↔ Static mode events + Static-scoped tab.
@@ -512,6 +525,11 @@
    ;; save-edit-popup / delete-edit-popup) — every mutation round-trips
    ;; to localStorage in one place.
    :rf.causa.filters/persist
+   ;; rf2-iwwou — frame-switcher slot persistence side-effect. Bound to
+   ;; the `:rf.causa/select-frame` handler so the user's last-picked
+   ;; frame survives a reload. Lives under the frame-switcher-specific
+   ;; prefix (mirror of the filter-persistence shape).
+   :rf.causa.frame-switcher/persist
    ;; rf2-y3l8z — interactive Machines canvas view-mode persistence
    ;; side-effect. Writes the per-machine view-mode-by-id map to
    ;; localStorage on every `:set-view-mode` mutation so the user's
