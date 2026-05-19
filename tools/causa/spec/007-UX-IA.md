@@ -910,10 +910,25 @@ a master `mount-shell!` for the full 4-layer chrome.
 
 ### Mountable surface inventory
 
-The panel-surface inventory splits across four tiers, with 11
-surfaces independently mountable as standalone user-facing mount
-targets and the remainder living as internal sub-components that
-render under their owning panel.
+The Causa panel-surface inventory totals **13 panels** across four
+tiers — **11 are independently mountable** as standalone user-facing
+mount targets, and **2 are internal sub-components** that render
+under their owning panel. The 4-tier split is:
+
+- **Tier 1 — L3 tab panels (7):** one per L3 detail-panel tab.
+- **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
+  the shell composes at its root.
+- **Tier 3 — inline content surface (1):** the managed-fx
+  wire-boundary diff template embedded in the Event tab.
+- **Tier 4 — internal sub-components (2):** auxiliary inspectors
+  geometry-coupled to `machine-inspector/Panel` (after-rings
+  overlay, sim side-rail).
+
+Tiers 1 + 2 + 3 sum to the **11 independently mountable** surfaces;
+adding Tier 4's 2 internal sub-components reaches the **13-panel**
+total. Modal overlays managed by the shell (Settings dialog,
+command palette, share modal) are NOT counted here — they are shell
+chrome, not panel content.
 
 **Tier 1 — L3 tab panels (7):** one per `:rf.causa/selected-tab`
 value.

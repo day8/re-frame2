@@ -192,6 +192,12 @@ The legacy 16-panel sidebar is dead. Causa ships a **7-tab detail panel**
 event; selection in the L2 event list rebinds every tab. Cross-cutting
 concerns extend each tab; they do NOT add new tabs.
 
+(The chrome surface measures in 7 L3 tabs; the underlying
+**panel-component inventory** totals 13 mountable panels across four
+tiers — see [`007-UX-IA.md`](007-UX-IA.md) §Mountable panel contract
+and [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
+§13-panel inventory.)
+
 Per Mike's design call (2026-05-18, rf2-nrbs9) **Routing earned its own tab**
 — promoted from "lives in App-db + Trace" because the App-db panel was
 getting busy and the routing slice (route tree + current match + nav

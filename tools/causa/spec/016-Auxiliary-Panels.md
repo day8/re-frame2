@@ -18,6 +18,37 @@ The per-tab content this doc covers:
 | Routing tab content (7th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
 
+## 13-panel inventory (rf2-crhr8 + rf2-3r3ao)
+
+Every Causa panel is independently mountable per
+[`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract. The
+4-tier surface inventory totals 13 panels — 11 independently
+mountable, 2 internal sub-components. The canonical Panel-component
+mount paths and L3-tab backing (when applicable) are:
+
+| # | Tier | Panel | Mount path (`day8.re-frame2-causa.panels.*`) | Backs L3 tab |
+|---|---|---|---|---|
+| 1  | 1 | Event tab            | `event-detail/Panel`                | Event |
+| 2  | 1 | App-db tab           | `app-db-diff/Panel`                 | App-db |
+| 3  | 1 | Views tab            | `views/Panel`                       | Views |
+| 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
+| 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
+| 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
+| 7  | 1 | Issues tab           | `issues-ribbon/Panel`               | Issues |
+| 8  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
+| 9  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
+| 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
+| 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | embedded in Event tab |
+| 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
+| 13 | 4 | Sim side-rail                      | `machine-inspector-sim/SimSideRail`     | sub of Machines tab |
+
+Panel-by-panel detail (subs / events / interactions) lives in the
+sections below. Tier 4 sub-components are geometry-coupled to
+`machine-inspector/Panel` and are NOT independently mountable; they
+ship under `mount-machine-inspector!`. Modal overlays the 4-layer
+shell owns (Settings dialog, command palette, share modal) are
+shell chrome and NOT counted here.
+
 ### Performance — dropped (cross-link to Chrome DevTools)
 
 The Performance panel is dropped from Causa. The framework already
