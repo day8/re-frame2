@@ -27,8 +27,14 @@ state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
 (UC1) + dynamic multi-instance views (UC2 Mode A/B/C) descriptions in
 later sections are normative for the Static re-host, NOT for the
-Runtime tab. The state-chart layout primitive lives Causa-internal at
-`tools/causa/src/day8/re_frame2_causa/chart/{layout,svg,interaction}.cljc`.
+Runtime tab. The state-chart layout primitive is **owned by
+`tools/machines-viz/`** as its own tool jar (canonical implementation
+at `tools/machines-viz/src/day8/re_frame2_machines_viz/chart/{layout,svg,interaction}.cljc`,
+per rf2-o9arp / PR #1570); Causa re-exports the public chart API via
+thin shim namespaces (`day8.re-frame2-causa.chart.svg/...` →
+`day8.re-frame2-machines-viz.chart.svg/...`) so the panel surface
+imports a Causa-namespaced public name while the implementation lives
+one tool over.
 
 The Machines tab is the **single most distinctive Causa surface** because
 re-frame2's machine substrate (Spec 005) carries the richest runtime
@@ -95,17 +101,60 @@ panel.
 
 ## Architectural posture
 
-**The `tools/machines-viz/` artefact is gone** (collapsed into Causa
-in a separate PR; this spec already reflects the post-collapse shape).
-The ELK+SVG layout primitive is Causa-internal. The Mermaid text
-emitter relocates to `implementation/machines/src/re_frame/machines/mermaid.cljc`
-so the framework can re-export `(rf/machine->mermaid <id>)` without a
+**`tools/machines-viz/` owns the chart.** Per rf2-o9arp / PR #1570 the
+MachineChart primitive (ELK+SVG layout, the layered fallback, the
+interaction layer) lives in its own tool jar at
+`tools/machines-viz/src/day8/re_frame2_machines_viz/chart/{layout,svg,interaction}.cljc`.
+Causa is a **consumer** of that primitive: the panel surface
+(`panels/machine_inspector*.cljs`) imports Causa-namespaced public
+names (e.g. `day8.re-frame2-causa.chart.svg/MachineChart`) which are
+thin re-export shims pointing at the machines-viz implementation
+(`day8.re-frame2-machines-viz.chart.svg/MachineChart`). One
+implementation, one layout cache, one ELK loader — re-used by Causa,
+Story (per-variant observability ribbons), the read-only viewer page,
+and any host-app drop-in that wants the chart without Causa's panel
+chrome.
+
+The Mermaid text emitter lives at
+`implementation/machines/src/re_frame/machines/mermaid.cljc` so the
+framework can re-export `(rf/machine->mermaid <id>)` without a
 tool-jar dependency.
 
 ```
-tools/causa/  ─requires→  implementation/machines/
-   (chart primitive: chart/{layout,svg,interaction}.cljc)
+tools/causa/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
+   (panel surface)           (chart primitive:                (machine registry +
+   (chart re-export           chart/{layout,svg,interaction}    runtime substrate)
+    shims)                    .cljc)
 ```
+
+### Re-export shim contract
+
+The thin shims keep Causa's public surface stable while letting the
+chart move independently. The contract is one-for-one: every
+Causa-namespaced public name re-exports a single machines-viz
+implementation name; no shim adds behaviour. Adding a chart feature
+means landing it in machines-viz first and re-exporting from Causa
+second.
+
+| Causa-namespaced public | Re-exports |
+|---|---|
+| `day8.re-frame2-causa.chart.svg/MachineChart` | `day8.re-frame2-machines-viz.chart.svg/MachineChart` |
+| `day8.re-frame2-causa.chart.layout/layered-fallback` | `day8.re-frame2-machines-viz.chart.layout/layered-fallback` |
+| `day8.re-frame2-causa.chart.interaction/on-state-click` | `day8.re-frame2-machines-viz.chart.interaction/on-state-click` |
+
+(Indicative — the live shim ns enumerates the full surface; the
+machines-viz API itself is the source of truth.) Embedders who want
+the chart alone depend on `tools/machines-viz/` directly; embedders
+who want Causa's panel chrome get the chart transitively via Causa.
+
+### See also
+
+- [`000-Vision.md`](000-Vision.md) §Where Causa fits — the
+  Causa → machines-viz → implementation/ dependency arrow at the
+  whole-tool level.
+- [`008-Embedding-Contract.md`](008-Embedding-Contract.md) — the
+  embed surface for the chart (depend on `tools/machines-viz/`
+  directly when you don't need the panel chrome).
 
 ## Tab placement
 
@@ -573,6 +622,11 @@ per-machine in localStorage).
   scroll into view but are not retained in DOM.
 
 ## Layout engine — ELK with layered fallback
+
+The layout engine ships in **`tools/machines-viz/`** (per §Architectural
+posture above); the namespace paths below are relative to
+`tools/machines-viz/src/day8/re_frame2_machines_viz/`. Causa consumes
+them through the re-export shims (see §Re-export shim contract).
 
 Two layout engines flow through `chart/svg.cljc`'s renderer behind the
 same `{:nodes :edges :width :height :initial-id}` data shape:
