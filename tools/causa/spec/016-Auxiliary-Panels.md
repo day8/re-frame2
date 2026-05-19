@@ -310,68 +310,140 @@ Per-cascade tier dots + duration ms stay inline in:
 
 That's the entire Causa-side perf surface post-rewrite.
 
-## Routes tab — 7th L3 tab (rf2-nrbs9, reshaped per rf2-lq0ef)
+## Routes — two verbs, two homes (rf2-o5f5f.3)
 
-Per Mike's design call (2026-05-18) Routing was promoted from "lives
-in App-db + Trace" to its own L3 lens tab. The App-db panel was
-getting busy and routing is a cohesive sub-domain (route catalogue +
-current match + nav transitions); cohesive sub-domains earn their own
-lens tab rather than overloading App-db. Parallel to the Machines tab
-in posture — always-on registered topology + per-focused-event lens.
+Per Mike's design call (2026-05-19) Routes appears in **both** the
+Runtime and the Static surfaces with **different verbs**. The
+two-verbs-two-homes pattern is the normative shape:
 
-### Shape: flat catalogue (rf2-lq0ef)
+- **Static Routes (browse-all).** Flat list of every registered
+  route, substring search, Simulate-URL (hermetic — zero host nav
+  mutation), per-row inline expand for the full registrar meta, and
+  a per-row `→ Runtime` jump chip. Event-INDEPENDENT — the panel
+  reads the registrar, not the spine, so it surfaces whether or not
+  the focused cascade touched routing.
+- **Runtime Routing (focused-event lens).** Narrows to the cascade
+  in focus — `FROM`/`TO` chips when the cascade allocated a
+  nav-token, an `◆ HERE` orientation glyph when it did not. Event-
+  COUPLED — the lens IS the focused cascade's slice of routing
+  concerns.
 
-The lens is a **flat catalogue sorted by `:path`** — never a tree.
-The previous URL-path-segmentation indentation (`project-route-tree`)
-was decorative: the routing-inheritance audit (2026-05-19) found that
-routes are flat in the spec + impl, `:parent` plays no
-role in matching, and the match-resolver is structural (6-rule rank
-on URL pattern). Indenting routes by URL-segment count conflated
-URL-prefix similarity with semantic hierarchy — those are independent
-(a child route can live anywhere in the URL space).
+The pattern generalises (DESIGN-RATIONALE Lock #15 — "Two verbs, two
+homes"): when a cohesive sub-domain has both a browse-all surface
+and a focused-event lens, the browse-all surface lives in Static
+mode (chrome silhouette signals event-INDEPENDENCE), the focused-
+event lens lives in Runtime (the spine signals event-coupling).
+Machines follows the same pattern (browse-all in Static, focused-
+event activity in Runtime); Views and Events are positioned to
+follow.
 
-The lens shape now mirrors the actual contract:
+### Sub-domain inheritance
 
-- **Flat list sorted by `:path`** (lexicographic). No indentation, no
-  depth.
+The Routes section that follows splits into two: **Static Routes**
+(the browse-all home) + **Runtime Routing** (the focused-event lens
+home). Each home is its own normative surface; readers looking for
+"the Routes panel" must check which mode they mean. Cross-link the
+two homes via the Static `→ Runtime` jump chip (rf2-o5f5f.3 surfaces
+this; the chip dispatches `:rf.causa.static.routes/jump-to-runtime`
+which flips mode + selects the Runtime Routing tab).
+
+## Static Routes
+
+Per rf2-o5f5f.3 / PR #1568. The Static-side home for Routes — flat-
+list browse-all surface with hermetic Simulate-URL preview.
+
+### Shape
+
+- **Flat list sorted by `:path`** (lexicographic). No tree, no
+  indentation, no depth — the routing-inheritance audit (2026-05-19)
+  found that routes are flat in the spec + impl, `:parent` plays no
+  role in matching, and the match-resolver is structural (6-rule
+  rank on URL pattern).
 - **Per-row chips**: route-id + path + doc, with letter badges
   (`M` / `L` / `T` / `P`) for routes carrying `:on-match` /
   `:can-leave` / `:tags` / `:parent`. Click the row chevron to
-  expand the full registrar meta inline.
+  expand inline.
 - **Substring search** across route-id + path + doc.
-- **Simulate-URL** — paste a URL into Try URL, the panel ranks every
-  matching route by its 6-rule `:rf.route/rank` tuple and highlights
-  the winner. This is the load-bearing interactive surface — it
-  exposes the structural match contract per
+- **Simulate-URL** — paste a URL, the panel ranks every matching
+  route by its 6-rule `:rf.route/rank` tuple and highlights the
+  winner. Load-bearing interactive surface; exposes the structural
+  match contract per
   [`spec/012-Routing.md`](../../../spec/012-Routing.md) §Route
   ranking algorithm.
-- **`:parent` annotation** — when a row carries `:parent`, render a
-  compact `↑ :route/parent` inline pointer; expanding the row
-  surfaces the full registrar meta (including the `:rf.route/chain`
-  surface the impl exposes).
+- **Per-row hermetic Simulate-navigation preview** — clicking the
+  expanded row's `Simulate navigation` button renders an inline
+  preview of `:on-match`'s app-db slot + the matched params, **without
+  calling the host's navigation fx**. The host's `:rf/route` slot is
+  unchanged; this is a lens, not a verb. Pure-data projection via
+  `routing_helpers/simulate-navigation-preview` (JVM-portable).
+- **Per-row `→ Runtime` jump chip** — flips Causa to Runtime mode
+  (`:rf.causa/set-mode :runtime`) and selects the Runtime Routing
+  tab (`:rf.causa/select-tab :routing`). The two-verbs-two-homes
+  affordance — the Static lens shows you the catalogue, the Runtime
+  lens shows you the focused event's slice of it.
 
 ### Inputs
 
-- `:rf.causa/registered-routes` — flat `{<route-id> <meta>}` map
-  sourced from `(rf/registrations :route)` (the framework's
-  registrar). Falls back to a test-only override slot for fixtures
-  + JVM tests.
-- `:rf.causa/current-route-slice` — composite over `:rf.causa/target-
-  frame-db` reading the `:rf/route` slice. Switching the L1 frame
-  picker re-binds the lens to the new frame's route slice.
+- `:rf.causa/registered-routes` — flat `{<route-id> <meta>}` map.
+  Shared with the Runtime Routing lens.
+- `:rf.causa.static.routes/query` — substring search input.
+- `:rf.causa.static.routes/sim-url` — Simulate-URL input.
+- `:rf.causa.static.routes/expanded` — set of expanded route-ids.
+- `:rf.causa.static.routes/sim-nav-open` — set of route-ids whose
+  hermetic Simulate-navigation preview is open.
+- `:rf.causa.static.routes/tab-data` — view-facing composite per
+  `routing_helpers/project-static-data`.
+
+### Hermetic-preview contract
+
+The Simulate-navigation preview MUST NOT call the host's navigation
+fx (`:rf/url-requested`, `:rf.route/navigate`, `history.pushState`,
+etc.). It MUST NOT write the host's `:rf/route` slot. The preview is
+a pure-data projection: given a route-id + a URL, return what
+`:on-match`'s app-db slot would look like if that URL navigated. The
+host stays where it is; Causa is a lens, not a verb. (This is the
+load-bearing distinction from the host's `:rf.route/navigate` fx —
+the Runtime lens picks that up if the user runs it; the Static
+preview never does.)
+
+### Empty state
+
+When the host app registers no routes the panel renders only the
+header + a terse `No routes registered.` one-liner. No `(none)`
+placeholder. Search + Simulate-URL are hidden when the catalogue is
+empty.
+
+## Runtime Routing
+
+Per rf2-nrbs9 (tab promotion) + rf2-o5f5f.3 (focused-event narrowing).
+The Runtime-side home for Routes — focused-event lens that surfaces
+`FROM` / `TO` chips when the cascade allocated a nav-token, or
+`◆ HERE` orientation when it did not.
+
+### Shape (per rf2-lq0ef + focused-event narrowing)
+
+The lens is a **focused-event slice** of the routing catalogue. It
+inherits the same flat-list catalogue + Simulate-URL surface
+documented under §Static Routes — same routes-map, same 6-rule rank
+contract — but adds the focused-cascade markers above the catalogue.
+The catalogue serves as orientation; the markers are the load-bearing
+signal.
+
+### Inputs
+
+- `:rf.causa/registered-routes` — shared with Static Routes.
+- `:rf.causa/current-route-slice` — composite over
+  `:rf.causa/target-frame-db` reading the `:rf/route` slice.
+  Switching the L1 frame picker re-binds the lens.
 - `:rf.causa/cascades` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.causa/focus` — the spine's focused dispatch-id + epoch.
-- `:rf.causa.routing/query` — substring filter input (driven by
-  `:rf.causa.routing/set-query`).
-- `:rf.causa.routing/sim-url` — Simulate-URL input (driven by
-  `:rf.causa.routing/set-sim-url`).
-- `:rf.causa.routing/expanded` — set of expanded route-ids (driven by
-  `:rf.causa.routing/toggle-row`).
-- `:rf.causa/routing-tab-data` — view-facing composite folding all of
-  the above into `{:silent? :routes :total-routes :filtered?
-  :current :from-id :to-id :navigated? :query :sim-url :sim-result}`
-  per `routing_helpers/project-data`.
+- `:rf.causa.routing/query`, `:rf.causa.routing/sim-url`,
+  `:rf.causa.routing/expanded` — Runtime-side UI-state slots
+  (separate from the Static slots so the two homes carry independent
+  filter / expand state).
+- `:rf.causa/routing-tab-data` — view-facing composite folding all
+  the above per `routing_helpers/project-data`.
 
 ### Per-focused-event highlighting
 
@@ -417,7 +489,9 @@ The result block surfaces:
 
 Query coercion and `:params` / `:query` schema validation are out of
 scope for the simulator — the lens is about exposing the rank
-cascade, not full match semantics.
+cascade, not full match semantics. The same contract drives the
+Static Routes Simulate-URL surface; the difference is the cascade
+slice the markers are rendered against.
 
 ### Active route slice — params + query + fragment
 
@@ -434,20 +508,19 @@ skeleton (predictable scanning).
 ### Empty state
 
 When the host app registers no routes the panel renders only the
-header + a terse `No routes registered.` one-liner. No `(none)`
-placeholder, no marketing copy — silent-by-default per rf2-g3ghh.
-Search + Simulate-URL are hidden when the catalogue is empty.
+header + a terse `No routes registered.` one-liner. Identical to the
+Static Routes empty state — the same registrar feeds both.
 
 ### Pre-rewrite app-db / trace overlap
 
 The transition FSM state (`:idle` / `:loading` / `:error`) is still
 part of the app-db slice (Spec 012) and still visible in the App-db
-tab's diff. The Routes tab is the dedicated lens; the App-db tab
+tab's diff. The Routes lens is the dedicated home; the App-db tab
 shows the raw slice diff like any other key. Navigation trace events
 (`:rf.route.nav-token/*` + `:rf.route/url-changed`) continue to
 appear in the Trace tab when the `event` chip is ON (default) —
-the Routes tab does not duplicate the firehose, it projects the
-single nav-event that pertains to the focused cascade.
+the Runtime Routing lens does not duplicate the firehose, it
+projects the single nav-event that pertains to the focused cascade.
 
 ### Vision (future)
 

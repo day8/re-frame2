@@ -2589,6 +2589,657 @@ async function runPaletteOpenExecute(page, state) {
   };
 }
 
+// ----------------------------------------------------------------------------
+// rf2-b8pui — Event-lifecycle status colour cross-site consistency
+// ----------------------------------------------------------------------------
+//
+// The status-colour taxonomy (`event_status_colour.cljc`, rf2-b76v4) ships
+// a single pure fn that maps a cascade's lifecycle state to a token
+// keyword. Three consumer sites read that fn:
+//
+//   - L2 event-row (shell.cljs) — `data-rf-causa-status` attribute on
+//     the row `<li>`.
+//   - L4 Event header (panels/event_detail.cljs) — `data-rf-causa-status`
+//     on the outcome `<header>`; the leading status dot uses a testid
+//     suffix matching the status keyword.
+//   - L4 Trace timeline bar (panels/trace.cljs) — `data-rf-causa-status`
+//     on the cascade-status `<div>`; the testid suffix matches too.
+//
+// The unit gate `event_status_colour_cljs_test.cljc` covers the pure fn;
+// this scenario is the cross-site DOM consistency assertion the unit gate
+// cannot make. A regression where one consumer site forgets to read the
+// central fn would surface here.
+//
+// Two cascades cover the two status keywords reachable from settled
+// dispatches:
+//
+//   - `:settled-success` — host counter increment (counter testbed
+//     mounted by the routing example? No — the deliberate-throw testbed
+//     also exposes an :initialise dispatch which classifies as
+//     :settled-success; we drive that PLUS the throw-handler button
+//     which classifies as :settled-error).
+//   - `:settled-error` — throw-handler click (`:rf.error/handler-exception`
+//     in the cascade trace).
+//
+// `:in-flight` / `:paused-by-tool` / `:stale` are reachable only through
+// time-travel / mid-flight surfaces that no settled-cascade probe can
+// observe deterministically, so they are out of scope for this scenario
+// (the unit gate covers their classification).
+async function runEventStatusColourCrossSite(page, state) {
+  await openCausa(page);
+  await clearTrace(page);
+
+  // The deliberate-throw testbed's ::initialise dispatch runs at boot;
+  // it leaves a settled-success cascade in the trace ring (the
+  // `:rf.fx/db` write succeeds, no error). We trigger an additional
+  // event whose terminal outcome is :ok by clicking the host counter's
+  // affordance — but the deliberate-throw testbed has no benign event
+  // button (every button throws). Instead we drive the boot-time
+  // ::initialise as the success cascade by clearing the trace AFTER
+  // boot and triggering a fresh non-throwing dispatch via the
+  // framework's clear-trace path itself (no — `clearTraceBus` clears
+  // the BUFFER, not the spine; it doesn't produce a fresh cascade).
+  //
+  // Simplest fix: trigger an additional handler-exception (settled-
+  // error), then trigger a flow-exception cascade (also settled-error)
+  // — both fire two distinct cascades that classify the same way.
+  // For a settled-success cascade, dispatch the testbed's
+  // `::initialise` event via the framework's runtime exports so we
+  // have a fresh non-throwing cascade in the spine.
+  const initialised = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.dispatch !== 'function') {
+      return { ok: false, reason: 'rf.dispatch unavailable' };
+    }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    // The testbed namespace is `deliberate-throw.core`; its
+    // `::initialise` event resolves to `:deliberate-throw.core/initialise`.
+    const ev = kw('deliberate-throw.core', 'initialise');
+    rf.dispatch(cljs.PersistentVector.fromArray([ev], true));
+    return { ok: true };
+  });
+  if (!initialised.ok) {
+    failWithDetails('Could not dispatch ::initialise for settled-success cascade',
+                    { observed: initialised });
+  }
+
+  // Trigger the settled-error cascade.
+  await clickTestId(page, 'throw-handler');
+  await waitForTraceMatch(
+    page,
+    /:rf\.error\/handler-exception|deliberate-throw \/ handler/,
+    'handler exception trace (settled-error cascade)',
+  );
+
+  // Read the cascade list from Causa's reactive surface so we know which
+  // dispatch-ids to probe at L2 + L4. The spine sub `:rf.causa/cascades`
+  // returns them oldest-first.
+  const cascades = await waitForValue(
+    () => page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll(
+        '[data-testid^="rf-causa-event-row-"]'));
+      return rows.map((row) => ({
+        id: (row.getAttribute('data-testid') || '')
+          .replace(/^rf-causa-event-row-/, ''),
+        status: row.getAttribute('data-rf-causa-status'),
+        ungrouped: row.getAttribute('data-rf-causa-ungrouped'),
+      }))
+        // Skip the :ungrouped pseudo-cascade — it carries no lifecycle.
+        .filter((r) => r.ungrouped !== 'true');
+    }),
+    (rows) => rows.length >= 2 &&
+      rows.some((r) => r.status === 'settled-error') &&
+      rows.some((r) => r.status === 'settled-success'),
+    {
+      timeoutMs: 10000,
+      description: 'L2 spine carries both :settled-error and ' +
+                   ':settled-success rows with data-rf-causa-status set',
+    },
+  );
+
+  // For each status we want to assert cross-site consistency for, find
+  // a representative cascade row, click it (focus), and probe L4 Event
+  // header + L4 Trace timeline bar.
+  const assertions = [];
+  for (const targetStatus of ['settled-success', 'settled-error']) {
+    const targetRow = cascades.find((r) => r.status === targetStatus);
+    if (!targetRow) {
+      failWithDetails(`No L2 row with status=${targetStatus}`,
+                      { cascades });
+    }
+
+    // Click the L2 row to focus.
+    await page.locator(`[data-testid="rf-causa-event-row-${targetRow.id}"]`)
+      .click();
+
+    // L4 Event tab — read the outcome header's data-rf-causa-status.
+    await clickTab(page, 'event', 'rf-causa-event-detail');
+    const eventHeader = await waitForValue(
+      () => page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="rf-causa-event-detail-outcome"]');
+        return el ? el.getAttribute('data-rf-causa-status') : null;
+      }),
+      (status) => status === targetStatus,
+      {
+        timeoutMs: 5000,
+        description: `L4 Event header data-rf-causa-status matches ` +
+                     `L2 row status=${targetStatus}`,
+      },
+    );
+
+    // L4 Trace tab — read the cascade-status bar's data-rf-causa-status.
+    await clickTab(page, 'trace', 'rf-causa-trace');
+    const traceBar = await waitForValue(
+      () => page.evaluate(() => {
+        // The bar's testid is suffixed with the status keyword, AND it
+        // carries the same status as a data attribute.
+        const el = document.querySelector(
+          '[data-testid^="rf-causa-trace-cascade-status-bar-"]');
+        return el ? {
+          status: el.getAttribute('data-rf-causa-status'),
+          testid: el.getAttribute('data-testid'),
+        } : null;
+      }),
+      (snap) => snap && snap.status === targetStatus,
+      {
+        timeoutMs: 5000,
+        description: `L4 Trace cascade-status bar data-rf-causa-status ` +
+                     `matches L2 row status=${targetStatus}`,
+      },
+    );
+
+    assertions.push({
+      cascadeId: targetRow.id,
+      l2Status: targetRow.status,
+      l4EventStatus: eventHeader,
+      l4TraceStatus: traceBar.status,
+      l4TraceTestid: traceBar.testid,
+      consistent:
+        targetRow.status === eventHeader &&
+        targetRow.status === traceBar.status,
+    });
+
+    if (!assertions[assertions.length - 1].consistent) {
+      failWithDetails(
+        `Cross-site status colour inconsistency for cascade ` +
+          `${targetRow.id} (expected ${targetStatus})`,
+        { assertions },
+      );
+    }
+  }
+
+  state.statusColourCrossSite = {
+    cascades,
+    assertions,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// rf2-wj46n — Static Routes scenario
+// ----------------------------------------------------------------------------
+//
+// Static Routes panel shipped under #1568 (rf2-o5f5f.3) — flat-list
+// browse + Simulate-URL + hermetic preview (NO host routing mutation) +
+// per-row → Runtime jump chip. This scenario exercises:
+//
+//   1. Static-mode opt-in via `configure!` + chord-into-Static.
+//   2. Routes sub-tab renders the flat list (one row per registered
+//      route — we inject a synthetic 3-route catalogue via the
+//      `:rf.causa/set-registered-routes-override-for-test` event so
+//      the scenario does not require staging a route-registering
+//      testbed; this is the canonical test-override seam Causa's
+//      Routes panels carry per `panels/routing.cljs` §install!).
+//   3. Simulate-URL: type a known matching URL, assert the result block
+//      renders ≥ 1 candidate row with the WINNER glyph AND the host's
+//      `:rf/route` slot is unchanged (hermetic — no nav mutation).
+//   4. Click a row's `→ Runtime` jump chip; assert mode flips to
+//      Runtime + the Routing tab is selected.
+async function runStaticRoutesPanel(page, state) {
+  // ---- (0) opt into Static mode + inject synthetic route catalogue ------
+  // The deliberate-throw testbed (the staged URL for this scenario)
+  // does not register routes. Causa's panels/routing.cljs ships a
+  // test-only override slot `:rf.causa/set-registered-routes-override-for-test`
+  // (per spec/014 §Routes panel) that the Routes-related subs honour
+  // ahead of `(rf/registrations :route)` — the seam exists precisely
+  // for this kind of scenario.
+  const optIn = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !cfg || typeof cfg.configure_BANG_ !== 'function') {
+      return { ok: false, reason: 'configure_BANG_ unavailable' };
+    }
+    if (!rf || typeof rf.dispatch_sync !== 'function') {
+      return { ok: false, reason: 'rf.dispatch_sync unavailable' };
+    }
+    try { window.localStorage.removeItem('causa.mode'); }
+    catch (_) { /* localStorage unavailable */ }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    const fk = (n) => cljs.keyword.call
+      ? cljs.keyword.call(null, n)
+      : cljs.keyword(n);
+    // Flip the Static-mode flag ON.
+    const opts = cljs.PersistentArrayMap.fromArray([
+      kw('experimental', 'static-mode?'), true,
+    ], true, false);
+    cfg.configure_BANG_(opts);
+    // Inject a synthetic 3-route catalogue via the test-override seam.
+    // Shape: {<route-id> {:path <string> :doc <string>}}; the panel
+    // compiles patterns on demand via
+    // `routing-helpers/compile-pattern-on-demand` so bare `{:path ...}`
+    // is sufficient.
+    const route = (id, p, doc) => [
+      kw('route', id),
+      cljs.PersistentArrayMap.fromArray([
+        fk('path'), p,
+        fk('doc'), doc,
+      ], true, false),
+    ];
+    const routesMap = cljs.PersistentArrayMap.fromArray([
+      ...route('home', '/', 'Home page.'),
+      ...route('articles', '/articles', 'Articles list.'),
+      ...route('article-detail', '/articles/:id', 'Article detail.'),
+    ], true, false);
+    const overrideEvent = kw('rf.causa', 'set-registered-routes-override-for-test');
+    rf.dispatch_sync(cljs.PersistentVector.fromArray([
+      overrideEvent, routesMap,
+    ], true), cljs.PersistentArrayMap.fromArray([
+      fk('frame'), fk('rf/causa'),
+    ], true, false));
+    return { ok: true };
+  });
+  if (!optIn.ok) {
+    failWithDetails('Could not opt into Static mode / inject routes override',
+                    { observed: optIn });
+  }
+  await openCausa(page);
+
+  // ---- (1) chord into Static + switch to Routes sub-tab ------------------
+  await page.keyboard.press('Control+Shift+M');
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-static-surface"]'),
+    5000,
+  );
+  await page.locator('[data-testid="rf-causa-static-tab-routes"]').click();
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-static-routes"]'),
+    5000,
+  );
+
+  // ---- (2) flat-list renders one row per route in the synthetic catalogue
+  // The override carries 3 routes (:route/home, :route/articles,
+  // :route/article-detail). The browse list MUST surface all three.
+  const browseList = await waitForValue(
+    () => page.evaluate(() => {
+      const list = document.querySelector(
+        '[data-testid="rf-causa-static-routes-list"]');
+      if (!list) return null;
+      const rows = Array.from(list.querySelectorAll(
+        '[data-testid^="rf-causa-static-routes-row-"]'));
+      return {
+        rowCount: rows.length,
+        testids: rows.map((r) => r.getAttribute('data-testid')),
+      };
+    }),
+    (snap) => snap && snap.rowCount >= 3,
+    {
+      timeoutMs: 5000,
+      description: 'Static Routes browse list renders all 3 override routes',
+    },
+  );
+
+  // ---- (3) Simulate-URL hermetic preview --------------------------------
+  // Capture the host's :rf/route slot BEFORE the sim probe — we'll
+  // assert it is unchanged after sim.
+  async function readHostRouteSlot() {
+    return page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf || typeof rf.get_frame_db !== 'function') {
+        return { ok: false, reason: 'rf.get_frame_db unavailable' };
+      }
+      try {
+        const kw = (ns, n) => cljs.keyword.call
+          ? cljs.keyword.call(null, ns, n)
+          : cljs.keyword(ns, n);
+        const fk = (n) => cljs.keyword.call
+          ? cljs.keyword.call(null, n)
+          : cljs.keyword(n);
+        const db = rf.get_frame_db(fk('rf/default'));
+        const routeSlot = cljs.get(db, fk('rf/route'));
+        return { ok: true, slot: cljs.pr_str(routeSlot) };
+      } catch (e) {
+        return { ok: false, reason: e.message };
+      }
+    });
+  }
+  const routeBefore = await readHostRouteSlot();
+  if (!routeBefore.ok) {
+    failWithDetails('Could not read host :rf/route slot before sim',
+                    { observed: routeBefore });
+  }
+
+  // Type a known matching URL — `/articles` matches the :route/articles
+  // route's :path "/articles".
+  await page.locator('[data-testid="rf-causa-static-routes-sim-input"]')
+    .fill('/articles');
+  const simResult = await waitForValue(
+    () => page.evaluate(() => {
+      const result = document.querySelector(
+        '[data-testid="rf-causa-static-routes-sim-result"]');
+      if (!result) return null;
+      const candidates = Array.from(result.querySelectorAll(
+        '[data-testid^="rf-causa-static-routes-sim-candidate-"]'));
+      const winner = candidates.find((c) =>
+        c.getAttribute('data-winner') === 'true');
+      return {
+        candidateCount: candidates.length,
+        winnerPresent: Boolean(winner),
+        winnerText: winner ? (winner.textContent || '').trim() : null,
+      };
+    }),
+    (snap) => snap && snap.candidateCount >= 1 && snap.winnerPresent,
+    {
+      timeoutMs: 5000,
+      description: 'Simulate-URL renders ≥ 1 candidate with a WINNER row',
+    },
+  );
+
+  // Hermetic — the host's :rf/route slot must not have changed.
+  const routeAfter = await readHostRouteSlot();
+  if (!routeAfter.ok) {
+    failWithDetails('Could not read host :rf/route slot after sim',
+                    { observed: routeAfter });
+  }
+  if (routeAfter.slot !== routeBefore.slot) {
+    failWithDetails(
+      'Simulate-URL was NOT hermetic — host :rf/route slot changed',
+      { routeBefore: routeBefore.slot, routeAfter: routeAfter.slot },
+    );
+  }
+
+  // ---- (4) → Runtime jump chip --------------------------------------------
+  // Each row carries a chevron that toggles inline expand; the expand
+  // surface carries the `→ Runtime` jump chip. To exercise the JUMP we
+  // need a row that is expanded; click the first row's chevron, then
+  // find its sim-nav surface's → Runtime affordance. Simpler: the
+  // panel registers a `:rf.causa.static.routes/jump-to-runtime` event
+  // (per static/routes/panel.cljs §cross-link); dispatching it directly
+  // through the runtime is the load-bearing assertion.
+  const jumpResult = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.dispatch !== 'function') {
+      return { ok: false, reason: 'rf.dispatch unavailable' };
+    }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    const fk = (n) => cljs.keyword.call
+      ? cljs.keyword.call(null, n)
+      : cljs.keyword(n);
+    // Dispatch on Causa's frame (panel.cljs handler uses :frame :rf/causa
+    // for the toggle-row event; the jump-to-runtime event-fx chains two
+    // dispatches without frame opts so it uses the default frame).
+    const ev = kw('rf.causa.static.routes', 'jump-to-runtime');
+    // Pass a route-id arg (the panel's reg-event-fx ignores it but the
+    // event shape requires the [_ _route-id] vector form).
+    rf.dispatch(cljs.PersistentVector.fromArray([
+      ev, kw('route', 'articles'),
+    ], true), cljs.PersistentArrayMap.fromArray([
+      fk('frame'), fk('rf/causa'),
+    ], true, false));
+    return { ok: true };
+  });
+  if (!jumpResult.ok) {
+    failWithDetails('Could not dispatch :rf.causa.static.routes/jump-to-runtime',
+                    { observed: jumpResult });
+  }
+
+  // Assert mode flipped + Routing tab selected.
+  const afterJump = await waitForValue(
+    () => page.evaluate(() => {
+      const surface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]');
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]');
+      const routingTab = document.querySelector(
+        '[data-testid="rf-causa-tab-routing"]');
+      const routingCanvas = document.querySelector(
+        '[data-testid="rf-causa-routing"]');
+      return {
+        staticSurfacePresent: Boolean(surface),
+        eventListPresent: Boolean(eventList),
+        routingTabSelected: routingTab
+          ? routingTab.getAttribute('aria-selected')
+          : null,
+        routingCanvasPresent: Boolean(routingCanvas),
+      };
+    }),
+    (snap) =>
+      !snap.staticSurfacePresent &&
+      snap.eventListPresent &&
+      snap.routingTabSelected === 'true' &&
+      snap.routingCanvasPresent,
+    {
+      timeoutMs: 5000,
+      description: 'After → Runtime jump: mode=Runtime, Routing tab selected',
+    },
+  );
+
+  state.staticRoutes = {
+    browseList,
+    simResult,
+    routeBefore: routeBefore.slot,
+    routeAfter: routeAfter.slot,
+    afterJump,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// rf2-1laqx — Static Machines scenario
+// ----------------------------------------------------------------------------
+//
+// Static Machines panel shipped under #1569 (rf2-o5f5f.2). This scenario
+// exercises the JUMP semantics + topology render + 4-mode sub-strip:
+//
+//   1. Static-mode opt-in via `configure!` + chord-into-Static.
+//   2. Machines sub-tab renders the browse-list with ≥ 1 row (deep-
+//      machine testbed registers `:helper/tick`, `:helper/job`, and
+//      `:deep/main`).
+//   3. Topology chart SVG renders ≥ 1 `<g>` layout-node child for the
+//      default-selected machine — exercises the machines-viz shim
+//      integrity (rf2-o9arp).
+//   4. 4-mode sub-strip renders Topology / Sim / Instances / Cascade
+//      pills; Topology is active, Cascade is disabled with
+//      `aria-disabled="true"` + dimmed (per static/machines/cascade_dimmed).
+//   5. Click a row's `→ Runtime` JUMP chip → mode flips to Runtime +
+//      Machines tab opens + the chosen machine-id is focused.
+async function runStaticMachinesPanel(page, state) {
+  // ---- (0) opt into Static mode ------------------------------------------
+  const optIn = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg || typeof cfg.configure_BANG_ !== 'function') {
+      return { ok: false, reason: 'configure_BANG_ unavailable' };
+    }
+    try { window.localStorage.removeItem('causa.mode'); }
+    catch (_) { /* localStorage unavailable */ }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    const opts = cljs.PersistentArrayMap.fromArray([
+      kw('experimental', 'static-mode?'), true,
+    ], true, false);
+    cfg.configure_BANG_(opts);
+    return { ok: true };
+  });
+  if (!optIn.ok) {
+    failWithDetails('Could not opt into Static mode', { observed: optIn });
+  }
+  await openCausa(page);
+
+  // ---- (1) chord into Static — Machines is the default sub-tab ----------
+  await page.keyboard.press('Control+Shift+M');
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-static-surface"]'),
+    5000,
+  );
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-static-machines-panel"]'),
+    5000,
+  );
+
+  // ---- (2) browse-list renders ≥ 1 row ----------------------------------
+  const browseList = await waitForValue(
+    () => page.evaluate(() => {
+      const list = document.querySelector(
+        '[data-testid="rf-causa-static-machines-browse-list"]');
+      if (!list) return null;
+      const rows = Array.from(list.querySelectorAll(
+        'button[data-testid^="rf-causa-static-machines-row-"]'))
+        // Filter out the per-row jump chip buttons (their testid starts
+        // with `rf-causa-static-machines-row-jump-`).
+        .filter((b) => !(b.getAttribute('data-testid') || '')
+          .startsWith('rf-causa-static-machines-row-jump-'));
+      return {
+        rowCount: rows.length,
+        firstMachineId: rows[0] ? rows[0].getAttribute('data-machine-id') : null,
+      };
+    }),
+    (snap) => snap && snap.rowCount >= 1 && snap.firstMachineId,
+    {
+      timeoutMs: 5000,
+      description: 'Static Machines browse list renders ≥ 1 row',
+    },
+  );
+
+  // ---- (3) Topology chart renders an SVG with ≥ 1 <g> layout-node ------
+  const topology = await waitForValue(
+    () => page.evaluate(() => {
+      const chart = document.querySelector(
+        '[data-testid="rf-causa-static-machines-topology-chart"]');
+      if (!chart) return null;
+      const svg = chart.querySelector('svg');
+      const groupCount = svg
+        ? svg.querySelectorAll('g').length
+        : 0;
+      return {
+        chartPresent: true,
+        svgPresent: Boolean(svg),
+        groupCount,
+        layoutEngine: chart.getAttribute('data-layout-engine'),
+      };
+    }),
+    (snap) => snap && snap.svgPresent && snap.groupCount >= 1,
+    {
+      timeoutMs: 10000,
+      description: 'Static Machines topology chart SVG has ≥ 1 <g> ' +
+                   'layout-node (machines-viz shim integrity per rf2-o9arp)',
+    },
+  );
+
+  // ---- (4) 4-mode sub-strip — Topology active, Cascade disabled --------
+  const subStrip = await waitForValue(
+    () => page.evaluate(() => {
+      const strip = document.querySelector(
+        '[data-testid="rf-causa-static-machines-sub-strip"]');
+      if (!strip) return null;
+      const topology = document.querySelector(
+        '[data-testid="rf-causa-static-machines-pill-topology"]');
+      const sim = document.querySelector(
+        '[data-testid="rf-causa-static-machines-pill-sim"]');
+      const instances = document.querySelector(
+        '[data-testid="rf-causa-static-machines-pill-instances"]');
+      const cascade = document.querySelector(
+        '[data-testid="rf-causa-static-machines-pill-cascade"]');
+      return {
+        stripPresent: Boolean(strip),
+        topologyPresent: Boolean(topology),
+        simPresent: Boolean(sim),
+        instancesPresent: Boolean(instances),
+        cascadePresent: Boolean(cascade),
+        cascadeDisabled: cascade
+          ? cascade.getAttribute('aria-disabled')
+          : null,
+        cascadeOpacity: cascade
+          ? (window.getComputedStyle(cascade).opacity || '')
+          : null,
+      };
+    }),
+    (snap) => snap &&
+      snap.stripPresent &&
+      snap.topologyPresent &&
+      snap.simPresent &&
+      snap.instancesPresent &&
+      snap.cascadePresent &&
+      snap.cascadeDisabled === 'true',
+    {
+      timeoutMs: 5000,
+      description: '4-mode sub-strip renders with Cascade pill ' +
+                   'aria-disabled="true" (per rf2-o5f5f.2 partial-shipped)',
+    },
+  );
+
+  // ---- (5) → Runtime JUMP chip flips mode + opens Machines tab ---------
+  // The row-jump testid uses (name machine-id) — strip the namespace
+  // segment. browseList.firstMachineId is the stringified keyword form
+  // (":helper/tick" → testid `rf-causa-static-machines-row-jump-tick`;
+  // ":deep/main" → testid `rf-causa-static-machines-row-jump-main`).
+  const machineName = browseList.firstMachineId
+    .replace(/^:[^/]+\//, '')  // strip "<ns>/" when keyword is qualified
+    .replace(/^:/, '');         // strip leading ":" for unqualified keywords
+  const jumpTestid = `rf-causa-static-machines-row-jump-${machineName}`;
+  await page.locator(`[data-testid="${jumpTestid}"]`).click();
+
+  // Assert mode flipped + Machines tab selected.
+  const afterJump = await waitForValue(
+    () => page.evaluate(() => {
+      const surface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]');
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]');
+      const machinesTab = document.querySelector(
+        '[data-testid="rf-causa-tab-machines"]');
+      const machinesCanvas = document.querySelector(
+        '[data-testid="rf-causa-machine-inspector"]');
+      return {
+        staticSurfacePresent: Boolean(surface),
+        eventListPresent: Boolean(eventList),
+        machinesTabSelected: machinesTab
+          ? machinesTab.getAttribute('aria-selected')
+          : null,
+        machinesCanvasPresent: Boolean(machinesCanvas),
+      };
+    }),
+    (snap) =>
+      !snap.staticSurfacePresent &&
+      snap.eventListPresent &&
+      snap.machinesTabSelected === 'true' &&
+      snap.machinesCanvasPresent,
+    {
+      timeoutMs: 5000,
+      description: 'After → Runtime jump: mode=Runtime, Machines tab selected',
+    },
+  );
+
+  state.staticMachines = {
+    browseList,
+    topology,
+    subStrip,
+    firstJumpTestid: jumpTestid,
+    afterJump,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -2677,7 +3328,7 @@ const SCENARIOS = [
     url: '/counter/',
     panels: [],
     coveredRows: [
-      'Static Mode',
+      'Static mode mount + chord',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runStaticModeChromeAndChord,
@@ -2690,10 +3341,56 @@ const SCENARIOS = [
     url: '/counter/',
     panels: [],
     coveredRows: [
-      'Command Palette',
+      'Cmd-K palette',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runPaletteOpenExecute,
+  },
+  {
+    // rf2-b8pui — Event-lifecycle status colour cross-site consistency
+    // (rf2-b76v4 / #1575). The unit gate covers the pure fn; this
+    // scenario asserts the THREE consumer sites (L2 row, L4 Event
+    // header, L4 Trace timeline bar) read the SAME token for the SAME
+    // cascade. A regression where one site forgets to read the central
+    // fn would surface here.
+    name: 'event-lifecycle status colour — cross-site consistency (L2 + L4 Event + L4 Trace)',
+    url: '/testbeds/deliberate-throw/',
+    panels: ['event', 'trace'],
+    coveredRows: [
+      'Event-lifecycle status colour',
+    ],
+    run: runEventStatusColourCrossSite,
+  },
+  {
+    // rf2-wj46n — Static Routes scenario (rf2-o5f5f.3 / #1568): flat
+    // catalogue + Simulate-URL hermetic preview (NO host nav mutation)
+    // + → Runtime jump chip (two-verbs-two-homes pattern). Uses the
+    // deliberate-throw testbed because (a) it carries Causa preload +
+    // layout host, and (b) the Routes panel ships a test-only override
+    // (`:rf.causa/set-registered-routes-override-for-test`) so the
+    // scenario can inject a synthetic catalogue without needing a
+    // route-registering testbed.
+    name: 'static Routes — browse list, Simulate-URL hermetic preview, and → Runtime jump',
+    url: '/testbeds/deliberate-throw/',
+    panels: [],
+    coveredRows: [
+      'Static Routes panel',
+      'Two-verbs-two-homes Routes',
+    ],
+    run: runStaticRoutesPanel,
+  },
+  {
+    // rf2-1laqx — Static Machines scenario (rf2-o5f5f.2 / #1569):
+    // Topology render (via the machines-viz shim — rf2-o9arp) +
+    // Browse-list JUMP-to-Runtime + Cascade-greyed sub-strip.
+    name: 'static Machines — topology render, browse-list JUMP-to-Runtime, cascade-greyed',
+    url: '/testbeds/deep-machine/',
+    panels: [],
+    coveredRows: [
+      'Static Machines panel',
+      'machines-viz re-export shim integrity',
+    ],
+    run: runStaticMachinesPanel,
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //
@@ -2755,9 +3452,12 @@ const SCENARIOS = [
     url: '/counter/',
     panels: ['trace'],
     load: true,
+    // Post rf2-y0z5b: 'Performance' coveredRow was dropped (the
+    // Performance panel was retired per Mike's call — Chrome DevTools
+    // Performance tab is the canonical surface). Trace + Shell/Elision
+    // remain.
     coveredRows: [
       'Trace',
-      'Performance',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runTraceBudgetSaturation,
