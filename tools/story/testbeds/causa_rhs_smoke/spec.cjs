@@ -17,8 +17,13 @@
  *                                       dispatch-id)
  *   story-trace-cascade-row          →  clicking an L2 event row renders
  *                                       Event-tab cascade detail
- *   story-trace-scrub-note           →  Causa mode pill toggles LIVE ↔
- *                                       RETRO on nav-prev / follow-head
+ *   story-trace-scrub-note           →  (no replacement — the L1 mode
+ *                                       pill that previously carried
+ *                                       LIVE / RETRO was dropped in
+ *                                       PR #1509 / rf2-g9pee; mode is
+ *                                       derivable from spine focus +
+ *                                       `[◀ ▶ ⏭]` cluster, not from a
+ *                                       dedicated DOM surface)
  *
  * Each scenario is a thin regression smoke — one assertion per
  * contract, not an exhaustive walk. Causa's own deep coverage lives in
@@ -207,29 +212,14 @@ module.exports = {
       5000,
     );
 
-    // ----- Scenario 4: mode pill reflects LIVE ↔ RETRO -------------------
+    // ----- (Retired Scenario 4: mode pill reflected LIVE ↔ RETRO) --------
     //
-    // Replacement for retired `story-trace-scrub-note`. The Story-side
-    // hint banner displayed the scrub state; the Causa-side equivalent
-    // is the L1 mode pill (`rf-causa-mode-pill`). After the prev-step
-    // above, the spine is in RETRO + non-head, so per shell.cljs
-    // `mode-pill-text` the pill reads "◐ RETRO". Snapping to head via
-    // nav-head returns the pill to "● LIVE".
-
-    const pill = page.locator('[data-testid="rf-causa-mode-pill"]');
-    await pill.waitFor({ state: 'visible', timeout: 5000 });
-
-    await waitForValue(
-      () => pill.textContent(),
-      (text) => /◐\s*RETRO/.test(text || ''),
-      { timeoutMs: 5000, description: 'mode pill reads RETRO after nav-prev step' },
-    );
-
-    await page.locator('[data-testid="rf-causa-nav-head"]').click();
-    await waitForValue(
-      () => pill.textContent(),
-      (text) => /●\s*LIVE/.test(text || ''),
-      { timeoutMs: 5000, description: 'mode pill returns to LIVE after nav-head snap' },
-    );
+    // The Story-side `story-trace-scrub-note` originally mapped to the
+    // L1 `rf-causa-mode-pill` chip. PR #1509 / rf2-g9pee dropped the
+    // mode-pill entirely: LIVE / RETRO state is derivable from spine
+    // focus (`:focus :mode :head? :paused?`) + the existing
+    // `[◀ ▶ ⏭]` cluster, and Space / L / G keybindings cover the
+    // toggle. No replacement DOM surface exists, so the assertion is
+    // intentionally absent here.
   },
 };
