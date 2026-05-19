@@ -52,7 +52,7 @@
             [re-frame.story.config :as config]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- state ---------------------------------------------------------------
@@ -391,7 +391,7 @@
                  :border-top "1px solid #444"
                  :color (:text-primary colors/tokens)
                  :font-family mono-stack
-                 :font-size "11px"}
+                 :font-size (:caption typography/type-scale)}
    :header      {:display "flex"
                  :justify-content "space-between"
                  :align-items "center"
@@ -399,7 +399,7 @@
    :section-h   {:font-weight "bold"
                  :color (:text-secondary colors/tokens)
                  :text-transform "uppercase"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :letter-spacing "0.5px"}
    :run-button  {:padding "4px 10px"
                  :background (:accent-amber colors/tokens)
@@ -407,10 +407,10 @@
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    :run-busy    {:background "#666"
                  :cursor "wait"}
-   :status      {:color (:text-secondary colors/tokens) :font-size "10px" :margin-top "4px"}
+   :status      {:color (:text-secondary colors/tokens) :font-size (:micro typography/type-scale) :margin-top "4px"}
    :empty       {:color (:text-tertiary colors/tokens) :font-style "italic" :padding "4px 0"}
    :violation   {:padding "6px 8px"
                  :margin "4px 0"
@@ -425,8 +425,8 @@
    :impact-minor    {:border-left-color "#888"
                      :color "#ccc"}
    :v-help      {:font-weight "bold" :margin-bottom "2px"}
-   :v-desc      {:color "#aaa" :font-size "10px"}
-   :v-target    {:color (:info colors/tokens) :font-size "10px"
+   :v-desc      {:color "#aaa" :font-size (:micro typography/type-scale)}
+   :v-target    {:color (:info colors/tokens) :font-size (:micro typography/type-scale)
                  :font-family mono-stack
                  :margin-top "2px"}
    :overlay-css {:position "absolute"
@@ -490,7 +490,7 @@
      [:div {:style (:v-desc styles)} (.-description v)]
      (when first-target
        [:div {:style (:v-target styles)} (str "→ " first-target)])
-     [:div {:style {:color (:text-tertiary colors/tokens) :font-size "10px"}}
+     [:div {:style {:color (:text-tertiary colors/tokens) :font-size (:micro typography/type-scale)}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
 (defn- consent-prompt
@@ -508,7 +508,7 @@
                   :color (:danger colors/tokens)
                   :margin-bottom "6px"}}
     "axe-core not loaded"]
-   [:div {:style {:font-size "10px"
+   [:div {:style {:font-size (:micro typography/type-scale)
                   :line-height "1.4"
                   :color (:text-secondary colors/tokens)
                   :margin-bottom "6px"}}
@@ -519,7 +519,7 @@
     "). The remote JS gets full DOM access to this Story page; the SRI "
     "hash pinned in the loader detects tampering, but the dependency "
     "itself is a trust call. No variant state leaves the browser."]
-   [:div {:style {:font-size "10px"
+   [:div {:style {:font-size (:micro typography/type-scale)
                   :color (:text-secondary colors/tokens)
                   :margin-bottom "8px"}}
     "Approve once per browser; the opt-in is remembered in "

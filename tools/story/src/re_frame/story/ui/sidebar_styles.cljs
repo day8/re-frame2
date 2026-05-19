@@ -4,7 +4,7 @@
   sidebar ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 (def styles
@@ -12,7 +12,7 @@
                   :background (:bg-2 colors/tokens)
                   :color (:text-primary colors/tokens)
                   :font-family mono-stack
-                  :font-size "12px"
+                  :font-size (:body-tight typography/type-scale)
                   :border-right "1px solid #444"
                   :overflow "auto"
                   :padding "8px 0"
@@ -31,7 +31,7 @@
                   :font-weight "bold"
                   :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :letter-spacing "0.5px"}
    :tag-row      {:display "flex"
                   :flex-direction "column"
@@ -42,7 +42,7 @@
    :axis-row     {:display "flex"
                   :flex-direction "column"
                   :gap "3px"}
-   :axis-label   {:font-size "9px"
+   :axis-label   {:font-size (:nano typography/type-scale)
                   :color (:text-tertiary colors/tokens)
                   :letter-spacing "0.5px"
                   :text-transform "uppercase"
@@ -55,7 +55,7 @@
                   :color (:text-primary colors/tokens)
                   :border-radius "10px"
                   :cursor "pointer"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :user-select "none"}
    :tag-active   {:background (:accent-amber colors/tokens)
                   :color "white"}
@@ -95,13 +95,13 @@
    :widget-h     {:font-weight "bold"
                   :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :letter-spacing "0.5px"}
    :widget-counts {:display "flex"
                    :flex-wrap "wrap"
                    :gap "8px"
                    :font-family mono-stack
-                   :font-size "11px"
+                   :font-size (:caption typography/type-scale)
                    :color (:text-primary colors/tokens)}
    :widget-pass  {:color (:success colors/tokens)}
    :widget-fail  {:color (:danger colors/tokens)}
@@ -115,13 +115,13 @@
                   :border-radius "3px"
                   :cursor "pointer"
                   :font-family mono-stack
-                  :font-size "11px"}
+                  :font-size (:caption typography/type-scale)}
    :widget-btn-disabled {:background (:bg-3 colors/tokens)
                          :color (:text-tertiary colors/tokens)
                          :cursor "not-allowed"}
    :widget-empty {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
-                  :font-size "10px"}
+                  :font-size (:micro typography/type-scale)}
    ;; rf2-z1h0f — watch-mode eye-icon toggle on the chrome widget.
    :watch-row    {:display     "flex"
                   :align-items "center"
@@ -134,7 +134,7 @@
                   :border-radius   "10px"
                   :cursor          "pointer"
                   :font-family     mono-stack
-                  :font-size       "10px"
+                  :font-size       (:micro typography/type-scale)
                   :letter-spacing  "0.3px"
                   :display         "inline-flex"
                   :align-items     "center"
@@ -152,7 +152,7 @@
                   :color         (:text-primary colors/tokens)
                   :border-radius "8px"
                   :font-family   mono-stack
-                  :font-size     "9px"
+                  :font-size     (:nano typography/type-scale)
                   :line-height   "14px"
                   :user-select   "none"
                   :flex-shrink   "0"}

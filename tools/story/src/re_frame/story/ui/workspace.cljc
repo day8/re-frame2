@@ -89,7 +89,7 @@
                        ;; subtree to `:y` — a frame that does not exist.
                        [re-frame.story.ui.canvas :as canvas]
                        [re-frame.story.ui.state :as state]])
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: layout resolution --------------------------------------------
@@ -170,7 +170,7 @@
                       :min-height "160px"
                       :color (:text-primary colors/tokens)
                       :font-family mono-stack
-                      :font-size "11px"}
+                      :font-size (:caption typography/type-scale)}
       :cell-title    {:color (:warning colors/tokens)
                       :font-weight "bold"
                       :margin-bottom "4px"}
@@ -302,7 +302,7 @@
                          :color (:danger colors/tokens)
                          :padding "6px"
                          :margin-top "6px"
-                         :font-size "10px"
+                         :font-size (:micro typography/type-scale)
                          :border-radius "3px"}}
            [:div "Decorator errors:"]
            (for [[i e] (map-indexed vector errors)]
@@ -316,7 +316,7 @@
                             :border-left "3px solid #be4040"
                             :margin "2px 0"
                             :background (:danger-bg colors/tokens)
-                            :font-size "10px"}}
+                            :font-size (:micro typography/type-scale)}}
               (pr-str a)])])])))
 
 #?(:cljs
@@ -431,7 +431,7 @@
                     :border-radius  "3px 3px 0 0"
                     :color          (:text-primary colors/tokens)
                     :font-family    mono-stack
-                    :font-size      "11px"
+                    :font-size      (:caption typography/type-scale)
                     :padding        "4px 10px"
                     :cursor         "pointer"}
       :tab-active  {:background     (:bg-2 colors/tokens)
@@ -525,7 +525,7 @@
                     :border-radius "3px"
                     :color         (:text-primary colors/tokens)
                     :font-family   mono-stack
-                    :font-size     "11px"
+                    :font-size     (:caption typography/type-scale)
                     :padding       "4px 10px"
                     :cursor        "pointer"}
       :nav-button-disabled {:background  (:bg-2 colors/tokens)
@@ -533,7 +533,7 @@
                             :cursor      "not-allowed"}
       :nav-label   {:color       (:info colors/tokens)
                     :font-family mono-stack
-                    :font-size   "11px"
+                    :font-size   (:caption typography/type-scale)
                     :font-weight "bold"}
       :nav-body    {:display "block"}}))
 

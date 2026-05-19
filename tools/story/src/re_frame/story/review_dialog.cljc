@@ -79,7 +79,7 @@
                    to the renderer."
   (:require [clojure.string :as str]
             #?(:cljs [reagent.core :as r])
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@
                      :border-radius  "6px"
                      :padding        "16px"
                      :font-family    mono-stack
-                     :font-size      "12px"
+                     :font-size      (:body-tight typography/type-scale)
                      :display        "flex"
                      :flex-direction "column"
                      :gap            "12px"
@@ -323,14 +323,14 @@
                      :overflow       "hidden"}
       :modal-title  {:font-weight "bold"
                      :color       (:info colors/tokens)
-                     :font-size   "13px"}
+                     :font-size   (:body typography/type-scale)}
       :id-input     {:padding       "6px 8px"
                      :background    (:bg-2 colors/tokens)
                      :color         "white"
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :font-family   mono-stack
-                     :font-size     "12px"
+                     :font-size     (:body-tight typography/type-scale)
                      :width         "100%"
                      :box-sizing    "border-box"}
       :snippet      {:background    "#0e0e10"
@@ -342,7 +342,7 @@
                      :overflow      "auto"
                      :max-height    "44vh"
                      :font-family   mono-stack
-                     :font-size     "11px"
+                     :font-size     (:caption typography/type-scale)
                      :line-height   "1.45"
                      :flex          "1 1 auto"}
       :btn-row      {:display         "flex"
@@ -355,7 +355,7 @@
                      :border-radius "3px"
                      :cursor        "pointer"
                      :font-family   mono-stack
-                     :font-size     "11px"}
+                     :font-size     (:caption typography/type-scale)}
       :btn-muted    {:padding       "5px 12px"
                      :background    "transparent"
                      :color         (:text-primary colors/tokens)
@@ -363,10 +363,10 @@
                      :border-radius "3px"
                      :cursor        "pointer"
                      :font-family   mono-stack
-                     :font-size     "11px"}
+                     :font-size     (:caption typography/type-scale)}
       :hint         {:color       (:text-tertiary colors/tokens)
                      :font-style  "italic"
-                     :font-size   "10px"}}))
+                     :font-size   (:micro typography/type-scale)}}))
 
 #?(:cljs
    (defn review-dialog

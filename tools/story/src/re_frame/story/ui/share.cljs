@@ -21,7 +21,7 @@
             [re-frame.story.qr :as qr]
             [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -34,7 +34,7 @@
                :border-radius "3px"
                :cursor        "pointer"
                :font-family   mono-stack
-               :font-size     "10px"
+               :font-size     (:micro typography/type-scale)
                :margin-left   "8px"}
    :popover   {:position      "absolute"
                :top           "30px"
@@ -47,12 +47,12 @@
                :box-shadow    "0 4px 12px rgba(0,0,0,0.6)"
                :min-width     "220px"
                :font-family   mono-stack
-               :font-size     "11px"
+               :font-size     (:caption typography/type-scale)
                :color         (:text-primary colors/tokens)}
    :url-label {:color (:text-secondary colors/tokens)
                :margin-bottom "4px"
                :text-transform "uppercase"
-               :font-size "9px"
+               :font-size (:nano typography/type-scale)
                :letter-spacing "0.5px"}
    :url       {:padding       "4px 6px"
                :background    (:bg-canvas colors/tokens)
@@ -76,7 +76,7 @@
                  :border "1px dashed #a06030"
                  :border-radius "3px"
                  :margin-bottom "8px"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :text-align "center"
                  :line-height "1.4"}
    :copy-btn  {:padding "4px 10px"
@@ -85,7 +85,7 @@
                :border "none"
                :border-radius "3px"
                :cursor "pointer"
-               :font-size "10px"
+               :font-size (:micro typography/type-scale)
                :margin-right "4px"}
    :close-btn {:padding "4px 10px"
                :background (:bg-3 colors/tokens)
@@ -93,7 +93,7 @@
                :border "1px solid #555"
                :border-radius "3px"
                :cursor "pointer"
-               :font-size "10px"}})
+               :font-size (:micro typography/type-scale)}})
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -196,7 +196,7 @@
                          :border "1px solid #a06030"
                          :border-radius "3px"
                          :font-family mono-stack
-                         :font-size "11px"
+                         :font-size (:caption typography/type-scale)
                          :display "flex"
                          :align-items "center"
                          :justify-content "space-between"}}
@@ -209,7 +209,7 @@
                              :border "1px solid #555"
                              :border-radius "3px"
                              :cursor "pointer"
-                             :font-size "10px"
+                             :font-size (:micro typography/type-scale)
                              :margin-left "10px"}
                  :data-test "story-share-import-hint-dismiss"
                  :on-click  (fn [_] (dismiss-share-import-hint! variant-id))}

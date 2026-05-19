@@ -40,7 +40,7 @@
   active background. Reuses the shape of the tab-bar/tab/tab-active
   styles already defined in `re-frame.story.ui.shell`."
   (:require [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage persistence -------------------------------------------
@@ -125,7 +125,7 @@
                  :background       (:bg-2 colors/tokens)
                  :border-bottom    "1px solid #444"
                  :font-family      mono-stack
-                 :font-size        "11px"
+                 :font-size        (:caption typography/type-scale)
                  :padding          "0"}
    ;; rf2-c4m8x: longhand-only border sides on every chip. The
    ;; `:tab-active` overlay below adds a `:border-bottom`; mixing the
@@ -144,7 +144,7 @@
                  :border-bottom       "none"
                  :border-left         "none"
                  :font-family         mono-stack
-                 :font-size           "11px"
+                 :font-size           (:caption typography/type-scale)
                  :letter-spacing      "0.3px"}
    :tab-active  {:color            "white"
                  :background       (:bg-canvas colors/tokens)

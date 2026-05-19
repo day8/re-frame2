@@ -65,7 +65,7 @@
                        [re-frame.core :as rf]
                        [re-frame.source-coords :as source-coords]
                        [re-frame.story.ui.open-in-editor :as open-in-editor]])
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- per-process state ---------------------------------------------------
@@ -386,7 +386,7 @@
              :border-radius  "3px"
              :padding        "3px 8px"
              :font-family    mono-stack
-             :font-size      "11px"
+             :font-size      (:caption typography/type-scale)
              :white-space    "nowrap"
              :box-shadow     "0 2px 8px rgba(0,0,0,0.4)"}
    :chip-on    {:padding         "3px 8px"
@@ -396,7 +396,7 @@
                 :border-radius   "10px"
                 :cursor          "pointer"
                 :font-family     mono-stack
-                :font-size       "11px"
+                :font-size       (:caption typography/type-scale)
                 :user-select     "none"}
    :chip-off   {:padding         "3px 8px"
                 :background      (:bg-3 colors/tokens)
@@ -405,7 +405,7 @@
                 :border-radius   "10px"
                 :cursor          "pointer"
                 :font-family     mono-stack
-                :font-size       "11px"
+                :font-size       (:caption typography/type-scale)
                 :user-select     "none"}})
 
 #?(:cljs

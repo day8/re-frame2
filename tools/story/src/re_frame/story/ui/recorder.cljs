@@ -69,7 +69,7 @@
             [re-frame.story.review-dialog                :as review-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
             [re-frame.story.ui.state                     :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :chip-active {:display         "inline-flex"
@@ -149,7 +149,7 @@
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :font-weight     "bold"
                  :letter-spacing  "0.4px"
@@ -164,7 +164,7 @@
                  :border-radius   "10px"
                  :cursor          "not-allowed"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :letter-spacing  "0.4px"}
    :dot         {:width        "8px"
@@ -182,7 +182,7 @@
                  :padding      "6px 10px"
                  :border-radius "4px"
                  :font-family  mono-stack
-                 :font-size    "11px"
+                 :font-size    (:caption typography/type-scale)
                  :box-shadow   "0 4px 10px rgba(0,0,0,0.6)"
                  :display      "flex"
                  :align-items  "center"
@@ -200,7 +200,7 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size "11px"}
+                 :font-size (:caption typography/type-scale)}
    :btn-muted   {:padding "5px 12px"
                  :background "transparent"
                  :color (:text-primary colors/tokens)
@@ -208,10 +208,10 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size "11px"}
+                 :font-size (:caption typography/type-scale)}
    :hint        {:color (:text-tertiary colors/tokens)
                  :font-style "italic"
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    ;; Mid-recording assertion picker (rf2-39u9e)
    :assert-btn  {:padding "3px 9px"
                  :background (:accent-amber colors/tokens)
@@ -220,7 +220,7 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-family mono-stack
-                 :font-size "11px"}
+                 :font-size (:caption typography/type-scale)}
    :picker-back {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :background "rgba(0,0,0,0.55)"
@@ -237,7 +237,7 @@
                  :border-radius "6px"
                  :padding "14px"
                  :font-family mono-stack
-                 :font-size "12px"
+                 :font-size (:body-tight typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "10px"
@@ -245,7 +245,7 @@
                  :box-shadow "0 12px 32px rgba(0,0,0,0.7)"}
    :picker-title {:font-weight "bold"
                   :color (:info colors/tokens)
-                  :font-size "13px"}
+                  :font-size (:body typography/type-scale)}
    :picker-grid {:display "grid"
                  :grid-template-columns "1fr 1fr"
                  :gap "6px"}
@@ -257,31 +257,31 @@
                  :cursor "pointer"
                  :text-align "left"
                  :font-family mono-stack
-                 :font-size "11px"
+                 :font-size (:caption typography/type-scale)
                  :display "flex"
                  :flex-direction "column"
                  :gap "2px"}
    :picker-row-id    {:color (:info colors/tokens)
                       :font-weight "bold"}
    :picker-row-hint  {:color (:text-tertiary colors/tokens)
-                      :font-size "10px"
+                      :font-size (:micro typography/type-scale)
                       :font-style "italic"}
    :field-row   {:display "flex"
                  :flex-direction "column"
                  :gap "3px"}
    :field-label {:color (:info colors/tokens)
-                 :font-size "11px"}
+                 :font-size (:caption typography/type-scale)}
    :field-input {:padding "5px 7px"
                  :background (:bg-2 colors/tokens)
                  :color "white"
                  :border "1px solid #444"
                  :border-radius "3px"
                  :font-family mono-stack
-                 :font-size "12px"
+                 :font-size (:body-tight typography/type-scale)
                  :width "100%"
                  :box-sizing "border-box"}
    :field-error {:color "#f08080"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :font-style "italic"}
    :preview     {:background "#0e0e10"
                  :color (:warning colors/tokens)
@@ -292,7 +292,7 @@
                  :overflow "auto"
                  :max-height "30vh"
                  :font-family mono-stack
-                 :font-size "11px"
+                 :font-size (:caption typography/type-scale)
                  :line-height "1.4"}})
 
 ;; ---------------------------------------------------------------------------
@@ -551,7 +551,7 @@
                           :data-test "story-recorder-picker-error"}
                    "EDN didn't parse — " (pr-str (:raw error))])])
              (when (seq fields)
-               [:div {:style {:font-size "10px" :color (:text-tertiary colors/tokens)}}
+               [:div {:style {:font-size (:micro typography/type-scale) :color (:text-tertiary colors/tokens)}}
                 "preview:"])
              (when preview
                [:pre {:style     (:preview styles)

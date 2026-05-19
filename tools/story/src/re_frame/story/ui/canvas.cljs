@@ -29,7 +29,7 @@
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- namespace-preserving frame-provider --------------------------------
@@ -88,20 +88,20 @@
               :margin-bottom "8px"
               :color (:info colors/tokens)
               :font-family mono-stack
-              :font-size "12px"}
+              :font-size (:body-tight typography/type-scale)}
    :error    {:background (:danger-bg colors/tokens)
               :border "1px solid #be4040"
               :color (:danger colors/tokens)
               :padding "8px"
               :margin-top "8px"
               :font-family mono-stack
-              :font-size "11px"
+              :font-size (:caption typography/type-scale)
               :border-radius "3px"}
    :assertion {:padding "4px 8px"
                :border-left "3px solid #be4040"
                :margin "2px 0"
                :font-family mono-stack
-               :font-size "11px"
+               :font-size (:caption typography/type-scale)
                :background (:danger-bg colors/tokens)}})
 
 ;; ---- variant view resolution --------------------------------------------
@@ -272,7 +272,7 @@
          (str "→ " (pr-str view-id))])
       (when multi?
         [:span {:style {:color (:text-secondary colors/tokens) :margin-left "8px"
-                        :font-size "10px" :font-weight "normal"}}
+                        :font-size (:micro typography/type-scale) :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])

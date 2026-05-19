@@ -4,7 +4,7 @@
   controls ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 (def styles
@@ -12,13 +12,13 @@
                  :background (:bg-2 colors/tokens)
                  :color (:text-primary colors/tokens)
                  :font-family mono-stack
-                 :font-size "11px"
+                 :font-size (:caption typography/type-scale)
                  :border-top "1px solid #444"}
    :section     {:margin-bottom "12px"}
    :section-h   {:font-weight "bold"
                  :color (:text-secondary colors/tokens)
                  :text-transform "uppercase"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :letter-spacing "0.5px"
                  :margin-bottom "4px"}
    :row         {:display "grid"
@@ -40,20 +40,20 @@
                  :cursor "default"}
    :label       {:color (:info colors/tokens)}
    :sublabel    {:color (:text-secondary colors/tokens)
-                 :font-size "10px"}
+                 :font-size (:micro typography/type-scale)}
    :input       {:background (:bg-canvas colors/tokens)
                  :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :padding "2px 6px"
                  :font-family mono-stack
-                 :font-size "11px"
+                 :font-size (:caption typography/type-scale)
                  :width "100%"}
    :textarea    {:background (:bg-canvas colors/tokens)
                  :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :padding "4px 6px"
                  :font-family mono-stack
-                 :font-size "11px"
+                 :font-size (:caption typography/type-scale)
                  :width "100%"
                  :min-height "48px"
                  :resize "vertical"}
@@ -80,7 +80,7 @@
                  :color (:text-primary colors/tokens)
                  :border-radius "10px"
                  :cursor "pointer"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :user-select "none"}
    :chip-active {:background (:accent-amber colors/tokens)
                  :color "white"}
@@ -90,7 +90,7 @@
                  :border "none"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :margin-top "8px"}
    :rep-button  {:padding "2px 6px"
                  :background (:bg-3 colors/tokens)
@@ -98,6 +98,6 @@
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :margin-left "4px"}
    :empty       {:color (:text-tertiary colors/tokens) :font-style "italic"}})

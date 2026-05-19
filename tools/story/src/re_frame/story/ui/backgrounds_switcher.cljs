@@ -26,7 +26,7 @@
             [re-frame.story.predicates       :as pred]
             [re-frame.story.registrar        :as registrar]
             [re-frame.story.ui.state         :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- dropdown state ------------------------------------------------------
@@ -112,7 +112,7 @@
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :user-select     "none"
                  :display         "inline-flex"
                  :align-items     "center"
@@ -139,7 +139,7 @@
                  :flex-direction  "column"
                  :gap             "2px"
                  :font-family     mono-stack
-                 :font-size       "11px"}
+                 :font-size       (:caption typography/type-scale)}
    :item        {:display         "flex"
                  :align-items     "center"
                  :gap             "8px"
@@ -150,7 +150,7 @@
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :text-align      "left"
                  :width           "100%"}
    :item-active {:background (:accent-amber colors/tokens)
@@ -176,7 +176,7 @@
                  :border-radius   "3px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "10px"}
+                 :font-size       (:micro typography/type-scale)}
    :backdrop    {:position "fixed"
                  :top "0" :left "0" :right "0" :bottom "0"
                  :z-index 1499

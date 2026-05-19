@@ -59,7 +59,7 @@
             [re-frame.story.ui.test-mode.state         :as state]
             [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
             [re-frame.story.ui.test-mode.view-styles   :refer [styles]]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
@@ -189,7 +189,7 @@
          (if-not has-epochs?
            [:div {:style     {:color       (:text-tertiary colors/tokens)
                               :font-style  "italic"
-                              :font-size   "11px"
+                              :font-size   (:caption typography/type-scale)
                               :font-family mono-stack}
                   :data-test "story-test-scrubber-no-epochs"}
             "epoch buffer empty — scrubber unavailable (run is non-elided?)"]

@@ -35,7 +35,7 @@
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
             [re-frame.story.config :as config]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage flag --------------------------------------------------
@@ -105,7 +105,7 @@
                  :max-height    "86vh"
                  :overflow      "auto"
                  :font-family   sans-stack
-                 :font-size     "13px"
+                 :font-size     (:body typography/type-scale)
                  :line-height   "1.5"}
    :header      {:display         "flex"
                  :justify-content "space-between"
@@ -115,19 +115,19 @@
                  :border-bottom   "1px solid #444"}
    :title       {:color       (:info colors/tokens)
                  :font-weight "bold"
-                 :font-size   "13px"
+                 :font-size   (:body typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}
    :close       {:background  "transparent"
                  :border      "none"
                  :color       (:text-secondary colors/tokens)
-                 :font-size   "16px"
+                 :font-size   (:display typography/type-scale)
                  :cursor      "pointer"
                  :padding     "0 4px"
                  :line-height "1"}
    :body        {:padding "16px 20px"}
    :section-h   {:color          (:text-secondary colors/tokens)
-                 :font-size      "10px"
+                 :font-size      (:micro typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"
                  :margin         "12px 0 6px 0"
@@ -150,7 +150,7 @@
                  :border        "none"
                  :border-radius "3px"
                  :cursor        "pointer"
-                 :font-size     "12px"
+                 :font-size     (:body-tight typography/type-scale)
                  :font-family   sans-stack}
    :help-btn    {:padding       "2px 9px"
                  :background    (:bg-3 colors/tokens)
@@ -159,7 +159,7 @@
                  :border-radius "12px"
                  :cursor        "pointer"
                  :font-family   mono-stack
-                 :font-size     "11px"
+                 :font-size     (:caption typography/type-scale)
                  :line-height   "1.2"}})
 
 ;; ---- the panel ----------------------------------------------------------

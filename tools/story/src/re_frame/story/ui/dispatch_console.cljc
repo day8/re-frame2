@@ -71,7 +71,7 @@
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
             #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: payload parsing -----------------------------------------------
@@ -449,7 +449,7 @@
    (def ^:private styles
      {:panel          {:padding "8px"
                        :font-family mono-stack
-                       :font-size "11px"
+                       :font-size (:caption typography/type-scale)
                        :border-top "1px solid #444"
                        :background (:bg-canvas colors/tokens)
                        :color (:text-primary colors/tokens)
@@ -473,7 +473,7 @@
       :label          {:color (:text-tertiary colors/tokens)
                        :width "70px"
                        :flex "0 0 70px"
-                       :font-size "10px"
+                       :font-size (:micro typography/type-scale)
                        :text-transform "uppercase"
                        :letter-spacing "0.5px"}
       :input          {:flex "1 1 auto"
@@ -483,7 +483,7 @@
                        :border-radius "3px"
                        :padding "3px 6px"
                        :font-family mono-stack
-                       :font-size "11px"
+                       :font-size (:caption typography/type-scale)
                        :outline "none"}
       :btn-row        {:display "flex"
                        :gap "6px"
@@ -494,7 +494,7 @@
                        :border "1px solid #444"
                        :border-radius "3px"
                        :font-family mono-stack
-                       :font-size "10px"
+                       :font-size (:micro typography/type-scale)
                        :cursor "pointer"}
       :btn-primary    {:background (:accent-amber colors/tokens)
                        :color "white"
@@ -508,7 +508,7 @@
                        :padding "4px 6px"
                        :margin "4px 0"
                        :border-radius "3px"
-                       :font-size "10px"}
+                       :font-size (:micro typography/type-scale)}
       :ac-host        {:position "relative"}
       :ac-list        {:position "absolute"
                        :top "100%"
@@ -534,7 +534,7 @@
                        :margin-top "6px"}
       :history-title  {:color (:text-tertiary colors/tokens)
                        :font-style "italic"
-                       :font-size "10px"
+                       :font-size (:micro typography/type-scale)
                        :margin-bottom "4px"}
       :history-row    {:display "grid"
                        :grid-template-columns "60px 1fr"
@@ -543,14 +543,14 @@
                        :cursor "pointer"
                        :border-bottom "1px dotted #2a2a2a"}
       :history-time   {:color (:text-tertiary colors/tokens)
-                       :font-size "10px"}
+                       :font-size (:micro typography/type-scale)}
       :history-text   {:color (:warning colors/tokens)
                        :overflow "hidden"
                        :text-overflow "ellipsis"
                        :white-space "nowrap"}
       :empty          {:color (:text-tertiary colors/tokens)
                        :font-style "italic"
-                       :font-size "10px"}}))
+                       :font-size (:micro typography/type-scale)}}))
 
 ;; ---- view (CLJS-only) ----------------------------------------------------
 

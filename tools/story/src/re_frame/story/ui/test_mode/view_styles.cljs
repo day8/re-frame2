@@ -4,7 +4,7 @@
   view ns drops below the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only — the JVM pure helpers don't need styles."
-  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 (def styles
@@ -14,16 +14,16 @@
                    :background       (:bg-canvas colors/tokens)
                    :color            (:text-primary colors/tokens)
                    :font-family      sans-stack
-                   :font-size        "13px"
+                   :font-size        (:body typography/type-scale)
                    :line-height      "1.5"}
    :h1            {:font-family      mono-stack
-                   :font-size        "18px"
+                   :font-size        (:display typography/type-scale)
                    :font-weight      "bold"
                    :color            "white"
                    :margin           "0 0 4px 0"}
    :sub           {:color            (:text-secondary colors/tokens)
                    :font-family      mono-stack
-                   :font-size        "11px"
+                   :font-size        (:caption typography/type-scale)
                    :margin-bottom    "10px"}
    :header-row    {:display          "flex"
                    :justify-content  "space-between"
@@ -37,19 +37,19 @@
                    :border-radius    "3px"
                    :cursor           "pointer"
                    :font-family      mono-stack
-                   :font-size        "11px"
+                   :font-size        (:caption typography/type-scale)
                    :letter-spacing   "0.3px"}
    :rerun-running {:background       (:bg-3 colors/tokens)
                    :color            (:text-secondary colors/tokens)
                    :cursor           "not-allowed"}
    :last-run      {:color            (:text-secondary colors/tokens)
                    :font-family      mono-stack
-                   :font-size        "10px"}
+                   :font-size        (:micro typography/type-scale)}
    :section       {:margin-top       "16px"}
    :section-h     {:font-weight      "bold"
                    :color            (:text-secondary colors/tokens)
                    :text-transform   "uppercase"
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :letter-spacing   "0.5px"
                    :margin-bottom    "8px"
                    :border-bottom    "1px solid #444"
@@ -61,7 +61,7 @@
    :pill          {:padding          "4px 10px"
                    :border-radius    "10px"
                    :font-family      mono-stack
-                   :font-size        "11px"
+                   :font-size        (:caption typography/type-scale)
                    :font-weight      "bold"
                    :text-transform   "uppercase"
                    :letter-spacing   "0.5px"}
@@ -73,21 +73,21 @@
                    :color            (:text-secondary colors/tokens)}
    :counts        {:color            (:text-secondary colors/tokens)
                    :font-family      mono-stack
-                   :font-size        "11px"}
+                   :font-size        (:caption typography/type-scale)}
    :count-pass    {:color            (:success colors/tokens)}
    :count-fail    {:color            (:danger colors/tokens)}
    :count-skip    {:color            (:text-tertiary colors/tokens)}
    :table         {:width            "100%"
                    :border-collapse  "collapse"
                    :font-family      mono-stack
-                   :font-size        "11px"}
+                   :font-size        (:caption typography/type-scale)}
    :th            {:text-align       "left"
                    :padding          "6px 8px"
                    :background       (:bg-2 colors/tokens)
                    :color            (:text-secondary colors/tokens)
                    :border-bottom    "1px solid #444"
                    :text-transform   "uppercase"
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :letter-spacing   "0.5px"}
    :td            {:padding          "6px 8px"
                    :border-bottom    "1px solid #2d2d30"
@@ -95,7 +95,7 @@
                    :vertical-align   "top"}
    :td-status     {:width            "20px"
                    :text-align       "center"
-                   :font-size        "16px"
+                   :font-size        (:display typography/type-scale)
                    :line-height      "1"}
    :status-pass   {:color            (:success colors/tokens)}
    :status-fail   {:color            (:danger colors/tokens)}
@@ -106,7 +106,7 @@
                    :background       "none"
                    :border           "none"
                    :font-family      mono-stack
-                   :font-size        "11px"
+                   :font-size        (:caption typography/type-scale)
                    :padding          "0"
                    :text-decoration  "underline"}
    :detail-box    {:background       (:bg-2 colors/tokens)
@@ -115,11 +115,11 @@
                    :margin-top       "6px"
                    :color            (:text-primary colors/tokens)
                    :font-family      mono-stack
-                   :font-size        "11px"
+                   :font-size        (:caption typography/type-scale)
                    :white-space      "pre-wrap"}
    :detail-key    {:color            (:info colors/tokens)}
    :detail-source {:color            (:text-secondary colors/tokens)
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :margin-top       "4px"}
    :empty         {:padding          "32px"
                    :color            (:text-tertiary colors/tokens)
@@ -142,7 +142,7 @@
    :scrub-h       {:font-weight      "bold"
                    :color            (:text-secondary colors/tokens)
                    :text-transform   "uppercase"
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :letter-spacing   "0.5px"
                    :margin-bottom    "6px"
                    :display          "flex"
@@ -161,7 +161,7 @@
                    :border-radius    "3px"
                    :cursor           "pointer"
                    :font-family      mono-stack
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :padding          "0 4px"
                    :user-select      "none"}
    :tick-pass     {:background       (:success-bg colors/tokens)
@@ -178,7 +178,7 @@
                    :margin           "4px 0"}
    :scrub-detail  {:color            (:text-tertiary colors/tokens)
                    :font-family      mono-stack
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :margin-top       "4px"
                    :display          "flex"
                    :gap              "10px"
@@ -189,5 +189,5 @@
                    :border           "none"
                    :border-radius    "3px"
                    :cursor           "pointer"
-                   :font-size        "10px"
+                   :font-size        (:micro typography/type-scale)
                    :font-family      mono-stack}})

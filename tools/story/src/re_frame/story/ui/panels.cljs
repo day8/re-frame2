@@ -55,7 +55,7 @@
             [re-frame.story.ui.a11y :as a11y]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -65,13 +65,13 @@
                   :background (:bg-2 colors/tokens)
                   :color (:text-primary colors/tokens)
                   :font-family mono-stack
-                  :font-size "11px"
+                  :font-size (:caption typography/type-scale)
                   :border-top "1px solid #444"}
    :stub-title   {:color (:info colors/tokens)
                   :font-weight "bold"
                   :margin-bottom "8px"
                   :text-transform "uppercase"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :letter-spacing "0.5px"}
    :stub-body    {:color (:text-secondary colors/tokens)
                   :line-height "1.5"}
@@ -80,18 +80,18 @@
                   :border "1px solid #444"
                   :border-radius "3px"
                   :margin-top "8px"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :overflow-x "auto"}
    :layout-wrap  {:padding "8px"
                   :background (:bg-2 colors/tokens)
                   :color (:text-primary colors/tokens)
                   :font-family mono-stack
-                  :font-size "11px"
+                  :font-size (:caption typography/type-scale)
                   :border-top "1px solid #444"}
    :layout-title {:font-weight "bold"
                   :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :letter-spacing "0.5px"
                   :margin-bottom "6px"}
    :toggle       {:display "flex"
@@ -103,7 +103,7 @@
    :decor-id     {:color (:info colors/tokens)}
    :hint         {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
-                  :font-size "10px"
+                  :font-size (:micro typography/type-scale)
                   :margin-top "6px"}})
 
 ;; ---- 10x epoch panel stub ----------------------------------------------
@@ -273,7 +273,7 @@
                  :border-bottom "1px solid #444"
                  :color (:text-secondary colors/tokens)
                  :font-family mono-stack
-                 :font-size "10px"
+                 :font-size (:micro typography/type-scale)
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}})
 
@@ -330,6 +330,6 @@
             [canvas/frame-provider-ns-safe {:frame variant-id}
              [view-fn variant-id]]
             [:div {:style {:padding "8px" :color (:text-secondary colors/tokens)
-                           :font-style "italic" :font-size "10px"}}
+                           :font-style "italic" :font-size (:micro typography/type-scale)}}
              (str "panel " (pr-str pid)
                   " has no registered :render view (" (pr-str view-id) ")")])]))]))

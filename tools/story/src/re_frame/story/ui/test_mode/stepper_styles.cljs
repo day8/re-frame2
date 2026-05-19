@@ -2,7 +2,7 @@
   "Style map for the play step-debugger (rf2-ulw5m + spec/009 §Play
   step-debugger). Pure data; no Reagent dependency. Matches the rest of
   the test pane chrome (rf2-2uwv palette)."
-  (:require [re-frame.story.theme.typography :refer [mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 (def styles
@@ -27,7 +27,7 @@
                     :gap              "10px"
                     :margin-bottom    "6px"
                     :font-family      mono-stack
-                    :font-size        "10px"
+                    :font-size        (:micro typography/type-scale)
                     :font-weight      "bold"
                     :color            (:text-secondary colors/tokens)
                     :text-transform   "uppercase"
@@ -40,7 +40,7 @@
                     :text-transform   "none"
                     :letter-spacing   "0"}
    :kbd-hint       {:color            (:text-tertiary colors/tokens)
-                    :font-size        "9px"
+                    :font-size        (:nano typography/type-scale)
                     :font-weight      "normal"
                     :text-transform   "none"
                     :letter-spacing   "0"}
@@ -63,7 +63,7 @@
                     :border-radius    "3px"
                     :cursor           "pointer"
                     :font-family      mono-stack
-                    :font-size        "11px"
+                    :font-size        (:caption typography/type-scale)
                     :letter-spacing   "0.3px"}
    :ctrl-btn-soft  {:padding-top      "4px"
                     :padding-right    "10px"
@@ -77,7 +77,7 @@
                     :border-radius    "3px"
                     :cursor           "pointer"
                     :font-family      mono-stack
-                    :font-size        "11px"
+                    :font-size        (:caption typography/type-scale)
                     :letter-spacing   "0.3px"}
    :ctrl-btn-disabled
                    {:background       (:bg-2 colors/tokens)
@@ -109,7 +109,7 @@
                     :padding-bottom       "3px"
                     :padding-left         "6px"
                     :font-family          mono-stack
-                    :font-size            "11px"
+                    :font-size            (:caption typography/type-scale)
                     :color                (:text-primary colors/tokens)
                     :cursor               "pointer"
                     :border-radius        "3px"
@@ -137,10 +137,10 @@
                     :outline-offset       "-1px"}
    :step-glyph     {:width            "14px"
                     :text-align       "center"
-                    :font-size        "11px"
+                    :font-size        (:caption typography/type-scale)
                     :line-height      "1"}
    :step-index     {:color            (:text-tertiary colors/tokens)
-                    :font-size        "10px"
+                    :font-size        (:micro typography/type-scale)
                     :min-width        "24px"
                     :text-align       "right"}
    :step-label     {:flex             "1"
@@ -148,7 +148,7 @@
                     :text-overflow    "ellipsis"
                     :white-space      "nowrap"}
    :step-bp-chip   {:color            (:breakpoint-ring colors/tokens)
-                    :font-size        "10px"
+                    :font-size        (:micro typography/type-scale)
                     :background       "transparent"
                     :border-style     "solid"
                     :border-width     "1px"
@@ -171,5 +171,5 @@
    :inactive       {:padding          "6px 0"
                     :color            (:text-tertiary colors/tokens)
                     :font-family      mono-stack
-                    :font-size        "11px"
+                    :font-size        (:caption typography/type-scale)
                     :font-style       "italic"}})

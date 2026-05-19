@@ -83,7 +83,7 @@
                        [re-frame.story.registrar  :as story-registrar]
                        [re-frame.story.ui.trace-buffer :as trace-buffer]
                        [re-frame.registrar        :as framework-registrar]])
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: classify a trace event ---------------------------------------
@@ -341,7 +341,7 @@
                      :background (:bg-2 colors/tokens)
                      :color (:text-primary colors/tokens)
                      :font-family mono-stack
-                     :font-size "11px"
+                     :font-size (:caption typography/type-scale)
                      :border-top "1px solid #444"
                      :overflow "auto"
                      :max-height "320px"}
@@ -349,12 +349,12 @@
       :section-h    {:font-weight "bold"
                      :color (:text-secondary colors/tokens)
                      :text-transform "uppercase"
-                     :font-size "10px"
+                     :font-size (:micro typography/type-scale)
                      :letter-spacing "0.5px"
                      :margin-bottom "4px"}
       :hint         {:color (:text-tertiary colors/tokens)
                      :font-style "italic"
-                     :font-size "10px"
+                     :font-size (:micro typography/type-scale)
                      :margin-bottom "4px"}
       :empty        {:color (:text-tertiary colors/tokens)
                      :font-style "italic"
@@ -368,9 +368,9 @@
                      :font-weight "bold"}
       :v-value      {:color (:info colors/tokens)}
       :v-schema     {:color (:tag-experimental-fg colors/tokens)
-                     :font-size "10px"}
+                     :font-size (:micro typography/type-scale)}
       :v-explain    {:color "#aaa"
-                     :font-size "10px"
+                     :font-size (:micro typography/type-scale)
                      :margin-top "2px"}
       :row          {:display "grid"
                      :grid-template-columns "92px 80px 1fr"

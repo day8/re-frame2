@@ -4,7 +4,7 @@
   ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+  (:require [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 (def styles
@@ -59,7 +59,7 @@
                :background (:bg-2 colors/tokens)
                :border-bottom "1px solid #444"
                :font-family mono-stack
-               :font-size "11px"}
+               :font-size (:caption typography/type-scale)}
    :tab       {:padding "6px 12px"
                :cursor "pointer"
                :color (:text-secondary colors/tokens)

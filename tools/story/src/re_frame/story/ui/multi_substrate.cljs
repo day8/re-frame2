@@ -34,7 +34,7 @@
             [re-frame.story.args :as args]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -55,14 +55,14 @@
                 :min-height "160px"
                 :color (:text-primary colors/tokens)
                 :font-family mono-stack
-                :font-size "11px"
+                :font-size (:caption typography/type-scale)
                 :position "relative"}
    :cell-head  {:padding "6px 10px"
                 :background (:bg-2 colors/tokens)
                 :border-bottom "1px solid #444"
                 :color (:info colors/tokens)
                 :font-weight "bold"
-                :font-size "10px"
+                :font-size (:micro typography/type-scale)
                 :letter-spacing "0.5px"
                 :text-transform "uppercase"
                 :border-radius "4px 4px 0 0"}
@@ -73,11 +73,11 @@
                 :color (:danger colors/tokens)
                 :border-radius "4px"
                 :font-family mono-stack
-                :font-size "11px"}
+                :font-size (:caption typography/type-scale)}
    :error-head {:padding "6px 10px"
                 :background "#7a2727"
                 :font-weight "bold"
-                :font-size "10px"
+                :font-size (:micro typography/type-scale)
                 :letter-spacing "0.5px"
                 :text-transform "uppercase"
                 :border-radius "4px 4px 0 0"}

@@ -70,7 +70,7 @@
   UI shell so this ns never enters a release bundle."
   (:require [re-frame.story.config :as config]
             [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -83,7 +83,7 @@
                :border-radius   "3px"
                :cursor          "pointer"
                :font-family     mono-stack
-               :font-size       "10px"
+               :font-size       (:micro typography/type-scale)
                :margin-left     "8px"
                :text-decoration "none"
                :display         "inline-block"}
@@ -94,7 +94,7 @@
                :border-radius   "2px"
                :cursor          "pointer"
                :font-family     mono-stack
-               :font-size       "10px"
+               :font-size       (:micro typography/type-scale)
                :margin-left     "8px"
                :text-decoration "none"
                :display         "inline-block"}})

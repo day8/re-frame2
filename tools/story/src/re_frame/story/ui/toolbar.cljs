@@ -55,7 +55,7 @@
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
-            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage --------------------------------------------------------
@@ -217,11 +217,11 @@
                  :background     (:bg-2 colors/tokens)
                  :border-bottom  "1px solid #444"
                  :font-family    mono-stack
-                 :font-size      "11px"
+                 :font-size      (:caption typography/type-scale)
                  :min-height     "32px"
                  :box-sizing     "border-box"
                  :flex-wrap      "wrap"}
-   :axis-label  {:font-size       "10px"
+   :axis-label  {:font-size       (:micro typography/type-scale)
                  :text-transform  "uppercase"
                  :color           (:text-tertiary colors/tokens)
                  :letter-spacing  "0.5px"
@@ -239,7 +239,7 @@
                  :border-radius   "10px"
                  :cursor          "pointer"
                  :font-family     mono-stack
-                 :font-size       "11px"
+                 :font-size       (:caption typography/type-scale)
                  :max-width       "20em"
                  :overflow        "hidden"
                  :text-overflow   "ellipsis"
@@ -255,10 +255,10 @@
                  :border-radius "3px"
                  :cursor        "pointer"
                  :font-family   mono-stack
-                 :font-size     "10px"}
+                 :font-size     (:micro typography/type-scale)}
    :empty       {:color       (:text-tertiary colors/tokens)
                  :font-style  "italic"
-                 :font-size   "11px"}})
+                 :font-size   (:caption typography/type-scale)}})
 
 ;; ---- chip rendering ------------------------------------------------------
 

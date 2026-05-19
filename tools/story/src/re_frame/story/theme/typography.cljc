@@ -111,6 +111,58 @@
    :semibold 600
    :bold     700})
 
+(def type-scale
+  "Story type scale tokens (rf2-juxha).
+
+  Stepped scale tuned for an info-dense workshop UI — Story's chrome
+  packs sidebar / toolbar / controls / inspector / canvas-title
+  surfaces into one viewport, so the scale runs tight (10–18 px) with
+  display steps reserved for hero / welcome overlay titles.
+
+  Mirrors Causa's `type-scale` shape (`:display` / `:body` /
+  `:body-tight` / `:mono-body` / `:caption` / `:micro` plus
+  `:line-height-*` tokens) so the two surfaces compose cleanly.
+  Differences vs Causa:
+
+  - `:hero` (24px) is Story-only — the welcome overlay headline.
+  - `:display` runs 16 (vs Causa 14) — Story's mode-tab strip + section
+    headers carry a heading register the diagnostic surface doesn't need.
+  - `:body` runs 13 (matches Causa) — info density wins for the
+    info-dense chrome.
+
+  Values are CSS strings so call sites drop them into inline `:style`
+  maps without unit acrobatics."
+  {;; Headings + prose
+   :hero         "24px"    ; welcome overlay title, hero copy
+   :display      "16px"    ; section titles, mode-tab labels
+   :body         "13px"    ; default body / labels
+   :body-tight   "12px"    ; sidebar entries, toolbar chips, controls labels
+   :mono-body    "12px"    ; mono code / EDN / variant ids
+   :caption      "11px"    ; hints, secondary labels, badge text
+   :micro        "10px"    ; uppercase axis labels, micro chips, badges
+   :nano          "9px"    ; tag-badge text (sidebar)
+   ;; Vertical rhythm
+   :line-height-tight "1.4"   ; denser blocks (sidebar / controls)
+   :line-height-body  "1.5"   ; prose / help overlay
+   :line-height-mono  "1.4"   ; mono needs a touch more leading
+   })
+
+(def letter-spacing
+  "Letter-spacing tokens. Three slots:
+
+  - `:label` — uppercase chrome labels (axis labels, section headers)
+    take a wide tracking to read as 'system signal' at small sizes.
+  - `:display` — display headlines tighten 1% so Plex Sans's natural
+    spacing doesn't look loose at hero scale.
+  - `:body` — normal tracking, no kerning override.
+  - `:label-wide` — extra-wide tracking for the toolbar's :axis-label
+    surface, where the label sits above a chip row and benefits from
+    extra letter separation."
+  {:label      "0.5px"
+   :label-wide "0.6px"
+   :display    "-0.01em"
+   :body       "normal"})
+
 (def font-faces-css
   "The `@font-face` declarations for self-hosted IBM Plex. Emitted as
   one CSS string so callers can drop it into a `<style>` element with
