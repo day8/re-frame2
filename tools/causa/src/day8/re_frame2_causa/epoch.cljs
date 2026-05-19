@@ -51,12 +51,31 @@
   ;; (`:rf/default`); a known frame-id seeds `:epoch-history` from the
   ;; framework's per-frame epoch ring so the immediate subscribe-after-
   ;; dispatch read sees a hydrated slot.
+  ;;
+  ;; rf2-ulpp8 — the reducer ALSO aligns `[:focus :frame]` to the same
+  ;; target. The two axes encode the same gesture (the user is observing
+  ;; this host frame); the picker-write path (`spine/set-frame-reducer`)
+  ;; already aligns both axes per rf2-ug1r6 + rf2-thodq. Pre-fix, mount-
+  ;; time and `core/set-target-frame!` callers wrote only `:target-frame`,
+  ;; leaving `[:focus :frame]` nil — which made:
+  ;;   - `filter-cascades-by-frame` a no-op (reads `:focus-slot :frame`),
+  ;;     so the L2 list showed every frame's cascades even though the
+  ;;     picker view collapsed the dropdown label to a specific frame;
+  ;;   - `compose-focus`'s `slot-frame` filter inactive, so the head
+  ;;     walk picked the global most-recent cascade — Issues / Views /
+  ;;     App-DB Diff scoped to whichever frame's event was most recent,
+  ;;     not the observed frame.
+  ;; A nil `frame-id` (the reset case) symmetrically clears the focus
+  ;; slot's `:frame` — leaving it set to a stale value would re-introduce
+  ;; the misalignment in the inverse direction.
   (rf/reg-event-db :rf.causa/set-target-frame
     (fn [db [_ frame-id]]
       (let [target (or frame-id defaults/default-target-frame)]
         (cond-> (assoc db :epoch-history (vec (rf/epoch-history target)))
           (nil? frame-id)  (dissoc :target-frame)
-          (some? frame-id) (assoc :target-frame frame-id)))))
+          (nil? frame-id)  (update :focus (fnil dissoc {}) :frame)
+          (some? frame-id) (assoc :target-frame frame-id)
+          (some? frame-id) (assoc-in [:focus :frame] frame-id)))))
 
   ;; `:rf.causa/epoch-recorded` — dispatched from `preload/install-
   ;; epoch-listener!` whenever the framework records a new epoch on any
