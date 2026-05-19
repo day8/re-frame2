@@ -136,8 +136,9 @@ async function clickTab(page, id, canvasTestId) {
 
 // Legacy panel ids → new L3 tab ids. Panels removed by the 4-layer
 // refactor (time-travel, causality, subs, fx, flows, routes,
-// performance, schemas, hydration, mcp-server) have no UI handoff
-// — callers that target them must be updated separately.
+// performance, schemas, hydration, mcp-server) and the rf2-y0z5b
+// causality-surface drop have no UI handoff — callers that target
+// them must be updated separately.
 const LEGACY_PANEL_TO_TAB = {
   'event-detail': 'event',
   'app-db':       'app-db',
@@ -1293,13 +1294,11 @@ async function runMultiFrame(page, state) {
     });
   }
   // Post rf2-xy4yb: the dedicated Causality and Time-Travel panels
-  // were dropped. Per spec/018 §5 + §6 the Causality graph is
-  // promoted to an on-demand popover (planned: `c` key — not yet
-  // wired in shell/keybinding) and Time Travel folds into the Event
-  // tab + RETRO scrubbing on the L2 event list. Until the popover
-  // ships, this scenario covers multi-frame isolation through the
-  // trace + event-tab cascade evidence above; the dedicated
-  // causality / time-travel handoff steps are retired.
+  // were dropped (Causality fully removed in rf2-y0z5b). Per
+  // spec/018 §5 + §6 Time Travel folds into the Event tab + RETRO
+  // scrubbing on the L2 event list. This scenario covers multi-
+  // frame isolation through the trace + event-tab cascade evidence
+  // above; the dedicated time-travel handoff steps are retired.
 }
 
 async function runDeepMachine(page) {
@@ -1500,10 +1499,10 @@ async function runTwentyEventLoad(page, state) {
     (count) => count > 0,
     { timeoutMs: 5000, description: 'event-detail cascade default-focus after load' },
   );
-  // Post rf2-xy4yb: the Causality Graph panel was dropped (planned
-  // future popover via `c` key — not yet wired). The 20-event
-  // load-recheck still asserts trace + event-tab cascade growth,
-  // which exercises the spine + projection pipeline end-to-end.
+  // Post rf2-xy4yb + rf2-y0z5b: the Causality Graph panel was
+  // dropped entirely. The 20-event load-recheck still asserts trace
+  // + event-tab cascade growth, which exercises the spine +
+  // projection pipeline end-to-end.
   state.loadStats = {
     eventCountBefore: before.total,
     eventCountAfter: after.total,
@@ -1787,15 +1786,14 @@ const SCENARIOS = [
     name: 'feature matrix shell and panel handoff',
     url: '/counter/',
     panels: PANEL_HANDOFFS.map(([id]) => id),
-    // Post rf2-xy4yb: coverage narrowed to the 6 surviving L3 tabs.
-    // Removed surfaces (Time Travel, Causality Graph, Subscriptions,
-    // Routes, Schemas, Hydration, Performance, Flows, Effects, MCP
-    // Server) lost their UI handoff with the 4-layer chrome refactor
-    // and are covered (where still functionally present) by their
-    // dedicated substrate scenarios.
+    // Post rf2-xy4yb + rf2-y0z5b: coverage narrowed to the 6
+    // surviving L3 tabs. Removed surfaces (Time Travel, Causality
+    // Graph, Subscriptions, Routes, Schemas, Hydration, Performance,
+    // Flows, Effects, MCP Server) lost their UI handoff with the
+    // 4-layer chrome refactor and are covered (where still
+    // functionally present) by their dedicated substrate scenarios.
     coveredRows: [
       'Event Detail',
-      'Causality Strip and Event Log',
       'App-DB Diff',
       'Trace',
       'Machines',
@@ -1845,12 +1843,11 @@ const SCENARIOS = [
   {
     name: 'multi-frame isolation substrate',
     url: '/testbeds/multi-frame/',
-    // Post rf2-xy4yb: Causality Graph and Time Travel panels were
-    // dropped. Multi-frame isolation is now exercised via the Trace
-    // and Event tabs (cascade per frame); the Causality popover
-    // (planned via `c` key) lands in a follow-on bead.
+    // Post rf2-xy4yb + rf2-y0z5b: Causality Graph and Time Travel
+    // panels were dropped. Multi-frame isolation is now exercised
+    // via the Trace and Event tabs (cascade per frame).
     panels: ['trace', 'event'],
-    coveredRows: ['Causality Strip and Event Log', 'Trace', 'Event Detail'],
+    coveredRows: ['Trace', 'Event Detail'],
     run: runMultiFrame,
   },
   {
@@ -1903,14 +1900,13 @@ const SCENARIOS = [
   {
     name: '20-event feature/load re-check',
     url: '/counter/',
-    // Post rf2-xy4yb: causality / time-travel / performance panels
-    // dropped. Load re-check exercises the surviving Trace + Event
-    // tabs under 20-dispatch load.
+    // Post rf2-xy4yb + rf2-y0z5b: causality / time-travel /
+    // performance panels dropped. Load re-check exercises the
+    // surviving Trace + Event tabs under 20-dispatch load.
     panels: ['trace', 'event'],
     load: true,
     coveredRows: [
       'Event Detail',
-      'Causality Strip and Event Log',
       'Trace',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],

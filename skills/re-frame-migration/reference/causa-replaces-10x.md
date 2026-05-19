@@ -42,7 +42,7 @@ Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-1
 
 While re-frame2 is in alpha, use the `:local/root` route from a clone of the `day8/re-frame2` repo. Once Causa publishes to Clojars, the coord will be `day8/re-frame2-causa {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`). The skill prints the `:local/root` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
 
-`day8/re-frame2-causa` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Causa's epoch-aware panels (the time-travel scrubber, the causality graph) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-cb!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Causa.
+`day8/re-frame2-causa` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Causa's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-cb!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Causa.
 
 Causa is **dev-only by construction** — production builds elide every byte of it through the framework's `re-frame.interop/debug-enabled?` gate (`goog.DEBUG=false`). A CI gate at `implementation/scripts/check-bundle-isolation.cjs` greps production bundles for Causa-internal sentinels; any hit is a release blocker. See [`tools/causa/README.md` §Bundle isolation](../../../tools/causa/README.md#bundle-isolation).
 
@@ -201,9 +201,9 @@ the AI co-pilot rail no longer ships; AI integration lives in
 | 10x feature | Causa equivalent | Notes |
 |---|---|---|
 | Epoch panel (per-event detail) | **Event-detail panel** | Lands on every open. Hero panel: event vector, app-db diff, fx fired, subs recomputed, renders, duration. Same mental model, denser layout. |
-| Event-history list | **Causality graph** | Vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`. The deeper-walk view when a cascade spans >2 hops or crosses frames. v1's flat list becomes a graph because v2 cascades genuinely branch. |
+| Event-history list | **L2 event list (the spine timeline)** | Single-line rows decorated by gutter glyph + badges; cascade lineage tags (`:dispatch-id` / `:parent-dispatch-id`) are exposed via Trace + Event tabs rather than a dedicated graph. |
 | App-DB inspector + diff | **Slice-centric app-db panel** | Shows the slices that changed plus user-pinned slices. Read-only; mutations go through normal dispatch. Full-tree view is an escape hatch, not the default. |
-| Subs panel | Absorbed into the event-detail and causality panels | Sub recomputation is a property of an event, not its own panel. The static sub-graph is exposed via the framework's `(rf/sub-topology)` (O-12), not a Causa surface. |
+| Subs panel | Absorbed into the event-detail + Views panels | Sub recomputation is a property of an event, not its own panel. The static sub-graph is exposed via the framework's `(rf/sub-topology)` (O-12), not a Causa surface. |
 | Trace panel | **Trace-stream panel** | One row per trace event from the Spec 009 trace bus. Filterable by category (`:rf.error/*`, `:rf.warning/*`, `:rf.machine/*`, etc.). |
 | Time-travel (10x's "back / forward") | **Time-travel scrubber** | Bottom rail. Passive scrubbing rebases the view of history; explicit rewind calls `restore-epoch` with the six failure modes surfaced. |
 | Settings / persistence | Not present | Causa is ephemeral by design — no localStorage, no per-user preferences. Configuration lives in `(causa-config/configure! ...)` at preload time. |

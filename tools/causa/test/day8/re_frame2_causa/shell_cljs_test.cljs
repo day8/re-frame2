@@ -1061,8 +1061,7 @@
             option; no `:multiple` attribute on the <select>; the
             options list carries exactly one entry per distinct frame
             in the cascade vector (no aggregate / merged synthetic
-            option). Cross-frame causality is reached via the
-            Causality popover (`c` key), not via a merged frame."
+            option)."
     (causa-setup!)
     ;; Seed two distinct frames so the picker collapses to the <select>
     ;; branch (single-frame counts render the flat label).

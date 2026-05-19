@@ -10,7 +10,7 @@ for chrome and sidebar grammar. Sidebar order is set in `shell.cljs`
 
 Three groups, in `sidebar-items` order:
 
-- **Always-active** — Event detail, Time travel, App-db, Causality,
+- **Always-active** — Event detail, Time travel, App-db,
   Subscriptions, Effects, Trace.
 - **Conditional with activity** — Machines, Flows, Routes,
   Performance, Issues, Schemas.
@@ -63,23 +63,6 @@ the [`re-frame2-pair`](../../re-frame2-pair/SKILL.md) skill.
 last moved", "what's in the `:rf/route` slot right now?"
 
 Spec: [`004-App-DB-Diff.md`](../../../tools/causa/spec/004-App-DB-Diff.md).
-
-### Causality
-
-The peer to Event detail — a vertical directed graph keyed by
-`:dispatch-id` / `:parent-dispatch-id`. Parent→child dispatches
-connect via arrows; non-dispatch traces (fx, sub, render, machine
-transitions, errors) attach as flags inside the parent node rather
-than spawning outbound edges. Clicking a node fires
-`:rf.causa/select-dispatch-id` — the same event Event detail consumes,
-so the two share selection. When Time Travel has a selected epoch,
-the graph filters to that cascade family.
-
-**Open when:** the cascade is > 2 hops, spans frames, or you're
-triaging a session with 30+ events. No other JS devtool renders this
-view — Causa's unique differentiator.
-
-Spec: [`001-Causality-Graph.md`](../../../tools/causa/spec/001-Causality-Graph.md).
 
 ### Subscriptions
 

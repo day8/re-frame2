@@ -76,16 +76,11 @@ once.
 A graph is striking. A flat panel that answers in one click is
 useful. When the two compete, the flat panel wins.
 
-This is why the event-detail panel is the hero, not the causality
-graph (lock #7). The graph is a peer — first-class, sidebar entry,
-keyboard mnemonic `c` — but the front door is the panel that answers
-in zero clicks.
-
-The bet: programmers land in the detail panel 90% of the time. The
-graph is the second-click answer when the first click wasn't enough.
-If usage data later shows the graph carries more weight than
-predicted, Causa self-instruments (panel-view durations) and the
-decision is reversible. Low-cost reversal.
+This is why the event-detail panel is the hero (lock #7). The front
+door is the panel that answers in zero clicks. The causality graph
+that originally accompanied this principle has since been dropped
+entirely (rf2-y0z5b) — cascade lineage is inspected via the Event
+tab + Trace tab tags.
 
 ## Ephemeral by default
 
@@ -157,9 +152,7 @@ observation.)
 ## Frame-first
 
 Multi-frame is a first-class concept. Every panel has a frame
-picker; per-frame buffers are independent; cross-frame causality is
-surfaced explicitly (swimlanes in the graph; coloured rings on the
-strip pills).
+picker; per-frame buffers are independent.
 
 v1 of 10x assumed one frame and broke gracefully on multi-frame
 apps. Causa is built frame-first; single-frame apps degrade to

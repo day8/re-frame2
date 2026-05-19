@@ -34,8 +34,7 @@ catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/0
 
 | Surface | What it does |
 |---|---|
-| **Event-detail panel** (hero) | Lands on every open. The event vector, the diff, the inline mini-graph, fx fired, subs recomputed, renders, duration. Answers the five canonical questions on first paint. |
-| **Causality graph** (peer) | Vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`. The deeper-walk view when the cascade is > 2 hops or spans frames. |
+| **Event-detail panel** (hero) | Lands on every open. The event vector, the diff, the inline mini-graph, fx fired, subs recomputed, renders, duration. Answers the canonical questions on first paint. |
 | **Time-travel scrubber** | Bottom rail. Passive scrubbing rebases the view of history; explicit rewind calls `restore-epoch` with the six failure modes surfaced. |
 | **Slice-centric app-db panel** | The slices that changed, the slices the user pinned. Read-only. |
 | **Machine inspector** | Stately-quality state-chart per machine. Embeds `tools/machines-viz/`. |
@@ -186,7 +185,6 @@ that the tool could be one-shotted from it.
 | File | Covers |
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Causa exists; the 16-panel inventory; the bar it sets. |
-| [`spec/001-Causality-Graph.md`](./spec/001-Causality-Graph.md) | The (peer) causality graph; data model; rendering rules. |
 | [`spec/002-Time-Travel.md`](./spec/002-Time-Travel.md) | Epoch scrubber; replay semantics; read-only posture. |
 | [`spec/003-Machine-Inspector.md`](./spec/003-Machine-Inspector.md) | Embeds `tools/machines-viz/`; transition history; source jumps. |
 | [`spec/004-App-DB-Diff.md`](./spec/004-App-DB-Diff.md) | Slice-centric diff; pinned slices; full-tree escape hatch. |
@@ -213,7 +211,6 @@ tools/causa/
 │   ├── preload.cljs                           ; registers listeners, mounts DOM
 │   ├── core.cljs                              ; user-facing facade (init!, open!, target-frame, ...)
 │   ├── panels/                                ; one ns per panel
-│   ├── causality/                             ; graph layout + rendering
 │   └── theme/                                 ; design tokens, theming
 └── test/...
 ```

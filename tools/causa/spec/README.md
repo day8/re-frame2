@@ -26,11 +26,6 @@ main read**.
 
 ### Per-tab content specs
 
-- **[001-Causality-Graph.md](001-Causality-Graph.md)** — The Causality
-  popover (`c`-key). Peer affordance — first-class, but not the front
-  door. v1: single-axis vertical; future: hybrid LR-ancestors +
-  TB-descendants per-region layout; resizable + per-session persistence;
-  machine-edge types (spawn / final / `:invoke-all` join).
 - **[002-Time-Travel.md](002-Time-Travel.md)** — Time-travel scrubber:
   passive scrubbing rebases panels; explicit `r` rewinds the runtime; six
   named restore failures surface as a modal. Pins survive ring-buffer

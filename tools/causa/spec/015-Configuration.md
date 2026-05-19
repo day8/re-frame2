@@ -55,8 +55,8 @@ dev REPL).
 ### `:editor`
 
 The 'Open in editor' click-to-source target. Drives every panel that
-surfaces a source-coord (event-detail hero, causality nodes, machine
-inspector chips, hydration debugger rows, trace panel rows — per
+surfaces a source-coord (event-detail hero, machine inspector chips,
+hydration debugger rows, trace panel rows — per
 [`API.md`](./API.md) §Open in editor).
 
 | Value | URI scheme | Notes |

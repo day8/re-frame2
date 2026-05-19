@@ -11,7 +11,6 @@ This doc defines the bus's substrate normatively: what it collects,
 how it filters, what consumers are guaranteed to see, and how the
 privacy gate from [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
 folds into the collector path. The bus is the foundation under
-[`001-Causality-Graph.md`](./001-Causality-Graph.md),
 [`004-App-DB-Diff.md`](./004-App-DB-Diff.md),
 [`005-Schema-Timeline.md`](./005-Schema-Timeline.md),
 [`012-Views.md`](./012-Views.md), and every other tab content
@@ -27,9 +26,9 @@ Causa MUST NOT reuse that buffer as its primary store. Two reasons:
 1. **Depth independence.** The framework's depth is tuned for the
    framework's consumers and Spec 009 explicitly caps it conservatively
    (events accumulate during dispatch storms). Causa's panels —
-   especially the causality graph and the event log — want a deeper
-   history once the panel is open, without forcing the framework
-   default deeper for every other consumer.
+   especially the event log — want a deeper history once the panel is
+   open, without forcing the framework default deeper for every other
+   consumer.
 2. **Pre-shaping for panel reads.** Causa applies its own filter
    projections on push (per
    [`Principles.md`](./Principles.md) §Observation only — no new
@@ -62,8 +61,8 @@ what panels read.
 
 The buffer's default capacity is **1000 events** — five times the
 framework default. The cap balances Causa's `007-UX-IA.md` §Performance
-budget commitment ("the causality graph caps at the last 200
-dispatches") with headroom for the non-dispatch trace events
+budget commitment (cascades cap at the last 200 dispatches) with
+headroom for the non-dispatch trace events
 (`:fx`, `:render`, `:sub-run`, error / warning, machine transitions)
 that share the same buffer.
 

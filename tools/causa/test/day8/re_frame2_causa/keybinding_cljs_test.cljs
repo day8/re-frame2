@@ -429,23 +429,11 @@
   (is (= :rf.causa/focus-cascade-next
          (spine-key-id (mk-event {:code "KeyK"})))))
 
-(deftest spine-key-id-c-is-causality-popover-toggle
-  ;; rf2-dqnuu — `c` from any tab toggles the Causality popover. Per
-  ;; spec/018 §10 §11 the popover replaces the dropped Causality tab.
-  (is (= :rf.causa/causality-popover-toggle
-         (spine-key-id (mk-event {:key "c"}))))
-  (is (= :rf.causa/causality-popover-toggle
-         (spine-key-id (mk-event {:code "KeyC"})))))
-
-(deftest spine-key-id-c-rejects-modifiers
-  ;; Shift+C must NOT match — Ctrl+Shift+C is the Causa toggle; bare
-  ;; Shift+C would type 'C' into a non-editable region, and we don't
-  ;; want it triggering the popover either.
-  (is (nil? (spine-key-id (mk-event {:key "C" :shift? true}))))
-  ;; Ctrl+c is the universal copy shortcut.
-  (is (nil? (spine-key-id (mk-event {:key "c" :ctrl? true}))))
-  ;; Cmd+c (macOS copy)
-  (is (nil? (spine-key-id (mk-event {:key "c" :meta? true})))))
+(deftest spine-key-id-c-is-unbound
+  ;; rf2-y0z5b — Causality surface dropped entirely; `c` is now free
+  ;; (no spine handler attached). Future bead may rewire if needed.
+  (is (nil? (spine-key-id (mk-event {:key "c"}))))
+  (is (nil? (spine-key-id (mk-event {:code "KeyC"})))))
 
 (deftest spine-key-id-rejects-modifiers
   (testing "Ctrl+L must not be hijacked (focus address bar)"

@@ -113,7 +113,7 @@
 
   Excluded by design: every success-path / lifecycle op-type. The
   ribbon is the issues-only feed; success traces have their own
-  panels (Event detail, Subscriptions, Causality graph)."
+  panels (Event detail, Subscriptions)."
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
 

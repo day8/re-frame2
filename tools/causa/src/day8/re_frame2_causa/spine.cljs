@@ -39,9 +39,9 @@
   The legacy `:rf.causa/select-dispatch-id` and `:rf.causa/select-
   epoch` events also write through the spine (in their existing
   install! fns under event_detail.cljs / time_travel_events.cljs) so
-  the other direction shims too — a click in the existing Causality
-  Graph or Time Travel panel updates the spine, and a click in a
-  future spine-aware list updates the legacy slots."
+  the other direction shims too — a click in the existing Time Travel
+  panel updates the spine, and a click in a future spine-aware list
+  updates the legacy slots."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.focus-helpers :as fh]
@@ -302,9 +302,8 @@
   stamps `:epoch-id` (the cascade's settling epoch primary key per
   spec/018 §6 Spine events), and shims the legacy
   `:selected-dispatch-id` / `:selected-dispatch` / `:selected-epoch-
-  id` slots so the existing event-detail / causality / machine-
-  inspector / app-db / time-travel panels keep rendering without per-
-  panel change.
+  id` slots so the existing event-detail / machine-inspector / app-db
+  / time-travel panels keep rendering without per-panel change.
 
   ## Mode selection (rf2-xzzih)
 

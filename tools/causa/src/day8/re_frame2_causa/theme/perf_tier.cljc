@@ -21,9 +21,9 @@
     - Every other panel that will eventually show per-node durations
       (`subscriptions` sub-run timings, `effects` fx-handler timings,
       `machine_inspector` guard-eval timings, `time_travel` cascade
-      span, `causality_graph` cascade colour) is blocked on the trace
-      stream carrying per-event `:duration-ms`. Spec 009 L38: 'no
-      separate start/end pair, no :duration, no duration-ms tag'.
+      span) is blocked on the trace stream carrying per-event
+      `:duration-ms`. Spec 009 L38: 'no separate start/end pair,
+      no :duration, no duration-ms tag'.
 
   Hoisting the helpers to `theme/perf_tier.cljc` makes them
   discoverable from anywhere in `panels/` without a cross-panel
@@ -41,7 +41,6 @@
     subscriptions        per-sub :duration-ms (run timings)       blocked on trace-stream
     effects              per-fx :duration-ms (handler timings)    blocked on trace-stream
     machine_inspector    guard-eval :duration-ms                  blocked on trace-stream
-    causality_graph      cascade tier (already cascade-level)     follow-on bead
     trace                per-event :duration-ms                   blocked on trace-stream
     time_travel          cascade total wall-clock                 follow-on bead
 

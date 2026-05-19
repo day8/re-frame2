@@ -16,7 +16,7 @@ event**:
 | **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. |
 | **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. |
 
-Plus popovers (`c` causality · `r` nav-token timeline · `f` wire-trace
+Plus popovers (`r` nav-token timeline · `f` wire-trace
 + `h` hydration bisector, future). Every popover is invokable from any
 tab. Every popover anchors on `:rf.causa/focus`.
 
@@ -277,26 +277,6 @@ Full wireframe + per-field configure! mapping in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §9. configure! API
 surface in [`015-Configuration.md`](./015-Configuration.md).
 
-## Causality popover
-
-**Trigger:** `c` key from ANY tab. Mouse: `🕸` icon in Event tab next
-to source-coord chip → click to open.
-
-**Position: centred floating overlay** at 640×480 default. NOT
-row-anchored. Backdrop dim (15% black).
-
-**Renders:** the focused event's causal graph via Causa's ELK+SVG
-primitive (same chunk used for state-chart layout in
-[`003-Machine-Inspector.md`](./003-Machine-Inspector.md)). Mixed-layout
-single graph: ancestor chain LR (compact breadcrumb), descendants
-tree TB (natural tree).
-
-**Click any node** → spine rebinds + popover closes. **Dismiss:**
-`Esc`, click outside, or `c` again.
-
-Full wireframe + node decoration + depth limits in
-[`018-Event-Spine.md`](./018-Event-Spine.md) §10.
-
 ## Frame-observation isolation invariants
 
 Causa observes ANOTHER frame, NEVER itself. Four invariants
@@ -499,7 +479,6 @@ active panel). `Esc` always returns focus to the event list.
 | `Ctrl+K` / `Cmd-K` | Command palette |
 | `Ctrl+F` | Find within active tab |
 | `o` | Popout (`window.open` whole shell) |
-| `c` | Causality popover (from any tab) |
 
 ### Ribbon nav cluster
 
@@ -557,8 +536,8 @@ active panel). `Esc` always returns focus to the event list.
 - `f` (Effects) — Effects tab folded into Event; `f` retired.
 - `s` (Subscriptions) — Subs panel folded into Views; `s` repurposed
   to open Settings popup.
-- `c` (Causality tab) — Causality is now a popover (not a tab); `c`
-  repurposed to open the popover from anywhere.
+- `c` (Causality) — Causality surface dropped entirely (rf2-y0z5b);
+  `c` unused.
 - `p` (Performance) — Performance panel dropped; `p` unused.
 - `w` (Flows) — Flows folded into Views; `w` unused.
 - `S` (Schemas) — schema violations live in Issues; `S` unused.
@@ -653,8 +632,8 @@ Per-surface enumeration in [`018-Event-Spine.md`](./018-Event-Spine.md)
 ## Editor protocol matrix
 
 The `o` shortcut (and every `open` chip Causa renders next to a
-source-coord — event-detail rows, causality popover nodes, machine
-inspector chips, Views per-component rows, Trace rows) sets
+source-coord — event-detail rows, machine inspector chips,
+Views per-component rows, Trace rows) sets
 `window.location.href` to a URI-scheme handler the OS dispatches to
 the user's editor.
 
@@ -749,11 +728,6 @@ Three modal surfaces float over the chrome:
 2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
    shortcut.
 3. **Settings** (`,` or `s` or `⚙`) — 560×640px modal with 6 sections.
-
-Plus one ephemeral overlay:
-
-4. **Causality popover** (`c`) — 640×480 centred overlay; closes on
-   `Esc`/outside-click/`c`.
 
 ## Discoverability
 

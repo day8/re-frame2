@@ -43,8 +43,8 @@ re-check. It now exercises the follow-up surfaces directly:
 - Multi-frame fan-out: the multi-frame testbed uses a testbed-only bridge fx to
   dispatch into explicit frames. The gate asserts direct A/B isolation, fan-out
   into `:counter/b` and `:log`, per-frame epoch history, trace selection,
-  event-detail projection/orphan-state behavior, causality graph visibility,
-  and the time-travel panel's current `:counter/b` target-frame projection.
+  event-detail projection/orphan-state behavior, and the time-travel panel's
+  current `:counter/b` target-frame projection.
 - Large payload load: the large dispatcher scenario drives 20 meaningful host
   dispatches, asserting large-elision markers and app-db/trace panel stability
   under repeated size events.

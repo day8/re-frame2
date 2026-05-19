@@ -126,11 +126,9 @@ mechanism.
 | Panel | v1.0 embeddable? |
 |---|---|
 | **Event detail** | Yes (the primary embed target for Story). |
-| **Causality strip** | Yes. |
 | **App-db inspector** | Yes (compact-mode renders the slice-centric view only; no full-tree escape). |
 | **Issues ribbon** | Yes. |
 | **Performance ribbon** | Yes. |
-| Causality graph | v1.1 — graph rendering is expensive for many small embeds. |
 | Machine inspector | v1.1 — would re-import `tools/machines-viz/` per embed. |
 | Subscription graph | v1.1. |
 | Schema timeline | v1.1. |

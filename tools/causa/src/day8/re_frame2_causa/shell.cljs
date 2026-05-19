@@ -113,7 +113,6 @@
             [day8.re-frame2-causa.panels.views :as views]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
-            [day8.re-frame2-causa.popover.causality :as causality-popover]
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
@@ -498,11 +497,10 @@
 (defn- ribbon-frame-picker
   "Frame dropdown — STRICTLY single-select per spec/018 §1 Non-goals
   + §3 Frame dropdown + Round-3 rf2-i74n7. No 'All frames (merged)'
-  option; no `:multiple` attribute on the `<select>`; cross-frame
-  causality is reached via the Causality popover (`c` key), not via
-  a merged-frame view. Excludes `:rf/causa` by default per §8 I1.
-  When the only available frame is the current selection, the
-  dropdown collapses to a flat label (no chevron — no click target).
+  option; no `:multiple` attribute on the `<select>`. Excludes
+  `:rf/causa` by default per §8 I1. When the only available frame
+  is the current selection, the dropdown collapses to a flat label
+  (no chevron — no click target).
 
   Writes via `:rf.causa/set-frame <frame-id>` — single frame id, no
   aggregate / merged value path."
@@ -1074,7 +1072,7 @@
   outside a drain / REPL evals). Without the filter the L2 list
   rendered a leading `<no event>` placeholder row that leaked the
   projection's internal bucket into the user-facing event timeline.
-  Other panels (Causality Graph, Performance, etc.) keep reading
+  Other panels (Performance, etc.) keep reading
   `:rf.causa/cascades` directly so the bucket remains available where
   it is meaningful.
 
@@ -1408,13 +1406,6 @@
     ;; through the shell's `:rf/causa` frame-provider, and the modal
     ;; short-circuits to nil when `:rf.causa/settings-open?` is false.
     [settings-popup/Modal]
-    ;; Causality popover (rf2-dqnuu) — c-key triggered overlay per
-    ;; spec/018-Event-Spine.md §10. Replaces the dropped Causality
-    ;; tab; the event-list cold-start hint already advertises it
-    ;; ("Press [c] for the causality graph"). Same mount semantics as
-    ;; the palette Modal: closed-state is one subscribe + when-gate,
-    ;; so the dormant cost is negligible.
-    [causality-popover/Popover]
     ;; Cancellation-cascade popover (rf2-59e7k) — single waterfall view
     ;; of the rf2-wvkn cancellation contract. Opened from the Trace tab
     ;; (right-click a destroy-event row → 'Show cancellation cascade')

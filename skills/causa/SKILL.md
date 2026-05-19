@@ -115,7 +115,6 @@ state, activity badges, deeper "open it when…" guidance — see
 | **Event detail** *(hero)* | The six-domino cascade for the selected dispatch: event vector, diff, fx fired, subs recomputed, renders, duration. | Default landing view. "What happened in this dispatch?" |
 | **Time travel** | Bottom-rail scrubber over per-frame `epoch-history`; passive scrub rebases view, explicit rewind calls `restore-epoch`. | "Walk me through the last N dispatches." |
 | **App-db** | Slice-centric diff: changed slices for the selected epoch + pinned live slices + reserved-key inspector. | "What in app-db just changed?" / "Show me when `[:cart :items]` last moved." |
-| **Causality** | Vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`. Non-dispatch traces attach as flags inside the parent node. | "This cascade is more than two hops" / "I'm triaging a session with 30+ events." |
 | **Subscriptions** | Registered subs + their invalidation chains + cache status + last-recomputed values. | "Why didn't my view update?" / "Trace the recompute chain for `:cart/total`." |
 | **Effects** *(fx)* | Registered fxs + per-fx invocations + outcome status + stub indicator. | "Which fx fired in this epoch?" / "Did `:http/get` get skipped?" |
 | **Trace** | Raw event ribbon — every trace event in the buffer as a timestamped row, filterable along the 13-axis Spec 009 vocabulary. | "Grep the full trace stream." / "Show me every `:rf.fx/*` event in the last minute." |

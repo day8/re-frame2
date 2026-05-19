@@ -321,7 +321,6 @@ async function navCausa(page, panelId) {
     'event-detail': 'rf-causa-event-detail',
     'time-travel': 'rf-causa-time-travel',
     'app-db':      'rf-causa-app-db-diff',
-    'causality':   'rf-causa-causality-graph',
     'trace':       'rf-causa-trace',
     'machines':    'rf-causa-machine-inspector',
     'schemas':     'rf-causa-schema-violation-timeline',
@@ -423,18 +422,6 @@ SCENES.push({
     await page.getByRole('button', { name: '+' }).click();
     await openCausa(page);
     await navCausa(page, 'app-db');
-  },
-});
-
-SCENES.push({
-  id: 'causa-causality',
-  out: path.join(OUT_CAUSA, '02-causality.png'),
-  url: '/counter/',
-  before: async (page) => {
-    await page.locator('span').first().waitFor({ state: 'visible' });
-    await page.getByRole('button', { name: '+' }).click();
-    await openCausa(page);
-    await navCausa(page, 'causality');
   },
 });
 

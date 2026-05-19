@@ -10,12 +10,11 @@
   interface so the SVG renderer in `chart/svg.cljc` consumes either
   engine's output unchanged.
 
-  ## Lazy load — mirror the Causality popover pattern
+  ## Lazy load
 
   ELK.js is a ~250 kB browser bundle (gzipped). Loading it at preload
   time would inflate every Causa dev session whether the user opens
-  the Machine Inspector or not. The loader mirrors the pattern in
-  `popover/causality_graph.cljs`:
+  the Machine Inspector or not. The loader:
 
     - First call from the panel triggers a `js/import` of
       `elkjs/lib/elk.bundled.js`.
@@ -27,17 +26,10 @@
     - Tests can pre-stub `js/window.ELK` to short-circuit the import
       (sync wrap path) without bundling ELK into the test rig.
 
-  Both this ns and `popover/causality_graph.cljs` hold their own
-  loader atom so the two consumers can fail independently — but in
-  practice once one succeeds the other also will (both run in the
-  same JS host with the same module resolver). A future bead can
-  unify the loader into a shared `chart/elk_loader.cljs` ns.
-
   ## Async layout, sync consumer
 
   ELK's `layout` returns a Promise — pixel positions are not
-  available synchronously. The Causa pattern (already used by the
-  Causality popover) is:
+  available synchronously. The Causa pattern is:
 
     1. Render the fallback layout immediately (no waiting).
     2. Kick the ELK layout in the background; cache the result keyed
@@ -112,7 +104,7 @@
   "Idempotent lazy load. Returns immediately. When loading completes
   `done-fn` fires with the ELK instance (or nil on failure).
 
-  Three load paths (identical to `popover/causality_graph/ensure-elk!`):
+  Three load paths:
 
     1. Pre-stubbed `js/window.ELK` — sync wrap, no import.
     2. `js/import` resolves `\"elkjs/lib/elk.bundled.js\"` — production

@@ -49,10 +49,6 @@ event**:
 | **Machines** (`m`) | The transitions this event triggered + the spawn/destroy cascades it produced. |
 | **Issues** (`i`) | The violations this event introduced — errors · warnings · schema · hydration · advisories. |
 
-Plus the **Causality popover** (`c`) — invokable from any tab, showing the
-graph of events that caused this event (ancestors) and the events this event
-spawned (descendants).
-
 This is the **single spine**: one selection, every surface rebinds. No
 two-axis selection (`:selected-dispatch-id` × `:selected-epoch-id` from the
 pre-spec drafts is gone). No panel reads `(peek history)`. No drift between
@@ -78,7 +74,6 @@ renderings** for the cross-cutting work that lands in it:
   **cancellation cascade visualisers**, **`:invoke-all` join inspectors**.
 - The Issues tab grows **nav-token timelines** (swimlanes), **hydration
   mismatch bisectors**, **server error projection traces**.
-- The Causality popover grows **machine-edge types** (spawn, final, join).
 
 The one exception — **Machines and Routing are themselves cohesive sub-
 domains** with a registered topology (state-chart / route tree) and per-event
@@ -113,13 +108,12 @@ A programmer hits `Ctrl+Shift+C`, Causa lands on the freshest event
 (`:rf.causa/focus` already points), and within five seconds they answer one
 of:
 
-1. **Why did this event fire?** — `c` popover; ancestor walk.
-2. **What did this event change?** — App-db tab; diff `:db-before → :db-after`.
-3. **Why is this subscription returning the wrong value?** — Views tab; per-sub
+1. **What did this event change?** — App-db tab; diff `:db-before → :db-after`.
+2. **Why is this subscription returning the wrong value?** — Views tab; per-sub
    invalidation chain + cache state.
-4. **Why is this view re-rendering?** — Views tab; sub-driven attribution
+3. **Why is this view re-rendering?** — Views tab; sub-driven attribution
    chain.
-5. **What's currently broken?** — Issues tab; unified feed (errors · warnings ·
+4. **What's currently broken?** — Issues tab; unified feed (errors · warnings ·
    schema violations · hydration mismatches · advisories).
 
 If a surface doesn't help answer "why?" or "what happened?" or "what's
@@ -136,9 +130,9 @@ contract.
 
 Every open lands on the latest cascade. The Event tab (default) shows the
 event vector, source, handler return, db writes, fx, and the fx-handlers
-that ran — the five canonical questions answer themselves on first paint;
+that ran — the canonical questions answer themselves on first paint;
 deeper investigation is one tab away (`a` App-db · `v` Views · `t` Trace ·
-`m` Machines · `i` Issues) or one keypress away (`c` Causality popover).
+`m` Machines · `i` Issues).
 
 ## What it isn't
 
@@ -175,14 +169,14 @@ Each row is "new in re-frame2 → new tooling story Causa tells."
 
 | re-frame2 capability | Causa surface |
 |---|---|
-| **Multi-frame** (Spec 002) | Per-frame inspection; single-select frame picker in ribbon; cross-frame causality via Causality popover. |
+| **Multi-frame** (Spec 002) | Per-frame inspection; single-select frame picker in ribbon. |
 | **Machines** (Spec 005) | Stately-quality state-chart per machine; transition log; **`:after`-timer countdown rings** with scrubber-aware retro-replay; **`:invoke-all` parallel-child viz + join inspector**; UC1 interactive simulation; UC2 multi-instance Mode A/B/C; **cancellation-cascade visualiser**; **per-instance "why am I stuck" trace**; XState-parity supervision tree. ELK+SVG primitive ships Causa-internal. |
 | **Flows** (Spec 013) | Surfaced in Views tab when a flow's downstream sub recomputed; **cascade-halt alarm** in Issues tab — names the downstream flows that did NOT run when an upstream flow's `:output` threw. |
 | **Source-coord stamping** (Spec 001 + 006) | Click-to-source on every node, view, machine guard, transition, fx-handler, schema declaration. |
 | **Trace bus** (Spec 009) | The substrate of everything. Causa does not invent its own trace shape. **Trace fattening** (carrying context-at-position on each event) enables the per-instance scrubber's Phase-5 replay-from-arbitrary-position affordance. |
 | **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel via the ribbon's `[◀ ▶ ⏭]` nav + the event list (L2). |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
-| **`register-epoch-cb!`** | The per-cascade listener routes the Event tab + Issues tab + Causality popover. |
+| **`register-epoch-cb!`** | The per-cascade listener routes the Event tab + Issues tab. |
 | **Schemas (Malli)** (Spec 010) | Schema-violation rows in the Issues tab; **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
 | **SSR + hydration** (Spec 011) | **Hydration mismatch bisector** — canonical-EDN dfs to the first divergent node; server vs client side-by-side per `get-in` path; sub-attribution (which sub returned `nil` server / `:en-US` client + why). **Streaming SSR boundary timeline.** **Per-request response accumulator inspector.** **Head model inspector.** **Server error projection trace** (the security boundary visualised). |
 | **Routing** (Spec 012) | Dedicated **Routing tab** carrying the full route tree as the orientation surface; per-focused-event lens with `◆ HERE` / `◆ FROM` / `◆ TO` glyphs (rf2-nrbs9). **Nav-token timeline** (swimlanes) makes stale-clobber races literally visible; **`:on-match` chain explicit in Event tab**; **match-rank explainer**; **pending-navigation card**; **route-chain visualiser**. |
@@ -218,7 +212,6 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 
 | Popover | Key | Content |
 |---|---|---|
-| **Causality** | `c` | Graph of events that led to this event (ancestors, LR layout) + events this event spawned (descendants, TB layout). Full hybrid LR+TB per-region layout. Resizable; per-session persisted size. Depth-disclosure text + per-segment hover tooltips. |
 | **Nav-token timeline** | `r` | Horizontal swimlanes — each navigation is a bar; in-flight `:on-match` events ride above; stale-suppressed completions strike-through with carried-vs-current token visible. |
 | **Wire-trace** | `f` | The active fx's wire-boundary diff popped out — same content as the Event-tab inline panel but floats over any tab. |
 
@@ -229,9 +222,8 @@ contract.
 
 A programmer hits `Ctrl+Shift+C`, sees the cascade their last click triggered
 in the Event tab — `:rf.causa/focus` already points at the freshest event —
-asks "why?", and either reads the answer in the panel (event vector, source
-coord, db writes, fx outcomes) or presses `c` to see the causality graph.
-Five seconds.
+asks "why?", and reads the answer in the panel (event vector, source
+coord, db writes, fx outcomes). Five seconds.
 
 If a tab doesn't help answer "why?" or "what happened?" or "what's wrong?",
 it doesn't ship. Restraint is what keeps the tool habit-forming instead of
@@ -243,7 +235,7 @@ impressive.
   face but unobtrusive; wants click-to-source from anywhere; wants to scrub.
 - **The programmer reading an unfamiliar codebase.** "Why does clicking
   Save eventually re-render this card three modules over?" — wants the
-  causality popover (`c`) and the Views tab.
+  Views tab + the Event tab's source-coord chips on the cascade.
 - **The on-call programmer triaging a production-shaped repro.** Loads the
   app, scrubs via `[◀ ▶ ⏭]` + L2, finds the divergence.
 - **The programmer debugging a streaming SSR / hydration mismatch.** Opens

@@ -26,7 +26,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 - **No `:sensitive? true` event-handler annotation.** Reversed in favour of unified path-marked classification per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md). Causa CONSUMES that contract; this spec defines how the sentinels render in Causa's surfaces (§12).
 - **No writes to host runtime.** Causa stays read-only forever (Lock #3 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)).
 - **No bottom rail.** The pass-2/round-1/round-2 "L0" scrubber rail is gone — the ribbon `[◀ ▶ ⏭]` cluster + the event list together ARE the scrubber.
-- **No multi-frame merged view.** The frame picker is single-select. Cross-frame causality is reached via the Causality popover (`c` key), not via a merged frame.
+- **No multi-frame merged view.** The frame picker is single-select.
 
 ---
 
@@ -321,7 +321,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ### Empty states
 
-- **No events yet (cold start):** "Click around your app — every dispatch will land here. Press `[c]` for the causality graph."
+- **No events yet (cold start):** "Click around your app — every dispatch will land here."
 - **Buffer empty after explicit clear:** "Buffer cleared. New events will appear here."
 - **All cascades match a filter:** "All N cascades match active filters — show all, or change filter set" with two buttons.
 - **No cascades in selected frame:** "No events in `:app/dialog` — pick another frame, or trigger one in your app."
@@ -347,8 +347,6 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 5 | **Machines** | `m` | UC1 (definition + sim) + UC2 (Mode A/B/C dynamic instances); supervision tree | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | Always-on **route tree** (orientation surface); per-focused-event lens with `◆ HERE` on the current matched route + `◆ FROM` / `◆ TO` arrow when the cascade caused navigation; params + query for the active route. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 7 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
-
-**Causality is a popover, not a tab** — invoked via `c` from any tab; see §10.
 
 **Effects is folded into Event** — the "fx handlers that ran" block under Event tab covers it.
 
@@ -719,7 +717,7 @@ The single-axis selection that every layer reads from.
 
 | Event | When dispatched | Effect on spine |
 |---|---|---|
-| `:rf.causa/focus-cascade <id>` | User click row · double-click row · click causality node · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
+| `:rf.causa/focus-cascade <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
 | `:rf.causa/focus-cascade-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.causa/filtered-cascades`; flips `:mode → :retro` |
 | `:rf.causa/focus-cascade-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.causa/filtered-cascades`; flips `:mode → :retro` if not already at head |
 | `:rf.causa/follow-head` | `⏭` button · `L` key · click mode pill when RETRO | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
@@ -772,7 +770,7 @@ The filtering happens at the data layer (`:rf.causa/filtered-cascades`), not at 
 
 | From | To | Trigger |
 |---|---|---|
-| LIVE | RETRO | Click any row that isn't head · `j` / `k` / `◀` / `▶` step · click causality popover node |
+| LIVE | RETRO | Click any row that isn't head · `j` / `k` / `◀` / `▶` step |
 | RETRO | LIVE | `L` key · `⏭` button · click `◐ RETRO` mode pill |
 | LIVE | LIVE (paused) | `Space` key · click `● LIVE` mode pill |
 | LIVE (paused) | LIVE | `Space` key · click `● LIVE (paused)` mode pill · `L` key (snap-LIVE implies resume) |
@@ -1103,89 +1101,9 @@ Every Settings popup field maps to a `(causa-config/configure! {…})` key. See 
 
 ---
 
-## §10 Causality popover
+## §10 Reserved
 
-**Trigger:** `c` key from ANY tab (works regardless of which tab is active). Mouse: `🕸` icon in Event tab next to the source-coord chip → click to open.
-
-**Position: centred floating overlay** at 640×480 default (resizable; remembered per-session via localStorage). NOT row-anchored — the focused-event row may be near a viewport edge; the graph needs space (ancestor chain + descendants tree both demand >200px each). Centred + sized = consistent surface, always legible. Backdrop dim (15% black) to indicate modal-ish nature without blocking visual context.
-
-**Renders:** the focused event's causal graph via Causa's ELK+SVG primitive (the same chunk used for state-chart layout in [`003-Machine-Inspector.md`](003-Machine-Inspector.md)). Mixed-layout single graph: ancestor chain at top, **left-to-right (LR)** breadcrumb-style; descendants tree below, **top-to-bottom (TB)** tree.
-
-### Wireframe
-
-```
-┌─ Causality · :order/retry (#347) ────────────────────────────────────  ✕  ┐
-│                                                                            │
-│  Ancestor chain (root cause → focused) — LR layout                        │
-│   ┌─────────┐    ┌──────────────┐    ┌───────────────┐    ┌─────────────┐ │
-│   │:app/init│ ─→ │:auth/check ok│ ─→ │:cart/restored│ ─→ │:order/submit│ │
-│   └─────────┘    └──────────────┘    └───────────────┘    └─────────────┘ │
-│                                                                            │
-│  ─────────────────────────────────────────────────────────────────────  ── │
-│                                                                            │
-│                            ┌───────────────────┐                          │
-│                            │ ◉ :order/retry    │ ← focused                │
-│                            │   #347 · src/cart/│                          │
-│                            │   events.cljs:267 │                          │
-│                            └────────┬──────────┘                          │
-│                                     │                                      │
-│                       ┌─────────────┼─────────────┐                       │
-│                       ▼             ▼             ▼                        │
-│             ┌─────────────┐ ┌──────────────┐ ┌──────────────┐            │
-│             │ :notify     │ │ :order/      │ │ :cart/       │            │
-│             │ #352 · …    │ │ retried-ok   │ │ recalc       │            │
-│             └─────────────┘ │ #355 · …     │ │ #353 · …     │            │
-│                              └──────────────┘ └──────────────┘            │
-│                                                                            │
-│  Descendants tree — TB layout                                              │
-│                                                                            │
-│  ─────────────────────────────────────────────────────────────────────  ── │
-│  Click any node → focus spine + close.  Esc / outside-click / c to close. │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Node decoration
-
-- Each node = event-id + cascade id + source path.
-- Edge labels are not shown (too dense; graph density wins).
-- **Node colour encodes type:**
-  - focused = cyan border (matches row gutter `◉`)
-  - ancestor = secondary
-  - descendant = tertiary
-  - errored cascades = red border
-  - redacted = magenta border
-
-### Interaction
-
-| Action | Result |
-|---|---|
-| **Click any node** | Spine rebinds (`:rf.causa/focus-cascade <id>`) + popover closes (cross-tab navigation; the user landed somewhere new and the popover's job is done) |
-| **`Esc` / click outside / `c` again** | Dismiss |
-| **Tab switch under popover** (`1`-`6`) | Popover stays open; user can switch tabs underneath, see the graph against new tab content, then act |
-| **Resize popover** | Drag the bottom-right corner; size persists per session |
-
-### Layout direction (Q12 pick)
-
-Mixed LR (ancestors) + TB (descendants) single popover. ELK supports per-region direction. Implementation: layout the two regions separately, place above/below in the same SVG; first implementation will tell us if it reads well. If not, fall back to all-TB (a single tree with the focused node in the middle as a hinge).
-
-**v1 ships:** single-axis-at-a-time with a footer **LR ↔ TB toggle** (rf2-dqnuu). The popover renders TB (descendants-tree dominant; default) OR LR (ancestor-chain dominant) and persists the choice in `:rf.causa/causality-popover-layout` per session. The Q12 hybrid (per-region LR-ancestors + TB-descendants in one SVG) lands when ELK's per-region wiring is tackled in a follow-on bead. See [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Causality popover — v1 ships.
-
-### ELK lazy load + fallback
-
-The popover uses the same lazy ELK loader as the Machine Inspector chart per [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Layout engine. **v1 ships:** when ELK is unavailable (test rig, CSP block, offline) the popover drops into a `fallback-list` render — a flat `<ul>` listing the focused event + ancestors + descendants with `parent → child` edges. The cascade lineage stays readable; the visual graph affordance is the only thing lost. Footer surfaces a "Causality graph unavailable (ELK.js failed to load)" hint.
-
-### Depth limits
-
-- Ancestor chain depth-capped at 8 (rare to exceed; deeper → "… N more ancestors above" disclosure at the far-left).
-- Descendants tree breadth-capped per level at 8 (rare; deeper → "… N more children" disclosure inline).
-
-Avoids the graph blowing out the 640×480 frame in pathological cascades.
-
-### Empty states
-
-- **No ancestors** (this is a root cascade): "Root cascade — no parent dispatches." Render only descendants tree.
-- **No descendants** (this cascade caused nothing else): "Terminal cascade — no child dispatches." Render only ancestor chain.
-- **Both absent** (rare; user-input event that did nothing): "Isolated cascade — no causal neighbours." Show focused-event node alone.
+(The Causality popover that previously occupied this section was dropped entirely per rf2-y0z5b. The `c` key is unbound.)
 
 ---
 
@@ -1200,13 +1118,13 @@ Complete map for the spine + chrome:
 | **Tab bar (L3)** | `1`–`7` jump to tab N · `Ctrl+→` / `Ctrl+←` next/prev tab · letter mnemonics: `e` Event · `a` App-db · `v` Views (incl. subs nested under each view) · `t` Trace · `m` Machines · `r` Routing · `i` Issues |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables · `Esc` returns focus to event list |
 | **Mode + scrubbing** | `Space` pause/resume LIVE · `L` snap to LIVE (jump to head) · `←` / `→` step one cascade (= `j`/`k`) · `Shift+←` / `Shift+→` step cascade root · `Home` / `End` oldest/newest |
-| **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `c` Causality popover · `Esc` close modal / return to canvas |
+| **Global** | `Ctrl+Shift+C` toggle Causa visibility · `Cmd-K` / `Ctrl+K` palette · `?` cheat-sheet · `,` or `s` settings popup (= `⚙`) · `o` popout (= `⛶`) · `Esc` close modal / return to canvas |
 
 ### Retired keys (from pre-rewrite spec)
 
 - `f` (Effects) — Effects tab folded into Event; `f` retired.
 - `s` (Subscriptions) — Subs panel folded into Views; `s` repurposed to Settings popup.
-- `c` (Causality tab) — Causality is now a popover (not a tab); `c` repurposed to open the popover from anywhere.
+- `c` (Causality tab) — Causality surface dropped entirely (rf2-y0z5b); `c` is unused.
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
 - `w` (Flows) — Flows folded into Views; `w` unused.
 - ~~`r` (Routes panel) — Routes folded into App-db~~. **Restored** (rf2-nrbs9): Routing got promoted back to its own L3 tab (cohesive sub-domains earn their own lens tab). `r` is now the **Routing tab** mnemonic; the event-list `r` rewind binding stays on the L2 event list scope (the L2 list's key handler wins when focus is in the list; the tab-bar's letter mnemonic wins when focus is elsewhere).
@@ -1254,7 +1172,6 @@ Causa CONSUMES the contract specified in [spec/015-Data-Classification](../../..
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
 | L4 Issues tab | Exception `:data` payload; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |
-| Causality popover | Per-node event vector | Via `inspect-inline` |
 | Ribbon mode-pill tooltip | Per-session totals | `[● REDACTED N · ● ELIDED M]` aggregate on hover |
 
 ### Combination semantics
@@ -1326,7 +1243,6 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 | **Frame-isolation invariants** | `tools/causa/test/.../isolation_test.cljs` (NEW; spec §8) — asserts I1 (picker excludes `:rf/causa`) + I3 (Views scoped to selected frame) + I4 (Causa hover doesn't leak into `:rf/default` Views); runs under `npm run test:browser`; **failure blocks merge** |
 | **Sub-graph isolation lint** | `tools/causa/test/.../sub_graph_lint_test.cljs` (NEW; spec §8 I2) — asserts dev-time lint predicate throws on misconfigured Causa-namespaced sub feeding host data |
 | **Settings modal popup** | `tools/causa/test/.../settings_popup_test.cljs` — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts every field maps to a configure! key; asserts "Show tool frames in picker" toggle flips picker option list |
-| **Causality popover** | `tools/causa/test/.../causality_popover_test.cljs` — asserts `c` key opens popover from any tab; asserts `Esc`/outside-click/`c` close; asserts node click rebinds spine and closes popover; asserts graph anchors on `:rf.causa/focus` |
 
 The [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) rows for the dropped panels (AI co-pilot, MCP server, Performance, Subs) are deleted per the spec rewrite.
 
@@ -1409,6 +1325,6 @@ not Causa.
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.causa/*` registry surface (spine sub, focus events, filter slot, active-tab slot).
 - [`015-Configuration.md`](015-Configuration.md) — `configure!` API surface for filters, view, keybindings, buffer, popout, factory-reset.
 - [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — per-tab content contracts (Event detail · Issues ribbon · etc.); Performance section dropped.
-- [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — test rows for chrome + spine + filters + classification rendering + isolation invariants + settings + causality popover.
+- [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — test rows for chrome + spine + filters + classification rendering + isolation invariants + settings.
 - [spec/015-Data-Classification](../../../spec/015-Data-Classification.md) — framework contract Causa consumes (7 marking sites + 3 display sentinels).
 - [spec/009-Instrumentation](../../../spec/009-Instrumentation.md) — trace bus contract; framework emits `rf:event:*` / `rf:sub:*` / `rf:fx:*` / `rf:render:*` / `rf:cascade:*` User-Timing entries (which the dropped Performance panel's role is now served by Chrome DevTools).

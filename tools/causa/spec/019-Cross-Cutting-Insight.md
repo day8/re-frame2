@@ -701,7 +701,6 @@ NO new tabs. The placement is uniform across areas:
 
 | Popover | Cross-cutting role |
 |---|---|
-| **Causality** (`c`) | Grows **machine-edge types** — spawn (`─◇▶`), final (`═▶`), `:invoke-all` join (`⋈`). Same primitive; richer edge vocabulary. |
 | **Nav-token timeline** (`r`) | NEW popover. Horizontal swimlanes; carried-vs-current tokens; click-bar → seek. |
 | **Wire-trace** (`f`) | NEW popover. The Event-tab wire-boundary diff popped out — floats over any tab. |
 
@@ -805,8 +804,8 @@ back after reading the spec as the destination:
      when SSR is detected for the session). Tab count goes from 6 → 6-or-7.
    - **(b)** Promote it to an inline panel inside the Issues tab. Stays
      at 6.
-   - **(c)** Make it a `h`-keyboard popover (consistent with Causality
-     `c` and Nav-token `r`).
+   - **(c)** Make it a `h`-keyboard popover (consistent with Nav-token
+     `r`).
    - **Lean: (c).** Keeps the chrome at 6 tabs; joins the popover
      pattern. But "always visible when relevant" is a strong (a) argument.
 

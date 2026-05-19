@@ -271,8 +271,6 @@ The high-leverage right-click affordance. When invoked on any path:
    ```
 
 3. Clicking an entry → event-detail rebases to that epoch.
-4. Pressing `c` on a focused entry → causality graph filters to that
-   cascade.
 
 This is the affordance that turns "I notice this is wrong" into "show
 me when it became wrong" in two clicks. From a deep cascade, it's
@@ -330,9 +328,7 @@ where does an event in frame A change values that frame B reads?"
 
 When multi-frame apps share substate (e.g. an auth slice mirrored across
 two frames), Causa renders the diff per-frame and shows where a write
-in one frame propagates to another. Cross-frame causality arrows
-(per [`001-Causality-Graph.md`](001-Causality-Graph.md)) hand off to
-the App-db tab's cross-frame diff for the "what changed" follow-up.
+in one frame propagates to another.
 
 ### Pin two epochs side-by-side
 

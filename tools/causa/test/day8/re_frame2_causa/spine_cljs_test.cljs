@@ -270,8 +270,8 @@
 
 (deftest focus-cascade-reducer-writes-legacy-shim
   (testing "the legacy :selected-dispatch-id + :selected-dispatch slots
-            update in lockstep so existing event-detail / causality /
-            machine-inspector panels keep rendering"
+            update in lockstep so existing event-detail / machine-
+            inspector panels keep rendering"
     (let [r (spine/focus-cascade-reducer {} :c2 :rf/default)]
       (is (= :c2 (:selected-dispatch-id r)))
       (is (= {:dispatch-id :c2 :frame :rf/default}
@@ -988,10 +988,9 @@
 
 (deftest legacy-select-dispatch-id-clicking-head-stays-live
   (testing "rf2-xzzih — the legacy `:rf.causa/select-dispatch-id`
-            event (the spine-shim entry used by causality / machine
-            / cancellation panels) shares the head-aware mode pick
-            so clicks from those panels onto the head cascade also
-            keep :live"
+            event (the spine-shim entry used by machine / cancellation
+            panels) shares the head-aware mode pick so clicks from
+            those panels onto the head cascade also keep :live"
     (setup-causa-frame!)
     (seed-cascades! fixture-cascades)
     (rf/with-frame :rf/causa

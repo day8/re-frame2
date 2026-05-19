@@ -89,8 +89,8 @@ function waitForReady(url, timeoutMs) {
     // grid workspaces; we walk it last as a round-trip target.
     //
     // Per rf2-om6fa: the chrome-follow-on workspaces (settings
-    // popup, auto-filter edit-popup, causality popover) used to be
-    // excluded from this walk because their modals mounted at
+    // popup, auto-filter edit-popup) used to be excluded from this
+    // walk because their modals mounted at
     // `position: fixed; inset: 0` with max-int z-index, stacking
     // N full-viewport backdrops over the Story shell. The
     // `:modal-positioning :absolute` opt threaded through
@@ -110,7 +110,6 @@ function waitForReady(url, timeoutMs) {
       { name: 'Workspace.causa.issues/all',          expectedAtLeast: 11 },
       { name: 'Workspace.causa.settings-popup/all',  expectedAtLeast: 3  },
       { name: 'Workspace.causa.filters/all',         expectedAtLeast: 5  },
-      { name: 'Workspace.causa.causality-popover/all', expectedAtLeast: 4 },
       { name: 'Workspace.causa.event/all',           expectedAtLeast: 12 }, // round-trip
       { name: 'Workspace.causa.app-db/all',          expectedAtLeast: 12 }, // round-trip
     ];

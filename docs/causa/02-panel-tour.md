@@ -9,7 +9,7 @@ This chapter is the map. Each panel gets a one-paragraph "when you'd open this" 
 
 The sidebar groups panels into two bands:
 
-- **Always-active** (top) — Event detail, Causality, Time travel, App-DB, Subscriptions, Effects, Trace, Machines. These render whether you've configured anything or not.
+- **Always-active** (top) — Event detail, Time travel, App-DB, Subscriptions, Effects, Trace, Machines. These render whether you've configured anything or not.
 - **Conditional-with-activity** (bottom) — Flows, Routes, Performance, Issues, Schemas, Hydration. These light up only when the app is using the relevant subsystem (the *Hydration* panel only appears when SSR hydration actually runs, etc.).
 
 ## Event detail — the landing panel
@@ -27,14 +27,6 @@ Five questions every event answers, all on first paint:
 5. **How long?** Total cascade duration.
 
 That's the daily answer set. Anything deeper, you click through to a peer panel.
-
-## Causality — the deeper-walk view
-
-When a cascade spans more than two hops or crosses frame boundaries (events that dispatch other events, fxs that dispatch on completion, routing transitions that cascade through machine guards), Event detail's mini-graph gets too dense. Causality is the full-fidelity view: a vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`, every node clickable to its source.
-
-![Causality graph — the deeper walk](../images/causa/02-causality.png)
-
-You'd open this when "I dispatched X, and then *something* happened, but I can't tell what triggered what." Causality reads parent-pointer fields on every dispatch and walks the tree.
 
 ## Time travel — the bottom rail
 

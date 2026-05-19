@@ -22,9 +22,8 @@
 
   ## Pure hiccup
 
-  Same approach as `subscriptions_view_cljs_test.cljs` /
-  `causality_graph_view_cljs_test.cljs` — walk the view's hiccup tree
-  by `data-testid` rather than mounting to the DOM."
+  Same approach as `subscriptions_view_cljs_test.cljs` — walk the
+  view's hiccup tree by `data-testid` rather than mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]

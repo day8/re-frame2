@@ -27,7 +27,7 @@
   ## Pure hiccup
 
   Same approach as `event_detail_cljs_test.cljs` /
-  `time_travel_cljs_test.cljs` / `causality_graph_view_cljs_test.cljs`
+  `time_travel_cljs_test.cljs`
   — we walk the view's hiccup tree by `data-testid` rather than
   mounting to a DOM. Keeps the suite fast + host-portable on node-
   test."

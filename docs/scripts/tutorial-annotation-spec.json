@@ -66,16 +66,6 @@
     }
   ],
 
-  "causa-causality": [
-    {
-      "selector": "[data-testid=\"rf-causa-causality-graph\"]",
-      "inset": { "x": 8, "y": 8, "w": -16, "h": 60 },
-      "colour": "#0097a7",
-      "label": "Cascade graph - parent-pointer walk",
-      "labelPos": "below"
-    }
-  ],
-
   "causa-trace": [
     {
       "selector": "[data-testid=\"rf-causa-trace-counts\"]",

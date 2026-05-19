@@ -4,8 +4,8 @@
 
   ## Why a separate `.cljc` ns
 
-  Same dual-target pattern every other panel uses (causality-graph,
-  subscriptions, routes, ...). The panel view in
+  Same dual-target pattern every other panel uses (subscriptions,
+  routes, ...). The panel view in
   `machine_inspector.cljs` builds the hiccup; the *logic* — projecting
   the registered-machine set + the live snapshots + the trace-buffer's
   `:rf.machine/transition` slice into per-machine row + chart-prop

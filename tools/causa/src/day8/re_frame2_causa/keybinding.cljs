@@ -143,8 +143,7 @@
 (defn- spine-key-id
   "Map an unmodified keydown to the spine event id it dispatches, or
   nil when the key is not a spine binding. Per spec/018 §3 + §6 the
-  five bindings are Space / L / j / k / G; per spec/018 §10 + §11 the
-  Causality popover binds unmodified `c`. Bare-key (no modifiers)
+  five bindings are Space / L / j / k / G. Bare-key (no modifiers)
   is required so the bindings don't collide with browser shortcuts
   (Cmd+L → focus address bar, Ctrl+Shift+C → Causa toggle, etc.)."
   [^js event]
@@ -175,22 +174,15 @@
         (and (not shift?) (or (= "k" k) (= "KeyK" code)))
         :rf.causa/focus-cascade-next
 
-        ;; c — toggle Causality popover. Per spec/018 §10 §11 the
-        ;; popover replaces the dropped Causality tab; `c` from any
-        ;; tab opens it, second `c` closes it. The toggle event lives
-        ;; in popover/causality_events.cljs.
-        (and (not shift?) (or (= "c" k) (= "KeyC" code)))
-        :rf.causa/causality-popover-toggle
-
         ;; Esc — clear focus-set (rf2-a1z3b). The focus primitive is a
         ;; lens (NOT a filter); Esc is the universal 'undo the lens'
         ;; gesture. Modals + popovers register their own Escape
-        ;; handlers on their input elements (the palette/causality/
-        ;; settings handlers preventDefault + stopPropagation before
-        ;; this listener fires), so Esc here only reaches the focus
-        ;; clear when no modal is open. When no focus-set is active
-        ;; the event handler is a no-op (`clear-focus-reducer` dissocs
-        ;; an absent slot).
+        ;; handlers on their input elements (the palette / settings
+        ;; handlers preventDefault + stopPropagation before this
+        ;; listener fires), so Esc here only reaches the focus clear
+        ;; when no modal is open. When no focus-set is active the event
+        ;; handler is a no-op (`clear-focus-reducer` dissocs an absent
+        ;; slot).
         (and (not shift?) (or (= "Escape" k) (= "Escape" code) (= "Esc" k)))
         :rf.causa/clear-focus))))
 

@@ -926,8 +926,7 @@
     - `:rf.causa/clear-selected-dispatch-id` event
 
   The cross-panel `:rf.causa/cascades` projection itself lives in
-  `registry.cljs` — it is shared with the Causality Graph and
-  Performance panels."
+  `registry.cljs` — it is shared with the Performance panel."
   []
   (rf/reg-sub :rf.causa/selected-dispatch-id
     (fn [db _query]
@@ -979,10 +978,10 @@
          :selected-cascade        by-id})))
 
   ;; Spine shim (rf2-adve5) — `:rf.causa/select-dispatch-id` is the
-  ;; legacy entry point used by causality / machine-inspector /
-  ;; issues-ribbon / performance / routes / schema-violation-timeline
-  ;; / trace / mcp-server. It writes through the spine via the same
-  ;; reducer the spec-018 `:rf.causa/focus-cascade` event uses.
+  ;; legacy entry point used by machine-inspector / issues-ribbon /
+  ;; performance / routes / schema-violation-timeline / trace /
+  ;; mcp-server. It writes through the spine via the same reducer the
+  ;; spec-018 `:rf.causa/focus-cascade` event uses.
   (rf/reg-event-db :rf.causa/select-dispatch-id
     (fn [db [_ dispatch-id frame-id]]
       (let [history  (get db :epoch-history [])

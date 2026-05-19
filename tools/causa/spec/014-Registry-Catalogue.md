@@ -45,9 +45,8 @@ namespace docstring.
 The catalogue below groups registrations by **owning panel** (per
 [`007-UX-IA.md`](./007-UX-IA.md) §Information architecture). Where a
 registration is shared across panels (e.g. `:rf.causa/select-dispatch-id`
-is consumed by both the event-detail panel and the causality graph
-per [`001-Causality-Graph.md`](./001-Causality-Graph.md) §10 Lock 7),
-it appears once under its primary owner with cross-panel use noted.
+is consumed across the event-detail and other panels), it appears once
+under its primary owner with cross-panel use noted.
 
 Cross-panel infrastructure (the trace-buffer sub, the target-frame
 sub, the epoch-history pump) is enumerated under
@@ -119,7 +118,7 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view, §10 Lock 7.
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.causa/select-dispatch-id` | `[_ dispatch-id]` | Sets selection. Also consumed by the causality graph per §10 Lock 7. |
+| `:rf.causa/select-dispatch-id` | `[_ dispatch-id]` | Sets selection. |
 | `:rf.causa/clear-selected-dispatch-id` | `[_]` | Drops selection. |
 
 ## Time-travel scrubber
@@ -162,21 +161,6 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 |---|---|---|
 | `:rf.causa.fx/restore-epoch` | `{:frame-id :epoch-id}` | Calls `rf/restore-epoch`, writes `{:ok? :frame-id :epoch-id}` to the module-scope restore result atom, dispatches `:rf.causa/bump-restore-epoch-tick`, and clears `:rf.causa/selected-epoch-id` on failure. The indirection lets test fixtures stub the write and lets Causa surface failed confirmed rewinds inline. |
 | `:rf.causa.fx/reset-frame-db!` | `{:frame-id :frame-db}` | Thin delegation to `rf/reset-frame-db!`. |
-
-## Causality graph
-
-Spec: [`001-Causality-Graph.md`](./001-Causality-Graph.md).
-
-Reuses the event-detail panel's `:rf.causa/select-dispatch-id` /
-`:rf.causa/clear-selected-dispatch-id` (per §10 Lock 7) and the
-scrubber's `:rf.causa/clear-selected-epoch` (for the cascade-filter
-affordance). The panel adds one composite sub; no new events.
-
-### Subscriptions
-
-| Sub | Inputs | Returns |
-|---|---|---|
-| `:rf.causa/causality-graph-data` | `:rf.causa/trace-buffer`, `:rf.causa/selected-dispatch-id`, `:rf.causa/selected-epoch-id`, `:rf.causa/epoch-history` | `{:graph :layout :selected-dispatch-id :selected-epoch-id :filtered?}`. When the scrubber's selected-epoch resolves to a cascade-id in the graph, filters to that cascade family. |
 
 ## App-DB Diff panel
 

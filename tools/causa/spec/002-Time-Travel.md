@@ -123,9 +123,8 @@ below.
 ## The passive-scrubbing rule
 
 Dragging the scrubber rebases every panel's view of history. The
-event-detail panel rebases to the dragged-to epoch. The causality
-graph highlights the selected node. The app-db panel shows the
-historical snapshot.
+event-detail panel rebases to the dragged-to epoch. The app-db panel
+shows the historical snapshot.
 
 But `(rf/get-frame-db ...)` continues to return the live value. The
 live app behind Causa does **not** rebase visually. The user's mouse
@@ -216,7 +215,7 @@ A pin is the **4-tuple** `(epoch-id × frame-db-value × dispatch-id × user-lab
 |---|---|---|
 | `:epoch-id` | `:rf/epoch-record :epoch-id` ([Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)) | The opaque history key the scrubber and `restore-epoch` both address. |
 | `:frame-db` | `:rf/epoch-record :db-after` | A direct handle to the value the user marked — survives if `epoch-history` ages the slot out of the ring buffer. |
-| `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)) | Links the pin to the cascade that produced the epoch, so "Open in Causality graph" stays correct after deeper history scrolls past. |
+| `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)) | Links the pin to the cascade that produced the epoch. |
 | `:label` | User-supplied string (the prompt that opens when `*` fires) | What the programmer reads on the scrubber. Defaults to `pin-<n>` (incrementing per session) if the user dismisses the prompt. |
 
 The capture is **eager**: pinning copies the four slots into Causa's
@@ -253,8 +252,8 @@ visible signal that the pin out-lives the ring buffer.
 
 - **Click a pin chip** → the **view** rebases to that pin's epoch.
   Passive — per §The passive-scrubbing rule, the live `app-db`
-  does not move. The detail panel, App-DB Diff panel, and Causality
-  graph all rebase to the pin's `:epoch-id`.
+  does not move. The detail panel and App-DB Diff panel rebase to
+  the pin's `:epoch-id`.
 - **Right-click a pin chip** → action menu:
   - **Reset to pinned** — confirmed rewind. Calls
     `(rf/reset-frame-db! frame-id pin.frame-db)` (per [Tool-Pair
@@ -386,9 +385,9 @@ scrubber to the new frame's `epoch-history` and resets the position to
 that frame's newest epoch.
 
 Cross-frame cascades (where dispatch in frame A triggers dispatch in
-frame B) still render in the causality graph regardless of which
-frame's scrubber is active. The graph spans frames; the scrubber does
-not.
+frame B) are visible in the Trace and Event tabs regardless of which
+frame's scrubber is active. The scrubber is frame-local; the tabs
+span frames.
 
 ## Production elision
 
