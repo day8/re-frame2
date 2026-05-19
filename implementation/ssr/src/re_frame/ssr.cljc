@@ -95,6 +95,13 @@
 (def reg-error-projector             error-projector/reg-error-projector)
 (def project-error                   error-projector/project-error)
 (def apply-error-projection!         error-listener/apply-error-projection!)
+;; rf2-zwgsv — Spec 011 §Server error projection unification. Host
+;; adapters wrap their render pipeline call (`render-to-string`) in a
+;; try/catch and route render-time throws through this fn so the
+;; projector's status + body materialise on the wire — symmetric with
+;; the drain-time fx/handler-exception path that already flows through
+;; the trace-listener buffer.
+(def project-render-exception!       error-listener/project-render-exception!)
 (def get-response                    error-listener/get-response)
 ;; Audit rf2-asmj1 P5 / cluster rf2-sljs1 — split the side-effect from
 ;; the pure read. `peek-response` is a pure read (no projector drain);

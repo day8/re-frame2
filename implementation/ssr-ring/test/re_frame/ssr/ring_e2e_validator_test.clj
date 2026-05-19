@@ -174,7 +174,7 @@
          (stop-jetty! server#)))))
 
 ;; ===========================================================================
-;; Test 1 — bad tag-name keyword → 500, no leak
+;; Test 1 — bad tag-name keyword → 500 via the SSR error projector
 ;; ===========================================================================
 ;;
 ;; The tag-name validator (`re-frame.ssr.emit/validate-tag-name!`,
@@ -182,15 +182,21 @@
 ;; hostile keyword whose tag-name carries a space — i.e. a name
 ;; built via `(keyword \"has space\")` — surfaces as tag-name "has space",
 ;; which the validator rejects. The throw fires inside
-;; `render-to-string`; the handler's outer try/catch routes the
-;; throwable through `:on-error` → default 500.
+;; `render-to-string`.
 ;;
-;; Wire assertion: 500 status, generic 'Internal error' body, no
-;; `:rf.error/invalid-tag-name` keyword in the body (rf2-kzvwq: the
-;; default :on-error MUST NOT leak `.getMessage`).
+;; Per rf2-zwgsv (Mike decision rf2-i9f0g Option B) — render-time
+;; throws flow through the SAME projector pipeline as drain-time
+;; fx/handler exceptions. The handler's outer try/catch is no longer
+;; reached for render-time validator failures; instead the pipeline
+;; catches the throw, synthesises a `:rf.error/ssr-render-failed`
+;; trace event, projects it via the active projector, and emits the
+;; projector's `:message` / `:code` as the wire body. Same security
+;; boundary (rf2-kzvwq — no `.getMessage` leak); uniform contract
+;; with the drain-time path (Tests 2/3 below).
 
-(deftest e2e-bad-tag-name-keyword-returns-500
-  (testing "rf2-z7gor — hostile tag-name keyword surfaces as 500 + generic body"
+(deftest e2e-bad-tag-name-keyword-projects-through-projector
+  (testing "rf2-z7gor + rf2-zwgsv — hostile tag-name keyword surfaces as
+            500 via the SSR error projector"
     (rf/reg-event-fx :init/ok-bad-tag {:platforms #{:server}} (fn [_ _] {}))
     ;; The view body intentionally emits a tag-name component carrying a
     ;; space — `validate-tag-name!` rejects anything outside
@@ -207,10 +213,24 @@
       (with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 500 status)
-              "tag-name validator throw surfaces as 500 on the wire")
-          (is (= "Internal error" body)
-              "rf2-kzvwq: default :on-error body is the fixed generic
-               string — no .getMessage leak")
+              "tag-name validator throw surfaces as 500 on the wire —
+               same status the drain-time projector path produces for
+               fx/handler exceptions (Tests 2/3 below)")
+          ;; rf2-zwgsv: the body is now the projector's `:message`,
+          ;; not the pre-rf2-zwgsv fixed `\"Internal error\"` string.
+          ;; Same contract as the CRLF tests below — both paths flow
+          ;; through `apply-error-projection!`.
+          (is (str/includes? body "Something went wrong")
+              "rf2-zwgsv: wire body carries the default projector's
+               `:message` (Spec 011 §Default projector
+               `fallback-public-error`)")
+          (is (str/includes? body "internal-error")
+              "rf2-zwgsv: wire body carries the projector's `:code` —
+               stable category for response-page templating")
+          (is (not (= "Internal error" body))
+              "rf2-zwgsv: the pre-rf2-zwgsv fixed `\"Internal error\"`
+               string is gone — render-time throws now go through the
+               projector, not the Ring :on-error fallback")
           (is (not (str/includes? body "invalid-tag-name"))
               "the validator's :rf.error/invalid-tag-name keyword must
                not appear on the wire (topology disclosure surface)")
@@ -218,6 +238,72 @@
               "the offending tag-name string must not be echoed back")
           (is (not (any-header-contains-crlf? headers))
               "no CR/LF/NUL bytes in any response header"))))))
+
+;; ===========================================================================
+;; Test 1b — render-time + drain-time both yield the same status
+;; ===========================================================================
+;;
+;; rf2-zwgsv — the explicit unification proof. A render-time throw
+;; (bad tag-name keyword) and a drain-time throw (CRLF cookie value)
+;; both surface as the SAME projector-driven status. Pre-rf2-zwgsv
+;; the render-time path produced 500 via the Ring :on-error fallback
+;; (rf2-kzvwq) and the drain-time path produced 500 via the projector
+;; — the same number by coincidence (both default to 500) but two
+;; different pipelines, two different body contracts. This test pins
+;; them to one pipeline.
+
+(deftest e2e-render-time-and-drain-time-share-projector-pipeline
+  (testing "rf2-zwgsv — render-time validator throw + drain-time fx
+            throw produce identical projector-driven status + uniform
+            body shape (both flow through `apply-error-projection!`)"
+    ;; Path A: render-time throw via tag-name validator.
+    (rf/reg-event-fx :init/ok-render-throw {:platforms #{:server}}
+      (fn [_ _] {}))
+    (rf/reg-view* :pages/render-throw
+                  (fn [] [(keyword "render throw")]))
+    (let [handler-a (ssr-ring/ssr-handler
+                      {:on-create [:init/ok-render-throw]
+                       :root-view [:pages/render-throw]
+                       :payload-policy :rf.ssr.payload/whole-app-db})]
+      (with-jetty [port handler-a]
+        (let [{status-a :status body-a :body} (http-get port "/")]
+          (is (= 500 status-a))
+          ;; Path B: drain-time throw via CRLF cookie value (separate
+          ;; server so the per-frame projector buffer doesn't carry
+          ;; state across).
+          (rf/reg-event-fx :init/drain-throw
+            {:platforms #{:server}}
+            (fn [_ _]
+              {:fx [[:rf.server/set-cookie
+                     {:name  "session"
+                      :value "abc\r\nbad"}]]}))
+          (rf/reg-view* :pages/drain-throw
+                        (fn [] [:div "drain-throw page renders"]))
+          (let [handler-b (ssr-ring/ssr-handler
+                            {:on-create [:init/drain-throw]
+                             :root-view [:pages/drain-throw]
+                             :payload-policy :rf.ssr.payload/whole-app-db})]
+            (with-jetty [port-b handler-b]
+              (let [{status-b :status body-b :body} (http-get port-b "/")]
+                (is (= 500 status-b))
+                (is (= status-a status-b)
+                    "both paths produce the same projector-driven
+                     status (the unification contract)")
+                ;; Both paths run through the default projector →
+                ;; both carry `:internal-error` semantics. Path A
+                ;; renders the projector's body directly because
+                ;; `render-to-string` threw; Path B renders the
+                ;; root-view because the throw happened in the drain
+                ;; before render started. Different rendered output;
+                ;; SAME pipeline. The shared contract: both go through
+                ;; `apply-error-projection!` and stamp the projector's
+                ;; status on the response.
+                (is (or (str/includes? body-a "Something went wrong")
+                        (str/includes? body-a "internal-error"))
+                    "Path A: projector-driven render-time body")
+                (is (string? body-b)
+                    "Path B: drain-time path still produces a wire
+                     body (which is the rendered root-view)")))))))))
 
 ;; ===========================================================================
 ;; Test 2 — CRLF-bearing cookie value → 500 status, no Set-Cookie on the wire

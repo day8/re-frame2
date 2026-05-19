@@ -334,8 +334,11 @@
 ;; ssr-handler — error path
 ;; ===========================================================================
 
-(deftest handler-render-error-projects-to-500
-  (testing "exception raised during render is caught and routed through :on-error"
+(deftest handler-render-error-projects-through-projector
+  (testing "rf2-zwgsv — exception raised during render flows through the
+            SSR error projector (Spec 011 §View-time exceptions), not
+            through the Ring :on-error hook. Wire body carries the
+            projector's :message / :code, never .getMessage."
     (rf/reg-event-fx :init/ok
       {:platforms #{:server}}
       (fn [_ _] {}))
@@ -349,20 +352,40 @@
                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
       (is (= 500 (:status response))
-          "the default :on-error returns 500")
+          "rf2-zwgsv: default projector's `:internal-error` shape →
+           status 500. Same status the drain-time projector path
+           produces for fx/handler exceptions — uniform contract.")
       ;; rf2-kzvwq / security audit §P2.1 — the default body MUST NOT
       ;; carry the exception's message. .getMessage is documented as
       ;; carrying internal topology (JDBC URLs, file paths, SQL
-      ;; fragments); leaking it publicly is the bug.
-      (is (= "Internal error" (:body response))
-          "rf2-kzvwq: default :on-error body is the fixed generic
-           'Internal error' — no .getMessage leak")
+      ;; fragments); leaking it publicly is the bug. Same boundary as
+      ;; pre-rf2-zwgsv (the projector is the security boundary now).
       (is (not (str/includes? (:body response) "boom-internal-jdbc-url-secret"))
-          "the throwable's message text MUST NOT appear in the
-           default 500 body (topology disclosure surface)"))))
+          "rf2-kzvwq: the throwable's message text MUST NOT appear in
+           the projector body (topology disclosure surface)")
+      ;; rf2-zwgsv: the new projector-driven body MUST carry the
+      ;; default projector's `:message` ("Something went wrong") so the
+      ;; client / crawler / monitoring stack sees the public surface,
+      ;; not the fixed `"Internal error"` string the pre-rf2-zwgsv
+      ;; on-error fallback produced.
+      (is (str/includes? (:body response) "Something went wrong")
+          "rf2-zwgsv: wire body carries the projector's `:message`
+           (default = 'Something went wrong' per
+           `error-projector/fallback-public-error`)")
+      (is (str/includes? (:body response) "internal-error")
+          "rf2-zwgsv: wire body carries the projector's `:code`
+           (default = `:internal-error`) as a stable category that
+           response-page templates can branch on.")
+      (is (not (= "Internal error" (:body response)))
+          "rf2-zwgsv: the pre-rf2-zwgsv fixed 'Internal error' string
+           is gone — render-time throws now go through the projector,
+           not the Ring :on-error fallback."))))
 
-(deftest handler-custom-on-error
-  (testing ":on-error opt overrides the default 500 path"
+(deftest handler-render-error-custom-projector-shapes-body
+  (testing "rf2-zwgsv — caller customises the render-time error wire
+            body via a custom :rf.error/* projector mapping, NOT via
+            the :on-error Ring hook (which now only catches
+            transport/projector-undeliverable failures)."
     (rf/reg-event-fx :init/ok
       {:platforms #{:server}}
       (fn [_ _] {}))
@@ -370,17 +393,32 @@
     (rf/reg-view* :pages/broken-2
       (fn [] (throw (ex-info "boom-2" {:custom true}))))
 
+    (rf/reg-error-projector
+      :myapp/teapot
+      (fn [_trace-event]
+        {:status     418
+         :code       :teapot
+         :message    "I'm a teapot"
+         :retryable? false}))
+
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
                      :root-view [:pages/broken-2]
-                     :on-error  (fn [_req t]
-                                  {:status  418
-                                   :headers {"Content-Type" "text/plain"}
-                                   :body    (str "caught: " (.getMessage t))})
+                     :ssr       {:public-error-id :myapp/teapot}
                      :payload-policy :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
-      (is (= 418 (:status response)))
-      (is (str/includes? (:body response) "caught: boom-2")))))
+      (is (= 418 (:status response))
+          "the custom projector's :status overrides the default 500
+           — same surface as the drain-time projector path.")
+      ;; The apostrophe in "I'm" is HTML-escaped to `&#39;` per
+      ;; `escape-html` — the body's `:message` slot is rendered as
+      ;; an HTML text-node so untrusted custom-projector output
+      ;; cannot break out of the envelope.
+      (is (str/includes? (:body response) "I&#39;m a teapot")
+          "the custom projector's :message rides the wire body
+           (HTML-escaped — `escape-html` over the message text)")
+      (is (str/includes? (:body response) "teapot")
+          "the custom projector's :code rides the wire body."))))
 
 ;; ===========================================================================
 ;; ssr-handler — fn-form :root-view invoked exactly once per request (rf2-6t36h)
