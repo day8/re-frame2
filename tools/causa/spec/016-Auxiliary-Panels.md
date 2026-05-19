@@ -489,7 +489,7 @@ backfills what v1 actually ships.
 
 | Tab | What it carries |
 |---|---|
-| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · Panel-width-px slot (number; default 480; written by the resize handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance); no in-popup widget — the panel's drag handle is the affordance) · "Auto-open Causa when an issue is observed" checkbox |
+| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-causa-text-size` CSS custom property on the shell root + `<html>` — the **user knob**, pre-existing) · Density radio (`:compact` / `:cosy`; writes the `--rf-causa-font-size` CSS custom property — the **type-scale anchor** per rf2-n8i2c, separately tracked from `--rf-causa-text-size`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · Panel-width-px slot (number; default 480; written by the resize handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance); no in-popup widget — the panel's drag handle is the affordance) · "Auto-open Causa when an issue is observed" checkbox |
 | **Filters** | Pointer into the auto-filter pills feature. When the `day8.re-frame2-causa.filters` ns is on the classpath the tab renders an "Open auto-filter UI" button that dispatches `:rf.causa.filters/open`; otherwise it shows the "install the feature first" hint. The full pill management surface lives in the ribbon (per [`018-Event-Spine.md`](./018-Event-Spine.md) §7) — this tab is a discoverability handle. |
 | **Theme** | Dark (default) / Light radio. Toggles the `rf-causa-theme-{dark,light}` class on the shell root + `<html>`. Accent picker deferred. |
 
@@ -502,11 +502,33 @@ telemetry, and a toggle pretending to control a non-existent
 endpoint was a broken affordance per the text audit (rf2-yn86j).
 When telemetry actually ships, the tab returns with real wiring.
 
+### Two CSS custom properties — `--rf-causa-text-size` vs `--rf-causa-font-size`
+
+The General tab carries two independently-tracked CSS custom properties.
+They are NOT the same var and they drive different surfaces:
+
+| CSS var | Knob | Surface | Origin |
+|---|---|---|---|
+| `--rf-causa-text-size` | Text-size slider (10–18 px; default 13) | Causa surfaces that opt-in read `var(--rf-causa-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | Pre-existing user knob |
+| `--rf-causa-font-size` | Density radio (`:compact` 12 / `:cosy` 13 / `:comfy` 14 — `:comfy` catalogued for forward-compat, not surfaced in v1) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-causa-font-size, 13px) * <multiplier>)`. Flipping the var rescales every typographic surface in lockstep on the next paint. | rf2-n8i2c / PR #1571 |
+
+Each var has its own write path
+(`settings/effects/apply-text-size!` for `--rf-causa-text-size`;
+`settings/effects/apply-density-font-size!` for `--rf-causa-font-size`)
+and they are persisted as separate settings slots
+(`:general :text-size` and `:general :density`). The two knobs are
+deliberately decoupled — a user who wants tighter row rhythm without
+shrinking the type scale flips density to `:compact` while leaving
+text-size at 13; a user who wants larger event-list rows without
+rescaling the rest of the chrome bumps text-size while leaving
+density at `:cosy`.
+
 ### Defaults
 
 | Slot | Default | Rationale |
 |---|---|---|
-| `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. |
+| `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. Writes `--rf-causa-text-size`. |
+| `:general :density` | `:cosy` | Matches `theme/tokens.cljc :font-size-default` (13 px). Writes `--rf-causa-font-size` per rf2-n8i2c. |
 | `:general :panel-position` | `:right-rail` | Matches the existing `:layout/host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
 | `:general :panel-width-px` | `480` | Matches the default inline-host `--rf-causa-inline-width` band. Clamped `[320, 0.9 × viewport-width-px]` on every write. Set by the drag handle (rf2-x8h9y); double-click resets to this default. |
 | `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Causa to interrupt them. |
@@ -653,23 +675,35 @@ and FROM/TO nav transitions. The App-db slice pin is the raw-data
 echo for users who want to inspect the slice alongside other app-db
 state.
 
-### Settings popup — full 6-section catalogue
+### Settings popup — full 6-tab catalogue
 
-v1 ships the Settings popup with **4 sections** (Theme, Density,
-Editor, Trace). Future: **6 sections** (add **Keybindings** for in-app
-rebind UI; add **Buffer** for retained-epochs control; add **Popout**
-for popout-geometry; add **Actions** for factory-reset + clear-buffer):
+rf2-ttnst (Mike 2026-05-19 §0ter.4 walkthrough; shipped via PR #1518)
+locked the Settings popup at **6 tabs**: **General · Theme · Filters ·
+Keybindings · Buffer · Diff**. The locked inventory plus per-tab
+content sits in [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overlay)
+(the canonical UX surface) and [`018-Event-Spine.md` §9](./018-Event-Spine.md#9-settings-popup)
+(the architectural contract). This Vision block historically catalogued
+a different 8-row aspiration (Theme / Density / Editor / Trace v1 +
+Keybindings / Buffer / Popout / Actions future); it is superseded.
 
-| Section | v1 | Future |
-|---|---|---|
-| **Theme** | dark / light / dim | + custom palettes |
-| **Density** | compact / cosy (`:comfy` dropped per 015 §Density) | (stable) |
-| **Editor** | URI scheme + project-root | (stable) |
-| **Trace** | sensitive-data gate + filter algebra | + security-advisory toggle |
-| **Keybindings** | — | Full rebind UI; conflict-detection; reset-to-defaults |
-| **Buffer** | — | Retained-epochs slider; clear-buffer button; filter persistence schema bump warning |
-| **Popout** | — | Window-geometry restore; "always popout" toggle |
-| **Actions** | — | Factory-reset (red button); clear-buffer-now; reload-without-state |
+What landed under rf2-ttnst that the earlier aspiration did not anticipate:
+
+- **Density** folds into **General** (no separate tab).
+- **Editor** + **Trace** fold into **General** as power-user knobs.
+- **Diff** is its own tab (hiccup-diff opt-in + density-sensitive
+  layout), not a sub-section of another tab.
+- **Keybindings** v1 ships READ-ONLY; the chord-rebind UI is the v1.1
+  follow-on.
+- **Buffer** ships with `:buffer/retained-epochs` /
+  `:trace-buffer/keep` / `:app-db/inspector-collapse-threshold` + a
+  "Clear buffer now" button (confirm modal).
+- **Popout** folds into General's Panel-position radio — no own tab.
+- **Actions** dropped — factory-reset stays code-only
+  (`config/reset-settings!`); the "Clear buffer now" affordance under
+  the Buffer tab covers the only destructive op users have asked for.
+
+See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overlay)
+"Dropped from earlier drafts" for the full deletion ledger.
 
 ## Cross-references
 
