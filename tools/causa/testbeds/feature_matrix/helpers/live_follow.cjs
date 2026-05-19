@@ -634,6 +634,464 @@ async function assertPanelReflectsFocus(page, panelId, focus, opts = {}) {
   return sig;
 }
 
+// ---------------------------------------------------------------------------
+// Panel-control interactions (rf2-mpqxn — Phase 3)
+// ---------------------------------------------------------------------------
+//
+// Phase 1+2 (rf2-rwhat) covered the auto-follow refresh axis: "fire event
+// while Causa is live → cursor auto-follows → each panel reflects the new
+// focused event". Phase 3 covers the orthogonal axis: "the user clicks a
+// panel control → the rendered surface updates accordingly". The bug
+// class this catches is rf2-dodq2 (Views Group-By stuck on Component
+// pill), rf2-i40us (density radio with no font-size effect), and broken
+// Cmd-K palette dispatch (rf2-wm7z4 + rf2-ybjkx).
+//
+// The helpers below are organised by control. Each helper is a single
+// observable round-trip — click control, read the visible side-effect,
+// return a JSON-friendly snapshot the scenario asserts against. Phase 3
+// scenarios chain these into "cycle through every state" sweeps.
+
+// ---- Views Group-By pill cycle (rf2-dodq2) -------------------------------
+
+/*
+ * Group-By has three pills, one per grouping mode:
+ *   `:component` → renders `[data-testid="rf-causa-views-groups"]`
+ *   `:sub`       → renders `[data-testid="rf-causa-views-sub-grouped"]`
+ *   `:tree`      → renders `[data-testid="rf-causa-views-tree"]`
+ *
+ * Each pill carries `aria-pressed="true"|"false"` driven by the
+ * `:rf.causa/views-data` sub's `:group-by` key. A pill click dispatches
+ * `:rf.causa/views-set-group-by <value>`; the reducer flips `:group-by`
+ * on Causa's app-db and the Views panel re-renders. rf2-dodq2's symptom
+ * was the click landing but the panel not re-rendering — the pill's
+ * pressed state and the body's mode-specific testid are the two
+ * observable surfaces that catch the bug.
+ *
+ * The body cascades through three branches in `views-panel`
+ * (panels/views_view.cljs §panel root). When there are no cascades the
+ * panel renders `rf-causa-views-empty`; the mode-specific bodies only
+ * render once a cascade exists. Phase 3 scenarios fire the host event
+ * BEFORE cycling Group-By so the body has data to project.
+ */
+
+const GROUP_BY_MODES = [
+  {
+    value: 'component',
+    pillTestId: 'rf-causa-views-group-by-component',
+    bodyTestId: 'rf-causa-views-groups',
+  },
+  {
+    value: 'sub',
+    pillTestId: 'rf-causa-views-group-by-sub',
+    bodyTestId: 'rf-causa-views-sub-grouped',
+  },
+  {
+    value: 'tree',
+    pillTestId: 'rf-causa-views-group-by-tree',
+    bodyTestId: 'rf-causa-views-tree',
+  },
+];
+
+/**
+ * Read the Views Group-By state — which pill is `aria-pressed="true"`,
+ * which mode-specific body testid is mounted, and whether the empty-
+ * state surface is up instead.
+ */
+async function readGroupByState(page) {
+  return page.evaluate((modes) => {
+    const root = document.getElementById('rf-causa-root');
+    if (!root) return { present: false, reason: 'rf-causa-root missing' };
+    const pressed = {};
+    let activePill = null;
+    for (const mode of modes) {
+      const pill = root.querySelector(`[data-testid="${mode.pillTestId}"]`);
+      const ap   = pill ? pill.getAttribute('aria-pressed') : null;
+      pressed[mode.value] = ap;
+      if (ap === 'true') activePill = mode.value;
+    }
+    const bodies = {};
+    let activeBody = null;
+    for (const mode of modes) {
+      const body = root.querySelector(`[data-testid="${mode.bodyTestId}"]`);
+      bodies[mode.value] = Boolean(body);
+      if (body) activeBody = mode.value;
+    }
+    const empty = root.querySelector('[data-testid="rf-causa-views-empty"]');
+    return {
+      present:    true,
+      pressed,
+      activePill,
+      bodies,
+      activeBody,
+      empty:      Boolean(empty),
+    };
+  }, GROUP_BY_MODES);
+}
+
+/**
+ * Click the Group-By pill for `mode` and wait for the pill's
+ * `aria-pressed` to flip to `"true"` AND the mode-specific body testid
+ * to surface (unless the panel is in the empty state, in which case
+ * only the pressed-state flip is asserted — see `signatureMayMatch`-
+ * style escape for cascade-less panels).
+ *
+ * Returns the post-click `readGroupByState` snapshot.
+ *
+ * The body-mounted assertion is the regression-catching path for
+ * rf2-dodq2: the bug's symptom was "pill press registers but body
+ * stays on the Component grouping". Here we explicitly require the
+ * sub-grouped / tree body to mount.
+ */
+async function clickGroupByPill(page, mode, opts = {}) {
+  const def = GROUP_BY_MODES.find((m) => m.value === mode);
+  if (!def) {
+    throw new Error(
+      `clickGroupByPill: unknown mode ${JSON.stringify(mode)}; ` +
+      `known: ${GROUP_BY_MODES.map((m) => m.value).join(', ')}`,
+    );
+  }
+  const timeoutMs = opts.timeoutMs || 5000;
+  const requireBody = opts.requireBody !== false;
+  await page.locator(`[data-testid="${def.pillTestId}"]`).click();
+  return waitForValue(
+    () => readGroupByState(page),
+    (snap) => {
+      if (!snap.present) return false;
+      if (snap.pressed[mode] !== 'true') return false;
+      if (requireBody && !snap.empty && snap.activeBody !== mode) return false;
+      return true;
+    },
+    {
+      timeoutMs,
+      description:
+        `Group-By pill ${mode} → aria-pressed=true ` +
+        `+ body ${def.bodyTestId} mounted (unless empty-state)`,
+    },
+  );
+}
+
+// ---- Density radio cycle (rf2-i40us) ------------------------------------
+
+/*
+ * The density radio surfaces under the Settings popup's General tab.
+ * v1 ships two pills (rf2-ttnst dropped the third `:comfy` tier from
+ * the spec brief; the data is still catalogued in `density->font-size-
+ * px` for forward compat):
+ *
+ *   :compact → 12px
+ *   :cosy    → 13px (default; matches `tokens/font-size-default`)
+ *
+ * The radio writes the resolved px value into the canonical
+ * `--rf-causa-font-size` CSS custom property on BOTH the Causa shell
+ * root AND `<html>` (settings/effects.cljs §apply-density-font-size!),
+ * so every type-scale entry — every typographic surface in the chrome
+ * — rescales on the next paint. The test reads the `<html>`-scoped
+ * inline declaration as the canonical post-click side-effect signal;
+ * if the radio click landed without the apply-fn firing, the inline
+ * declaration on `<html>` will be missing or stale and the assertion
+ * trips.
+ *
+ * Density value list lives in `density-radio-modes` rather than
+ * hard-coded so a future un-drop of `:comfy` re-enables the third
+ * cycle entry without re-touching the helper.
+ */
+
+const DENSITY_RADIO_MODES = [
+  { value: 'cosy',    testId: 'rf-causa-settings-density-cosy',    expectedPx: 13 },
+  { value: 'compact', testId: 'rf-causa-settings-density-compact', expectedPx: 12 },
+];
+
+/**
+ * Read `--rf-causa-font-size` from both the shell root and `<html>`.
+ * Returns the inline-style value (which is what `apply-density-font-
+ * size!` writes via `setProperty`). Either root may be absent in some
+ * launch modes; the per-element value is reported separately so the
+ * assertion can target the layer it cares about.
+ */
+async function readDensityFontSize(page) {
+  return page.evaluate(() => {
+    const html = document.documentElement;
+    const shellRoot = document.getElementById('rf-causa-root');
+    const htmlInline = html
+      ? html.style.getPropertyValue('--rf-causa-font-size') || null
+      : null;
+    const shellInline = shellRoot
+      ? shellRoot.style.getPropertyValue('--rf-causa-font-size') || null
+      : null;
+    // The computed value is what the cascade resolves; useful for
+    // diagnostics but the canonical assertion target is the inline
+    // declaration the apply-fn writes.
+    const htmlComputed = html
+      ? getComputedStyle(html).getPropertyValue('--rf-causa-font-size').trim() || null
+      : null;
+    return {
+      htmlInline,
+      shellInline,
+      htmlComputed,
+    };
+  });
+}
+
+/**
+ * Open the Settings popup by dispatching `:rf.causa/settings-toggle`
+ * directly into the `:rf/causa` frame. Mirrors the dispatch path the
+ * `,` keybinding takes — `keybinding.cljs §handle-keydown` calls
+ * `(rf/with-frame :rf/causa (rf/dispatch [...]))` so this helper drops
+ * the keyboard-listener leg and lands the same reducer.
+ *
+ * Direct dispatch (vs keyboard) is the robust path: the `,` listener
+ * filters events on `target-inside-causa?` (the event target must walk
+ * up to an element with `data-testid="rf-causa-shell"`). Synthetic
+ * keypresses from Playwright land on `document.body` unless an
+ * element inside the shell has focus AND the user-agent allows
+ * `keydown` events to retain that target — neither invariant is
+ * guaranteed across browsers / shadow-root mounts. The dispatch-vector
+ * path is invariant.
+ *
+ * Idempotent — `settings-toggle` flips the open/close slot; we read
+ * the dialog testid first and bail if it's already mounted.
+ */
+async function openSettingsPopup(page) {
+  const dialog = page.locator('[data-testid="rf-causa-settings-dialog"]');
+  if ((await dialog.count()) > 0) return;
+  const result = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf   = window.re_frame && window.re_frame.core;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || typeof dispatch !== 'function') {
+      return {
+        ok: false,
+        reason: 'cljs.core or re_frame.core.dispatch_STAR_ unavailable',
+      };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const event = cljs.PersistentVector.fromArray(
+      [keyword(':rf.causa/settings-toggle')], true);
+    const opts = cljs.hash_map(keyword(':frame'), keyword(':rf/causa'));
+    if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+      dispatch.cljs$core$IFn$_invoke$arity$2(event, opts);
+    } else {
+      dispatch(event, opts);
+    }
+    return { ok: true };
+  });
+  if (!result.ok) {
+    throw new Error(
+      `openSettingsPopup: could not dispatch :rf.causa/settings-toggle: ${result.reason}`,
+    );
+  }
+  await waitForValue(
+    () => dialog.count(),
+    (n) => n > 0,
+    { timeoutMs: 5000, description: 'Settings popup mounts after settings-toggle dispatch' },
+  );
+}
+
+/**
+ * Click a density radio and wait for `--rf-causa-font-size` on `<html>`
+ * to flip to the expected px value. Returns the post-click font-size
+ * snapshot from `readDensityFontSize`.
+ *
+ * The assertion target is `<html>` (NOT the shell root) because the
+ * `<html>` write is the one that survives a popout / fullscreen mount
+ * where the shell root may differ from the inline-host root. The shell
+ * root is also written but is reported alongside for diagnostics.
+ */
+async function clickDensityRadio(page, value, opts = {}) {
+  const def = DENSITY_RADIO_MODES.find((m) => m.value === value);
+  if (!def) {
+    throw new Error(
+      `clickDensityRadio: unknown density ${JSON.stringify(value)}; ` +
+      `known: ${DENSITY_RADIO_MODES.map((m) => m.value).join(', ')}`,
+    );
+  }
+  const timeoutMs = opts.timeoutMs || 5000;
+  await page.locator(`[data-testid="${def.testId}"]`).click();
+  const expected = `${def.expectedPx}px`;
+  return waitForValue(
+    () => readDensityFontSize(page),
+    (snap) => snap.htmlInline === expected,
+    {
+      timeoutMs,
+      description:
+        `Density radio ${value} → --rf-causa-font-size = ${expected} on <html>`,
+    },
+  );
+}
+
+// ---- Cmd-K palette execute (rf2-wm7z4 + rf2-ybjkx) ----------------------
+
+/*
+ * The palette is opened by Cmd/Ctrl+K (per `keybinding.cljs §palette-
+ * toggle-key?`). Once open the input owns key handling:
+ *   - typing into the input updates `:palette-query` and re-ranks the
+ *     fuzzy index
+ *   - ArrowDown/Up moves the cursor across result rows
+ *   - Enter dispatches `:rf.causa/palette-invoke <item> <popout?>` which
+ *     lowers the item's `:action` into the canonical Causa-side
+ *     dispatch (theme toggle / reduced-motion cycle / cycle-density /
+ *     …)
+ *   - the first result is selected by default (cursor = 0)
+ *
+ * Verifying the round-trip means: open palette, type query, assert the
+ * top result is the verb we wanted, press Enter, assert the verb's
+ * side-effect landed (e.g. `<html>` theme class flipped), AND when we
+ * re-open the palette the same verb's recents-boost (`:palette-recents`
+ * slot) lifts it to position 0 even on an empty query. Recents-boost-
+ * max = 60 outranks the static `:command` boost of 40, so the recent
+ * command sorts strictly first.
+ */
+
+/**
+ * Read the current theme class on `<html>` — one of `dark` / `light`
+ * (the only two configured in `apply-theme!`). Returns null when no
+ * theme class is present.
+ */
+async function readThemeClass(page) {
+  return page.evaluate(() => {
+    const html = document.documentElement;
+    if (!html) return null;
+    const cl = html.classList;
+    if (cl.contains('rf-causa-theme-dark')) return 'dark';
+    if (cl.contains('rf-causa-theme-light')) return 'light';
+    return null;
+  });
+}
+
+/**
+ * Read the palette-list state — open?, query, result rows (testid +
+ * data-source + label text). The label text is read from the row
+ * itself (the icon glyph + label span concatenate; we drop the leading
+ * icon glyph by trimming).
+ */
+async function readPaletteState(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('rf-causa-root');
+    const dialog = root && root.querySelector(
+      '[data-testid="rf-causa-palette-dialog"]');
+    if (!dialog) return { open: false };
+    const input = root.querySelector(
+      '[data-testid="rf-causa-palette-input"]');
+    const list = root.querySelector(
+      '[data-testid="rf-causa-palette-list"]');
+    const rows = list
+      ? Array.from(list.querySelectorAll('[data-testid^="rf-causa-palette-row-"]'))
+      : [];
+    const rowData = rows.map((el) => ({
+      testId:  el.getAttribute('data-testid'),
+      source:  el.getAttribute('data-source'),
+      active:  el.getAttribute('data-active'),
+      text:    (el.textContent || '').replace(/\s+/g, ' ').trim(),
+    }));
+    return {
+      open:     true,
+      query:    input ? input.value : null,
+      rowCount: rows.length,
+      rows:     rowData.slice(0, 10),
+    };
+  });
+}
+
+/**
+ * Open the palette via Ctrl+K (works on every host — see `palette-
+ * toggle-key?` accepting Cmd XOR Ctrl). Idempotent — re-opening when
+ * already open would dispatch toggle and close the palette; we guard
+ * by reading the dialog testid first.
+ */
+async function openPalette(page) {
+  const dialog = page.locator('[data-testid="rf-causa-palette-dialog"]');
+  if ((await dialog.count()) > 0) return;
+  await page.keyboard.press('Control+K');
+  await waitForValue(
+    () => dialog.count(),
+    (n) => n > 0,
+    { timeoutMs: 5000, description: 'Palette dialog mounts after Ctrl+K' },
+  );
+}
+
+/**
+ * Close the palette by pressing Escape inside the input. Idempotent.
+ */
+async function closePalette(page) {
+  const dialog = page.locator('[data-testid="rf-causa-palette-dialog"]');
+  if ((await dialog.count()) === 0) return;
+  const input = page.locator('[data-testid="rf-causa-palette-input"]');
+  if ((await input.count()) > 0) {
+    await input.press('Escape');
+  } else {
+    await page.keyboard.press('Escape');
+  }
+  await waitForValue(
+    () => dialog.count(),
+    (n) => n === 0,
+    { timeoutMs: 5000, description: 'Palette dialog dismisses after Escape' },
+  );
+}
+
+/**
+ * Type `query` into the palette input + wait for the top row's text to
+ * include `expectedTopLabelSubstr` (case-insensitive). Returns the
+ * post-type palette snapshot. The substring match lets the caller pin
+ * "the result I expected ranked first" without depending on the exact
+ * label glyph (Cmd-Enter pop-out arrow, etc.). Asserts at least one
+ * row is present — empty result sets surface `rf-causa-palette-empty`
+ * (the `data-testid` prefix does NOT match `rf-causa-palette-row-`)
+ * so `rowCount === 0` indicates the query has no hits.
+ */
+async function typePaletteQuery(page, query, expectedTopLabelSubstr, opts = {}) {
+  const timeoutMs = opts.timeoutMs || 5000;
+  const input = page.locator('[data-testid="rf-causa-palette-input"]');
+  await input.fill(query);
+  return waitForValue(
+    () => readPaletteState(page),
+    (snap) => {
+      if (!snap.open) return false;
+      if (snap.rowCount === 0) return false;
+      const top = snap.rows[0];
+      const text = (top.text || '').toLowerCase();
+      return text.includes(expectedTopLabelSubstr.toLowerCase());
+    },
+    {
+      timeoutMs,
+      description:
+        `Palette query ${JSON.stringify(query)} ` +
+        `→ top row label contains ${JSON.stringify(expectedTopLabelSubstr)}`,
+    },
+  );
+}
+
+/**
+ * Press Enter on the palette input to invoke the cursor's current row.
+ * Waits for the palette to dismiss (the `:rf.causa/palette-invoke`
+ * reducer closes the modal as part of every verb branch). Returns the
+ * post-invoke palette snapshot (which is `{ open: false }`).
+ */
+async function executePaletteCursor(page, opts = {}) {
+  const timeoutMs = opts.timeoutMs || 5000;
+  const input = page.locator('[data-testid="rf-causa-palette-input"]');
+  await input.press('Enter');
+  return waitForValue(
+    () => readPaletteState(page),
+    (snap) => !snap.open,
+    {
+      timeoutMs,
+      description: 'Palette dismisses after Enter (post invoke)',
+    },
+  );
+}
+
 module.exports = {
   PANEL_SIGNATURE_PROBES,
   readCausaFocus,
@@ -643,4 +1101,18 @@ module.exports = {
   clickPanelTab,
   panelFocusSignature,
   assertPanelReflectsFocus,
+  // rf2-mpqxn — Phase 3 panel-control interactions
+  GROUP_BY_MODES,
+  DENSITY_RADIO_MODES,
+  readGroupByState,
+  clickGroupByPill,
+  readDensityFontSize,
+  openSettingsPopup,
+  clickDensityRadio,
+  readThemeClass,
+  readPaletteState,
+  openPalette,
+  closePalette,
+  typePaletteQuery,
+  executePaletteCursor,
 };

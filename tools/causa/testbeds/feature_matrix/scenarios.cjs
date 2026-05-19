@@ -15,6 +15,18 @@ const {
   panelFocusSignature,
   clickPanelTab,
   assertPanelReflectsFocus,
+  // rf2-mpqxn — Phase 3 panel-control interactions
+  readGroupByState,
+  clickGroupByPill,
+  readDensityFontSize,
+  openSettingsPopup,
+  clickDensityRadio,
+  readThemeClass,
+  readPaletteState,
+  openPalette,
+  closePalette,
+  typePaletteQuery,
+  executePaletteCursor,
 } = require('./helpers/live_follow.cjs');
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
@@ -1956,6 +1968,245 @@ async function runLiveFollowDeepMachine(page, state) {
   ] };
 }
 
+// ---- rf2-mpqxn — Phase 3 panel-control interaction scenarios -----------
+//
+// Phase 1+2 (rf2-rwhat) covered the auto-follow refresh axis (host fires
+// event → Causa spine follows → panel re-renders). Phase 3 covers the
+// orthogonal axis: user clicks a control on a panel → the panel updates
+// accordingly. The bug class:
+//
+//   - rf2-dodq2 (Views Group-By stuck on Component pill) — pill press
+//     registers but panel body never flips off the Component grouping.
+//   - rf2-i40us (density radio with no font-size effect) — radio updates
+//     persistence but `--rf-causa-font-size` is never set, so the type
+//     scale doesn't rescale.
+//   - rf2-wm7z4 + rf2-ybjkx (Cmd-K palette dispatch round-trip) — the
+//     palette opens but Enter doesn't lower the verb's :action into the
+//     side-effect, OR the recent-command boost doesn't bubble the just-
+//     executed verb back to position 0.
+//
+// Each scenario lives on `/counter/` so the host is a known minimal
+// surface with a single `+` button to seed the cascade buffer.
+
+async function runViewsGroupByCycle(page, state) {
+  // Seed the Views panel with at least one cascade so the body
+  // surfaces (`views-panel` shows `rf-causa-views-empty` until the
+  // first cascade-bearing event lands). Counter's `+` is the
+  // minimum-viable seed; firing it in live mode lets us reuse the
+  // Phase 1+2 helper.
+  await expectHostCounterEquals(page, 5, 10000);
+  await openCausa(page);
+  await fireEventInLiveMode(page, '+');
+
+  // Land on the Views tab. The tab click also asserts the
+  // `rf-causa-views` canvas surfaced (clickPanelTab includes this
+  // wait).
+  await clickPanelTab(page, 'views');
+
+  // Cycle Component → sub → tree → back to Component, asserting the
+  // pill's aria-pressed flips + the mode-specific body testid mounts
+  // on every step. `clickGroupByPill` enforces both invariants;
+  // here we additionally snapshot the state across the cycle for the
+  // run-state report.
+  const sequence = ['sub', 'tree', 'component'];
+  const initial = await readGroupByState(page);
+  // Sanity: on first mount we expect Component pressed by default
+  // (the `(or group-by :component)` fallback in `views-panel`).
+  if (initial.activePill !== 'component') {
+    failWithDetails(
+      'Views Group-By initial pill is not component — pre-rf2-mpqxn ' +
+      'snapshot drift; the panel should default to Component grouping',
+      { initial },
+    );
+  }
+
+  const cycle = [];
+  for (const mode of sequence) {
+    const snap = await clickGroupByPill(page, mode);
+    cycle.push({ mode, snap });
+    // The body assertion inside `clickGroupByPill` is the main
+    // catch — but defend in depth: assert the pill we expected is
+    // the only one pressed.
+    const otherPressed = Object.entries(snap.pressed)
+      .filter(([k, v]) => v === 'true' && k !== mode);
+    if (otherPressed.length > 0) {
+      failWithDetails(
+        `Views Group-By cycle: more than one pill is aria-pressed ` +
+        `after clicking ${mode}`,
+        { mode, snap, otherPressed },
+      );
+    }
+  }
+
+  state.viewsGroupByCycle = { initial, cycle };
+}
+
+async function runDensityRadioCycle(page, state) {
+  // Settings popup is the host surface for the density radio. We
+  // press the `,` keybinding (the spine `:rf.causa/settings-toggle`
+  // shortcut) which is the canonical user path; clicking through the
+  // Cmd-K palette's "Jump to Settings" verb is the alternative but
+  // adds an extra round-trip that this scenario doesn't need.
+  await openCausa(page);
+  await openSettingsPopup(page);
+
+  // The General tab is the default landing for the popup
+  // (`settings-toggle` reducer seeds `:settings-active-tab :general`).
+  // The density radio lives directly under General.
+
+  // Read baseline. The settings effects ns runs `apply-density-font-
+  // size!` on settings-open so the CSS var is published BEFORE the
+  // first radio click — we capture this as the baseline so the cycle
+  // assertion catches a stuck-at-default bug too.
+  const baseline = await readDensityFontSize(page);
+
+  // Cycle cosy → compact → cosy. v1 only ships two pills (rf2-ttnst
+  // dropped :comfy from the brief's three-tier list; the data is
+  // still catalogued for forward compat). The cycle exercises every
+  // transition the radio surfaces: cosy → compact (font-size 13 → 12)
+  // and compact → cosy (12 → 13) so a missing apply-fn in either
+  // direction trips the assertion.
+  const sequence = [
+    { value: 'compact', expectedPx: '12px' },
+    { value: 'cosy',    expectedPx: '13px' },
+  ];
+
+  const transitions = [];
+  for (const entry of sequence) {
+    const snap = await clickDensityRadio(page, entry.value);
+    // `clickDensityRadio` already waits for `htmlInline ===
+    // expectedPx`; re-assert here for the diagnostic shape and pin
+    // the shell-root mirror too (apply-density-font-size! writes
+    // both roots).
+    if (snap.htmlInline !== entry.expectedPx) {
+      failWithDetails(
+        `Density radio ${entry.value}: --rf-causa-font-size on <html> ` +
+        `is ${JSON.stringify(snap.htmlInline)}, expected ` +
+        `${JSON.stringify(entry.expectedPx)}`,
+        { entry, snap },
+      );
+    }
+    if (snap.shellInline !== entry.expectedPx) {
+      failWithDetails(
+        `Density radio ${entry.value}: --rf-causa-font-size on shell ` +
+        `root is ${JSON.stringify(snap.shellInline)}, expected ` +
+        `${JSON.stringify(entry.expectedPx)} (the apply-fn writes ` +
+        `BOTH roots so popout / fullscreen mounts inherit either way)`,
+        { entry, snap },
+      );
+    }
+    transitions.push({ value: entry.value, snap });
+  }
+
+  state.densityRadioCycle = { baseline, transitions };
+}
+
+async function runPaletteCmdKExecute(page, state) {
+  // The palette's `:toggle-theme` verb is the easiest invariant to
+  // verify: it dispatches `:rf.causa/settings-update :theme nil <next>`
+  // which calls `apply-theme!` (settings/effects.cljs) to flip the
+  // `rf-causa-theme-*` class on `<html>`. Reading the classList after
+  // Enter is a clean per-invoke side-effect check.
+  await openCausa(page);
+
+  // Baseline theme — read BEFORE opening the palette so the snapshot
+  // matches what the user sees. `apply-theme!` is called on shell
+  // mount with the persisted theme; default is :dark per
+  // `config/default-settings`.
+  const themeBefore = await readThemeClass(page);
+  if (themeBefore !== 'dark' && themeBefore !== 'light') {
+    failWithDetails(
+      'Palette Cmd-K execute: baseline theme class on <html> is not ' +
+      'one of dark / light — the shell did not run apply-theme! on ' +
+      'mount, or some other class is masking the theme class',
+      { themeBefore },
+    );
+  }
+
+  // ── 1. Open palette + fuzzy-filter to `:toggle-theme` ────────────
+  await openPalette(page);
+  // Fuzzy: typing "theme" should bring "Toggle theme (dark ↔ light)"
+  // to position 0. `:command` items have static boost 40 + matching
+  // every char of "theme" in the label gives a high fuzzy score.
+  const filtered = await typePaletteQuery(page, 'theme', 'Toggle theme');
+  if (filtered.rows.length === 0) {
+    failWithDetails(
+      'Palette Cmd-K execute: no results for query "theme"',
+      { filtered },
+    );
+  }
+  if (filtered.rows[0].source !== 'command') {
+    failWithDetails(
+      'Palette Cmd-K execute: top result for query "theme" is not a ' +
+      ':command source row — fuzzy ranking changed or a higher-boost ' +
+      'item is masking the verb',
+      { topRow: filtered.rows[0] },
+    );
+  }
+
+  // ── 2. Press Enter — palette dismisses + theme flips ─────────────
+  await executePaletteCursor(page);
+  // Wait for the apply-theme! side-effect to land (the settings-
+  // update dispatch chains through reg-event-db → effects/apply-
+  // theme! synchronously in the same tick; the wait is a defensive
+  // assertion against async-render reorderings).
+  const themeAfter = await waitForValue(
+    () => readThemeClass(page),
+    (cls) => cls != null && cls !== themeBefore,
+    {
+      timeoutMs: 5000,
+      description:
+        `theme class on <html> flips off ${themeBefore} after :toggle-theme`,
+    },
+  );
+
+  // ── 3. Re-open palette + assert recents-boost lifts ──────────────
+  //
+  // `:palette-recents` is persisted via fx after every command invoke
+  // (`palette/events.cljs` §`:rf.causa.palette.fx/persist-recents`).
+  // The aggregator (`palette/sources.cljc` §`recents-boost-for-id`)
+  // adds +60 to position 0 — strictly more than the static `:command`
+  // boost of 40 — so on the next palette open the toggle-theme verb
+  // ranks above every other :command item even on the empty query.
+  await openPalette(page);
+  // The input opens with empty query; the result list still surfaces
+  // (every item with non-zero boost passes the empty-query rank).
+  // The recent verb should be position 0.
+  const recents = await waitForValue(
+    () => readPaletteState(page),
+    (snap) => {
+      if (!snap.open) return false;
+      if (snap.rowCount === 0) return false;
+      const top = snap.rows[0];
+      return (top.text || '').toLowerCase().includes('toggle theme');
+    },
+    {
+      timeoutMs: 5000,
+      description:
+        'recently-invoked :toggle-theme bubbles to position 0 on ' +
+        'palette re-open (recents-boost-max=60 > command boost=40)',
+    },
+  );
+
+  // ── 4. Clean up — close the palette + restore theme ─────────────
+  //
+  // Restoring theme is courtesy so subsequent scenarios in the same
+  // gate run aren't surprised by a leftover light/dark flip. The
+  // palette gate uses fresh contexts per scenario (see
+  // `serve-and-run-causa-feature-gate.cjs` §runScenarios — `await
+  // browser.newContext()` for each scenario), so this is belt-and-
+  // braces.
+  await closePalette(page);
+
+  state.paletteCmdK = {
+    themeBefore,
+    themeAfter,
+    topResultAfterFilter: filtered.rows[0],
+    topResultAfterRecents: recents.rows[0],
+    recentsRowCount: recents.rowCount,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -2188,6 +2439,71 @@ const SCENARIOS = [
     panels: ['machines'],
     coveredRows: ['Machines'],
     run: runLiveFollowDeepMachine,
+  },
+  {
+    // rf2-mpqxn — Phase 3 panel-control interactions: Views Group-By
+    // cycle. Cycles the three Group-By pills (Component → sub → tree
+    // → back to Component), asserting each click flips the pill's
+    // aria-pressed AND mounts the mode-specific body testid
+    // (rf-causa-views-groups / rf-causa-views-sub-grouped /
+    // rf-causa-views-tree).
+    //
+    // EXPECTED-FAIL until rf2-83d4x lands. rf2-83d4x is the follow-on
+    // bug bead filed from this scenario's first run: the Group-By
+    // pill's on-click dispatches WITHOUT `{:frame :rf/causa}`, so
+    // the event lands on `:rf/default` instead of `:rf/causa` (same
+    // shape as rf2-w8lxg / rf2-smvvz which fixed the palette +
+    // settings popup). The handler reduces the wrong db, Causa's
+    // `:group-by` slot stays on `:component`, the panel never flips.
+    // rf2-dodq2 (Views Group-By stuck) was the user-visible symptom;
+    // rf2-83d4x is the root-cause bead. Tests-only PR — the fix
+    // lands in views_view.cljs (and audit of sibling Causa view dispatch
+    // sites) under rf2-83d4x.
+    name: 'panel control: Views Group-By cycle (rf2-mpqxn)',
+    url: '/counter/',
+    panels: ['views'],
+    coveredRows: ['Views'],
+    run: runViewsGroupByCycle,
+  },
+  {
+    // rf2-mpqxn — Phase 3 panel-control interactions: density radio
+    // cycle. Opens Settings popup via `,` keybinding, then cycles the
+    // density radio cosy ↔ compact, asserting `--rf-causa-font-size`
+    // on `<html>` AND the shell root flips to the expected px value
+    // on each transition (12 for compact, 13 for cosy). Validates
+    // rf2-i40us's wire-up: the radio writes via `apply-density-font-
+    // size!` which sets the CSS custom property the entire
+    // `type-scale` resolves through. Note: v1 ships two pills only
+    // (rf2-ttnst dropped :comfy from the spec brief's three-tier
+    // list); the helper's DENSITY_RADIO_MODES catalog covers both
+    // pills.
+    name: 'panel control: density radio cycle (rf2-mpqxn)',
+    url: '/counter/',
+    panels: [],
+    coveredRows: [
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runDensityRadioCycle,
+  },
+  {
+    // rf2-mpqxn — Phase 3 panel-control interactions: Cmd-K palette
+    // execute round-trip. Ctrl+K opens palette → type "theme" fuzzy-
+    // filters to `:toggle-theme` (the verb's label "Toggle theme
+    // (dark ↔ light)" matches every char + the `:command` source
+    // boost of 40 ranks it first) → Enter invokes → assert the
+    // `rf-causa-theme-*` class on `<html>` flipped → re-open palette
+    // → assert the just-executed verb is at position 0 of the empty-
+    // query result list (recents-boost-max=60 > command boost=40,
+    // so the recent command strictly outranks every other :command
+    // item). Validates rf2-wm7z4 (palette dispatch round-trip) +
+    // rf2-ybjkx (recents persistence + sort).
+    name: 'panel control: Cmd-K palette execute (rf2-mpqxn)',
+    url: '/counter/',
+    panels: [],
+    coveredRows: [
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runPaletteCmdKExecute,
   },
 ];
 
