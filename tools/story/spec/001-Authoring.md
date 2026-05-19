@@ -72,13 +72,77 @@ no fn-slots):
  :args->events          {<arg-key> <event-id>}   ; arg → app-db mapping (spec/007 §Args mapping)
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
- :modes                 #{<mode-id> ...}}        ; cell = (variant × mode)
+ :modes                 #{<mode-id> ...}         ; cell = (variant × mode)
+ :causa-panel           <panel-kw>               ; (rf2-v1ach) default Causa panel for the RHS embed
+ :causa                 {:panel <panel-kw>       ;   nested form (same slot, alongside other :causa keys)
+                         :open?  <bool>          ;   per-story Causa preset — see §Causa preset slot
+                         :tab    <kw>            ;   (deprecated alias for :panel)
+                         :filters {...}
+                         :focus   {...}}}
 ```
 
 The `:rf/variant` schema (in
 [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md)) enforces the
 no-fn-slots rule. Stage 2 macros validate the body against this schema
 and reject with `:rf.error/variant-shape` on miss.
+
+#### `:causa-panel` — RHS Causa embed default (rf2-v1ach)
+
+The optional `:causa-panel` slot declares which Causa panel renders
+by default in the RHS Causa embed (per
+[`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane). The
+slot's value is one of the seven canonical Causa panel ids:
+
+| `:causa-panel` value | Causa panel rendered (chip label)             | Typical use case                                  |
+|----------------------|-----------------------------------------------|---------------------------------------------------|
+| `:event-detail`      | Event — six-domino cascade view (default)     | "What happened on the last event?"                |
+| `:app-db`            | App-db — structural diff across the cascade   | State-shape stories (counter, settings, modals)   |
+| `:views`             | Views — per-view sub-invalidation surface     | Reactive-graph debugging, sub-fan-out stories     |
+| `:trace`             | Trace — trace-buffer feed for the cascade     | Side-effect / fx-heavy stories                    |
+| `:machines`          | Machines — chart + arc/ring overlays          | Statechart-driven UIs                             |
+| `:routing`           | Routing — registered routes + simulate-URL    | Routing demos, deep-link stories                  |
+| `:issues`            | Issues — cascade-scoped issues feed           | Stories that exercise issue / warning surfaces    |
+
+The slot resolves variant-first, then story-level, then the framework
+default `:event-detail`. The user can swap panels at runtime via the
+chip-row picker in the RHS — their click is sticky for the session
+and overrides the declared default. Unknown keywords fall back to
+`:event-detail` so a typo doesn't blank the embed. The canonical id
+list lives in
+[`re-frame.story.ui.causa-embed/panel-catalog`](../src/re_frame/story/ui/causa_embed.cljs);
+the Causa-side mount surface (one `mount-<panel>!` per id) lives at
+[`day8.re-frame2-causa.panels`](../../causa/src/day8/re_frame2_causa/panels.cljs).
+
+Two equivalent forms are accepted on the variant (or story) body:
+
+```clojure
+;; Top-level form — recommended when there's no other :causa preset.
+(story/reg-variant :story.counter/at-five
+  {:events       [[:counter/initialise 5]]
+   :causa-panel  :app-db})              ; "state-shape story → app-db lens"
+
+;; Nested form — recommended when the variant also carries other
+;; :causa preset slots (`:open?` / `:filters` / `:focus`). Lets the
+;; author group all Causa-side configuration in one map.
+(story/reg-variant :story.routing/deep-link
+  {:events [[:router/navigate "/checkout/42"]]
+   :causa  {:panel   :routing
+            :filters {:out [:router/url-change]}}})
+```
+
+Both forms read the same logical slot — `:causa-panel` on the body
+beats `[:causa :panel]` nested. The variant body's `:causa-panel`
+also wins over the parent story's; the resolver lives in
+`re-frame.story.ui.causa-embed/resolve-panel`.
+
+Both the cross-package `:rf/variant` schema in
+[`Spec-Schemas.md`](../../../spec/Spec-Schemas.md) and Story's local
+`Variant` schema (`tools/story/src/re_frame/story/schemas.cljc`) are
+open by convention — the top-level `:causa-panel` keyword passes
+validation as an open-shape addition, and the nested form rides the
+`:causa` slot's `CausaPreset` schema (whose `:panel` key is locked
+there). See [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand
+pane and §Mount lifecycle for how the RHS embed consumes the slot.
 
 ### `(reg-workspace id metadata)`
 
