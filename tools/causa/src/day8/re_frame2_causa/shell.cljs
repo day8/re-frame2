@@ -118,6 +118,7 @@
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.share-modal :as share-modal]
+            [day8.re-frame2-causa.theme.global-styles :as global-styles]
             [day8.re-frame2-causa.theme.tokens :refer [tokens type-scale layout sans-stack mono-stack]]))
 
 ;; ---- internal frames + tab inventory ------------------------------------
@@ -1387,6 +1388,13 @@
   see the bead trail."
   [& [{:keys [mode modal-positioning]
        :or   {mode :inline modal-positioning :fixed}}]]
+  ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
+  ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
+  ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
+  ;; cluster commits extend this install with `@keyframes` + the
+  ;; reduced-motion seam so all global stylesheet writes converge on
+  ;; one entry point.
+  (global-styles/install!)
   ;; Idempotent app-db write so every modal can read the positioning
   ;; via the `:rf.causa/modal-positioning` sub. Guarded against
   ;; re-dispatch by comparing the current slot to the prop — once the
