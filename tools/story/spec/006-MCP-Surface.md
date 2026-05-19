@@ -57,6 +57,36 @@ process; the story runtime runs in the app.
 Story's core jar exposes these without depending on stdio / JSON-RPC.
 The MCP jar consumes them via the Tool-Pair bridge.
 
+### Wire-elision boundary — core is real-values-in, real-values-out
+
+Story core returns **marks-as-data**: the registered bodies and
+per-frame snapshots travel unchanged across the read primitives
+above, with `:sensitive` / `:large` declarations carried alongside as
+declarative metadata. The wire-elision substitution to `:rf/redacted`
+/ `:rf/large` happens at the **MCP jar's egress boundary**, NOT in
+Story core — every tool-response payload the MCP jar emits is passed
+through `re-frame.elision/elide-wire-value` before it crosses the
+JSON-RPC wire (per
+[spec/015 §3. MCP wire transport](../../../spec/015-Data-Classification.md#in-scope--the-five-observation-points-marks-must-guard)
+and [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md)).
+
+The split keeps Story's read surface composable:
+
+- **Crosses the wire elided** — every payload returned by a story-mcp
+  tool (`get-variant`, `run-variant`, `snapshot-identity`, registry
+  reads, recorder output). The MCP jar is the wire owner; egress is
+  where elision lands.
+- **Crosses the wire raw** — nothing the MCP jar emits. A future
+  in-process consumer that calls the read primitives directly
+  (without going through the MCP jar) gets real values; this is by
+  design so on-box devtool surfaces can read the same data
+  unredacted.
+
+Story core's contract is **real-values-in, real-values-out**;
+elision is the MCP jar's responsibility. The §Privacy posture in
+[`000-Vision.md`](000-Vision.md) §5 carries the same split as a
+Vision-level statement.
+
 ## Story's public write primitives (consumed by MCP write surface)
 
 ```clojure
