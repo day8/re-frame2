@@ -97,8 +97,8 @@ To discover the *active* variant in the user's canvas (the one currently visible
 
 ## Cross-references
 
-- Authoring variants — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/reference/tooling/stories.md).
-- Story-MCP self-healing loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/reference/tooling/story-mcp-loop.md).
+- Authoring variants — [`skills/re-frame2/references/tooling/stories.md`](../../re-frame2/references/tooling/stories.md).
+- Story-MCP self-healing loop — [`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../re-frame2/references/tooling/story-mcp-loop.md).
 - Recipes driving variants from re-frame2-pair — [`recipes.md`](recipes.md) §Drive a Story variant, §Diff two variants, §Refine a variant interactively.
 - The frame primitive itself — [`spec/002-Frames.md`](../../../spec/002-Frames.md).
 - Story runtime spec — [`tools/story/spec/002-Runtime.md`](../../../tools/story/spec/002-Runtime.md).
