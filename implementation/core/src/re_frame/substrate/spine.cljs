@@ -221,21 +221,141 @@
 (defn make-render
   "Build a `render` fn that registers every mounted React root in
   `active-roots-cell` and returns an unmount thunk that removes the
-  root from the cell before calling `.unmount`."
-  [active-roots-cell]
+  root from the cell before calling `.unmount`.
+
+  The user's `render-tree` is wrapped in a Fragment alongside an
+  `after-render-sentinel` element (rf2-334d9). The sentinel is a bare
+  React function component that fires `React.useLayoutEffect` on every
+  commit and drains the per-adapter after-render queue; it renders no
+  DOM. See `make-after-render-machinery` for the queue / sentinel
+  factory."
+  [active-roots-cell after-render-sentinel-cmp]
   (fn render [render-tree mount-point opts]
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
     ;; truthy values are undefined-behaviour (no defensive coercion).
-    (let [hydrate? (:hydrate? opts)
-          root     (if hydrate?
-                     (react-dom-client/hydrateRoot mount-point render-tree)
-                     (let [r (react-dom-client/createRoot mount-point)]
-                       (.render r render-tree)
-                       r))]
+    (let [hydrate?     (:hydrate? opts)
+          wrapped-tree (React/createElement
+                         (.-Fragment React)
+                         nil
+                         (React/createElement after-render-sentinel-cmp nil)
+                         render-tree)
+          root         (if hydrate?
+                         (react-dom-client/hydrateRoot mount-point wrapped-tree)
+                         (let [r (react-dom-client/createRoot mount-point)]
+                           (.render r wrapped-tree)
+                           r))]
       (swap! active-roots-cell conj root)
       (fn unmount []
         (swap! active-roots-cell disj root)
         (.unmount root)))))
+
+;; ---- after-render --------------------------------------------------------
+;;
+;; `:adapter/after-render` for React-only substrates (UIx, Helix) per
+;; rf2-334d9 (Mike decision rf2-neiqf 2026-05-19: publish via
+;; useLayoutEffect). Pre-rf2-334d9 the UIx and Helix adapters did NOT
+;; publish `:adapter/after-render`, so `(rf/after-render f)` under those
+;; adapters was a silent no-op — a correctness bug under the pre-alpha
+;; masterpiece posture.
+;;
+;; Architecture. Per-adapter queue cell + a sentinel function component
+;; injected at the root of every mounted tree (via `make-render`'s
+;; Fragment wrap). The sentinel uses `React.useLayoutEffect` to drain
+;; the queue after each commit — same DOM-mutations-applied / pre-paint
+;; timing semantics as Reagent's `r/after-render`. When `after-render`
+;; is called, the sentinel's stashed `setState` bumps a tick to force a
+;; commit so its `useLayoutEffect` fires and drains the queue.
+;;
+;; No-sentinel fallback. If `after-render` is invoked before any render
+;; has mounted (or after every root has unmounted), there is no stashed
+;; setter to drive a commit — fall through to `queueMicrotask` so `f`
+;; still fires once the current microtask boundary completes. Honest
+;; under both the "user dispatched a scroll-restore from a one-shot
+;; bootstrap event" path AND the "tests poke `interop/after-render`
+;; without mounting anything" path.
+
+(defn make-after-render-queue-cell
+  "Return a fresh `(atom [])` queue of pending after-render callbacks.
+  Each adapter owns its own cell so multiple React-shaped adapters can
+  coexist in a test bundle without clobbering each other's queue."
+  []
+  (atom []))
+
+(defn make-after-render-set-tick-ref
+  "Return a fresh `(atom nil)` slot the sentinel writes its `setState`
+  setter into on mount and clears on unmount. Each adapter owns its
+  own so the after-render hook below can route to the right adapter's
+  sentinel."
+  []
+  (atom nil))
+
+(defn- drain-after-render-queue!
+  "Atomically swap the pending-callbacks vector with empty and invoke
+  each in order. Per-fn throws are swallowed so one misbehaving callback
+  cannot strand the rest of the drain."
+  [queue-cell]
+  (let [[pending] (reset-vals! queue-cell [])]
+    (doseq [f pending]
+      (try (f) (catch :default _ nil)))))
+
+(defn make-after-render-sentinel
+  "Build the sentinel React function component for an adapter. The
+  sentinel returns nil (no DOM impact) and:
+
+    1. On mount, stashes its `setState` setter in `set-tick-ref` so
+       `:adapter/after-render` can trigger a commit. Cleared on unmount.
+    2. On every commit, fires `React.useLayoutEffect` to drain
+       `queue-cell` — same timing as `r/after-render`'s post-commit
+       run.
+
+  The sentinel uses raw React hooks (`React/useState`,
+  `React/useEffect`, `React/useLayoutEffect`) rather than the
+  substrate's hook ns so the same impl works for UIx, Helix, and any
+  future React-shaped substrate using this spine.
+
+  Returned value is the bare function component, suitable for
+  `(React/createElement sentinel-cmp nil)`."
+  [queue-cell set-tick-ref]
+  (fn after-render-sentinel [_props]
+    (let [tick+setter (React/useState 0)
+          set-tick    (aget tick+setter 1)]
+      (React/useEffect
+        (fn mount-effect []
+          (reset! set-tick-ref set-tick)
+          (fn cleanup []
+            ;; Only clear if it's still us — guards against a sentinel
+            ;; from a sibling root having claimed the slot in between.
+            (compare-and-set! set-tick-ref set-tick nil)))
+        #js [set-tick])
+      ;; No deps array — fires every commit, which is the contract
+      ;; (rf/after-render bumps the tick to force a commit, so the
+      ;; useLayoutEffect fires and drains).
+      (React/useLayoutEffect
+        (fn layout-effect []
+          (drain-after-render-queue! queue-cell)
+          js/undefined))
+      nil)))
+
+(defn make-after-render-hook
+  "Build the `:adapter/after-render` impl fn. The returned fn:
+
+    1. Enqueues `f` on `queue-cell`.
+    2. If the sentinel is mounted (`set-tick-ref` is non-nil), bumps
+       its tick — React schedules a commit, the sentinel's
+       `useLayoutEffect` fires, and the queue drains in
+       post-commit / pre-paint order.
+    3. Otherwise schedules a `queueMicrotask` drain so `f` still fires
+       once the current microtask boundary completes (covers the
+       pre-mount / post-unmount call paths)."
+  [queue-cell set-tick-ref]
+  (fn after-render-hook [f]
+    (swap! queue-cell conj f)
+    (if-let [set-tick @set-tick-ref]
+      (set-tick inc)
+      (if (exists? js/queueMicrotask)
+        (js/queueMicrotask #(drain-after-render-queue! queue-cell))
+        (.then (js/Promise.resolve) #(drain-after-render-queue! queue-cell))))
+    nil))
 
 (defn dispose-frame-sub-caches!
   "Walk every live frame's per-frame sub-cache and dispose each cached
@@ -602,6 +722,17 @@
         warn-fn            (make-warn-non-dom-root-fn warn-cache substrate-name)
         emitter-cell       (make-hiccup-emitter-cell)
         active-roots-cell  (make-active-roots-cell)
+        ;; rf2-334d9: after-render queue + sentinel component + the
+        ;; routed-hook impl. The adapter publishes the hook by passing
+        ;; `:after-render-hook` to `substrate-adapter/route-hook!`.
+        after-render-queue-cell    (make-after-render-queue-cell)
+        after-render-set-tick-ref  (make-after-render-set-tick-ref)
+        after-render-sentinel      (make-after-render-sentinel
+                                     after-render-queue-cell
+                                     after-render-set-tick-ref)
+        after-render-hook          (make-after-render-hook
+                                     after-render-queue-cell
+                                     after-render-set-tick-ref)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
         make-derived       (make-derived-value-fn gensym-prefix-derived)
         ;; Precompute the `use-subscribe` watch-key keyword namespace
@@ -618,7 +749,7 @@
                                (subs s 0 (dec n))
                                s))
         wrap-view-fn       (make-wrap-view warn-fn)
-        render-fn          (make-render active-roots-cell)
+        render-fn          (make-render active-roots-cell after-render-sentinel)
         dispose-fn         (make-dispose-adapter!
                              {:active-roots-cell active-roots-cell
                               :warn-cache        warn-cache
@@ -749,4 +880,7 @@
      :frame-provider              frame-provider
      :flush-views!                flush-views!
      :wrap-view                   wrap-view-fn
-     :clear-warned-non-dom-roots! clear-warned}))
+     :clear-warned-non-dom-roots! clear-warned
+     ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
+     ;; this via substrate-adapter/route-hook!.
+     :after-render-hook           after-render-hook}))

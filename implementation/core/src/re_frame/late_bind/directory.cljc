@@ -459,10 +459,12 @@
     :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx/Helix; absent-hook fallback returns false."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+                   re-frame.adapter.reagent-slim
+                   re-frame.adapter.uix
+                   re-frame.adapter.helix]
     :chained?    true
     :design-bead "rf2-s36l"
-    :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-jicu2 not published by UIx/Helix; absent-hook returns nil."}
+    :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-334d9 the UIx + Helix adapters publish a `React.useLayoutEffect`-backed impl via the spine's after-render machinery (closing the pre-rf2-334d9 silent no-op named in rf2-neiqf). Reagent + reagent-slim route through their substrate's native render scheduler."}
    {:key         :adapter/wrap-view
     :producer-ns '[re-frame.adapter.uix
                    re-frame.adapter.helix]
