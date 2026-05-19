@@ -69,6 +69,13 @@ checkout — only specific known files; never broad destructive resets.
 You are implementing bead **<BEAD_ID>** in <project description>.
 
 <project stance, obtained from operator — pre-alpha, production-stable, etc.>
+
+NEVER link to ai/findings/* from committed files (spec/*, docs/*, tools/*/spec/*,
+skills/*, migration/*, README.md). The /ai/ tree is gitignored; mkdocs strict's
+link-validator catches it at CI time and blocks unrelated PRs in cascade.
+If you need to cite a finding, inline a 1-sentence summary in the committed
+prose. The pre-PR lint `python scripts/check_doc_slugs.py` flags violations
+under defect category AI_FINDINGS_LINK (rf2-l7yj8).
 ```
 
 ## Worktree path convention
@@ -112,7 +119,9 @@ gaps, cross-artefact coupling); reference (surface paths, relevant spec
 docs, recent landings that changed the surface, prior audit findings to
 avoid re-discovering); worktree + boundary block + `--status=in_progress`;
 **WRITE THE FINDINGS DOC FIRST** to `ai/findings/<surface>-audit-YYYY-MM-DD.md`
-(gitignored — never commit findings); file follow-on beads ONE AT A TIME
+(gitignored — never commit findings, and never link to them from committed
+files — see Common preamble policy + `check_doc_slugs.py` AI_FINDINGS_LINK);
+file follow-on beads ONE AT A TIME
 after the doc lands, appending each bead ID to the audit-bead's notes so
 partial progress is durable across a watchdog timeout; close audit-bead
 with verdict + cross-refs; no PR by default (trivial one-line obvious

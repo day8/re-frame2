@@ -129,9 +129,8 @@ Source: lifted from
 
 This section is **load-bearing and conformance-level**, not guidance.
 The chart's runtime hot path is the single largest regression
-surface for Machines-Viz (per
-[`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
-findings 1+2; audit-bead rf2-j3iwt). Once an implementation couples
+surface for Machines-Viz (per `ai/findings/perf-audit-machines-viz-2026-05-14.md`
+findings 1+2 — gitignored working note; audit-bead rf2-j3iwt). Once an implementation couples
 live snapshot / trace ticks to graph recompute, the coupling is hard
 to remove without rewriting the rendering pipeline. The MUSTs below
 exist so that coupling never lands.

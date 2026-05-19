@@ -132,10 +132,11 @@ exports:
 - **Not** a visualiser-as-product. The Stately Visualizer +
   Stately Studio occupy that lane — paste-and-render editors,
   saved-machine registries, multiplayer canvases, commercial
-  SaaS shells. Per [`ai/findings/xstate-advanced-features-2026-05-13.md`](../../../ai/findings/),
-  Stately's own Visualizer is officially deprecated within their
-  docs (replaced by the commercial Stately Editor); investing in
-  the visualiser-as-product lane chases a sunsetted product.
+  SaaS shells. Per `ai/findings/xstate-advanced-features-2026-05-13.md`
+  (gitignored working note), Stately's own Visualizer is officially
+  deprecated within their docs (replaced by the commercial Stately
+  Editor); investing in the visualiser-as-product lane chases a
+  sunsetted product.
   Machines-Viz is the **component the framework's own tools
   embed**, plus a read-only viewer for shared URLs. See
   [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #1.

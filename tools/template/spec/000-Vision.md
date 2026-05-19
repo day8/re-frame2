@@ -36,7 +36,7 @@ a `dev/` tree
 `(rf/dispatch …)` experiments), and a minimal plain stylesheet at
 [`resources/public/css/app.css`](../src/clj/new/re_frame2/shared/resources/public/css/app.css).
 Rationale: see
-[ai/findings re-frame2-template-design §6](../../../ai/findings/) (Mike-locked SHIP 2026-05-12).
+`ai/findings/re-frame2-template-design.md` §6 (gitignored working note; Mike-locked SHIP 2026-05-12).
 
 ## Lineage
 
