@@ -419,6 +419,34 @@
           "destroying f1 did not clear f2's bookkeeping"))))
 
 ;; ===========================================================================
+;; rf/head-snapshot — public re-export (rf2-p1frh, parent rf2-ip6ol)
+;; ===========================================================================
+
+(deftest rf-head-snapshot-resolves
+  (testing "rf/head-snapshot is a public-Var on re-frame.core (rf2-p1frh)"
+    (let [v (resolve 're-frame.core/head-snapshot)]
+      (is (some? v) "rf/head-snapshot resolves to a Var")
+      (is (fn? @v)  "rf/head-snapshot is callable"))))
+
+(deftest rf-head-snapshot-returns-per-frame-map
+  (testing "rf/head-snapshot returns the per-frame
+            {head-id → last-produced head-model} snapshot — the same data
+            the internal re-frame.ssr.head/head-snapshot returns"
+    (rf/reg-head :head/pub-a (fn [_ _] {:title "Pub-A"}))
+    (rf/reg-head :head/pub-b (fn [_ _] {:title "Pub-B"}))
+    (let [f (rf/make-frame {:doc "rf/head-snapshot frame" :platform :server})]
+      (is (= {} (rf/head-snapshot f))
+          "empty pre-render")
+      (rf/render-head :head/pub-a {:frame f})
+      (rf/render-head :head/pub-b {:frame f})
+      (let [snap (rf/head-snapshot f)]
+        (is (= 2 (count snap)))
+        (is (= {:title "Pub-A"} (snap :head/pub-a)))
+        (is (= {:title "Pub-B"} (snap :head/pub-b)))
+        (is (= snap (head/head-snapshot f))
+            "rf/head-snapshot agrees with the internal snapshot reader")))))
+
+;; ===========================================================================
 ;; full integration — reg-head + reg-route + active-head + html emission
 ;; ===========================================================================
 

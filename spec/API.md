@@ -19,7 +19,7 @@
   |---|---|---|
   | `re-frame.core` | core | the registration / dispatch / subscribe / interceptor / lifecycle / configure surfaces; **late-binds re-exports for `re-frame.epoch`** (`epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-cb!`, `remove-epoch-cb!`) when the epoch artefact is on the classpath. |
   | `re-frame.test-support` | core | `dispatch-sequence`, `assert-state`, fixture machinery (per [§Testing](#testing)). |
-  | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `project-error` (per [§SSR](#ssr-spec-011)). |
+  | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`, `project-error` (per [§SSR](#ssr-spec-011)). |
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
   | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `at-boundary` (per [§Schemas](#schemas)). |
   | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
@@ -226,6 +226,7 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | 011 |
 | `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | 011 |
+| `head-snapshot` | Fn | `(head-snapshot frame-id)` → `{head-id → :rf/head-model}`. Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call (or whose snapshot has been cleared via per-request frame teardown). Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot` (rf2-ip6ol). Per [011 §Head/meta contract](011-SSR.md). | v1 | 011 |
 | `streaming-render-shell` | Fn | `(streaming-render-shell root-hiccup)` → `{:shell-html "…" :continuations [{:id <id> :subtree <hiccup>} …]}`. Walks the tree once; at each `:rf/suspense-boundary` emits a `<template …suspense-fallback>` placeholder + records a continuation. Per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — rf2-ojakd / rf2-olb64 (a). | v1 | 011 |
 | `streaming-render-continuation` | Fn | `(streaming-render-continuation frame-id entry)` → `{:id … :html "…" :delta {…} :failed? bool}`. Drains one continuation against `frame-id`'s app-db; snapshots before-db / after-db and computes the per-subtree delta. Catches throws and surfaces the original fallback HTML inline (per [011 §Failure semantics — inline fallback](011-SSR.md#failure-semantics--inline-fallback)). | v1 | 011 |
 | `streaming-build-final-payload` | Fn | `(streaming-build-final-payload frame-id render-hash opts)` → canonical `:rf/hydration-payload`. Called after all continuations drain to populate the `__rf_payload` final chunk. | v1 | 011 |
