@@ -179,7 +179,13 @@
                     :guard-id   guard-ref
                     :input      {:data  (:data snapshot)
                                  :event event}
-                    :outcome    (if outcome :pass :fail)})
+                    :outcome    (if outcome :pass :fail)
+                    ;; Per rf2-ko8jb: epoch-capture admission requires
+                    ;; `:frame`. `(:rf/frame machine)` is stamped by
+                    ;; `prepare-machine-ctx` (registration.cljc) before
+                    ;; the engine is invoked; nil-safe for pure-function
+                    ;; callers (conformance corpus, JVM fixtures).
+                    :frame      (:rf/frame machine)})
       outcome)))
 
 ;; ---- spawn-id allocator (in-snapshot) -------------------------------------
@@ -500,7 +506,9 @@
   [machine snap action-ref event]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
-          parent-id (or (:rf/parent-id machine) (:id machine))]
+          parent-id (or (:rf/parent-id machine) (:id machine))
+          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          frame-id  (:rf/frame machine)]
       (try
         (let [r (call-action f snap event)]
           (trace/emit! :machine :rf.machine/action-ran
@@ -508,7 +516,8 @@
                         :action-id  action-ref
                         :input      {:data  (:data snap)
                                      :event event}
-                        :outcome    (if (nil? r) :ok r)})
+                        :outcome    (if (nil? r) :ok r)
+                        :frame      frame-id})
           (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
           (trace/emit! :machine :rf.machine/action-ran
@@ -517,7 +526,8 @@
                         :input      {:data  (:data snap)
                                      :event event}
                         :outcome    :rf.error/action-threw
-                        :exception  e})
+                        :exception  e
+                        :frame      frame-id})
           (result/fail {:action-ref action-ref
                         :exception  e}))))
     {}))
@@ -587,7 +597,9 @@
   (when-not internal?
     (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
           epoch     (get-in snap-final (after-epoch-path machine))
-          server?   (= :server (:rf/platform machine))]
+          server?   (= :server (:rf/platform machine))
+          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          frame-id  (:rf/frame machine)]
       (vec
         (mapcat
           (fn [[prefix n]]
@@ -613,6 +625,7 @@
                                               :delay-source delay-source
                                               :epoch        epoch
                                               :platform     :server
+                                              :frame        frame-id
                                               :recovery     :skipped}
                                        (= :sub delay-source)
                                        (assoc :sub-id (first delay-key))))
@@ -621,7 +634,8 @@
                                               :state        leaf-state
                                               :delay        ms-tag
                                               :delay-source delay-source
-                                              :epoch        epoch}
+                                              :epoch        epoch
+                                              :frame        frame-id}
                                        (= :sub delay-source)
                                        (assoc :sub-id (first delay-key))))))
                     [:rf.machine/after-schedule
@@ -1197,6 +1211,9 @@
       (> depth depth-limit)
       (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
                              {:machine-id (:id machine) :depth depth
+                              ;; Per rf2-ko8jb: epoch-capture admission
+                              ;; requires `:frame`.
+                              :frame      (:rf/frame machine)
                               :recovery :no-recovery})
           (result/ok snap accum))
 
@@ -1229,8 +1246,14 @@
   branch is mutually exclusive given the `match` shape, but we spell
   them sequentially so listeners observe document order if a future
   match shape lights up more than one. No-op when `match` is nil or
-  carries no relevant marker."
-  [match]
+  carries no relevant marker.
+
+  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture
+  admission (`re-frame.epoch.capture/capture-event!` silently drops
+  events whose tags lack `:frame`). The caller threads `frame-id`
+  resolved from `(:rf/frame machine)` so timer-firing observability
+  reaches the cascade's `:trace-events` slot."
+  [frame-id match]
   (when match
     (when (:stale? match)
       (trace/emit! :machine :rf.machine.timer/stale-after
@@ -1238,13 +1261,15 @@
                     :delay           (:delay match)
                     :scheduled-epoch (:scheduled-epoch match)
                     :current-epoch   (:current-epoch match)
+                    :frame           frame-id
                     :recovery        :replaced-with-default}))
     (when (:guard-suppressed? match)
       (trace/emit! :machine :rf.machine.timer/fired
                    {:state  (:state match)
                     :delay  (:delay match)
                     :epoch  (:epoch match)
-                    :fired? false}))
+                    :fired? false
+                    :frame  frame-id}))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
@@ -1252,7 +1277,8 @@
                    {:state  (last (:decl-path match))
                     :delay  (:delay match)
                     :epoch  (:epoch match)
-                    :fired? true}))))
+                    :fired? true
+                    :frame  frame-id}))))
 
 (defn machine-transition-single
   "Pure function. Single-machine (flat or compound) implementation of the
@@ -1280,7 +1306,7 @@
         ;; Trace timer firing / staleness / guard-suppression BEFORE
         ;; running the transition, so listeners see events in the order
         ;; they occurred.
-        _ (emit-pick-traces! match)
+        _ (emit-pick-traces! (:rf/frame machine) match)
         result-after-event
         (cond
           (and match (:stale? match))
@@ -1316,6 +1342,9 @@
                                          {:machine-id (:id machine)
                                           :depth      depth
                                           :path       visited
+                                          ;; Per rf2-ko8jb: epoch-capture
+                                          ;; admission requires `:frame`.
+                                          :frame      (:rf/frame machine)
                                           :recovery   :no-recovery})
                       (result/ok snapshot []))
 

@@ -207,6 +207,7 @@
                                                         :action-id  :rf.invoke/on-done
                                                         :parent-id  parent-id
                                                         :invoke-id  invoke-id
+                                                        :frame      frame-id
                                                         :exception  e
                                                         :reason     ":on-done callback threw."
                                                         :recovery   :no-recovery})
