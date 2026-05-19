@@ -1,6 +1,6 @@
 # DESIGN-RATIONALE
 
-The 14 direction-setting decisions that shape Causa. Each entry
+The 17 direction-setting decisions that shape Causa. Each entry
 captures:
 
 - **The question** that was being decided.
@@ -608,6 +608,311 @@ Cascade.
 
 ---
 
+## Lock #15 — Two verbs, two homes
+
+**Locked 2026-05-19 (Mike).** **Browse-all in Static; focused-event
+in Runtime.** When a cohesive sub-domain (Routes, Machines, Views,
+Events, Schemas) has both a browse-all surface and a focused-event
+lens, they split across modes — the browse-all lives in Static; the
+focused-event lens lives in Runtime. They never cohabit one tab.
+
+### Question
+
+When a cohesive sub-domain (Routes, Machines, Views, Events,
+Schemas) has both a browse-all surface (the catalogue of registered
+items) and a focused-event lens (this cascade's slice of that
+sub-domain), do they cohabit one tab or split across modes?
+
+### Options considered
+
+- **(a) One tab carries both.** The Routes tab (or Machines, or
+  Schemas, …) toggles internally between "browse-all" and
+  "focused-event" via a sub-control. Mode pill becomes one axis;
+  the tab-internal toggle becomes a second axis the user has to
+  track.
+- **(b) Browse-all in Static; focused-event in Runtime.** The
+  browse-all surface is event-INDEPENDENT — it answers "what's
+  registered? what would simulate?"; the focused-event lens is
+  event-COUPLED — it answers "what did this cascade do to this
+  sub-domain?". Each lives where its causal stance fits the chrome
+  silhouette (Static = 3-layer event-independent; Runtime = 4-layer
+  event-coupled).
+- **(c) Only browse-all.** Drop the focused-event lens — let users
+  reconstruct the per-cascade slice from the Trace tab.
+- **(d) Only focused-event.** Drop the browse-all — let users find
+  the registry via REPL or source.
+
+### Pick
+
+**(b) Browse-all in Static; focused-event in Runtime.** The mode
+pill is the axis; nothing nested below it.
+
+### Why
+
+- **Browse-all is event-INDEPENDENT; focused-event is
+  event-COUPLED.** The two verbs live in different causal stances —
+  the chrome silhouette already signals which stance the user is
+  in (3-layer Static drops L2 entirely; 4-layer Runtime carries the
+  spine). Putting both verbs under one tab forces the user to read
+  *two* mode signals: the chrome shape AND the tab-internal toggle.
+  Splitting collapses to one signal.
+- **A tab-internal toggle creates a third axis.** Causa already
+  carries (i) the mode pill (Runtime vs Static) and (ii) the tab
+  choice within a mode. A third axis (browse-all vs focused-event
+  *within* a tab) is the kind of UX silt that grows over time —
+  every cohesive sub-domain would add its own variant, and the user
+  has to learn N sub-conventions. Lock #14's "chrome silhouette IS
+  the signal" requires one axis below the pill.
+- **The pattern generalises.** Routes locked it first (016 Routes
+  split); Machines arrived at the same shape de-facto (003 Machine
+  Inspector — Static catalogue vs Runtime focused-machine);
+  Schemas / Views / Events sub-tabs (rf2-o5f5f.4 / .5 / .6) will
+  re-ask the question if the lock is missing. Naming the pattern
+  here gives future contributors a single artefact to point at.
+- **Static surfaces are the catalogue; Runtime surfaces are the
+  lens.** Reading a Static tab is "show me the system as
+  registered"; reading a Runtime tab is "show me this cascade's
+  slice." The verb-per-mode split mirrors the underlying causal
+  shape; the chrome shape already telegraphs it.
+
+### Cross-reference
+
+- Builds on **Lock #14** (Two modes; H7 in the spec-currency
+  audit) — this lock is the convention that Lock #14's mode split
+  generates whenever a cohesive sub-domain spans both stances.
+- First consumer: **016 Routes** (rf2-o5f5f.3) — browse-all
+  catalogue in Static, focused-event lens in Runtime. The lock
+  cites this surface as the normative reference shape.
+- Future consumers: **003 Machine Inspector** (Static catalogue +
+  Runtime focused-machine), **Schemas** (rf2-o5f5f.4), **Views**
+  (rf2-o5f5f.5), **Events** (rf2-o5f5f.6).
+
+### Date locked
+
+2026-05-19 (Mike).
+
+### Trail-of-thought citations
+
+- `ai/findings/2026-05-19-causa-spec-currency-audit.md` §L3 —
+  flagged the missing lock; rf2-o5f5f.3 worker note surfaced the
+  pattern as generalisable.
+- rf2-vtd5z audit (Causa-JS-devtools lessons) — the source audit
+  that drove this session's polish locks.
+
+---
+
+## Lock #16 — machines-viz as its own tool jar
+
+**Locked 2026-05-19 (Mike).** **`tools/machines-viz/` is the
+canonical home of the MachineChart primitive; Causa depends on it
+and re-exports the public chart API via thin shims.** Multiple
+consumers (Causa panel chrome, Story per-variant ribbons, the
+read-only viewer page, the user-app drop-in) share one chart
+implementation behind a stable jar.
+
+### Question
+
+Where does the MachineChart primitive (the SVG / ELK rendering of a
+machine's states + transitions + the active-state highlight) live?
+
+### Options considered
+
+- **(a) Causa-internal.** (Earlier direction, pre-2026-05-19.)
+  The chart collapses into Causa with `tools/machines-viz/` as a
+  stub. Every consumer pays for Causa's panel chrome to embed the
+  chart.
+- **(b) `tools/machines-viz/` as its own tool jar.** The canonical
+  chart lives at `tools/machines-viz/src/`; Causa depends on it and
+  re-exports the public chart API via thin shims for
+  embedding-consumer convenience. Story per-variant panels, the
+  read-only viewer page, and the user-app drop-in can depend on
+  `machines-viz` alone without pulling Causa.
+- **(c) Framework-internal** (e.g.
+  `implementation/machines/svg.cljc`). The chart ships as part of
+  the machines artefact; tools consume it like any other framework
+  surface.
+
+### Pick
+
+**(b) `machines-viz` as its own tool jar.** Causa depends on it and
+re-exports the public chart API via thin shims.
+
+### Why
+
+- **Multiple consumers need the chart.** Causa's Machines tab
+  embeds it inside panel chrome; Story's per-variant ribbons embed
+  it inline beside snapshot diffs; the read-only viewer page
+  (linkable URL → live machine chart) embeds it standalone; the
+  user-app drop-in (an opt-in component for production apps that
+  want to surface machine state to non-devtool users) embeds it
+  inside the user's own chrome. Option (a) forces every consumer
+  to pay for Causa's panel chrome surface; option (b) lets each
+  consumer compose the chart into its own chrome.
+- **Framework / tool boundary stays clean.** The chart is a
+  *visualisation* — a tool concern (rendering a machine for human
+  inspection). The framework owns the data plane
+  (`reg-machine`, `get-machine-state`, the FSM step semantics).
+  Option (c) muddies that boundary by putting a viz primitive
+  inside the framework artefact, which then has to grow a
+  React/Reagent dependency it doesn't otherwise need. The
+  `tools/` tree is exactly where tool-shaped artefacts belong.
+- **Per-jar release cadence + bundle-isolation tests.** A
+  dedicated tool jar gets the standard tool-jar discipline:
+  per-jar version, per-jar deps, per-jar tests, and
+  `npm run test:bundle-isolation` guarantees the chart never
+  leaks into a production bundle that didn't ask for it. Option
+  (a) couples the chart's release to Causa's; option (c) couples
+  it to the framework's. Both inflict cadence drag on consumers
+  who only want the chart.
+- **Causa re-exports the public API via thin shims.** Embedding
+  consumers that already depend on Causa (Story per-variant
+  ribbons live in the Story jar but the per-variant snapshot diff
+  panel inside Causa's Static-Machines tab uses the chart) can
+  reach the chart API through Causa's namespace without an extra
+  dep declaration. The shim is documented as "this re-exports
+  `tools/machines-viz/`; depend on machines-viz directly if you
+  don't otherwise depend on Causa."
+
+### Cross-reference
+
+- **H1 (003 Architectural posture update)** — the inversion was
+  recorded in spec 003 §Architectural posture during the
+  spec-currency audit follow-on.
+- **H6 (000 dependency arrow update)** — the dependency-graph
+  artefact in 000 was redrawn so Causa → machines-viz (not
+  machines-viz → Causa).
+- **M8 (008 embed status update)** — 008 Embedding catalogues
+  the consumer surfaces; the lock cites the four-consumer set as
+  the reason for the inversion.
+- **PR #1570 / rf2-o9arp** — the implementation that inverted the
+  earlier direction. This lock records the inversion as a
+  Mike-locked decision so a future contributor reading 003 + 000
+  doesn't see contradicting claims.
+
+### Date locked
+
+2026-05-19 (Mike).
+
+### Trail-of-thought citations
+
+- `ai/findings/2026-05-19-causa-spec-currency-audit.md` §L4 —
+  flagged the missing lock and the contradicting spec language.
+- rf2-vtd5z audit (Causa-JS-devtools lessons) — the source audit
+  that drove this session's polish locks.
+
+---
+
+## Lock #17 — Visual language locks (REJECT patterns)
+
+**Locked 2026-05-19 (Mike) per rf2-vtd5z audit.** **Three REJECTs
+as one lock**: (1) no commodity fonts; (2) no
+addon-per-concern growth; (3) no pixels-as-first-class. Magic
+numbers are reviewable as bugs.
+
+### Question
+
+What does Causa's visual identity actively reject? The
+spec-currency audit + Causa-JS-devtools comparison surfaced
+three patterns peer tools (TanStack Query Devtools, Vue DevTools,
+Vite DevTools) drifted into; the lock names the rejection.
+
+### Options considered
+
+This lock is direction-setting via *what it refuses*, not
+between alternatives. The three REJECTs are:
+
+- **(1) No commodity fonts.** Fraunces (display face) for the L1
+  ribbon + mode pill + chord callouts; Inter for UI sans;
+  JetBrains Mono for data. NOT `system-ui` / `-apple-system` /
+  the OS default sans as the chrome face. Peer tools that
+  defaulted to `system-ui` lost type identity entirely —
+  Fraunces is the typographic signal that "this is Causa, not a
+  panel inside Chrome DevTools."
+- **(2) No addon-per-concern growth.** One density knob — one
+  CSS variable — `--rf-causa-font-size`. Not three different
+  size axes per addon. The Cmd-K palette is the cross-tab nav
+  primitive; NOT per-tab burger menus / per-tab settings sheets
+  / per-tab visibility toggles. Peer tools that grew
+  addon-per-concern accumulated UX silt — every new addon added
+  its own size knob, its own visibility toggle, its own
+  burger; the chrome becomes mostly chrome.
+- **(3) No pixels-as-first-class.** Every type / spacing /
+  motion value is a token — type-scale resolved via a calc
+  anchor from `--rf-causa-font-size`; spacing on the 4-px grid;
+  motion via the three duration tiers in Principles.md. Magic
+  numbers in CSS or inline styles are reviewable as bugs. Peer
+  tools that hard-coded pixels couldn't roll a density tier
+  without combing every component; tokens make the surface
+  re-themable end-to-end.
+
+### Pick
+
+**All three REJECTs, as one lock.** The lock is direction-setting:
+PRs that introduce a commodity font, an addon-per-concern, or a
+hard-coded pixel value are reviewable bugs.
+
+### Why
+
+- **Causa's UX is dev-tool-class.** The audit found peer tools
+  that drifted to commodity fonts + addon-soup + magic-number
+  sprawl as they grew. The drift is gradual and individually
+  defensible at each step ("just one more size knob"; "Inter is
+  fine"; "this one inline `padding: 7px`"). The lock prevents
+  the gradient.
+- **Fraunces as the display face is the single strongest
+  identity signal.** Peer tools that used `system-ui` were
+  indistinguishable from one another and from the host browser
+  chrome. Fraunces says "Causa" before the first character is
+  read. Inter for UI sans + JetBrains Mono for data are the
+  standard pairings — they're not exotic; they're the
+  considered choices, not the defaults.
+- **One density knob is the right number.** A debugger user
+  wants to scale the *whole* surface up or down (small monitor,
+  large monitor, projector demo, sharing-screen-in-a-meeting);
+  they don't want to scale "the trace timestamps" independently
+  of "the event vector" independently of "the tab labels."
+  `--rf-causa-font-size` is the single source; everything else
+  resolves via calc anchor. Lock #17 says addon authors can't
+  introduce per-addon size axes; they must consume the global
+  knob.
+- **Cmd-K is the nav primitive.** A single palette replaces
+  per-tab burger menus / per-tab "more" overflows / per-tab
+  settings sheets. Users learn ONE chord, get ALL the surface
+  area; addon authors register actions into the palette
+  registry, not into per-tab chrome.
+- **Tokens make Causa re-themable end-to-end.** The three
+  duration tiers in Principles.md (instant / quick / measured)
+  + the 4-px spacing grid + the calc-anchored type scale + the
+  named palette tokens are the entire surface area. Anything
+  outside this set is a bug; anything inside is a knob.
+
+### Cross-reference
+
+- **rf2-vtd5z** — the audit that produced the REJECT patterns
+  (Causa-JS-devtools lessons).
+- **rf2-5kfxe** — design polish session that consumed all three
+  REJECTs as live constraints.
+- **rf2-n8i2c** — `--rf-causa-font-size` calc-anchor
+  implementation; the single density knob.
+- **rf2-ybjkx** — Cmd-K palette as the single nav primitive
+  (rather than addon-per-tab burger menus).
+- **Principles.md** §Motion — the three duration tiers
+  (instant / quick / measured) that motion tokens resolve to.
+
+### Date locked
+
+2026-05-19 (Mike).
+
+### Trail-of-thought citations
+
+- `ai/findings/2026-05-19-causa-js-devtools-lessons.md` — the
+  audit doc that catalogued peer-tool drift and surfaced the
+  three REJECTs.
+- `ai/findings/2026-05-19-causa-spec-currency-audit.md` §L5 —
+  flagged the missing lock during the spec-currency sweep.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -626,7 +931,10 @@ Cascade.
 | 12 | Conversation persistence | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 13 | Voice STT | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 14 | Two modes (Runtime + Static) | **Two modes within one tool — chrome silhouette IS the signal; pill is the toggle** | 2026-05-19 |
+| 15 | Two verbs, two homes | **Browse-all in Static; focused-event in Runtime** | 2026-05-19 |
+| 16 | machines-viz home | **`tools/machines-viz/` as own tool jar — Causa depends + re-exports** | 2026-05-19 |
+| 17 | Visual language REJECTs | **No commodity fonts · no addon-per-concern · no pixels-as-first-class** | 2026-05-19 |
 
-The 14 locks together define the v1.0 surface. Anything outside
+The 17 locks together define the v1.0 surface. Anything outside
 these decisions is up for design discussion; anything inside is
 direction-set and shipped.
