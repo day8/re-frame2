@@ -135,6 +135,11 @@
    :rf.causa/event-detail
    :rf.causa/filtered-cascades
    :rf.causa/focus
+   ;; rf2-70tkv — App-DB diff subs pivot off the spine's focus
+   ;; `:epoch-id` (which auto-tracks head in LIVE mode) instead of
+   ;; the legacy `:selected-epoch-id` slot (which only updates on
+   ;; explicit user clicks). This sub is the thin projection seam.
+   :rf.causa/focus-epoch-id
    ;; rf2-a1z3b — focus-navigation primitive slot sub.
    :rf.causa/focus-set
    :rf.causa/focus-slot
