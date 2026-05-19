@@ -122,6 +122,132 @@ body.
   out of scope; the epoch scrubber inside Causa's embedded panel is
   the equivalent in re-frame2's data-space.
 
+## Privacy posture (path-level data classification — Spec 015)
+
+Story participates in the framework's path-level data-classification
+contract ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
+Story is **not** a separate observation surface that needs its own
+classification machinery — it consumes the framework's existing
+sentinels (`:rf/redacted`, `:rf/large`) and propagation graph at the
+boundaries it owns.
+
+The posture is normative across Story's surfaces:
+
+1. **Authoring — variant authors may declare path-marks per frame.**
+   Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md))
+   and a variant's body MAY include `(re-frame.core/reg-marks
+   <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare
+   per-frame `app-db` marks (per
+   [spec/015 §2. App-db (per frame) — `reg-marks`](../../../spec/015-Data-Classification.md#2-app-db-per-frame--reg-marks)).
+   The `:loaders` / `:events` / `:play` registrations on a variant
+   continue to accept `:sensitive` / `:large` on their registration
+   maps via the standard registration grammar
+   (per [spec/001 §Registration grammar](../../../spec/001-Registration.md)).
+   No Story-specific declaration grammar — Story uses the framework's.
+2. **Display contract — canvas and Causa-RHS render sentinels.** The
+   canvas itself never observes raw `app-db` (the variant view does);
+   but the diagnostic surfaces Story embeds — the docs / test mode
+   panes, the Causa-RHS chip-row panels (`:app-db`, `:event-detail`,
+   `:trace`, `:machines`, `:views`, `:routing`, `:issues`), the
+   schema-validation pane — render `:rf/redacted` per spec/015
+   §Display contract. Causa is the in-tree consumer; the contract is
+   "render the sentinel; do NOT offer a click-to-expand affordance
+   that reveals the underlying value" (per
+   [spec/015 §The display contract](../../../spec/015-Data-Classification.md#the-display-contract--sentinels)).
+3. **Assertion vocabulary — path-marked args resolve to sentinels.**
+   The seven `:rf.assert/*` events (per
+   [`004-Assertions.md`](004-Assertions.md)) build assertion records
+   whose `:actual` / `:expected` / `:payload` slots pass through
+   `re-frame.elision/elide-wire-value` at record-build time. An
+   assertion of `:rf.assert/path-equals [:auth :token] :rf/redacted`
+   against a path-marked-sensitive slot records `:actual :rf/redacted`,
+   NOT the raw value — the assertion records ARE an observation
+   surface and obey the same redaction contract as the trace bus.
+   See [`004-Assertions.md`](004-Assertions.md) §Privacy + the
+   `Assertion-with-redaction` row in
+   [`015-Test-Coverage.md`](015-Test-Coverage.md) §Assertion
+   vocabulary scenarios.
+4. **Error-projection records — same posture.** The
+   `:rf.error/exception` projection record (per
+   [`002-Runtime.md`](002-Runtime.md) §Error projection) honours
+   event-level `:sensitive` declarations and passes `ex-data` through
+   `re-frame.elision/elide-wire-value` before the record lands in
+   `:assertions`. Exception messages are NOT auto-walked — that's the
+   spec/Security.md §Author guidance for exceptions under path-level
+   `:sensitive?` rule (rf2-dv79m). See
+   [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy.
+5. **MCP read surface — Story core returns marks-as-data; MCP jar
+   owns wire elision.** Story's core (`re-frame.story` and the
+   tool-owned registry side-table) returns the registered bodies and
+   per-frame snapshots unchanged — marks travel with the data as
+   declarative metadata. The wire-elision substitution to
+   `:rf/redacted` happens at the MCP jar's egress boundary
+   ([`tools/story-mcp/`](../../story-mcp/)) per
+   [spec/015 §3. MCP wire transport](../../../spec/015-Data-Classification.md#in-scope--the-five-observation-points-marks-must-guard)
+   and [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md).
+   This split keeps Story's read surface composable (a future
+   in-process consumer needs raw values; an off-box agent gets the
+   sentinels).
+6. **Recorder + dispatch-console — path-level redaction extends the
+   existing `:rf/redacted` placeholder.** The recorder (per
+   [`005-SOTA-Features.md`](005-SOTA-Features.md)
+   §Recorder / test codegen) already honours event-level
+   `:sensitive?` by dropping the event payload (per
+   [spec/Security.md §Recorder redact-but-record](../../../spec/Security.md);
+   per rf2-hdadz). With path-level marks, the recorder additionally
+   substitutes `:rf/redacted` at arg-paths the elision registry
+   resolves on the recorded event-vector — narrower than the
+   event-level drop, more useful for replay. The dispatch console
+   (the `:trace/show-sensitive?` knob in `configure!`) gates whether
+   the on-box devtool surfaces the underlying values when set true
+   (per [spec/Security.md §`include-sensitive?` vs `show-sensitive?`
+   verb split](../../../spec/Security.md)).
+7. **Snapshot-identity content-hash computes over real values.** The
+   `snapshot-identity` content-hash (per
+   [`002-Runtime.md`](002-Runtime.md) §Snapshot-identity computation)
+   hashes the canonical form of the variant's render-relevant inputs
+   *before* any sentinel substitution. Two reasons: (a) the
+   visual-regression services keying on the hash need stability under
+   real values — a sentinel-substituted hash would change every time
+   the elision registry's path set changed; (b) the snapshot is
+   computed in-process where the consumer (Story's identity helper)
+   already operates on real values. The hash itself never leaves the
+   process unredacted; if a downstream tool emits the hash plus the
+   inputs that produced it, the inputs go through the wire-elision
+   walker per §5 above.
+
+**Knob — the event-level `:trace/show-sensitive?` flag.** The legacy
+event-level `:sensitive?` flag (declared on `reg-event` per
+[spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md))
+remains valid and Story honours it. The
+`configure! {:trace/show-sensitive? true}` knob is the on-box dev
+override (`show-sensitive?` verb, on-box UI visibility per
+[spec/Security.md §`include-sensitive?` vs `show-sensitive?` verb
+split](../../../spec/Security.md)). Off-box wire egress (the MCP jar)
+gates on the parallel `include-sensitive?` verb and defaults to
+suppress. The two knobs do NOT collide — they govern different
+surfaces.
+
+**What Story is NOT.** Story does not invent its own classification
+vocabulary, its own sentinel set, or its own propagation rules.
+Anywhere Story's contract appears silent on privacy, the framework's
+spec/015 contract applies — Story is downstream consumer, not an
+independent declaration site.
+
+Cross-references:
+
+| Concern | Source |
+|---|---|
+| Path-marking grammar | [spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md) |
+| Propagation rules | [spec/015 §Propagation rules](../../../spec/015-Data-Classification.md#propagation-rules) |
+| Exception-path residual | [spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`](../../../spec/Security.md) (rf2-dv79m) |
+| Event-level `:sensitive?` (legacy / parallel) | [spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md) |
+| Wire-elision walker | [spec/API.md §elide-wire-value](../../../spec/API.md) |
+| MCP-side elision | [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md) + [`tools/mcp-base/spec/sensitive.md`](../../mcp-base/spec/sensitive.md) |
+| Knob verb split | [spec/Conventions.md §Privacy config-knob naming](../../../spec/Conventions.md) |
+| Error projection (Story-side) | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |
+| Assertion-side redaction | [`004-Assertions.md`](004-Assertions.md) §Privacy |
+
 ## Research lineage
 
 Two pieces of committed research informed the design; both live in

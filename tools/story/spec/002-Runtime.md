@@ -182,6 +182,63 @@ continues past phase-1 or phase-2 errors so the full picture is
 captured (see
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §record-not-throw).
 
+### Privacy
+
+The `:rf.error/exception` assertion record is an emission site like any
+other and obeys the framework's path-level data-classification contract
+([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
+Two rules, both inherited from the spec/015 §Propagation rules and
+spec/Security.md §Author guidance for exceptions under path-level
+`:sensitive?` (rf2-dv79m):
+
+1. **Event-level `:sensitive?` honoured.** If the event that triggered
+   the exception was registered with `{:sensitive [paths]}` (per
+   [spec/015 §1. Event-args → app-db](../../../spec/015-Data-Classification.md#1-event-args--app-db)),
+   the assertion-recorder treats the `:rf.error/exception` record as it
+   does any other trace-bus emission: marked paths in the captured
+   event-args resolve to `:rf/redacted` before landing in
+   `:assertions`. The runtime does NOT bypass elision because the
+   record is shaped as an error.
+2. **`ex-data` and exception `:message` are NOT auto-walked.** Per
+   spec/015 §Out of scope and spec/Security.md §Author guidance for
+   exceptions under path-level `:sensitive?`, the framework cannot
+   redact values an author concatenated into the message string or
+   assigned to author-chosen `ex-data` map keys — those slots are not
+   reachable from the path-marked declarations the walker consults.
+   The `:error {:message ... :data ...}` slot inside the
+   `:rf.error/exception` record reproduces what the author threw; the
+   variant pane and Causa Event Detail render it verbatim.
+
+**Author responsibility.** When throwing inside a handler that reads
+sensitive-path values:
+
+- Name the *category* of failure in the exception message
+  (e.g. `"Invalid credentials"`), not the value
+  (`(str "User " email " failed login")`).
+- Substitute `:rf/redacted` at sensitive `ex-data` keys at assembly
+  time, or omit the keys entirely. The per-app `safe-throw` helper
+  convention (per
+  [spec/015 §Author guidance for the exception-path residual](../../../spec/015-Data-Classification.md#author-guidance-for-the-exception-path-residual))
+  is the recommended pattern.
+
+**ex-data passes through `re-frame.elision/elide-wire-value` before
+landing in `:assertions`.** The wire-elision walker (per
+[spec/API.md §elide-wire-value](../../../spec/API.md))
+substitutes sentinels at any path the elision registry resolves on the
+`ex-data` map — so an author who DID populate `ex-data` with values
+sourced from path-marked app-db slots gets transitive redaction at
+record-build time. The residual leak surface is therefore narrowed to
+exactly the case spec/Security.md flags: an author who interpolated a
+sensitive value into the message string, or assigned it to an
+author-keyed `ex-data` slot that does not correspond to a marked path.
+That gap is closed by author discipline, not framework taint
+tracking — see [spec/015 §Propagation rules](../../../spec/015-Data-Classification.md#propagation-rules)
+for the boundary the framework does enforce.
+
+The same redaction posture applies whether the exception lands in
+phase 1 (loaders), phase 2 (events), phase 3 (render), or phase 4
+(play); the error-projection code path is shape-uniform across phases.
+
 ## Snapshot-identity computation
 
 Per
