@@ -13,7 +13,7 @@ event**:
 | **App-db** (`a`) | "What changed because of this event?" — slice diff. |
 | **Views** (`v`) | "Why did these views re-render?" — sub invalidation chain. |
 | **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. |
-| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. |
+| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). |
 | **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. |
 
 Plus popovers (`r` nav-token timeline · `f` wire-trace
@@ -290,6 +290,53 @@ the single-line row drops: timestamp, cascade sequence number,
 duration, tier, source coord, arg-map preview (via `inspect-inline`).
 See [`018-Event-Spine.md`](./018-Event-Spine.md) §4 for the full
 tooltip wireframe.
+
+## Runtime Machines panel shape (post-rf2-y9xmf)
+
+The L4 content of the **Machines** tab is **event-driven only**. The
+panel never carries exploratory chrome (no picker, no Mode A/B/C
+selector, no sub-strip, no arc / scrubber). It renders one of three
+shapes based on the focused event's machine activity:
+
+```
+┌─ Machine inspector ──────────────────────────────  [Prev][Next] [⤴ Share] ─┐
+│                                                                            │
+│ — case A: no machines registered —                                         │
+│   "No machines registered." (Prev/Next + Share hidden)                     │
+│                                                                            │
+│ — case B: machines registered, focused event has NO transitions —          │
+│   "No machine activity in the focused event."  (Prev/Next hidden)          │
+│                                                                            │
+│ — case C: focused event triggered ≥1 transitions —                         │
+│ ┌─────────────────────────────────────────────────────────────────────┐    │
+│ │ :auth/login   :idle → :authing                       [:auth/submit] │    │
+│ │ ┌──────────────────────────────────────────────────────────────────┐│    │
+│ │ │   [chart canvas] FROM-dashed → TO-bold;   :after rings overlay  ││    │
+│ │ └──────────────────────────────────────────────────────────────────┘│    │
+│ │ Guards    ✓ :session-fresh?                                          │    │
+│ │ Actions   ✓ :clear-form                                              │    │
+│ │ Cancellation cascade (when present, inline)                          │    │
+│ └─────────────────────────────────────────────────────────────────────┘    │
+│ … one section per transitioned machine, document order …                   │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Header affordances** (right-aligned, hidden in cases A/B):
+
+- **Prev / Next**: walk the spine's epoch history to the prior/next
+  epoch whose cascade ALSO touched the **focused machine** (the head
+  section's `machine-id`).
+- **Share**: opens the share modal; encodes the focus + selected-tab +
+  scrubber-position into a URL. The legacy `:mode` slot (forced Mode
+  A/B/C) is no longer emitted; legacy URLs carrying it are silently
+  dropped on restore.
+
+**The Sim engine + browse-all index live in code but have no Runtime UI.**
+Sibling bead rf2-r4nao re-hosts the Sim toggle / side-rail + the
+browse-all entry point under a future Static surface; the registered
+`:rf.causa/sim-*` events / subs are unchanged so the re-host doesn't
+re-implement engine algebra. Until that lands, programmatic callers
+can drive Sim against `:rf/causa` directly.
 
 ## IN/OUT filter pills
 

@@ -1,10 +1,33 @@
 # 003-Machine-Inspector
 
+> **2026-05-19 collapse note (rf2-y9xmf):** the Runtime Machines panel
+> is now **event-driven only**. The panel is BLANK when the currently
+> focused event triggered no machine transitions; it renders one
+> per-machine section (topology + transition highlight + guards +
+> actions + cancellation cascade + `:after` rings) when the focused
+> event did trigger transitions. Per-machine prev/next navigation
+> walks the spine's epoch history to the prior/next event that ALSO
+> touched the focused machine.
+>
+> **What this collapse removed from the Runtime surface:** the Mode A/B/C
+> picker chrome, the sub-strip (Topology/Sim/Instances/Cluster), the
+> picker-driven Sim ribbon UI, the multi-instance aggregate (Mode C
+> cluster view), the per-instance arc + mini-scrubber, and the
+> Browse-all entry point. The **Sim engine** (sub/event family at
+> `:rf.causa/sim-*`) and the **browse-all index** remain registered in
+> code so a future Static surface (sibling bead rf2-r4nao) can mount
+> them without re-implementing the algebra. Sections below describing
+> those removed UI ribbons are kept as historical reference for the
+> Static re-host effort; they no longer describe what the Runtime
+> Machines panel renders.
+
 The Machines tab (tab 5 of 6 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
-state-chart per registered machine, plus an interactive simulation
-mode (UC1) and dynamic multi-instance views (UC2 Mode A/B/C). The
-state-chart layout primitive lives Causa-internal at
+state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
+the focused event's machine activity only; the interactive simulation
+(UC1) + dynamic multi-instance views (UC2 Mode A/B/C) descriptions in
+later sections are normative for the Static re-host, NOT for the
+Runtime tab. The state-chart layout primitive lives Causa-internal at
 `tools/causa/src/day8/re_frame2_causa/chart/{layout,svg,interaction}.cljc`.
 
 The Machines tab is the **single most distinctive Causa surface** because
@@ -15,6 +38,60 @@ parallel regions, supervision trees. Causa is the only place these
 contracts become legible. Bug-class motivation for each major feature in
 [§The bug catalogue](#the-bug-catalogue) below; see also
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.1.
+
+## Post-collapse Runtime panel shape (rf2-y9xmf)
+
+The Runtime Machines panel renders one of three states:
+
+1. **No machines registered** → empty-state message: "No machines
+   registered."
+2. **Machines registered, focused event has no transitions** → BLANK
+   state: "No machine activity in the focused event."
+3. **Focused event triggered ≥1 transitions** → one section per
+   transitioned machine, document order:
+    - Header: `<from-state> → <to-state>` with the event vector right-
+      aligned.
+    - Topology chart (ELK+SVG primitive) with the FROM state drawn
+      dashed/accent-violet and the TO state bold/cyan; connecting edge
+      emphasised. `:after` countdown rings overlay armed timer
+      states.
+    - Guards list (when the trace carried guard-evaluated events for
+      this transition).
+    - Actions list (when the trace carried action-ran events).
+    - Cancellation cascade (inline, via the existing
+      `[cancellation-cascade/SidePanel]` reg-view — dormant when no
+      cancellation lands in the trace window).
+
+The header carries:
+- A **Share button** (right-aligned).
+- A **prev/next nav** (`◀ Prev` / `Next ▶`) that walks the spine's
+  epoch history to the prior/next epoch whose cascade ALSO touched
+  the focused machine. The "focused machine" is the head section's
+  `machine-id` (the cascade may touch several; nav scope is the first).
+  Hidden when no machine is in scope (the blank or empty-state branches).
+
+## What is NOT in the Runtime panel post-rf2-y9xmf
+
+- No machine picker (the panel is event-driven; no exploratory
+  selection).
+- No sub-strip (Topology / Sim / Instances / Cluster).
+- No Mode A/B/C dynamic instance views; no `:rf.causa/forced-machine-
+  mode` slot.
+- No Sim toggle / Sim side-rail UI in the Runtime panel header. The
+  `SimSideRail` view is still exported by `panels/machine_inspector_sim.
+  cljs` for the future Static re-host; the `:rf.causa/sim-*` engine
+  events / subs remain registered against the `:rf/causa` frame.
+- No per-instance arc overlay; no mini-scrubber. The
+  `:rf.causa/machine-scrubber-position` SLOT survives (read/write
+  events still registered) because the share-URL round-trips it; the
+  scrubber UI itself is gone.
+- No Browse-all UI entry. The browse-all index algebra in the
+  helpers ns remains for the Static re-host.
+
+The historical Mode A/B/C / Sim sub-strip / arc / scrubber / cluster
+descriptions in subsequent sections are preserved as design-reference
+for the rf2-r4nao Static re-host; they DO NOT describe the Runtime
+panel.
 
 ## Architectural posture
 

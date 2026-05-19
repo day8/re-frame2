@@ -75,9 +75,20 @@
             [day8.re-frame2-causa.chart.layout :as chart-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.machine-after-rings-helpers
-             :as rings-h]
-            [day8.re-frame2-causa.panels.machine-inspector-arc-helpers
-             :as arc-h]))
+             :as rings-h]))
+
+;; ---- positioned-nodes index --------------------------------------------
+;;
+;; Build a `{node-id node}` map for cheap ring-overlay lookups. Inlined
+;; here (rf2-y9xmf) so the rings overlay does not depend on
+;; `machine_inspector_arc_helpers.cljc` (deleted with the arc UI).
+
+(defn- nodes->index
+  "Build a `{node-id node}` map for the positioned graph. Pure fn."
+  [positioned-nodes]
+  (into {}
+        (map (fn [n] [(:node-id n) n]))
+        (or positioned-nodes [])))
 
 ;; ---- wall-clock reader (overridable for tests) -------------------------
 
@@ -271,7 +282,7 @@
   (let [timers   @(rf/subscribe [:rf.causa/active-timers-for-focused-machine])
         now      @(rf/subscribe [:rf.causa/now-ms])
         scrub    @(rf/subscribe [:rf.causa/machine-scrubber-position])
-        node-idx (arc-h/nodes->index nodes)
+        node-idx (nodes->index nodes)
         ;; Kick the rAF loop iff ticking is needed (live mode + at
         ;; least one armed timer). Cheap to call per render — the
         ;; `:running?` sentinel collapses duplicate kicks.
