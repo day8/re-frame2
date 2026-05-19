@@ -1,0 +1,71 @@
+;; Conformance fixture: routing/history-replace
+;;
+;; Per Spec 012 §History semantics: `:rf.route/navigate` with `{:replace?
+;; true}` in opts routes through `:rf.nav/replace-url` rather than the
+;; default `:rf.nav/push-url`. This is the redirect / search-as-you-type
+;; / login-flow-return shape — the back button should NOT return to the
+;; intermediate URL. The runtime's `:rf.route/navigate` event handler
+;; chooses between the two history fxs based on the `:replace?` opt at
+;; navigation time:
+;;
+;;   (if (:replace? opts)
+;;     [:rf.nav/replace-url url]
+;;     [:rf.nav/push-url    url])
+;;
+;; This fixture pins the cross-implementation contract: with `:replace?
+;; true` set on the navigation, the routed fx is `:rf.nav/replace-url`
+;; and `:rf.nav/push-url` is NOT routed. The default branch
+;; (`:rf.nav/push-url` when `:replace?` is absent / false) is exercised
+;; by `routing-navigate.edn`.
+;;
+;; Per [012 §The :replace? opt] inside §Programmatic navigation.
+
+{:fixture/id           :routing/history-replace
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/trace}
+ :fixture/doc          "Programmatic navigation with {:replace? true} routes through :rf.nav/replace-url instead of :rf.nav/push-url. The history mutation must be replaceState, not pushState — so the back button skips the intermediate URL."
+
+ :fixture/registry
+ {:event {:rf/init           {:doc "Seed."}
+          :rf.route/navigate {:doc "Programmatic navigation."}}
+  :sub   {:rf/route {:doc "Current route."}}
+  :route {:route/home    {:path "/"}
+          :route/article {:path   "/articles/:id"
+                          :params [:map [:id :string]]}}
+  :fx    {:rf.nav/push-url    {:platforms #{:client}}
+          :rf.nav/replace-url {:platforms #{:client}}
+          :rf.nav/scroll      {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
+  :sub   {:rf/route [[:get [:rf/route]]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]
+          :rf.nav/scroll      [[:noop]]}}
+
+ :fixture/frame-config {:on-create [:rf/init] :platform :client}
+
+ :fixture/dispatches
+ ;; [:rf.route/navigate target params opts] — params nil for the article
+ ;; passes an explicit `{:id "intro"}` slot below; opts carries :replace?.
+ [[:rf.route/navigate :route/article {:id "intro"} {:replace? true}]]
+
+ :fixture/expect
+ {:final-app-db
+  {:rf/route {:id     :route/article
+              :params {:id "intro"}}}
+
+  ;; Critical contract: :rf.nav/replace-url is routed; :rf.nav/push-url
+  ;; is NOT (the :effects-routed matcher tolerates extras but missing
+  ;; or out-of-order expected entries fail). The :rf.nav/scroll fx also
+  ;; routes — forward navigation defaults to :top.
+  :effects-routed
+  [{:fx-id :rf.nav/replace-url :args "/articles/intro"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :top
+            :from     {:id :route/home}
+            :to       {:id :route/article :params {:id "intro"}}}}]
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/init}}
+   {:operation :event :tags {:event-id :rf.route/navigate}}]}}

@@ -1,0 +1,81 @@
+;; Conformance fixture: routing/history-popstate
+;;
+;; Per Spec 012 §URL changes are events: popstate (and the initial load)
+;; dispatch `[:rf.route/handle-url-change url]`. The runtime parses the
+;; URL via `match-url`, writes the canonical :rf/route slice
+;; (`:id` / `:params` / `:query` / `:fragment` / `:nav-token` / ...),
+;; and emits `:rf.nav/scroll` with the popstate-default `:restore`
+;; strategy. Crucially, the URL came FROM the browser — the runtime
+;; MUST NOT push it back via `:rf.nav/push-url` / `:rf.nav/replace-url`.
+;;
+;; This fixture pins the cross-implementation contract for the
+;; popstate-driven URL-change cascade:
+;;   1. :rf/route slice round-trips from the URL.
+;;   2. The default scroll strategy is :restore (the saved position
+;;      trumps; forward-navigation default is :top — exercised by
+;;      routing-scroll-restoration.edn).
+;;   3. NO :rf.nav/push-url / :rf.nav/replace-url fires (the URL is
+;;      already in the address bar).
+;;
+;; Per [012 §URL changes are events] (#url-changes-are-events) and
+;; [§Scroll restoration] (#scroll-restoration).
+
+{:fixture/id           :routing/history-popstate
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/trace}
+ :fixture/doc          "Popstate-driven URL change: dispatch [:rf.route/handle-url-change url]. The :rf/route slice round-trips from the URL; :rf.nav/scroll fires with the popstate-default :restore strategy; the runtime does NOT push or replace the URL (it came from the browser)."
+
+ :fixture/registry
+ {:event {:rf/init                    {:doc "Seed."}
+          :rf.route/handle-url-change {:doc "Browser-driven URL change (popstate / initial / SSR)."}}
+  :sub   {:rf/route {:doc "Current route."}}
+  :route {:route/home    {:path "/"}
+          :route/article {:path   "/articles/:id"
+                          :params [:map [:id :string]]}}
+  :fx    {:rf.nav/push-url    {:platforms #{:client}}
+          :rf.nav/replace-url {:platforms #{:client}}
+          :rf.nav/scroll      {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
+  :sub   {:rf/route [[:get [:rf/route]]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]
+          :rf.nav/scroll      [[:noop]]}}
+
+ ;; :platform :client so the navigation fxs (declared `:platforms
+ ;; #{:client}`) are actually routed, mirroring the routing-navigate.edn
+ ;; fixture shape.
+ :fixture/frame-config {:on-create [:rf/init] :platform :client}
+
+ :fixture/dispatches
+ [;; Simulate a popstate landing on /articles/intro.
+  [:rf.route/handle-url-change "/articles/intro"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:rf/route {:id     :route/article
+              :params {:id "intro"}}}
+
+  :sub-values
+  {[:rf/route] {:id         :route/article
+                :params     {:id "intro"}
+                :query      {}
+                :fragment   nil
+                :transition :idle
+                :error      nil
+                :nav-token  "nav-1"}}
+
+  ;; Critical contract: ONLY :rf.nav/scroll routes — the runtime MUST
+  ;; NOT push or replace the URL when the URL change ORIGINATED at the
+  ;; browser. The :restore strategy is the popstate / initial / SSR
+  ;; default (per Spec 012 §Scroll restoration step 3).
+  :effects-routed
+  [{:fx-id :rf.nav/scroll
+    :args  {:strategy :restore
+            :from     {:id :route/home}
+            :to       {:id :route/article :params {:id "intro"}}}}]
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/init}}
+   {:operation :event :tags {:event-id :rf.route/handle-url-change}}]}}
