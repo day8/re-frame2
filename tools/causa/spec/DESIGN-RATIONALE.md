@@ -1,6 +1,6 @@
 # DESIGN-RATIONALE
 
-The 13 direction-setting decisions that shape Causa. Each entry
+The 14 direction-setting decisions that shape Causa. Each entry
 captures:
 
 - **The question** that was being decided.
@@ -480,6 +480,134 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 
 ---
 
+## Lock #14 — Two modes (Runtime + Static)
+
+**Locked 2026-05-19 (Mike).** **Two modes within one tool: Runtime
+(event-coupled spine + 4-layer chrome) and Static (event-INDEPENDENT
+registry browse + 3-layer chrome).** Chrome silhouette is the
+mode signal; the mode pill is the toggle.
+
+### Question
+
+Causa needs to answer two distinct bug-classes — the event-coupled
+"what just happened?" cascade (the five canonical questions answered
+by the spine / event list / per-tab projections) AND the event-
+INDEPENDENT "what's registered? · what would simulate?" browse
+(machines / routes / schemas / views / events catalogues). Should
+this be a single chrome with a tab pivot, two chromes within one
+tool, or two tools entirely?
+
+### Options considered
+
+- **(a) Single chrome with tab pivots.** One 4-layer chrome; add
+  "Registry" tabs alongside the existing 7 (Event / App-db / Views /
+  Trace / Machines / Routing / Issues). The event-coupled spine
+  always sits at L2 even when the user is browsing the schema
+  registry — every Registry tab carries L2's "current cascade"
+  context whether or not it's relevant.
+- **(b) Two modes within one tool — Causa is one package, two
+  chromes.** A mode pill at ribbon-left flips the surface; Runtime
+  renders the 4-layer chrome (L1 ribbon · L2 event list · L3 tab
+  bar · L4 detail), Static drops L2 (event-independent, no spine)
+  and renders 3 layers (L1 · L3 · L4). The mode user-state persists
+  to localStorage; a global chord toggles. Both chromes share the
+  full Causa design language — typography, palette, density,
+  spacing grid, glyph vocabulary.
+- **(c) Two tools entirely.** Ship `re-frame2-causa-runtime` +
+  `re-frame2-causa-static` as separate packages, each with its own
+  preload, its own jar, its own install path, its own keybinding.
+
+### Pick
+
+**(b) Two modes within one tool.** Causa is one package; the chrome
+silhouette differentiates the modes at a glance; the mode pill is
+the toggle, not the indicator.
+
+### Why
+
+- **Event-coupled and event-INDEPENDENT are different bug-classes.**
+  The Runtime spine answers the five canonical questions about a
+  specific cascade ("who fired this? · what did it write? · which
+  views recomputed? · what side-effects fired? · what went wrong?").
+  The Static browse answers a different family ("which machines does
+  this app define? · what would `/orders/42?tab=ship` route to? ·
+  which schemas govern this app-db slice? · which views are
+  registered?"). Carrying L2's "current cascade" into a registry
+  browse is noise — Static IS event-independent. Option (a) leaks
+  spine context into a surface where it has no meaning.
+- **The chrome shape IS the mode signal.** Static drops L2 entirely;
+  the 3-layer silhouette is unmistakable from the 4-layer Runtime
+  silhouette. A trained eye reads the mode without looking at any
+  widget. Option (a) gives the user no chrome-level signal that the
+  surface has changed; the only signal is which tab is active, and
+  the user mis-reads the spine row as "the current cascade" when
+  they're actually browsing a registry that has nothing to do with
+  it.
+- **Four stacked signals telegraph mode at a glance** (per the
+  shipped surface):
+  1. **Mode pill** at ribbon-left — two-segment radio (`[● Runtime]
+     [○ Static]`), 200ms accent-violet cross-fade. Lives in BOTH
+     modes — it's the toggle, not the indicator.
+  2. **2-px left-edge ribbon stripe** — `:accent-violet` in Runtime,
+     `:cyan` (existing palette token) in Static. Zero new tokens.
+  3. **Motion dampening** — Runtime ships the LIVE pulse + machine-
+     active pulse + 180ms tab fade. Static drops continuous pulses
+     entirely and collapses tab fades to instant. Honours
+     `prefers-reduced-motion: reduce` via the existing
+     `--rf-causa-motion-scale` seam.
+  4. **Chrome silhouette** — 4-layer (Runtime) vs 3-layer (Static).
+     The silhouette IS the mode.
+- **The mode pill is the toggle, not the indicator.** It lives at
+  ribbon-left in BOTH modes; clicking either segment dispatches the
+  same `:rf.causa/toggle-mode` event the `Cmd-Shift-M` chord (per
+  `keybinding.cljs` + 018 §11 Keyboard map) fires. The user reads
+  the mode from the chrome shape + stripe colour + motion
+  dampening; the pill is where they go to change it.
+- **One package, one install, one preload.** Option (c) doubles the
+  install surface (two preloads, two keybindings, two persisted-
+  state schemas) for zero benefit — the user wants both modes
+  available from one Ctrl+Shift+C. Option (b) gets the full
+  user-facing isolation (3 vs 4 layers; separate selected-tab slot
+  per mode) without the duplicated build / install surface.
+- **Cross-mode tab choice is preserved.** The Static-scoped tab
+  lives at `:rf.causa.static/selected-tab` (default `:machines`);
+  the Runtime-scoped tab lives at the existing `:rf.causa/active-
+  tab` (default `:event`). Flipping modes restores the prior
+  Runtime tab choice; it doesn't clobber it.
+
+### Cross-reference
+
+The architectural spine for this lock lives in
+[`018-Event-Spine.md`](018-Event-Spine.md) §Static surface
+(the 3-layer silhouette + the 4 mode signals + the mode-state
+lifecycle slots + the localStorage `causa.mode` key + the
+`:experimental/static-mode?` feature flag). The concrete Static
+sub-tab surfaces are catalogued in [`007-UX-IA.md`](007-UX-IA.md)
+§Static mode and (for Machines specifically)
+[`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static
+Machines surface — the 4-mode sub-strip
+`[Topology][Sim][Instances][Cascade]` with JUMP-to-Runtime
+semantics on Instances and Cascade-dimmed-with-tooltip on
+Cascade.
+
+### Date locked
+
+2026-05-19 (Mike).
+
+### Trail-of-thought citations
+
+- `ai/findings/2026-05-19-causa-explorer-mode.md` — the session
+  trail that walked through (a) / (b) / (c) and surfaced the
+  chrome-silhouette-as-mode-signal mechanism.
+- `ai/findings/2026-05-19-causa-spec-currency-audit.md` §H7 —
+  flagged the missing lock during the spec-currency sweep.
+- rf2-o5f5f epic — the implementation umbrella under which the
+  Static surface shipped (sub-beads rf2-o5f5f.1 chrome,
+  rf2-o5f5f.2 Machines, .3 Routes, .4 Schemas, .5 Views, .6
+  Events).
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -497,7 +625,8 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 | 11 | Source-coord fallback | **Handler-coord with `(?)` annotation** | 2026-05-12 |
 | 12 | Conversation persistence | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 13 | Voice STT | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
+| 14 | Two modes (Runtime + Static) | **Two modes within one tool — chrome silhouette IS the signal; pill is the toggle** | 2026-05-19 |
 
-The 13 locks together define the v1.0 surface. Anything outside
+The 14 locks together define the v1.0 surface. Anything outside
 these decisions is up for design discussion; anything inside is
 direction-set and shipped.
