@@ -1,5 +1,10 @@
-(ns re-frame2-pair-mcp.tools.subscription-info
-  "Tool: subscription-info — list active streaming subscriptions (rf2-zjz9q).
+(ns re-frame2-pair-mcp.tools.list-subscriptions
+  "Tool: list-subscriptions — list active streaming subscriptions (rf2-zjz9q).
+
+  Renamed from `subscription-info` per rf2-4y595 (NAMING.md
+  conformance — `list-<things>` is the canonical enumeration verb).
+  The runtime fn it wraps keeps the historical `subscription-info`
+  name (the runtime is a separate naming surface).
 
   Wraps the `re-frame2-pair.runtime/subscription-info` diagnostic so AI
   clients don't need an `eval-cljs` round-trip just to ask \"what
@@ -40,7 +45,7 @@
       1 (str "(filterv #" (first preds) " subs)")
       (str "(filterv #(and " (str/join " " preds) ") subs)"))))
 
-(defn subscription-info-tool [conn args]
+(defn list-subscriptions-tool [conn args]
   (let [build-id (wire/arg-build args)
         topic    (wire/arg-keyword args :topic)
         sub-id   (wire/arg args :sub-id)
@@ -52,4 +57,4 @@
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))
-        (.catch (fn [err] (probe/err->result :subscription-info-failed err))))))
+        (.catch (fn [err] (probe/err->result :list-subscriptions-failed err))))))

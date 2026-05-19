@@ -212,33 +212,36 @@ runWithWatchdog(
     }
     console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
 
-    // 3c. subscription-info — added by rf2-zjz9q as a dedicated MCP
-    // wrapper around `re-frame2-pair.runtime/subscription-info` so AI
-    // clients can list active streaming subscriptions without an
-    // eval-cljs round-trip. Pure-read tool, no required arguments —
-    // optional :topic / :sub-id filters narrow the result. In degraded
-    // mode it returns the same nrepl-port-not-found envelope as every
-    // other live-runtime tool; covering it here proves the dispatch
-    // table is wired and the descriptor reaches the SDK.
+    // 3c. list-subscriptions — added by rf2-zjz9q as a dedicated MCP
+    // wrapper around `re-frame2-pair.runtime/subscription-info` (runtime
+    // fn keeps the historical name) so AI clients can list active
+    // streaming subscriptions without an eval-cljs round-trip. Renamed
+    // from `subscription-info` per rf2-4y595 (NAMING.md `list-<things>`
+    // conformance — matches causa-mcp's same-named tool). Pure-read
+    // tool, no required arguments — optional :topic / :sub-id filters
+    // narrow the result. In degraded mode it returns the same
+    // nrepl-port-not-found envelope as every other live-runtime tool;
+    // covering it here proves the dispatch table is wired and the
+    // descriptor reaches the SDK.
     const subInfoResp = await client.callTool({
-      name: 'subscription-info',
+      name: 'list-subscriptions',
       arguments: {},
     });
     if (!subInfoResp.isError) {
       throw new Error(
-        'subscription-info in degraded mode should isError; got: ' +
+        'list-subscriptions in degraded mode should isError; got: ' +
           JSON.stringify(subInfoResp),
       );
     }
     const subInfoText = subInfoResp.content?.[0]?.text || '';
     if (!subInfoText.includes('nrepl-port-not-found')) {
       throw new Error(
-        'subscription-info degraded text should mention :nrepl-port-not-found; got: ' +
+        'list-subscriptions degraded text should mention :nrepl-port-not-found; got: ' +
           subInfoText,
       );
     }
     console.log(
-      'OK   tools/call subscription-info (degraded) -> isError + nrepl-port-not-found',
+      'OK   tools/call list-subscriptions (degraded) -> isError + nrepl-port-not-found',
     );
 
     // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts

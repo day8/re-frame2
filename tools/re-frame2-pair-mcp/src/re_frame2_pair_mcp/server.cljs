@@ -15,7 +15,7 @@
      bash-shim-overlap ops `discover-app` / `eval-cljs` / `dispatch` /
      `trace-window` / `watch-epochs` / `tail-build` / `snapshot`, plus
      `get-path` direct-read, the streaming triad `subscribe` /
-     `unsubscribe` / `subscription-info`, and the
+     `unsubscribe` / `list-subscriptions`, and the
      `get-re-frame2-pair-instructions` agent-onboarding tool).
   4. `tools/call`: dispatch to `tools.cljs`. Each call ensures the
      in-browser runtime is injected via the sentinel probe.

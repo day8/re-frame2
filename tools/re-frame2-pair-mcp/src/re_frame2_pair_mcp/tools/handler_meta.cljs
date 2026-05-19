@@ -1,5 +1,6 @@
 (ns re-frame2-pair-mcp.tools.handler-meta
-  "Tools: handler-meta + registry-list (rf2-pctf8).
+  "Tools: handler-meta + list-handlers (rf2-pctf8; list-handlers renamed
+  from registry-list per rf2-4y595 — NAMING.md `list-<things>` shape).
 
   Direct introspection on the registrar — `where is `:user/login`
   registered?` answered without a wide-authority `eval-cljs` round-trip.
@@ -33,10 +34,10 @@
   no slot is found (so the agent gets a structured signal — same
   shape `re-frame2-pair.runtime/registrar-describe` already uses).
 
-  ## registry-list
+  ## list-handlers
 
   Returns the full set of registered ids for a kind — the discovery
-  surface. Agents call `registry-list {kind \"event\"}` first to find
+  surface. Agents call `list-handlers {kind \"event\"}` first to find
   out what's registered, then `handler-meta` to drill in.
 
   For every registrar kind (`event` / `sub` / `fx` / `cofx` / `view`
@@ -50,7 +51,7 @@
   `eval-cljs` is wide-authority by design (per `eval-cljs.cljs`'s
   launch-flag gate). The re-frame2-pair contract is: structured tools for the
   common case, eval-cljs for the unknown unknowns. `handler-meta` /
-  `registry-list` cover the most-frequent introspection asks
+  `list-handlers` cover the most-frequent introspection asks
   (\"where's X defined\", \"what's registered\") with a narrow surface
   the agent can rely on across runtimes and editor-config postures."
   (:require [clojure.string :as str]
@@ -212,7 +213,7 @@
             (.catch (fn [err] (probe/err->result :handler-meta-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Tool — registry-list.
+;; Tool — list-handlers.
 ;; ---------------------------------------------------------------------------
 
 (defn- list-form
@@ -226,7 +227,7 @@
     "(vec (sort (re-frame.core/machines)))"
     (ef/emit (ef/rt-call 'registrar-list kind))))
 
-(defn registry-list-tool [conn args]
+(defn list-handlers-tool [conn args]
   (let [build-id (wire/arg-build args)
         kind-str (wire/arg args :kind)
         kind     (parse-kind kind-str)]
@@ -248,4 +249,4 @@
                         :kind  kind
                         :ids   (vec v)
                         :count (count v)})))
-            (.catch (fn [err] (probe/err->result :registry-list-failed err))))))))
+            (.catch (fn [err] (probe/err->result :list-handlers-failed err))))))))

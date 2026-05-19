@@ -4,7 +4,7 @@
 
   Eight call-sites — `dispatch`, `trace-window`, `watch-epochs`,
   `snapshot`, `get-path`, `subscribe`, `subscribe`'s drain/unsubscribe
-  loop forms, `subscription-info`, `unsubscribe`, plus `precheck-form`
+  loop forms, `list-subscriptions`, `unsubscribe`, plus `precheck-form`
   — build CLJS source strings by raw `str` concatenation. Two costs:
 
   1. The runtime namespace prefix (`re-frame2-pair.runtime/`)

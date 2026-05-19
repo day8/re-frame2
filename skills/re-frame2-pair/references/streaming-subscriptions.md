@@ -163,12 +163,12 @@ mcp__re-frame2-pair__unsubscribe {sub-id: "<the uuid from the subscribe response
 
 ## Diagnostics — what's currently registered?
 
-The `subscription-info` MCP tool reports every open subscription without draining its queue:
+The `list-subscriptions` MCP tool reports every open subscription without draining its queue:
 
 ```
-mcp__re-frame2-pair__subscription-info {}
+mcp__re-frame2-pair__list-subscriptions {}
 ```
 
 Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}]}`. Useful when a probe seems to have gone quiet — confirm the sub is still registered (and that `queue-depth` / `queue-bytes` isn't piling up against a dead consumer) before assuming the bus is dry. A non-nil `:overflow-reason` indicates the queue has been evicting older events to stay inside its budget.
 
-Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__subscription-info {topic: "epoch"}` or `mcp__re-frame2-pair__subscription-info {sub-id: "<uuid>"}`.
+Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__list-subscriptions {topic: "epoch"}` or `mcp__re-frame2-pair__list-subscriptions {sub-id: "<uuid>"}`.

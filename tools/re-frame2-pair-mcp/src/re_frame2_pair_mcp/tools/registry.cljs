@@ -72,7 +72,7 @@
             [re-frame2-pair-mcp.tools.get-path :as get-path]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
             [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
-            [re-frame2-pair-mcp.tools.subscription-info :as subscription-info]
+            [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
@@ -167,18 +167,18 @@
     :handler    (ignoring-extra #(unsubscribe/unsubscribe-tool %1 %2))
     :cacheable? false
     :descriptor data/unsubscribe}
-   {:name       "subscription-info"
-    :handler    (ignoring-extra #(subscription-info/subscription-info-tool %1 %2))
+   {:name       "list-subscriptions"
+    :handler    (ignoring-extra #(list-subscriptions/list-subscriptions-tool %1 %2))
     :cacheable? false
-    :descriptor data/subscription-info}
+    :descriptor data/list-subscriptions}
    {:name       "handler-meta"
     :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
     :cacheable? true
     :descriptor data/handler-meta}
-   {:name       "registry-list"
-    :handler    (ignoring-extra #(handler-meta/registry-list-tool %1 %2))
+   {:name       "list-handlers"
+    :handler    (ignoring-extra #(handler-meta/list-handlers-tool %1 %2))
     :cacheable? true
-    :descriptor data/registry-list}
+    :descriptor data/list-handlers}
    {:name       "get-re-frame2-pair-instructions"
     :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
     :cacheable? true
@@ -216,7 +216,7 @@
   onboarding text (which is a pure-data function with no state
   whatsoever — once is forever). False for action tools (`dispatch`,
   `eval-cljs`, `tail-build`) and streaming tools (`subscribe`,
-  `unsubscribe`, `subscription-info`) — their return value is the
+  `unsubscribe`, `list-subscriptions`) — their return value is the
   result of an action, not a read of state.
 
   Unknown names return false."

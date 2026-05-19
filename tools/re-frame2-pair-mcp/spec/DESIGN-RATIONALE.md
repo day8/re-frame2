@@ -280,8 +280,8 @@ decomposition; bounded surface) still holds — both amendments are
 
 Net: re-frame2-pair-mcp ships **fourteen ops** (`discover-app`, `eval-cljs`,
 `dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
-`get-path`, `subscribe`, `unsubscribe`, `subscription-info`,
-`handler-meta`, `registry-list`, `get-re-frame2-pair-instructions`). The bash
+`get-path`, `subscribe`, `unsubscribe`, `list-subscriptions`,
+`handler-meta`, `list-handlers`, `get-re-frame2-pair-instructions`). The bash
 shims ship six. The shim catalogue is a strict subset of the MCP
 catalogue, with identical names and arg shapes for every overlapping
 op.
@@ -290,10 +290,11 @@ Post-Lock additions accumulated as follows:
 
 - **rf2-zjz9q** added `subscription-info` — the "what streams are
   open?" diagnostic peer for the streaming pair, picked under the
-  bare-noun read shape (the cross-MCP `list-subscriptions` rename is
-  the future-conformant home per
+  bare-noun read shape. Renamed to `list-subscriptions` per rf2-4y595
+  for cross-server NAMING.md conformance — matches causa-mcp's
+  same-named tool per
   [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
-  Story-mcp Lock #12 / rf2-3we2k).
+  Story-mcp Lock #12 / rf2-3we2k.
 - **rf2-fnpqg** added `get-re-frame2-pair-instructions` — the
   agent-onboarding text blob read once at session start. Mirrors
   story-mcp's `get-story-instructions` under the cross-MCP `get-`
@@ -303,8 +304,10 @@ Post-Lock additions accumulated as follows:
   the registration-metadata map (`:source-coord`, `:doc`, `:tags`,
   any reg-`*`-emitted slots) so agents can answer "where is `:user/login`
   defined?" without a wide-authority `eval-cljs` round-trip;
-  `registry-list {kind}` is the discovery peer that enumerates every
-  registered id under a kind. Both route through the existing
+  `list-handlers {kind}` (renamed from `registry-list` per rf2-4y595
+  for `list-<things>` conformance) is the discovery peer that
+  enumerates every registered id under a kind. Both route through the
+  existing
   `re-frame2-pair.runtime` registrar primitives (and `(rf/machines)`
   for the `:machine` kind per Spec 005 §Querying machines); both are
   `:cacheable? true` since the registrar is stable across a session.
@@ -400,7 +403,7 @@ changes.
   `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
   with identical names and arg shapes. The remaining eight
   (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
-  `subscription-info`, `handler-meta`, `registry-list`,
+  `list-subscriptions`, `handler-meta`, `list-handlers`,
   `get-re-frame2-pair-instructions`) are MCP-only additions per Lock #4's
   *Subsequent evolution* note — they have no shim equivalent.
   Agents can mix calls in the same workflow during transition —
@@ -564,7 +567,7 @@ with the posture locked here.
 | 1 | Implementation language | **ClojureScript + shadow-cljs → Node** | 2026-05-12 |
 | 2 | Agent-host transport | **MCP over stdio** | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
-| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to fourteen** (mirror the shim catalogue + `snapshot` + `get-path` + `subscribe`/`unsubscribe`/`subscription-info` + `handler-meta`/`registry-list` + `get-re-frame2-pair-instructions`) | 2026-05-12 |
+| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to fourteen** (mirror the shim catalogue + `snapshot` + `get-path` + `subscribe`/`unsubscribe`/`list-subscriptions` + `handler-meta`/`list-handlers` + `get-re-frame2-pair-instructions`) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |

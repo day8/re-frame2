@@ -368,8 +368,8 @@
                  :required ["sub-id"]
                  :additionalProperties false}})
 
-(def subscription-info
-  {:name "subscription-info"
+(def list-subscriptions
+  {:name "list-subscriptions"
    :description (str "List active streaming subscriptions opened via `subscribe`, with per-sub queue depth, "
                      "drop counts, and overflow-reason — without draining any queues. Diagnostic for "
                      "'what streams are currently open?' and 'is my probe still alive?'. Wraps the "
@@ -435,8 +435,8 @@
                  :required ["kind" "id"]
                  :additionalProperties false}})
 
-(def registry-list
-  {:name "registry-list"
+(def list-handlers
+  {:name "list-handlers"
    :description (str "Return every registered id under a kind. The discovery "
                      "surface — agents call this first to find out what's "
                      "registered, then `handler-meta` to drill into a specific "

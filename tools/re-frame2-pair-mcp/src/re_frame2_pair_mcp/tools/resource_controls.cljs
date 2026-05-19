@@ -177,7 +177,7 @@
 
 (defn active-stream-count
   "Read the current active-stream count. Exposed for tests +
-  subscription-info diagnostics."
+  list-subscriptions diagnostics."
   []
   @active-streams)
 

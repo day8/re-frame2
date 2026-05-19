@@ -269,7 +269,7 @@
     | get-path               | yes   | yes         | yes (no-preload)  |
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
-    | subscription-info      | yes   | n/a         | n/a               |
+    | list-subscriptions     | yes   | n/a         | n/a               |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
     | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
 
@@ -514,10 +514,10 @@
     :fixture/expect
     {:isError? true}}
 
-   ;; ---------- subscription-info -----------------------------------------
-   {:fixture/id    :subscription-info/empty
-    :fixture/doc   "subscription-info with no active streams returns an empty list envelope."
-    :fixture/tool  "subscription-info"
+   ;; ---------- list-subscriptions ----------------------------------------
+   {:fixture/id    :list-subscriptions/empty
+    :fixture/doc   "list-subscriptions with no active streams returns an empty list envelope."
+    :fixture/tool  "list-subscriptions"
     :fixture/args  {}
     :fixture/eval-script
     [[:default nil]]

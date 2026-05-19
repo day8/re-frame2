@@ -7,9 +7,10 @@
 > `dispatch`, `dispatch-sync`).
 
 The fourteen MCP tools. All fourteen are catalogued below; the
-registrar-introspection pair `handler-meta` + `registry-list` (rf2-cibp8
-/ rf2-pctf8 — historical reference; the spec/impl drift line was closed
-by rf2-77xm3) live in the live registry at
+registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
+/ rf2-pctf8 — `list-handlers` renamed from `registry-list` per
+rf2-4y595 for NAMING.md `list-<things>` conformance) live in the live
+registry at
 [`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)
 and have full per-tool sections here.
 
@@ -943,7 +944,7 @@ resource controls](#universal-server-resource-controls-streaming-surfaces)).
 
 ### Diagnostics
 
-When a stream seems quiet or stalled, the `subscription-info` tool
+When a stream seems quiet or stalled, the `list-subscriptions` tool
 below lists every currently-registered subscription with its
 queue-depth, drop counts, and overflow-reason — without draining
 queues. Use it to confirm the sub is still alive and to check
@@ -961,7 +962,7 @@ agent host can't propagate cancellation cleanly).
 
 **Returns**: `{:ok? true :sub-id <id> :existed? <bool>}`.
 
-## subscription-info
+## list-subscriptions
 
 Diagnostic listing of currently-registered streaming subscriptions —
 the "what streams are open right now?" surface. Pure read over the
@@ -969,17 +970,22 @@ runtime's `subscriptions` atom; **does NOT drain any queues** and
 does NOT alter the stream contents that `subscribe` will see on its
 next tick. Wraps the `re-frame2-pair.runtime/subscription-info`
 runtime fn directly (one cheap nREPL eval — no `eval-cljs`
-round-trip needed). Useful when a streaming probe seems to have gone
-quiet: confirm the sub is still registered, inspect `:queue-depth` /
-`:queue-bytes` for evidence of a stuck consumer, or check
-`:overflow-reason` for budget pressure that needs tuning on the next
-`subscribe` call.
+round-trip needed; the runtime fn keeps its historical name).
+Useful when a streaming probe seems to have gone quiet: confirm the
+sub is still registered, inspect `:queue-depth` / `:queue-bytes` for
+evidence of a stuck consumer, or check `:overflow-reason` for budget
+pressure that needs tuning on the next `subscribe` call.
 
-Unlike the other read tools, `subscription-info` reads the runtime's
+Unlike the other read tools, `list-subscriptions` reads the runtime's
 internal subscription registry rather than routing through one of the
 Tool-Pair primitives listed in the intro — its peer surface is the
 streaming registry that `subscribe` / `unsubscribe` mutate, not the
 frame-db / epoch-history / trace-buffer surfaces.
+
+**Naming note**: renamed from `subscription-info` per rf2-4y595 —
+NAMING.md catalogues `list-<things>` as the canonical enumeration
+verb, matching causa-mcp's `list-subscriptions` (rf2-3we2k Lock #12).
+No back-compat shim; the old name hard-errors with `:unknown-tool`.
 
 **Args** (all optional):
 
@@ -1023,11 +1029,11 @@ The output is **not** routed through the universal dedup / elision /
 cache pipeline at the top of this catalogue — the payload is
 already a small flat vector of metadata records (no `:app-db`
 slices, no event vectors), so the wire-cap is the only universal
-that applies. `subscription-info` does NOT carry sensitive event
+that applies. `list-subscriptions` does NOT carry sensitive event
 bodies; only registration metadata crosses the wire.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
-`:reason :subscription-info-failed` (with `:message`) on any other
+`:reason :list-subscriptions-failed` (with `:message`) on any other
 failure.
 
 A future causa-mcp peer will ship `list-subscriptions` — same
@@ -1109,10 +1115,10 @@ postures.
 **Source**: rf2-cibp8 (the source-coord uri decoration) + rf2-pctf8
 (the introspection pair).
 
-## registry-list
+## list-handlers
 
 Return every registered id under a kind — the discovery surface that
-pairs with `handler-meta`. Agents call `registry-list` first to find
+pairs with `handler-meta`. Agents call `list-handlers` first to find
 out what's registered (per kind), then drill in with `handler-meta`
 on a specific `(kind, id)` pair.
 
@@ -1144,18 +1150,18 @@ empty case.
 **Error envelopes**:
 
 - `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` — unrecognised / missing `kind` arg.
-- `{:ok? false :reason :registry-list-failed :message "..."}` — runtime threw.
+- `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw.
 
 **Pair with `handler-meta`**: typical agent workflow is
-`registry-list {kind "event"}` → pick an id → `handler-meta {kind
+`list-handlers {kind "event"}` → pick an id → `handler-meta {kind
 "event" :id "<picked>"}` for the full registration-metadata payload.
 
-**Naming note**: NAMING.md (rf2-mzf1r) catalogues `<noun>-list` as
-**rejected** in favour of the canonical `list-<things>` prefix shape.
-The current name predates the cross-MCP convention and mirrors the
-runtime's `(rf/registry-list kind)` accessor; whether to rename to
-`list-handlers` (the conformant shape) is tracked by rf2-4y595. Until
-that bead lands, the current name is grandfathered.
+**Naming note**: renamed from `registry-list` per rf2-4y595 — NAMING.md
+catalogues `<noun>-list` as **rejected** in favour of the canonical
+`list-<things>` prefix shape (the runtime's `(rf/registry-list kind)`
+accessor keeps its name because the runtime is a separate naming
+surface). No back-compat shim; the old name hard-errors with
+`:unknown-tool`.
 
 **Source**: rf2-pctf8.
 

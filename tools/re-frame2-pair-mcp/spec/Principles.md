@@ -125,8 +125,8 @@ fourteen canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differs. The MCP-only additions
 (`snapshot`, `get-path`, the streaming triad
-`subscribe` / `unsubscribe` / `subscription-info`, the
-registrar-introspection pair `handler-meta` / `registry-list`, and
+`subscribe` / `unsubscribe` / `list-subscriptions`, the
+registrar-introspection pair `handler-meta` / `list-handlers`, and
 `get-re-frame2-pair-instructions`) have no shim equivalent. This is what makes
 the back-compat tractable: the overlap is contract-identical; the
 plumbing underneath is different.
@@ -928,14 +928,15 @@ reserved for derived projections that span multiple registry kinds.
 
 Pair2-mcp's fourteen current tools (`discover-app`, `eval-cljs`,
 `dispatch`, `tail-build`, `snapshot`, `trace-window`, `watch-epochs`,
-`get-path`, `subscribe`, `unsubscribe`, `subscription-info`,
-`handler-meta`, `registry-list`, `get-re-frame2-pair-instructions`) are all
-conformant against existing verbs (or accepted exceptions —
-`subscription-info` is a bare-noun read flagged by NAMING.md's audit
-table; the conformant cross-server peer is causa-mcp's
-`list-subscriptions`). New tools land against an existing verb, or
-via a Lock entry in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)
-plus an extension to the canonical table.
+`get-path`, `subscribe`, `unsubscribe`, `list-subscriptions`,
+`handler-meta`, `list-handlers`, `get-re-frame2-pair-instructions`) are all
+conformant against existing verbs after the rf2-4y595 rename
+(`subscription-info` → `list-subscriptions`, `registry-list` →
+`list-handlers` — see NAMING.md's audit table; `list-subscriptions`
+matches causa-mcp's same-named tool per rf2-3we2k Lock #12). New
+tools land against an existing verb, or via a Lock entry in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) plus an extension to
+the canonical table.
 
 ## Backed by the framework's principles
 

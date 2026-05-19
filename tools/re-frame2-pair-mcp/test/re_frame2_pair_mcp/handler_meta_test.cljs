@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.handler-meta-test
-  "Unit tests for the `handler-meta` + `registry-list` MCP tools (rf2-pctf8).
+  "Unit tests for the `handler-meta` + `list-handlers` MCP tools (rf2-pctf8).
 
   Both tools build a CLJS form that calls into the preloaded runtime
   (`re-frame2-pair.runtime/registrar-describe` / `registrar-list` for
@@ -77,12 +77,12 @@
       (is (contains? names "handler-meta")))))
 
 ;; ---------------------------------------------------------------------------
-;; Descriptor — registry-list.
+;; Descriptor — list-handlers.
 ;; ---------------------------------------------------------------------------
 
-(deftest registry-list-descriptor-present
-  (testing "registry-list is registered in tool-descriptors"
-    (let [d (find-descriptor "registry-list")]
+(deftest list-handlers-descriptor-present
+  (testing "list-handlers is registered in tool-descriptors"
+    (let [d (find-descriptor "list-handlers")]
       (is (some? d) "descriptor exists")
       (is (string? (:description d)))
       (is (integer? (:typicalTokens d)))
@@ -94,12 +94,12 @@
                  "route" "flow" "head" "error-projector" "machine"}
                (set (:enum (:kind properties)))))))))
 
-(deftest registry-list-descriptor-surfaces-on-tools-list
-  (testing "registry-list shows up in tool-descriptors-js"
+(deftest list-handlers-descriptor-surfaces-on-tools-list
+  (testing "list-handlers shows up in tool-descriptors-js"
     (let [arr   (tools/tool-descriptors-js)
           names (set (for [i (range (alength arr))]
                        (j/get (aget arr i) :name)))]
-      (is (contains? names "registry-list")))))
+      (is (contains? names "list-handlers")))))
 
 ;; ---------------------------------------------------------------------------
 ;; handler-meta-tool — error envelopes (no nREPL needed).
@@ -144,20 +144,20 @@
                    (is (= :invalid-id-edn (:reason edn)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; registry-list-tool — error envelopes.
+;; list-handlers-tool — error envelopes.
 ;; ---------------------------------------------------------------------------
 
-(deftest registry-list-rejects-missing-kind
-  (testing "registry-list with no :kind surfaces :invalid-kind"
-    (let [p (hm/registry-list-tool nil (args-js {}))]
+(deftest list-handlers-rejects-missing-kind
+  (testing "list-handlers with no :kind surfaces :invalid-kind"
+    (let [p (hm/list-handlers-tool nil (args-js {}))]
       (.then p (fn [result]
                  (is (is-error? result))
                  (let [edn (extract-edn result)]
                    (is (= :invalid-kind (:reason edn)))))))))
 
-(deftest registry-list-rejects-unknown-kind
-  (testing "registry-list with an out-of-vocab :kind surfaces :invalid-kind"
-    (let [p (hm/registry-list-tool nil (args-js {:kind "ghost"}))]
+(deftest list-handlers-rejects-unknown-kind
+  (testing "list-handlers with an out-of-vocab :kind surfaces :invalid-kind"
+    (let [p (hm/list-handlers-tool nil (args-js {:kind "ghost"}))]
       (.then p (fn [result]
                  (is (is-error? result))
                  (let [edn (extract-edn result)]
@@ -171,12 +171,12 @@
   (testing "the two new tool descriptors use kebab-case names"
     (is (= "handler-meta" (:name (find-descriptor "handler-meta")))
         "name uses kebab-case, not handler_meta / handlerMeta")
-    (is (= "registry-list" (:name (find-descriptor "registry-list")))
-        "name uses kebab-case, not registry_list / registryList")))
+    (is (= "list-handlers" (:name (find-descriptor "list-handlers")))
+        "name uses kebab-case, not list_handlers / listHandlers")))
 
 (deftest descriptors-share-the-kind-vocab
-  (testing "handler-meta and registry-list share the same :kind enum"
+  (testing "handler-meta and list-handlers share the same :kind enum"
     (let [hm-enum (-> (find-descriptor "handler-meta") :inputSchema :properties :kind :enum set)
-          rl-enum (-> (find-descriptor "registry-list") :inputSchema :properties :kind :enum set)]
+          rl-enum (-> (find-descriptor "list-handlers") :inputSchema :properties :kind :enum set)]
       (is (= hm-enum rl-enum)
           "drift here would make agents learn two vocabularies for one concept"))))

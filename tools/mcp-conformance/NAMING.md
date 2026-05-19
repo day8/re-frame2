@@ -63,14 +63,15 @@ out in PR review and pick from the table above instead.
   is the catalogued streaming pair. `tail-` is reserved for state-
   change-await semantics (one-shot, returns when condition trips).
 
-## Server alignment today (no renames required)
+## Server alignment today
 
-The triplet is **largely aligned** with this convention today. The
-table below is the audit; deviations are flagged but **none warrant
-renames in this bead's scope** — the existing names predate this
-canonical pin and renaming would cascade through every agent skill,
-every README example, and every CI fixture. The convention is the lock
-for **any future extension** to re-frame2-pair-mcp / story-mcp / causa-mcp.
+The triplet is **fully aligned** with this convention today
+(post-rf2-4y595). The table below is the audit; the table reflects
+the post-rename state — pair-mcp's two former deviations
+(`subscription-info`, `registry-list`) were renamed to
+`list-subscriptions` / `list-handlers` per rf2-4y595 (rf2-h1izl
+follow-on C5). The convention is the lock for **any future extension**
+to re-frame2-pair-mcp / story-mcp / causa-mcp.
 
 ### re-frame2-pair-mcp (14 tools)
 
@@ -85,9 +86,9 @@ for **any future extension** to re-frame2-pair-mcp / story-mcp / causa-mcp.
 | `watch-epochs` | bare (mega-op) | Conformant — paginated projection. (Borderline: arguably a `list-` candidate, but the cursor / filter shape leans mega-op.) |
 | `get-path` | `get-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
-| `subscription-info` | bare-noun read | **Non-conformant** — bare-noun read of a streaming-subscription's status; see causa-mcp's `list-subscriptions` for the conformant cross-server pair. The current name predates the cross-MCP convention (rf2-zjz9q landed it before the rf2-3we2k Lock #12 picked the conformant verb). A future rename to `list-subscriptions` aligns the triplet; today the divergence is acknowledged. |
-| `handler-meta` | bare-noun read | Audit pending — added by rf2-cibp8 (PR #1107). Bare-noun read of a registered handler's registration-metadata map. Conformance against the bare-noun-exception clause needs a separate audit pass. |
-| `registry-list` | `<noun>-list` suffix | Audit pending — added by rf2-pctf8 (PR #1107). The `<things>-list` suffix shape is **flagged as rejected** in §"What's NOT a locked verb" above (a `list-<things>` prefix is the catalogued shape). The current name mirrors the runtime's `(rf/registry-list kind)` accessor; whether to grandfather the suffix shape or rename to `list-handlers` is a separate decision. |
+| `list-subscriptions` | `list-` | Conformant — renamed from `subscription-info` per rf2-4y595 (NAMING.md follow-on). Matches causa-mcp's same-named tool per rf2-3we2k Lock #12. No back-compat shim; the old name hard-errors with `:unknown-tool`. |
+| `handler-meta` | bare-noun read | Conformant exception — bare-noun read of a single-record metadata map. Accepted under the bare-noun-exception clause when the return value is a structured metadata blob the agent reads as one record (same shape as story-mcp's `snapshot-identity`). Added by rf2-cibp8. |
+| `list-handlers` | `list-` | Conformant — renamed from `registry-list` per rf2-4y595 (NAMING.md follow-on). The `<noun>-list` suffix was flagged as rejected in §"What's NOT a locked verb" above; `list-<things>` prefix is the catalogued shape. The runtime's `(rf/registry-list kind)` accessor keeps its name (separate naming surface). Added by rf2-pctf8. |
 | `get-re-frame2-pair-instructions` | `get-` | Conformant — single-record read of the agent-onboarding instructions blob (rf2-fnpqg). Mirrors story-mcp's `get-story-instructions`. |
 
 ### Story-mcp (19 tools)
@@ -123,7 +124,7 @@ for **any future extension** to re-frame2-pair-mcp / story-mcp / causa-mcp.
 | `dispatch` | bare (universal) | Conformant. |
 | `tail-build` | `tail-` | Conformant. |
 | `subscribe` / `unsubscribe` | bare (universal pair) | Conformant. |
-| `list-subscriptions` | `list-` | Conformant — enumeration of active streaming subscriptions; the cross-server-symmetric counterpart to re-frame2-pair-mcp's (non-conformant) `subscription-info`. Per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../causa-mcp/spec/DESIGN-RATIONALE.md) (rf2-3we2k, 2026-05-14) — the eighteenth tool, picked under the conformant verb when re-frame2-pair-mcp's drift was surfaced by audit rf2-m9yoi. |
+| `list-subscriptions` | `list-` | Conformant — enumeration of active streaming subscriptions; the cross-server-symmetric counterpart to re-frame2-pair-mcp's `list-subscriptions` (formerly `subscription-info`; renamed per rf2-4y595 once causa-mcp's Lock #12 picked the canonical verb). Per [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` Lock #12](../causa-mcp/spec/DESIGN-RATIONALE.md) (rf2-3we2k, 2026-05-14). |
 | `get-trace-buffer` | `get-` | Conformant — filter-addressed slice read. |
 | `get-epoch-history` | `get-` | Conformant — filter-addressed slice read. |
 | `get-app-db` | `get-` | Conformant. |
