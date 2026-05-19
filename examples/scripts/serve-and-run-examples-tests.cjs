@@ -428,8 +428,20 @@ const EXAMPLES = [
 // filter = pass-through. The same predicate gates compile, stage, and
 // the JVM live-SSR bring-up below so a narrow run never spins up
 // resources for excluded surfaces.
+//
+// rf2-mpa3x — `normalizeForFilter` collapses kebab/snake and `\`/`/`
+// cosmetic variants on both sides before substring-matching. Build ids
+// already use kebab-case so this is a no-op for typical filters; the
+// gain is symmetry with `run-examples-tests.cjs` (which sees
+// snake_case-bearing spec paths). Keep the predicate in lockstep so a
+// single EXAMPLES_FILTER value gates compile, stage, and spec runner
+// identically. See the runner for the substring-trap rationale.
+function normalizeForFilter(s) {
+  return s.replace(/_/g, '-').replace(/\\/g, '/');
+}
 function selectedExample(ex) {
-  return FILTER === '' || ex.build.includes(FILTER);
+  if (FILTER === '') return true;
+  return normalizeForFilter(ex.build).includes(normalizeForFilter(FILTER));
 }
 
 function selectedExamples() {
