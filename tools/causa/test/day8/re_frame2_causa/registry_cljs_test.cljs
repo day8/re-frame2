@@ -270,6 +270,12 @@
    :rf.causa/edit-popup-set-pattern
    :rf.causa/edit-popup-toggle-scope
    :rf.causa/epoch-recorded
+   ;; rf2-piye4 — typed-predicate filter events. Each appends a
+   ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click
+   ;; affordance on the Machines / managed-fx panels.
+   :rf.causa/filter-by-fx
+   :rf.causa/filter-by-http-correlation
+   :rf.causa/filter-by-machine
    :rf.causa/focus-cascade
    :rf.causa/focus-cascade-next
    :rf.causa/focus-cascade-prev
@@ -465,8 +471,9 @@
     ;; surface that no longer exists.
     ;; rf2-e9tb0 + rf2-r9lyy combined deltas against post-rf2-ttnst
     ;; baseline (102 / 116): e9tb0 +2 subs / -1 event; r9lyy +1 sub / 0 events.
+    ;; rf2-piye4: +3 events (:rf.causa/filter-by-{machine,http-correlation,fx}).
     (is (= 105 (count all-sub-names)))
-    (is (= 115 (count all-event-names)))
+    (is (= 118 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
