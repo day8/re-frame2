@@ -328,8 +328,15 @@
                              (transition/final-on-leaf? machine (:state next-snapshot)))
                         (finalize/all-regions-final? machine (:state next-snapshot)))
           new-db    (assoc-in db path next-snapshot)]
+      ;; Per rf2-hwuki: `:frame` tag is REQUIRED for epoch-capture
+      ;; admission (`re-frame.epoch.capture/capture-event!` silently
+      ;; drops trace events whose tags lack `:frame`). Without this
+      ;; tag the headline machine-transition trace never reaches the
+      ;; cascade's `:trace-events` slot, leaving the Causa Machine
+      ;; Inspector chart blank for cascades that DID drive a transition.
       (trace/emit! :machine :rf.machine/transition
-                   {:machine-id machine-id
+                   {:frame      frame-id
+                    :machine-id machine-id
                     :event      inner-event
                     :before     snapshot
                     :after      next-snapshot})
