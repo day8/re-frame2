@@ -11,15 +11,10 @@ description: >
   pattern here", "spot any anti-patterns". A body of re-frame2 source
   must be in scope (read or edited in this conversation, or supplied
   as a snippet) — vocabulary alone is not enough. **Do not use** for
-  scaffolding new projects (use `re-frame2-setup`), for live-runtime
-  pair programming or `app-db` inspection (use `re-frame2-pair`), for
-  retrospecting on a finished `re-frame2-pair` session (use
-  `re-frame2-pair-retro`), for authoring new application code (use
-  `re-frame2`), for spec / architecture / design discussion (use
-  `SKILL-REDIRECT.md`), or for inline mid-edit anti-pattern
-  interruption — this skill is critique-on-request only. For the full
-  disambiguation matrix see `skills/README.md` §Skill routing — single
-  source.
+  greenfield bootstrap, live-runtime work, retro on a pair session,
+  authoring new code, spec/architecture discussion, or inline mid-edit
+  interruption — see `skills/README.md` §Skill routing — single source
+  for the full disambiguation matrix.
 allowed-tools:
   - Read
   - Edit
@@ -35,15 +30,7 @@ This skill **does not write new code from scratch** (that's `re-frame2`), **does
 
 ## When NOT to use
 
-Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief, route elsewhere when:
-
-- **Greenfield / scaffolding** — empty directory or empty CLJS project, no re-frame2 wiring yet → [`re-frame2-setup/`](../re-frame2-setup/).
-- **Writing new application code** on a working v2 project — events, subs, fx, frames, machines, schemas, stories, routing → [`re-frame2/`](../re-frame2/).
-- **Live-runtime pair work** — attach to a running shadow-cljs build, inspect `app-db`, dispatch, hot-swap handlers, walk epochs, time-travel → [`re-frame2-pair/`](../re-frame2-pair/).
-- **Retrospecting on a `re-frame2-pair` session** — friction analysis of the pair-tool itself, opt-in bead drafts against `re-frame2-pair` or upstream `re-frame2` → [`re-frame2-pair-retro/`](../re-frame2-pair-retro/).
-- **v1 → v2 migration** of an existing codebase → [`re-frame-migration/`](../re-frame-migration/).
-- **Spec / architecture / design discussion** without an active authoring or critique task → [`SKILL-REDIRECT.md`](../../SKILL-REDIRECT.md).
-- **Inline mid-edit anti-pattern interruption** — never. This skill is critique-on-request only. The interruption budget is too expensive during authoring; mid-flight code is incomplete; false-positives erode trust permanently. If a recurring anti-pattern proves stable in the catalogue, revisit the trigger surface — until then, wait for the pull.
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for greenfield bootstrap, authoring new application code, live-runtime pair work, retrospecting on a pair session, v1→v2 migration, spec/architecture/design discussion, or inline mid-edit anti-pattern interruption — this skill is critique-on-request only.
 
 Vocabulary alone (*"review", "audit", "any improvements?"*) is not enough — a body of re-frame2 source must be in scope. If no source files have been read, edited, or supplied as snippets, decline and ask for a snippet rather than fabricate evidence.
 
