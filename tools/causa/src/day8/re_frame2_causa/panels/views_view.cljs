@@ -403,14 +403,20 @@
   dispatch on context-menu; no separate context-menu UI surface).
   `preventDefault` suppresses the browser's native menu so the
   developer's right-click lands on Causa's affordance, not the host
-  page's menu. The dispatch resolves to `:rf/causa` via React-context
-  (the panel mounts inside Causa's frame-provider — the same way
-  every other in-panel `rf/dispatch` here resolves)."
+  page's menu.
+
+  Per rf2-83d4x: the dispatch must carry `{:frame :rf/causa}` —
+  React's `_currentValue` for the frame-provider pops back to
+  `:rf/default` between render and click-time, so any sub-resolution
+  via the React-context tier fails and the event routes to the host's
+  app-db (where the handler isn't registered). Same root cause +
+  fix-shape as the rf2-w8lxg / rf2-smvvz palette + Settings sweep."
   [view-id]
   (fn [^js e]
     (when view-id
       (.preventDefault e)
-      (rf/dispatch [:rf.causa/views-set-component-filter view-id]))))
+      (rf/dispatch [:rf.causa/views-set-component-filter view-id]
+                   {:frame :rf/causa}))))
 
 (defn- single-row
   "One render row in either Mounted, Re-rendered, or Unmounted. The
@@ -423,7 +429,8 @@
         struck?    (= group :unmounted)]
     [:div {:data-testid (str "rf-causa-views-row-" (name group))
            :on-click    #(rf/dispatch [:rf.causa/views-toggle-row
-                                       (pr-str (:render-key r))])
+                                       (pr-str (:render-key r))]
+                                      {:frame :rf/causa})
            :on-context-menu (right-click-filter-handler view-id)
            :title       (when view-id
                           (str "Right-click → filter Views panel to "
@@ -498,7 +505,8 @@
        [:button {:data-testid (str "rf-causa-views-cluster-toggle-"
                                    (h/format-view-id view-id))
                  :on-click #(rf/dispatch
-                             [:rf.causa/views-toggle-cluster ckey])
+                             [:rf.causa/views-toggle-cluster ckey]
+                             {:frame :rf/causa})
                  :style {:background "transparent"
                          :border (str "1px solid " (:border-default tokens))
                          :color (:text-secondary tokens)
@@ -702,7 +710,8 @@
   pill reads at a glance."
   [{:keys [value selected? label]}]
   [:button {:data-testid (str "rf-causa-views-group-by-" (name value))
-            :on-click #(rf/dispatch [:rf.causa/views-set-group-by value])
+            :on-click #(rf/dispatch [:rf.causa/views-set-group-by value]
+                                    {:frame :rf/causa})
             :aria-pressed (if selected? "true" "false")
             :style (cond-> group-by-pill-base-style
                      selected?
@@ -761,7 +770,8 @@
       "Filtered to:"]
      [:button {:data-testid "rf-causa-views-filter-chip-clear"
                :on-click #(rf/dispatch
-                            [:rf.causa/views-set-component-filter nil])
+                            [:rf.causa/views-set-component-filter nil]
+                            {:frame :rf/causa})
                :aria-label (str "Clear filter on "
                                 (h/format-view-id view-id))
                :title "Clear filter"
@@ -799,7 +809,8 @@
      (when cf
        [:button {:data-testid "rf-causa-views-clear-filter"
                  :on-click #(rf/dispatch
-                             [:rf.causa/views-set-component-filter nil])
+                             [:rf.causa/views-set-component-filter nil]
+                             {:frame :rf/causa})
                  :style {:background "transparent"
                          :border (str "1px solid " (:border-default tokens))
                          :color (:text-secondary tokens)

@@ -191,7 +191,11 @@
          (fn [^js e]
            (when (keyword? view-id)
              (.preventDefault e)
-             (rf/dispatch [:rf.causa/views-set-component-filter view-id])))
+             ;; rf2-83d4x — explicit :frame opt; click-time React
+             ;; `_currentValue` pop falls through to `:rf/default`
+             ;; otherwise (same root cause as rf2-w8lxg/rf2-smvvz).
+             (rf/dispatch [:rf.causa/views-set-component-filter view-id]
+                          {:frame :rf/causa})))
          :style (assoc row-base-style
                        :padding-left (str (+ 16 (* depth 16)) "px"))}
    [:span {:style {:color (get tokens (get status-colour status))
