@@ -116,6 +116,13 @@
                     (= 0 (.indexOf tid prefix)))))
            (hiccup-seq tree)))
 
+(defn- find-all-by-testid [tree testid]
+  (filterv (fn [node]
+             (and (vector? node)
+                  (map? (second node))
+                  (= testid (:data-testid (second node)))))
+           (hiccup-seq tree)))
+
 (defn- text-nodes
   "Flatten the rendered tree's string leaves into one concatenated
   string. Useful for asserting on the presence / absence of glyphs
@@ -1350,7 +1357,7 @@
           "no-opt render re-defaults the slot to :fixed"))))
 
 ;; -------------------------------------------------------------------------
-;; (N) L2 row — relative-time chip (rf2-vbbq0)
+;; (N) L2 row — relative-time chip (rf2-vbbq0 / rf2-0s2at)
 ;; -------------------------------------------------------------------------
 ;;
 ;; Mike's design call (2026-05-19 Q10): bring datetime BACK to the
@@ -1359,11 +1366,16 @@
 ;; is INLINE on the row, right-aligned, so active cascades stay visible
 ;; without forcing a hover.
 ;;
+;; Anchor (rf2-0s2at): the "now" each row computes against is the
+;; dispatched-time of the most recent cascade — flips on event arrival,
+;; not on a per-second tick. Mike's design call (2026-05-19) after
+;; observing constant L2 flicker on the parallel-frames testbed.
+;;
 ;; Bucket contract:
 ;;
 ;;   diff < 1s   → "now"
-;;   diff < 60s  → "Ns"     (1s-resolution; jitters per tick while young)
-;;   diff < 60m  → "Nm"     (minute-bucket; old chips stay stable)
+;;   diff < 60s  → "Ns"     (1s-resolution between events)
+;;   diff < 60m  → "Nm"     (minute-bucket)
 ;;   diff < 24h  → "Nh"
 ;;   diff ≥ 24h  → "Nd"
 
@@ -1438,24 +1450,31 @@
   (assoc (dispatch-trace-ev id event-vec) :time time-ms))
 
 (deftest event-row-renders-relative-time-chip
-  (testing "rf2-vbbq0 — every L2 row carries a right-aligned relative-
-            time chip. The chip's text reflects the bucket; the chip's
-            `:title` carries the absolute walltime for the power-user
-            reveal."
+  (testing "rf2-vbbq0 / rf2-0s2at — every L2 row carries a right-aligned
+            relative-time chip. The chip's text reflects the bucket
+            against the anchor (the dispatched-time of the MOST RECENT
+            cascade); the chip's `:title` carries the absolute walltime
+            for the power-user reveal."
     (causa-setup!)
-    (let [now-ms     1000000
-          then-ms    (- now-ms 5000)]  ;; 5 seconds ago
+    (let [now-ms  1000000
+          then-ms (- now-ms 5000)]  ;; 5 seconds ago
+      ;; Old cascade — what the chip-under-test is reporting against.
       (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      ;; Fresh cascade — establishes the anchor at `now-ms`. (rf2-0s2at
+      ;; — anchor is derived from `:rf.causa/cascades` directly, not
+      ;; from a wall-clock tick.)
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
       (rf/with-frame :rf/causa
-        ;; Seed the now-ms so the chip's display is deterministic.
-        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
-      (rf/with-frame :rf/causa
-        (let [tree (shell/shell-view)
-              chip (find-by-testid tree "rf-causa-row-time-chip")
-              attrs (second chip)
-              label (text-nodes chip)]
+        (let [tree   (shell/shell-view)
+              chips  (find-all-by-testid tree "rf-causa-row-time-chip")
+              ;; The first cascade's chip — by `:data-then-ms`.
+              chip   (first (filter #(= (str then-ms)
+                                        (:data-then-ms (second %)))
+                                    chips))
+              attrs  (second chip)
+              label  (text-nodes chip)]
           (is (some? chip) "chip renders per row")
-          (is (= "5s" label) "chip text reflects the seconds-bucket")
+          (is (= "5s" label) "chip text reflects the seconds-bucket against the anchor")
           (is (string? (:title attrs))
               "chip carries a :title tooltip for the power-user reveal")
           (is (re-find #"epoch-ms" (:title attrs))
@@ -1464,13 +1483,12 @@
               "chip stamps the source then-ms so tests can pin the value"))))))
 
 (deftest event-row-chip-now-bucket
-  (testing "rf2-vbbq0 — a row at t=0 (chip seeded with same now) renders
-            the 'now' bucket."
+  (testing "rf2-vbbq0 / rf2-0s2at — a row that IS the most recent cascade
+            (so its dispatched-time equals the anchor) renders the 'now'
+            bucket."
     (causa-setup!)
     (let [now-ms 1000000]
       (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] now-ms))
-      (rf/with-frame :rf/causa
-        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
       (rf/with-frame :rf/causa
         (let [tree (shell/shell-view)
               chip (find-by-testid tree "rf-causa-row-time-chip")]
@@ -1478,32 +1496,37 @@
               "diff = 0 → 'now' bucket"))))))
 
 (deftest event-row-chip-minute-bucket
-  (testing "rf2-vbbq0 — at t+90s the chip rolls into the minute bucket
-            and reads '1m' (not '90s')."
+  (testing "rf2-vbbq0 / rf2-0s2at — at t+90s the chip rolls into the
+            minute bucket and reads '1m' (not '90s'). Anchor pinned by a
+            fresher cascade."
     (causa-setup!)
     (let [now-ms  1000000
           then-ms (- now-ms 90000)]
       (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
       (rf/with-frame :rf/causa
-        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
-      (rf/with-frame :rf/causa
-        (let [tree (shell/shell-view)
-              chip (find-by-testid tree "rf-causa-row-time-chip")]
+        (let [tree  (shell/shell-view)
+              chips (find-all-by-testid tree "rf-causa-row-time-chip")
+              chip  (first (filter #(= (str then-ms)
+                                       (:data-then-ms (second %)))
+                                   chips))]
           (is (= "1m" (text-nodes chip))
               "90s ago → '1m' (minute bucket; jitter dampened)"))))))
 
 (deftest event-row-chip-hour-bucket
-  (testing "rf2-vbbq0 — at t+3700s the chip rolls into the hour bucket
-            and reads '1h'."
+  (testing "rf2-vbbq0 / rf2-0s2at — at t+3700s the chip rolls into the
+            hour bucket and reads '1h'."
     (causa-setup!)
     (let [now-ms  10000000
           then-ms (- now-ms 3700000)] ;; 3700s ≈ 1h2m
       (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
+      (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:rf.causa.test/anchor] now-ms))
       (rf/with-frame :rf/causa
-        (rf/dispatch-sync [:rf.causa/relative-time-tick now-ms]))
-      (rf/with-frame :rf/causa
-        (let [tree (shell/shell-view)
-              chip (find-by-testid tree "rf-causa-row-time-chip")]
+        (let [tree  (shell/shell-view)
+              chips (find-all-by-testid tree "rf-causa-row-time-chip")
+              chip  (first (filter #(= (str then-ms)
+                                       (:data-then-ms (second %)))
+                                   chips))]
           (is (= "1h" (text-nodes chip))
               "3700s ago → '1h'"))))))
 
@@ -1521,17 +1544,48 @@
         (is (nil? chip)
             "chip is absent when the cascade has no dispatched :time")))))
 
-(deftest relative-time-now-ms-sub-reads-app-db-slot
-  (testing "rf2-vbbq0 — the `:rf.causa/relative-time-now-ms` sub returns
-            whatever the tick event stamped into the slot. Nil before
-            the first tick lands; the L2 view falls back to `(interop/
-            now-ms)` so chips still render on the first paint."
+(defn- sync-trace-buffer!
+  "Mirror `trace-bus/buffer`'s current contents into Causa's app-db
+  slot so reactive sub re-runs see the latest cascades. Mirrors the
+  production `request-mirror-sync!` path (which dispatches the same
+  event asynchronously in shadow-cljs sessions)."
+  []
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/sync-trace-buffer (trace-bus/buffer)])))
+
+(deftest relative-time-now-ms-sub-derives-from-cascades
+  (testing "rf2-0s2at — `:rf.causa/relative-time-now-ms` is derived
+            from `:rf.causa/cascades`: it returns the dispatched-time
+            of the MOST RECENT cascade. Returns nil when there are no
+            cascades (or none carrying a `:dispatched :time` stamp);
+            the L2 view's render-time fallback covers that edge."
     (causa-setup!)
     (rf/with-frame :rf/causa
       (is (nil? @(rf/subscribe [:rf.causa/relative-time-now-ms]))
-          "no value before the first tick lands"))
+          "no cascades → nil anchor"))
+    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 1 [:foo/bar] 1000))
+    (sync-trace-buffer!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/relative-time-tick 42]))
+      (is (= 1000 @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "single cascade → its dispatched-time is the anchor"))
+    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 2 [:foo/baz] 5000))
+    (sync-trace-buffer!)
     (rf/with-frame :rf/causa
-      (is (= 42 @(rf/subscribe [:rf.causa/relative-time-now-ms]))
-          "sub returns whatever the tick handler wrote"))))
+      (is (= 5000 @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "anchor flips to the newest cascade's dispatched-time"))
+    (trace-bus/collect-trace! (dispatch-trace-ev-with-time 3 [:foo/qux] 3000))
+    (sync-trace-buffer!)
+    (rf/with-frame :rf/causa
+      (is (= 5000 @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "older arrival (lower :time) leaves the anchor at the max"))))
+
+(deftest relative-time-now-ms-sub-nil-when-no-dispatched-time
+  (testing "rf2-0s2at — cascades that carry no `:dispatched :time`
+            contribute nothing; the sub returns nil so the view falls
+            back to `(interop/now-ms)` at render time."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:foo/bar]))
+    (sync-trace-buffer!)
+    (rf/with-frame :rf/causa
+      (is (nil? @(rf/subscribe [:rf.causa/relative-time-now-ms]))
+          "no `:dispatched :time` anywhere → nil anchor"))))
