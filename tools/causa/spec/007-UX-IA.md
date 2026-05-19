@@ -87,10 +87,12 @@ Wireframe at default (800px popout, "cosy" density):
 
 The four layers, top to bottom:
 
-1. **L1 — Top ribbon (56px).** Five clusters: nav (`◀` `▶` `⏭`) ·
-   frame picker · filter pills (IN/OUT) · mode pill (`● LIVE` / `◐
-   RETRO`) · right-icons (settings `⚙` + popout `⛶` + close `✕`).
-   Anatomy in §The L1 ribbon below.
+1. **L1 — Top ribbon (56px).** Four clusters: nav (`◀` `▶` `⏭`) ·
+   frame picker · filter pills (IN/OUT) · right-icons (settings `⚙`
+   + popout `⛶` + close `✕`). The Mode pill widget that earlier
+   drafts placed between filter pills and right-icons was dropped —
+   LIVE/RETRO surfaces in the L2 event-list spine itself. Anatomy in
+   §The L1 ribbon below.
 2. **L2 — Event list.** 8 single-line rows default; vertically
    resizable (min 2); latest-on-bottom; virtualised. Single row shape
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
@@ -106,9 +108,10 @@ The four layers, top to bottom:
 
 **No bottom rail.** The pass-2/round-1 "L0" rail (with scrubber +
 mode pill + classification totals) is gone — the ribbon's `[◀ ▶ ⏭]`
-cluster IS the seek, the event list IS the timeline, the mode pill
-lives in the ribbon right-cluster, classification totals live in the
-mode-pill tooltip + per-row markers.
+cluster IS the seek, the event list IS the timeline (and the L2 spine
+itself indicates LIVE / RETRO via the head-row pulse / pinned-row
+glyph; the dedicated Mode pill widget was dropped). Classification
+totals live in per-row + per-panel renderings.
 
 Below 1200px viewport: pop-out detaches if user opens it; chrome stays
 within the inline host.
@@ -219,14 +222,15 @@ handle's focus position.
 
 ## The L1 ribbon
 
-Five clusters, fixed order left to right:
+Four clusters, fixed order left to right. (The Mode pill widget that
+earlier drafts placed between filter pills and right-icons was
+dropped; LIVE/RETRO surfaces in the L2 event-list spine itself.)
 
 | Cluster | Width | Content | Keys |
 |---|---|---|---|
 | **Nav** | 84px | `◀` back-one-event · `▶` forward-one-event · `⏭` fast-forward-to-latest (snap head + resume LIVE) | `j` / `k` / `G` |
 | **Frame** | flex 0 1 200px | `Frame: :app/main ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select only.** Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
 | **Filter pills** | flex 1 1 auto | IN pills (green `+`) + OUT pills (magenta `×`) + trailing `[+]` add-pill. Click any pill → edit popup. | `/` focus add-pill |
-| **Mode pill** | 80px | `● LIVE` (green, 2s pulse) / `◐ RETRO @ #N` (cyan, static). Tooltip on hover shows `[● REDACTED N · ● ELIDED M]` classification totals. | `L` snap-LIVE, `Space` pause/resume |
 | **Right-icons** | 96px | `⚙` settings popup · `⛶` popout (`window.open` whole shell) · `✕` close shell | `,` or `s` · `o` · `Esc` |
 
 Full anatomy + filter-pill edit popup in
@@ -245,7 +249,7 @@ On page load after `rf/init!`, when `[data-rf-causa-host]` exists:
   to static label).
 - **Filter pills: empty by default** — first session is honest about
   what's filtered; Recommended quick-add available via add-pill.
-- **Mode pill: `● LIVE`** with 2s pulse.
+- **L2 spine: head row pulses** (LIVE cue; the dedicated Mode pill widget was dropped).
 
 ## Single-line event-list rows (L2)
 
@@ -577,8 +581,9 @@ Specific motions:
 - Error pulse: single 600ms expand-fade red ring (no looping).
 - Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
   continuous animation in chrome, only on the machine chart).
-- Mode pill LIVE pulse: 2s gentle 600ms expand-fade on the `●` glyph
-  (continuous while LIVE; stops in RETRO).
+- L2 head-row LIVE pulse: 2s gentle 600ms expand-fade on the head
+  row's `●` gutter glyph (continuous while LIVE; stops in RETRO).
+  Replaces the dropped Mode pill widget as the LIVE/RETRO cue.
 - Tab count badge flash: 200ms violet → settle on LIVE update.
 
 ### `prefers-reduced-motion`
