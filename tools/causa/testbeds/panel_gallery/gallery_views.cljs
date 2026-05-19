@@ -93,9 +93,24 @@
   (story/reg-variant :story.causa.views/filter-applied
     {:doc        "Two epochs with renders across multiple view-ids;
                  variant seeds the panel's component-filter to
-                 `:cart/list` so only those rows surface."
+                 `:cart/list` so only those rows surface. The
+                 panel-scoped filter chip renders above the section
+                 headers (per §0ter.1 R3-E)."
      :events     [[:rf.causa/sync-epoch-history (fixtures/filter-applied-buffer)]
                   [:rf.causa/views-set-component-filter :cart/list]]
+     :tags       #{:dev :state/special}
+     :substrates #{:reagent}})
+
+  ;; ----- 7. group-by sub (inverted hierarchy, rf2-r2s2l) ------------
+  (story/reg-variant :story.causa.views/group-by-sub
+    {:doc        "Same dense-subs cascade as variant 3, but with the
+                 group-by toggle flipped to :sub — the inverted
+                 hierarchy shows sub-rows at the top with the
+                 components they invalidated nested underneath.
+                 Pins the §Group-by toggle's :sub branch + the
+                 sub-grouped-section renderer."
+     :events     [[:rf.causa/sync-epoch-history (fixtures/dense-subs-buffer)]
+                  [:rf.causa/views-set-group-by :sub]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 

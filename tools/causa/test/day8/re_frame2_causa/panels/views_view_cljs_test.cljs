@@ -220,24 +220,31 @@
 
 (deftest rerendered-because-list-marker-tooltips
   (testing "Delta 2 — every marker in the list has a `title` hover
-            tooltip + `aria-label`. The trigger glyph carries the
-            'value changed' tooltip; non-trigger carries 'value
-            unchanged'."
-    (let [invalidated-by [{:sub-id ::sub-a :trigger? true}
-                          {:sub-id ::sub-b :trigger? false}
-                          {:sub-id ::sub-c :trigger? false}]
+            tooltip + `aria-label`. Trigger glyph carries 'value
+            changed' tooltip; recomputed-but-equal carries 'value
+            unchanged'; cache-hit carries 'cache hit'. Per rf2-r2s2l
+            the three-status taxonomy supersedes the prior
+            trigger/non-trigger binary."
+    (let [invalidated-by [{:sub-id ::sub-a :trigger? true  :recomputed? true}
+                          {:sub-id ::sub-b :trigger? false :recomputed? true}
+                          {:sub-id ::sub-c :trigger? false :recomputed? false}]
           list-node (#'view/rerendered-because-list invalidated-by)
           markers   (collect-by-pred
                       list-node
                       #(contains? % :data-marker))
           trigger   (filter #(= "trigger" (:data-marker (second %)))
                             markers)
-          non-trig  (filter #(= "non-trigger" (:data-marker (second %)))
+          equal     (filter #(= "cache-miss-equal"
+                                (:data-marker (second %)))
+                            markers)
+          hits      (filter #(= "cache-hit" (:data-marker (second %)))
                             markers)]
       (is (= 1 (count trigger))
           (str "one trigger marker — got " (count trigger)))
-      (is (= 2 (count non-trig))
-          (str "two non-trigger markers — got " (count non-trig)))
+      (is (= 1 (count equal))
+          (str "one cache-miss-equal marker — got " (count equal)))
+      (is (= 1 (count hits))
+          (str "one cache-hit marker — got " (count hits)))
       (doseq [m markers]
         (is (string? (:title (second m)))
             (str "marker has a hover :title — got " (pr-str (second m))))
@@ -247,20 +254,26 @@
                    (:title (second (first trigger))))
           "trigger tooltip mentions 'changed since last cascade'")
       (is (re-find #"value unchanged"
-                   (:title (second (first non-trig))))
-          "non-trigger tooltip mentions 'value unchanged'"))))
+                   (:title (second (first equal))))
+          "cache-miss-equal tooltip mentions 'value unchanged'")
+      (is (re-find #"(?i)cache hit"
+                   (:title (second (first hits))))
+          "cache-hit tooltip mentions 'cache hit'"))))
 
 (deftest rerendered-because-list-marker-glyphs
-  (testing "Delta 2 — trigger glyph is `✱` (amber-weighted); non-trigger
-            glyph is `·` (muted)."
+  (testing "Delta 2 + rf2-r2s2l — three glyphs cover the three-status
+            taxonomy: `✱` for cache-miss-trigger, `≈` for
+            cache-miss-equal, `·` for cache-hit"
     (let [list-node (#'view/rerendered-because-list
-                      [{:sub-id ::sub-a :trigger? true}
-                       {:sub-id ::sub-b :trigger? false}])
+                      [{:sub-id ::sub-a :trigger? true  :recomputed? true}
+                       {:sub-id ::sub-b :trigger? false :recomputed? true}
+                       {:sub-id ::sub-c :trigger? false :recomputed? false}])
           glyphs    (->> (tree-seq (some-fn vector? seq?) seq
                                    (expand-fn list-node))
                          (filter string?))]
-      (is (some #(= "✱" %) glyphs) "the `✱` glyph renders for triggers")
-      (is (some #(= "·" %) glyphs) "the `·` glyph renders for non-triggers"))))
+      (is (some #(= "✱" %) glyphs) "the `✱` glyph renders for cache-miss-trigger")
+      (is (some #(= "≈" %) glyphs) "the `≈` glyph renders for cache-miss-equal")
+      (is (some #(= "·" %) glyphs) "the `·` glyph renders for cache-hit"))))
 
 (deftest cluster-row-trigger-marker-has-tooltip
   (testing "Delta 2 — the cluster row's single ✱ trigger marker also
@@ -280,6 +293,226 @@
           "exactly one trigger marker on a cluster row")
       (is (string? (:title (second (first markers))))
           "cluster trigger marker has a :title hover tooltip"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-r2s2l — Views polish (Group-by toggle + filter chip + cache-miss-
+;; equal sub-status decoration) regression guards
+;; ---------------------------------------------------------------------------
+
+(deftest rerendered-because-list-renders-all-three-statuses
+  (testing "rf2-r2s2l — every sub-status (cache-miss-trigger /
+            cache-miss-equal / cache-hit) renders its glyph alongside
+            a distinct `:data-marker` attribute. Asserts the three-
+            status taxonomy covers the prior `:trigger? true/false`
+            binary."
+    (let [invalidated-by [{:sub-id :sub-a :trigger? true  :recomputed? true}
+                          {:sub-id :sub-b :trigger? false :recomputed? true}
+                          {:sub-id :sub-c :trigger? false :recomputed? false}]
+          list-node (#'view/rerendered-because-list invalidated-by)
+          markers   (collect-by-pred list-node #(contains? % :data-marker))
+          by-marker (into {} (for [m markers]
+                               [(:data-marker (second m)) m]))]
+      (is (= #{"trigger" "cache-miss-equal" "cache-hit"}
+             (set (keys by-marker)))
+          "all three markers ship in the rendered list")
+      (let [glyphs (->> (tree-seq (some-fn vector? seq?) seq
+                                  (expand-fn list-node))
+                        (filter string?)
+                        set)]
+        (is (contains? glyphs "✱") "✱ glyph renders for cache-miss-trigger")
+        (is (contains? glyphs "≈") "≈ glyph renders for cache-miss-equal")
+        (is (contains? glyphs "·") "·  glyph renders for cache-hit"))
+      (is (re-find #"value unchanged"
+                   (:title (second (get by-marker "cache-miss-equal"))))
+          "cache-miss-equal tooltip mentions 'value unchanged'")
+      (is (re-find #"(?i)cache hit"
+                   (:title (second (get by-marker "cache-hit"))))
+          "cache-hit tooltip mentions 'cache hit'"))))
+
+(deftest right-click-on-row-dispatches-component-filter
+  (testing "rf2-r2s2l — `:on-context-menu` on a single-row is a
+            function that, when invoked with a synthetic event,
+            calls preventDefault + dispatches
+            `:rf.causa/views-set-component-filter` with the row's
+            view-id"
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (let [item {:kind :single
+                :render {:render-key [::comp 0]
+                         :triggered-by ::sub
+                         :elapsed-ms 1.0}
+                :invalidated-by [{:sub-id ::sub :trigger? true}]}
+          row (#'view/single-row item :rendered false)
+          attrs (second row)
+          handler (:on-context-menu attrs)
+          prevented? (atom false)
+          dispatched (atom [])
+          fake-event #js {:preventDefault #(reset! prevented? true)}]
+      (is (fn? handler) "single-row carries an :on-context-menu handler")
+      (with-redefs [re-frame.core/dispatch*
+                    (fn
+                      ([ev]      (swap! dispatched conj ev) nil)
+                      ([ev _opts] (swap! dispatched conj ev) nil))]
+        (handler fake-event))
+      (is (true? @prevented?)
+          ".preventDefault was called so the host page's native menu is suppressed")
+      (is (= [[:rf.causa/views-set-component-filter ::comp]]
+             @dispatched)
+          "dispatch payload is the panel-local filter event with the row's view-id"))))
+
+(deftest right-click-on-cluster-row-dispatches-component-filter
+  (testing "rf2-r2s2l — cluster rows also wire up the right-click
+            filter so a clustered grid (1000 cells in one row) is
+            still filter-targetable"
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (let [item {:kind         :cluster
+                :view-id      ::cell
+                :triggered-by ::grid-data
+                :count        80
+                :total-ms     8.0
+                :avg-ms       0.1
+                :p95-ms       0.2
+                :renders      []
+                :invalidated-by [{:sub-id ::grid-data :trigger? true
+                                  :clustered? true}]}
+          row (#'view/cluster-row item :rendered false)
+          attrs (second row)
+          handler (:on-context-menu attrs)
+          dispatched (atom [])
+          fake-event #js {:preventDefault (fn [])}]
+      (is (fn? handler) "cluster-row carries an :on-context-menu handler")
+      (with-redefs [re-frame.core/dispatch*
+                    (fn
+                      ([ev]      (swap! dispatched conj ev) nil)
+                      ([ev _opts] (swap! dispatched conj ev) nil))]
+        (handler fake-event))
+      (is (= [[:rf.causa/views-set-component-filter ::cell]]
+             @dispatched)))))
+
+(deftest filter-chip-renders-with-clear-button
+  (testing "rf2-r2s2l — `filter-chip` returns hiccup for a chip carrying
+            the filtered component name + an inline `×` clear button.
+            Per §0ter.1 R3-E the chip lives above the section headers,
+            promoting the affordance out of the bottom-controls
+            footer"
+    (let [chip (#'view/filter-chip :cart/list)]
+      (is (some? chip) "non-nil view-id → chip renders")
+      (is (some #(= (:data-testid (second %))
+                    "rf-causa-views-filter-chip")
+                (filter vector?
+                        (tree-seq (some-fn vector? seq?) seq chip)))
+          "filter-chip carries the rf-causa-views-filter-chip data-testid")
+      (let [texts (->> (tree-seq (some-fn vector? seq?) seq chip)
+                       (filter string?))]
+        (is (some #(re-find #"Filtered to" %) texts)
+            "chip ships the 'Filtered to:' label")
+        (is (some #(re-find #"cart/list" %) texts)
+            "chip ships the filtered view-id label")
+        (is (some #(= "×" %) texts)
+            "chip ships the × clear glyph")))))
+
+(deftest filter-chip-returns-nil-when-no-filter
+  (testing "rf2-r2s2l — chip renders nothing when no component filter
+            is active so the panel chrome stays silent-by-default"
+    (is (nil? (#'view/filter-chip nil)))))
+
+(defn- expand-pills [tree]
+  "Walk the hiccup tree expanding any inline pill fns (the
+  group-by-toggle uses Reagent component-vectors `[group-by-pill {…}]`
+  rather than direct hiccup). Returns a flat seq of every expanded
+  vector + atom string."
+  (->> (tree-seq (some-fn vector? seq?) seq tree)
+       (mapcat (fn [node]
+                 (if (and (vector? node) (fn? (first node)))
+                   (let [expanded (try (apply (first node) (rest node))
+                                       (catch :default _ node))]
+                     (tree-seq (some-fn vector? seq?) seq expanded))
+                   [node])))))
+
+(deftest group-by-toggle-renders-both-pills-with-selection-state
+  (testing "rf2-r2s2l — bottom-controls group-by-toggle ships both
+            pills (component + sub); the selected pill carries
+            `aria-pressed=\"true\"` so screen readers + tests can
+            assert the active mode"
+    (let [toggle (#'view/group-by-toggle :component)
+          flat   (expand-pills toggle)
+          buttons (->> flat
+                       (keep (fn [node]
+                               (when (and (vector? node)
+                                          (map? (second node))
+                                          (:data-testid (second node)))
+                                 node))))
+          by-testid (into {} (for [b buttons]
+                               [(:data-testid (second b)) b]))]
+      (is (contains? by-testid "rf-causa-views-group-by-component"))
+      (is (contains? by-testid "rf-causa-views-group-by-sub"))
+      (is (= "true"
+             (:aria-pressed (second (get by-testid
+                                         "rf-causa-views-group-by-component")))))
+      (is (= "false"
+             (:aria-pressed (second (get by-testid
+                                         "rf-causa-views-group-by-sub")))))
+      (let [glyphs (->> flat (filter string?) (apply str))]
+        (is (re-find #"◉" glyphs)
+            "the active mode renders the filled ◉ pill glyph")
+        (is (re-find #"○" glyphs)
+            "the inactive mode renders the hollow ○ pill glyph")))))
+
+(deftest group-by-toggle-flips-on-sub
+  (testing "rf2-r2s2l — flipping the active mode flips the selection
+            state of both pills (component → sub means component
+            pill loses ◉ and sub pill gains it)"
+    (let [toggle (#'view/group-by-toggle :sub)
+          flat   (expand-pills toggle)
+          buttons (->> flat
+                       (keep (fn [node]
+                               (when (and (vector? node)
+                                          (map? (second node))
+                                          (:data-testid (second node)))
+                                 node))))
+          by-testid (into {} (for [b buttons]
+                               [(:data-testid (second b)) b]))]
+      (is (= "false"
+             (:aria-pressed (second (get by-testid
+                                         "rf-causa-views-group-by-component")))))
+      (is (= "true"
+             (:aria-pressed (second (get by-testid
+                                         "rf-causa-views-group-by-sub"))))))))
+
+(deftest sub-grouped-section-renders-rows
+  (testing "rf2-r2s2l — sub-grouped-section renders one row per sub
+            with view-count + each consuming view listed"
+    (let [sub-rows [{:sub-id :cart/items
+                     :trigger? true :recomputed? true
+                     :views [{:view-id :cart/list
+                              :render-key [:cart/list :tok-1]
+                              :trigger? true :elapsed-ms 1.0}]
+                     :view-count 1}
+                    {:sub-id :auth/user
+                     :trigger? false :recomputed? false
+                     :views [{:view-id :cart/header
+                              :render-key [:cart/header :tok-2]
+                              :trigger? false :elapsed-ms 0.5}]
+                     :view-count 1}]
+          section (#'view/sub-grouped-section sub-rows)
+          testids (->> (tree-seq (some-fn vector? seq?) seq section)
+                       (keep #(when (and (vector? %)
+                                         (map? (second %)))
+                                (:data-testid (second %))))
+                       set)]
+      (is (contains? testids "rf-causa-views-sub-grouped"))
+      (is (contains? testids "rf-causa-views-sub-row"))
+      (is (contains? testids "rf-causa-views-sub-row-consumer")))))
+
+(deftest sub-grouped-section-empty-state
+  (testing "rf2-r2s2l — empty sub-grouped list renders the empty-state
+            teaching message so the user understands the parent-
+            forced cascade case"
+    (let [section (#'view/sub-grouped-section [])
+          texts (->> (tree-seq (some-fn vector? seq?) seq section)
+                     (filter string?))]
+      (is (some #(re-find #"No sub invalidations" %) texts)))))
 
 (deftest no-invalidated-by-ui-text-in-row-rendering
   (testing "Delta 1 — the rendered row tree has zero 'Invalidated by'
