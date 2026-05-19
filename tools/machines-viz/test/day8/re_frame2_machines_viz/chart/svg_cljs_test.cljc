@@ -5,7 +5,8 @@
   The renderer returns hiccup. Tests walk the tree by `data-testid`
   rather than mounting to a DOM — same approach the panel view tests
   use (see machine_inspector_view_cljs_test.cljs)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.svg :as chart-svg]
@@ -47,6 +48,50 @@
   (let [tree (chart-svg/render-from-definition nil)]
     (is (some? (find-by-testid tree "rf-causa-chart-empty"))
         "nil definition renders a friendly fallback")))
+
+;; ---- viewport transform (rf2-y3l8z) ------------------------------------
+
+(deftest render-viewport-wrap-has-no-transform-by-default
+  (testing "no viewport-transform option → wrapper has no `transform` attr"
+    (let [tree (chart-svg/render-from-definition small-machine)
+          [_ attrs] (find-by-testid tree "rf-mv-chart-viewport")]
+      (is (some? attrs) "viewport wrap exists")
+      (is (nil? (:transform attrs))
+          "wrap renders without a `transform` attr when caller doesn't pass viewport"))))
+
+(deftest render-viewport-wrap-applies-transform
+  (testing "non-identity viewport-transform → `transform` attr is emitted"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine
+                 {:viewport-transform {:scale 2 :tx 30 :ty 40}})
+          [_ attrs] (find-by-testid tree "rf-mv-chart-viewport")]
+      (is (some? (:transform attrs)))
+      (is (str/includes? (:transform attrs) "translate(30,40)"))
+      (is (str/includes? (:transform attrs) "scale(2)")))))
+
+(deftest render-viewport-data-attrs-roundtrip
+  (testing "scale/tx/ty surface on the root svg as data-* attrs"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine
+                 {:viewport-transform {:scale 1.5 :tx 12 :ty 24}})
+          [_ root-attrs] tree]
+      (is (= "rf-causa-chart-svg" (:data-testid root-attrs)))
+      (is (= "1.5" (:data-viewport-scale root-attrs)))
+      (is (= "12"  (:data-viewport-tx root-attrs)))
+      (is (= "24"  (:data-viewport-ty root-attrs))))))
+
+(deftest render-svg-attrs-merge
+  (testing "caller-supplied :svg-attrs merge onto the root svg"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine
+                 {:svg-attrs {:tabIndex 0
+                              :role     "application"
+                              :style    {:background "#222"}}})
+          [_ root-attrs] tree]
+      (is (= 0 (:tabIndex root-attrs)))
+      (is (= "application" (:role root-attrs)))
+      (is (= "#222" (-> root-attrs :style :background))
+          "caller :style overrides win on collision"))))
 
 ;; ---- happy path -------------------------------------------------------
 

@@ -654,13 +654,31 @@
                            :reached-count N :total-count M}` map
                            driving the caption strip when
                            `:show-caption?` is true.
+    :viewport-transform  — rf2-y3l8z. Optional `{:scale s :tx tx :ty ty}`
+                           map (or `nil`) carrying the user's zoom +
+                           pan state. Applied to the chart body via
+                           an outer `<g transform=\"translate(tx ty)
+                           scale(s)\">` wrap. Edges, nodes, compounds
+                           and the dot-grid pattern all sit inside
+                           the wrap so the entire canvas scales as
+                           one. When nil / absent the chart renders
+                           at 1:1 (back-compat — identical output to
+                           pre-y3l8z callers, asserted by tests).
+    :svg-attrs           — rf2-y3l8z. Optional map of extra hiccup
+                           attrs merged onto the root `<svg>` (e.g.
+                           `:on-wheel`, `:on-mouse-down`, `tabIndex`,
+                           inline `:style` overrides). Lets the
+                           interactive controls wrap the chart with
+                           wheel-zoom / click-drag-pan / keyboard
+                           handlers without forking `render`.
 
   Returns a stable hiccup form. Empty graphs (no nodes) render an
   inline note so the panel never sees an empty SVG container."
   ([positioned] (render positioned {}))
   ([{:keys [nodes edges width height] :as positioned}
     {:keys [highlight-id from-highlight-id to-highlight-id
-            sim? on-state-click testid show-caption? caption]}]
+            sim? on-state-click testid show-caption? caption
+            viewport-transform svg-attrs]}]
    (if (empty? nodes)
      [:div {:data-testid (or testid "rf-causa-chart-empty")
             :style {:padding "16px"
@@ -679,19 +697,49 @@
            ;; shifts down by `caption-strip-px`. Chart geometry
            ;; (nodes, edges) is unchanged; we apply a group translate.
            caption-h    (if show-caption? caption-strip-px 0)
-           total-h      (+ height caption-h)]
-       [:svg {:data-testid (or testid "rf-causa-chart-svg")
-              :data-highlight-id (or highlight-id "")
-              :data-from-highlight-id (or from-highlight-id "")
-              :data-to-highlight-id (or to-highlight-id "")
-              :data-has-caption (str (boolean show-caption?))
-              :viewBox (str "0 0 " width " " total-h)
-              :width "100%"
-              :preserveAspectRatio "xMidYMin meet"
-              :style {:background (:bg-1 tokens/tokens)
-                      :border-radius "4px"
-                      :max-height "100%"
-                      :display "block"}}
+           total-h      (+ height caption-h)
+           ;; rf2-y3l8z — viewport-transform carries the user's zoom +
+           ;; pan state. Applied to a chart-content wrapper that holds
+           ;; the dot-grid backdrop + the chart body (caption strip
+           ;; stays unscaled — it's chrome).
+           {:keys [scale tx ty]
+            :or   {scale 1 tx 0 ty 0}}
+           (or viewport-transform {})
+           ;; `transform="translate(tx,ty) scale(s)"` — order matters:
+           ;; we want pan to read as 'shift the world by (tx,ty)' and
+           ;; zoom to read as 'scale the world about the pan-shifted
+           ;; origin'. The standard reading on SVG is the
+           ;; right-to-left function composition — scale applies first,
+           ;; then translate — so `translate(...) scale(...)` is
+           ;; canonical for fit-to-viewport math (`tx`,`ty` are the
+           ;; post-scale viewport offset).
+           transform-applied? (or (not= 1 scale) (not= 0 tx) (not= 0 ty))
+           transform-attr (when transform-applied?
+                            (str "translate(" tx "," ty ")"
+                                 " scale(" scale ")"))
+           svg-base-attrs {:data-testid (or testid "rf-causa-chart-svg")
+                           :data-highlight-id (or highlight-id "")
+                           :data-from-highlight-id (or from-highlight-id "")
+                           :data-to-highlight-id (or to-highlight-id "")
+                           :data-has-caption (str (boolean show-caption?))
+                           :data-viewport-scale (str scale)
+                           :data-viewport-tx (str tx)
+                           :data-viewport-ty (str ty)
+                           :viewBox (str "0 0 " width " " total-h)
+                           :width "100%"
+                           :preserveAspectRatio "xMidYMin meet"
+                           :style {:background (:bg-1 tokens/tokens)
+                                   :border-radius "4px"
+                                   :max-height "100%"
+                                   :display "block"}}
+           svg-attrs-merged (if (map? svg-attrs)
+                              (let [{extra-style :style :as rest-attrs}
+                                    svg-attrs]
+                                (-> (merge svg-base-attrs
+                                           (dissoc rest-attrs :style))
+                                    (update :style merge (or extra-style {}))))
+                              svg-base-attrs)]
+       [:svg svg-attrs-merged
         ;; ---- inline keyframes (rf2-xfx6l) + reduced-motion seam ----
         (inline-stylesheet)
         ;; ---- arrow markers + dot-grid pattern ----
@@ -711,43 +759,52 @@
                    :fill (:cyan tokens/tokens)}
           [:path {:d "M 0 0 L 10 5 L 0 10 z"}]]
          (dot-grid-pattern)]
-        ;; ---- dot-grid background backdrop (rf2-m4nj4) ----
-        [:rect {:data-testid "rf-mv-chart-dot-grid-backdrop"
-                :x 0 :y caption-h
-                :width width :height height
-                :fill "url(#rf-mv-chart-dot-grid)"
-                :pointer-events "none"}]
-        ;; ---- caption strip (rf2-3zdzw, opt-in) ----
+        ;; ---- caption strip (rf2-3zdzw, opt-in) — chrome, stays
+        ;; OUTSIDE the viewport-transform wrap so the machine-id slug
+        ;; reads at a fixed size regardless of canvas zoom level.
         (when show-caption?
           (render-caption-strip
             (assoc caption :chart-width width)))
-        ;; ---- chart body, shifted down by caption height ----
-        [:g {:data-testid "rf-mv-chart-body"
-             :transform (str "translate(0," caption-h ")")}
-         ;; Compound containers sit BELOW edges + nodes so the dashed
-         ;; outline reads as a backdrop. rf2-m7co9 Phase 4.
-         (into [:g {:data-testid "rf-causa-chart-compounds"}]
-               (for [c containers]
-                 ^{:key (:node-id c)}
-                 (render-compound-container c)))
-         ;; Edges first so nodes paint over them
-         (into [:g {:data-testid "rf-causa-chart-edges"}]
-               (for [edge edges]
-                 ^{:key (str (:from-id edge) "->" (:to-id edge)
-                             "/" (:event-label edge))}
-                 (render-edge edge {:highlight-id      highlight-id
-                                    :from-highlight-id from-highlight-id
-                                    :to-highlight-id   to-highlight-id})))
-         (render-initial-marker initial-node)
-         (into [:g {:data-testid "rf-causa-chart-nodes"}]
-               (for [node nodes]
-                 ^{:key (:node-id node)}
-                 (render-node node
-                              {:highlight-id      highlight-id
-                               :from-highlight-id from-highlight-id
-                               :to-highlight-id   to-highlight-id
-                               :sim?              sim?
-                               :on-state-click    on-state-click})))]]))))
+        ;; ---- viewport-transform wrap (rf2-y3l8z) ----
+        ;; Holds the dot-grid backdrop + the chart body. When
+        ;; `viewport-transform` is nil/absent the `transform` attr is
+        ;; omitted entirely so the rendered DOM is byte-identical to
+        ;; the pre-y3l8z output — back-compat.
+        [:g (cond-> {:data-testid "rf-mv-chart-viewport"}
+              transform-attr (assoc :transform transform-attr))
+         ;; ---- dot-grid background backdrop (rf2-m4nj4) ----
+         [:rect {:data-testid "rf-mv-chart-dot-grid-backdrop"
+                 :x 0 :y caption-h
+                 :width width :height height
+                 :fill "url(#rf-mv-chart-dot-grid)"
+                 :pointer-events "none"}]
+         ;; ---- chart body, shifted down by caption height ----
+         [:g {:data-testid "rf-mv-chart-body"
+              :transform (str "translate(0," caption-h ")")}
+          ;; Compound containers sit BELOW edges + nodes so the dashed
+          ;; outline reads as a backdrop. rf2-m7co9 Phase 4.
+          (into [:g {:data-testid "rf-causa-chart-compounds"}]
+                (for [c containers]
+                  ^{:key (:node-id c)}
+                  (render-compound-container c)))
+          ;; Edges first so nodes paint over them
+          (into [:g {:data-testid "rf-causa-chart-edges"}]
+                (for [edge edges]
+                  ^{:key (str (:from-id edge) "->" (:to-id edge)
+                              "/" (:event-label edge))}
+                  (render-edge edge {:highlight-id      highlight-id
+                                     :from-highlight-id from-highlight-id
+                                     :to-highlight-id   to-highlight-id})))
+          (render-initial-marker initial-node)
+          (into [:g {:data-testid "rf-causa-chart-nodes"}]
+                (for [node nodes]
+                  ^{:key (:node-id node)}
+                  (render-node node
+                               {:highlight-id      highlight-id
+                                :from-highlight-id from-highlight-id
+                                :to-highlight-id   to-highlight-id
+                                :sim?              sim?
+                                :on-state-click    on-state-click})))]]]))))
 
 (defn render-from-definition
   "Convenience: lay out + render in one call. Useful for the panel

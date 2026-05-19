@@ -47,6 +47,7 @@
             [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
+            [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
             [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
             [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
@@ -228,30 +229,62 @@
         "No introspectable definition — chart cannot render."]
 
        :else
-       [:div {:data-testid "rf-causa-machine-focused-event-chart"
-              :data-layout-engine engine
-              :data-machine-id (str machine-id)
-              :data-from-highlight-id (or from-id "")
-              :data-to-highlight-id (or to-id "")
-              :style {:padding "12px"
-                      :background (:bg-1 tokens)
-                      :overflow "auto"
-                      ;; position-relative so the after-rings overlay
-                      ;; can absolute-position itself over the chart SVG.
-                      :position "relative"}}
-        (chart-svg/render
-          positioned
-          {:from-highlight-id from-id
-           :to-highlight-id   to-id
-           :on-state-click    (fn [path]
-                                (rf/dispatch
-                                  [:rf.causa/machine-state-clicked
-                                   {:machine-id machine-id
-                                    :path       path}]
-                                  {:frame :rf/causa}))})
-        ;; rf2-7hwwe — `:after` countdown rings drawn AROUND every
-        ;; state-node that currently has an armed `:after` timer.
-        [after-rings/AfterRingsOverlay positioned]])
+       (let [view-mode @(rf/subscribe
+                          [:rf.causa.machine-canvas/view-mode-for machine-id])]
+         (case view-mode
+           :list
+           ;; List view — chrome-thin pseudo-section just rendering a
+           ;; tiny banner; the guards/actions/cascade panes that come
+           ;; AFTER this block carry the real list payload. The
+           ;; view-mode toggle still has to appear in this mode so the
+           ;; user can flip back to Canvas — it's tucked into the
+           ;; section header with a 'List view' chip.
+           [:div {:data-testid "rf-causa-machine-focused-event-list"
+                  :data-layout-engine engine
+                  :data-machine-id (str machine-id)
+                  :data-view-mode "list"
+                  :style {:padding "8px 12px"
+                          :background (:bg-1 tokens)
+                          :border-bottom (str "1px solid " (:border-subtle tokens))
+                          :display "flex"
+                          :align-items "center"
+                          :gap "10px"}}
+            (machine-canvas/view-mode-toggle
+              {:machine-id machine-id :mode view-mode})
+            [:span {:style {:color (:text-tertiary tokens)
+                            :font-family sans-stack
+                            :font-size "11px"}}
+             "Chart hidden in List view — flip to Canvas to inspect the topology."]]
+
+           ;; default — :canvas
+           [:div {:data-testid "rf-causa-machine-focused-event-chart"
+                  :data-layout-engine engine
+                  :data-machine-id (str machine-id)
+                  :data-from-highlight-id (or from-id "")
+                  :data-to-highlight-id (or to-id "")
+                  :data-view-mode "canvas"
+                  :style {:padding "12px"
+                          :background (:bg-1 tokens)
+                          :overflow "hidden"
+                          ;; position-relative so the after-rings overlay
+                          ;; can absolute-position itself over the chart SVG.
+                          :position "relative"}}
+            ;; rf2-y3l8z — the chart is now wrapped in an interactive
+            ;; viewport adapter (zoom/pan/fit + view-mode toggle +
+            ;; controls toolbar). The adapter owns the after-rings
+            ;; overlay so they stay co-located with the canvas.
+            [machine-canvas/Chart
+             {:positioned         positioned
+              :machine-id         machine-id
+              :from-highlight-id  from-id
+              :to-highlight-id    to-id
+              :on-state-click     (fn [path]
+                                    (rf/dispatch
+                                      [:rf.causa/machine-state-clicked
+                                       {:machine-id machine-id
+                                        :path       path}]
+                                      {:frame :rf/causa}))
+              :show-after-rings?  true}]])))
      (guards-list guards)
      (actions-list actions)
      ;; rf2-59e7k — Cancellation cascade inline (per machine). The
@@ -671,6 +704,9 @@
 
   ;; ---- `:after` countdown rings (rf2-7hwwe) ---------------------
   (after-rings/install!)
+
+  ;; ---- Interactive viewport adapter (rf2-y3l8z) -----------------
+  (machine-canvas/install!)
 
   ;; ---- Share affordance (rf2-nqw0v) -----------------------------
   (share/install!))
