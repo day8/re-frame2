@@ -1043,9 +1043,18 @@ jobs:
       # top-level testbeds/ specs (rf2-fe84r + rf2-ik4io SSR) are
       # exercised here.
       #
+      # RF2_CAUSA_RUN_GALLERY_SMOKES=1 (rf2-1w76p) opts in to the two
+      # panel-gallery stand-alone smokes (_smoke.cjs +
+      # _workspace_switch_smoke.cjs) which boot the gallery testbed
+      # end-to-end and gate the rf2-kgn0c workspace-teardown
+      # regression. They run AFTER the main spec sweep inside the
+      # same orchestrator invocation.
+      #
       # NOT a required check on main initially — mirrors the rollout
       # pattern used for cljs-browser (rf2-zoem).
       - name: Compile adapter smokes + testbeds, serve, and run Playwright specs
+        env:
+          RF2_CAUSA_RUN_GALLERY_SMOKES: "1"
         run: npm run test:examples
 
   story-causa-browser:

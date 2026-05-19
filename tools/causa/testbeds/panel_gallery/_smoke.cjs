@@ -7,12 +7,20 @@
  *   3. Wait for the workspace gallery  — twelve variant cells render.
  *   4. Snapshot console errors         — none beyond the expected.
  *
- * Not wired into CI. Run manually post-compile to verify the gallery
- * boots end-to-end:
+ * Wired into CI behind the RF2_CAUSA_RUN_GALLERY_SMOKES=1 opt-in
+ * (rf2-1w76p): the examples-browser job sets the flag and the
+ * orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
+ * compiles :testbeds/panel-gallery, stages index.html alongside the
+ * bundle, and invokes this script after the main spec sweep. Run
+ * manually post-compile to verify locally:
  *
  *   shadow-cljs compile testbeds/panel-gallery
  *   cp tools/causa/testbeds/panel_gallery/index.html implementation/out/testbeds/panel-gallery/
  *   node tools/causa/testbeds/panel_gallery/_smoke.cjs
+ *
+ * Or end-to-end via the orchestrator:
+ *
+ *   RF2_CAUSA_RUN_GALLERY_SMOKES=1 npm run test:examples
  */
 
 const { spawn } = require('child_process');

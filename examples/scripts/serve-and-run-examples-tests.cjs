@@ -280,6 +280,72 @@ function compileAll() {
   }
 }
 
+// rf2-1w76p — panel-gallery smokes opt-in. The two scripts under
+// tools/causa/testbeds/panel_gallery/_smoke.cjs and
+// _workspace_switch_smoke.cjs are stand-alone (each spawns its own
+// http-server + Playwright) and don't fit the spec.cjs shape the
+// runner walks. They're gated behind RF2_CAUSA_RUN_GALLERY_SMOKES=1
+// (off in the fast PR loop, on in the rigorous browser job). When
+// enabled we compile :testbeds/panel-gallery, stage its index.html
+// next to the bundle, and invoke both smokes in sequence. A failure
+// in either smoke fails the whole `npm run test:examples` run.
+const GALLERY_SMOKES_ENABLED =
+  process.env.RF2_CAUSA_RUN_GALLERY_SMOKES === '1';
+
+function compileAndStagePanelGallery() {
+  const isWin = process.platform === 'win32';
+  const cmd = isWin ? 'npx.cmd' : 'npx';
+  const args = ['shadow-cljs', 'compile', 'testbeds/panel-gallery'];
+  const result = spawnSync(cmd, args, {
+    cwd: IMPL_ROOT,
+    stdio: 'inherit',
+    shell: isWin,
+  });
+  if (result.status !== 0) {
+    console.error(`> ${cmd} ${args.join(' ')}`);
+    throw new Error(
+      `shadow-cljs compile :testbeds/panel-gallery failed (exit ${result.status})`,
+    );
+  }
+  // Stage index.html next to the compiled bundle. The smokes serve
+  // implementation/out/testbeds/panel-gallery/ as the http-server
+  // root and request `/index.html`, so the file must live there.
+  const galleryHtmlSrc = path.join(
+    REPO_ROOT,
+    'tools', 'causa', 'testbeds', 'panel_gallery', 'index.html',
+  );
+  const galleryOutDir = path.join(
+    IMPL_ROOT, 'out', 'testbeds', 'panel-gallery',
+  );
+  if (!fs.existsSync(galleryOutDir)) {
+    throw new Error(`Panel-gallery bundle dir missing: ${galleryOutDir}`);
+  }
+  if (!fs.existsSync(galleryHtmlSrc)) {
+    throw new Error(`Panel-gallery index.html missing: ${galleryHtmlSrc}`);
+  }
+  fs.copyFileSync(galleryHtmlSrc, path.join(galleryOutDir, 'index.html'));
+}
+
+function runPanelGallerySmokes() {
+  const smokes = [
+    path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'panel_gallery', '_smoke.cjs'),
+    path.join(REPO_ROOT, 'tools', 'causa', 'testbeds', 'panel_gallery', '_workspace_switch_smoke.cjs'),
+  ];
+  let anyFailed = false;
+  for (const smoke of smokes) {
+    console.log(`\n=== panel-gallery smoke: ${path.basename(smoke)} ===`);
+    const result = spawnSync(process.execPath, [smoke], {
+      stdio: 'inherit',
+      cwd: REPO_ROOT,
+    });
+    if (result.status !== 0) {
+      console.error(`FAIL panel-gallery smoke ${path.basename(smoke)} (exit ${result.status})`);
+      anyFailed = true;
+    }
+  }
+  return anyFailed ? 1 : 0;
+}
+
 function copyDirRecursive(src, dest) {
   // Minimal recursive copy. Used only for `bundleSrc` — staging a
   // shadow-cljs build whose `:output-dir` lives outside `OUT_ROOT`
@@ -394,7 +460,28 @@ async function main() {
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));
 
-  return code == null ? 1 : code;
+  let finalCode = code == null ? 1 : code;
+
+  // rf2-1w76p — opt-in panel-gallery smokes. Runs AFTER the main
+  // runner so the spec.cjs sweep + smokes share one wall-clock
+  // budget. The smokes spawn their own http-servers on ports
+  // 8766 / 8767 (distinct from the orchestrator's :8030) so there
+  // is no port collision with the still-running EXAMPLES server.
+  // Smoke failures fail the whole run; the orchestrator's server
+  // is still torn down via the cleanup hook in main()'s caller.
+  if (GALLERY_SMOKES_ENABLED) {
+    console.log('\nRF2_CAUSA_RUN_GALLERY_SMOKES=1 — running panel-gallery smokes');
+    try {
+      compileAndStagePanelGallery();
+      const smokeCode = runPanelGallerySmokes();
+      if (smokeCode !== 0) finalCode = smokeCode;
+    } catch (err) {
+      console.error('panel-gallery smokes failed to set up:', err.message);
+      finalCode = 1;
+    }
+  }
+
+  return finalCode;
 }
 
 main().then(async (code) => {

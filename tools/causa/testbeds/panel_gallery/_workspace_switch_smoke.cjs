@@ -16,12 +16,20 @@
  * as the ~22 pageerrors observed in PR #1254's Phase 1b smoke when
  * clicking from `event-detail/all` to `app-db-diff/all`.
  *
- * Not wired into CI (mirrors `_smoke.cjs`'s posture). Run manually
- * post-compile to verify the fix end-to-end:
+ * Wired into CI behind the RF2_CAUSA_RUN_GALLERY_SMOKES=1 opt-in
+ * (rf2-1w76p, mirrors `_smoke.cjs`'s posture): the examples-browser
+ * job sets the flag and the orchestrator at
+ * examples/scripts/serve-and-run-examples-tests.cjs invokes this
+ * script after the main spec sweep. Run manually post-compile to
+ * verify the fix end-to-end:
  *
  *   shadow-cljs compile testbeds/panel-gallery
  *   cp tools/causa/testbeds/panel_gallery/index.html implementation/out/testbeds/panel-gallery/
  *   node tools/causa/testbeds/panel_gallery/_workspace_switch_smoke.cjs
+ *
+ * Or end-to-end via the orchestrator:
+ *
+ *   RF2_CAUSA_RUN_GALLERY_SMOKES=1 npm run test:examples
  */
 
 const { spawn } = require('child_process');
