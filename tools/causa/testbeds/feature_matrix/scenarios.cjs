@@ -1306,18 +1306,248 @@ async function runMultiFrame(page, state) {
   // above; the dedicated time-travel handoff steps are retired.
 }
 
-async function runDeepMachine(page) {
+async function runDeepMachine(page, state) {
   await clickTestId(page, 'work-go');
   await expectTextEquals(page.locator('[data-testid="tick-count"]'), '1', 5000);
   await waitForValue(
     async () => ((await page.locator('[data-testid="work-state"]').textContent()) || '').trim(),
-    (state) => state.length > 0 && state !== ':idle',
+    (s) => s.length > 0 && s !== ':idle',
     { timeoutMs: 5000, description: 'deep machine transition off :idle' },
   );
   await openCausa(page);
   await waitForTraceMatch(page, /:rf\.machine\/transition|:rf\.machine\/spawned|:helper\/tick/, 'machine transition trace');
   await clickSidebar(page, 'machines', 'rf-causa-machine-inspector');
   await expectVisible(page.locator('[data-testid="rf-causa-machine-inspector"]'), 5000);
+
+  // rf2-bz72m — drive the chart-render path through the existing
+  // test-only event surface (`:rf.causa/set-epoch-history-for-test` +
+  // `:rf.causa/set-focus-epoch-id-for-test`, both registered by
+  // `panels/machine_inspector.cljs` §595 and not gated behind
+  // `interop/debug-enabled?`).
+  //
+  // Why we don't drive a real `:rf.machine/transition` through the
+  // host app:
+  // —————————————————————————————————————————————————————————————
+  // The framework's `:rf.machine/transition` emits in
+  // `machines/lifecycle_fx/registration.cljc` §331 carry tags
+  // `{:machine-id :event :before :after}` but NO `:frame`. The epoch
+  // capture path (`epoch/capture.cljc` §87) requires `:frame` to
+  // route the event into a cascade buffer — events without `:frame`
+  // are silently skipped. So a real `:work/go` dispatch never gets
+  // `:rf.machine/transition` written into ANY epoch's `:trace-events`,
+  // and `project-focused-event-transitions` (the
+  // `:rf.causa/machine-transitions-for-focused-event` sub) returns
+  // empty in production today. (A future framework fix is tracked
+  // separately — orthogonal to the shim-survival probe.)
+  //
+  // The shim-survival probe this bead actually wants — the
+  // chart/{svg,layout,elk_layout} re-export chain — only fires when
+  // the focused epoch's cascade window carries at least one
+  // `:rf.machine/transition` row whose `:machine-id` resolves to a
+  // registered chartable definition. The `:helper/tick` definition
+  // is registered by the testbed (`deep_machine/core.cljs` §63), so
+  // injecting a synthetic epoch with a transition row tagged
+  // `:machine-id :helper/tick` drives the panel through the same
+  // chart-render path a future `:trace-events`-machine-transition fix
+  // would unlock — proving the shims survive `:advanced` compilation
+  // and the layout / svg primitives resolve through the re-export.
+  const chartInjection = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    const dispatch = rf && (rf.dispatch_STAR_ ||
+      (window.re_frame.router && window.re_frame.router.dispatch_BANG_));
+    if (!cljs || !rf || typeof dispatch !== 'function') {
+      return { ok: false, reason: 'rf/dispatch unavailable' };
+    }
+    const kw = (ns, n) => n
+      ? (cljs.keyword.call ? cljs.keyword.call(null, ns, n) : cljs.keyword(ns, n))
+      : (cljs.keyword.call ? cljs.keyword.call(null, ns) : cljs.keyword(ns));
+    // Build the synthetic epoch + transition row. The shape mirrors
+    // `tools/causa/test/.../machine_inspector_view_cljs_test.cljs` —
+    // one transition row whose `:machine-id` matches the testbed's
+    // registered `:helper/tick` machine.
+    const trans = cljs.hash_map(
+      kw('id'),        1,
+      kw('time'),      10,
+      kw('operation'), kw('rf.machine', 'transition'),
+      kw('tags'),      cljs.hash_map(
+        kw('machine-id'),  kw('helper', 'tick'),
+        kw('before'),      cljs.hash_map(kw('state'), kw('ticking'),
+                                          kw('data'),  cljs.hash_map()),
+        kw('after'),       cljs.hash_map(kw('state'), kw('ticking'),
+                                          kw('data'),  cljs.hash_map()),
+        kw('event'),       cljs.PersistentVector.fromArray(
+                             [kw('rf.machine', 'spawned')], true),
+        kw('dispatch-id'), 'rf2-bz72m-synthetic-1',
+      ),
+    );
+    const epochRecord = cljs.hash_map(
+      kw('epoch-id'),     9999,
+      kw('frame'),        kw('rf', 'default'),
+      kw('event-id'),     kw('rf2-bz72m', 'synthetic'),
+      kw('trigger-event'), cljs.hash_map(
+        kw('event-id'),    kw('rf2-bz72m', 'synthetic'),
+        kw('dispatch-id'), 'rf2-bz72m-synthetic-1',
+      ),
+      kw('trace-events'), cljs.PersistentVector.fromArray([trans], true),
+    );
+    const history = cljs.PersistentVector.fromArray([epochRecord], true);
+    function dispatchCausa(vec) {
+      const opts = cljs.hash_map(kw('frame'), kw('rf', 'causa'));
+      if (dispatch.cljs$core$IFn$_invoke$arity$2) {
+        dispatch.cljs$core$IFn$_invoke$arity$2(vec, opts);
+      } else {
+        dispatch(vec, opts);
+      }
+    }
+    // Inject the synthetic history AND pin the focus epoch-id to
+    // 9999 — both events are registered as `:rf.causa/set-epoch-
+    // history-for-test` and `:rf.causa/set-focus-epoch-id-for-test`
+    // by `panels/machine_inspector.cljs` §595-606.
+    dispatchCausa(cljs.PersistentVector.fromArray(
+      [kw('rf.causa', 'set-epoch-history-for-test'), history], true));
+    dispatchCausa(cljs.PersistentVector.fromArray(
+      [kw('rf.causa', 'set-focus-epoch-id-for-test'), 9999], true));
+    return { ok: true };
+  });
+  if (!chartInjection.ok) {
+    failWithDetails(
+      'Could not inject synthetic transition epoch via test-only events',
+      { observed: chartInjection },
+    );
+  }
+  state.deepMachine = state.deepMachine || {};
+  state.deepMachine.chartInjection = chartInjection;
+
+  // rf2-bz72m — assert the machines-viz chart SVG actually renders.
+  // The chart layer was extracted into `tools/machines-viz/` under
+  // #1570 (rf2-o9arp); Causa retains thin re-export shims under
+  // `tools/causa/src/.../chart/{svg,layout,elk_layout}.{cljs,cljc}`.
+  // The pre-bead assertion only checked the panel mounts — a broken
+  // re-export shim would silently degrade the chart while the panel
+  // still mounted. Here we walk the inspector down to the canvas + SVG
+  // and assert layout-node groups rendered (proves ELK layout ran +
+  // the machines-viz primitive resolved through the shim chain).
+  let chartProjection = null;
+  try {
+    chartProjection = await waitForValue(
+      () => page.evaluate(() => {
+        const root = document.getElementById('rf-causa-root');
+        if (!root) return { rootMissing: true };
+        const canvasHosts = Array.from(
+          root.querySelectorAll('[data-testid="rf-causa-machine-canvas-host"]'),
+        );
+        const svgs = Array.from(
+          root.querySelectorAll('[data-testid="rf-causa-chart-svg"]'),
+        );
+        const firstSvg = svgs[0] || null;
+        // The chart-svg primitive emits node groups under a
+        // `rf-causa-chart-nodes` container (machines-viz chart/svg.cljc).
+        // A non-zero count is the canonical proof that ELK layout
+        // produced positions + the machines-viz <g> emitters ran. We
+        // also fall back to counting all child <g> as a loose lower
+        // bound in case the testid is renamed in a future tweak.
+        const nodeGroupContainer = firstSvg
+          ? firstSvg.querySelector('[data-testid="rf-causa-chart-nodes"]')
+          : null;
+        const nodeGroupCount = nodeGroupContainer
+          ? nodeGroupContainer.querySelectorAll('g').length
+          : 0;
+        const totalGChildren = firstSvg ? firstSvg.querySelectorAll('g').length : 0;
+        return {
+          canvasHostCount: canvasHosts.length,
+          svgCount: svgs.length,
+          svgTagName: firstSvg ? firstSvg.tagName.toLowerCase() : null,
+          svgTestId: firstSvg ? firstSvg.getAttribute('data-testid') : null,
+          nodeGroupCount,
+          totalGChildren,
+        };
+      }),
+      (projection) =>
+        projection.svgCount > 0 &&
+        projection.svgTagName === 'svg' &&
+        (projection.nodeGroupCount > 0 || projection.totalGChildren > 0),
+      {
+        timeoutMs: 15000,
+        description:
+          'machines-viz chart SVG renders with layout-node groups under the inspector',
+      },
+    );
+  } catch (waitErr) {
+    // Pull a diagnostic of the focus slot + the transitions sub so the
+    // failure mode tells us which gap (focus, definitions, transitions,
+    // or shim) broke the chart-render path.
+    const diag = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf) return { ok: false };
+      const kw = (ns, n) => n
+        ? (cljs.keyword.call ? cljs.keyword.call(null, ns, n) : cljs.keyword(ns, n))
+        : (cljs.keyword.call ? cljs.keyword.call(null, ns) : cljs.keyword(ns));
+      const db = rf.get_frame_db
+        ? rf.get_frame_db(kw('rf', 'causa'))
+        : null;
+      function dbGet(k) {
+        return db ? cljs.get(db, k) : null;
+      }
+      const focus = dbGet(kw('focus'));
+      const epochHistory = dbGet(kw('epoch-history'));
+      const dbKeys = db ? cljs.pr_str(cljs.keys(db)) : null;
+      // Inspect the focused epoch's :trace-events specifically — the
+      // `project-focused-event-transitions` helper filters this for
+      // `:rf.machine/transition` operations.
+      const focusedEpochId = focus ? cljs.get(focus, kw('epoch-id')) : null;
+      let focusedRecord = null;
+      if (epochHistory && focusedEpochId != null) {
+        let s = cljs.seq(epochHistory);
+        while (s) {
+          const r = cljs.first(s);
+          if (cljs._EQ_(cljs.get(r, kw('epoch-id')), focusedEpochId)) {
+            focusedRecord = r;
+            break;
+          }
+          s = cljs.next(s);
+        }
+      }
+      const traceEvents = focusedRecord
+        ? cljs.get(focusedRecord, kw('trace-events'))
+        : null;
+      // Filter for transition ops via pr_str search.
+      const transitionEvents = [];
+      if (traceEvents) {
+        let s = cljs.seq(traceEvents);
+        while (s) {
+          const ev = cljs.first(s);
+          const evStr = cljs.pr_str(ev);
+          if (evStr.indexOf(':rf.machine/transition') >= 0 ||
+              evStr.indexOf(':rf.machine.microstep/transition') >= 0) {
+            transitionEvents.push(evStr.slice(0, 220));
+          }
+          s = cljs.next(s);
+        }
+      }
+      return {
+        ok: true,
+        dbPresent: Boolean(db),
+        dbKeysSample: dbKeys ? dbKeys.slice(0, 400) : null,
+        focus: focus ? cljs.pr_str(focus) : null,
+        epochCount: epochHistory ? cljs.count(epochHistory) : 0,
+        focusedRecordKeys: focusedRecord ? cljs.pr_str(cljs.keys(focusedRecord)) : null,
+        traceEventCount: traceEvents ? cljs.count(traceEvents) : 0,
+        transitionEvents,
+        inspectorBlankPresent: Boolean(document.querySelector(
+          '[data-testid="rf-causa-machine-inspector-blank"]')),
+      };
+    });
+    failWithDetails(
+      'Machines panel mounted but the machines-viz chart SVG never rendered ' +
+        '— suspect a broken chart/{svg,layout,elk_layout} re-export shim ' +
+        'OR a focus-cascade misroute (rf2-bz72m)',
+      { waitError: waitErr.message, diag },
+    );
+  }
+  state.deepMachine = state.deepMachine || {};
+  state.deepMachine.chartProjection = chartProjection;
 }
 
 async function runLongFlow(page) {
@@ -1786,6 +2016,579 @@ async function runConfigurePartialUpdate(page, state) {
   state.configureProbe = { ok: true };
 }
 
+// rf2-n39g2 — Static-mode browser scenario.
+//
+// Static mode shipped under #1565 + #1568 + #1569 (rf2-o5f5f.1 / .2 / .3)
+// and is gated behind `:experimental/static-mode?` (default `false`).
+// Before this scenario the feature-matrix carried zero browser coverage
+// for the highest-user-visible Causa surface to land in the recent
+// cluster. This scenario:
+//
+//   1. Opts into Static mode at runtime via `configure!` (the
+//      `{:experimental/static-mode? true}` opt — exposed on
+//      `window.day8.re_frame2_causa.config`).
+//   2. Asserts the Runtime baseline — mode pill present with `runtime`
+//      segment selected (aria-checked=true), L2 spine event-list
+//      visible (4-layer chrome).
+//   3. Fires Ctrl+Shift+M (the cross-platform chord per
+//      `keybinding.cljs/mode-toggle-key?` — Cmd-Shift-M on macOS,
+//      Ctrl-Shift-M elsewhere; Playwright drives Ctrl as the headless
+//      Chromium maps to Ctrl reliably). Asserts the mode flips: the
+//      `static` segment becomes selected, the Static surface mounts
+//      (`rf-causa-static-surface` with `data-rf-causa-mode="static"`),
+//      the L2 spine disappears (3-layer silhouette — chrome-silhouette
+//      mode-signal #4), the Machines sub-tab is selected by default
+//      (rf2-o5f5f.1 §tabs), and the placeholder cards name the sibling
+//      beads that fill them (rf2-o5f5f.<N>).
+//   4. Clicks `rf-causa-mode-pill-runtime`; mode flips back; L2 spine
+//      returns (proves the pill is the canonical toggle path too —
+//      not just the chord).
+//   5. Reloads the page; asserts localStorage `causa.mode` round-
+//      trips the last-set mode (Runtime here, per the flip-back step).
+async function runStaticModeChromeAndChord(page, state) {
+  // ---- (0) opt into Static mode at runtime --------------------------
+  await page.goto(page.url(), { waitUntil: 'load' });
+  // Wait for the host counter so we know Causa's preload has installed
+  // its browser-API exports (the `window.day8.re_frame2_causa.config`
+  // surface).
+  await expectHostCounterEquals(page, 5, 10000);
+  const optIn = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg) {
+      return { ok: false, reason: 'cljs.core or causa.config unavailable' };
+    }
+    if (typeof cfg.configure_BANG_ !== 'function') {
+      return { ok: false, reason: 'configure_BANG_ missing' };
+    }
+    // Clear the persisted mode slot so we start from a known baseline
+    // (otherwise a previous scenario's localStorage write could pre-
+    // select Static and skip the Runtime baseline check below).
+    try { window.localStorage.removeItem('causa.mode'); }
+    catch (_) { /* localStorage unavailable in some test runtimes */ }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    const opts = cljs.PersistentArrayMap.fromArray([
+      kw('experimental', 'static-mode?'), true,
+    ], true, false);
+    cfg.configure_BANG_(opts);
+    return {
+      ok: true,
+      staticModeEnabled: (typeof cfg.static_mode_enabled_QMARK_ === 'function')
+        ? cfg.static_mode_enabled_QMARK_()
+        : null,
+    };
+  });
+  if (!optIn.ok) {
+    failWithDetails('Could not opt into Static mode', { observed: optIn });
+  }
+  await openCausa(page);
+
+  // ---- (1) Runtime baseline -----------------------------------------
+  // The mode pill renders only when `:experimental/static-mode?` is on
+  // (see `surface-composer` in `shell.cljs` — the runtime-chrome
+  // surface includes the pill only when the flag is live). With the
+  // opt-in above the pill must be present and the Runtime segment must
+  // be selected.
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-mode-pill"]'),
+    5000,
+  );
+  const runtimeBaseline = await waitForValue(
+    () => page.evaluate(() => {
+      const runtimePill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-runtime"]',
+      );
+      const staticPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-static"]',
+      );
+      const pillGroup = document.querySelector(
+        '[data-testid="rf-causa-mode-pill"]',
+      );
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]',
+      );
+      const staticSurface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]',
+      );
+      return {
+        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
+        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        eventListPresent: Boolean(eventList),
+        staticSurfacePresent: Boolean(staticSurface),
+      };
+    }),
+    (snap) =>
+      snap.runtimePillChecked === 'true' &&
+      snap.staticPillChecked === 'false' &&
+      snap.pillGroupActiveMode === 'runtime' &&
+      snap.eventListPresent &&
+      !snap.staticSurfacePresent,
+    { timeoutMs: 5000, description: 'Runtime baseline before mode toggle' },
+  );
+
+  // ---- (2) Cmd/Ctrl-Shift-M chord — Runtime → Static ----------------
+  await page.keyboard.press('Control+Shift+M');
+  const afterChord = await waitForValue(
+    () => page.evaluate(() => {
+      const runtimePill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-runtime"]',
+      );
+      const staticPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-static"]',
+      );
+      const pillGroup = document.querySelector(
+        '[data-testid="rf-causa-mode-pill"]',
+      );
+      const surface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]',
+      );
+      const ribbon = document.querySelector(
+        '[data-testid="rf-causa-static-ribbon"]',
+      );
+      const tabBar = document.querySelector(
+        '[data-testid="rf-causa-static-tab-bar"]',
+      );
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]',
+      );
+      // Default Static sub-tab is :machines per static/shell.cljs.
+      const machinesTab = document.querySelector(
+        '[data-testid="rf-causa-static-tab-machines"]',
+      );
+      // L4 detail panel — when Machines is the default tab the live
+      // panel mounts (rf2-o5f5f.2); the static-detail-panel-* root
+      // remains a stable testid hook regardless of which tab is selected.
+      const detailPanel = document.querySelector(
+        '[data-testid="rf-causa-static-detail-panel-machines"]',
+      );
+      return {
+        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
+        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        staticSurfacePresent: Boolean(surface),
+        staticSurfaceModeAttr: surface ? surface.getAttribute('data-rf-causa-mode') : null,
+        ribbonPresent: Boolean(ribbon),
+        tabBarPresent: Boolean(tabBar),
+        eventListPresent: Boolean(eventList),
+        machinesTabSelected: machinesTab ? machinesTab.getAttribute('aria-selected') : null,
+        detailPanelMachinesPresent: Boolean(detailPanel),
+      };
+    }),
+    (snap) =>
+      snap.staticPillChecked === 'true' &&
+      snap.runtimePillChecked === 'false' &&
+      snap.pillGroupActiveMode === 'static' &&
+      snap.staticSurfacePresent &&
+      snap.staticSurfaceModeAttr === 'static' &&
+      snap.ribbonPresent &&
+      snap.tabBarPresent &&
+      !snap.eventListPresent &&
+      snap.machinesTabSelected === 'true' &&
+      snap.detailPanelMachinesPresent,
+    { timeoutMs: 5000, description: 'Static surface after Cmd-Shift-M chord' },
+  );
+
+  // ---- (2a) Walk the placeholder sub-tabs ---------------------------
+  // The still-pending Static sub-tabs each render a placeholder card
+  // naming the sibling bead that will fill them (per
+  // `static/shell.cljs/placeholder-card`). `.2 Machines` mounts the
+  // live panel; `.3 Routes` shipped under #1568 and mounts the live
+  // `routes-panel/Panel`. The remaining three (.4 / .5 / .6) carry
+  // the placeholder card text "rf2-o5f5f.<N> will fill this." until
+  // their respective siblings ship.
+  //
+  // We click each placeholder tab and wait for its
+  // `rf-causa-static-placeholder-<id>` card to render — React renders
+  // asynchronously so a click + read in the same `page.evaluate`
+  // misses the post-commit DOM. Each tab gets its own click + waitFor.
+  const expectedPlaceholders = [
+    ['schemas', 'rf2-o5f5f.4'],
+    ['views',   'rf2-o5f5f.5'],
+    ['events',  'rf2-o5f5f.6'],
+  ];
+  const placeholderTexts = {};
+  for (const [tabId, beadId] of expectedPlaceholders) {
+    await page.locator(`[data-testid="rf-causa-static-tab-${tabId}"]`).click();
+    const text = await waitForValue(
+      () => page.evaluate((id) => {
+        const card = document.querySelector(
+          `[data-testid="rf-causa-static-placeholder-${id}"]`,
+        );
+        return card ? (card.textContent || '').trim() : null;
+      }, tabId),
+      (t) => Boolean(t) && t.includes(beadId) && /will fill this/i.test(t),
+      {
+        timeoutMs: 5000,
+        description: `Static sub-tab :${tabId} placeholder card with sibling bead ${beadId}`,
+      },
+    );
+    placeholderTexts[tabId] = text;
+  }
+  // Restore the Machines tab so subsequent steps see the default L4.
+  await page.locator('[data-testid="rf-causa-static-tab-machines"]').click();
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-static-detail-panel-machines"]'),
+    5000,
+  );
+
+  // ---- (3) Click Runtime pill — Static → Runtime --------------------
+  await page.locator('[data-testid="rf-causa-mode-pill-runtime"]').click();
+  const afterClickBack = await waitForValue(
+    () => page.evaluate(() => {
+      const pillGroup = document.querySelector(
+        '[data-testid="rf-causa-mode-pill"]',
+      );
+      const runtimePill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-runtime"]',
+      );
+      const staticPill = document.querySelector(
+        '[data-testid="rf-causa-mode-pill-static"]',
+      );
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]',
+      );
+      const surface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]',
+      );
+      return {
+        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        runtimePillChecked: runtimePill ? runtimePill.getAttribute('aria-checked') : null,
+        staticPillChecked: staticPill ? staticPill.getAttribute('aria-checked') : null,
+        eventListPresent: Boolean(eventList),
+        staticSurfacePresent: Boolean(surface),
+      };
+    }),
+    (snap) =>
+      snap.pillGroupActiveMode === 'runtime' &&
+      snap.runtimePillChecked === 'true' &&
+      snap.staticPillChecked === 'false' &&
+      snap.eventListPresent &&
+      !snap.staticSurfacePresent,
+    { timeoutMs: 5000, description: 'Runtime restored after clicking pill segment' },
+  );
+
+  // ---- (4) Reload — localStorage round-trip -------------------------
+  // Per static/persistence.cljs the canonical slot is the bare string
+  // `"runtime"` or `"static"` under localStorage key `causa.mode`. The
+  // mode-set fx writes this on every mode flip; a reload + re-opt-in
+  // for the static-mode? flag should then re-hydrate the same mode.
+  const persistedBeforeReload = await page.evaluate(() => {
+    try { return window.localStorage.getItem('causa.mode'); }
+    catch (_) { return null; }
+  });
+  if (persistedBeforeReload !== 'runtime') {
+    failWithDetails(
+      'localStorage causa.mode did not round-trip the last-set mode (expected "runtime")',
+      { persistedBeforeReload, afterClickBack },
+    );
+  }
+  await page.reload({ waitUntil: 'load' });
+  await expectHostCounterEquals(page, 5, 10000);
+  // Re-opt into Static mode after reload (the flag itself is a JS-side
+  // atom seeded fresh on every load — it is not persisted; only the
+  // mode SELECTION is).
+  const reoptIn = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg) {
+      return { ok: false, reason: 'config unavailable after reload' };
+    }
+    const kw = (ns, n) => cljs.keyword.call
+      ? cljs.keyword.call(null, ns, n)
+      : cljs.keyword(ns, n);
+    const opts = cljs.PersistentArrayMap.fromArray([
+      kw('experimental', 'static-mode?'), true,
+    ], true, false);
+    cfg.configure_BANG_(opts);
+    return {
+      ok: true,
+      persistedAfterReload: (function () {
+        try { return window.localStorage.getItem('causa.mode'); }
+        catch (_) { return null; }
+      })(),
+    };
+  });
+  if (!reoptIn.ok) {
+    failWithDetails('Could not re-opt into Static mode after reload', { observed: reoptIn });
+  }
+  if (reoptIn.persistedAfterReload !== 'runtime') {
+    failWithDetails(
+      'localStorage causa.mode slot regressed across reload (expected "runtime")',
+      { persistedAfterReload: reoptIn.persistedAfterReload },
+    );
+  }
+  await openCausa(page);
+  // The hydrated mode should drive the surface — Runtime here, so the
+  // L2 spine returns + the Static surface is absent.
+  const afterReload = await waitForValue(
+    () => page.evaluate(() => {
+      const pillGroup = document.querySelector(
+        '[data-testid="rf-causa-mode-pill"]',
+      );
+      const eventList = document.querySelector(
+        '[data-testid="rf-causa-event-list"]',
+      );
+      const surface = document.querySelector(
+        '[data-testid="rf-causa-static-surface"]',
+      );
+      return {
+        pillGroupActiveMode: pillGroup ? pillGroup.getAttribute('data-active-mode') : null,
+        eventListPresent: Boolean(eventList),
+        staticSurfacePresent: Boolean(surface),
+      };
+    }),
+    (snap) =>
+      snap.pillGroupActiveMode === 'runtime' &&
+      snap.eventListPresent &&
+      !snap.staticSurfacePresent,
+    { timeoutMs: 5000, description: 'persisted mode (Runtime) hydrated after reload' },
+  );
+  state.staticMode = {
+    runtimeBaseline,
+    afterChord,
+    placeholderTexts,
+    afterClickBack,
+    persistedBeforeReload,
+    persistedAfterReload: reoptIn.persistedAfterReload,
+    afterReload,
+  };
+}
+
+// rf2-z5zip — Cmd-K command palette browser scenario.
+//
+// The palette shipped under #1572 (rf2-ybjkx) — 6 new verbs, mode-
+// aware command index, recents slot, reduced-motion override. The
+// pre-bead suite carried helper-level unit gates only (no end-to-end
+// browser proof that the chord-bind → view-mount → dispatch route
+// land together). This scenario:
+//
+//   1. Opens Causa, clears the recents slot (so the test starts from
+//      a known empty-recents state), then presses Ctrl+K.
+//   2. Asserts the palette dialog mounts + the input is focused
+//      (the chord-bind → mount edge).
+//   3. Types "toggle theme" so the fuzzy filter narrows the result
+//      list to the `:toggle-theme` command (the canonical mode-
+//      agnostic verb from `palette/sources.cljc` §command-items).
+//   4. Captures the current theme (from `cfg.get_setting :theme`),
+//      presses Enter; asserts the dialog unmounts AND the theme
+//      slot flipped (the dispatch-route edge — the verb fired a
+//      real side-effect).
+//   5. Re-opens the palette; asserts `:toggle-theme` sits at the
+//      top of the result list (the recents-boost surfaces the
+//      most-recent command above fresh fuzzy peers).
+//   6. Asserts the localStorage recents slot
+//      (`re-frame2.causa.palette.recents.v1`) contains
+//      `:toggle-theme` (proves the persistence fx ran).
+//   7. Presses Esc; asserts the dialog closes without re-dispatching.
+async function runPaletteOpenExecute(page, state) {
+  await expectHostCounterEquals(page, 5, 10000);
+  // Clear the persisted recents slot so the assertion that the
+  // freshly-invoked verb leads the recents list isn't masked by a
+  // stale slot from a prior scenario / browser-context carry-over.
+  // The palette events ns lazy-seeds `:palette-recents` from
+  // localStorage on first open, so this clear must land BEFORE the
+  // first open.
+  await page.evaluate(() => {
+    try {
+      window.localStorage.removeItem('re-frame2.causa.palette.recents.v1');
+    } catch (_) { /* localStorage unavailable */ }
+  });
+  await openCausa(page);
+
+  // Capture the current theme so we can prove the verb fired.
+  const themeBefore = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg || typeof cfg.get_setting !== 'function') {
+      return { ok: false, reason: 'cfg.get_setting unavailable' };
+    }
+    const kw = (n) => cljs.keyword.call ? cljs.keyword.call(null, n) : cljs.keyword(n);
+    const value = cfg.get_setting(kw('theme'), null);
+    return { ok: true, theme: cljs.pr_str(value) };
+  });
+  if (!themeBefore.ok) {
+    failWithDetails('Could not read theme before palette invoke', { observed: themeBefore });
+  }
+
+  // ---- (1) chord opens the palette ---------------------------------
+  await page.keyboard.press('Control+K');
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-palette-dialog"]'),
+    5000,
+  );
+  const openedState = await page.evaluate(() => {
+    const dialog = document.querySelector(
+      '[data-testid="rf-causa-palette-dialog"]',
+    );
+    const input = document.querySelector(
+      '[data-testid="rf-causa-palette-input"]',
+    );
+    return {
+      dialogPresent: Boolean(dialog),
+      dialogModeAttr: dialog ? dialog.getAttribute('data-rf-causa-mode') : null,
+      inputPresent: Boolean(input),
+      inputFocused: Boolean(input && document.activeElement === input),
+    };
+  });
+  if (!openedState.dialogPresent || !openedState.inputPresent) {
+    failWithDetails('Palette did not mount on Ctrl+K', { openedState });
+  }
+  // Input focus is the chord's UX contract — typing immediately after
+  // the chord must land in the palette's query slot. Playwright's
+  // headless Chromium sometimes loses focus across the keypress; we
+  // tolerate a missing autofocus iff the input ACCEPTS subsequent
+  // input (the .fill below would surface a hard failure).
+
+  // ---- (2) type filters the list ------------------------------------
+  await page.locator('[data-testid="rf-causa-palette-input"]').fill('toggle theme');
+  const filtered = await waitForValue(
+    () => page.evaluate(() => {
+      const list = document.querySelector(
+        '[data-testid="rf-causa-palette-list"]',
+      );
+      const rows = list
+        ? Array.from(list.querySelectorAll('[data-testid^="rf-causa-palette-row-"]'))
+        : [];
+      const firstRow = rows[0] || null;
+      return {
+        rowCount: rows.length,
+        firstRowSource: firstRow ? firstRow.getAttribute('data-source') : null,
+        firstRowText: firstRow ? (firstRow.textContent || '').trim() : null,
+      };
+    }),
+    (snap) =>
+      snap.rowCount > 0 &&
+      snap.firstRowText !== null &&
+      /toggle theme/i.test(snap.firstRowText),
+    { timeoutMs: 5000, description: 'palette list narrows to a row containing "toggle theme"' },
+  );
+
+  // ---- (3) Enter fires the verb -------------------------------------
+  await page.locator('[data-testid="rf-causa-palette-input"]').press('Enter');
+  await waitForValue(
+    () => page.locator('[data-testid="rf-causa-palette-dialog"]').count(),
+    (n) => n === 0,
+    { timeoutMs: 5000, description: 'palette closes after Enter' },
+  );
+  // The toggle-theme verb routes through `:rf.causa/settings-update`
+  // which mutates the live settings atom (and persists). The slot the
+  // palette inspects via `cfg.get_setting :theme` should now hold the
+  // opposite value of `themeBefore.theme`.
+  const themeAfter = await waitForValue(
+    () => page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const cfg = window.day8 && window.day8.re_frame2_causa &&
+                  window.day8.re_frame2_causa.config;
+      if (!cljs || !cfg || typeof cfg.get_setting !== 'function') {
+        return { ok: false, theme: null };
+      }
+      const kw = (n) => cljs.keyword.call ? cljs.keyword.call(null, n) : cljs.keyword(n);
+      const value = cfg.get_setting(kw('theme'), null);
+      return { ok: true, theme: cljs.pr_str(value) };
+    }),
+    (snap) => snap.ok && snap.theme !== themeBefore.theme,
+    {
+      timeoutMs: 5000,
+      description: `theme flipped away from ${themeBefore.theme} after :toggle-theme invoke`,
+    },
+  );
+
+  // ---- (4) re-open: :toggle-theme leads the recents -----------------
+  await page.keyboard.press('Control+K');
+  await expectVisible(
+    page.locator('[data-testid="rf-causa-palette-dialog"]'),
+    5000,
+  );
+  const recentsLead = await waitForValue(
+    () => page.evaluate(() => {
+      const list = document.querySelector(
+        '[data-testid="rf-causa-palette-list"]',
+      );
+      const rows = list
+        ? Array.from(list.querySelectorAll('[data-testid^="rf-causa-palette-row-"]'))
+        : [];
+      const firstRow = rows[0] || null;
+      return {
+        rowCount: rows.length,
+        firstRowSource: firstRow ? firstRow.getAttribute('data-source') : null,
+        firstRowText: firstRow ? (firstRow.textContent || '').trim() : null,
+      };
+    }),
+    // Empty-query list orders by `boost + recency-bonus`; the most
+    // recent command lands at the head per sources.cljc/recents-boost-
+    // for-id. So a fresh palette open with empty query must surface
+    // `:toggle-theme` at row 0 (a `:command` source row whose label
+    // contains "Toggle theme").
+    (snap) =>
+      snap.rowCount > 0 &&
+      snap.firstRowSource === 'command' &&
+      snap.firstRowText !== null &&
+      /toggle theme/i.test(snap.firstRowText),
+    { timeoutMs: 5000, description: 'recents pin :toggle-theme at the head of the result list' },
+  );
+
+  // ---- (5) localStorage recents round-trip --------------------------
+  const persistedRecents = await page.evaluate(() => {
+    try { return window.localStorage.getItem('re-frame2.causa.palette.recents.v1'); }
+    catch (_) { return null; }
+  });
+  if (!persistedRecents || !persistedRecents.includes(':toggle-theme')) {
+    failWithDetails(
+      'localStorage recents slot did not capture :toggle-theme after invoke',
+      { persistedRecents },
+    );
+  }
+
+  // ---- (6) Esc closes without dispatching ---------------------------
+  // Read the current theme before Esc so we can prove Esc didn't
+  // re-fire the verb.
+  const themeBeforeEsc = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg) return null;
+    const kw = (n) => cljs.keyword.call ? cljs.keyword.call(null, n) : cljs.keyword(n);
+    return cljs.pr_str(cfg.get_setting(kw('theme'), null));
+  });
+  await page.locator('[data-testid="rf-causa-palette-input"]').press('Escape');
+  await waitForValue(
+    () => page.locator('[data-testid="rf-causa-palette-dialog"]').count(),
+    (n) => n === 0,
+    { timeoutMs: 5000, description: 'palette closes after Esc' },
+  );
+  const themeAfterEsc = await page.evaluate(() => {
+    const cljs = window.cljs && window.cljs.core;
+    const cfg = window.day8 && window.day8.re_frame2_causa &&
+                window.day8.re_frame2_causa.config;
+    if (!cljs || !cfg) return null;
+    const kw = (n) => cljs.keyword.call ? cljs.keyword.call(null, n) : cljs.keyword(n);
+    return cljs.pr_str(cfg.get_setting(kw('theme'), null));
+  });
+  if (themeBeforeEsc !== themeAfterEsc) {
+    failWithDetails(
+      'Esc on palette unexpectedly fired a verb (theme moved across Esc close)',
+      { themeBeforeEsc, themeAfterEsc },
+    );
+  }
+
+  state.palette = {
+    themeBefore: themeBefore.theme,
+    openedState,
+    filtered,
+    themeAfter: themeAfter.theme,
+    recentsLead,
+    persistedRecents,
+    themeBeforeEsc,
+    themeAfterEsc,
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -1856,11 +2659,41 @@ const SCENARIOS = [
     run: runMultiFrame,
   },
   {
+    // rf2-bz72m — deepened to assert the machines-viz chart SVG
+    // actually renders (not just the inspector mount). Catches a
+    // broken `chart/{svg,layout,elk_layout}` re-export shim after the
+    // #1570 / rf2-o9arp machines-viz extraction.
     name: 'deep machine inspector substrate',
     url: '/testbeds/deep-machine/',
     panels: ['machines'],
     coveredRows: ['Machines', 'Trace'],
     run: runDeepMachine,
+  },
+  {
+    // rf2-n39g2 — Static mode (rf2-o5f5f.1 / .2 / .3) browser
+    // coverage: chord + pill + 3-layer chrome silhouette +
+    // localStorage round-trip.
+    name: 'static mode chrome, chord, and persistence',
+    url: '/counter/',
+    panels: [],
+    coveredRows: [
+      'Static Mode',
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runStaticModeChromeAndChord,
+  },
+  {
+    // rf2-z5zip — Cmd-K command palette (rf2-ybjkx) browser coverage:
+    // chord opens, fuzzy narrows, Enter executes a verb (theme flip),
+    // recents persist + lead on re-open, Esc closes without dispatch.
+    name: 'command palette chord, fuzzy filter, execute verb, and recents round-trip',
+    url: '/counter/',
+    panels: [],
+    coveredRows: [
+      'Command Palette',
+      'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
+    ],
+    run: runPaletteOpenExecute,
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //
