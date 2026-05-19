@@ -45,7 +45,9 @@
                 changed-reserved
                 focused-path
                 focused-hits
-                redacted-modified-count]}
+                redacted-modified-count
+                flow-writes
+                diff-triples]}
         @(rf/subscribe [:rf.causa/app-db-diff])]
     [:section {:data-testid "rf-causa-app-db-diff"
                :style       {:height         "100%"
@@ -78,7 +80,16 @@
          ;; cascade actually involved redacted slots in mutated
          ;; subtrees.
          (sections/redacted-modified-chip redacted-modified-count)
-         (diff-render/render-sections changed-sections "app-db-diff")
+         ;; rf2-s8r6c — per-section origin tag chip is computed here:
+         ;; the renderer takes the full per-leaf `diff-triples` + the
+         ;; per-epoch `flow-writes` and attributes each section's
+         ;; writer(s). When no flow fired, every section gets
+         ;; `[fx :db]`; when flows fired, sections covering a flow's
+         ;; `:write-path` get `[flow :flow-id]` (or mixed if
+         ;; coalesced).
+         (diff-render/render-sections changed-sections "app-db-diff"
+                                       {:flow-writes  flow-writes
+                                        :diff-triples diff-triples})
          (sections/reserved-group changed-reserved)])]]))
 
 (defn install!

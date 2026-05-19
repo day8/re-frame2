@@ -18,7 +18,8 @@
      :init-fn (fn []
                 (reset! subs/diff-cache {})
                 (reset! subs/annotated-tree-cache {})
-                (reset! subs/redacted-modified-cache {}))}))
+                (reset! subs/redacted-modified-cache {})
+                (reset! subs/flow-writes-cache {}))}))
 
 (deftest leaf-install-registers-the-active-subs
   (subs/install!)
@@ -35,6 +36,8 @@
   (is (some? (registrar/handler :sub :rf.causa/show-me-when-this-changed-result)))
   ;; rf2-bz1cl — redacted-paths-modified hint sub.
   (is (some? (registrar/handler :sub :rf.causa/selected-epoch-redacted-modified-count)))
+  ;; rf2-s8r6c — flow-writes projection sub for the origin-tag chip.
+  (is (some? (registrar/handler :sub :rf.causa/selected-epoch-flow-writes)))
   (is (some? (registrar/handler :sub :rf.causa/app-db-diff)))
   ;; rf2-e9tb0 — pinned-slices subs are gone.
   (is (nil? (registrar/handler :sub :rf.causa/pinned-slices-store)))
@@ -48,4 +51,8 @@
   ;; rf2-bz1cl — redacted-modified count cache mirrors the existing
   ;; per-`:epoch-id` caching contract.
   (is (some? subs/redacted-modified-cache))
-  (is (map? @subs/redacted-modified-cache)))
+  (is (map? @subs/redacted-modified-cache))
+  ;; rf2-s8r6c — flow-writes cache mirrors the same per-`:epoch-id`
+  ;; caching contract.
+  (is (some? subs/flow-writes-cache))
+  (is (map? @subs/flow-writes-cache)))

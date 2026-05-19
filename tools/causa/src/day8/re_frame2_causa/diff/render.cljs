@@ -41,7 +41,8 @@
   `large-chip` renderers — the diff layer never overrides them. The
   diff layer's chrome (gutter colour + glyph) wraps the chip without
   reveal."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as string]
+            [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.annotated-tree :as at]
             ;; Phase 3 (rf2-i39w2) — hiccup-diff micro-engine renderer.
             ;; Additive dispatch: when this renderer encounters a
@@ -50,6 +51,7 @@
             ;; renderer; the generic ops still resolve here.
             [day8.re-frame2-causa.diff.hiccup-render :as hd-render]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -182,18 +184,111 @@
                                     :text-decoration-color (:border-default tokens)}}
                (pr-str seg)])))))
 
+;; ---- rf2-s8r6c — per-section origin tag chip ---------------------------
+;;
+;; Each section header carries an origin chip identifying the writer(s)
+;; that mutated paths under this section:
+;;
+;;   `[fx :db]`        — the handler's `:db` effect (no flow covers it)
+;;   `[flow :flow-id]` — a single flow's `:output` wrote here
+;;   `[flow :a :b] + [fx :db]` — coalesced mixed section
+;;
+;; The chip is rendered next to the path breadcrumb at the LEFT end of
+;; the header's affordance row, so it sits in the developer's eye-path
+;; as they read "this section is the cart, written by …". Computation
+;; is a pure helper (`app-db-diff-helpers/path-origin-tag`); the
+;; renderer just turns the tag into hiccup.
+
+(defn- origin-tag-label
+  "Render an origin-tag map (the output of `path-origin-tag`) as a
+  human-readable label string. Pure data → string. Used by tests as
+  well as the chip renderer."
+  [tag]
+  (case (:kind tag)
+    :fx    "[fx :db]"
+    :flow  (str "[flow " (pr-str (:flow-id tag)) "]")
+    :mixed (let [flow-part (str "[flow "
+                                (string/join " " (map pr-str (:flow-ids tag)))
+                                "]")]
+             (if (:fx? tag)
+               (str flow-part " + [fx :db]")
+               flow-part))))
+
+(defn- origin-tag-tone
+  "Pick the chip's accent colour. Flow writes use `:accent-violet`
+  (mirrors §8 FLOWS row colour in the Event lens); pure-fx writes use
+  the muted `:text-tertiary` (handler `:db` is the ambient writer);
+  mixed uses `:yellow` to flag the coalesced case."
+  [tag]
+  (case (:kind tag)
+    :fx    (:text-tertiary tokens)
+    :flow  (:accent-violet tokens)
+    :mixed (:yellow tokens)))
+
+(defn- origin-tag-tooltip
+  [tag]
+  (case (:kind tag)
+    :fx    (str "Handler `:db` effect wrote here. "
+                "(No flow's :output covers this section.)")
+    :flow  (str "Flow " (pr-str (:flow-id tag))
+                " wrote here via its :output. "
+                "Per Spec 013, flows fire automatically after the handler's "
+                "effects, writing their computed value to the registered "
+                ":path.")
+    :mixed (str "Coalesced section — multiple writers contributed: "
+                (origin-tag-label tag) ". Each flow listed wrote via "
+                "its :output; the [fx :db] tag (when present) indicates "
+                "additional handler-effect writes inside this section.")))
+
+(defn origin-tag-chip
+  "Render the origin-tag chip for one section. Always returns a hiccup
+  vector (the chip is mandatory per the rf2-s8r6c design — every diff
+  row has an attributable writer).
+
+  `section-path` is included in the `data-testid` so tests can target
+  individual section chips."
+  [section-path tag]
+  (let [label   (origin-tag-label tag)
+        colour  (origin-tag-tone tag)
+        kind    (name (:kind tag))]
+    [:span {:data-testid (str "rf-causa-diff-section-origin-"
+                              (pr-str section-path))
+            :data-origin kind
+            :title       (origin-tag-tooltip tag)
+            :style       {:display       "inline-flex"
+                          :align-items   "center"
+                          :gap           "4px"
+                          :padding       "1px 6px"
+                          :background    (:bg-2 tokens)
+                          :border        (str "1px solid "
+                                              (:border-subtle tokens))
+                          :border-radius "3px"
+                          :color         colour
+                          :font-family   mono-stack
+                          :font-size     "10px"
+                          :font-weight   600
+                          :user-select   "none"
+                          :cursor        "help"}}
+     label]))
+
 (defn breadcrumb
   "Sticky path-header breadcrumb (per design §5.1) carrying the section
   path + the per-section affordance row (rf2-ykjl5):
 
-      [:cart :items]  ⟨Show me when this changed⟩
-                      ⟨Copy path⟩ ⟨Copy value⟩
+      [:cart :items]  [flow :cart-total]  ⟨Show me when this changed⟩
+                                          ⟨Copy path⟩ ⟨Copy value⟩
                                             ◴ 3 changes
 
   Path segments are individually clickable (rf2-e9tb0) — clicking any
   segment opens the App-DB segment-inspector popup at the path-prefix
   up to and including that segment. Discoverable via a dotted
   underline + pointer cursor on hover.
+
+  The origin-tag chip (rf2-s8r6c) sits between the breadcrumb and the
+  affordance row. It identifies the writer(s) that mutated paths under
+  this section — `[fx :db]` for the handler's `:db` effect,
+  `[flow :flow-id]` for a flow's `:output`, or mixed for coalesced
+  sections.
 
   The Pin affordance is dropped (rf2-e9tb0 — pinned-watches replaced
   by on-demand segment inspection); the diff already identifies
@@ -206,12 +301,16 @@
   anchor in a long diff tree.
 
   `subtree-value` is the unwrapped 'after' (or fallback) value at the
-  section's path, used as the payload for the Copy-value button. Older
-  callers that pass only `[path child-summary]` still work — the
-  Copy-value button copies `nil` in that case."
+  section's path, used as the payload for the Copy-value button.
+  `origin-tag` is the writer-attribution map (output of
+  `app-db-diff-helpers/path-origin-tag`); when nil the chip is
+  omitted (older test callers that pass `[path child-summary]` or
+  `[path child-summary subtree-value]` still work)."
   ([section-path child-summary]
-   (breadcrumb section-path child-summary nil))
+   (breadcrumb section-path child-summary nil nil))
   ([section-path child-summary subtree-value]
+   (breadcrumb section-path child-summary subtree-value nil))
+  ([section-path child-summary subtree-value origin-tag]
    (let [{:keys [added removed modified children]
           :or   {added 0 removed 0 modified 0 children 0}} child-summary
          total-changes (+ added removed modified children)
@@ -234,6 +333,12 @@
                        :color          (:text-primary tokens)
                        :font-weight    600}}
       (breadcrumb-segments section-path)
+      ;; rf2-s8r6c — origin-tag chip identifying the writer(s) for the
+      ;; paths under this section. Always rendered when `origin-tag`
+      ;; is supplied; older callers (tests) that omit it get no chip,
+      ;; preserving the legacy hiccup shape.
+      (when origin-tag
+        (origin-tag-chip section-path origin-tag))
       ;; Affordance row — Show-me-when / Copy path / Copy value.
       ;; Pin was dropped under rf2-e9tb0 when pinned-watches was
       ;; superseded by the clickable-segment inspector popup.
@@ -519,41 +624,61 @@
   The breadcrumb carries the per-section affordances (Pin /
   Show-me-when / Copy-path / Copy-value, rf2-ykjl5). The Copy-value
   payload is the subtree's after-value (or fallback) extracted via
-  `subtree->after-value`."
-  [{:keys [path subtree]} surface]
-  (let [child-summary (if (= :children (at/op-of subtree))
-                        (:child-summary subtree)
-                        nil)
-        after-value   (subtree->after-value subtree)]
-    [:section {:data-testid (str "rf-causa-diff-section-"
-                                 (pr-str path))
-               :style {:margin         "8px 12px"
-                       :background     (:bg-3 tokens)
-                       :border         (str "1px solid "
-                                            (:border-subtle tokens))
-                       :border-radius  "4px"
-                       :overflow       "hidden"}}
-     (breadcrumb path child-summary after-value)
-     [:div {:style {:padding "8px 12px"
-                    :font-family mono-stack
-                    :font-size "12px"
-                    :color (:text-primary tokens)
-                    :line-height "1.5"}}
-      (render-annotated subtree path [] surface 0)]]))
+  `subtree->after-value`.
+
+  `origin-tag` (optional) is the writer-attribution map (output of
+  `app-db-diff-helpers/path-origin-tag`) the breadcrumb renders as a
+  chip. When omitted (older callers, test rigs), no chip renders."
+  ([s surface] (section s surface nil))
+  ([{:keys [path subtree]} surface origin-tag]
+   (let [child-summary (if (= :children (at/op-of subtree))
+                         (:child-summary subtree)
+                         nil)
+         after-value   (subtree->after-value subtree)]
+     [:section {:data-testid (str "rf-causa-diff-section-"
+                                  (pr-str path))
+                :style {:margin         "8px 12px"
+                        :background     (:bg-3 tokens)
+                        :border         (str "1px solid "
+                                             (:border-subtle tokens))
+                        :border-radius  "4px"
+                        :overflow       "hidden"}}
+      (breadcrumb path child-summary after-value origin-tag)
+      [:div {:style {:padding "8px 12px"
+                     :font-family mono-stack
+                     :font-size "12px"
+                     :color (:text-primary tokens)
+                     :line-height "1.5"}}
+       (render-annotated subtree path [] surface 0)]])))
 
 (defn render-sections
   "Top-level entry: a vector of `[:section ...]` blocks. The empty-state
   signaller is the caller's job — when sections is empty, this returns
-  an empty wrapper div so the caller can switch on the parent layout."
-  [sections surface]
-  (if (empty? sections)
-    [:div {:data-testid "rf-causa-diff-empty"
-           :style {:padding "12px"
-                   :color (:text-tertiary tokens)
-                   :font-family sans-stack
-                   :font-size "12px"}}
-     "No structural changes in the selected epoch."]
-    (into [:div {:data-testid "rf-causa-diff-sections"}]
-          (for [s sections]
-            ^{:key (pr-str (:path s))}
-            (section s surface)))))
+  an empty wrapper div so the caller can switch on the parent layout.
+
+  `opts` (optional) supplies the inputs the rf2-s8r6c origin-tag chip
+  computation needs:
+
+      {:flow-writes  [{:flow-id <kw> :write-path <vec>} ...]
+       :diff-triples [{:op … :path … :before … :after …} ...]}
+
+  When `opts` is omitted (older callers, test rigs), no origin chip
+  renders — the legacy hiccup shape is preserved."
+  ([sections surface] (render-sections sections surface nil))
+  ([sections surface {:keys [flow-writes diff-triples] :as _opts}]
+   (if (empty? sections)
+     [:div {:data-testid "rf-causa-diff-empty"
+            :style {:padding "12px"
+                    :color (:text-tertiary tokens)
+                    :font-family sans-stack
+                    :font-size "12px"}}
+      "No structural changes in the selected epoch."]
+     (let [origin-for (fn [section-path]
+                        (when (or (seq flow-writes) (seq diff-triples))
+                          (h/path-origin-tag section-path
+                                             (or flow-writes [])
+                                             (or diff-triples []))))]
+       (into [:div {:data-testid "rf-causa-diff-sections"}]
+             (for [s sections]
+               ^{:key (pr-str (:path s))}
+               (section s surface (origin-for (:path s)))))))))

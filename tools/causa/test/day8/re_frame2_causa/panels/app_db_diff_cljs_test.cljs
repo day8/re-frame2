@@ -61,7 +61,10 @@
   ;; rf2-bz1cl — redacted-paths-modified cache mirrors the same
   ;; per-`:epoch-id` caching contract; reset between tests for
   ;; reproducibility.
-  (reset! app-db-diff-subs/redacted-modified-cache {}))
+  (reset! app-db-diff-subs/redacted-modified-cache {})
+  ;; rf2-s8r6c — flow-writes cache for the per-section origin-tag
+  ;; chip projection. Reset between tests for the same reason.
+  (reset! app-db-diff-subs/flow-writes-cache {}))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture

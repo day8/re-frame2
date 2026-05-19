@@ -60,6 +60,14 @@
   ;; between cases.
   (atom {}))
 
+(defonce flow-writes-cache
+  ;; Per-`:epoch-id` cache for the flow-writes projection computed by
+  ;; `:rf.causa/selected-epoch-flow-writes` (rf2-s8r6c). Mirrors
+  ;; `diff-cache`'s contract — the walk over `:trace-events` is O(N)
+  ;; in trace count, and cascades replay the same record across the
+  ;; inspector's life. Tests reset this atom between cases.
+  (atom {}))
+
 (defn install!
   "Install the App-DB Diff subscriptions."
   []
@@ -229,6 +237,39 @@
                 n)))
           0))))
 
+  ;; ---- rf2-s8r6c — flow-writes projection -----------------------------
+  ;;
+  ;; Project the selected epoch's `:rf.flow/computed` trace events into
+  ;; `[{:flow-id … :write-path …} …]`. Same shape rf2-lo37i's
+  ;; `event-detail/flows-fired` produces but sourced from the epoch
+  ;; record's `:trace-events` slot (the App-DB Diff panel is epoch-
+  ;; rooted, not cascade-rooted, so it reads the per-epoch raw trace
+  ;; list rather than going through the cascade projection).
+  ;;
+  ;; Same selection-stale fallback as the diff sub — `(peek history)`
+  ;; when the selected epoch is absent from history.
+  (rf/reg-sub :rf.causa/selected-epoch-flow-writes
+    :<- [:rf.causa/epoch-history]
+    :<- [:rf.causa/selected-epoch-id]
+    (fn [[history selected-id] _query]
+      (let [record (or (when selected-id
+                         (find-epoch-in-history history selected-id))
+                       (peek history))]
+        (when record
+          (let [epoch-id (:epoch-id record)
+                cached   (get @flow-writes-cache epoch-id ::miss)]
+            (if (not= ::miss cached)
+              cached
+              (let [writes (h/flow-writes-from-trace-events
+                             (:trace-events record))
+                    live   (into #{} (map :epoch-id) history)]
+                (swap! flow-writes-cache
+                       (fn [m]
+                         (-> m
+                             (select-keys live)
+                             (assoc epoch-id writes))))
+                writes)))))))
+
   (rf/reg-sub :rf.causa/focused-slice-path
     (fn [db _query]
       (get db :focused-slice-path)))
@@ -255,8 +296,9 @@
     :<- [:rf.causa/show-me-when-this-changed-result]
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-redacted-modified-count]
+    :<- [:rf.causa/selected-epoch-flow-writes]
     (fn [[target db diff-triples sections focused-path focused-hits
-          history redacted-modified-count]
+          history redacted-modified-count flow-writes]
          _query]
       (let [{:keys [non-reserved]} (h/partition-reserved
                                      (or diff-triples []))]
@@ -271,4 +313,10 @@
          ;; Count > 0 when an app `:redact-fn` substituted the
          ;; `:rf/redacted` sentinel into both `:db-before` /
          ;; `:db-after` at the same path inside a mutated subtree.
-         :redacted-modified-count   redacted-modified-count}))))
+         :redacted-modified-count   redacted-modified-count
+         ;; rf2-s8r6c — per-path origin attribution input. The renderer
+         ;; combines `:changed-sections` + the full triples + this vec
+         ;; to tag each section header with `[fx :db]` /
+         ;; `[flow :flow-id]` / mixed.
+         :flow-writes               (or flow-writes [])
+         :diff-triples              (or diff-triples [])}))))
