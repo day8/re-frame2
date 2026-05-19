@@ -15,6 +15,24 @@ the mayor checkout instead of the assigned worktree. "Use your worktree" is
 not a strong enough prompt. Workers must verify before each edit and check
 both checkouts after the first one.
 
+**The path-resolution leak failure mode.** Observed twice (audit worker
+rf2-zszmu; PowerShell-tool incidents in rf2-causa-spec-cleanup): the worker
+correctly ran the worktree guard and got the right `WORKTREE_ROOT`, then a
+file `Write` (especially of a new `ai/findings/<name>.md` file) landed in the
+mayor checkout because the edit tool resolved a repo-relative path against
+the agent's session root instead of the worker's git root. Symptoms:
+
+- `git status` inside the worker worktree shows no new findings file.
+- `git status` inside the mayor checkout shows a new untracked file under
+  `ai/findings/` that the worker thinks it wrote to its worktree.
+- The findings file is gitignored so neither side commits it — the boundary
+  fails *silently*.
+
+**Defence:** any `Write` of a brand-new file (especially under `ai/findings/`)
+must be IMMEDIATELY followed by `Test-Path <ASSIGNED_WORKTREE>\<rel>` AND
+`Test-Path <MAYOR_CHECKOUT>\<rel>`. If the mayor-side Test-Path returns True,
+the worker has leaked and must stop without further edits.
+
 **Paste verbatim into every editing-worker prompt:**
 
 ```text
@@ -28,8 +46,11 @@ The mayor checkout is:
 
 Never edit the mayor checkout.
 
-Shell workdir is not enough protection. apply_patch has no workdir, so
-relative patch paths can land in the mayor checkout.
+Shell workdir is not enough protection. apply_patch and Write tools have no
+workdir, so relative patch / write paths can land in the mayor checkout.
+This is the path-resolution leak failure mode (rf2-zszmu, rf2-ku5f1) — the
+worktree guard at session start does NOT catch it, because the leak happens
+mid-session in a single tool call.
 
 Before every file edit, run:
 
@@ -38,9 +59,10 @@ Get-Location; git rev-parse --show-toplevel; git status --short --branch
 Only edit if git rev-parse --show-toplevel prints exactly:
 <ASSIGNED_WORKTREE>
 
-When using apply_patch or any edit tool, use absolute file paths under
-<ASSIGNED_WORKTREE> if the tool accepts them. If not, use paths relative to
-the session root that explicitly target the worker worktree —
+When using apply_patch, Write, or any edit tool, use ABSOLUTE file paths
+under <ASSIGNED_WORKTREE> wherever the tool accepts them. If the tool only
+accepts relative paths, use paths relative to the session root that
+explicitly target the worker worktree —
 <WORKTREE_ROOT>/<WORKTREE_NAME>/<repo-relative-path>. Never use bare
 repo-relative paths unless `git rev-parse --show-toplevel` for the agent
 session root is itself the assigned worktree.
@@ -53,15 +75,49 @@ git -C <MAYOR_CHECKOUT> status --short --branch
 Continue only if the worker worktree is dirty and the mayor checkout did
 not receive code edits.
 
+NEW-FILE EXTRA CHECK (path-resolution leak — rf2-ku5f1).  When you Write
+a brand-new file (most-common offender: ai/findings/<name>.md from an
+audit), the path-resolution leak silently routes the write into the mayor
+checkout because the file did not previously exist in either tree. The
+worker-worktree `git status` then shows nothing new (the leak landed
+elsewhere) and the gitignored `/ai/` tree masks the symptom on both
+sides.  After every new-file Write, run BOTH:
+
+  Test-Path <ASSIGNED_WORKTREE>\<repo-relative-path>
+  Test-Path <MAYOR_CHECKOUT>\<repo-relative-path>
+
+Only the first should be True. If the mayor-side Test-Path returns True,
+STOP — you've leaked.  Do not retry the write, do not delete the leaked
+file, do not commit. Report the leak with both Test-Path results and let
+the mayor decide.
+
 If any edit lands outside <ASSIGNED_WORKTREE>, stop immediately and report
 it. Do not repair, restore, commit, or push until the mayor tells you what
 to do.
 ```
 
 **Mayor checks after dispatch.** `git status --short --branch` in the mayor
-checkout. If the mayor checkout gains unexpected code edits, interrupt the
-worker, preserve the edits into the worker worktree, then restore the mayor
-checkout — only specific known files; never broad destructive resets.
+checkout, AND `Get-ChildItem <MAYOR_CHECKOUT>\ai\findings\ -ErrorAction
+SilentlyContinue` to spot leaked gitignored findings the worker meant to put
+in its own worktree. If the mayor checkout gains unexpected files (committed
+or gitignored), interrupt the worker, preserve the edits into the worker
+worktree, then restore the mayor checkout — only specific known files; never
+broad destructive resets.
+
+**TODO (rf2-ku5f1 escalation).** If this strengthened reminder proves
+insufficient and the leak continues to happen, escalate to one of:
+
+- **Canary protocol (option A):** `scripts/assert-worker-worktree.ps1`
+  writes a sentinel under `<worktree>/.worker-canary.txt` with timestamp +
+  expected path; mayor-side post-dispatch reads it back and asserts the
+  canary landed in the worker worktree, not the mayor checkout.
+- **Mayor-side leak detector (option B):** new
+  `scripts/assert-mayor-clean.ps1` that runs `git status --short` plus an
+  `ai/findings/` untracked-file scan against the mayor checkout and warns
+  if new files appeared during the dispatch window.
+
+Both are larger investments than the documentation patch above; ship them
+only if the reminder + new-file Test-Path check don't close the gap.
 
 ## Common preamble (every dispatch)
 
@@ -69,6 +125,13 @@ checkout — only specific known files; never broad destructive resets.
 You are implementing bead **<BEAD_ID>** in <project description>.
 
 <project stance, obtained from operator — pre-alpha, production-stable, etc.>
+
+NEVER link to ai/findings/* from committed files (spec/*, docs/*, tools/*/spec/*,
+skills/*, migration/*, README.md). The /ai/ tree is gitignored; mkdocs strict's
+link-validator catches it at CI time and blocks unrelated PRs in cascade.
+If you need to cite a finding, inline a 1-sentence summary in the committed
+prose. The pre-PR lint `python scripts/check_doc_slugs.py` flags violations
+under defect category AI_FINDINGS_LINK (rf2-l7yj8).
 ```
 
 ## Worktree path convention
@@ -112,7 +175,9 @@ gaps, cross-artefact coupling); reference (surface paths, relevant spec
 docs, recent landings that changed the surface, prior audit findings to
 avoid re-discovering); worktree + boundary block + `--status=in_progress`;
 **WRITE THE FINDINGS DOC FIRST** to `ai/findings/<surface>-audit-YYYY-MM-DD.md`
-(gitignored — never commit findings); file follow-on beads ONE AT A TIME
+(gitignored — never commit findings, and never link to them from committed
+files — see Common preamble policy + `check_doc_slugs.py` AI_FINDINGS_LINK);
+file follow-on beads ONE AT A TIME
 after the doc lands, appending each bead ID to the audit-bead's notes so
 partial progress is durable across a watchdog timeout; close audit-bead
 with verdict + cross-refs; no PR by default (trivial one-line obvious
@@ -153,6 +218,9 @@ log shows — test the hypothesis before applying the fix.
 - Agents adding back-compat shims by default → stance must be explicit in every preamble.
 - Same-file races between concurrent workers → enumerate in-flight workers + surfaces.
 - Workers leaking edits into the mayor checkout → worktree-boundary block.
+- Path-resolution leak on new-file Write (especially `ai/findings/*` from
+  an audit) routes the file into the mayor checkout silently → new-file
+  Test-Path double-check in the worktree-boundary block (rf2-ku5f1).
 - Stalled agents losing analysis → findings-first protocol; one-bead-at-a-time bd creates.
 - Clusters splitting when they should be one PR → cluster reviewer pre-validates shape.
 - Hot-zone merge conflicts → explicit hot-zone list in every prompt.

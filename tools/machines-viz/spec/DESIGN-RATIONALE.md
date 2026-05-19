@@ -58,8 +58,8 @@ What surface does Machines-Viz ship at v1.0?
 ### Why
 
 - **Stately's own Visualizer is officially deprecated** within
-  their docs (per
-  [`ai/findings/xstate-advanced-features-2026-05-13.md`](../../../ai/findings/)).
+  their docs (per `ai/findings/xstate-advanced-features-2026-05-13.md`,
+  a gitignored working note).
   The commercial Stately Editor is the recommended replacement.
   Investing in the deprecated-product lane is chasing a sunset.
 - **Restraint principle** — a chart component the framework's own
@@ -574,9 +574,9 @@ as load-bearing, citing that section and this lock.
   risk regression in this jar is a future impl coupling
   trace-tick or snapshot deref to layout; once that coupling
   lands it is hard to remove without rewriting the rendering
-  pipeline (per
-  [`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
-  finding 1; audit-bead rf2-j3iwt). The MUST in
+  pipeline (per `ai/findings/perf-audit-machines-viz-2026-05-14.md`
+  finding 1 — gitignored working note; audit-bead rf2-j3iwt).
+  The MUST in
   [API.md §Performance invariants](./API.md#performance-invariants)
   exists so that coupling cannot accidentally land.
 - **Hot-reload** triggers a registry-change event, which triggers
@@ -728,9 +728,8 @@ The exhaustive normative rules live in
   timer respects it. Lock #8 codifies the visibility gating; this
   lock codifies the single-clock posture.
 
-Per
-[`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/)
-findings 1+2; audit-bead rf2-j3iwt.
+Per `ai/findings/perf-audit-machines-viz-2026-05-14.md` findings 1+2
+(gitignored working note; audit-bead rf2-j3iwt).
 
 ---
 
@@ -763,7 +762,7 @@ as a bead against this jar.
 
 - [`tools/causa/spec/003-Machine-Inspector.md`](../../causa/spec/003-Machine-Inspector.md) — the source spec these locks migrated from; embedding-host contract.
 - [`tools/causa/spec/DESIGN-RATIONALE.md`](../../causa/spec/DESIGN-RATIONALE.md) — Causa's locks; #4 (no session export) is lifted into Lock #5 above.
-- [`ai/findings/xstate-advanced-features-2026-05-13.md`](../../../ai/findings/) — visualizer-as-product deprecation rationale.
-- [`ai/findings/sweep-tools-vs-sota-2026-05-13.md`](../../../ai/findings/) §machines-viz — peer-comparison + gap analysis.
-- [`ai/findings/perf-audit-machines-viz-2026-05-14.md`](../../../ai/findings/) — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs; audit-bead rf2-j3iwt.
+- `ai/findings/xstate-advanced-features-2026-05-13.md` — visualizer-as-product deprecation rationale (gitignored working note).
+- `ai/findings/sweep-tools-vs-sota-2026-05-13.md` §machines-viz — peer-comparison + gap analysis (gitignored working note).
+- `ai/findings/perf-audit-machines-viz-2026-05-14.md` — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs; audit-bead rf2-j3iwt (gitignored working note).
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Future — `(machine->mermaid)` exporter forward-pointer.

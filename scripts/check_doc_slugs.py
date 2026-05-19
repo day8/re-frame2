@@ -312,12 +312,40 @@ def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | Non
     return target
 
 
+def _is_ai_findings_link(path_part: str) -> bool:
+    """Return True if a link path resolves under the gitignored ai/findings/ tree.
+
+    The repo's `/ai/` directory is gitignored at the root, so committed markdown
+    that links into `ai/findings/<file>.md` (or the bare directory) creates an
+    invisible-on-CI broken target — mkdocs strict's link validator catches it,
+    blocking unrelated PRs in cascade.  rf2-l7yj8 promotes this from a
+    mkdocs-only failure to a fast pre-PR lint.
+
+    The check is path-component-sensitive: it matches `ai/findings/` only as a
+    whole pair of path components, so casual prose links to (say)
+    `vai/findings.md` or `ai-findings.md` are not mis-flagged.  Both root-anchored
+    (`/ai/findings/...`) and relative (`../../ai/findings/...`) forms are caught.
+    """
+    # Normalise to forward slashes so the path-component test is OS-agnostic.
+    normalised = path_part.replace("\\", "/")
+    # Split into segments and search for the consecutive pair ("ai", "findings").
+    segments = [s for s in normalised.split("/") if s not in ("", ".")]
+    for i in range(len(segments) - 1):
+        if segments[i] == "ai" and segments[i + 1] == "findings":
+            return True
+    return False
+
+
 def check(repo_root: Path, verbose: bool = False) -> int:
     """Validate every in-repo markdown link.  Return broken-link count.
 
-    Flags two distinct defects:
-        * BROKEN TARGET — link points at an .md file that doesn't exist.
-        * BROKEN ANCHOR — file exists but the #anchor doesn't resolve.
+    Flags three distinct defects:
+        * BROKEN TARGET     — link points at an .md file that doesn't exist.
+        * BROKEN ANCHOR     — file exists but the #anchor doesn't resolve.
+        * AI_FINDINGS_LINK  — link points into the gitignored ai/findings/ tree
+                              (rf2-l7yj8).  Committed files must not reference
+                              gitignored working artefacts; inline a sentence
+                              summary instead.
     """
     files = list(_iter_markdown(repo_root))
     if verbose:
@@ -334,6 +362,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 
     broken_anchor: list[tuple[Path, int, str, str]] = []
     broken_target: list[tuple[Path, int, str, str]] = []
+    ai_findings: list[tuple[Path, int, str]] = []
     for path in files:
         for line_no, dest in _extract_links(path):
             # External / non-file references — out of scope.
@@ -345,6 +374,13 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 
             # Strip any query string from path-part (rare in markdown but safe).
             path_part = path_part.split("?", 1)[0]
+
+            # rf2-l7yj8: any link into the gitignored ai/findings/ tree is a
+            # policy violation regardless of whether the target happens to
+            # exist locally.  Flag and continue so further checks still run.
+            if _is_ai_findings_link(path_part):
+                ai_findings.append((path, line_no, dest))
+                continue
 
             # Same-file anchor (`[text](#foo)`).  No target-file check; anchor
             # only.  Empty anchor (just `#` with no fragment) is meaningless
@@ -381,7 +417,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
                     (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                 )
 
-    total = len(broken_anchor) + len(broken_target)
+    total = len(broken_anchor) + len(broken_target) + len(ai_findings)
 
     if broken_target:
         sys.stderr.write(
@@ -411,6 +447,24 @@ def check(repo_root: Path, verbose: bool = False) -> int:
         sys.stderr.write(
             "\nFix: confirm the heading still exists in the target file and "
             "update the link, or rename the heading and re-link.\n"
+        )
+
+    if ai_findings:
+        sys.stderr.write(
+            f"\n{len(ai_findings)} link(s) into gitignored ai/findings/ tree "
+            "found (rf2-l7yj8):\n\n"
+        )
+        for src, line_no, dest in ai_findings:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  AI_FINDINGS_LINK: {rel}:{line_no} -> {dest}\n"
+            )
+        sys.stderr.write(
+            "\nFix: the /ai/ tree is gitignored — committed files must not "
+            "link into it.  Replace the markdown link with a 1-sentence inline "
+            "summary of the finding (and a date) so the committed prose is "
+            "self-contained and mkdocs strict's link validator doesn't trip "
+            "on a missing target in CI.\n"
         )
 
     if total == 0 and verbose:
@@ -497,6 +551,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("relative_dotdot_ok",               0),
         ("inline_code_placeholder_ignored",  0),  # rf2-mqv8s
         ("inline_code_negative_control",     1),  # rf2-mqv8s
+        ("ai_findings_link_flagged",         1),  # rf2-l7yj8
+        ("ai_findings_dir_link_flagged",     1),  # rf2-l7yj8
     ]
 
     failures = 0
