@@ -194,11 +194,22 @@
 (defn allocate!
   "Create the variant's frame, register fx-override stubs, run
   `:frame-setup` decorators' init events, and drive the lifecycle
-  machine to `:mounting`. Returns the variant-id (which doubles as the
+  machine forward. Returns the variant-id (which doubles as the
   frame-id).
 
   `decorator-stack` is the result of `decorators/resolve-decorators`;
   the runtime computes it upstream.
+
+  Lifecycle dispatch (rf2-043cm):
+
+  - **Events-only variants** (no `:loaders`, no `:frame-setup`
+    decorators, no `:loaders-complete-when`) take the fast-path:
+    `:pre-mount → :ready` in one transition via `mount-ready!`. The
+    canvas's loading skeleton (rf2-0s4p1) never engages for these
+    variants because the lifecycle never reports a loading phase.
+  - **All other variants** take the classical four-phase path:
+    `mount!` drives `:pre-mount → :mounting`; the runtime then
+    advances through `:loading → :ready` via `run-loaders!`.
 
   If a frame is already registered under `variant-id` (hot-reload
   case), the runtime should `destroy!` first then call `allocate!`.
@@ -212,12 +223,26 @@
     (install-helpers!)
     (let [fx-stack       (decorators/fx-overrides-map (:fx-override decorator-stack))
           fx-overrides   (register-fx-overrides! fx-stack)
-          config-map     (variant-frame-config variant-id fx-overrides)]
+          config-map     (variant-frame-config variant-id fx-overrides)
+          ;; Inline the variant-body lookup (`variant-body` is defined
+          ;; lower in this ns) — go through the registrar directly so
+          ;; the events-only classification (rf2-043cm) doesn't depend
+          ;; on the file's declaration order.
+          v-body         (registrar/handler-meta :variant variant-id)
+          events-only?   (loaders/events-only-variant? v-body decorator-stack)]
       ;; Allocate the frame.
       (rf/reg-frame variant-id config-map)
-      ;; Drive lifecycle to :mounting.
-      (loaders/mount! variant-id)
+      ;; rf2-043cm — drive the lifecycle by variant shape. Events-only
+      ;; variants jump straight to :ready (no skeleton ever shows);
+      ;; everything else takes the classical four-phase route through
+      ;; :mounting → :loading → :ready.
+      (if events-only?
+        (loaders/mount-ready! variant-id)
+        (loaders/mount!       variant-id))
       ;; Apply :frame-setup decorators (their :init events + :app-db-patch).
+      ;; By construction the events-only path has no :frame-setup
+      ;; decorators (that's part of the events-only? predicate), so this
+      ;; is a no-op on the fast-path branch.
       (apply-frame-setup! variant-id (:frame-setup decorator-stack))
       variant-id)))
 

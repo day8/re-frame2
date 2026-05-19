@@ -76,6 +76,14 @@
 ;; ---- transition vocabulary -----------------------------------------------
 
 (def event-mount             :rf.story.lifecycle/mount)
+;; rf2-043cm — events-only variant fast-path. A variant with NO loaders,
+;; NO frame-setup decorators, and NO `:loaders-complete-when` predicate
+;; has nothing to wait for between mount and render; the runtime drives
+;; the lifecycle from `:pre-mount` straight to `:ready` via this event
+;; so the canvas's loading skeleton (rf2-0s4p1) never engages. The
+;; classical four-phase path (`mount → loaders-started → loaders-complete`)
+;; stays in place for variants that legitimately have loader work.
+(def event-mount-ready       :rf.story.lifecycle/mount-ready)
 (def event-loaders-started   :rf.story.lifecycle/loaders-started)
 (def event-loaders-complete  :rf.story.lifecycle/loaders-complete)
 (def event-events-complete   :rf.story.lifecycle/events-complete)
@@ -89,8 +97,10 @@
 ;; of this section composes the nodes into the spec/005 machine shape.
 
 (def ^:private pre-mount-node
-  "Initial state. Accepts :mount (→ :mounting) and :errored (→ :error)."
+  "Initial state. Accepts :mount (→ :mounting), :mount-ready (→ :ready,
+  the rf2-043cm events-only fast-path) and :errored (→ :error)."
   {:on {event-mount             :mounting
+        event-mount-ready       :ready
         event-errored           :error}})
 
 (def ^:private mounting-node
@@ -125,6 +135,7 @@
 
   Transitions:
     :pre-mount  --mount-->            :mounting
+    :pre-mount  --mount-ready-->      :ready        (rf2-043cm fast-path)
     :pre-mount  --errored-->          :error
     :mounting   --loaders-started-->  :loading
     :mounting   --errored-->          :error
@@ -286,10 +297,48 @@
   (dispatch-lifecycle-event! frame-id (into [event-id] args)))
 
 (defn mount!          [frame-id]     (transition! frame-id event-mount))
+;; rf2-043cm — events-only variant fast-path. Drives :pre-mount → :ready
+;; in a single transition for variants whose body declares no `:loaders`,
+;; no `:frame-setup` decorators, and no `:loaders-complete-when`
+;; predicate. The runtime (`frames/allocate!`) selects this path via
+;; `events-only-variant?`; the four-phase path stays in place for
+;; variants that legitimately have loader work to advance through.
+(defn mount-ready!    [frame-id]     (transition! frame-id event-mount-ready))
 (defn start-loaders!  [frame-id]     (transition! frame-id event-loaders-started))
 (defn finish-loaders! [frame-id]     (transition! frame-id event-loaders-complete))
 (defn finish-events!  [frame-id]     (transition! frame-id event-events-complete))
 (defn error!          [frame-id err] (transition! frame-id event-errored err))
+
+;; ---- events-only classifier (rf2-043cm) ----------------------------------
+
+(defn events-only-variant?
+  "Per rf2-043cm — is the variant 'events-only'? A variant is events-
+  only when:
+
+  - its body declares no `:loaders` AND no `:loaders-complete-when`,
+    AND
+  - the resolved decorator stack carries no `:frame-setup` decorators.
+
+  The variant body's `:events` and `:play` slots are ignored — events
+  dispatch synchronously after mount and play runs strictly after
+  `:ready`, so neither holds the lifecycle in a loading phase.
+  `:hiccup` and `:fx-override` decorators don't drive the lifecycle
+  machine either: hiccup decorators run at render-time; fx-override
+  decorators register stubs at allocate-time without dispatching.
+
+  Events-only variants take the lifecycle fast-path: `:pre-mount →
+  :ready` on mount with no intervening `:mounting`/`:loading` states.
+  This keeps the rf2-0s4p1 loading skeleton off for variants that have
+  nothing to wait for — the regression PR #1574 surfaced via the
+  `causa-rhs-smoke` testbed, whose single variant declares `:events`
+  only and stalled the skeleton indefinitely.
+
+  Returns a boolean. Pure — no app-db reads."
+  [variant-body decorator-stack]
+  (boolean
+    (and (empty? (:loaders variant-body))
+         (nil?   (:loaders-complete-when variant-body))
+         (empty? (:frame-setup decorator-stack)))))
 
 ;; ---- loaders-complete-when evaluation -----------------------------------
 

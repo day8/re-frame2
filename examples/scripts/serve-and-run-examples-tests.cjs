@@ -71,7 +71,12 @@ function parseFilterFromArgs(argv) {
 }
 const FILTER = parseFilterFromArgs(process.argv)
             || (process.env.EXAMPLES_FILTER || '').trim();
-const PORT = 8030;
+// rf2-043cm — `EXAMPLES_PORT` env-var override defaults to 8030. Lets
+// parallel workers / contended dev sessions (e.g. a long-running
+// `shadow-cljs watch` on the parallel-frames testbed at 8030)
+// retarget this orchestrator to a free port without editing the
+// script. No CLI surface is added.
+const PORT = Number(process.env.EXAMPLES_PORT || 8030);
 // __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
 // (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');

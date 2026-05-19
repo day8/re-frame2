@@ -171,29 +171,42 @@
   default predicate's 'no further events in flight' check passes
   trivially. Variants with long-lived fx (websocket / interval) supply
   `:loaders-complete-when` to override; Stage 3 routes those through
-  the predicate evaluator (Stage 5 adds the full assertion runtime)."
+  the predicate evaluator (Stage 5 adds the full assertion runtime).
+
+  rf2-043cm — events-only fast-path: when `frames/allocate!` drives
+  the lifecycle straight to `:ready` (no loaders / no frame-setup /
+  no `:loaders-complete-when`), this fn short-circuits with `true`
+  rather than firing `start-loaders!`/`finish-loaders!` against a
+  machine that's already terminal-for-mount. Both helpers would
+  silently no-op (the `:ready` node only accepts `:errored`), but
+  routing past them keeps the phase reads honest: `current-state`
+  stays `:ready` end-to-end."
   [variant-id]
-  (let [variant-body (frames/variant-body variant-id)
-        loader-events (or (:loaders variant-body) [])]
-    (loaders/start-loaders! variant-id)
-    (capture-phase-errors
-      variant-id :phase-1-loaders
-      (fn []
-        (doseq [ev loader-events]
-          (try
-            (rf/dispatch-sync ev {:frame variant-id})
-            (catch #?(:clj Throwable :cljs :default) e
-              (record-error! variant-id :phase-1-loaders ev e))))))
-    ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
-    ;; resolves synchronously; Stage 6+ might add an async-retry shape.
-    (let [complete? (loaders/evaluate-complete-when variant-id variant-body)]
-      (if complete?
-        (do
-          (loaders/finish-loaders! variant-id)
-          true)
-        (do
-          (record-loader-incomplete! variant-id variant-body)
-          false)))))
+  (if (= :ready (loaders/current-state variant-id))
+    ;; Events-only fast-path (rf2-043cm). Lifecycle already terminal-
+    ;; for-mount; the loader cascade has nothing to do.
+    true
+    (let [variant-body (frames/variant-body variant-id)
+          loader-events (or (:loaders variant-body) [])]
+      (loaders/start-loaders! variant-id)
+      (capture-phase-errors
+        variant-id :phase-1-loaders
+        (fn []
+          (doseq [ev loader-events]
+            (try
+              (rf/dispatch-sync ev {:frame variant-id})
+              (catch #?(:clj Throwable :cljs :default) e
+                (record-error! variant-id :phase-1-loaders ev e))))))
+      ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
+      ;; resolves synchronously; Stage 6+ might add an async-retry shape.
+      (let [complete? (loaders/evaluate-complete-when variant-id variant-body)]
+        (if complete?
+          (do
+            (loaders/finish-loaders! variant-id)
+            true)
+          (do
+            (record-loader-incomplete! variant-id variant-body)
+            false))))))
 
 ;; ---- error recording -----------------------------------------------------
 

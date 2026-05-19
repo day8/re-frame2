@@ -58,6 +58,12 @@
   (config/set-global-args! {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
+  ;; rf2-043cm — every variant body in this corpus that registers
+  ;; `:loaders [[:test/noop]]` needs a no-op event handler. Register
+  ;; once per test so the loader-cascade path takes the classical
+  ;; four-phase route rather than the events-only fast-path
+  ;; introduced by rf2-043cm.
+  (rf/reg-event-db :test/noop (fn [db _] db))
   (t))
 
 (use-fixtures :each reset-all)
@@ -69,7 +75,11 @@
 (deftest unsubscribe-drops-only-the-caller-callback
   (testing "the 0-arity unsubscribe returned by watch-variant drops only
             the caller's callback; peer watchers stay live"
-    (story/reg-variant :story.watch.solo/v {:events []})
+    ;; rf2-043cm — register a `:loaders` slot so allocate! takes the
+    ;; classical four-phase path (`:pre-mount → :mounting → :loading
+    ;; → :ready`). The body-shape gates the lifecycle route now; the
+    ;; events-only fast-path is exercised separately below.
+    (story/reg-variant :story.watch.solo/v {:loaders [[:test/noop]]})
     (let [seen-a      (atom [])
           seen-b      (atom [])
           unsub-a     (story/watch-variant :story.watch.solo/v
@@ -90,7 +100,8 @@
 
 (deftest multiple-watchers-each-see-every-transition
   (testing "two registered watchers each see the full transition sequence"
-    (story/reg-variant :story.watch.multi/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route.
+    (story/reg-variant :story.watch.multi/v {:loaders [[:test/noop]]})
     (let [seen-a  (atom [])
           seen-b  (atom [])]
       (story/watch-variant :story.watch.multi/v
@@ -110,7 +121,8 @@
   (testing "a watcher callback that throws does NOT starve peer watchers —
             the per-callback try/catch in fire-watchers! keeps the loop alive
             so a misbehaving subscriber can't break the rest"
-    (story/reg-variant :story.watch.boom/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route.
+    (story/reg-variant :story.watch.boom/v {:loaders [[:test/noop]]})
     (let [peer-seen (atom [])]
       (story/watch-variant :story.watch.boom/v
         (fn [_t] (throw (ex-info "boom" {:why :test}))))
@@ -132,7 +144,9 @@
   (testing "destroy-variant! releases every watcher registered against the
             variant's frame — a subsequent allocate! does not see stale
             watchers carry over from the previous run"
-    (story/reg-variant :story.destroy.watchers/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; the watcher captures the `:mounting → :loading → :ready` cascade.
+    (story/reg-variant :story.destroy.watchers/v {:loaders [[:test/noop]]})
     (let [seen (atom [])]
       (story/watch-variant :story.destroy.watchers/v
         (fn [t] (swap! seen conj (:to t))))
@@ -203,7 +217,9 @@
   (testing "a watcher registered between phases sees the remaining transitions
             — the watcher table is consulted on every fire, not snapshotted
             at allocate-time"
-    (story/reg-variant :story.watch.late/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; the late-registered watcher captures both remaining transitions.
+    (story/reg-variant :story.watch.late/v {:loaders [[:test/noop]]})
     (let [seen (atom [])
           decs (story/resolve-decorators :story.watch.late/v)]
       ;; Allocate first — :pre-mount → :mounting transition fires here.

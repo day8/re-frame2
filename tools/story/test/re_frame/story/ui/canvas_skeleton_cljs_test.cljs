@@ -44,6 +44,29 @@
     (is (false? (canvas/loading-phase? :pre-mount false true)))
     (is (false? (canvas/loading-phase? :mounting  false true)))))
 
+(deftest loading-phase-events-only-overrides
+  (testing "rf2-043cm — events-only? true → false even when phase is in
+            the loading set. Events-only variants take the lifecycle
+            fast-path (`:pre-mount → :ready` via `mount-ready!`); the
+            skeleton must NEVER engage for them, including the brief
+            pre-allocate window where `current-state` could still
+            report `:pre-mount`."
+    (is (false? (canvas/loading-phase? :pre-mount false false true)))
+    (is (false? (canvas/loading-phase? :mounting  false false true)))
+    (is (false? (canvas/loading-phase? :loading   false false true)))
+    (is (false? (canvas/loading-phase? :ready     false false true))))
+  (testing "events-only? false reverts to the classical predicate"
+    (is (true?  (canvas/loading-phase? :pre-mount false false false)))
+    (is (false? (canvas/loading-phase? :ready     false false false)))))
+
+(deftest loading-phase-3-arg-overload-is-back-compat
+  (testing "rf2-043cm — the 3-arg overload (phase / first? / assertions?)
+            stays a back-compat surface for callers / tests written
+            against the pre-rf2-043cm signature. It defaults
+            `events-only?` to false."
+    (is (true?  (canvas/loading-phase? :loading   false false)))
+    (is (false? (canvas/loading-phase? :ready     false false)))))
+
 (deftest loading-phase-nil-or-unknown
   (testing "nil phase → false (no skeleton when phase isn't known)"
     (is (false? (canvas/loading-phase? nil false false))))

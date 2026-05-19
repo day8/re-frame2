@@ -366,7 +366,13 @@
 
 (deftest lifecycle-transitions-pre-mount-to-ready
   (testing "the lifecycle progresses through every documented state"
-    (story/reg-variant :story.life/v {:events [] :loaders []})
+    ;; rf2-043cm — `:loaders` keeps `allocate!` on the classical
+    ;; four-phase route (`:pre-mount → :mounting → :loading → :ready`).
+    ;; The events-only fast-path (`:pre-mount → :ready`) is exercised
+    ;; separately by `lifecycle-events-only-fast-path-to-ready` /
+    ;; `events-only-variant-classifier` below.
+    (rf/reg-event-db :test/noop (fn [db _] db))
+    (story/reg-variant :story.life/v {:events [] :loaders [[:test/noop]]})
     (let [r       (story/resolve-decorators :story.life/v)]
       (frames/allocate! :story.life/v r)
       (is (= :mounting (loaders/current-state :story.life/v)))
@@ -378,7 +384,10 @@
 
 (deftest lifecycle-mirror-to-friendly-path
   (testing "the discrete state is mirrored to [:rf.story/lifecycle]"
-    (story/reg-variant :story.mirror/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; the test reaches `:loading`.
+    (rf/reg-event-db :test/noop (fn [db _] db))
+    (story/reg-variant :story.mirror/v {:loaders [[:test/noop]]})
     (let [r (story/resolve-decorators :story.mirror/v)]
       (frames/allocate! :story.mirror/v r)
       (loaders/start-loaders! :story.mirror/v)
@@ -388,7 +397,10 @@
 
 (deftest lifecycle-watcher-fires-on-transitions
   (testing "watch-variant callbacks see every transition"
-    (story/reg-variant :story.watch/v {:events []})
+    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; watchers observe the full transition cascade.
+    (rf/reg-event-db :test/noop (fn [db _] db))
+    (story/reg-variant :story.watch/v {:loaders [[:test/noop]]})
     (let [transitions (atom [])
           unsubscribe (story/watch-variant
                         :story.watch/v
@@ -403,6 +415,120 @@
              (mapv :to @transitions)))
       (unsubscribe)
       (frames/destroy! :story.watch/v))))
+
+;; rf2-043cm — events-only fast-path coverage.
+;;
+;; A variant declaring `:events` only (no `:loaders`, no `:frame-setup`
+;; decorators, no `:loaders-complete-when`) has nothing to wait for
+;; between mount and render. The runtime's `frames/allocate!` selects
+;; the fast-path branch (`loaders/mount-ready!`) which drives the
+;; lifecycle machine from `:pre-mount` directly to `:ready` in a
+;; single transition — never visiting `:mounting` or `:loading`.
+;;
+;; This pins:
+;; 1. The classifier `loaders/events-only-variant?` returns true for
+;;    the events-only shape and false for any of the four shapes that
+;;    bind loader-style work.
+;; 2. `frames/allocate!` against an events-only body lands directly
+;;    in `:ready`.
+;; 3. A `watch-variant` callback receives ONE transition
+;;    (`:pre-mount → :ready`), not the three the classical path
+;;    fires (`:pre-mount → :mounting`, `:mounting → :loading`,
+;;    `:loading → :ready`).
+;; 4. `run-variant` against an events-only body resolves to a result
+;;    map whose `:lifecycle` is `:ready` and whose `:assertions` is
+;;    empty (no `:rf.error/loader-incomplete` projection).
+;; 5. Calling `start-loaders!` against a frame already at `:ready`
+;;    is a benign no-op — the machine has no `:loaders-started`
+;;    transition out of `:ready`, so the state stays `:ready`.
+
+(deftest events-only-variant-classifier
+  (testing "loaders/events-only-variant? — true for the events-only
+            shape; false for any body / decorator-stack that binds
+            loader work"
+    (is (true?  (loaders/events-only-variant? {:events [[:x]]} {}))
+        "no :loaders, no :frame-setup, no :loaders-complete-when → events-only")
+    (is (true?  (loaders/events-only-variant? {} {}))
+        "empty body → events-only (nothing to wait for)")
+    (is (false? (loaders/events-only-variant? {:loaders [[:l]]} {}))
+        "presence of :loaders → not events-only")
+    (is (false? (loaders/events-only-variant? {:loaders-complete-when :p?} {}))
+        "presence of :loaders-complete-when → not events-only")
+    (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
+        "presence of :frame-setup decorators → not events-only")
+    (is (true?  (loaders/events-only-variant? {:play [[:assert]]} {}))
+        ":play does not gate the lifecycle (runs strictly after :ready)")
+    (is (true?  (loaders/events-only-variant? {} {:hiccup    [{:body {}}]
+                                                  :fx-override [{:body {}}]}))
+        ":hiccup + :fx-override decorators don't drive the lifecycle machine")))
+
+(deftest lifecycle-events-only-fast-path-to-ready
+  (testing "rf2-043cm — an events-only variant's frame allocation
+            drives the lifecycle from :pre-mount directly to :ready
+            in a single transition. The skeleton (rf2-0s4p1) reads
+            `:ready` immediately and never engages."
+    (story/reg-variant :story.eo.fast/v {:events []})
+    (let [r (story/resolve-decorators :story.eo.fast/v)]
+      (is (= :pre-mount (loaders/current-state :story.eo.fast/v))
+          "before allocate the snapshot reads the initial state")
+      (frames/allocate! :story.eo.fast/v r)
+      (is (= :ready (loaders/current-state :story.eo.fast/v))
+          "after allocate the lifecycle is :ready — no :mounting / :loading")
+      (frames/destroy! :story.eo.fast/v))))
+
+(deftest lifecycle-events-only-watcher-sees-single-transition
+  (testing "rf2-043cm — a watcher registered before allocate observes
+            ONE transition (:pre-mount → :ready) for events-only
+            variants, not the three the classical path fires"
+    (story/reg-variant :story.eo.watch/v {:events []})
+    (let [transitions (atom [])
+          unsub       (story/watch-variant
+                        :story.eo.watch/v
+                        (fn [t] (swap! transitions conj t)))
+          r           (story/resolve-decorators :story.eo.watch/v)]
+      (frames/allocate! :story.eo.watch/v r)
+      (is (= 1 (count @transitions))
+          "exactly one transition fired")
+      (is (= {:from :pre-mount :to :ready}
+             (select-keys (first @transitions) [:from :to]))
+          "the single transition was :pre-mount → :ready")
+      (is (= [:rf.story.lifecycle/mount-ready]
+             (:event (first @transitions)))
+          "the firing event was :mount-ready (the rf2-043cm fast-path)")
+      (unsub)
+      (frames/destroy! :story.eo.watch/v))))
+
+(deftest lifecycle-events-only-run-variant-lands-ready
+  (testing "rf2-043cm — `run-variant` against an events-only body
+            resolves to a result whose :lifecycle is :ready and whose
+            :assertions vector is empty (no loader-incomplete projection)"
+    (rf/reg-event-db :test/seed (fn [db _] (assoc db :seeded? true)))
+    (story/reg-variant :story.eo.run/v {:events [[:test/seed]]})
+    (let [r (async/deref-blocking (story/run-variant :story.eo.run/v) 5000)]
+      (is (= :ready (:lifecycle r))
+          "the events-only variant lands :ready")
+      (is (true? (:seeded? (:app-db r)))
+          "events still dispatched after the fast-path mount")
+      (is (empty? (:assertions r))
+          "no `:rf.error/loader-incomplete` projection on the fast-path"))
+    (story/destroy-variant! :story.eo.run/v)))
+
+(deftest lifecycle-start-loaders-from-ready-is-noop
+  (testing "rf2-043cm — `start-loaders!` against a frame already at
+            :ready (an events-only variant) is a benign no-op. The
+            :ready node has no transition out for :loaders-started so
+            the discrete state stays :ready."
+    (story/reg-variant :story.eo.idem/v {:events []})
+    (let [r (story/resolve-decorators :story.eo.idem/v)]
+      (frames/allocate! :story.eo.idem/v r)
+      (is (= :ready (loaders/current-state :story.eo.idem/v)))
+      (loaders/start-loaders! :story.eo.idem/v)
+      (is (= :ready (loaders/current-state :story.eo.idem/v))
+          ":ready is terminal-for-mount; :loaders-started doesn't transition out")
+      (loaders/finish-loaders! :story.eo.idem/v)
+      (is (= :ready (loaders/current-state :story.eo.idem/v))
+          ":loaders-complete also a no-op against :ready")
+      (frames/destroy! :story.eo.idem/v))))
 
 ;; ===========================================================================
 ;; RUN-VARIANT END-TO-END
