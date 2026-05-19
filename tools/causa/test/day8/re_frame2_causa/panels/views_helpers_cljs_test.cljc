@@ -216,3 +216,121 @@
   (doseq [g h/group-order]
     (is (some? (get h/group-glyph g))
         (str "glyph for " g))))
+
+;; ---- (6) sub-status classifier (rf2-r2s2l) ------------------------------
+;;
+;; Per spec §0ter.1 R3 — three statuses per sub in the Re-rendered
+;; group's Rerendered-because list:
+;;   :cache-miss-trigger — recomputed + value changed (`✱`)
+;;   :cache-miss-equal   — recomputed + value equal   (`≈`)
+;;   :cache-hit          — did not recompute          (`·`)
+
+(deftest sub-status-trigger-classifies-as-cache-miss-trigger
+  (testing "any row marked :trigger? true is :cache-miss-trigger
+            regardless of :recomputed?"
+    (is (= :cache-miss-trigger
+           (h/sub-status {:sub-id :s :trigger? true :recomputed? true})))
+    (is (= :cache-miss-trigger
+           (h/sub-status {:sub-id :s :trigger? true :recomputed? false})))))
+
+(deftest sub-status-recomputed-non-trigger-classifies-as-cache-miss-equal
+  (testing "a non-trigger row whose sub recomputed this cascade is
+            :cache-miss-equal — the recompute returned a value
+            structurally equal to the prior, so React skipped the
+            re-render of any view reading only this sub"
+    (is (= :cache-miss-equal
+           (h/sub-status {:sub-id :s :trigger? false :recomputed? true})))))
+
+(deftest sub-status-non-recomputed-classifies-as-cache-hit
+  (testing "a row that didn't recompute is :cache-hit — the view
+            read the cached value; no work"
+    (is (= :cache-hit
+           (h/sub-status {:sub-id :s :trigger? false :recomputed? false})))))
+
+;; ---- (7) build-sub-grouped (rf2-r2s2l) ---------------------------------
+;;
+;; Per spec §Group-by toggle — invert the component → subs mapping
+;; into sub → components.
+
+(deftest build-sub-grouped-empty
+  (testing "no rendered items → empty sub-grouped list"
+    (is (= [] (h/build-sub-grouped [])))))
+
+(deftest build-sub-grouped-single-trigger
+  (testing "one single-row item with one trigger sub → one sub-row
+            with the consuming view listed underneath"
+    (let [items [{:kind :single
+                  :render {:render-key [:cart/list :tok-1]
+                           :triggered-by :cart/items
+                           :elapsed-ms 1.0}
+                  :invalidated-by [{:sub-id :cart/items :trigger? true
+                                    :recomputed? true}]}]
+          out (h/build-sub-grouped items)]
+      (is (= 1 (count out)))
+      (let [sub-row (first out)]
+        (is (= :cart/items (:sub-id sub-row)))
+        (is (true? (:trigger? sub-row)))
+        (is (= 1 (:view-count sub-row)))
+        (is (= 1 (count (:views sub-row))))
+        (is (= :cart/list (:view-id (first (:views sub-row)))))
+        (is (true? (:trigger? (first (:views sub-row)))))))))
+
+(deftest build-sub-grouped-many-views-per-sub
+  (testing "two components consume the same sub → one sub-row whose
+            :views list carries both"
+    (let [items [{:kind :single
+                  :render {:render-key [:cart/list :tok-1]
+                           :triggered-by :auth/user
+                           :elapsed-ms 1.0}
+                  :invalidated-by [{:sub-id :auth/user :trigger? true
+                                    :recomputed? true}]}
+                 {:kind :single
+                  :render {:render-key [:cart/footer :tok-2]
+                           :triggered-by :auth/user
+                           :elapsed-ms 0.5}
+                  :invalidated-by [{:sub-id :auth/user :trigger? true
+                                    :recomputed? true}]}]
+          out (h/build-sub-grouped items)]
+      (is (= 1 (count out)))
+      (is (= :auth/user (:sub-id (first out))))
+      (is (= 2 (:view-count (first out))))
+      (is (= #{:cart/list :cart/footer}
+             (set (map :view-id (:views (first out)))))))))
+
+(deftest build-sub-grouped-cluster-row-contributes-cluster-count
+  (testing "a :cluster item contributes its :count to :view-count
+            (per spec §Per-row content (Re-rendered) — clustered
+            renders share one trigger sub)"
+    (let [items [{:kind         :cluster
+                  :view-id      :grid/cell
+                  :triggered-by :grid/data
+                  :count        80
+                  :total-ms     8.0
+                  :avg-ms       0.1
+                  :p95-ms       0.2
+                  :renders      []
+                  :invalidated-by [{:sub-id :grid/data :trigger? true
+                                    :recomputed? true :clustered? true}]}]
+          out (h/build-sub-grouped items)]
+      (is (= 1 (count out)))
+      (is (= 80 (:view-count (first out))))
+      (is (= 1 (count (:views (first out)))))
+      (is (true? (:clustered? (first (:views (first out)))))))))
+
+(deftest build-sub-grouped-preserves-source-order
+  (testing "sub-rows sort by first-occurrence index in the source
+            items so the inverted view's row order is stable across
+            renders of the same projection"
+    (let [items [{:kind :single
+                  :render {:render-key [:b :tok-1] :triggered-by :sub-b
+                           :elapsed-ms 1.0}
+                  :invalidated-by [{:sub-id :sub-b :trigger? true
+                                    :recomputed? true}]}
+                 {:kind :single
+                  :render {:render-key [:a :tok-2] :triggered-by :sub-a
+                           :elapsed-ms 1.0}
+                  :invalidated-by [{:sub-id :sub-a :trigger? true
+                                    :recomputed? true}]}]
+          out (h/build-sub-grouped items)]
+      (is (= [:sub-b :sub-a] (mapv :sub-id out))
+          "sub-b appeared in the first source item → ordered first"))))

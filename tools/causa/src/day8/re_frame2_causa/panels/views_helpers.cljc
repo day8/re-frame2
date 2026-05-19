@@ -250,6 +250,33 @@
 
 ;; ---- re-rendered group: invalidating-sub layout -----------------------
 
+(defn sub-status
+  "Classify one `:invalidated-by` row into one of three statuses for the
+  glyph decoration in the Re-rendered group's right-column list (per
+  spec §Sub-status legibility + §0ter.1 R3 — the cache-miss-equal
+  gap):
+
+    `:cache-miss-trigger` — sub's recomputed value changed and is
+      the trigger for this re-render. Rendered as `✱` (amber).
+    `:cache-miss-equal`   — sub recomputed this cascade but the new
+      value structurally equalled the prior; React skipped re-render
+      of any view reading only this sub. Rendered as `≈` (muted).
+    `:cache-hit`          — sub was consumed but did NOT recompute
+      (cache hit). Rendered as `·` (muted).
+
+  Inputs:
+    - `row` — one entry from `re-render-invalidated-by`'s output
+      vector. Carries `:trigger?` (true → trigger) and
+      `:recomputed?` (true → recomputed this cascade).
+
+  The three statuses are mutually exclusive; the classifier returns
+  a single keyword."
+  [row]
+  (cond
+    (:trigger? row)     :cache-miss-trigger
+    (:recomputed? row)  :cache-miss-equal
+    :else               :cache-hit))
+
 (defn re-render-invalidated-by
   "Per spec §Per-row content (Re-rendered) — derive the 'Invalidated
   by' list for one re-render row. Returns a vector
@@ -264,7 +291,8 @@
     means parent re-rendered → forced child re-render (the row
     surfaces a synthetic `:sub-id ::parent-forced` entry).
   - The remaining `:sub-runs` entries this cascade are also-
-    consumed subs (`:trigger? false`, marked `·` in the view).
+    consumed subs (`:trigger? false`, marked `·` for cache-hit or
+    `≈` for cache-miss-equal in the view per `sub-status`).
     The view filters these to subs the component actually consumed
     once per-render sub-attribution lands.
 
@@ -283,6 +311,95 @@
                         :recomputed? (boolean (:recomputed? sr))
                         :trigger?    false})]
     (vec (concat (filter some? [trigger parent-forced]) sub-rows))))
+
+;; ---- group-by sub: inverted hierarchy ----------------------------------
+;;
+;; Per spec §Group-by toggle the alternate hierarchy is `:sub` —
+;; top-level rows are subs that ran this cascade; under each sub-row,
+;; the components that consumed it. Answers the symmetric question:
+;; "which sub caused all this rendering?"
+;;
+;; The data is mathematically symmetric with the `:component`
+;; grouping: each Re-rendered single-row's `:invalidated-by` list
+;; carries `{:sub-id ... :trigger? ...}` rows, which we invert here
+;; into `sub-id → [view-id ...]`. We restrict to the Re-rendered
+;; group only — Mounted / Unmounted sub-attribution isn't surfaced
+;; per-render (Mounted has no prior to compare; Unmounted has no
+;; current).
+
+(defn build-sub-grouped
+  "Invert the `:rendered` group's component → subs mapping into a
+  sub → components mapping. Returns a vector of sub-rows, each:
+
+    `{:sub-id       <sub-id>
+      :trigger?     <bool>        ; true when this sub triggered
+                                   ; at least one re-render this cascade
+      :recomputed?  <bool>        ; true when this sub recomputed
+      :views        [{:view-id <kw>
+                      :render-key <[view-id token]>
+                      :trigger? <bool>
+                      :elapsed-ms <ms>} ...]
+      :view-count   <N>}`
+
+  `rendered-items` is the clustered+annotated `:rendered` group
+  (each item from `cluster-renders` with `:invalidated-by`).
+  Cluster items contribute their cluster's `:triggered-by` sub-id
+  with `:view-count` = cluster's `:count`. Single items contribute
+  each `:invalidated-by` row's `:sub-id`.
+
+  Stable ordering: sub-rows sort by first-occurrence index in the
+  source list so the inverted view keeps a deterministic order
+  matching the source cascade."
+  [rendered-items]
+  (let [contributions
+        (for [[idx item] (map-indexed vector rendered-items)
+              :let [r (:render item)
+                    view-id (render-key->view-id (:render-key r))
+                    invalidated-by (or (:invalidated-by item) [])]
+              row    invalidated-by]
+          {:idx          idx
+           :sub-id       (:sub-id row)
+           :trigger?     (boolean (:trigger? row))
+           :recomputed?  (boolean (:recomputed? row))
+           :clustered?   (= :cluster (:kind item))
+           :clustered-n  (when (= :cluster (:kind item)) (:count item))
+           :view-id      (or view-id (:view-id item))
+           :render-key   (:render-key r)
+           :elapsed-ms   (:elapsed-ms r)})
+        by-sub (group-by :sub-id contributions)
+        first-idx (reduce (fn [acc {:keys [sub-id idx]}]
+                            (if (contains? acc sub-id)
+                              acc
+                              (assoc acc sub-id idx)))
+                          {}
+                          contributions)
+        sub-rows
+        (for [[sub-id rows] by-sub
+              :let [any-trigger?    (some :trigger? rows)
+                    any-recomputed? (some :recomputed? rows)
+                    views (vec (for [r rows]
+                                 (cond-> {:view-id      (:view-id r)
+                                          :render-key   (:render-key r)
+                                          :trigger?     (:trigger? r)
+                                          :elapsed-ms   (:elapsed-ms r)}
+                                   (:clustered? r)
+                                   (assoc :clustered?  true
+                                          :clustered-n (:clustered-n r)))))
+                    view-count (reduce + 0
+                                       (map (fn [r]
+                                              (if (:clustered? r)
+                                                (or (:clustered-n r) 1)
+                                                1))
+                                            rows))]]
+          {:sub-id       sub-id
+           :trigger?     (boolean any-trigger?)
+           :recomputed?  (boolean any-recomputed?)
+           :views        views
+           :view-count   view-count
+           ::order       (get first-idx sub-id 0)})]
+    (->> sub-rows
+         (sort-by ::order)
+         (mapv #(dissoc % ::order)))))
 
 ;; ---- assembled views-data ---------------------------------------------
 
@@ -346,8 +463,14 @@
                                      :trigger?    true
                                      :clustered?  true}])))
                         items)))
-        cascade-ms (reduce + 0 (keep :elapsed-ms current-renders))]
+        cascade-ms (reduce + 0 (keep :elapsed-ms current-renders))
+        ;; Per spec §Group-by toggle — the inverted hierarchy
+        ;; (sub-rows at top, components consumed underneath) reuses
+        ;; the :rendered group's annotated items. The view-layer's
+        ;; group-by `:sub` renderer reads `:sub-grouped`.
+        sub-grouped (build-sub-grouped (:rendered clustered-with-invalidated))]
     {:groups         clustered-with-invalidated
+     :sub-grouped    sub-grouped
      :totals         {:mounted    (count (:mounted groups))
                       :rendered   (count (:rendered groups))
                       :unmounted  (count (:unmounted groups))

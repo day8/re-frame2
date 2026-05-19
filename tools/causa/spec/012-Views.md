@@ -315,6 +315,45 @@ reasoning "which sub triggered all this rendering?" rather than "which
 views ran?" The two views are mathematically symmetric; the toggle
 lets the user pick their entry point.
 
+The toggle ships as a pill row in the bottom-controls footer:
+
+```
+Group by [◉ component] [○ sub]
+```
+
+State lives in `:rf/causa`'s app-db at `:views/group-by` (default
+`:component`); written by `:rf.causa/set-views-group-by`; read by
+`:rf.causa/views-group-by`. Switching mode is panel-scoped — no
+spine pivot, no cross-tab effect.
+
+The `:sub` mode renders only over the **Re-rendered** group's per-
+render sub attribution (Mounted has no prior to compare; Unmounted
+has no current). When a cascade is parent-forced (no sub
+invalidations), the panel renders an empty-state explaining the
+case rather than a blank section.
+
+## Component filter chip
+
+Right-clicking any Views row dispatches
+`:rf.causa/views-set-component-filter` with the row's `view-id`. A
+chip appears ABOVE the three-group section header:
+
+```
+┌─ Filtered to: <cart/list> × ────────────────────────────────┐
+│  (panel scopes every group to renders of cart/list only)    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Per `findings/2026-05-17-causa-consolidated-design.md` §0ter.1
+R3-E the chip is **panel-scoped** (NOT ribbon-scoped — the ribbon
+carries event-list filters). The bottom-controls footer keeps a
+secondary clear button for the scrolled-past case.
+
+The right-click pattern mirrors `shell.cljs`'s event-row context-
+menu: direct dispatch, no separate context-menu UI surface. v1
+ships one action ("filter to this component"); a multi-item menu
+lands behind a follow-on bead if/when more actions accumulate.
+
 ## Sub-status legibility
 
 Subs nested under each view row carry sub-cache-state information
@@ -329,6 +368,24 @@ on the sub-id when the cache state is interesting:
 | `:invalidated` | yellow `◌` | Inputs changed; no watcher to drive recompute |
 | `:cached-no-watcher` | tertiary `○` | Cached but zero watchers; value may be stale |
 | `:error` | red `▲ !` | Most recent compute threw |
+
+### Re-rendered-row sub-status decoration
+
+Inside the Re-rendered group's right-column "Rerendered because" list,
+each consumed sub carries one of three statuses (per
+`findings/2026-05-17-causa-consolidated-design.md` §0ter.1 R3):
+
+| Status | Glyph + colour | Meaning |
+|---|---|---|
+| `:cache-miss-trigger` | amber `✱` (bold) | Sub recomputed; new value DIFFERS from prior. Likely cause of the re-render. |
+| `:cache-miss-equal`   | muted `≈`        | Sub recomputed; new value structurally EQUALS prior. React skipped re-render of any view reading only this sub. |
+| `:cache-hit`          | muted `·`        | Sub did NOT recompute this cascade; the view read the cached value. |
+
+The classifier lives in `views_helpers.cljc` as
+`sub-status`; the renderer's per-status chrome (glyph + tooltip +
+aria-label + `data-marker` attribute) is encapsulated in
+`views_view.cljs` `sub-status-chrome`. Tests assert all three
+statuses render their respective glyphs.
 
 Compared to the legacy Subs panel, this is a leaner surface — the sub
 no longer gets its own row; it's a decorator on the view's "subs used"

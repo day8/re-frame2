@@ -88,22 +88,43 @@
    :font-size "12px"
    :color (:text-secondary tokens)})
 
-;; ---- ✱ / · marker chrome (rf2-87lkf — Delta 2 polish) ------------------
+;; ---- ✱ / ≈ / · marker chrome (rf2-87lkf — Delta 2 polish ·
+;;                               rf2-r2s2l — cache-miss-equal) -------------
 ;;
-;; The two markers in the Re-rendered group's "Rerendered because" column
+;; The three markers in the Re-rendered group's "Rerendered because" column
 ;; answer the developer's first question — "for each sub the view
-;; consumed, did its value change since last cascade?" The visual
-;; hierarchy puts `✱` (value changed → likely cause) ahead of `·` (sub
-;; recomputed, value unchanged → React skipped re-render). Amber for `✱`
-;; carries the "this is the interesting case" weight; muted-grey `·`
-;; recedes. Inline-block + fixed width keeps the marker column
-;; scannable when dense.
+;; consumed, what happened to it this cascade?" The visual hierarchy:
+;;
+;;   `✱` `:cache-miss-trigger` — value changed → likely cause of the
+;;        re-render (amber, bold).
+;;   `≈` `:cache-miss-equal`   — sub recomputed but new value structurally
+;;        equals previous (React skipped re-render). Muted grey.
+;;   `·` `:cache-hit`          — sub was consumed but did NOT recompute
+;;        (cache hit). Muted grey.
+;;
+;; The `≈` shape distinguishes recomputed-but-equal from cache-hit at a
+;; glance without colliding with the spec's reserved `○` (cached-no-
+;; watcher) / `◐` (re-running) glyph vocabulary. Inline-block + fixed
+;; width keeps the marker column scannable when dense.
 
 (def ^:private trigger-glyph-style
   {:color         (:yellow tokens)       ; amber → "this changed; look here"
    :font-weight   700
    :font-size     "14px"                 ; slightly larger than 12px body so the glyph reads
    :line-height   1                      ; tight so vertical rhythm matches `·`
+   :display       "inline-block"
+   :width         "12px"
+   :text-align    "center"
+   :margin-right  "6px"})
+
+(def ^:private equal-glyph-style
+  ;; Same visual weight as the cache-hit `·` (muted) — both are
+  ;; informational, neither is the cause of the re-render. The
+  ;; shape distinction is what carries the signal.
+  {:color         (:text-tertiary tokens)
+   :font-weight   400
+   :font-size     "14px"
+   :line-height   1
    :display       "inline-block"
    :width         "12px"
    :text-align    "center"
@@ -125,11 +146,42 @@
   facing framing matches the section header \"Rerendered because\")."
   "Value changed since last cascade — this sub's recompute returned a value that differs from the previous one. (Likely cause of the re-render.)")
 
-(def ^:private non-trigger-glyph-tooltip
-  "Hover text for `·` — explains the marker means \"sub recomputed but
+(def ^:private equal-glyph-tooltip
+  "Hover text for `≈` — explains the marker means \"sub recomputed but
   value unchanged\". React skipped the re-render of any view subscribed
-  only to this sub, so the `·` is informational — not a cause."
+  only to this sub, so the `≈` is informational — not a cause. Per
+  spec §0ter.1 R3 — cache-miss-equal completes the three-status
+  taxonomy alongside `✱` and `·`."
   "Sub recomputed, value unchanged — the substrate re-ran this sub during the cascade but the new value structurally equals the previous one. (React skipped re-render of any view reading only this sub.)")
+
+(def ^:private non-trigger-glyph-tooltip
+  "Hover text for `·` — explains the marker means \"sub did NOT
+  recompute this cascade\" (cache hit). The view read the cached
+  value; no work."
+  "Cache hit — the sub did not recompute this cascade; the view read the cached value. (Not a cause of the re-render.)")
+
+(defn- sub-status-chrome
+  "Per spec §0ter.1 R3 — three-status decoration. Returns the glyph
+  string + style map + tooltip + data-marker attribute value for a
+  row's classified status. Encapsulated so the test ns can verify
+  every status renders its respective chrome (`rf2-r2s2l`)."
+  [status]
+  (case status
+    :cache-miss-trigger
+    {:glyph "✱" :style trigger-glyph-style
+     :tooltip trigger-glyph-tooltip
+     :data-marker "trigger"
+     :aria-label "value changed"}
+    :cache-miss-equal
+    {:glyph "≈" :style equal-glyph-style
+     :tooltip equal-glyph-tooltip
+     :data-marker "cache-miss-equal"
+     :aria-label "value unchanged"}
+    :cache-hit
+    {:glyph "·" :style non-trigger-glyph-style
+     :tooltip non-trigger-glyph-tooltip
+     :data-marker "cache-hit"
+     :aria-label "cache hit"}))
 
 ;; ---- small helpers ------------------------------------------------------
 
@@ -166,14 +218,21 @@
 
 ;; ---- 'Rerendered because' list (Re-rendered) ---------------------------
 ;;
-;; Per spec §Per-row content (Re-rendered) the right-column lists every
-;; sub the component consumed this cascade with a marker per sub:
+;; Per spec §Per-row content (Re-rendered) + spec §Sub-status legibility
+;; the right-column lists every sub the component consumed this cascade
+;; with a per-sub status marker (rf2-r2s2l three-status taxonomy):
 ;;
-;;   `✱` (amber, bold) — the sub's recomputed value DIFFERS from the
-;;        previous cascade's value (likely cause of the re-render).
-;;   `·` (muted grey)  — the sub recomputed but the new value structurally
-;;        equals the previous (React skipped re-render of any view reading
-;;        only this sub).
+;;   `✱` (amber, bold) — `:cache-miss-trigger`. Sub's recomputed value
+;;        DIFFERS from the previous cascade's value (likely cause of
+;;        the re-render).
+;;   `≈` (muted grey)  — `:cache-miss-equal`. Sub recomputed but the
+;;        new value structurally equals the previous (React skipped
+;;        re-render of any view reading only this sub).
+;;   `·` (muted grey)  — `:cache-hit`. Sub was consumed but did NOT
+;;        recompute this cascade; the view read the cached value.
+;;
+;; Classifier lives in `views_helpers.cljc` (`sub-status`); per-status
+;; chrome lives in `sub-status-chrome` (above).
 ;;
 ;; The kw `:invalidated-by` and the testid `rf-causa-views-invalidated-by`
 ;; are stable internal-data + test-contract surfaces (rf2-87lkf bead
@@ -188,24 +247,21 @@
          :style {:display "flex"
                  :flex-direction "column"
                  :gap "2px"}}
-   (for [[i row] (map-indexed vector invalidated-by)]
+   (for [[i row] (map-indexed vector invalidated-by)
+         :let [status (h/sub-status row)
+               chrome (sub-status-chrome status)]]
      ^{:key i}
      [:div {:role "listitem"
             :style mono-style}
-      [:span {:style       (if (:trigger? row)
-                             trigger-glyph-style
-                             non-trigger-glyph-style)
-              ;; Hover tooltip per rf2-87lkf — Delta 2. `title` ships
-              ;; the explanation on every browser without a dispatch
-              ;; round-trip; ARIA labels mirror it for screen readers.
-              :title       (if (:trigger? row)
-                             trigger-glyph-tooltip
-                             non-trigger-glyph-tooltip)
-              :aria-label  (if (:trigger? row)
-                             "value changed"
-                             "value unchanged")
-              :data-marker (if (:trigger? row) "trigger" "non-trigger")}
-       (if (:trigger? row) "✱" "·")]
+      [:span {:style       (:style chrome)
+              ;; Hover tooltip per rf2-87lkf — Delta 2 + rf2-r2s2l
+              ;; cache-miss-equal. `title` ships the explanation on
+              ;; every browser without a dispatch round-trip; ARIA
+              ;; labels mirror it for screen readers.
+              :title       (:tooltip chrome)
+              :aria-label  (:aria-label chrome)
+              :data-marker (:data-marker chrome)}
+       (:glyph chrome)]
       [:span (format-sub-id (:sub-id row))]
       (when (:clustered? row)
         [:span {:style {:margin-left "6px"
@@ -332,6 +388,22 @@
        (str "elapsed " (format-ms (:elapsed-ms r))
             " · (mount/commit phase data ships when React Profiler available)")]]]))
 
+(defn- right-click-filter-handler
+  "Per spec §0ter.1 R3-E + bead rf2-r2s2l — right-click any Views row
+  applies the panel-local `:rf.causa/views-set-component-filter` to
+  the row's view-id. Mirrors `shell.cljs`'s event-row pattern (direct
+  dispatch on context-menu; no separate context-menu UI surface).
+  `preventDefault` suppresses the browser's native menu so the
+  developer's right-click lands on Causa's affordance, not the host
+  page's menu. The dispatch resolves to `:rf/causa` via React-context
+  (the panel mounts inside Causa's frame-provider — the same way
+  every other in-panel `rf/dispatch` here resolves)."
+  [view-id]
+  (fn [^js e]
+    (when view-id
+      (.preventDefault e)
+      (rf/dispatch [:rf.causa/views-set-component-filter view-id]))))
+
 (defn- single-row
   "One render row in either Mounted, Re-rendered, or Unmounted. The
   two-column layout for Re-rendered (spec §Per-row content (Re-
@@ -344,6 +416,10 @@
     [:div {:data-testid (str "rf-causa-views-row-" (name group))
            :on-click    #(rf/dispatch [:rf.causa/views-toggle-row
                                        (pr-str (:render-key r))])
+           :on-context-menu (right-click-filter-handler view-id)
+           :title       (when view-id
+                          (str "Right-click → filter Views panel to "
+                               "<" (h/format-view-id view-id) ">"))
            :style       (cond-> row-clickable-style
                           struck? (assoc :text-decoration "line-through"
                                          :color (:text-tertiary tokens)))}
@@ -384,6 +460,10 @@
   (let [{:keys [view-id triggered-by count total-ms avg-ms p95-ms]} item
         ckey   (str "cluster:" (pr-str [view-id triggered-by]))]
     [:div {:data-testid (str "rf-causa-views-cluster-" (name group))
+           :on-context-menu (right-click-filter-handler view-id)
+           :title (when view-id
+                    (str "Right-click → filter Views panel to "
+                         "<" (h/format-view-id view-id) ">"))
            :style row-style}
      [:div {:style {:display "flex" :gap "12px" :align-items "flex-start"}}
       [:span {:style {:color (:yellow tokens) :font-weight 700}}
@@ -468,6 +548,95 @@
              :cluster (cluster-row item group (contains? expanded-clusters rk)))
            {:key rk})))]))
 
+;; ---- sub-grouped renderer (spec §Group-by toggle / rf2-r2s2l) ----------
+;;
+;; Inverted hierarchy: top-level rows are subs that ran this cascade;
+;; under each sub-row, the components that consumed it. Answers
+;; "which sub caused all this rendering?" The data is shaped by
+;; `views_helpers.cljc` `build-sub-grouped` over the Re-rendered
+;; group's annotated items (the only group with per-render sub
+;; attribution under v1 instrumentation).
+
+(defn- sub-row
+  "One row in the sub-grouped layout. The sub-id is the top-level
+  identifier; the consumed view-ids list under it. The trigger glyph
+  follows the same chrome the component-mode uses so the marker
+  vocabulary is consistent across both modes."
+  [{:keys [sub-id trigger? recomputed? views view-count]}]
+  (let [status (cond
+                 trigger?    :cache-miss-trigger
+                 recomputed? :cache-miss-equal
+                 :else       :cache-hit)
+        chrome (sub-status-chrome status)]
+    [:div {:data-testid "rf-causa-views-sub-row"
+           :data-sub-id (pr-str sub-id)
+           :style row-style}
+     [:div {:style {:display "flex"
+                    :align-items "center"
+                    :gap "8px"
+                    :flex-wrap "wrap"}}
+      [:span {:style (:style chrome)
+              :title (:tooltip chrome)
+              :aria-label (:aria-label chrome)
+              :data-marker (:data-marker chrome)}
+       (:glyph chrome)]
+      [:span {:style {:font-weight 600 :font-family mono-stack}}
+       (format-sub-id sub-id)]
+      [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
+       (str "→ " view-count " view" (when (not= 1 view-count) "s"))]]
+     [:div {:style {:padding-left "24px"
+                    :margin-top "4px"
+                    :display "flex"
+                    :flex-direction "column"
+                    :gap "2px"}}
+      (for [v views]
+        ^{:key (pr-str (:render-key v))}
+        [:div {:data-testid "rf-causa-views-sub-row-consumer"
+               :on-context-menu (right-click-filter-handler (:view-id v))
+               :title (when (:view-id v)
+                        (str "Right-click → filter Views panel to "
+                             "<" (h/format-view-id (:view-id v)) ">"))
+               :style (assoc mono-style :cursor "default")}
+         [:span {:style {:display "inline-block" :width "12px"
+                         :text-align "center" :margin-right "6px"
+                         :color (if (:trigger? v)
+                                  (:yellow tokens)
+                                  (:text-tertiary tokens))}}
+          (if (:trigger? v) "✱" "·")]
+         [:span (str "<" (h/format-view-id (:view-id v)) ">")]
+         (when (:clustered? v)
+           [:span {:style {:margin-left "6px"
+                           :color (:text-tertiary tokens)
+                           :font-size "11px"}}
+            (str "× " (or (:clustered-n v) 1) " (clustered)")])
+         [:span {:style {:margin-left "8px"
+                         :color (:text-tertiary tokens)
+                         :font-size "11px"}}
+          (format-ms (:elapsed-ms v))]])]]))
+
+(defn- sub-grouped-section
+  "Top-level container for the sub-grouped renderer. Mirrors
+  `group-section`'s header + listing shape so the panel feels
+  consistent across toggles. Renders an empty-state when there are
+  no subs with consumers (e.g. a parent-forced cascade with no
+  sub invalidations)."
+  [sub-rows]
+  [:section {:data-testid "rf-causa-views-sub-grouped"
+             :style {:display "flex" :flex-direction "column"}}
+   [:header {:style group-section-style}
+    (str "subs that ran this cascade (" (count sub-rows) ")")]
+   (if (seq sub-rows)
+     (for [s sub-rows]
+       (with-meta (sub-row s) {:key (pr-str (:sub-id s))}))
+     [:div {:data-testid "rf-causa-views-sub-grouped-empty"
+            :style {:padding "16px"
+                    :color (:text-tertiary tokens)
+                    :font-family sans-stack
+                    :font-size "13px"}}
+      [:p "No sub invalidations this cascade. (Re-renders were "
+       "parent-forced, or no subs were consumed by the views that "
+       "ran.)"]])])
+
 ;; ---- chrome -------------------------------------------------------------
 
 (defn- header-block
@@ -494,9 +663,109 @@
              (str " · cascade " (pr-str did)))
            " · cascade ms: " (format-ms (:cascade-ms (:totals data))))])])
 
+;; ---- group-by toggle (spec §Group-by toggle / rf2-r2s2l) ---------------
+;;
+;; Bottom-controls pill `[◉ component] [○ sub]`. Switches the Views
+;; hierarchy between the default three-group (Mounted / Re-rendered
+;; / Unmounted) layout and the inverted sub-rows-first layout (a
+;; sub → views-consumed map). The two views are mathematically
+;; symmetric per spec; the toggle lets the user pick their entry
+;; point ("which views ran?" vs "which sub caused all this
+;; rendering?").
+
+(def ^:private group-by-pill-base-style
+  {:padding       "2px 8px"
+   :font-size     "11px"
+   :cursor        "pointer"
+   :background    "transparent"
+   :border        (str "1px solid " (:border-default tokens))
+   :color         (:text-secondary tokens)
+   :font-family   sans-stack})
+
+(defn- group-by-pill
+  "One pill in the bottom-controls group-by toggle. `selected?` drives
+  the filled `◉` vs hollow `○` glyph + foreground colour so the active
+  pill reads at a glance."
+  [{:keys [value selected? label]}]
+  [:button {:data-testid (str "rf-causa-views-group-by-" (name value))
+            :on-click #(rf/dispatch [:rf.causa/views-set-group-by value])
+            :aria-pressed (if selected? "true" "false")
+            :style (cond-> group-by-pill-base-style
+                     selected?
+                     (assoc :color       (:text-primary tokens)
+                            :font-weight 600
+                            :border      (str "1px solid "
+                                              (:accent-violet tokens))))}
+   (str (if selected? "◉" "○") " " label)])
+
+(defn- group-by-toggle
+  [group-by]
+  (let [active (or group-by :component)]
+    [:div {:data-testid "rf-causa-views-group-by-toggle"
+           :role "radiogroup"
+           :aria-label "Group by"
+           :style {:display "flex"
+                   :gap "6px"
+                   :align-items "center"}}
+     [:span {:style {:color (:text-tertiary tokens) :font-size "11px"
+                     :margin-right "4px"}}
+      "Group by"]
+     [group-by-pill {:value :component
+                     :selected? (= active :component)
+                     :label "component"}]
+     [group-by-pill {:value :sub
+                     :selected? (= active :sub)
+                     :label "sub"}]]))
+
+;; ---- filter chip (spec §0ter.1 R3-E — promote above section header) ----
+;;
+;; The component-filter chip appears ABOVE the three-group section
+;; header (per §0ter.1 R3-E refinement) — the chip is panel-scoped
+;; (NOT ribbon-scoped — ribbon carries event-list filters). The
+;; `bottom-controls` clear button at the foot of the panel is the
+;; secondary affordance; the chip is the primary surface so the user
+;; sees the filter applied from anywhere in the panel.
+
+(defn- filter-chip
+  [view-id]
+  (when view-id
+    [:div {:data-testid "rf-causa-views-filter-chip"
+           :style {:padding "8px 16px"
+                   :display "flex"
+                   :align-items "center"
+                   :gap "6px"
+                   :border-bottom (str "1px solid " (:border-subtle tokens))
+                   :background (:bg-1 tokens)}}
+     [:span {:style {:color (:text-tertiary tokens) :font-size "11px"}}
+      "Filtered to:"]
+     [:button {:data-testid "rf-causa-views-filter-chip-clear"
+               :on-click #(rf/dispatch
+                            [:rf.causa/views-set-component-filter nil])
+               :aria-label (str "Clear filter on "
+                                (h/format-view-id view-id))
+               :title "Clear filter"
+               :style {:display "inline-flex"
+                       :align-items "center"
+                       :gap "6px"
+                       :padding "2px 8px"
+                       :background "transparent"
+                       :border (str "1px solid " (:accent-violet tokens))
+                       :color (:text-primary tokens)
+                       :border-radius "10px"
+                       :font-family mono-stack
+                       :font-size "12px"
+                       :cursor "pointer"}}
+      [:span {:style {:font-weight 600}}
+       (str "<" (h/format-view-id view-id) ">")]
+      [:span {:style {:opacity 0.7
+                      :border-left (str "1px solid " (:accent-violet tokens))
+                      :padding-left "6px"}}
+       "×"]]]))
+
 (defn- bottom-controls
   [data]
-  (let [cf (:component-filter data)]
+  (let [cf      (:component-filter data)
+        groupby (:group-by data)]
     [:footer {:data-testid "rf-causa-views-controls"
               :style {:padding "8px 16px"
                       :border-top (str "1px solid " (:border-subtle tokens))
@@ -505,6 +774,7 @@
                       :align-items "center"
                       :font-size "11px"
                       :color (:text-secondary tokens)}}
+     [group-by-toggle groupby]
      (when cf
        [:button {:data-testid "rf-causa-views-clear-filter"
                  :on-click #(rf/dispatch
@@ -542,6 +812,9 @@
   []
   (let [data @(rf/subscribe [:rf.causa/views-data])
         groups (:groups data)
+        sub-grouped (:sub-grouped data)
+        group-by (or (:group-by data) :component)
+        component-filter (:component-filter data)
         expanded-rows (or (:expanded-rows data) #{})
         expanded-clusters (or (:expanded-clusters data) #{})]
     [:section {:data-testid "rf-causa-views"
@@ -553,10 +826,18 @@
                        :font-family sans-stack
                        :font-size "14px"}}
      (header-block data)
+     ;; rf2-r2s2l — Filter chip lives ABOVE the body content (per
+     ;; §0ter.1 R3-E refinement). Panel-scoped affordance; the
+     ;; secondary clear button lives in `bottom-controls` for the
+     ;; user who scrolled past the chip.
+     (filter-chip component-filter)
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         (not (:has-cascade? data))
         (empty-state data)
+
+        (= group-by :sub)
+        (sub-grouped-section sub-grouped)
 
         (zero? (+ (count (:mounted groups))
                   (count (:rendered groups))
