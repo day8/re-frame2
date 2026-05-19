@@ -92,9 +92,32 @@
     (fn [[target _epoch-history] _query]
       (rf/get-frame-db target)))
 
+  ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
+  ;; `:rf.causa/focus` rather than the legacy `:rf.causa/selected-
+  ;; epoch-id` slot. The spine sub auto-tracks head in LIVE mode
+  ;; (deriving `:epoch-id` from the head cascade via
+  ;; `epoch-id-for-cascade` against `:epoch-history`); the legacy
+  ;; slot is only written by user clicks (L2 row select, epoch
+  ;; chip, prev/next step) and so stays pinned to the last user
+  ;; action.
+  ;;
+  ;; Mike repro: user clicks an L2 row (legacy slot → pinned
+  ;; epoch); user clicks Follow-head (focus :mode flips to :live);
+  ;; new arrivals advance the focus's :dispatch-id correctly, but
+  ;; pre-fix the legacy slot was untouched so every App-DB diff
+  ;; sub kept resolving to the pinned epoch — the panel froze.
+  ;; Pivoting these subs on focus's :epoch-id closes the gap
+  ;; without changing the legacy slot's role (still authoritative
+  ;; under RETRO + LIVE-paused via the spine's compose-focus
+  ;; passthrough).
+  (rf/reg-sub :rf.causa/focus-epoch-id
+    :<- [:rf.causa/focus]
+    (fn [focus _query]
+      (:epoch-id focus)))
+
   (rf/reg-sub :rf.causa/selected-epoch-record
     :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[history selected-id] _query]
       (when selected-id
         (find-epoch-in-history history selected-id))))
@@ -110,7 +133,7 @@
   ;; that "the diff panel shows whatever just happened".
   (rf/reg-sub :rf.causa/selected-epoch-diff
     :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
@@ -140,7 +163,7 @@
   ;; `db-before`/`db-after` pair as the inspector navigates.
   (rf/reg-sub :rf.causa/selected-epoch-annotated-tree
     :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
@@ -209,7 +232,7 @@
   ;; `(peek history)` fallback applies.
   (rf/reg-sub :rf.causa/selected-epoch-redacted-modified-count
     :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
@@ -250,7 +273,7 @@
   ;; when the selected epoch is absent from history.
   (rf/reg-sub :rf.causa/selected-epoch-flow-writes
     :<- [:rf.causa/epoch-history]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[history selected-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
@@ -297,7 +320,7 @@
     :<- [:rf.causa/epoch-history]
     :<- [:rf.causa/selected-epoch-redacted-modified-count]
     :<- [:rf.causa/selected-epoch-flow-writes]
-    :<- [:rf.causa/selected-epoch-id]
+    :<- [:rf.causa/focus-epoch-id]
     (fn [[target db diff-triples sections focused-path focused-hits
           history redacted-modified-count flow-writes selected-epoch-id]
          _query]

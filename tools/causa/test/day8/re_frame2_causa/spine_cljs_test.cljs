@@ -430,6 +430,10 @@
 ;; (8) Registered :rf.causa/focus sub — reactive composition
 ;; -------------------------------------------------------------------------
 
+;; Forward-declare the `epoch` helper (defined in section 10) so the
+;; rf2-70tkv reactive test below can build epoch-history fixtures.
+(declare epoch)
+
 (defn- focus-sub []
   (rf/with-frame :rf/causa
     @(rf/subscribe [:rf.causa/focus])))
@@ -631,6 +635,56 @@
           ":retro pins the focus through arrivals")
       (is (= :retro (:mode r))))))
 
+(deftest focus-sub-live-auto-follows-epoch-id-rf2-70tkv
+  (testing "rf2-70tkv — the reactive :rf.causa/focus sub auto-derives
+            :epoch-id to the head cascade's settling epoch in LIVE
+            mode. Mike repro: user clicks an L2 row (writes
+            :selected-epoch-id + focus :epoch-id), then clicks
+            Follow-head. Pre-fix the focus sub left :epoch-id pinned
+            to the clicked epoch even after follow-head; every
+            epoch-keyed panel (Views, Machines, App-DB diff via
+            shim) stayed frozen. Post-fix the sub re-derives
+            :epoch-id from head."
+    (setup-causa-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/causa
+      ;; Seed an epoch-history covering all three cascades.
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                         [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]])
+      ;; User clicks the earliest cascade — pins focus to :c1/:e1.
+      (rf/dispatch-sync [:rf.causa/focus-cascade :c1 :rf/default]))
+    (let [r (focus-sub)]
+      (is (= :c1 (:dispatch-id r)))
+      (is (= :e1 (:epoch-id r)))
+      (is (= :retro (:mode r))))
+    ;; User clicks Follow-head — :mode flips to :live; the stored
+    ;; :focus slot's :dispatch-id is cleared, but pre-rf2-70tkv the
+    ;; legacy :selected-epoch-id stayed on :e1 AND the focus sub's
+    ;; :epoch-id stayed on :e1 too. Post-fix the sub re-derives
+    ;; from head.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/follow-head]))
+    (let [r (focus-sub)]
+      (is (= :c3 (:dispatch-id r))
+          "LIVE → :dispatch-id tracks head (existing behaviour)")
+      (is (= :live (:mode r)))
+      (is (= :e3 (:epoch-id r))
+          "rf2-70tkv — :epoch-id ALSO tracks head, so Views /
+           Machines / App-DB-diff rebind to the head cascade's
+           settling epoch"))
+    ;; A new cascade c4 arrives with epoch e4 — focus sub auto-
+    ;; advances both axes.
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/sync-epoch-history
+                         [(epoch :e1 :c1) (epoch :e2 :c2)
+                          (epoch :e3 :c3) (epoch :e4 :c4)]]))
+    (let [r (focus-sub)]
+      (is (= :c4 (:dispatch-id r)))
+      (is (= :e4 (:epoch-id r))
+          "rf2-70tkv — auto-track keeps :epoch-id and :dispatch-id
+           in lockstep on every head arrival"))))
+
 (deftest focus-sub-paused-live-does-not-auto-follow
   (testing "paused LIVE freezes auto-follow — user paused to inspect,
             so new arrivals don't pull focus away."
@@ -696,6 +750,120 @@
     (is (nil? (spine/epoch-id-for-cascade [(epoch :e1 :c1)] :c-gone)))
     (is (nil? (spine/epoch-id-for-cascade nil :c1)))
     (is (nil? (spine/epoch-id-for-cascade [(epoch :e1 :c1)] nil)))))
+
+;; ---- compose-focus :epoch-id auto-follow (rf2-70tkv) --------------------
+;;
+;; Mike repro 2026-05-19 watching parallel-frames @ localhost:8030:
+;;   1. Click '+' in host app  →  new cascade lands
+;;   2. L2 list shows the new event  ✓
+;;   3. focus :mode is :live (the LIVE pill); :dispatch-id auto-tracks
+;;      head via rf2-s0s5x Phase A  ✓
+;;   4. BUT App-db Diff content does NOT update  ✗
+;;
+;; Root cause: compose-focus was hardcoded to return `(:epoch-id focus)`
+;; from the stored slot regardless of mode. So once an earlier event
+;; wrote :focus :epoch-id (any click on an L2 row, scrubbing in Time
+;; Travel, the :rf.causa/select-epoch chip in the diff), every panel
+;; pivoting on focus :epoch-id (Views' focused-cascade-pair, Machine
+;; Inspector's focused-event lens, App-DB Diff via the
+;; :selected-epoch-id shim slot) stayed wired to the stale epoch
+;; while :dispatch-id correctly tracked head.
+;;
+;; Fix: a 4-arity `compose-focus` accepts `epoch-history` and re-
+;; derives :epoch-id from the head cascade in LIVE+unpaused mode,
+;; mirroring how :dispatch-id auto-tracks head. The 3-arity (test
+;; rigs, back-compat callers) preserves the original passthrough
+;; behaviour. The reactive `:rf.causa/focus` sub in `install!` uses
+;; the 4-arity so every panel auto-tracks `:epoch-id` for free.
+
+(deftest compose-focus-3-arity-preserves-stored-epoch-id
+  (testing "rf2-70tkv — the 3-arity (no epoch-history input) preserves
+            the original behaviour for back-compat callers + test rigs"
+    (let [r (spine/compose-focus {:dispatch-id :c2 :mode :retro
+                                  :epoch-id :e-stale}
+                                 fixture-cascades
+                                 false)]
+      (is (= :e-stale (:epoch-id r))
+          "no epoch-history supplied → stored :epoch-id passes through"))))
+
+(deftest compose-focus-4-arity-live-auto-derives-epoch-id-from-head
+  (testing "rf2-70tkv — in LIVE+unpaused mode the 4-arity re-derives
+            :epoch-id to the head cascade's settling epoch. Bug repro
+            in pure-data form: a stored :focus :epoch-id of :e1 from a
+            prior L2 click must NOT survive a LIVE switch + head
+            arrival."
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
+          r       (spine/compose-focus {:dispatch-id nil :mode :live
+                                        :epoch-id :e1}
+                                       fixture-cascades false history)]
+      (is (= :c3 (:dispatch-id r))
+          ":dispatch-id tracks head (existing rf2-s0s5x Phase A)")
+      (is (= :e3 (:epoch-id r))
+          ":epoch-id ALSO tracks head — the stale stored :e1 is
+           overwritten so panels rebind on every new arrival"))))
+
+(deftest compose-focus-4-arity-live-paused-honours-stored-epoch-id
+  (testing "rf2-70tkv — LIVE-paused is the explicit 'freeze inspection'
+            gesture: the stored :epoch-id rides through untouched
+            (matching how :dispatch-id stays on the stored slot when
+            paused)"
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
+          r       (spine/compose-focus {:dispatch-id :c1 :mode :live
+                                        :epoch-id :e1 :paused? true}
+                                       fixture-cascades false history)]
+      (is (= :c1 (:dispatch-id r))
+          "paused → :dispatch-id pins to stored slot")
+      (is (= :e1 (:epoch-id r))
+          "paused → :epoch-id pins to stored slot"))))
+
+(deftest compose-focus-4-arity-retro-honours-stored-epoch-id
+  (testing "rf2-70tkv — RETRO mode pins the cascade and its settling
+            epoch in lockstep, so the stored :epoch-id is the
+            authoritative value (the focus-cascade-reducer / focus-step-
+            reducer already write it consistently with :dispatch-id)"
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2) (epoch :e3 :c3)]
+          r       (spine/compose-focus {:dispatch-id :c1 :mode :retro
+                                        :epoch-id :e1}
+                                       fixture-cascades false history)]
+      (is (= :c1 (:dispatch-id r)))
+      (is (= :e1 (:epoch-id r))
+          "retro pin honoured — picker / scrubber wrote both axes
+           together"))))
+
+(deftest compose-focus-4-arity-live-head-with-no-epoch-match-returns-nil
+  (testing "rf2-70tkv — multi-frame edge case. The picker's frame
+            (and thus the per-frame :epoch-history slot keyed off
+            :target-frame) can disagree with the head cascade's
+            frame in mid-transition states; the head's settling
+            epoch might also have been evicted from the ring buffer.
+            When the head's epoch is NOT in epoch-history we return
+            nil rather than the stored slot.
+
+            Every panel uniformly treats nil as 'no pin, use head
+            fallback' (App-DB Diff's `(peek history)`, Views'
+            `(dec (count history))`, Machine Inspector's `(peek
+            history)`). Keeping a stale stored id here would
+            resurrect the very freeze the auto-track was meant to
+            eliminate."
+    (let [history [(epoch :e1 :c1) (epoch :e2 :c2)]
+          r       (spine/compose-focus {:dispatch-id nil :mode :live
+                                        :epoch-id :e1}
+                                       fixture-cascades false history)]
+      (is (= :c3 (:dispatch-id r))
+          "head cascade is :c3")
+      (is (nil? (:epoch-id r))
+          ":e3 is not in history → nil (NOT the stale :e1)"))))
+
+(deftest compose-focus-4-arity-live-empty-history-returns-nil
+  (testing "rf2-70tkv — empty epoch-history (cold start; buffer-cleared)
+            in LIVE mode → :epoch-id nil so the App-DB Diff's
+            `(peek history)` fallback path resolves correctly."
+    (let [r (spine/compose-focus {:dispatch-id nil :mode :live
+                                  :epoch-id :e-stale}
+                                 fixture-cascades false [])]
+      (is (nil? (:epoch-id r))
+          "empty history → no resolution possible → nil overrides
+           any stale stored id"))))
 
 (deftest focus-cascade-reducer-4-arg-writes-epoch-id
   (testing "the 4-arg reducer writes :epoch-id into the :focus slot AND

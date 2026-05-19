@@ -282,10 +282,35 @@
     - the head walk considers `:ungrouped` as a possible head;
     - a stored `:dispatch-id :ungrouped` is pinnable (does not snap
       to head).
-  When off (default 2-arity), the existing strict behaviour applies."
+  When off (default 2-arity), the existing strict behaviour applies.
+
+  ## rf2-70tkv — `:epoch-id` auto-follow in LIVE mode
+
+  The 4-arity takes `epoch-history` (the per-frame epoch ring) and
+  re-derives `:epoch-id` to the head cascade's settling epoch when in
+  LIVE+unpaused mode, mirroring how `:dispatch-id` auto-tracks head.
+  Pre-fix the composer always returned `(:epoch-id focus)` from the
+  stored slot, so a previously-pinned epoch (set by clicking an L2
+  row's epoch chip, by `:rf.causa/select-epoch`, by Time Travel
+  scrubbing) stayed wired into the focus map even after the user
+  resumed LIVE — every panel that pivots on focus `:epoch-id`
+  (Views' focused-cascade-pair, Machine Inspector's focused-event
+  lens, App-DB diff's selected-epoch chain via the shimmed
+  `:selected-epoch-id` slot) stayed frozen on the old epoch while
+  `:dispatch-id` correctly tracked head. The 3-arity (legacy / pre-
+  rf2-70tkv callers, test rigs that don't have the history handy)
+  preserves the original behaviour: `:epoch-id` stays as stored. The
+  reactive `:rf.causa/focus` sub in `install!` uses the 4-arity so
+  every panel auto-tracks `:epoch-id` for free.
+
+  RETRO + LIVE-paused continue to honour the stored `:epoch-id`:
+  retro pins the cascade and its settling epoch in lockstep, and
+  pausing LIVE is the explicit 'freeze inspection' gesture."
   ([focus cascades]
-   (compose-focus focus cascades false))
+   (compose-focus focus cascades false nil))
   ([focus cascades show-ungrouped?]
+   (compose-focus focus cascades show-ungrouped? nil))
+  ([focus cascades show-ungrouped? epoch-history]
   (let [focusable* (focusable-cascades cascades show-ungrouped?)
         slot-frame (:frame focus)
         focusable  (if slot-frame
@@ -338,9 +363,38 @@
                   ;; orphaned-state surface in the event-detail panel.
                   :else
                   slot-id)
-        cascade (cascade-by-id focusable eff-id slot-frame)]
+        cascade (cascade-by-id focusable eff-id slot-frame)
+        ;; rf2-70tkv — `:epoch-id` auto-follows head in LIVE+unpaused
+        ;; mode when `epoch-history` is supplied (the reactive
+        ;; `:rf.causa/focus` sub path). Mirrors the `eff-id` auto-
+        ;; track above so every panel that pivots on focus
+        ;; `:epoch-id` (Views, Machine Inspector, App-DB diff via
+        ;; the `:selected-epoch-id` shim) lights up the head cascade
+        ;; on every new arrival instead of staying pinned to a stale
+        ;; stored value. Retro / LIVE-paused / unsupplied-history
+        ;; preserve the stored slot — those modes have explicit
+        ;; pinning semantics.
+        ;;
+        ;; When the head cascade's settling epoch is NOT in
+        ;; `epoch-history` (eff-id is on a frame other than the one
+        ;; the history slot is keyed to — multi-frame apps where
+        ;; the picker's frame and the head cascade's frame disagree;
+        ;; epoch evicted from the ring) we return nil rather than
+        ;; the stored slot. Panels uniformly treat nil as 'no pin,
+        ;; use the head fallback' (App-DB Diff's `(peek history)`,
+        ;; Views' `(dec (count history))`, Machine Inspector's
+        ;; `(peek history)`) — keeping a stale stored id here would
+        ;; resurrect the very freeze the auto-track was meant to
+        ;; eliminate.
+        eff-epoch-id (cond
+                       (and (= :live mode) (not paused?)
+                            (some? eff-id)
+                            (some? epoch-history))
+                       (epoch-id-for-cascade epoch-history eff-id)
+                       :else
+                       (:epoch-id focus))]
     {:dispatch-id eff-id
-     :epoch-id    (:epoch-id focus)
+     :epoch-id    eff-epoch-id
      :frame       (or (:frame cascade) (:frame focus))
      :mode        mode
      :head?       (or (nil? eff-id)
@@ -661,12 +715,21 @@
     (fn [db _query]
       (get db :focus)))
 
+  ;; rf2-70tkv — `:rf.causa/epoch-history` joined so `compose-focus`
+  ;; can auto-derive `:epoch-id` to the head cascade's settling
+  ;; epoch in LIVE+unpaused mode. Without this seam the focus map's
+  ;; `:epoch-id` stayed wired to the stored slot (last :rf.causa/
+  ;; select-epoch / focus-cascade / focus-step write), and every
+  ;; panel pivoting on focus `:epoch-id` (Views, Machine Inspector,
+  ;; App-DB diff via the `:selected-epoch-id` shim) stayed frozen
+  ;; on the old epoch while `:dispatch-id` correctly tracked head.
   (rf/reg-sub :rf.causa/focus
     :<- [:rf.causa/focus-slot]
     :<- [:rf.causa/cascades]
     :<- [:rf.causa/show-ungrouped?]
-    (fn [[focus cascades show-ungrouped?] _query]
-      (compose-focus focus cascades show-ungrouped?)))
+    :<- [:rf.causa/epoch-history]
+    (fn [[focus cascades show-ungrouped? epoch-history] _query]
+      (compose-focus focus cascades show-ungrouped? epoch-history)))
 
   ;; ---- events ----------------------------------------------------------
   ;;
