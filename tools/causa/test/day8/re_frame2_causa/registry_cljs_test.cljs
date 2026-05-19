@@ -229,7 +229,9 @@
    :rf.causa.static.machines/sub-mode-by-id
    ;; rf2-x8h9y — horizontal resize handle width.
    :rf.causa/panel-width-px
-   ;; rf2-vbbq0 — L2 row relative-time chip clock (1s ticker writes here).
+   ;; rf2-vbbq0 / rf2-0s2at — L2 row relative-time chip anchor (sub
+   ;; composed off `:rf.causa/cascades` — dispatched-time of the most
+   ;; recent cascade; flips on event arrival, not on a per-second tick).
    :rf.causa/relative-time-now-ms
    :rf.causa/selected-tab
    ;; rf2-ttnst — Settings popup expansion convenience subs.
@@ -381,9 +383,6 @@
    :rf.causa/palette-set-query
    :rf.causa/palette-toggle
    :rf.causa/preview-cascade
-   ;; rf2-vbbq0 — L2 row relative-time chip ticker (writes `:rf.causa/
-   ;; relative-time-now-ms` once per second so chips recompute coherently).
-   :rf.causa/relative-time-tick
    :rf.causa/remove-filter
    ;; rf2-x8h9y — resize-handle double-click reset.
    :rf.causa/reset-panel-width

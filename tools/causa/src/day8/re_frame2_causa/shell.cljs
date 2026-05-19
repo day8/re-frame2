@@ -327,7 +327,7 @@
       http?    (conj "🌐")
       machine? (conj "🤖"))))
 
-;; ---- Relative-time chip (rf2-vbbq0) --------------------------------------
+;; ---- Relative-time chip (rf2-vbbq0 / rf2-0s2at) --------------------------
 ;;
 ;; Each L2 row carries a small right-aligned chip showing how long ago the
 ;; cascade was dispatched ("5s", "2m", "1h", "3d"). Mike's design call
@@ -345,11 +345,20 @@
 ;;   diff < 24h              → "Nh"
 ;;   diff ≥ 24h              → "Nd"
 ;;
-;; The view subscribes to a re-frame sub `:rf.causa/relative-time-now-ms`
-;; that is bumped by a `defonce` `setInterval` once per second. The tick
-;; event is namespaced under `:rf.causa/*` and dispatched against the
-;; `:rf/causa` frame, so per `trace-bus/causa-internal-event?` it is
-;; filtered out at ingest — the user's L2 list never sees it.
+;; Anchor (rf2-0s2at): the "now" each row computes against is the
+;; dispatched-time of the MOST RECENT cascade in the spine, not a
+;; wall-clock tick. The earlier design (rf2-vbbq0 original) drove
+;; the anchor with a per-second `setInterval` so old rows rolled
+;; into their next bucket on time. Watching the parallel-frames
+;; testbed live (2026-05-19) Mike saw the per-second re-render
+;; flicker the L2 list constantly — relative time is meaningful
+;; BETWEEN events, not between seconds. Each new event re-establishes
+;; "now"; between events the list stays frozen. Anchor flips arrive
+;; on the existing reactive path (a new cascade appears in
+;; `:rf.causa/cascades`) so no timer / no internal trace pollution.
+;;
+;; The view subscribes to `:rf.causa/relative-time-now-ms` (sub
+;; composed off `:rf.causa/cascades` — see `registry.cljs`).
 
 (defn format-relative-time
   "Pure helper. Given two epoch-ms values (current time + the cascade's
@@ -400,9 +409,11 @@
 
 (defn relative-time-chip
   "Render the L2 row's right-aligned relative-time chip. `now-ms` is the
-  current wall clock supplied by the L2 view (sourced from the
-  `:rf.causa/relative-time-now-ms` sub so all rows tick coherently).
-  Renders nothing when the cascade carries no dispatched-time stamp."
+  anchor supplied by the L2 view — sourced from the
+  `:rf.causa/relative-time-now-ms` sub (dispatched-time of the most
+  recent cascade, per rf2-0s2at; flips on event arrival, not on a
+  per-second tick). Renders nothing when the cascade carries no
+  dispatched-time stamp."
   [cascade now-ms]
   (when-let [then-ms (cascade-dispatched-time-ms cascade)]
     (let [now      (or now-ms (interop/now-ms))
@@ -421,49 +432,16 @@
                       :white-space   "nowrap"}}
        label])))
 
-;; ---- Relative-time ticker (rf2-vbbq0) ------------------------------------
+;; ---- Relative-time anchor (rf2-0s2at) ------------------------------------
 ;;
-;; A single process-global ticker drives every L2 row's chip. A
-;; `setInterval` at 1s cadence dispatches `:rf.causa/relative-time-tick`
-;; into the `:rf/causa` frame; the event-db handler writes `(interop/
-;; now-ms)` into the `:rf.causa/relative-time-now-ms` slot, and the
-;; chip's parent (`event-list`) subscribes to that value. The ticker's
-;; trace events carry `:frame :rf/causa` so `trace-bus/causa-internal-
-;; event?` drops them at ingest (no buffer pressure, no L2 self-noise).
-;;
-;; `defonce` + idempotent start guard keeps shadow-cljs `:after-load`
-;; from spinning up a second timer. The interval handle is held on the
-;; defonce so a future teardown can clear it; today nothing calls clear.
-
-(defonce ^:private relative-time-ticker-state
-  ;; `{:handle <setInterval-id-or-nil>}` — defonce so the symbol is
-  ;; preserved across reloads; the inner map is mutated via reset!.
-  (atom {:handle nil}))
-
-(defn- relative-time-tick-cadence-ms
-  "Ticker cadence — 1s. Hoisted to a defn so tests can stub it."
-  []
-  1000)
-
-(defn- start-relative-time-ticker!
-  "Idempotent. Spins up a `setInterval` that dispatches
-  `:rf.causa/relative-time-tick` once per second so every L2 row's
-  chip recomputes against the latest wall clock. No-op when the timer
-  is already running, when `js/setInterval` is absent (some test
-  contexts), or when `js/document` is absent (node-test — no DOM, no
-  rendering, no need to tick). The chip's view falls back to
-  `(interop/now-ms)` at render time until the first tick lands."
-  []
-  (when (and (not (:handle @relative-time-ticker-state))
-             (exists? js/setInterval)
-             (exists? js/document))
-    (let [handle (js/setInterval
-                   (fn []
-                     (rf/dispatch [:rf.causa/relative-time-tick (interop/now-ms)]
-                                  {:frame :rf/causa}))
-                   (relative-time-tick-cadence-ms))]
-      (swap! relative-time-ticker-state assoc :handle handle)))
-  nil)
+;; No timer. The anchor is the dispatched-time of the most recent
+;; cascade — see the `:rf.causa/relative-time-now-ms` sub in
+;; `registry.cljs`. It re-fires on the standard reactive path when a
+;; new cascade lands in `:rf.causa/cascades`, so old rows recompute
+;; their relative-time exactly when fresh context arrives. (Earlier
+;; rf2-vbbq0 design used a `setInterval`-driven tick; rf2-0s2at
+;; replaced it after Mike observed constant L2 flicker watching the
+;; parallel-frames testbed live.)
 
 ;; ---- L1 ribbon -----------------------------------------------------------
 
@@ -1235,10 +1213,6 @@
   ;; mounted by the shell-view); defonce + DOM guards keep it a
   ;; no-op everywhere it matters.
   (inject-scrollbar-style!)
-  ;; rf2-vbbq0 — kick the relative-time ticker on first paint. The
-  ;; `defonce` + handle guard keeps it a single timer regardless of
-  ;; mount cycles / shadow-cljs `:after-load` reloads.
-  (start-relative-time-ticker!)
   (let [cascades       @(rf/subscribe [:rf.causa/filtered-cascades])
         focus          @(rf/subscribe [:rf.causa/focus])
         focus-set      @(rf/subscribe [:rf.causa/focus-set])
@@ -1247,10 +1221,14 @@
         ;; surfaces the bucket as a muted L2 row that focuses the
         ;; bucket on click so downstream panels populate.
         show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
-        ;; rf2-vbbq0 — one subscribe per render drives every chip's
-        ;; relative-time text. Falls back to `(interop/now-ms)` before
-        ;; the first tick lands so the chips render correctly on the
-        ;; first paint (which beats the 1s tick cadence).
+        ;; rf2-0s2at — one subscribe per render drives every chip's
+        ;; relative-time text. The sub returns the dispatched-time of
+        ;; the most recent cascade (the anchor flips on event arrival,
+        ;; not on a per-second tick). Falls back to `(interop/now-ms)`
+        ;; when the buffer is empty / no cascade carries a stamp — at
+        ;; that point there are no rows to render against the anchor
+        ;; anyway, but the chip's render-time guard keeps the bucket
+        ;; computation defined.
         now-ms         (or @(rf/subscribe [:rf.causa/relative-time-now-ms])
                            (interop/now-ms))
         focused-id     (:dispatch-id focus)

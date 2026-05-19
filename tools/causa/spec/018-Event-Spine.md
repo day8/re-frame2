@@ -300,7 +300,7 @@ ONE row shape, decorated by gutter glyph + right-aligned icon badges + trailing 
 │ Time chip    │ inline ≥30px │ now / 5s / 2m / 1h / 3d (right-aligned)│
 ```
 
-#### Relative-time chip (rf2-vbbq0)
+#### Relative-time chip (rf2-vbbq0 / rf2-0s2at)
 
 Each row carries a trailing right-aligned chip showing how long ago the cascade was dispatched. The chip's bucket strategy keeps old chips visually stable:
 
@@ -312,7 +312,7 @@ Each row carries a trailing right-aligned chip showing how long ago the cascade 
 | `< 24h`            | `Nh`    |
 | `≥ 24h`            | `Nd`    |
 
-A process-global 1s `setInterval` dispatches `:rf.causa/relative-time-tick` into the `:rf/causa` frame; the resulting trace event is filtered at ingest by `trace-bus/causa-internal-event?` so the tick never lands in the user-facing event list. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
+**Anchor (rf2-0s2at):** the "now" each chip computes against is the **dispatched-time of the most recent cascade in `:rf.causa/cascades`** — flips on event arrival, not on a per-second tick. Between events the L2 list stays frozen (no re-render); when a new event lands the anchor advances and every older row's chip recomputes (a row that read `3s` may now read `8s`). This replaces the earlier (rf2-vbbq0 original) 1s `setInterval` design: relative time is meaningful between events, not between seconds, and the per-second tick caused constant L2 flicker watching live testbeds. No timer; the anchor sub composes off the existing `:rf.causa/cascades` reactive path. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
 
 #### Gutter glyphs
 

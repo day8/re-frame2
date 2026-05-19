@@ -270,28 +270,35 @@
         (let [cascades (projection/group-cascades buffer)]
           (into [] (remove trace-bus/causa-internal-cascade?) cascades))))
 
-    ;; ---- L2 relative-time chip ticker (rf2-vbbq0) -----------------
+    ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
     ;;
     ;; Every L2 row carries a small right-aligned chip showing how long
-    ;; ago the cascade was dispatched ("5s" / "2m" / "1h" / "3d"). A
-    ;; process-global `defonce` `setInterval` in `shell.cljs` dispatches
-    ;; `:rf.causa/relative-time-tick` once per second; the handler stamps
-    ;; the current wall clock into `:rf.causa/relative-time-now-ms` so
-    ;; the L2 view's subscribe re-fires every tick and the chip text
-    ;; recomputes against the latest now.
+    ;; ago the cascade was dispatched ("5s" / "2m" / "1h" / "3d"). The
+    ;; anchor — the "now" each row's relative-time computes against —
+    ;; flips on EVENT ARRIVAL, not on a wall-clock tick (rf2-0s2at).
     ;;
-    ;; `:rf.trace/no-emit? true` keeps the per-second tick out of the
-    ;; trace buffer (defence-in-depth — the ticker also targets
-    ;; `:rf/causa` so `trace-bus/causa-internal-event?` would drop the
-    ;; envelope at ingest anyway).
+    ;; Mike's design call (2026-05-19, watching the parallel-frames
+    ;; testbed live): a per-second `setInterval` re-rendered the L2
+    ;; list every second, producing constant flicker for negligible
+    ;; semantic gain. Relative time is meaningful BETWEEN events, not
+    ;; between seconds — so the anchor is the dispatched-time of the
+    ;; most recent cascade. When a new event arrives the anchor flips,
+    ;; older rows recompute (a row that was "3s" now reads "8s"); in
+    ;; between events the list is frozen.
+    ;;
+    ;; The sub composes off `:rf.causa/cascades` so it inherits the
+    ;; Causa-internal filter (cascade-internal ticks never become the
+    ;; anchor). It returns nil when the buffer is empty or no cascade
+    ;; carries a `:dispatched :time` — the view's render-time fallback
+    ;; (`(interop/now-ms)`) covers that edge.
     (rf/reg-sub :rf.causa/relative-time-now-ms
-      (fn [db _query]
-        (get db :rf.causa/relative-time-now-ms)))
-
-    (rf/reg-event-db :rf.causa/relative-time-tick
-      {:rf.trace/no-emit? true}
-      (fn [db [_ now-ms]]
-        (assoc db :rf.causa/relative-time-now-ms now-ms)))
+      :<- [:rf.causa/cascades]
+      (fn [cascades _query]
+        (let [times (into []
+                          (keep #(get-in % [:dispatched :time]))
+                          cascades)]
+          (when (seq times)
+            (apply max times)))))
 
     ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
 
