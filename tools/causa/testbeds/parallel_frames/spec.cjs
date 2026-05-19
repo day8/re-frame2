@@ -22,6 +22,15 @@
  *      machine into :error legitimately (request fails by design).
  *      :below's :loaded state from step 3 persists.
  *
+ *   5. Causa target-frame round-trip (rf2-qd5r6, ex-Tier-2 L-14).
+ *      Spec 008 §State isolation (the rf2-tijr Option-C lock).
+ *      Causa's panel-layer `:rf.causa/set-target-frame` event +
+ *      `:rf.causa/target-frame-db` sub project the addressed frame's
+ *      app-db. Flipping target to :above reads :above's app-db;
+ *      flipping to :below reads :below's. Neither frame's writes leak
+ *      INTO `:rf/causa`'s app-db (the other direction of the §12
+ *      embedding-contract isolation: host → Causa).
+ *
  * The exercise IS observing two isolated frames diverge as the user
  * interacts with each independently. There is NO deliberate bug, NO
  * cross-frame data routing, NO 'fix this bug' moment.
@@ -120,6 +129,118 @@ module.exports = {
     if (!aboveTitleText.includes('ERROR:')) {
       throw new Error(
         `Expected :above's title to carry the error marker after Force-error; got: ${JSON.stringify(aboveTitleText)}`,
+      );
+    }
+
+    // --- 5. Causa target-frame round-trip + multi-frame isolation -----------
+    //     (rf2-qd5r6 ex-Tier-2 L-14)
+    //
+    // Spec 008 §State isolation (rf2-tijr Option-C frame-provider lock).
+    // The Causa-side surface to verify is two-fold:
+    //
+    //   - `:rf.causa/set-target-frame` event + `:rf.causa/target-frame`
+    //     sub round-trip on Causa's own :rf/causa app-db.
+    //   - Per-frame app-db isolation — `:above` and `:below` carry
+    //     distinct `:counter` slots (3 and 1 respectively after step 1)
+    //     reachable via `rf.get-frame-db`, and neither slot leaks INTO
+    //     `:rf/causa`'s app-db.
+    //
+    // The panel-layer `:rf.causa/target-frame-db` sub is deliberately
+    // NOT asserted here: per rf2-fvplw it follows the spine focus
+    // (`:rf.causa/observed-frame` = `(or (:frame focus) target)`), so
+    // its readback depends on which cascade is currently focused
+    // rather than the underlying isolation contract. The contract
+    // worth pinning here is the underlying isolation + the target-
+    // frame slot round-trip.
+    const isolationRoundTrip = await page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf   = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf) return { ok: false, reason: 'cljs/rf missing on window' };
+      if (typeof rf.dispatch_sync_STAR_ !== 'function' ||
+          typeof rf.subscribe_once !== 'function' ||
+          typeof rf.get_frame_db !== 'function') {
+        return { ok: false, reason: 'rf.dispatch_sync_STAR_ / rf.subscribe_once / rf.get_frame_db missing' };
+      }
+      const kw = (n) => cljs.keyword(n);
+      function setTarget(frameKw) {
+        rf.dispatch_sync_STAR_(
+          cljs.PersistentVector.fromArray(
+            [kw('rf.causa/set-target-frame'), frameKw], true),
+          cljs.PersistentArrayMap.fromArray(
+            [kw('frame'), kw('rf/causa')], true, false),
+        );
+      }
+      function readTargetFrameKw() {
+        const v = rf.subscribe_once(
+          kw('rf/causa'),
+          cljs.PersistentVector.fromArray(
+            [kw('rf.causa/target-frame')], true),
+        );
+        return v == null ? null : cljs.pr_str(v);
+      }
+      // Phase 1 — target-frame round-trips on the :rf/causa slot.
+      setTarget(kw('above'));
+      const observedAbove = readTargetFrameKw();
+      setTarget(kw('below'));
+      const observedBelow = readTargetFrameKw();
+      setTarget(null);
+      const observedReset = readTargetFrameKw();
+      // Phase 2 — per-frame app-db isolation. Read each frame's db
+      // directly; assert per-frame `:counter` values match what the
+      // earlier steps drove + Causa's app-db carries no leak.
+      const aboveDb = rf.get_frame_db(kw('above'));
+      const belowDb = rf.get_frame_db(kw('below'));
+      const causaDb = rf.get_frame_db(kw('rf/causa'));
+      const counterAbove = aboveDb == null ? null : cljs.get(aboveDb, kw('counter'));
+      const counterBelow = belowDb == null ? null : cljs.get(belowDb, kw('counter'));
+      const causaCounter = causaDb == null ? null : cljs.get(causaDb, kw('counter'));
+      return {
+        ok: true,
+        observedAbove,
+        observedBelow,
+        observedReset,
+        counterAbove,
+        counterBelow,
+        causaCounter,
+      };
+    });
+    if (!isolationRoundTrip.ok) {
+      throw new Error(`Causa target-frame round-trip probe failed: ${isolationRoundTrip.reason}`);
+    }
+    if (isolationRoundTrip.observedAbove !== ':above') {
+      throw new Error(
+        `Expected :rf.causa/target-frame to read :above after set; got ${isolationRoundTrip.observedAbove}.`,
+      );
+    }
+    if (isolationRoundTrip.observedBelow !== ':below') {
+      throw new Error(
+        `Expected :rf.causa/target-frame to read :below after flip; got ${isolationRoundTrip.observedBelow}.`,
+      );
+    }
+    // The reset dispatches `:rf.causa/set-target-frame nil`. Per
+    // epoch.cljs the handler dissocs `:target-frame` (so the sub
+    // falls back to the default) AND seeds `:epoch-history`. The
+    // contract is "reset moved away from host frames" — exact reset
+    // value depends on defaults.cljs/default-target-frame.
+    if (isolationRoundTrip.observedReset === ':above' ||
+        isolationRoundTrip.observedReset === ':below') {
+      throw new Error(
+        `Expected :rf.causa/target-frame to reset away from host frames on nil; got ${isolationRoundTrip.observedReset}.`,
+      );
+    }
+    if (isolationRoundTrip.counterAbove !== 3) {
+      throw new Error(
+        `Multi-frame isolation broken — expected :above's :counter to be 3 (three +s in step 1); got ${isolationRoundTrip.counterAbove}.`,
+      );
+    }
+    if (isolationRoundTrip.counterBelow !== 1) {
+      throw new Error(
+        `Multi-frame isolation broken — expected :below's :counter to be 1 (one + in step 1); got ${isolationRoundTrip.counterBelow}.`,
+      );
+    }
+    if (isolationRoundTrip.causaCounter !== null && isolationRoundTrip.causaCounter !== undefined) {
+      throw new Error(
+        `Multi-frame isolation broken — :rf/causa app-db carries a :counter slot (host frames leaked INTO Causa); got ${isolationRoundTrip.causaCounter}.`,
       );
     }
   },

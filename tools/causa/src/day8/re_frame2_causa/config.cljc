@@ -161,8 +161,7 @@
   ;; (the `var(--rf-causa-inline-width, 560px)` value) is the actual
   ;; rendered width INCLUDING the 1px `border-left` separator. Without
   ;; it, the host renders one pixel wider than the documented value —
-  ;; an off-by-one that surfaces in any pixel-exact contract (see
-  ;; tools/causa/testbeds/inline_resize/spec.cjs).
+  ;; an off-by-one that surfaces in any pixel-exact contract.
   "<div class=\"app-shell\">
   <main id=\"app\"></main>
   <aside data-rf-causa-host></aside>

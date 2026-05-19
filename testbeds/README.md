@@ -6,7 +6,7 @@
 The split lives in [`spec/Ownership.md` §examples-split](../spec/Ownership.md) and the umbrella decision sits in **rf2-96nb3**. Top-level structure:
 
 - **`examples/`** — tutorial apps. Each demonstrates one or two specs and reads as exemplary application code.
-- **`tools/<tool>/testbeds/`** — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/causa/testbeds/counter-driven/` exercises Causa's trace panel against a known counter dataflow.
+- **`tools/<tool>/testbeds/`** — tool-specific fixtures. Colocated with the tool that owns them; for example, `tools/causa/testbeds/parallel_frames/` exercises Causa's panel layer against a canonical multi-frame app.
 - **`testbeds/`** *(this directory)* — **shared** framework-behavior fixtures. Consumed by multiple tools at once; the surfaces don't know about consumers, and consumers test against them externally.
 
 ## Layout
