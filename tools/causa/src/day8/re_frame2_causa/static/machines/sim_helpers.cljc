@@ -1,12 +1,20 @@
-(ns day8.re-frame2-causa.panels.machine-inspector-sim-helpers
-  "Pure-data helpers for Causa's Machine Inspector UC1 Sim sub-mode
-  (rf2-v869p, Phase 2, parent rf2-2tkza).
+(ns day8.re-frame2-causa.static.machines.sim-helpers
+  "Pure-data helpers for Causa's Static Machines Sim sub-mode (rf2-r4nao
+  rehost; engine originally rf2-v869p Phase 2, parent rf2-2tkza).
+
+  ## Rehost (rf2-r4nao)
+
+  Rehosted from `panels/machine_inspector_sim_helpers.cljc` when the
+  Runtime Machine Inspector collapsed (rf2-y9xmf). The pure-data algebra
+  is unchanged — only the ns name + the consuming UI surface moved.
+  Sim is now exclusively a Static-surface sub-mode (event-INDEPENDENT
+  'what-if' simulator).
 
   ## Why a separate `.cljc` ns
 
   Same dual-target pattern every other Causa helper ns uses
   (subscriptions, routes, machine-inspector-helpers).
-  The sim view in `machine_inspector_sim.cljs` builds the hiccup; the
+  The sim view in `static/machines/sim.cljs` builds the hiccup; the
   *logic* — projecting a definition into an initial snapshot, deriving
   available transitions, building audit-trail rows — lives here as
   pure data → data so the JVM unit-test target (`clojure -M:test`)

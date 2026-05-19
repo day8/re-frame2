@@ -314,19 +314,62 @@
           "tooltip surfaces 'Runtime-only' message"))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Sim placeholder
+;; (9) Sim body (rf2-r4nao — rehosted Sim machinery replaces the
+;;    rf2-o5f5f.2 placeholder)
 ;; -------------------------------------------------------------------------
 
-(deftest sim-mode-renders-placeholder-card
-  (causa-setup!)
-  (seed-machines! [:m/a])
-  (frame-dispatch [:rf.causa.static.machines/set-sub-mode :m/a :sim])
-  (rf/with-frame :rf/causa
-    (let [tree (panel/panel)
-          card (find-by-testid tree "rf-causa-static-machines-sim-placeholder")]
-      (is (some? card) "Sim placeholder mounts")
-      (is (re-find #"rf2-r4nao" (text-nodes card))
-          "placeholder names the follow-on bead id"))))
+(deftest sim-mode-renders-real-sim-body-with-no-definition-hint
+  (testing "When the selected machine has no introspectable definition,
+            the Sim body renders the no-definition hint rather than the
+            old `rf2-r4nao will fill this` placeholder."
+    (causa-setup!)
+    (seed-machines! [:m/a])
+    (frame-dispatch [:rf.causa.static.machines/set-sub-mode :m/a :sim])
+    (rf/with-frame :rf/causa
+      (let [tree (panel/panel)]
+        ;; The old placeholder is gone.
+        (is (nil? (find-by-testid
+                    tree "rf-causa-static-machines-sim-placeholder"))
+            "old placeholder card no longer mounts")
+        ;; The real Sim body is mounted; no-definition variant since
+        ;; the test fixture seeds no :states map.
+        (is (some? (find-by-testid
+                     tree "rf-causa-static-machines-sim-no-definition"))
+            "real Sim body's no-definition hint mounts in :sim mode")))))
+
+(deftest sim-mode-auto-starts-sim-when-definition-present
+  (testing "Selecting :sim mode for a machine with a definition auto-
+            starts the hermetic sim; the rail mounts in the body."
+    (causa-setup!)
+    (seed-machines! [:m/a])
+    (seed-definitions! {:m/a {:initial :idle
+                              :data    {:counter 0}
+                              :states  {:idle {:on {:start :running}}
+                                        :running {}}}})
+    ;; Explicit select — in production the click on a row dispatches
+    ;; :select; in this test we mirror that so the sim-state sub (which
+    ;; reads the raw selected-id slot) targets :m/a.
+    (frame-dispatch [:rf.causa.static.machines/select :m/a])
+    (frame-dispatch [:rf.causa.static.machines/set-sub-mode :m/a :sim])
+    ;; Drive the sim-start the body's auto-start would dispatch async,
+    ;; via dispatch-sync so the slot lands before the assertions read
+    ;; back the rendered tree. The test asserts the *contract* (when
+    ;; sim-state is populated, the body wraps in the rail mount) — the
+    ;; body's own dispatch is exercised by the unit-level test in
+    ;; `sim_cljs_test.cljs` (`body-auto-starts-sim-when-definition-
+    ;; present`).
+    (rf/with-frame :rf/causa
+      (frame-dispatch [:rf.causa.static.machines/sim-start
+                       {:machine-id :m/a
+                        :definition {:initial :idle
+                                     :data    {:counter 0}
+                                     :states  {:idle {:on {:start :running}}
+                                               :running {}}}}])
+      (let [tree (panel/panel)]
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-body"))
+            "real Sim body wrapper mounts")
+        (is (some? (find-by-testid tree "rf-causa-static-machines-sim-rail"))
+            "Sim rail mounts when sim-state is populated")))))
 
 ;; -------------------------------------------------------------------------
 ;; (10) Instances JUMP — verify dispatches land

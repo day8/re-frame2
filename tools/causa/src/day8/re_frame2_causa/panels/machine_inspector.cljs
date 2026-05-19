@@ -49,7 +49,6 @@
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
-            [day8.re-frame2-causa.panels.machine-inspector-sim :as sim]
             [day8.re-frame2-causa.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-causa.share :as share]
             [day8.re-frame2-causa.theme.tokens
@@ -496,10 +495,12 @@
     - the per-machine prev/next nav events
     - the scrubber-position slot (kept for share-URL compatibility;
       the scrubber UI is gone but the slot round-trips through share)
-    - the Sim engine install (rf2-r4nao re-hosts the UI later;
-      the engine itself remains registered against `:rf/causa`)
     - the rings install (`:after` countdown ring overlay)
-    - the share-affordance install"
+    - the share-affordance install
+
+  rf2-r4nao moved the Sim engine + UI into
+  `static.machines.sim` — installed via
+  `static.machines.panel/install!` further down the registry."
   []
   ;; Registered-machine vector (reads `(rf/machines)`).
   (rf/reg-sub :rf.causa/registered-machines
@@ -694,13 +695,13 @@
 
         :else db)))
 
-  ;; ---- Sim engine (rf2-v869p) -----------------------------------
+  ;; ---- Sim engine ------------------------------------------------
   ;;
-  ;; The Sim UI ribbon is gone (rf2-y9xmf); the engine + sub/event
-  ;; family remains so the future Static surface (sibling bead rf2-
-  ;; r4nao) can mount the Sim view against the same registered
-  ;; `:rf.causa/sim-*` family without re-implementing the algebra.
-  (sim/install!)
+  ;; rf2-r4nao — Sim engine + UI rehosted under
+  ;; `static.machines.sim` (event/sub family renamed to
+  ;; `:rf.causa.static.machines/sim-*`). The Runtime Machine Inspector
+  ;; no longer installs Sim; the Static Machines panel does. See
+  ;; `static.machines.panel/install!`.
 
   ;; ---- `:after` countdown rings (rf2-7hwwe) ---------------------
   (after-rings/install!)

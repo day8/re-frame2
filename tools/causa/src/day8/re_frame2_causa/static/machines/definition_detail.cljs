@@ -14,18 +14,20 @@
 
       [Topology][Sim][Instances][Cascade]
 
-  Topology is the default; Sim renders a placeholder until rf2-r4nao
-  ships; Instances is a JUMP to the Runtime Machines tab (`instances_
-  jump`); Cascade is GREYED with a 'Runtime-only' tooltip. Mnemonics
+  Topology is the default; Sim renders the hermetic 'what-if'
+  simulator (rf2-r4nao rehost — engine originally rf2-v869p);
+  Instances is a JUMP to the Runtime Machines tab (`instances_jump`);
+  Cascade is GREYED with a 'Runtime-only' tooltip. Mnemonics
   `t`/`s`/`i`/`c` are surfaced in each pill's `title` — the keybinding
   wiring is follow-on per the bead.
 
   ## Per-mode body
 
   Topology mounts the `chart/svg` SVG renderer (no live highlight —
-  Static is event-INDEPENDENT). Sim mounts the placeholder card.
-  Instances doesn't render a body (the click is the surface). Cascade
-  doesn't render a body either (the pill itself is the surface).
+  Static is event-INDEPENDENT). Sim mounts the rehosted Sim rail
+  (rf2-r4nao). Instances doesn't render a body (the click is the
+  surface). Cascade doesn't render a body either (the pill itself is
+  the surface).
 
   ## Empty state (no machine selected)
 
@@ -39,8 +41,7 @@
             [day8.re-frame2-causa.static.machines.helpers :as h]
             [day8.re-frame2-causa.static.machines.instances-jump
              :as instances-jump]
-            [day8.re-frame2-causa.static.machines.sim-placeholder
-             :as sim-placeholder]
+            [day8.re-frame2-causa.static.machines.sim :as sim]
             [day8.re-frame2-causa.static.machines.topology :as topology]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -141,8 +142,8 @@
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
      [topology-pill {:active?  (= sub-mode :topology)
                      :on-click (fn [_] (set-mode! :topology))}]
-     [sim-placeholder/pill {:active?  (= sub-mode :sim)
-                            :on-click (fn [_] (set-mode! :sim))}]
+     [sim/pill {:active?  (= sub-mode :sim)
+                :on-click (fn [_] (set-mode! :sim))}]
      [instances-jump/pill {:machine-id machine-id
                            :live-count live-count
                            :active?    false}]
@@ -162,7 +163,8 @@
                     :source-coord source-coord}]
 
     :sim
-    [sim-placeholder/body {:machine-id machine-id}]
+    [sim/body {:machine-id machine-id
+               :definition definition}]
 
     ;; :instances + :cascade — no body. Render an explanatory placeholder
     ;; so the user understands the strip click landed.
