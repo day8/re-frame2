@@ -46,10 +46,55 @@
 #        - spec/SPEC-AUTHORING.md links to conformance/ (sibling directory
 #          of spec/, staged into docs/spec/conformance/) — rewrite the bare
 #          directory link to conformance/README.md.
+#
+# Pre-build staging (rf2-qw5mh).
+#
+# The published site needs spec/ and migration/ to live inside docs_dir so
+# MkDocs can see them. CI did this via a shell step (.github/workflows/docs.yml:
+# "Stage spec/ + migration/ into docs/"). Locally, a contributor running
+# `mkdocs build --strict` without that step would see dozens of WARNINGs
+# about missing spec/*.md and migration/*.md targets — link-rot that's not
+# actually rot, just a missing staging step.
+#
+# We promote the staging into this hook (on_pre_build), so that ANY local
+# or CI invocation of mkdocs (build, serve, --strict) auto-stages the two
+# trees. CI keeps its explicit step as a redundant belt-and-braces; both
+# are idempotent (rm -rf + copy). The staged dirs are .gitignored.
 
 import re
+import shutil
+from pathlib import Path
 
 GH_BLOB_BASE = "https://github.com/day8/re-frame2/blob/main"
+
+# Trees that live at the repo root but need to render inside the site.
+# Source dir (repo root) -> staged dir (under docs_dir).
+_STAGE = (
+    ("spec", "spec"),
+    ("migration", "migration"),
+)
+
+
+def on_pre_build(config):
+    """Mirror spec/ and migration/ into docs_dir before MkDocs scans files.
+
+    Idempotent: removes the existing staged copy first. The staged paths
+    are gitignored (see .gitignore: /docs/spec/, /docs/migration/) so this
+    never dirties the worktree. CI runs the equivalent shell step in
+    .github/workflows/docs.yml; both are safe to coexist.
+    """
+    docs_dir = Path(config["docs_dir"])
+    repo_root = docs_dir.parent
+    for src_name, dest_name in _STAGE:
+        src = repo_root / src_name
+        if not src.is_dir():
+            # Source tree absent — skip silently. A clean checkout always
+            # has both; the guard keeps the hook safe in unusual layouts.
+            continue
+        dest = docs_dir / dest_name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
 
 # Case 1a: guide/* and skills/* pages link to spec via ../../spec/ — collapse
 # one level. Both trees live at docs/<tree>/X.md (depth 2 below repo root),
