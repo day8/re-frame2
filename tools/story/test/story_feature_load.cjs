@@ -842,9 +842,19 @@ async function assertFailureDetailIncludes(detail, required, context) {
   }
 }
 
-async function assertLoaderCompletionVariants(page) {
+// Row 16 (Lifecycle phases) — assert that phase markers appear in the
+// documented order through the lifecycle. Uses the loader-success variant
+// (passes phase-1-loaders + render + play) and the loader-never-completes
+// variant (records :phase-1-loaders specifically) to pin that phase
+// identification is wired through to the diagnostic projection.
+async function assertLoaderLifecyclePhases(page) {
+  // Happy path: phase ordering survives through to a passing assertion.
   await assertLoaderSuccess(page);
 
+  // Incomplete loader: pins that :phase-1-loaders shows up in the failure
+  // detail with the correct phase label and the loaders-complete-when
+  // predicate identifier — i.e. the lifecycle phase classifier resolves
+  // to phase 1, not a fallback.
   await assertMatrixVariant(
     page,
     '/loader-never-completes',
@@ -852,33 +862,64 @@ async function assertLoaderCompletionVariants(page) {
     13,
   );
   await setMode(page, 'test');
-  await assertTestPaneStatus(page, /failed/i, 'loader incomplete failure status');
-  let detail = await expandFirstFailDetail(page, 'loader incomplete detail expands');
+  await assertTestPaneStatus(page, /failed/i, 'lifecycle phase-1-loaders failure status');
+  const detail = await expandFirstFailDetail(page, 'lifecycle phase-1-loaders detail expands');
   await assertFailureDetailIncludes(
     detail,
     [
-      /variant:\s*:story\.counter-matrix\/loader-never-completes/,
       /phase:\s*:phase-1-loaders/,
       /predicate:\s*:counter\/loader-never-ready\?/,
       /loaders-complete-when did not report completion/,
     ],
-    'loader incomplete',
+    'lifecycle phase-1-loaders',
+  );
+  await setMode(page, 'dev');
+}
+
+// Row 17 (Loader completion) — assert the completion-record shapes for the
+// three loader outcomes: success, never-completes, and rejection. Each is
+// pinned to its variant id + diagnostic text. Distinct from row 16's
+// concern (lifecycle phase ordering): this probe asserts the loader
+// completion contract itself (success vs incomplete vs rejection).
+async function assertLoaderCompletion(page) {
+  // Success completion: loader resolves and play assertion passes.
+  await assertLoaderSuccess(page);
+
+  // Incomplete completion: pins the loader-never-completes record shape —
+  // variant id + the "did not report completion" diagnostic phrase.
+  await assertMatrixVariant(
+    page,
+    '/loader-never-completes',
+    ':story.counter-matrix/loader-never-completes',
+    13,
+  );
+  await setMode(page, 'test');
+  await assertTestPaneStatus(page, /failed/i, 'loader incomplete completion status');
+  let detail = await expandFirstFailDetail(page, 'loader incomplete completion detail expands');
+  await assertFailureDetailIncludes(
+    detail,
+    [
+      /variant:\s*:story\.counter-matrix\/loader-never-completes/,
+      /loaders-complete-when did not report completion/,
+    ],
+    'loader incomplete completion',
   );
 
+  // Rejection completion: pins the loader-rejects record shape —
+  // :loader-rejection marker + the throw-loader-rejection source event.
   await assertMatrixVariant(page, '/loader-rejects', ':story.counter-matrix/loader-rejects');
   await setMode(page, 'test');
-  await assertTestPaneStatus(page, /failed/i, 'loader rejection failure status');
-  detail = await expandFirstFailDetail(page, 'loader rejection detail expands');
+  await assertTestPaneStatus(page, /failed/i, 'loader rejection completion status');
+  detail = await expandFirstFailDetail(page, 'loader rejection completion detail expands');
   await assertFailureDetailIncludes(
     detail,
     [
       /variant:\s*:story\.counter-matrix\/loader-rejects/,
-      /phase:\s*:phase-1-loaders/,
       /source:\s*\[:counter\/throw-loader-rejection\]/,
       /story-load deterministic loader rejection/,
       /:loader-rejection/,
     ],
-    'loader rejection',
+    'loader rejection completion',
   );
   await setMode(page, 'dev');
 }
@@ -913,12 +954,23 @@ async function assertMultiSubstrate(page) {
   await assertMainContains(page, 'is not registered', 10000);
 }
 
-async function assertSidebarTagsAndFilters(page) {
+// Row 9 (Sidebar tag-as-badge) — assert variant rows render canonical
+// tag badges. Narrow concern: the badge DOM is present with the
+// expected `data-tag` attribute. Filter behaviour is row 8's job.
+async function assertSidebarTagBadges(page) {
   await ensureCounterLoaded(page);
   await expectVisible(
     page.locator('[data-test="story-sidebar-tag-badge"][data-tag="test"]').first(),
     5000,
   );
+}
+
+// Row 8 (reg-tag and sidebar filters) — assert sidebar tag-chip filters
+// apply (active state + filtered variant set) and toggle off cleanly.
+// Distinct from row 9 (badges): this probe exercises the filter
+// affordance, not the badge rendering.
+async function assertSidebarFilters(page) {
+  await ensureCounterLoaded(page);
   const stable = page.locator('[data-test="story-sidebar-tag-chip"][data-tag=":status/stable"]').first();
   await stable.click();
   await waitForValue(
@@ -936,7 +988,11 @@ async function assertSidebarTagsAndFilters(page) {
   await stable.click();
 }
 
-async function assertTestWidgetAndWatch(page) {
+// Row 31 (Chrome test widget) — assert the chrome test widget aggregates
+// testable variants and the run-all button drives the counts through to
+// passed/failed semantics. Narrow concern: the widget run-all path.
+// Watch-mode toggling is row 32's job.
+async function assertTestWidgetRunAll(page) {
   await ensureCounterLoaded(page);
   await expectVisible(page.locator('[data-test="story-test-widget"]'), 5000);
   await page.locator('[data-test="story-test-widget-run-all"]').click();
@@ -949,6 +1005,16 @@ async function assertTestWidgetAndWatch(page) {
     },
     { timeoutMs: 15000, description: 'test widget run-all counts update' },
   );
+}
+
+// Row 32 (Test watch mode) — assert the watch toggle round-trips its
+// aria-pressed state. Distinct from row 31 (run-all): this probe asserts
+// only the watch affordance toggle, not the run-all counts. (Drift
+// detection assertion remains deferred per the bd:rf2-s75sy Partial
+// status on the matrix row.)
+async function assertTestWatchToggle(page) {
+  await ensureCounterLoaded(page);
+  await expectVisible(page.locator('[data-test="story-test-widget"]'), 5000);
   const watch = page.locator('[data-test="story-test-widget-watch-toggle"]');
   await watch.click();
   await waitForValue(
@@ -957,6 +1023,11 @@ async function assertTestWidgetAndWatch(page) {
     { timeoutMs: 5000, description: 'watch mode enabled' },
   );
   await watch.click();
+  await waitForValue(
+    () => watch.getAttribute('aria-pressed'),
+    (value) => value !== 'true',
+    { timeoutMs: 5000, description: 'watch mode disabled after second click' },
+  );
 }
 
 // `assertActionsScrubberExactBurst` and `assertTracePanelCascadeRows`
@@ -1079,8 +1150,8 @@ const COVERAGE_MATRIX = [
       );
     },
   },
-  { feature: 'reg-tag and sidebar filters', kind: 'probe', probe: assertSidebarTagsAndFilters },
-  { feature: 'Sidebar tag-as-badge', kind: 'probe', probe: assertSidebarTagsAndFilters },
+  { feature: 'reg-tag and sidebar filters', kind: 'probe', probe: assertSidebarFilters },
+  { feature: 'Sidebar tag-as-badge', kind: 'probe', probe: assertSidebarTagBadges },
   {
     feature: 'reg-mode and toolbar',
     kind: 'probe',
@@ -1111,8 +1182,8 @@ const COVERAGE_MATRIX = [
   { feature: 'Controls nested widgets', kind: 'probe', probe: assertNestedControls },
   { feature: 'Schema/args validation panel', kind: 'probe', probe: assertSchemaInvalid },
   { feature: 'Per-variant frame allocation', kind: 'probe', probe: assertIsolationPair },
-  { feature: 'Lifecycle phases', kind: 'probe', probe: assertLoaderCompletionVariants },
-  { feature: 'Loader completion', kind: 'probe', probe: assertLoaderCompletionVariants },
+  { feature: 'Lifecycle phases', kind: 'probe', probe: assertLoaderLifecyclePhases },
+  { feature: 'Loader completion', kind: 'probe', probe: assertLoaderCompletion },
   {
     feature: 'Error projection',
     kind: 'probe',
@@ -1212,8 +1283,8 @@ const COVERAGE_MATRIX = [
     kind: 'probe',
     probe: assertPlayStepDebugger,
   },
-  { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetAndWatch },
-  { feature: 'Test watch mode', kind: 'probe', probe: assertTestWidgetAndWatch },
+  { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetRunAll },
+  { feature: 'Test watch mode', kind: 'probe', probe: assertTestWatchToggle },
   // Actions panel / Trace panel / Scrubber / Trace-scrubber cross-ref
   // retired per rf2-sgdd3 — Causa is the RHS primary inspector now
   // (L1 ribbon + L2 event list replace the scrubber; Trace tab
