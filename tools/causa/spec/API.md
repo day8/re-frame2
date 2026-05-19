@@ -289,6 +289,85 @@ it. Unknown editor keywords fall back to `:vscode` so a typo still
 yields a clickable URI rather than a no-op; source-coords without
 `:file` hide the chip entirely.
 
+## Static mode (rf2-o5f5f.1)
+
+Static mode is an opt-in dual-mode chrome: the surface composer
+mounts a 3-layer Static silhouette (no L2 event list) alongside the
+default 4-layer Runtime silhouette, with a mode pill at ribbon-left
+and a `Cmd-Shift-M` / `Ctrl-Shift-M` chord wired to
+`:rf.causa/toggle-mode`. Hosts that want it today opt in via
+`configure!`:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:experimental/static-mode? true})
+```
+
+| Surface | Spelling | Notes |
+|---|---|---|
+| Configure key | `:experimental/static-mode?` | Default `false`. Pre-alpha experimental flag; the default flips to `true` once the placeholder Static sub-tabs ship. Full key contract in [`015-Configuration.md`](./015-Configuration.md) §`:experimental/static-mode?`. |
+| Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.causa/toggle-mode`. Falls through to host/browser shortcuts when the flag is OFF. |
+| Mode pill | `data-testid="rf-causa-mode-pill"` | Mounts at ribbon-left under the flag. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
+| Persistence | `causa.mode` (localStorage) | Bare string `"runtime"` / `"static"`. Hydrates on boot; missing/corrupt → `"runtime"` fallback. The flag itself is per-load (not persisted). |
+| Toggle event | `:rf.causa/toggle-mode` | Public dispatch surface (chord parity + the palette's `:toggle-mode` verb). |
+
+With the flag OFF the surface composer renders Runtime byte-identical
+to the pre-Static chrome — no pill, the chord falls through, and the
+persisted mode value is not consulted. See [`007-UX-IA.md`](./007-UX-IA.md)
+§Static mode (visual-language treatment) and
+[`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
+(architectural contract).
+
+## Density — one CSS-var, whole scale (rf2-n8i2c)
+
+Causa's type scale resolves through a single host-overridable CSS
+custom property, **`--rf-causa-font-size`** (modelled on TanStack
+Query Devtools' `--tsqd-font-size`). Each typographic token is
+`calc(var(--rf-causa-font-size, 13px) * <multiplier>)` so one variable
+rescales the entire shell on the next style flush — no re-render
+required.
+
+| Surface | Spelling | Notes |
+|---|---|---|
+| CSS variable | `--rf-causa-font-size` | The anchor for every type-scale entry. Default `13px`, published on `:root` by `theme/global-styles/motion-css`. Below `10px`: refused (the `:micro` token sits at the floor). |
+| Host override | `:root { --rf-causa-font-size: 14px }` | A single stylesheet rule rescales every typographic surface ~1.08× without a code change. |
+| Density Settings consumer | `:density` (`:compact` / `:cosy` / `:comfy`) | The Settings → General Density radio is the in-shell consumer of the same var. Mapping: `:compact 12px`, `:cosy 13px` (default), `:comfy 14px` (catalogued; not surfaced in v1's radio). Persisted under `:density` in the Settings localStorage slot. |
+| Writer | `effects/apply-density-font-size!` | Idempotent; writes the resolved px value into `--rf-causa-font-size` on both the Causa shell root AND `<html>` (so popout/fullscreen mounts inherit). Re-runs on boot from `apply-all!` so a persisted density survives reload before first paint. |
+
+`--rf-causa-font-size` is **distinct** from `--rf-causa-text-size`
+(the Settings → General Text-size slider's user-knob, rf2-9poxq):
+two CSS vars, two knobs, one shell. Hosts that want a single density
+knob target `--rf-causa-font-size` and leave the slider's var alone.
+See [`007-UX-IA.md`](./007-UX-IA.md) §Sizes — one knob, whole scale.
+
+## Command palette (rf2-ybjkx)
+
+The palette is a centred 560px modal opened via the global
+`Cmd-K` / `Ctrl-K` chord (also reachable from the top-strip control).
+Closes on `Esc`, click-outside, or invocation of any item.
+
+| Surface | Spelling | Notes |
+|---|---|---|
+| Open chord | `Cmd-K` / `Ctrl-K` | Global keydown listener; mounts the palette dialog (`data-testid="rf-causa-palette-dialog"`). |
+| Recents localStorage key | `re-frame2.causa.palette.recents.v1` | Top-3 ring of command-ids only (verbs, tab-jumps) — never event-ids, handler-ids, or host-app data. Best-effort persistence; quota/availability failures swallowed. |
+| Recents app-db slot | `:rf.causa.palette/recents` | Hydrates on first palette open via `recents/load`; the reducer (`recents/record`) is pure `update + distinct + take 3`. |
+| Reduced-motion override | `:cycle-reduced-motion` verb | Three-state cycle `:os → :always → :never` that overrides `prefers-reduced-motion: reduce` via the `--rf-causa-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
+| Mode-aware filter | `:modes` set per item | Every palette item carries `#{:runtime}` / `#{:static}` / `#{:runtime :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.causa/mode`. Items missing `:modes` fall through to both modes. |
+
+The six chord-reachable command verbs that ship post-rf2-ybjkx —
+`:toggle-theme`, `:cycle-reduced-motion`, `:snapshot-app-db`,
+`:jump-to-settings`, `:toggle-mode`, `:clear-epoch-history` — are
+catalogued at
+`tools/causa/src/day8/re_frame2_causa/palette/sources.cljc`
+§`command-items`. There is no public verb-registration API at v1.0
+(consistent with §What this doesn't expose); the catalogue is
+internal but the chord + recents key + reduced-motion override are
+public surfaces hosts may rely on.
+
+See [`007-UX-IA.md`](./007-UX-IA.md) §Command palette for the full
+indexed-sources list, fuzzy-match algorithm, recents-boost decay
+shape, and close behaviour.
+
 ## MCP API
 
 Per rf2-hvl1g (closure 2026-05-19) there is no dedicated `causa-mcp`
