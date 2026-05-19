@@ -20,6 +20,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.registry :as registry]
@@ -44,36 +45,11 @@
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
 
-;; ---- hiccup walker (copied from shell_cljs_test) -----------------------
+;; ---- hiccup walker -----------------------------------------------------
+;; Thin alias over re-frame.test-helpers so call sites read identically
+;; to before.
 
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+(def ^:private find-by-testid th/find-by-testid)
 
 ;; ---- Modal short-circuit -----------------------------------------------
 

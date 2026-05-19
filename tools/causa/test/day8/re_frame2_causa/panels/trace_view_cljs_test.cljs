@@ -45,6 +45,7 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
@@ -64,39 +65,18 @@
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 
-;; ---- hiccup walkers (mirror machine_inspector_view_cljs_test) ----------
+;; ---- hiccup walkers ----------------------------------------------------
+;; Thin aliases over re-frame.test-helpers so the local call sites read
+;; identically to before.
 
-(declare expand-fn-component)
+(def ^:private find-by-testid           th/find-by-testid)
+(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
 
-(defn- expand-children [node]
-  (cond
-    (vector? node) (mapv expand-fn-component node)
-    (seq? node)    (map  expand-fn-component node)
-    :else          node))
-
-(defn- expand-fn-component [node]
-  (if (and (vector? node) (fn? (first node)))
-    (expand-children (apply (first node) (rest node)))
-    (expand-children node)))
-
-(defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-fn-component tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (some-> (:data-testid (second node))
-                         (.startsWith prefix))))
-          (hiccup-seq tree)))
+(defn- hiccup-seq
+  "Local kept for the orphan-pill text-label helper. Expands fn
+  components via the framework walker, then yields depth-first nodes."
+  [tree]
+  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
 
 (defn- setup-causa-frame! []
   (registry/register-causa-handlers!)
@@ -672,17 +652,13 @@
       (rf/dispatch-sync [:rf.causa/set-trace-filter :origin :rf/missing-origin])
       (let [tree         (trace/Panel)
             source-pill  (find-by-testid tree "rf-causa-trace-empty-active-source")
-            origin-pill  (find-by-testid tree "rf-causa-trace-empty-active-origin")
-            label-of     (fn [node]
-                           (->> (hiccup-seq node)
-                                (filter string?)
-                                (apply str)))]
+            origin-pill  (find-by-testid tree "rf-causa-trace-empty-active-origin")]
         (is (some? source-pill) "present axis pill renders")
         (is (some? origin-pill)  "orphan axis pill renders")
         (testing "present pill has no orphan marker"
-          (is (not (re-find #"orphaned" (label-of source-pill)))))
+          (is (not (re-find #"orphaned" (th/text-content source-pill)))))
         (testing "orphan pill carries the orphan marker"
-          (is (re-find #"orphaned" (label-of origin-pill))))))))
+          (is (re-find #"orphaned" (th/text-content origin-pill))))))))
 
 ;; ---- (10) incremental projection wiring — rf2-44vzy --------------------
 ;;

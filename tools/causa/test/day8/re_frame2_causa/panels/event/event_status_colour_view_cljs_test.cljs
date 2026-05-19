@@ -34,6 +34,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.config :as config]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
@@ -58,45 +59,15 @@
      :init-fn causa-init!}))
 
 ;; ---- hiccup walker ------------------------------------------------------
+;; Thin aliases over re-frame.test-helpers. The local
+;; `find-by-testid-prefix` returns the FIRST match (vs the framework's
+;; `find-by-testid-prefix` which returns a vector of matches); the
+;; thin wrapper here preserves the existing call-site contract.
 
-(declare expand-tree)
-
-(defn- expand-tree
-  "Same expand-tree the surrounding suites use — invokes fn-headed
-  vectors so the walker descends through reg-view bodies."
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+(def ^:private find-by-testid th/find-by-testid)
 
 (defn- find-by-testid-prefix [tree prefix]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (when-let [tid (:data-testid (second node))]
-                       (= 0 (.indexOf tid prefix))))
-            node))
-        (hiccup-seq tree)))
+  (first (th/find-by-testid-prefix tree prefix)))
 
 ;; ---- fixture builders --------------------------------------------------
 

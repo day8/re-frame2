@@ -49,6 +49,7 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.preload :as preload]
             [day8.re-frame2-causa.registry :as registry]
@@ -67,39 +68,12 @@
     {:adapter plain-atom/adapter
      :init-fn causa-init!}))
 
-;; ---- hiccup walkers (mirror machine_inspector_view_cljs_test) -----------
+;; ---- hiccup walkers ----------------------------------------------------
+;; Thin aliases over re-frame.test-helpers so the local call sites read
+;; identically to before.
 
-(declare expand-fn-component)
-
-(defn- expand-children [node]
-  (cond
-    (vector? node) (mapv expand-fn-component node)
-    (seq? node)    (map  expand-fn-component node)
-    :else          node))
-
-(defn- expand-fn-component [node]
-  (if (and (vector? node) (fn? (first node)))
-    (expand-children (apply (first node) (rest node)))
-    (expand-children node)))
-
-(defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-fn-component tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (some-> (:data-testid (second node))
-                         (.startsWith prefix))))
-          (hiccup-seq tree)))
+(def ^:private find-by-testid           th/find-by-testid)
+(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
 
 (defn- setup-causa-frame! []
   (registry/register-causa-handlers!)

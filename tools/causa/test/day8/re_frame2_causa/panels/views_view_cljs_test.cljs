@@ -8,23 +8,13 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-causa.panels.views :as facade]
             [day8.re-frame2-causa.panels.views-view :as view]))
 
-(defn- expand-fn [node]
-  (if (and (vector? node) (fn? (first node)))
-    (try (apply (first node) (rest node))
-         (catch :default _ node))
-    node))
-
 (defn- has-testid? [tree testid]
-  (some (fn [node]
-          (and (vector? node)
-               (map? (second node))
-               (= testid (:data-testid (second node)))))
-        (->> (tree-seq (some-fn vector? seq?) seq (expand-fn tree))
-             (map expand-fn))))
+  (some? (th/find-by-testid tree testid)))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -130,14 +120,7 @@
 ;; cascade to describe.
 ;; ---------------------------------------------------------------------------
 
-(defn- find-by-testid-in [tree testid]
-  (some (fn [node]
-          (and (vector? node)
-               (map? (second node))
-               (= testid (:data-testid (second node)))
-               node))
-        (->> (tree-seq (some-fn vector? seq?) seq (expand-fn tree))
-             (map expand-fn))))
+(def ^:private find-by-testid-in th/find-by-testid)
 
 (deftest header-block-suppresses-cascade-meta-when-no-cascade-focused
   (testing "no focused cascade → cascade-metadata `:p` is absent even
@@ -186,17 +169,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- collect-by-pred
-  "Walk the hiccup tree and collect every vector whose attr map (slot 1)
-  satisfies `pred`."
+  "Walk the hiccup tree (expanding function components via
+  `re-frame.test-helpers/expand-tree`) and collect every vector whose
+  attr map satisfies `pred`."
   [tree pred]
-  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn tree))
-       (map expand-fn)
-       (keep (fn [node]
-               (when (and (vector? node)
-                          (map? (second node))
-                          (pred (second node)))
-                 node)))
-       (vec)))
+  (->> (th/expand-tree tree)
+       (tree-seq (some-fn vector? seq?) seq)
+       (filterv (fn [node]
+                  (and (vector? node)
+                       (map? (second node))
+                       (pred (second node)))))))
 
 (deftest rerendered-because-header-text
   (testing "Delta 1 — the right-column section header in a Re-rendered
@@ -209,13 +191,11 @@
                            :elapsed-ms   1.0}
                   :invalidated-by [{:sub-id ::sub :trigger? true}]}
           row    (#'view/single-row item :rendered false)
-          texts  (->> (tree-seq (some-fn vector? seq?) seq (expand-fn row))
-                      (filter string?))]
-      (is (some #(= "Rerendered because" %) texts)
+          text   (th/text-content row)]
+      (is (re-find #"Rerendered because" text)
           (str "expected 'Rerendered because' literal in the row; "
-               "found: " (pr-str (filter #(re-find #"by|because" (or % ""))
-                                         texts))))
-      (is (not-any? #(re-find #"Invalidated by" (or % "")) texts)
+               "got: " (pr-str text)))
+      (is (not (re-find #"Invalidated by" text))
           "no 'Invalidated by' UI text remaining in the rendered row"))))
 
 (deftest rerendered-because-list-marker-tooltips
@@ -268,12 +248,10 @@
                       [{:sub-id ::sub-a :trigger? true  :recomputed? true}
                        {:sub-id ::sub-b :trigger? false :recomputed? true}
                        {:sub-id ::sub-c :trigger? false :recomputed? false}])
-          glyphs    (->> (tree-seq (some-fn vector? seq?) seq
-                                   (expand-fn list-node))
-                         (filter string?))]
-      (is (some #(= "✱" %) glyphs) "the `✱` glyph renders for cache-miss-trigger")
-      (is (some #(= "≈" %) glyphs) "the `≈` glyph renders for cache-miss-equal")
-      (is (some #(= "·" %) glyphs) "the `·` glyph renders for cache-hit"))))
+          text      (th/text-content list-node)]
+      (is (re-find #"✱" text) "the `✱` glyph renders for cache-miss-trigger")
+      (is (re-find #"≈" text) "the `≈` glyph renders for cache-miss-equal")
+      (is (re-find #"·" text) "the `·` glyph renders for cache-hit"))))
 
 (deftest cluster-row-trigger-marker-has-tooltip
   (testing "Delta 2 — the cluster row's single ✱ trigger marker also
@@ -315,13 +293,10 @@
       (is (= #{"trigger" "cache-miss-equal" "cache-hit"}
              (set (keys by-marker)))
           "all three markers ship in the rendered list")
-      (let [glyphs (->> (tree-seq (some-fn vector? seq?) seq
-                                  (expand-fn list-node))
-                        (filter string?)
-                        set)]
-        (is (contains? glyphs "✱") "✱ glyph renders for cache-miss-trigger")
-        (is (contains? glyphs "≈") "≈ glyph renders for cache-miss-equal")
-        (is (contains? glyphs "·") "·  glyph renders for cache-hit"))
+      (let [text (th/text-content list-node)]
+        (is (re-find #"✱" text) "✱ glyph renders for cache-miss-trigger")
+        (is (re-find #"≈" text) "≈ glyph renders for cache-miss-equal")
+        (is (re-find #"·" text) "·  glyph renders for cache-hit"))
       (is (re-find #"value unchanged"
                    (:title (second (get by-marker "cache-miss-equal"))))
           "cache-miss-equal tooltip mentions 'value unchanged'")
@@ -398,18 +373,14 @@
             footer"
     (let [chip (#'view/filter-chip :cart/list)]
       (is (some? chip) "non-nil view-id → chip renders")
-      (is (some #(= (:data-testid (second %))
-                    "rf-causa-views-filter-chip")
-                (filter vector?
-                        (tree-seq (some-fn vector? seq?) seq chip)))
+      (is (some? (th/find-by-testid chip "rf-causa-views-filter-chip"))
           "filter-chip carries the rf-causa-views-filter-chip data-testid")
-      (let [texts (->> (tree-seq (some-fn vector? seq?) seq chip)
-                       (filter string?))]
-        (is (some #(re-find #"Filtered to" %) texts)
+      (let [text (th/text-content chip)]
+        (is (re-find #"Filtered to" text)
             "chip ships the 'Filtered to:' label")
-        (is (some #(re-find #"cart/list" %) texts)
+        (is (re-find #"cart/list" text)
             "chip ships the filtered view-id label")
-        (is (some #(= "×" %) texts)
+        (is (re-find #"×" text)
             "chip ships the × clear glyph")))))
 
 (deftest filter-chip-returns-nil-when-no-filter
@@ -417,18 +388,13 @@
             is active so the panel chrome stays silent-by-default"
     (is (nil? (#'view/filter-chip nil)))))
 
-(defn- expand-pills [tree]
-  "Walk the hiccup tree expanding any inline pill fns (the
-  group-by-toggle uses Reagent component-vectors `[group-by-pill {…}]`
-  rather than direct hiccup). Returns a flat seq of every expanded
-  vector + atom string."
-  (->> (tree-seq (some-fn vector? seq?) seq tree)
-       (mapcat (fn [node]
-                 (if (and (vector? node) (fn? (first node)))
-                   (let [expanded (try (apply (first node) (rest node))
-                                       (catch :default _ node))]
-                     (tree-seq (some-fn vector? seq?) seq expanded))
-                   [node])))))
+(defn- expand-pills
+  "Walk the hiccup tree (expanding fn components via
+  `re-frame.test-helpers/expand-tree`). Returns a flat seq of every
+  expanded vector + atom string."
+  [tree]
+  (->> (th/expand-tree tree)
+       (tree-seq (some-fn vector? seq?) seq)))
 
 (deftest group-by-toggle-renders-both-pills-with-selection-state
   (testing "rf2-r2s2l — bottom-controls group-by-toggle ships both
@@ -495,24 +461,17 @@
                               :render-key [:cart/header :tok-2]
                               :trigger? false :elapsed-ms 0.5}]
                      :view-count 1}]
-          section (#'view/sub-grouped-section sub-rows)
-          testids (->> (tree-seq (some-fn vector? seq?) seq section)
-                       (keep #(when (and (vector? %)
-                                         (map? (second %)))
-                                (:data-testid (second %))))
-                       set)]
-      (is (contains? testids "rf-causa-views-sub-grouped"))
-      (is (contains? testids "rf-causa-views-sub-row"))
-      (is (contains? testids "rf-causa-views-sub-row-consumer")))))
+          section (#'view/sub-grouped-section sub-rows)]
+      (is (some? (th/find-by-testid section "rf-causa-views-sub-grouped")))
+      (is (some? (th/find-by-testid section "rf-causa-views-sub-row")))
+      (is (some? (th/find-by-testid section "rf-causa-views-sub-row-consumer"))))))
 
 (deftest sub-grouped-section-empty-state
   (testing "rf2-r2s2l — empty sub-grouped list renders the empty-state
             teaching message so the user understands the parent-
             forced cascade case"
-    (let [section (#'view/sub-grouped-section [])
-          texts (->> (tree-seq (some-fn vector? seq?) seq section)
-                     (filter string?))]
-      (is (some #(re-find #"No sub invalidations" %) texts)))))
+    (let [section (#'view/sub-grouped-section [])]
+      (is (re-find #"No sub invalidations" (th/text-content section))))))
 
 (deftest no-invalidated-by-ui-text-in-row-rendering
   (testing "Delta 1 — the rendered row tree has zero 'Invalidated by'
@@ -537,14 +496,8 @@
                                           :clustered? true}]}
           single-row  (#'view/single-row single-item :rendered false)
           cluster-row (#'view/cluster-row cluster-item :rendered false)
-          all-texts (concat
-                      (->> (tree-seq (some-fn vector? seq?) seq
-                                     (expand-fn single-row))
-                           (filter string?))
-                      (->> (tree-seq (some-fn vector? seq?) seq
-                                     (expand-fn cluster-row))
-                           (filter string?)))]
-      (is (not-any? #(re-find #"(?i)invalidated by" %) all-texts)
-          (str "no 'Invalidated by' UI text left; offending strings: "
-               (pr-str (filter #(re-find #"(?i)invalidated by" %)
-                               all-texts)))))))
+          all-text    (str (th/text-content single-row)
+                           (th/text-content cluster-row))]
+      (is (not (re-find #"(?i)invalidated by" all-text))
+          (str "no 'Invalidated by' UI text left; got: "
+               (pr-str all-text))))))
