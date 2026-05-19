@@ -35,8 +35,6 @@ Do **not** load this leaf to learn what Causa is — load `tools/causa/README.md
   min-width: 320px;
   box-sizing: border-box;
   border-left: 1px solid #2a2a2a;
-  resize: horizontal;
-  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
@@ -76,7 +74,7 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`, …)
 
 The variable is published as `day8.re-frame2-causa.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width` (bumped 420 → 560 under `rf2-9ovfb`) so tooling can refer to them without forking the string. **Causa MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
 
-The recommended host snippet also enables a browser-native drag handle (`resize: horizontal` + `overflow: auto`). The variable seeds the initial width; a user drag overrides it for the page lifetime. Both mechanisms write the same `flex-basis` slot — no parallel sizing channel.
+Causa also auto-injects a drag handle on the panel's outer edge (rf2-70u8q; see `tools/causa/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it (persisted across reloads via `configure! :settings :general :panel-width-px`, clamped to `[320px, 90vw]`, double-click to reset). Both mechanisms write the same `flex-basis` slot — no parallel sizing channel. Consumers that prefer the browser-native handle opt out by setting `resize: horizontal` on the host; Causa detects that via `getComputedStyle` and yields (no double-handle).
 
 ## Brand-accent CSS variable (`--rf-causa-accent`)
 

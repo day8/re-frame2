@@ -37,14 +37,17 @@ second — flex flow puts the aside to the right of the app column:
   box-sizing: border-box;            /* the 1px border lives inside the
                                         documented width */
   border-left: 1px solid #2a2a2a;   /* visual separator on the app side */
-  resize: horizontal;                /* user-draggable width */
-  overflow: auto;
 }
 #app { flex: 1; min-width: 0; }
 ```
 
-Two complementary resize mechanisms — both browser-native, both
-JS-free — ship together:
+That's the whole consumer surface — no `resize: horizontal`, no
+`overflow: auto`. Causa auto-injects a polished drag handle on the
+panel's outer edge as soon as the shell mounts (per rf2-70u8q +
+`spec/007-UX-IA.md` §Resize affordance); the handle covers mouse,
+touch, and pen via pointer events and is keyboard-navigable.
+
+Two complementary resize mechanisms ship together:
 
 - **CSS variable** (host-owned, fixed-point sizing). Override
   `--rf-causa-inline-width` anywhere up the cascade to set the
@@ -52,11 +55,17 @@ JS-free — ship together:
   ```css
   :root { --rf-causa-inline-width: 560px; }
   ```
-- **Browser-native drag** (user-controlled). `resize: horizontal` +
-  `overflow: auto` give the host a drag-handle in the bottom corner;
-  the user drags to resize ad-hoc. The variable seeds the initial
-  size; a drag overrides it for the page lifetime; reload (or a
-  fresh cascade override) returns to the declared initial.
+- **Causa drag handle** (user-controlled, persisted; auto-injected).
+  Drag the panel's outer edge to resize. Width clamps to `[320px,
+  90vw]` and persists across reloads via `configure! :settings
+  :general :panel-width-px`. Double-click (or press Enter / Space
+  when focused) to reset to default. The variable seeds the initial
+  size; a drag overrides it; both write to the same `flex-basis`.
+
+Some teams prefer the browser-native handle (`resize: horizontal` +
+`overflow: auto` on the host). Causa detects that at render time via
+`getComputedStyle` and renders no handle of its own — the consumer
+wins, no double-handle.
 
 If Causa cannot find the host, it logs an actionable `console.error`
 and exposes the same diagnostic through

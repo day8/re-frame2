@@ -147,8 +147,13 @@
   ;;   - default geometry (560px flex-basis per rf2-9ovfb, 320px floor)
   ;;   - a single one-line override path:
   ;;       :root { --rf-causa-inline-width: 720px; }
-  ;;   - a user-draggable resize handle via the browser-native
-  ;;     `resize: horizontal` + `overflow: auto` on the host
+  ;;   - a user-draggable resize handle auto-injected by Causa
+  ;;     (per rf2-70u8q + spec/007-UX-IA.md §Resize affordance) — the
+  ;;     consumer no longer wires `resize: horizontal` / `overflow:
+  ;;     auto`; Causa mounts its own handle as soon as the shell
+  ;;     renders. Consumers that prefer the browser-native handle
+  ;;     opt out by setting `resize: horizontal` on the host (yield-
+  ;;     to-consumer detection per spec/007 §Yield-to-consumer).
   ;;   - app content to the left stays in normal flex flow
   ;;     (no overlay, no body padding).
   ;;   - `--rf-causa-accent` published on `:root` (rf2-9ovfb) so
@@ -176,8 +181,6 @@
     min-width: 320px;
     box-sizing: border-box;
     border-left: 1px solid #2a2a2a;
-    resize: horizontal;
-    overflow: auto;
   }
   #app { flex: 1; min-width: 0; }
 </style>")

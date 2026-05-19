@@ -10,10 +10,11 @@
        (rf2-um813; see day8.re-frame2-causa.config/default-layout-host-css-var
        and spec/011-Launch-Modes.md §Resizing the inline host). Override
        the property anywhere up the cascade to resize the panel without
-       JS or a fork of this rule. `resize: horizontal` + `overflow: auto`
-       give the user a browser-native drag handle on the host (rf2-e07yk). */
+       JS or a fork of this rule. The user-draggable resize handle is
+       auto-injected by Causa (rf2-70u8q; spec/007-UX-IA.md §Resize
+       affordance) — no `resize: horizontal` / `overflow: auto` needed. */
     :root { --rf-causa-accent: #7C5CFF; }
-    [data-rf-causa-host] { flex: 0 0 var(--rf-causa-inline-width, 560px); min-width: 320px; box-sizing: border-box; border-left: 1px solid #2a2a2a; resize: horizontal; overflow: auto; }
+    [data-rf-causa-host] { flex: 0 0 var(--rf-causa-inline-width, 560px); min-width: 320px; box-sizing: border-box; border-left: 1px solid #2a2a2a; }
     #app { flex: 1; min-width: 0; padding: 2em; }
   </style>
 </head>
