@@ -16,13 +16,98 @@
   `descriptors/tool-descriptors-js`, not at the def site. Per-tool
   knobs (limit, cursor, dedup, elision) reach in by name below.
 
-  Each entry carries `:name`, `:description`, `:inputSchema`, and
-  `:typicalTokens` (rf2-6sddv) — an informational ballpark of the
-  response-payload size in tokens that AI clients use to budget
-  calls and pick size-conscious args (`max-tokens`, `cache`,
-  `cursor`) without trial-and-error. Hint only; the real cap is
-  enforced separately."
+  Each entry carries `:name`, `:description`, `:inputSchema`,
+  `:outputSchema` (rf2-3l3be — describes the `:structuredContent`
+  payload shape; agent hosts use it to validate the result client-
+  side), and `:typicalTokens` (rf2-6sddv) — an informational
+  ballpark of the response-payload size in tokens that AI clients
+  use to budget calls and pick size-conscious args (`max-tokens`,
+  `cache`, `cursor`) without trial-and-error. Hint only; the real
+  cap is enforced separately."
   (:require [re-frame2-pair-mcp.tools.descriptors-knobs :as knobs]))
+
+;; ---------------------------------------------------------------------------
+;; Recurring outputSchema fragments (rf2-3l3be).
+;;
+;; The `:structuredContent` payload (rf2-hj3pi) is `clj->js` of the
+;; EDN payload — keywords become string keys (`:ok?` → `"ok?"`). Tool
+;; results split into two coarse families:
+;;
+;;   1. Envelope shape — `{:ok? bool ...}` with `:reason` keyword on
+;;      the error path. Used by ~every tool. We declare the contract
+;;      bones (`ok?`, optional `reason`) and accept tool-specific
+;;      slots via `additionalProperties: true` rather than enumerating
+;;      every per-tool slot (that's per-tool prose in the catalogue,
+;;      not the schema's job).
+;;
+;;   2. Wire-bounded markers — `{:rf.mcp/cache-hit ...}` and
+;;      `{:rf.mcp/overflow ...}`. These envelopes replace a tool's
+;;      result when the cache step or cap step fires. The schema is
+;;      a `oneOf` between the tool's normal envelope and the marker
+;;      envelopes — agent hosts that match on `:rf.mcp/*` markers
+;;      see them as a valid alternative.
+;; ---------------------------------------------------------------------------
+
+(def ^:private result-envelope
+  "Generic success/error envelope schema — every tool's
+  `:structuredContent` is at least this shape: a JS object with an
+  optional `:ok?` boolean and optional `:reason` keyword (as string)
+  on the error path. Tool-specific slots ride on
+  `additionalProperties: true` per the catalogue prose."
+  {:type "object"
+   :additionalProperties true
+   :properties {"ok?"    {:type "boolean"
+                           :description "True on success; false on error (with :reason)."}
+                "reason" {:type "string"
+                           :description "Error reason keyword (as a string). Present iff :ok? false."}}})
+
+(def ^:private rf-mcp-cache-hit-schema
+  "Wire-bounded marker envelope — the cache-hit replacement (rf2-3rt1f).
+  Replaces a tool's result on a per-session cache hit."
+  {:type "object"
+   :additionalProperties true
+   :properties {"rf.mcp/cache-hit" {:type "object" :additionalProperties true}}})
+
+(def ^:private rf-mcp-overflow-schema
+  "Wire-bounded marker envelope — the overflow replacement (rf2-rvyzy).
+  Replaces a tool's result when the wire-boundary token cap fires."
+  {:type "object"
+   :additionalProperties true
+   :properties {"rf.mcp/overflow" {:type "object" :additionalProperties true}}})
+
+(def ^:private envelope-or-marker
+  "Default outputSchema — a `oneOf` of the tool's normal envelope
+  and the two wire-bounded marker envelopes (`:rf.mcp/cache-hit` for
+  cacheable tools that hit; `:rf.mcp/overflow` for any tool whose
+  result exceeds the per-call cap). Read tools get this shape; the
+  shape is permissive (`additionalProperties: true`) so per-tool
+  slots ride."
+  {:oneOf [result-envelope
+           rf-mcp-cache-hit-schema
+           rf-mcp-overflow-schema]
+   :description (str "Result envelope: success / error map carrying :ok? + tool-specific slots. "
+                     "Wire-bounded markers (:rf.mcp/cache-hit, :rf.mcp/overflow) replace the "
+                     "tool's normal envelope when the cache or cap step fires; the agent host "
+                     "pattern-matches on the marker key. See "
+                     "spec/003-Tool-Catalogue.md §Universal: per-session response cache + "
+                     "§Universal: wire-boundary token cap.")})
+
+(def ^:private streaming-final-summary
+  "Streaming-tool final-summary envelope (subscribe). The progress
+  notifications it emits along the way carry their own shape
+  documented in spec/003-Tool-Catalogue.md §subscribe; the
+  `tools/call` result itself is just the termination summary."
+  {:type "object"
+   :additionalProperties true
+   :properties {"ok?"             {:type "boolean"}
+                "sub-id"          {:type "string"
+                                    :description "uuid of the closed subscription"}
+                "delivered"       {:type "integer"}
+                "dropped-events"  {:type "integer"}
+                "dropped-bytes"   {:type "integer"}
+                "ticks"           {:type "integer"}
+                "reason"          {:type "string"
+                                    :description "termination reason keyword (as a string)"}}})
 
 (def discover-app
   {:name "discover-app"
@@ -32,6 +117,7 @@
                      "2. Named build: {:build \"app\"} -> same shape against the named build. "
                      "3. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
    :typicalTokens 200
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:build {:type "string"
                                       :description "shadow-cljs build id (default: app)"}}
@@ -45,6 +131,7 @@
                      "2. Inspect a global: {:form \"(keys js/window)\"} -> {:ok? true :value [\"document\" ...]}. "
                      "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched without --allow-eval.")
    :typicalTokens 500
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
                               :build {:type "string" :description "shadow-cljs build id (default: app)"}}
@@ -65,6 +152,7 @@
                      "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {:rf/epoch-id ... :event-id :cart/add :db-after ... :effects [...]}}. "
                      "3. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
                               :sync  {:type "boolean"}
@@ -97,6 +185,7 @@
                      "2. Larger window, paginated: {:ms 5000 :limit 20} -> {:ok? true :count 20 :has-more? true :next-cursor \"<b64>\"}; pass back as {:cursor \"<b64>\"} to get the next page. "
                      "3. Stale cursor: {:cursor \"<aged-out-b64>\"} -> {:ok? false :reason :rf.mcp/cursor-stale :head-id ... :hint \"drop cursor and restart\"}.")
    :typicalTokens 2000
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
                               :frame {:type "string"}
@@ -137,6 +226,7 @@
                      "2. Resume after last seen id: {:since-id \"epoch-42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id \"epoch-47\"}. "
                      "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}.")
    :typicalTokens 2000
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
                               :pred     {:type "object" :description "Filter map"}
@@ -160,6 +250,7 @@
                      "2. Probe for a recompile signal: {:probe \"(rand)\" :wait-ms 10000} -> {:ok? true :t 1240 :soft? false}. "
                      "3. Timed out: {:probe \"my.app/build-marker\" :wait-ms 500} -> {:ok? false :reason :timed-out}.")
    :typicalTokens 100
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
                               :wait-ms {:type "integer" :description "Max wait in ms (default 5000)"}
@@ -210,6 +301,7 @@
                      "2. Drill into one slice: {:frames [\":rf/default\"] :include [\"app-db\"] :path \"[:cart :items]\"} -> {:ok? true :mode :path-sliced :path [:cart :items] :snapshot {:rf/default {:app-db [{:sku \"x\" :qty 2}]}}}. "
                      "3. Full expansion (legacy shape): {:frames \"all\" :mode \"full\"} -> {:ok? true :mode :full :snapshot {:rf/default {:app-db {...} :epochs [...]}}}.")
    :typicalTokens 3000
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
                                         :oneOf [{:type "string"}
@@ -284,6 +376,7 @@
                      "2. Path-not-found: {:path \"[:cart :items 99]\"} -> {:ok? false :reason :path-not-found :path [:cart :items 99] :deepest-valid-prefix [:cart :items]}. "
                      "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :schema :handle [:rf.elision/at [:big :payload]]}}}.")
    :typicalTokens 500
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
                                                         "(e.g. \"[:cart :items 0 :sku]\") or a JSON array "
@@ -329,6 +422,7 @@
                      "2. Filtered fx stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks only for checkout-driven fx; ends with {:ok? true :delivered N :reason :aborted}. "
                      "3. Time-bounded probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors, whichever first; {:ok? true :delivered K :reason :max-ms-reached}.")
    :typicalTokens 1000
+   :outputSchema streaming-final-summary
    :inputSchema {:type "object"
                  :properties {:topic   {:type "string"
                                         :description "Topic name. Required."
@@ -361,6 +455,7 @@
                      "2. Already-closed (idempotent): {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? false}. "
                      "3. Unknown id: {:sub-id \"never-was\"} -> {:ok? true :sub-id \"never-was\" :existed? false}.")
    :typicalTokens 50
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:sub-id {:type "string"
                                        :description "The uuid returned by `subscribe`."}
@@ -386,6 +481,7 @@
                      "2. Healthy probe alive: {:sub-id \"abc-123\"} -> {:ok? true :subs [{:id \"abc-123\" :topic :epoch :filter {} :queue-depth 0 :queue-bytes 0 :dropped-events 0 :overflow-reason nil :created-at 1234567890}]}. "
                      "3. Pressured queue: {:topic \"trace\"} -> {:ok? true :subs [{:id \"xyz-789\" :topic :trace :queue-depth 487 :queue-bytes 2400000 :dropped-events 12 :overflow-reason :max-buffered-bytes}]}.")
    :typicalTokens 500
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:topic  {:type "string"
                                        :description "Optional filter — only return subs on this topic. One of trace, epoch, fx, error."
@@ -423,6 +519,7 @@
                      "2. Subscription on a composite key: {:kind \"sub\" :id \"[:rf/composite [:items :by-id 42]]\"} -> {:ok? true :kind :sub :id [:rf/composite [:items :by-id 42]] :ns my.app.subs :line 18}. "
                      "3. Miss: {:kind \"fx\" :id \":missing/fx\"} -> {:ok? false :reason :not-registered :kind :fx :id :missing/fx}.")
    :typicalTokens 400
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
@@ -456,6 +553,7 @@
                      "2. List subs: {:kind \"sub\"} -> {:ok? true :kind :sub :ids [:current-user :cart/items ...] :count 23}. "
                      "3. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
    :typicalTokens 800
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
@@ -477,6 +575,7 @@
                      "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
                      "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
    :typicalTokens 1500
+   :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {}
                  :additionalProperties false}})

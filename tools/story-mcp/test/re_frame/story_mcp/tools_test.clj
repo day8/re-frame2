@@ -158,6 +158,20 @@
       (is (every? #(integer? (:typicalTokens %)) ds))
       (is (every? #(pos? (:typicalTokens %)) ds)))))
 
+(deftest output-schema-on-every-tool
+  ;; rf2-3l3be — every tool descriptor MUST declare an `:outputSchema`
+  ;; describing its `structuredContent` payload shape. Asserted at
+  ;; load time in `registry.cljc` too; this test makes the contract
+  ;; visible in the test corpus and pins the wire projection.
+  (testing "registry: every tool carries a map :outputSchema"
+    (doseq [t registry/tool-registry]
+      (is (map? (:outputSchema t))
+          (str "missing :outputSchema on " (:name t)))))
+  (testing "tool-descriptors surfaces :outputSchema to the wire"
+    (let [ds (registry/tool-descriptors)]
+      (is (every? :outputSchema ds))
+      (is (every? #(map? (:outputSchema %)) ds)))))
+
 (def ^:private tool-names-fixture
   "Canonical tool-name list (rf2-36upq TE7). Single source of truth
   shared with `test/stdio-roundtrip.js` — a registry change updates one

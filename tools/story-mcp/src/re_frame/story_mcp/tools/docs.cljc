@@ -277,6 +277,7 @@
                                 {:tags {:type "array" :items s/kw-or-string
                                         :description "Optional tag filter; story `:tags` set must intersect."}})
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-list-stories}
 
    {:name           "get-story"
@@ -291,6 +292,7 @@
                   :properties (s/with-max-tokens {:story-id s/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-get-story}
 
    {:name           "get-variant"
@@ -305,6 +307,7 @@
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-get-variant}
 
    {:name           "list-tags"
@@ -316,6 +319,7 @@
                          "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
     :handler        tool-list-tags}
 
    {:name           "list-modes"
@@ -327,6 +331,7 @@
                          "3. Use with preview-variant: pass {:active-modes [\":mode/dark\"]} on a preview-variant call to render the variant under that mode.")
     :typicalTokens  200
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
     :handler        tool-list-modes}
 
    {:name           "list-decorators"
@@ -350,6 +355,7 @@
                                         :description "Optional filter — only return decorators of this kind."
                                         :enum ["hiccup" "frame-setup" "fx-override"]}})
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-list-decorators}
 
    {:name           "list-assertions"
@@ -361,6 +367,7 @@
                          "3. Pair with run-variant: discover the assertion vocab here, then write :play sequences referencing those event ids.")
     :typicalTokens  500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
@@ -375,6 +382,7 @@
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-variant->edn}
 
    {:name           "get-docs-markdown"
@@ -396,4 +404,5 @@
                   :properties (s/with-max-tokens {:story-id s/kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-get-docs-markdown}])

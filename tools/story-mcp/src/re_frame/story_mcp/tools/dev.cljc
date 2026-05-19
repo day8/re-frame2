@@ -145,6 +145,7 @@
                          "3. Discovery (paired with list-substrates + list-tags): call this first, then list-* tools to enumerate the registry surface.")
     :typicalTokens  1500
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
@@ -166,6 +167,7 @@
                                               :description "Optional base URL for the share link (no default)."}}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
@@ -177,4 +179,5 @@
                          "3. With budget override: {:max-tokens 1000} -> same shape, smaller cap.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
+    :outputSchema   s/default-output-schema
     :handler        tool-list-substrates}])

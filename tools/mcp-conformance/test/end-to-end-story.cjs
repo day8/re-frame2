@@ -121,6 +121,22 @@ runWithWatchdog(
       'OK   every tool descriptor carries inputSchema with type=object + max-tokens',
     );
 
+    // 2c. Output-schema conformance (rf2-3l3be). Every descriptor MUST
+    // declare an :outputSchema describing the structuredContent payload
+    // shape. mcp-builder canonical pattern: "Define outputSchema
+    // wherever possible for structured responses."
+    for (const t of listed.tools) {
+      if (!t.outputSchema || typeof t.outputSchema !== 'object') {
+        throw new Error(
+          'tool ' + t.name + " MUST declare :outputSchema (rf2-3l3be); got: " +
+            JSON.stringify(t.outputSchema),
+        );
+      }
+    }
+    console.log(
+      'OK   every tool descriptor carries outputSchema (rf2-3l3be)',
+    );
+
     // 3. register-variant — body as an EDN string so JSON's lack of
     // keyword support doesn't dilute the assertion (same approach as
     // live-server.js).

@@ -257,4 +257,5 @@
                                                   :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/write-gated-output-schema
     :handler     tool-record-as-variant}])

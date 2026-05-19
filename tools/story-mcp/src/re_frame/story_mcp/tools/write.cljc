@@ -251,6 +251,7 @@
                                                                    "needed in the body shape.")}]}})
                   :required ["variant-id" "body"]
                   :additionalProperties false}
+    :outputSchema s/write-gated-output-schema
     :handler     tool-register-variant}
 
    {:name           "unregister-variant"
@@ -265,4 +266,5 @@
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/write-gated-output-schema
     :handler     tool-unregister-variant}])

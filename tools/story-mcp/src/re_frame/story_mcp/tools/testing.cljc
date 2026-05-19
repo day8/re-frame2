@@ -181,6 +181,7 @@
                                                                   "timeout would park unrelated calls (rf2-g9fje).")}}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-run-variant}
 
    {:name           "snapshot-identity"
@@ -198,6 +199,7 @@
                                  :active-modes {:type "array" :items s/kw-or-string}})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-snapshot-identity}
 
    {:name           "run-a11y"
@@ -212,6 +214,7 @@
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-run-a11y}
 
    {:name           "read-failures"
@@ -228,4 +231,5 @@
                                   {:variant-id s/kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
+    :outputSchema s/default-output-schema
     :handler     tool-read-failures}])

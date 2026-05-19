@@ -58,6 +58,14 @@
                 tool-registry)
         "tool-registry: every entry must carry positive-integer :typicalTokens")
 
+;; Load-time invariant (rf2-3l3be): every registry entry MUST carry an
+;; `:outputSchema` map describing the structuredContent payload shape.
+;; mcp-builder canonical pattern: "Define outputSchema wherever possible
+;; for structured responses." Asserted at load time so future tool
+;; landings can't silently drop the slot.
+(assert (every? (fn [t] (map? (:outputSchema t))) tool-registry)
+        "tool-registry: every entry must carry an :outputSchema map (rf2-3l3be)")
+
 (defn- strip-include-sensitive
   "Remove the `:include-sensitive` slot from a tool's `:inputSchema`
   properties. The slot is baked into the descriptor at load time by
@@ -98,12 +106,16 @@
   improvement and a defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
-    (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
-            {:name          name
-             :description   description
-             :inputSchema   (cond-> inputSchema
-                              strip? strip-include-sensitive)
-             :typicalTokens typicalTokens})
+    (mapv (fn [{:keys [name description inputSchema outputSchema typicalTokens]}]
+            (cond-> {:name          name
+                     :description   description
+                     :inputSchema   (cond-> inputSchema
+                                      strip? strip-include-sensitive)
+                     :typicalTokens typicalTokens}
+              ;; rf2-3l3be — surface :outputSchema when declared. Lifted
+              ;; via cond-> so omission is forward-compatible (e.g. a
+              ;; future tool with no structured response).
+              (some? outputSchema) (assoc :outputSchema outputSchema)))
           tool-registry)))
 
 (def ^:private tool-by-name-index
