@@ -4,12 +4,13 @@
   sidebar ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [mono-stack]]))
+  (:require [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 (def styles
   {:wrap         {:width "260px"
-                  :background "#252526"
-                  :color "#cccccc"
+                  :background (:bg-2 colors/tokens)
+                  :color (:text-primary colors/tokens)
                   :font-family mono-stack
                   :font-size "12px"
                   :border-right "1px solid #444"
@@ -23,12 +24,12 @@
                   :flex-direction "column"}
    :header       {:padding "8px 12px"
                   :font-weight "bold"
-                  :color "#9cdcfe"
+                  :color (:info colors/tokens)
                   :border-bottom "1px solid #333"
                   :margin-bottom "4px"}
    :section      {:padding "12px 0 4px 12px"
                   :font-weight "bold"
-                  :color "#b0b0b0"
+                  :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"}
@@ -42,7 +43,7 @@
                   :flex-direction "column"
                   :gap "3px"}
    :axis-label   {:font-size "9px"
-                  :color "#9a9a9a"
+                  :color (:text-tertiary colors/tokens)
                   :letter-spacing "0.5px"
                   :text-transform "uppercase"
                   :font-weight "bold"}
@@ -50,26 +51,26 @@
                   :flex-wrap "wrap"
                   :gap "4px"}
    :tag          {:padding "2px 6px"
-                  :background "#37373d"
-                  :color "#cccccc"
+                  :background (:bg-3 colors/tokens)
+                  :color (:text-primary colors/tokens)
                   :border-radius "10px"
                   :cursor "pointer"
                   :font-size "10px"
                   :user-select "none"}
-   :tag-active   {:background "#0e639c"
+   :tag-active   {:background (:accent-amber colors/tokens)
                   :color "white"}
    :story-row    {:padding "4px 12px"
-                  :color "#dcdcaa"
+                  :color (:warning colors/tokens)
                   :font-weight "bold"
                   :cursor "default"}
    :variant-row  {:padding "2px 12px 2px 24px"
                   :cursor "pointer"
-                  :color "#cccccc"
+                  :color (:text-primary colors/tokens)
                   :display "flex"
                   :align-items "center"
                   :gap "6px"}
-   :variant-row-active {:background "#094771" :color "white"}
-   :empty        {:color "#9a9a9a"
+   :variant-row-active {:background (:accent-amber-soft colors/tokens) :color "white"}
+   :empty        {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :padding "8px 12px"}
    ;; rf2-q0irb — status dot + chrome-level test widget.
@@ -78,9 +79,9 @@
                   :border-radius "50%"
                   :flex-shrink "0"
                   :display "inline-block"}
-   :dot-pass     {:background "#4ec9b0"}
-   :dot-fail     {:background "#f48771"}
-   :dot-running  {:background "#dcdcaa"
+   :dot-pass     {:background (:success colors/tokens)}
+   :dot-fail     {:background (:danger colors/tokens)}
+   :dot-running  {:background (:warning colors/tokens)
                   :opacity "0.7"}
    :dot-pending  {:background "transparent"
                   :border "1px solid #5a5a5a"}
@@ -90,9 +91,9 @@
                   :display "flex"
                   :flex-direction "column"
                   :gap "6px"
-                  :background "#1f1f20"}
+                  :background (:bg-1 colors/tokens)}
    :widget-h     {:font-weight "bold"
-                  :color "#b0b0b0"
+                  :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"}
@@ -101,24 +102,24 @@
                    :gap "8px"
                    :font-family mono-stack
                    :font-size "11px"
-                   :color "#cccccc"}
-   :widget-pass  {:color "#4ec9b0"}
-   :widget-fail  {:color "#f48771"}
-   :widget-run   {:color "#dcdcaa"}
-   :widget-pend  {:color "#9a9a9a"}
+                   :color (:text-primary colors/tokens)}
+   :widget-pass  {:color (:success colors/tokens)}
+   :widget-fail  {:color (:danger colors/tokens)}
+   :widget-run   {:color (:warning colors/tokens)}
+   :widget-pend  {:color (:text-tertiary colors/tokens)}
    :widget-btn   {:margin-top "4px"
                   :padding "4px 10px"
-                  :background "#0e639c"
+                  :background (:accent-amber colors/tokens)
                   :color "white"
                   :border "none"
                   :border-radius "3px"
                   :cursor "pointer"
                   :font-family mono-stack
                   :font-size "11px"}
-   :widget-btn-disabled {:background "#37373d"
-                         :color "#9a9a9a"
+   :widget-btn-disabled {:background (:bg-3 colors/tokens)
+                         :color (:text-tertiary colors/tokens)
                          :cursor "not-allowed"}
-   :widget-empty {:color "#9a9a9a"
+   :widget-empty {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :font-size "10px"}
    ;; rf2-z1h0f — watch-mode eye-icon toggle on the chrome widget.
@@ -128,7 +129,7 @@
                   :margin-top  "2px"}
    :watch-btn    {:padding         "2px 8px"
                   :background      "transparent"
-                  :color           "#9a9a9a"
+                  :color           (:text-tertiary colors/tokens)
                   :border          "1px solid #444"
                   :border-radius   "10px"
                   :cursor          "pointer"
@@ -138,8 +139,8 @@
                   :display         "inline-flex"
                   :align-items     "center"
                   :gap             "4px"}
-   :watch-btn-on {:background "#1f4d3f"
-                  :color      "#4ec9b0"
+   :watch-btn-on {:background (:success-bg colors/tokens)
+                  :color      (:success colors/tokens)
                   :border     "1px solid #4ec9b0"}
    ;; rf2-nwiwr — tag-as-badge affordance on variant rows.
    :tag-badges   {:display     "inline-flex"
@@ -147,8 +148,8 @@
                   :gap         "3px"
                   :margin-left "4px"}
    :tag-badge    {:padding       "0 5px"
-                  :background    "#37373d"
-                  :color         "#cccccc"
+                  :background    (:bg-3 colors/tokens)
+                  :color         (:text-primary colors/tokens)
                   :border-radius "8px"
                   :font-family   mono-stack
                   :font-size     "9px"
@@ -158,10 +159,10 @@
    ;; Per-tag palette — keys on the canonical seven from
    ;; spec/007 §Inclusion tags; unknown tags fall through to
    ;; the neutral :tag-badge above.
-   :tag-badge-dev          {:background "#264f78" :color "#9cdcfe"}
-   :tag-badge-docs         {:background "#3a3a52" :color "#c586c0"}
-   :tag-badge-test         {:background "#1f4d3f" :color "#4ec9b0"}
-   :tag-badge-screenshot   {:background "#3a3a1f" :color "#dcdcaa"}
-   :tag-badge-experimental {:background "#553a1f" :color "#ce9178"}
-   :tag-badge-internal     {:background "#3a1f1f" :color "#f48771"}
-   :tag-badge-agent        {:background "#1f3a3a" :color "#4ec9b0"}})
+   :tag-badge-dev          {:background (:tag-dev-bg colors/tokens) :color (:info colors/tokens)}
+   :tag-badge-docs         {:background (:tag-docs-bg colors/tokens) :color (:tag-docs-fg colors/tokens)}
+   :tag-badge-test         {:background (:success-bg colors/tokens) :color (:success colors/tokens)}
+   :tag-badge-screenshot   {:background (:warning-bg colors/tokens) :color (:warning colors/tokens)}
+   :tag-badge-experimental {:background (:tag-experimental-bg colors/tokens) :color (:tag-experimental-fg colors/tokens)}
+   :tag-badge-internal     {:background (:tag-internal-bg colors/tokens) :color (:danger colors/tokens)}
+   :tag-badge-agent        {:background (:tag-agent-bg colors/tokens) :color (:success colors/tokens)}})

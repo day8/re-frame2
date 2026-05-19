@@ -55,40 +55,41 @@
             [re-frame.story.ui.a11y :as a11y]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.schema-validation :as schema-validation]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:stub-wrap    {:padding "12px"
-                  :background "#252526"
-                  :color "#cccccc"
+                  :background (:bg-2 colors/tokens)
+                  :color (:text-primary colors/tokens)
                   :font-family mono-stack
                   :font-size "11px"
                   :border-top "1px solid #444"}
-   :stub-title   {:color "#9cdcfe"
+   :stub-title   {:color (:info colors/tokens)
                   :font-weight "bold"
                   :margin-bottom "8px"
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"}
-   :stub-body    {:color "#b0b0b0"
+   :stub-body    {:color (:text-secondary colors/tokens)
                   :line-height "1.5"}
    :stub-code    {:padding "8px"
-                  :background "#1e1e1e"
+                  :background (:bg-canvas colors/tokens)
                   :border "1px solid #444"
                   :border-radius "3px"
                   :margin-top "8px"
                   :font-size "10px"
                   :overflow-x "auto"}
    :layout-wrap  {:padding "8px"
-                  :background "#252526"
-                  :color "#cccccc"
+                  :background (:bg-2 colors/tokens)
+                  :color (:text-primary colors/tokens)
                   :font-family mono-stack
                   :font-size "11px"
                   :border-top "1px solid #444"}
    :layout-title {:font-weight "bold"
-                  :color "#b0b0b0"
+                  :color (:text-secondary colors/tokens)
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"
@@ -99,8 +100,8 @@
                   :padding "4px 0"
                   :cursor "pointer"
                   :user-select "none"}
-   :decor-id     {:color "#9cdcfe"}
-   :hint         {:color "#9a9a9a"
+   :decor-id     {:color (:info colors/tokens)}
+   :hint         {:color (:text-tertiary colors/tokens)
                   :font-style "italic"
                   :font-size "10px"
                   :margin-top "6px"}})
@@ -263,14 +264,14 @@
 (def ^:private host-styles
   {:right-host  {:display "flex" :flex-direction "column"}
    :bottom-host {:border-top "1px solid #444"
-                 :background "#252526"}
+                 :background (:bg-2 colors/tokens)}
    :panel-head  {:display "flex"
                  :justify-content "space-between"
                  :align-items "center"
                  :padding "4px 10px"
-                 :background "#2d2d30"
+                 :background (:bg-2 colors/tokens)
                  :border-bottom "1px solid #444"
-                 :color "#b0b0b0"
+                 :color (:text-secondary colors/tokens)
                  :font-family mono-stack
                  :font-size "10px"
                  :text-transform "uppercase"
@@ -319,7 +320,7 @@
          [:div
           [:div {:style (:panel-head host-styles)}
            [:span (:title body)]
-           [:span {:style {:color "#9a9a9a"}} (str pid)]]
+           [:span {:style {:color (:text-tertiary colors/tokens)}} (str pid)]]
           (if view-fn
             ;; rf2-zme7: scope the panel view's subscribe / dispatch to
             ;; the active variant's frame. The namespace-preserving
@@ -328,7 +329,7 @@
             ;; context boundary (rf2-c5jz).
             [canvas/frame-provider-ns-safe {:frame variant-id}
              [view-fn variant-id]]
-            [:div {:style {:padding "8px" :color "#b0b0b0"
+            [:div {:style {:padding "8px" :color (:text-secondary colors/tokens)
                            :font-style "italic" :font-size "10px"}}
              (str "panel " (pr-str pid)
                   " has no registered :render view (" (pr-str view-id) ")")])]))]))

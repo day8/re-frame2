@@ -42,14 +42,15 @@
             [re-frame.story.play.dom         :as dom]
             [re-frame.story.play.runner      :as runner]
             [re-frame.story.play.runner-events :as runner-events]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styles ---------------------------------------------------------------
 
 (def ^:private styles
   {:chip-base   {:padding         "3px 8px"
-                 :background      "#37373d"
-                 :color           "#cccccc"
+                 :background      (:bg-3 colors/tokens)
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
@@ -65,11 +66,11 @@
                   :color      "#fae766"}
    :chip-pass    {:background "#1c4a1c"
                   :color      "#7be07b"}
-   :chip-fail    {:background "#5a1d1d"
+   :chip-fail    {:background (:danger-bg colors/tokens)
                   :color      "#fda3a3"}
    :chip-icon    {:font-size "10px"}
    :re-run-btn   {:padding         "2px 6px"
-                  :background      "#264f78"
+                  :background      (:tag-dev-bg colors/tokens)
                   :color           "white"
                   :border          "1px solid #264f78"
                   :border-radius   "3px"
@@ -89,8 +90,8 @@
                     :top            "100%"
                     :left           "0"
                     :margin-top     "4px"
-                    :background     "#1e1e1e"
-                    :color          "#cccccc"
+                    :background     (:bg-canvas colors/tokens)
+                    :color          (:text-primary colors/tokens)
                     :border         "1px solid #3c3c3c"
                     :border-radius  "4px"
                     :font-family    mono-stack
@@ -113,7 +114,7 @@
                   :text-align      "left"
                   :font-family     mono-stack
                   :font-size       "11px"}
-   :dropdown-row-active {:background "#264f78"
+   :dropdown-row-active {:background (:tag-dev-bg colors/tokens)
                          :color      "white"}
    :dropdown-row-name   {:overflow      "hidden"
                          :text-overflow "ellipsis"
@@ -123,7 +124,7 @@
                          :font-size     "9px"
                          :text-transform "uppercase"
                          :opacity       "0.85"}
-   :dropdown-divider    {:height "1px" :background "#3c3c3c"}
+   :dropdown-divider    {:height "1px" :background (:border-default colors/tokens)}
    :dropdown-run-all    {:padding         "6px 10px"
                          :cursor          "pointer"
                          :display         "block"
@@ -134,7 +135,7 @@
                          :color           "#7bbcff"
                          :font-family     mono-stack
                          :font-size       "11px"}
-   :banner       {:background     "#5a1d1d"
+   :banner       {:background     (:danger-bg colors/tokens)
                   :color          "#fde0e0"
                   :padding        "8px 14px"
                   :font-family    mono-stack

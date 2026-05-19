@@ -35,7 +35,8 @@
   reach this ns; Closure DCE drops the lot."
   (:require [reagent.core :as r]
             [re-frame.story.config :as config]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -94,8 +95,8 @@
                  :display     "flex"
                  :align-items "center"
                  :justify-content "center"}
-   :panel       {:background    "#252526"
-                 :color         "#cccccc"
+   :panel       {:background    (:bg-2 colors/tokens)
+                 :color         (:text-primary colors/tokens)
                  :border        "1px solid #555"
                  :border-radius "5px"
                  :box-shadow    "0 8px 32px rgba(0,0,0,0.7)"
@@ -110,22 +111,22 @@
                  :justify-content "space-between"
                  :align-items     "center"
                  :padding         "12px 16px"
-                 :background      "#2d2d30"
+                 :background      (:bg-2 colors/tokens)
                  :border-bottom   "1px solid #444"}
-   :title       {:color       "#9cdcfe"
+   :title       {:color       (:info colors/tokens)
                  :font-weight "bold"
                  :font-size   "13px"
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"}
    :close       {:background  "transparent"
                  :border      "none"
-                 :color       "#b0b0b0"
+                 :color       (:text-secondary colors/tokens)
                  :font-size   "16px"
                  :cursor      "pointer"
                  :padding     "0 4px"
                  :line-height "1"}
    :body        {:padding "16px 20px"}
-   :section-h   {:color          "#b0b0b0"
+   :section-h   {:color          (:text-secondary colors/tokens)
                  :font-size      "10px"
                  :text-transform "uppercase"
                  :letter-spacing "0.5px"
@@ -135,16 +136,16 @@
    :list        {:margin     "0 0 0 18px"
                  :padding    "0"}
    :list-item   {:margin-bottom "4px"}
-   :kw          {:color       "#dcdcaa"
+   :kw          {:color       (:warning colors/tokens)
                  :font-family mono-stack}
-   :muted       {:color "#b0b0b0"}
+   :muted       {:color (:text-secondary colors/tokens)}
    :footer      {:display         "flex"
                  :justify-content "flex-end"
                  :padding         "12px 16px"
                  :border-top      "1px solid #444"
-                 :background      "#2d2d30"}
+                 :background      (:bg-2 colors/tokens)}
    :got-it      {:padding       "6px 16px"
-                 :background    "#0e639c"
+                 :background    (:accent-amber colors/tokens)
                  :color         "white"
                  :border        "none"
                  :border-radius "3px"
@@ -152,8 +153,8 @@
                  :font-size     "12px"
                  :font-family   sans-stack}
    :help-btn    {:padding       "2px 9px"
-                 :background    "#37373d"
-                 :color         "#9cdcfe"
+                 :background    (:bg-3 colors/tokens)
+                 :color         (:info colors/tokens)
                  :border        "1px solid #555"
                  :border-radius "12px"
                  :cursor        "pointer"

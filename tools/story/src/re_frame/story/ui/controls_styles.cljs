@@ -4,18 +4,19 @@
   controls ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [mono-stack]]))
+  (:require [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 (def styles
   {:wrap        {:padding "8px"
-                 :background "#252526"
-                 :color "#cccccc"
+                 :background (:bg-2 colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :font-family mono-stack
                  :font-size "11px"
                  :border-top "1px solid #444"}
    :section     {:margin-bottom "12px"}
    :section-h   {:font-weight "bold"
-                 :color "#b0b0b0"
+                 :color (:text-secondary colors/tokens)
                  :text-transform "uppercase"
                  :font-size "10px"
                  :letter-spacing "0.5px"
@@ -33,22 +34,22 @@
                  :border-left "1px solid #3a3a3a"
                  :margin-left "4px"
                  :align-items "center"}
-   :group-h     {:color "#9cdcfe"
+   :group-h     {:color (:info colors/tokens)
                  :font-weight "bold"
                  :padding "2px 0"
                  :cursor "default"}
-   :label       {:color "#9cdcfe"}
-   :sublabel    {:color "#bdbdbd"
+   :label       {:color (:info colors/tokens)}
+   :sublabel    {:color (:text-secondary colors/tokens)
                  :font-size "10px"}
-   :input       {:background "#1e1e1e"
-                 :color "#cccccc"
+   :input       {:background (:bg-canvas colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :padding "2px 6px"
                  :font-family mono-stack
                  :font-size "11px"
                  :width "100%"}
-   :textarea    {:background "#1e1e1e"
-                 :color "#cccccc"
+   :textarea    {:background (:bg-canvas colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :padding "4px 6px"
                  :font-family mono-stack
@@ -56,7 +57,7 @@
                  :width "100%"
                  :min-height "48px"
                  :resize "vertical"}
-   :color-input {:background "#1e1e1e"
+   :color-input {:background (:bg-canvas colors/tokens)
                  :border "1px solid #444"
                  :padding "0"
                  :width "36px"
@@ -70,21 +71,21 @@
                  :gap "4px"
                  :align-items "center"
                  :cursor "pointer"
-                 :color "#cccccc"}
+                 :color (:text-primary colors/tokens)}
    :chip-row    {:display "flex"
                  :flex-wrap "wrap"
                  :gap "4px"}
    :chip        {:padding "2px 6px"
-                 :background "#37373d"
-                 :color "#cccccc"
+                 :background (:bg-3 colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border-radius "10px"
                  :cursor "pointer"
                  :font-size "10px"
                  :user-select "none"}
-   :chip-active {:background "#0e639c"
+   :chip-active {:background (:accent-amber colors/tokens)
                  :color "white"}
    :button      {:padding "4px 8px"
-                 :background "#0e639c"
+                 :background (:accent-amber colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
@@ -92,11 +93,11 @@
                  :font-size "10px"
                  :margin-top "8px"}
    :rep-button  {:padding "2px 6px"
-                 :background "#37373d"
-                 :color "#cccccc"
+                 :background (:bg-3 colors/tokens)
+                 :color (:text-primary colors/tokens)
                  :border "1px solid #444"
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-size "10px"
                  :margin-left "4px"}
-   :empty       {:color "#9a9a9a" :font-style "italic"}})
+   :empty       {:color (:text-tertiary colors/tokens) :font-style "italic"}})

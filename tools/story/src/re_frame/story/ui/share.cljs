@@ -21,14 +21,15 @@
             [re-frame.story.qr :as qr]
             [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
   {:button    {:padding       "2px 8px"
-               :background    "#37373d"
-               :color         "#9cdcfe"
+               :background    (:bg-3 colors/tokens)
+               :color         (:info colors/tokens)
                :border        "1px solid #555"
                :border-radius "3px"
                :cursor        "pointer"
@@ -38,7 +39,7 @@
    :popover   {:position      "absolute"
                :top           "30px"
                :right         "8px"
-               :background    "#252526"
+               :background    (:bg-2 colors/tokens)
                :border        "1px solid #555"
                :border-radius "4px"
                :padding       "12px"
@@ -47,14 +48,14 @@
                :min-width     "220px"
                :font-family   mono-stack
                :font-size     "11px"
-               :color         "#cccccc"}
-   :url-label {:color "#b0b0b0"
+               :color         (:text-primary colors/tokens)}
+   :url-label {:color (:text-secondary colors/tokens)
                :margin-bottom "4px"
                :text-transform "uppercase"
                :font-size "9px"
                :letter-spacing "0.5px"}
    :url       {:padding       "4px 6px"
-               :background    "#1e1e1e"
+               :background    (:bg-canvas colors/tokens)
                :border        "1px solid #444"
                :border-radius "3px"
                :word-break    "break-all"
@@ -79,7 +80,7 @@
                  :text-align "center"
                  :line-height "1.4"}
    :copy-btn  {:padding "4px 10px"
-               :background "#0e639c"
+               :background (:accent-amber colors/tokens)
                :color "white"
                :border "none"
                :border-radius "3px"
@@ -87,8 +88,8 @@
                :font-size "10px"
                :margin-right "4px"}
    :close-btn {:padding "4px 10px"
-               :background "#37373d"
-               :color "#cccccc"
+               :background (:bg-3 colors/tokens)
+               :color (:text-primary colors/tokens)
                :border "1px solid #555"
                :border-radius "3px"
                :cursor "pointer"
@@ -203,8 +204,8 @@
         (str n " override" (when (not= 1 n) "s")
              " from this URL no longer apply — variant args refactored?")]
        [:button {:style     {:padding "2px 8px"
-                             :background "#37373d"
-                             :color "#cccccc"
+                             :background (:bg-3 colors/tokens)
+                             :color (:text-primary colors/tokens)
                              :border "1px solid #555"
                              :border-radius "3px"
                              :cursor "pointer"

@@ -31,7 +31,8 @@
             [re-frame.story.config        :as config]
             [re-frame.story.review-dialog :as review-dialog]
             [re-frame.story.save-variant  :as save-variant]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog ratom — the impure mirror of `review-dialog/initial-state`.
@@ -88,7 +89,7 @@
 
 (def ^:private button-styles
   {:button          {:padding       "4px 8px"
-                     :background    "#0e639c"
+                     :background    (:accent-amber colors/tokens)
                      :color         "white"
                      :border        "none"
                      :border-radius "3px"
@@ -97,7 +98,7 @@
                      :margin-top    "8px"
                      :font-family   mono-stack}
    :button-disabled {:padding       "4px 8px"
-                     :background    "#2d2d30"
+                     :background    (:bg-2 colors/tokens)
                      :color         "#777"
                      :border        "1px solid #444"
                      :border-radius "3px"

@@ -70,14 +70,15 @@
   UI shell so this ns never enters a release bundle."
   (:require [re-frame.story.config :as config]
             [re-frame.source-coords.editor-uri :as editor-uri]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private chip-styles
   {:chip      {:padding         "2px 8px"
-               :background      "#37373d"
-               :color           "#9cdcfe"
+               :background      (:bg-3 colors/tokens)
+               :color           (:info colors/tokens)
                :border          "1px solid #555"
                :border-radius   "3px"
                :cursor          "pointer"
@@ -87,8 +88,8 @@
                :text-decoration "none"
                :display         "inline-block"}
    :chip-test {:padding         "1px 6px"
-               :background      "#252526"
-               :color           "#9cdcfe"
+               :background      (:bg-2 colors/tokens)
+               :color           (:info colors/tokens)
                :border          "1px solid #444"
                :border-radius   "2px"
                :cursor          "pointer"

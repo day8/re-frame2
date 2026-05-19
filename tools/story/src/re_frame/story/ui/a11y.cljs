@@ -52,7 +52,8 @@
             [re-frame.story.config :as config]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- state ---------------------------------------------------------------
 
@@ -386,9 +387,9 @@
 
 (def ^:private styles
   {:wrap        {:padding "8px"
-                 :background "#252526"
+                 :background (:bg-2 colors/tokens)
                  :border-top "1px solid #444"
-                 :color "#cccccc"
+                 :color (:text-primary colors/tokens)
                  :font-family mono-stack
                  :font-size "11px"}
    :header      {:display "flex"
@@ -396,12 +397,12 @@
                  :align-items "center"
                  :margin-bottom "8px"}
    :section-h   {:font-weight "bold"
-                 :color "#b0b0b0"
+                 :color (:text-secondary colors/tokens)
                  :text-transform "uppercase"
                  :font-size "10px"
                  :letter-spacing "0.5px"}
    :run-button  {:padding "4px 10px"
-                 :background "#0e639c"
+                 :background (:accent-amber colors/tokens)
                  :color "white"
                  :border "none"
                  :border-radius "3px"
@@ -409,14 +410,14 @@
                  :font-size "10px"}
    :run-busy    {:background "#666"
                  :cursor "wait"}
-   :status      {:color "#b0b0b0" :font-size "10px" :margin-top "4px"}
-   :empty       {:color "#9a9a9a" :font-style "italic" :padding "4px 0"}
+   :status      {:color (:text-secondary colors/tokens) :font-size "10px" :margin-top "4px"}
+   :empty       {:color (:text-tertiary colors/tokens) :font-style "italic" :padding "4px 0"}
    :violation   {:padding "6px 8px"
                  :margin "4px 0"
                  :border-left "3px solid"
-                 :background "#332"}
+                 :background (:danger-bg colors/tokens)}
    :impact-critical {:border-left-color "#ff4040"
-                     :color "#fdd"}
+                     :color (:danger colors/tokens)}
    :impact-serious  {:border-left-color "#ff8000"
                      :color "#fed"}
    :impact-moderate {:border-left-color "#f1c40f"
@@ -425,7 +426,7 @@
                      :color "#ccc"}
    :v-help      {:font-weight "bold" :margin-bottom "2px"}
    :v-desc      {:color "#aaa" :font-size "10px"}
-   :v-target    {:color "#9cdcfe" :font-size "10px"
+   :v-target    {:color (:info colors/tokens) :font-size "10px"
                  :font-family mono-stack
                  :margin-top "2px"}
    :overlay-css {:position "absolute"
@@ -489,7 +490,7 @@
      [:div {:style (:v-desc styles)} (.-description v)]
      (when first-target
        [:div {:style (:v-target styles)} (str "→ " first-target)])
-     [:div {:style {:color "#9a9a9a" :font-size "10px"}}
+     [:div {:style {:color (:text-tertiary colors/tokens) :font-size "10px"}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
 (defn- consent-prompt
@@ -502,27 +503,27 @@
   [:div {:style {:padding "8px 0"
                  :border-top "1px dashed #555"
                  :margin-top "4px"
-                 :color "#cccccc"}}
+                 :color (:text-primary colors/tokens)}}
    [:div {:style {:font-weight "bold"
-                  :color "#fdd"
+                  :color (:danger colors/tokens)
                   :margin-bottom "6px"}}
     "axe-core not loaded"]
    [:div {:style {:font-size "10px"
                   :line-height "1.4"
-                  :color "#b0b0b0"
+                  :color (:text-secondary colors/tokens)
                   :margin-bottom "6px"}}
     "Running an a11y scan loads "
-    [:code {:style {:color "#9cdcfe"}} "axe-core@4.10.0"]
+    [:code {:style {:color (:info colors/tokens)}} "axe-core@4.10.0"]
     " from a public CDN ("
-    [:code {:style {:color "#9cdcfe"}} "cdn.jsdelivr.net"]
+    [:code {:style {:color (:info colors/tokens)}} "cdn.jsdelivr.net"]
     "). The remote JS gets full DOM access to this Story page; the SRI "
     "hash pinned in the loader detects tampering, but the dependency "
     "itself is a trust call. No variant state leaves the browser."]
    [:div {:style {:font-size "10px"
-                  :color "#b0b0b0"
+                  :color (:text-secondary colors/tokens)
                   :margin-bottom "8px"}}
     "Approve once per browser; the opt-in is remembered in "
-    [:code {:style {:color "#9cdcfe"}} "localStorage"] "."]
+    [:code {:style {:color (:info colors/tokens)}} "localStorage"] "."]
    [:button {:style    (:run-button styles)
              :on-click (fn [_]
                          (set-cdn-opt-in! true)

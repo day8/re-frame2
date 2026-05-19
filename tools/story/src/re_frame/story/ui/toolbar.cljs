@@ -55,7 +55,8 @@
             [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage --------------------------------------------------------
 
@@ -213,7 +214,7 @@
                  :align-items    "center"
                  :gap            "10px"
                  :padding        "6px 12px"
-                 :background     "#252526"
+                 :background     (:bg-2 colors/tokens)
                  :border-bottom  "1px solid #444"
                  :font-family    mono-stack
                  :font-size      "11px"
@@ -222,7 +223,7 @@
                  :flex-wrap      "wrap"}
    :axis-label  {:font-size       "10px"
                  :text-transform  "uppercase"
-                 :color           "#9a9a9a"
+                 :color           (:text-tertiary colors/tokens)
                  :letter-spacing  "0.5px"
                  :margin-right    "4px"}
    :axis-group  {:display     "flex"
@@ -232,8 +233,8 @@
                  :gap       "4px"
                  :flex-wrap "wrap"}
    :chip        {:padding         "3px 8px"
-                 :background      "#37373d"
-                 :color           "#cccccc"
+                 :background      (:bg-3 colors/tokens)
+                 :color           (:text-primary colors/tokens)
                  :border          "none"
                  :border-radius   "10px"
                  :cursor          "pointer"
@@ -244,18 +245,18 @@
                  :text-overflow   "ellipsis"
                  :white-space     "nowrap"
                  :user-select     "none"}
-   :chip-active {:background "#0e639c"
+   :chip-active {:background (:accent-amber colors/tokens)
                  :color      "white"}
    :spacer      {:flex "1"}
    :reset       {:padding       "3px 8px"
                  :background    "transparent"
-                 :color         "#cccccc"
+                 :color         (:text-primary colors/tokens)
                  :border        "1px solid #444"
                  :border-radius "3px"
                  :cursor        "pointer"
                  :font-family   mono-stack
                  :font-size     "10px"}
-   :empty       {:color       "#9a9a9a"
+   :empty       {:color       (:text-tertiary colors/tokens)
                  :font-style  "italic"
                  :font-size   "11px"}})
 

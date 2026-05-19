@@ -4,15 +4,16 @@
   ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
 
   CLJS-only."
-  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
+  (:require [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 (def styles
   {:root      {:display "flex"
                :flex-direction "column"
                :height "100vh"
                :font-family sans-stack
-               :background "#1e1e1e"
-               :color "#ddd"}
+               :background (:bg-canvas colors/tokens)
+               :color (:text-primary colors/tokens)}
    :body      {:display "flex"
                :flex-direction "row"
                :flex "1"
@@ -30,7 +31,7 @@
                :display "flex"
                :flex-direction "column"
                :border-left "1px solid #444"
-               :background "#252526"
+               :background (:bg-2 colors/tokens)
                :overflow "auto"}
    :right-narrow {:width "auto"
                   :max-height "42vh"
@@ -38,7 +39,7 @@
                   :border-top "1px solid #444"}
    :splitter  {:width "10px"
                :flex "0 0 10px"
-               :background "#1e1e1e"
+               :background (:bg-canvas colors/tokens)
                :border "0"
                :border-left "1px solid #333"
                :border-right "1px solid #333"
@@ -51,20 +52,20 @@
                    :width "2px"
                    :height "36px"
                    :transform "translateY(-50%)"
-                   :background "#6a6a6a"
+                   :background (:text-tertiary colors/tokens)
                    :box-shadow "3px 0 0 #6a6a6a"}
-   :splitter-active {:background "#094771"}
+   :splitter-active {:background (:accent-amber-soft colors/tokens)}
    :tab-bar   {:display "flex"
-               :background "#2d2d30"
+               :background (:bg-2 colors/tokens)
                :border-bottom "1px solid #444"
                :font-family mono-stack
                :font-size "11px"}
    :tab       {:padding "6px 12px"
                :cursor "pointer"
-               :color "#b0b0b0"
+               :color (:text-secondary colors/tokens)
                :border-right "1px solid #444"}
    :tab-active {:color "white"
-                :background "#1e1e1e"
+                :background (:bg-canvas colors/tokens)
                 :border-bottom "1px solid #1e1e1e"
                 :margin-bottom "-1px"}
    ;; rf2-pxeko — `?` help-button chip lives top-LEFT of the viewport.

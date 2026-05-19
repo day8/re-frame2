@@ -40,7 +40,8 @@
   active background. Reuses the shape of the tab-bar/tab/tab-active
   styles already defined in `re-frame.story.ui.shell`."
   (:require [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- localStorage persistence -------------------------------------------
 ;;
@@ -121,7 +122,7 @@
 
 (def ^:private styles
   {:strip       {:display          "flex"
-                 :background       "#2d2d30"
+                 :background       (:bg-2 colors/tokens)
                  :border-bottom    "1px solid #444"
                  :font-family      mono-stack
                  :font-size        "11px"
@@ -136,8 +137,8 @@
    ;; set of keys. Same shape as the trace.cljs fix in rf2-fq1yg.
    :tab         {:padding             "6px 14px"
                  :cursor              "pointer"
-                 :color               "#b0b0b0"
-                 :background          "#2d2d30"
+                 :color               (:text-secondary colors/tokens)
+                 :background          (:bg-2 colors/tokens)
                  :border-top          "none"
                  :border-right        "1px solid #444"
                  :border-bottom       "none"
@@ -146,16 +147,16 @@
                  :font-size           "11px"
                  :letter-spacing      "0.3px"}
    :tab-active  {:color            "white"
-                 :background       "#1e1e1e"
+                 :background       (:bg-canvas colors/tokens)
                  :border-bottom    "1px solid #1e1e1e"
                  :margin-bottom    "-1px"
                  :font-weight      "bold"}
    :placeholder {:padding          "32px"
-                 :color            "#9a9a9a"
+                 :color            (:text-tertiary colors/tokens)
                  :font-style       "italic"
                  :font-family      sans-stack
                  :text-align       "center"
-                 :background       "#1e1e1e"
+                 :background       (:bg-canvas colors/tokens)
                  :flex             "1"}})
 
 ;; ---- chip strip ----------------------------------------------------------

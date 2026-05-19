@@ -79,7 +79,8 @@
                    to the renderer."
   (:require [clojure.string :as str]
             #?(:cljs [reagent.core :as r])
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: initial state + transitions
@@ -308,8 +309,8 @@
       :modal        {:width          "640px"
                      :max-width      "90vw"
                      :max-height     "80vh"
-                     :background     "#1e1e1e"
-                     :color          "#ddd"
+                     :background     (:bg-canvas colors/tokens)
+                     :color          (:text-primary colors/tokens)
                      :border         "1px solid #444"
                      :border-radius  "6px"
                      :padding        "16px"
@@ -321,10 +322,10 @@
                      :box-shadow     "0 12px 32px rgba(0,0,0,0.7)"
                      :overflow       "hidden"}
       :modal-title  {:font-weight "bold"
-                     :color       "#9cdcfe"
+                     :color       (:info colors/tokens)
                      :font-size   "13px"}
       :id-input     {:padding       "6px 8px"
-                     :background    "#252526"
+                     :background    (:bg-2 colors/tokens)
                      :color         "white"
                      :border        "1px solid #444"
                      :border-radius "3px"
@@ -333,7 +334,7 @@
                      :width         "100%"
                      :box-sizing    "border-box"}
       :snippet      {:background    "#0e0e10"
-                     :color         "#dcdcaa"
+                     :color         (:warning colors/tokens)
                      :padding       "10px"
                      :border        "1px solid #333"
                      :border-radius "4px"
@@ -348,7 +349,7 @@
                      :gap             "8px"
                      :justify-content "flex-end"}
       :btn          {:padding       "5px 12px"
-                     :background    "#0e639c"
+                     :background    (:accent-amber colors/tokens)
                      :color         "white"
                      :border        "none"
                      :border-radius "3px"
@@ -357,13 +358,13 @@
                      :font-size     "11px"}
       :btn-muted    {:padding       "5px 12px"
                      :background    "transparent"
-                     :color         "#cccccc"
+                     :color         (:text-primary colors/tokens)
                      :border        "1px solid #444"
                      :border-radius "3px"
                      :cursor        "pointer"
                      :font-family   mono-stack
                      :font-size     "11px"}
-      :hint         {:color       "#9a9a9a"
+      :hint         {:color       (:text-tertiary colors/tokens)
                      :font-style  "italic"
                      :font-size   "10px"}}))
 

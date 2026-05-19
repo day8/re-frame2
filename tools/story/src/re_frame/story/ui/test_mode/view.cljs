@@ -59,7 +59,8 @@
             [re-frame.story.ui.test-mode.state         :as state]
             [re-frame.story.ui.test-mode.stepper-view  :as stepper-view]
             [re-frame.story.ui.test-mode.view-styles   :refer [styles]]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
 ;; leaf, no Reagent dep). Required as `styles` above so the in-file
@@ -180,13 +181,13 @@
                :data-test "story-test-scrubber-section"}
          [:div {:style (:scrub-h styles)}
           [:span "Step-through"]
-          [:span {:style {:color "#9a9a9a" :font-weight "normal"}}
+          [:span {:style {:color (:text-tertiary colors/tokens) :font-weight "normal"}}
            (cond
              (not has-epochs?)        (str n " steps · no epoch buffer")
              (some? selected-step)    (str "step " (inc selected-step) "/" n)
              :else                    (str n " steps"))]]
          (if-not has-epochs?
-           [:div {:style     {:color       "#9a9a9a"
+           [:div {:style     {:color       (:text-tertiary colors/tokens)
                               :font-style  "italic"
                               :font-size   "11px"
                               :font-family mono-stack}
@@ -358,7 +359,7 @@
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
    [:div {:style {:font-weight "bold" :margin-bottom "8px"
-                  :color "#cccccc"}}
+                  :color (:text-primary colors/tokens)}}
     "No tests registered for this variant"]
    [:div
     "Add a "

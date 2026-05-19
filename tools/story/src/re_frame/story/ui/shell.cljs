@@ -89,7 +89,8 @@
             [re-frame.story.ui.viewport-switcher :as viewport-switcher]
             [re-frame.story.ui.workspace :as workspace]
             [re-frame.story.backgrounds :as backgrounds]
-            [re-frame.story.viewport :as viewport]))
+            [re-frame.story.viewport :as viewport]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -673,7 +674,7 @@
                     [framed-canvas])
        :else
        [:div {:style {:padding "32px"
-                      :color "#9a9a9a"
+                      :color (:text-tertiary colors/tokens)
                       :font-style "italic"
                       :text-align "center"}}
         "Select a variant or workspace from the sidebar."])

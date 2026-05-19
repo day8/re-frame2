@@ -71,7 +71,8 @@
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
             #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: payload parsing -----------------------------------------------
 
@@ -450,13 +451,13 @@
                        :font-family mono-stack
                        :font-size "11px"
                        :border-top "1px solid #444"
-                       :background "#1e1e1e"
-                       :color "#ddd"
+                       :background (:bg-canvas colors/tokens)
+                       :color (:text-primary colors/tokens)
                        :overflow "auto"
                        :max-height "320px"}
       :title          {:font-weight "bold"
                        :margin-bottom "6px"
-                       :color "#9cdcfe"
+                       :color (:info colors/tokens)
                        :display "flex"
                        :justify-content "space-between"
                        :align-items "center"
@@ -469,14 +470,14 @@
                        :gap "6px"
                        :margin-bottom "4px"
                        :align-items "center"}
-      :label          {:color "#9a9a9a"
+      :label          {:color (:text-tertiary colors/tokens)
                        :width "70px"
                        :flex "0 0 70px"
                        :font-size "10px"
                        :text-transform "uppercase"
                        :letter-spacing "0.5px"}
       :input          {:flex "1 1 auto"
-                       :background "#252526"
+                       :background (:bg-2 colors/tokens)
                        :color "#d0d0d0"
                        :border "1px solid #444"
                        :border-radius "3px"
@@ -488,21 +489,21 @@
                        :gap "6px"
                        :margin "6px 0"}
       :btn            {:padding "3px 8px"
-                       :background "#2d2d30"
+                       :background (:bg-2 colors/tokens)
                        :color "#d0d0d0"
                        :border "1px solid #444"
                        :border-radius "3px"
                        :font-family mono-stack
                        :font-size "10px"
                        :cursor "pointer"}
-      :btn-primary    {:background "#0e639c"
+      :btn-primary    {:background (:accent-amber colors/tokens)
                        :color "white"
-                       :border-color "#0e639c"}
-      :btn-secondary  {:background "#264f78"
+                       :border-color (:accent-amber colors/tokens)}
+      :btn-secondary  {:background (:tag-dev-bg colors/tokens)
                        :color "white"
-                       :border-color "#264f78"}
-      :error          {:color "#fdd"
-                       :background "#5a1d1d"
+                       :border-color (:tag-dev-bg colors/tokens)}
+      :error          {:color (:danger colors/tokens)
+                       :background (:danger-bg colors/tokens)
                        :border "1px solid #be4040"
                        :padding "4px 6px"
                        :margin "4px 0"
@@ -516,7 +517,7 @@
                        :margin "2px 0 0 0"
                        :padding "0"
                        :list-style "none"
-                       :background "#252526"
+                       :background (:bg-2 colors/tokens)
                        :border "1px solid #444"
                        :border-radius "3px"
                        :max-height "200px"
@@ -524,14 +525,14 @@
                        :z-index 100}
       :ac-item        {:padding "3px 6px"
                        :cursor "pointer"
-                       :color "#dcdcaa"}
-      :ac-item-hover  {:background "#37373d"}
+                       :color (:warning colors/tokens)}
+      :ac-item-hover  {:background (:bg-3 colors/tokens)}
       :history-host   {:max-height "160px"
                        :overflow-y "auto"
                        :border-top "1px dotted #333"
                        :padding-top "4px"
                        :margin-top "6px"}
-      :history-title  {:color "#9a9a9a"
+      :history-title  {:color (:text-tertiary colors/tokens)
                        :font-style "italic"
                        :font-size "10px"
                        :margin-bottom "4px"}
@@ -541,13 +542,13 @@
                        :padding "2px 0"
                        :cursor "pointer"
                        :border-bottom "1px dotted #2a2a2a"}
-      :history-time   {:color "#9a9a9a"
+      :history-time   {:color (:text-tertiary colors/tokens)
                        :font-size "10px"}
-      :history-text   {:color "#dcdcaa"
+      :history-text   {:color (:warning colors/tokens)
                        :overflow "hidden"
                        :text-overflow "ellipsis"
                        :white-space "nowrap"}
-      :empty          {:color "#9a9a9a"
+      :empty          {:color (:text-tertiary colors/tokens)
                        :font-style "italic"
                        :font-size "10px"}}))
 

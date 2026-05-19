@@ -29,7 +29,8 @@
             [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]))
+            [re-frame.story.theme.typography :refer [sans-stack mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- namespace-preserving frame-provider --------------------------------
 ;;
@@ -69,28 +70,28 @@
 
 (def ^:private styles
   {:wrap     {:padding "16px"
-              :background "#1e1e1e"
+              :background (:bg-canvas colors/tokens)
               :flex "1"
               :min-height "200px"
               :overflow "auto"
-              :color "#ddd"
+              :color (:text-primary colors/tokens)
               :font-family sans-stack}
-   :frame    {:background "#252526"
+   :frame    {:background (:bg-2 colors/tokens)
               :border "1px solid #3c3c3c"
               :border-radius "4px"
               :padding "12px"}
-   :empty    {:color "#9a9a9a"
+   :empty    {:color (:text-tertiary colors/tokens)
               :font-style "italic"
               :text-align "center"
               :padding "32px"}
    :title    {:font-weight "bold"
               :margin-bottom "8px"
-              :color "#9cdcfe"
+              :color (:info colors/tokens)
               :font-family mono-stack
               :font-size "12px"}
-   :error    {:background "#5a1d1d"
+   :error    {:background (:danger-bg colors/tokens)
               :border "1px solid #be4040"
-              :color "#fdd"
+              :color (:danger colors/tokens)
               :padding "8px"
               :margin-top "8px"
               :font-family mono-stack
@@ -101,7 +102,7 @@
                :margin "2px 0"
                :font-family mono-stack
                :font-size "11px"
-               :background "#332"}})
+               :background (:danger-bg colors/tokens)}})
 
 ;; ---- variant view resolution --------------------------------------------
 
@@ -147,14 +148,14 @@
        [:div {:style {:margin-top "4px"}}
         (str (.-message e))]
        (when-let [ids (seq (keep :id hiccup-decorators))]
-         [:div {:style {:margin-top "4px" :color "#fbb"}}
+         [:div {:style {:margin-top "4px" :color (:danger colors/tokens)}}
           (str "decorators in stack: "
                (str/join ", " (map pr-str ids)))])
        ;; Render the variant body itself uncoated so the user still sees
        ;; *something* — the page never blanks on a decorator failure.
        [:div {:style {:margin-top "8px"
                       :padding "8px"
-                      :background "#1e1e1e"
+                      :background (:bg-canvas colors/tokens)
                       :border "1px dashed #555"}}
         view-hiccup]])))
 
@@ -267,10 +268,10 @@
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
       (when view-id
-        [:span {:style {:color "#9a9a9a" :margin-left "8px"}}
+        [:span {:style {:color (:text-tertiary colors/tokens) :margin-left "8px"}}
          (str "→ " (pr-str view-id))])
       (when multi?
-        [:span {:style {:color "#b0b0b0" :margin-left "8px"
+        [:span {:style {:color (:text-secondary colors/tokens) :margin-left "8px"
                         :font-size "10px" :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))

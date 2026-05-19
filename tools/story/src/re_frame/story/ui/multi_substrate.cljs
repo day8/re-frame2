@@ -34,7 +34,8 @@
             [re-frame.story.args :as args]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.ui.state :as state]
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -43,23 +44,23 @@
                 :grid-template-columns "repeat(auto-fit, minmax(280px, 1fr))"
                 :gap "12px"
                 :padding "12px"
-                :background "#1e1e1e"
+                :background (:bg-canvas colors/tokens)
                 :flex "1"
                 :overflow "auto"}
-   :cell       {:background "#252526"
+   :cell       {:background (:bg-2 colors/tokens)
                 :border "1px solid #3c3c3c"
                 :border-radius "4px"
                 :display "flex"
                 :flex-direction "column"
                 :min-height "160px"
-                :color "#cccccc"
+                :color (:text-primary colors/tokens)
                 :font-family mono-stack
                 :font-size "11px"
                 :position "relative"}
    :cell-head  {:padding "6px 10px"
-                :background "#2d2d30"
+                :background (:bg-2 colors/tokens)
                 :border-bottom "1px solid #444"
-                :color "#9cdcfe"
+                :color (:info colors/tokens)
                 :font-weight "bold"
                 :font-size "10px"
                 :letter-spacing "0.5px"
@@ -67,9 +68,9 @@
                 :border-radius "4px 4px 0 0"}
    :cell-body  {:padding "10px"
                 :flex 1}
-   :error-cell {:background "#5a1d1d"
+   :error-cell {:background (:danger-bg colors/tokens)
                 :border "1px solid #be4040"
-                :color "#fdd"
+                :color (:danger colors/tokens)
                 :border-radius "4px"
                 :font-family mono-stack
                 :font-size "11px"}
@@ -132,7 +133,7 @@
   (let [resolved (rf/view view-id)]
     (if resolved
       [resolved eff-args]
-      [:div {:style {:color "#b0b0b0" :font-style "italic"}}
+      [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
        (str ":component " (pr-str view-id) " is not registered as a view")])))
 
 (defn install-reagent-substrate!

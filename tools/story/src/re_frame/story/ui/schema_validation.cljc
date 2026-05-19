@@ -83,7 +83,8 @@
                        [re-frame.story.registrar  :as story-registrar]
                        [re-frame.story.ui.trace-buffer :as trace-buffer]
                        [re-frame.registrar        :as framework-registrar]])
-            [re-frame.story.theme.typography :refer [mono-stack]]))
+            [re-frame.story.theme.typography :refer [mono-stack]]
+            [re-frame.story.theme.colors :as colors]))
 
 ;; ---- pure: classify a trace event ---------------------------------------
 
@@ -337,8 +338,8 @@
 #?(:cljs
    (def ^:private styles
      {:wrap         {:padding "8px"
-                     :background "#252526"
-                     :color "#cccccc"
+                     :background (:bg-2 colors/tokens)
+                     :color (:text-primary colors/tokens)
                      :font-family mono-stack
                      :font-size "11px"
                      :border-top "1px solid #444"
@@ -346,27 +347,27 @@
                      :max-height "320px"}
       :section      {:margin-bottom "10px"}
       :section-h    {:font-weight "bold"
-                     :color "#b0b0b0"
+                     :color (:text-secondary colors/tokens)
                      :text-transform "uppercase"
                      :font-size "10px"
                      :letter-spacing "0.5px"
                      :margin-bottom "4px"}
-      :hint         {:color "#9a9a9a"
+      :hint         {:color (:text-tertiary colors/tokens)
                      :font-style "italic"
                      :font-size "10px"
                      :margin-bottom "4px"}
-      :empty        {:color "#9a9a9a"
+      :empty        {:color (:text-tertiary colors/tokens)
                      :font-style "italic"
                      :padding "2px 0"}
       :violation    {:padding "4px 6px"
                      :margin "2px 0"
-                     :background "#332"
+                     :background (:danger-bg colors/tokens)
                      :border-left "3px solid #ff4040"
-                     :color "#fdd"}
-      :v-key        {:color "#dcdcaa"
+                     :color (:danger colors/tokens)}
+      :v-key        {:color (:warning colors/tokens)
                      :font-weight "bold"}
-      :v-value      {:color "#9cdcfe"}
-      :v-schema     {:color "#ce9178"
+      :v-value      {:color (:info colors/tokens)}
+      :v-schema     {:color (:tag-experimental-fg colors/tokens)
                      :font-size "10px"}
       :v-explain    {:color "#aaa"
                      :font-size "10px"
@@ -380,10 +381,10 @@
       :cell         {:overflow "hidden"
                      :text-overflow "ellipsis"
                      :white-space "nowrap"}
-      :cell-time    {:color "#9a9a9a"}
-      :cell-where   {:color "#9cdcfe"
+      :cell-time    {:color (:text-tertiary colors/tokens)}
+      :cell-where   {:color (:info colors/tokens)
                      :font-style "italic"}
-      :cell-detail  {:color "#dcdcaa"}}))
+      :cell-detail  {:color (:warning colors/tokens)}}))
 
 ;; ---- CLJS: render helpers -----------------------------------------------
 
@@ -521,7 +522,7 @@
                [:div {:data-test "story-schema-trace-rows"}
                 [:div {:style (merge (:row styles)
                                      {:font-weight "bold"
-                                      :color       "#b0b0b0"})}
+                                      :color       (:text-secondary colors/tokens)})}
                  [:span {:style (:cell styles)} "time"]
                  [:span {:style (:cell styles)} "where"]
                  [:span {:style (:cell styles)} "detail"]]
