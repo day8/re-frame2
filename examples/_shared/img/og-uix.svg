@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Open Graph card · UIx substrate (rf2-3zibv).
+     UIx 'Swiss Modern' identity: cool concrete bg, near-black ink,
+     electric cyan accent, hard-offset shadows, tracked uppercase. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="0" cy="0" r="1.5" fill="#0A0F14" opacity="0.08"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="#EFF2F5"/>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+  <text x="80" y="180" font-family="'Space Grotesk', Helvetica, sans-serif" font-size="64" font-weight="600" fill="#0A0F14">re-frame2</text>
+  <text x="80" y="340" font-family="'Space Grotesk', Helvetica, sans-serif" font-size="128" font-weight="700" letter-spacing="-0.03em" fill="#0A0F14">EXAMPLES</text>
+  <text x="80" y="400" font-family="'Space Grotesk', sans-serif" font-size="36" fill="#4A5560">UIx · worked examples for the modern Clojure framework</text>
+  <rect x="80" y="450" width="120" height="4" fill="#00B4D8"/>
+  <text x="80" y="510" font-family="'Space Mono', monospace" font-size="22" fill="#4A5560" letter-spacing="0.18em">UIX · SWISS MODERN</text>
+  <!-- monogram with hard-offset shadow -->
+  <g transform="translate(1010,80)">
+    <rect x="6" y="6" width="100" height="100" fill="#0A0F14"/>
+    <rect width="100" height="100" fill="#FFFFFF" stroke="#0A0F14" stroke-width="2"/>
+    <text x="50" y="68" text-anchor="middle" font-family="'Space Grotesk', sans-serif" font-size="56" font-weight="700" fill="#0A0F14">r2</text>
+    <rect x="20" y="82" width="60" height="4" fill="#00B4D8"/>
+  </g>
+</svg>
