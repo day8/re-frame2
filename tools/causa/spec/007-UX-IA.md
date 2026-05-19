@@ -365,6 +365,97 @@ browse-all entry point under a future Static surface; the registered
 re-implement engine algebra. Until that lands, programmatic callers
 can drive Sim against `:rf/causa` directly.
 
+### Interactive Machines canvas (rf2-y3l8z)
+
+Every per-machine section in the Runtime Machines panel wraps its
+chart in an interactive viewport adapter (`panels/machine_canvas.cljs`
+→ `chart/controls.cljc`). The chart is no longer a static SVG paint;
+it pans, zooms, and fits to viewport.
+
+```
+┌─ :auth/login   :idle → :authing                          [:auth/submit] ─┐
+│ ┌─[Canvas|List]──────────────────────────────────[− 100% +] [Fit][Reset]┐│
+│ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
+│ │ · · ▢ idle ──→ ▣ authing · · · · · · · · · · · · · · · · · · · · · · ││
+│ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
+│ │ · · · · · · · ◔ :after rings track node centres under zoom + pan · · ││
+│ └─────────────────────────────────────────────────────────────────────┘│
+│ Guards   ✓ :session-fresh?                                              │
+│ Actions  ✓ :clear-form                                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Toolbar (top-right of every canvas):**
+
+- `−` / `+` — Zoom out / Zoom in about the viewport centre.
+- `NN%` chip — current zoom level, integer percentage.
+- `Fit` — fits the laid-out content into the viewport with padding
+  on all sides; centred. (Toolbar emits `:fit-request` which the
+  Causa-side handler expands to a full `:fit` using the measured
+  viewport dims + the content dims from `chart/layout`.)
+- `Reset` — zoom 100%, pan (0, 0).
+
+**View-mode toggle (top-left of every canvas):**
+
+A two-button pill — **Canvas** | **List**. Per-machine slot,
+persisted to localStorage under
+`causa.machine-canvas.view-mode-by-id`. Canvas is the default; List
+opt-out renders the section without the chart (guards + actions
+only) for users who want a leaner per-event read or who prefer the
+old text-first surface.
+
+**Direct manipulation:**
+
+- **Mouse wheel** zooms toward the cursor (wheel-toward-cursor
+  invariant — the chart-world coord under the cursor is fixed
+  through the zoom transition). Trackpad pinch arrives as a wheel
+  event with `ctrlKey=true`; both are accepted.
+- **Click-drag** anywhere on canvas background (not on a state
+  node) pans. The drag handler walks up to 5 DOM ancestors looking
+  for `data-testid` starting `rf-causa-chart-node-` /
+  `rf-causa-chart-edge-`; clicks that hit a node fall through to
+  the node's own `:on-click` (state-click event).
+
+**Keyboard shortcuts** (chart canvas must hold focus — `tabIndex=0`
+on the canvas host):
+
+| Key | Action |
+|---|---|
+| `+` / `=`  | Zoom in (about viewport centre) |
+| `-` / `_`  | Zoom out (about viewport centre) |
+| `0`        | Reset (100%, pan 0,0) |
+| `f` / `F`  | Fit to viewport |
+| `←` / `→`  | Pan horizontally (20px / press) |
+| `↑` / `↓`  | Pan vertically (20px / press) |
+
+**Bounds:** zoom is clamped to `[0.2, 4.0]`. Wheel notches step
+×1.1; toolbar +/- and `+`/`-` keys step ×1.2.
+
+**`:after` rings track the canvas (rf2-obp4z).** The countdown-ring
+overlay receives the same viewport-transform the chart applies and
+wraps its rings group in `translate(tx,ty) scale(s)`. Rings stay
+anchored to their bearing-state node centres at every zoom + pan.
+
+**Reduced motion.** Toolbar buttons + the canvas transform ride
+Causa's `--rf-causa-motion-scale` seam — no extra wiring here;
+motion shrinks to ~0 under `prefers-reduced-motion: reduce` along
+with the rest of Causa's surface.
+
+**State (app-db slots under `:rf.causa/machine-canvas`):**
+
+| Slot | Shape | Purpose |
+|---|---|---|
+| `:viewports {<machine-id> {:scale :tx :ty}}` | per-machine `{:scale s :tx tx :ty ty}` | current viewport |
+| `:view-mode-by-id {<machine-id> :canvas|:list}` | per-machine | view-mode toggle; localStorage-persisted |
+| `:viewport-dims {<machine-id> {:width :height}}` | per-machine | last-measured viewport box (drives `:fit`, keyboard) |
+| `:drag {:machine-id … :dragging? :origin-x :origin-y :origin-viewport}` | transient | mouse-down pan accumulator; cleared on mouseup |
+
+Subscriptions exposed for tools / tests:
+`:rf.causa.machine-canvas/viewport-for`,
+`:rf.causa.machine-canvas/view-mode-for`,
+`:rf.causa.machine-canvas/view-mode-by-id`,
+`:rf.causa.machine-canvas/viewport-dims-for`.
+
 ## IN/OUT filter pills
 
 Live in the L1 ribbon (NOT a separate L1.5 strip; NOT a sidebar).
@@ -686,6 +777,21 @@ active panel). `Esc` always returns focus to the event list.
 |---|---|
 | `Tab` / `Shift+Tab` | Cycle focusables |
 | `Esc` | Return focus to event list |
+
+### Machines canvas (when chart canvas holds focus — rf2-y3l8z)
+
+| Key | Action |
+|---|---|
+| `+` / `=` | Zoom in (about viewport centre) |
+| `-` / `_` | Zoom out (about viewport centre) |
+| `0` | Reset to 100%, pan 0,0 |
+| `f` / `F` | Fit to viewport |
+| `←` `→` `↑` `↓` | Pan 20px / press |
+
+The canvas shortcuts only fire while the canvas host (`tabIndex=0`)
+is the active focus target — they are scoped to a clicked-into chart
+and do not collide with the global Causa keymap. Wheel-zoom +
+click-drag pan have no keyboard equivalent.
 
 ### Retired keys (from pre-rewrite spec)
 
