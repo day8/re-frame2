@@ -177,21 +177,33 @@ Effects panel) is reachable via the Cmd-K palette under the `:fx`
 source — registered handler ids + invocation counts. No standalone
 tab.
 
-## Flows content — folded into Views tab
+## Flows content — Event tab FLOWS section (rf2-lo37i)
 
-The pre-rewrite Flows panel is GONE. Flows surface where they actually
-matter: in the **Views tab** (tab 3 of 6) "Re-rendered" group, when a
-flow's downstream sub recomputed.
+The pre-rewrite Flows panel is GONE. Flows surface as the **8th
+section of the Event tab** — the canonical home for per-cascade flow
+firings is [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 FLOWS
+section. For each flow that fired during the focused cascade the
+FLOWS section lists, in cascade order:
 
-When a flow's output sub appears in a view's "Rerendered because" list
-(per [`012-Views.md`](./012-Views.md) §Three-group layout
-Re-rendered), the sub-id renders with a `⊳` flow-glyph prefix to
-distinguish flow-output subs from hand-written subs. The flow's input
-paths + output path + recompute reason are surfaced in the
-per-component drilldown's "Subs consumed" block.
+- `wrote <path>` — the flow's `:output` write target with the
+  after-value rendered inline.
+- `read <input-path-1> <input-path-2> …` — the flow's `:inputs`,
+  shown so the reader can see which paths caused the recompute.
 
-A registered-flows-overview reachable via the Cmd-K palette under the
-`:flow` source: flow-id, inputs, output path, last recompute. No
+The FLOWS section sits as a peer of EFFECTS / HANDLERS RAN / the
+returned-value slot under the per-event cascade view (see 018 §5.1
+lines 442-451 wireframe, 507-531 row contract).
+
+A **secondary** appearance is in the **Views tab** "Re-rendered"
+group (cross-cutting): when a flow's downstream sub appears in a
+view's *Rerendered because* list (per
+[`012-Views.md`](./012-Views.md) §Three-group layout Re-rendered),
+the sub-id carries a `⊳` flow-glyph prefix that distinguishes
+flow-output subs from hand-written subs. Click-through from the
+Views entry jumps to the Event tab's FLOWS section for that cascade.
+
+A registered-flows-overview is reachable via the Cmd-K palette under
+the `:flow` source: flow-id, inputs, output path, last recompute. No
 standalone tab.
 
 ## Issues ribbon
