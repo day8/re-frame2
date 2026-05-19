@@ -214,6 +214,13 @@ The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-
 | `[:dispatch event-vec]` | event vector | Convenience for `[:fx :dispatch event-vec]`. |
 | `[:dispatch-sync event-vec]` | event vector | (fx handler bodies) invokes `dispatch-sync` synchronously through the runner. The router's `:in-drain?` guard catches the call and emits `:rf.error/dispatch-sync-in-handler` (Cross-Spec Interaction §14). Used by fixtures pinning the ban; outside of that the `:dispatch` async path is the canonical chain shape. |
 
+In addition, `:fixture/dispatches` accepts two harness-level map forms (alongside event-vector entries) that drive registrar-level operations between dispatches:
+
+| Form | Meaning |
+|---|---|
+| `{:destroy-frame <frame-id>}` | Call `destroy-frame!` on the named frame. The machine-cascade teardown hook fires (`:rf.machine.lifecycle/destroyed` per active machine), the sub-cache disposes, the substrate releases frame-scoped resources, and `:frame/destroyed` trace fires. Used by Cross-Spec Interaction §1's fixture. |
+| `{:reg-sub <sub-id> :body <sub-body-dsl>}` | Re-register the sub with a new body realised via the conformance sub-DSL interpreter. The registrar's replacement hook fires (`:rf.registry/handler-replaced` with `:kind :sub`), invalidating the cache slot for that query-id. Used by Cross-Spec Interaction §18's fixture. |
+
 **Control / failure ops:**
 
 | Op | Signature | Meaning |
@@ -361,6 +368,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `cross-spec-machines-under-ssr.edn` | `:cross-spec/machines-under-ssr` | Cross-Spec #4 (Machines × SSR): under `:platform :server`, entering an `:after`-bearing state emits `:rf.machine.timer/skipped-on-server` in place of `/scheduled` — no host-clock timer is installed; the machine's snapshot still lands at the `:after`-bearing state |
 | `cross-spec-dispatch-sync-in-handler.edn` | `:cross-spec/dispatch-sync-in-handler` | Cross-Spec #14 (Drain loop × Substrate): a handler that triggers `dispatch-sync` mid-drain (directly or transitively via a naive fx-side chain) trips the router's `:in-drain?` guard and emits `:rf.error/dispatch-sync-in-handler` with `:no-recovery`; the would-be leaf handler does NOT run. Pins the substrate-level ban; render-time observables are out-of-scope so the fx path is the corpus's testable seam |
 | `cross-spec-server-error-projection.edn` | `:cross-spec/server-error-projection` | Cross-Spec #16 (Errors × SSR): an fx handler throws on a server frame; the runtime emits `:rf.error/fx-handler-exception` with the original exception detail; the active error projector maps it to the locked generic-500 public-error on the request frame's response accumulator. The trace stream preserves full detail; the public-error is sanitised — the projector IS the sanitisation seam |
+| `cross-spec-hot-reload-sub-mid-cascade.edn` | `:cross-spec/hot-reload-sub-mid-cascade` | Cross-Spec #18 (Subscriptions × Hot-reload): re-registering a sub via the harness's `{:reg-sub <id> :body <body>}` step disposes the per-frame cache slot for that query-id; subsequent subscribes build against the new body. The registrar emits `:rf.registry/handler-replaced` with `:kind :sub` + `:id` + `:different-fn?`; the post-replacement sub-value confirms the cache was invalidated and the new body is active |
 
 Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
 

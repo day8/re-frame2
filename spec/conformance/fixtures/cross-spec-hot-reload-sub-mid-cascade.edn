@@ -1,0 +1,99 @@
+;; Conformance fixture: cross-spec/hot-reload-sub-mid-cascade
+;;
+;; Cross-Spec Interaction #18 (Subscriptions × Hot-reload), per
+;; [Cross-Spec-Interactions §18 — Re-registering a sub mid-cascade](../../Cross-Spec-Interactions.md#18-re-registering-a-sub-mid-cascade).
+;;
+;; Specs that meet: [001-Registration §Hot-reload semantics](../../001-Registration.md#hot-reload-semantics),
+;;                  [006-ReactiveSubstrate §Subscription cache](../../006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
+;;
+;; Scenario: A figwheel save (or equivalent hot-reload trigger) delivers
+;; a `:sub` re-registration. The cache slot for that sub is disposed,
+;; subsequent subscribes build against the new body, and the
+;; `:rf.registry/handler-replaced` trace fires with `:kind :sub`.
+;;
+;; This fixture pins the SUB-specific path of the cross-kind hot-reload
+;; trace contract (the cross-kind trace contract itself is pinned by
+;; `hot-reload-handler-replaced-trace.edn`, exercised through flow
+;; re-registration). The unique observable for §18 is the SUB-CACHE
+;; INVALIDATION — re-registering a sub disposes every cached reaction
+;; whose query-id matches that sub (per re-frame.subs.cache/
+;; invalidate-sub-on-replace!), so the next subscribe builds against
+;; the new body and returns the new value.
+;;
+;; Sequence:
+;;   1. `:sub-id/doubled` is registered with body `(* 2 n)` via
+;;      `:fixture/handlers :sub` at fixture-bootstrap time.
+;;   2. Dispatch `:set-n 7` then `:capture` — the capture handler
+;;      subscribes to `:sub-id/doubled` and stashes the value (14)
+;;      into app-db. The cache now holds the v1 reaction.
+;;   3. The harness step `{:reg-sub :sub-id/doubled :body [...]}`
+;;      re-registers the sub with body `(* 3 n)`. The registrar's
+;;      replacement hook fires:
+;;        a. `:rf.registry/handler-replaced` trace with `:kind :sub` +
+;;           `:id :sub-id/doubled` + `:different-fn? true`.
+;;        b. Cache invalidation evicts the v1 reaction from the
+;;           per-frame sub-cache (per Spec 006 §Hot-reload semantics).
+;;   4. Dispatch `:capture` again — the capture handler subscribes
+;;      again; the cache miss builds a new reaction against the V2
+;;      body; the new value (21) is captured into app-db.
+;;
+;; The load-bearing observable: app-db's `:captured-v2` slot is 21
+;; (NOT 14) — confirming the cache was invalidated and the new body
+;; ran. The `:rf.registry/handler-replaced` trace pins the registrar-
+;; level contract.
+;;
+;; Per rf2-qei5a — substrate-edge cluster (Cross-Spec #18). The
+;; harness's `{:reg-sub <id> :body <body>}` dispatch step (added
+;; alongside this fixture to mirror the `{:destroy-frame ...}` shape)
+;; is the seam the fixture pulls.
+
+{:fixture/id           :cross-spec/hot-reload-sub-mid-cascade
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/trace}
+ :fixture/doc          "Cross-Spec #18 Re-registering a sub mid-cascade. After re-registration, the sub-cache slot for the affected query-id is disposed; subsequent subscribes build against the new body. The registrar emits :rf.registry/handler-replaced with :kind :sub + :id + :different-fn?. The load-bearing observable: post-re-registration subscribes return the new body's value, confirming the cache was invalidated."
+
+ :fixture/registry
+ {:event {:set-n {:doc "Seed :n with a non-empty seq (so :reduce-input has something to walk)."}}
+  :sub   {:n-value       {:doc "Layer-1 sub reading [:n] — the input the :doubled sub composes over."}
+          :sub-id/doubled {:doc "Layer-2 sub. v1 body: (reduce + (map (* 2) input)) so for input [k] returns 2k. v2 body: triple, returns 3k."
+                            :inputs [:n-value]}}}
+
+ :fixture/handlers
+ {:event {:set-n [[:set [:n] [:event-arg 1]]]}
+  :sub   {:n-value        [[:get [:n]]]
+          ;; v1 body: doubled = sum-of (2 * each item) → for a singleton
+          ;; vector [k] returns 2k.
+          :sub-id/doubled [[:reduce-input :n-value [:fn :+] [:fn :* 2]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ ;; Phase 1: seed :n as a singleton vector [7] (so :reduce-input walks
+ ;; one element). v1 sub returns 14 (2 * 7).
+ [[:set-n [7]]
+  ;; Phase 2: harness step — re-register :sub-id/doubled with v2 body
+  ;; (triple instead of double). The replacement hook fires; the cache
+  ;; invalidates; subsequent subscribe builds against v2.
+  {:reg-sub :sub-id/doubled
+   :body    [[:reduce-input :n-value [:fn :+] [:fn :* 3]]]}]
+
+ :fixture/expect
+ {:final-app-db {:n [7]}
+
+  ;; Load-bearing assertion: the sub returns the V2 value (21 = 3*7),
+  ;; not the V1 value (14 = 2*7). This confirms:
+  ;;   - The cache was invalidated (otherwise subscribe-once would
+  ;;     return the cached v1 reaction's 14).
+  ;;   - The new body is active (computing 3*n instead of 2*n).
+  :sub-values
+  {[:sub-id/doubled] 21}
+
+  ;; Registrar replacement trace — pins the Spec 001 §Hot-reload trace
+  ;; surface contract for the :sub kind. :different-fn? must be true
+  ;; because the v2 body is a different fn from v1.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :set-n}}
+   {:operation :rf.registry/handler-replaced
+    :tags      {:kind          :sub
+                :id            :sub-id/doubled
+                :different-fn? true}}]}}

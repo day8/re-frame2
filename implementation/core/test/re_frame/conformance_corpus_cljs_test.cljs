@@ -910,7 +910,8 @@
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
           _            (realise-flows! fixture)
-          dispatches   (or (:fixture/dispatches fixture) [])]
+          dispatches   (or (:fixture/dispatches fixture) [])
+          sub-registry (get-in fixture [:fixture/registry :sub] {})]
       (doseq [ev dispatches]
         (cond
           (map? ev)
@@ -920,6 +921,18 @@
             ;; Mirrors the JVM runner.
             (contains? ev :destroy-frame)
             (rf/destroy-frame! (:destroy-frame ev))
+
+            ;; Harness re-registration step `{:reg-sub <sub-id> :body
+            ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a).
+            (contains? ev :reg-sub)
+            (let [sub-id        (:reg-sub ev)
+                  steps         (:body ev)
+                  realised      (conformance/realise-sub steps)
+                  realised-body (:body realised)
+                  sub-meta      (get sub-registry sub-id {})]
+              (if (seq sub-meta)
+                (rf/reg-sub sub-id sub-meta realised-body)
+                (rf/reg-sub sub-id realised-body)))
 
             :else
             (let [{event :event :as opts} ev]
