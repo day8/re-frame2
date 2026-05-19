@@ -99,6 +99,37 @@ The diff flash on epoch land is a 400ms tween (yellow → transparent)
 on each newly-touched slice. Respects `prefers-reduced-motion` — the
 tween becomes a static yellow border for 600ms.
 
+## Path-origin tags (rf2-s8r6c)
+
+Each diff slice header carries a **path-origin tag** identifying
+which step of the focused cascade wrote that path. The tag answers
+*"who wrote this?"* — critical when both the event handler's `:db`
+return and a downstream flow's `:output` touch overlapping paths in
+the same cascade.
+
+| Tag | Source | Visual |
+|---|---|---|
+| `[fx :db]`        | The event handler's `:db` effect return.                                          | Green chip on the slice header. |
+| `[flow :flow-id]` | A flow's `:output` wrote this path during the cascade (see [`spec/013-Flows.md`](../../../spec/013-Flows.md)). | Violet chip on the slice header. |
+| `[mixed]`         | Multiple sources touched this path in this cascade (handler + flow, or multiple flows). | Yellow chip; hovering expands to the per-source breakdown. |
+
+Tags are derived from the trace bus by partitioning the changed-path
+set per writer and union-tagging overlaps. A slice header reads like:
+
+```
+┌─ [:cart :totals :gross]   (modified)   [flow :cart/totals-flow] ─┐
+```
+
+When the focused cascade touches a path from a single source the tag
+is the green or violet chip; when both the handler and a flow touch
+the same path the chip turns yellow `[mixed]` and the hover surfaces
+both writers in cascade order.
+
+The implementation reads `:writer` markers carried on each trace-bus
+entry (Spec 009 §Writer attribution) — Causa does NOT re-derive
+writer identity from the diff; the runtime tags every writer at
+emission and Causa renders the tag.
+
 ## Clickable path segments (rf2-e9tb0)
 
 For each diff path like `[:cart :items 0 :price]`, each segment is

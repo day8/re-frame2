@@ -575,18 +575,18 @@ classification sentinels render per §12.
 │                                                                                          │
 │ ── Changed this cascade (4 slices) ─────────────────────────────────────────────────────│
 │                                                                                          │
-│   [:cart :orders]                                                                        │
+│   [:cart :orders]                                                  [fx :db]              │
 │     0 ▸ {:id 92 :qty 2 :status :idle}                                                    │
 │       → {:id 92 :qty 2 :status :submitting}     (~ status changed)                       │
 │     1 ▸ {:id 91 …}     (unchanged)                                                       │
 │                                                                                          │
-│   [:cart :total]                                                                         │
+│   [:cart :total]                                                   [flow :cart/totals]   │
 │     45.00  →  47.50                                                                      │
 │                                                                                          │
-│   [:cart :submitted-at]                                                                  │
+│   [:cart :submitted-at]                                            [fx :db]              │
 │     nil  →  "2026-05-17T16:42:14.701Z"   (+ added)                                       │
 │                                                                                          │
-│   [:auth :password]                                                                      │
+│   [:auth :password]                                                [mixed]               │
 │     [● REDACTED]  →  [● REDACTED]   (sentinel preserved across diff)                     │
 │                                                                                          │
 │ ── Full tree ▸ collapsed (click to expand) ─────────────────────────────────────────────│
@@ -607,6 +607,15 @@ classification sentinels render per §12.
 | Unchanged (full-tree only) | text-tertiary | (no prefix) |
 
 Container-level changes inherit the worst-of-children colour.
+
+**Path-origin tags (rf2-s8r6c):** each slice header carries a chip
+identifying the cascade-step that wrote the path — `[fx :db]` (green;
+event handler's `:db` return), `[flow :flow-id]` (violet; flow output
+wrote this path), or `[mixed]` (yellow; both handler + flow, or
+multiple flows, touched this path in the same cascade). The canonical
+contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md)
+§Path-origin tags. The chip answers *"who wrote this?"* — critical
+when handler + downstream flow touch overlapping paths.
 
 **Per-leaf classification rendering:** see §12.
 
