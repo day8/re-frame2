@@ -85,6 +85,8 @@
   target."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as cch]
+            [day8.re-frame2-causa.panels.event-detail :as event-detail]
+            [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
@@ -561,16 +563,69 @@
                            :font-size  "12px"}}
     "Clear filters"]])
 
+;; ---- cascade status timeline bar (rf2-b76v4) ---------------------------
+
+(defn- cascade-status-bar
+  "Render the focused cascade's lifecycle-status bar above the trace
+  ribbon. The Trace tab is cascade-scoped (rf2-ycoct) — every visible
+  row already belongs to the focused cascade — so the bar fills the
+  ribbon's full width with the canonical lifecycle colour. This is
+  the bead's 'Trace timeline bar fill' surface: ONE pure-fn-driven
+  bar that tells the user 'these rows are settled-success / errored /
+  stale / paused / in-flight' at a glance, before they scan the
+  per-row dots.
+
+  The fn consumes `event-status/event-status-colour` — the same
+  helper the L2 list rows + the Event L4 header dot consume — so the
+  whole devtool speaks ONE lifecycle vocabulary."
+  [{:keys [cascade focus]}]
+  (let [status-state (event-status/cascade->state
+                       cascade focus event-detail/cascade-outcome)
+        status-kw    (event-status/classify-status status-state)
+        status-hex   (event-status/event-status-colour status-state)]
+    [:div {:data-testid (str "rf-causa-trace-cascade-status-bar-"
+                             (name status-kw))
+           :data-rf-causa-status (name status-kw)
+           :title (case status-kw
+                    :in-flight       "Focused cascade — in-flight"
+                    :settled-success "Focused cascade — settled (success)"
+                    :settled-error   "Focused cascade — settled (error)"
+                    :paused-by-tool  "Focused cascade — paused by tool"
+                    :stale           "Focused cascade — stale (replayed / RETRO)"
+                    (str "Focused cascade — " (name status-kw)))
+           :style {:height        "3px"
+                   :background    status-hex
+                   :flex-shrink   0}}]))
+
 ;; ---- public view --------------------------------------------------------
 
 (rf/reg-view Panel
   "The Trace panel's root view. Subscribes to `:rf.causa/trace-feed`
-  and renders either the chip-filterable ribbon or the empty-state."
+  and renders either the chip-filterable ribbon or the empty-state.
+
+  ## rf2-b76v4 — cascade-status timeline bar
+
+  A 3px bar above the ribbon fills with the focused cascade's
+  lifecycle-status colour. The bar is the Trace tab's representation
+  of the bead's 'timeline bar fill' surface — ONE bar driven by
+  `event-status-colour`, the same fn the L2 row + Event header
+  consume. The Trace tab is cascade-scoped (rf2-ycoct), so the bar's
+  status reflects every visible row's parent cascade."
   []
   (let [{:keys [rows total rendered distinct counts filters
                 any-filter? empty-kind active-filters]
          :as _data}
-        @(rf/subscribe [:rf.causa/trace-feed])]
+        @(rf/subscribe [:rf.causa/trace-feed])
+        ;; rf2-b76v4 — pull the focused cascade + focus map so the
+        ;; cascade-status timeline bar can render with the canonical
+        ;; lifecycle colour. Both subs are cheap (constant-time
+        ;; selectors over the spine slot + the cascade list).
+        cascades       @(rf/subscribe [:rf.causa/cascades])
+        focus          @(rf/subscribe [:rf.causa/focus])
+        focused-id     (:dispatch-id focus)
+        focused-cascade (when focused-id
+                          (some #(when (= focused-id (:dispatch-id %)) %)
+                                cascades))]
     [:section {:data-testid "rf-causa-trace"
                :style       {:height         "100%"
                              :display        "flex"
@@ -585,6 +640,12 @@
               :counts      counts
               :filters     filters
               :any-filter? any-filter?})
+     ;; rf2-b76v4 — cascade-status timeline bar. Renders only when a
+     ;; cascade is in focus and the ribbon has rows; the empty-state
+     ;; branches don't carry a 'focused cascade' surface to colour.
+     (when (and focused-cascade (nil? empty-kind))
+       (cascade-status-bar {:cascade focused-cascade
+                            :focus   focus}))
      [:div {:style {:flex 1 :overflow "auto"}}
       (case empty-kind
         :no-events  (empty-state-no-events)

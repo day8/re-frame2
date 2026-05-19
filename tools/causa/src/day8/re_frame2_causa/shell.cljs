@@ -110,6 +110,7 @@
              :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
+            [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.routing :as routing]
@@ -944,7 +945,7 @@
   focus-set is active, out-of-focus rows render at ~40% opacity and
   the gutter renders an OPEN `⦿` marker; the pivot row renders a
   FILLED `⦿` marker."
-  [{:keys [cascade focused-id auto-track? focus-set in-focus? now-ms]}]
+  [{:keys [cascade focused-id auto-track? focus-set in-focus? focus now-ms]}]
   (let [id          (:dispatch-id cascade)
         focused?    (= id focused-id)
         pivot?      (and focus-set (= id (:pivot-id focus-set)))
@@ -961,6 +962,18 @@
         badges      (row-badges cascade)
         ev-id       (event-id-of-cascade cascade)
         event-vec   (:event cascade)
+        ;; rf2-b76v4 — canonical event-lifecycle status colour. ONE
+        ;; helper drives the row's status accent (a 2px inset stripe on
+        ;; the trailing edge — sibling to the gutter's causal-chain
+        ;; thread on the leading edge). Replaces the pre-rf2-b76v4
+        ;; rolled-on-the-fly bg/border colour decisions. The status fn
+        ;; reads the cascade's terminal outcome (error / warning / ok)
+        ;; via `event-detail/cascade-outcome` so the L2 row, the L4
+        ;; Event header and the Trace row all consume ONE vocabulary.
+        status-state (event-status/cascade->state
+                       cascade focus event-detail/cascade-outcome)
+        status-kw    (event-status/classify-status status-state)
+        status-hex   (event-status/event-status-colour status-state)
         glyph-col   (cond
                       focused?                                (:cyan tokens)
                       (= "x" glyph)                           (:red tokens)
@@ -980,6 +993,14 @@
                       focused?   (str "1px solid " (:cyan tokens))
                       ungrouped? (str "1px dashed " (:border-subtle tokens))
                       :else      "1px solid transparent")
+        ;; rf2-b76v4 — the lifecycle-status accent rides as a 2px inset
+        ;; box-shadow on the row's TRAILING edge so it doesn't compete
+        ;; with the focused-row solid border (which paints the row
+        ;; outline) or the gutter's leading-edge causal-chain thread.
+        ;; The `:ungrouped` row suppresses the accent because the bucket
+        ;; has no lifecycle (no event vector, no cascade outcome).
+        status-shadow (when (and (not ungrouped?) status-hex)
+                        (str "inset -2px 0 0 0 " status-hex))
         ;; rf2-ieg6d Bug 1 — only the focused row in the LIVE-at-head
         ;; auto-tracking branch carries a ref. RETRO and non-focused rows
         ;; get nil (no DOM-side scroll work, no per-render cost).
@@ -1035,6 +1056,12 @@
                                             :else               "false")
                   :data-rf-causa-pivot    (if pivot? "true" "false")
                   :data-rf-causa-ungrouped (if ungrouped? "true" "false")
+                  ;; rf2-b76v4 — the resolved lifecycle status keyword
+                  ;; rides on a data attribute so tests + the
+                  ;; pure-hiccup walker can assert the row picked up
+                  ;; the right vocabulary without parsing inline
+                  ;; styles.
+                  :data-rf-causa-status   (name status-kw)
                   :style {:display       "flex"
                           :align-items   "center"
                           :gap           "6px"
@@ -1044,6 +1071,13 @@
                           :cursor        "pointer"
                           :background    bg
                           :border        border
+                          ;; rf2-b76v4 — the lifecycle-status accent is
+                          ;; a 2px inset shadow on the row's trailing
+                          ;; edge. Sibling to the gutter's leading-edge
+                          ;; causal-chain thread (rf2-5kfxe.10), and
+                          ;; non-overlapping with the focused-row solid
+                          ;; border.
+                          :box-shadow    (or status-shadow "none")
                           :border-radius "2px"
                           :font-family   mono-stack
                           :font-size     (:mono-body type-scale)
@@ -1264,6 +1298,11 @@
                            :auto-track? auto-track?
                            :focus-set   focus-set
                            :in-focus?   (focus-pred cascade)
+                           ;; rf2-b76v4 — pass the spine focus through
+                           ;; so the row's lifecycle-status classifier
+                           ;; can read `:mode` (RETRO → :stale) and
+                           ;; `:paused?` (paused-by-tool → :cyan).
+                           :focus       focus
                            :now-ms      now-ms}])))]))
 
 ;; ---- L3 tab bar ----------------------------------------------------------

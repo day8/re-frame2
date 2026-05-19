@@ -65,6 +65,7 @@
     - tier-dot (reused in cascade-outcome + per-fx duration)"
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
@@ -346,12 +347,33 @@
 
 (defn- cascade-outcome-line
   "Top-of-panel single-line health summary. Replaces the v1
-  literal 'Event detail' h1."
+  literal 'Event detail' h1.
+
+  ## rf2-b76v4 — lifecycle-status dot
+
+  The header carries a leading status dot rendered with the canonical
+  `event-status-colour` helper (the same fn the L2 row + Trace panel
+  consume). The dot signals the cascade's lifecycle vocabulary —
+  `:settled-error` / `:settled-success` / `:stale` (RETRO mode) /
+  `:paused-by-tool` / `:in-flight` — at a glance, without depending
+  on the trailing glyph cluster. The glyph itself stays semantic
+  (✓ / ✗ / ⚠) so colour-blind users have a shape signal; the dot
+  reinforces the same lifecycle state with the canonical colour."
   [cascade]
   (let [{:keys [event-id glyph outcome duration-ms dispatch-id ssr?]}
-        (cascade-outcome cascade)]
+        (cascade-outcome cascade)
+        ;; rf2-b76v4 — read the spine focus so the status fn can pick
+        ;; up :stale (RETRO mode) + :paused-by-tool. `:rf.causa/focus`
+        ;; is the canonical spine sub; nil-safe inside
+        ;; `event-status/cascade->state`.
+        focus       @(rf/subscribe [:rf.causa/focus])
+        status-state (event-status/cascade->state
+                       cascade focus cascade-outcome)
+        status-kw    (event-status/classify-status status-state)
+        status-hex   (event-status/event-status-colour status-state)]
     [:header {:data-testid "rf-causa-event-detail-outcome"
               :data-outcome (name outcome)
+              :data-rf-causa-status (name status-kw)
               :style {:display       "flex"
                       :align-items   "center"
                       :gap           "10px"
@@ -360,6 +382,24 @@
                       :border-bottom (str "1px solid " (:border-subtle tokens))
                       :font-family   sans-stack
                       :font-size     "13px"}}
+     ;; rf2-b76v4 — leading lifecycle-status dot. Rides the canonical
+     ;; vocabulary the L2 row + Trace panel also consume; one fn
+     ;; drives the colour across the whole devtool.
+     [:span {:data-testid (str "rf-causa-event-detail-status-dot-"
+                               (name status-kw))
+             :style {:display "inline-block"
+                     :width   "10px"
+                     :height  "10px"
+                     :border-radius "50%"
+                     :background status-hex
+                     :flex-shrink 0}
+             :title (case status-kw
+                      :in-flight       "in-flight"
+                      :settled-success "settled — success"
+                      :settled-error   "settled — error"
+                      :paused-by-tool  "paused by tool"
+                      :stale           "stale (replayed / RETRO)"
+                      (name status-kw))}]
      [:span {:data-testid "rf-causa-event-detail-outcome-event-id"
              :style {:color (:accent-violet tokens)
                      :font-family mono-stack
