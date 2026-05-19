@@ -43,15 +43,17 @@
 
   The stacks include the canonical web-font name first, then a
   thoughtful fallback chain so a missing webfont degrades gracefully.
-  Self-hosting (rather than CDN) is the v1 default — the story-shipped
-  shell loads webfonts via the `inject-font-faces!` helper below,
-  pointing at `/fonts/...` paths that consuming projects vendor into
-  their public/ tree. CDN is also acceptable; the fallback chain is
-  identical either way.
+  The dev-time shell uses `local()`-only `@font-face` declarations
+  (injected via `inject-font-faces!` below) so an OS-installed Plex
+  picks up automatically (Mike's machines, IBM Carbon design system
+  users) and no HTTP fetch is ever attempted. Consuming projects that
+  want self-hosted or CDN webfonts inject their own `@font-face` rules
+  with `url()` entries pointing at their vendored woff2s — the
+  `local()`-only auto-inject does not interfere with project-side
+  declarations layered above it.
 
   Per `re-frame.story.config/enabled?` the inject helper short-circuits
-  in production so published static builds never reach for dev-only
-  webfont URLs.
+  in production so published static builds never touch the DOM.
 
   ## What lives here
 
@@ -164,19 +166,31 @@
    :body       "normal"})
 
 (def font-faces-css
-  "The `@font-face` declarations for self-hosted IBM Plex. Emitted as
-  one CSS string so callers can drop it into a `<style>` element with
-  one inject. `font-display: swap` is mandatory so the fallback
-  chain is visible before the webfont resolves — the shell never
-  ships invisible text waiting on a network request.
+  "The `@font-face` declarations for IBM Plex. Emitted as one CSS
+  string so callers can drop it into a `<style>` element with one
+  inject. `font-display: swap` is mandatory so the fallback chain is
+  visible before the webfont resolves — the shell never ships
+  invisible text waiting on a network request.
 
-  Self-hosted under `/fonts/plex/` by convention; consuming projects
-  vendor the woff2s into `public/fonts/plex/` (Plex is OFL-licensed —
-  free to redistribute). Three weights ship: 400 / 500 / 700; the
-  500-weight covers the `:semibold` token via `font-stretch`-free
-  width matching since Plex 500 reads as the rubric calls 'semibold'
-  in most pairings (Plex's 600 is closer to bold-light)."
-  "@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Sans'),url('/fonts/plex/IBMPlexSans-Regular.woff2') format('woff2');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Sans Medium'),url('/fonts/plex/IBMPlexSans-Medium.woff2') format('woff2');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:local('IBM Plex Sans SemiBold'),url('/fonts/plex/IBMPlexSans-SemiBold.woff2') format('woff2');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:local('IBM Plex Sans Bold'),url('/fonts/plex/IBMPlexSans-Bold.woff2') format('woff2');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Mono'),url('/fonts/plex/IBMPlexMono-Regular.woff2') format('woff2');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Mono Medium'),url('/fonts/plex/IBMPlexMono-Medium.woff2') format('woff2');}\n")
+  Per rf2-2rwdc + the rf2-s1r9a Phase 1 browser-gate trace: the
+  auto-injected `@font-face` rules are `local()`-only — an
+  OS-installed Plex picks up automatically, otherwise the fallback
+  chain in `sans-stack` / `mono-stack` (Optima / Avenir Next /
+  ui-sans-serif; ui-monospace / SF Mono / Cascadia Code) takes over.
+  No `url()` entry is emitted because the testbed (and most consuming
+  projects) does not vendor the woff2 files at `/fonts/plex/...` —
+  every missing URL surfaced as a console 404 the browser-gate test
+  runner counts as a failure. Consuming projects that DO want
+  self-hosted or CDN webfonts inject their own `@font-face`
+  declarations with `url()` entries pointing at their vendored
+  woff2s; CSS allows a later `@font-face` with the same family name +
+  weight to layer additional `src:` candidates.
+
+  Three weights ship: 400 / 500 / 700; the 500-weight covers the
+  `:semibold` token via `font-stretch`-free width matching since
+  Plex 500 reads as the rubric calls 'semibold' in most pairings
+  (Plex's 600 is closer to bold-light)."
+  "@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Sans');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Sans Medium');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:local('IBM Plex Sans SemiBold');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:local('IBM Plex Sans Bold');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Mono');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Mono Medium');}\n")
 
 #?(:cljs
    (defonce ^:private font-faces-injected? (atom false)))
@@ -187,10 +201,18 @@
      Idempotent — subsequent calls short-circuit on the
      `font-faces-injected?` sentinel.
 
-     Falls back gracefully when webfont files are absent: `local()`
-     entries in the `src:` chain pick up an OS-installed Plex (Mike's
-     machines, IBM Carbon design system users) without any HTTP fetch,
-     and a 404 on the woff2 just leaves the fallback chain visible.
+     The injected rules are `local()`-only — an OS-installed Plex
+     picks up automatically (Mike's machines, IBM Carbon design
+     system users); otherwise the fallback chain in `sans-stack` /
+     `mono-stack` takes over. No HTTP fetch is attempted, so missing
+     vendored woff2s never surface as console 404s (which the
+     browser-gate test runner gates on).
+
+     Consuming projects that want self-hosted or CDN webfonts inject
+     their own `@font-face` declarations with `url()` entries
+     pointing at their vendored woff2s; CSS allows a later
+     `@font-face` with the same family + weight to layer additional
+     `src:` candidates.
 
      Behind `re-frame.story.config/enabled?` — production builds
      short-circuit before touching the DOM."
