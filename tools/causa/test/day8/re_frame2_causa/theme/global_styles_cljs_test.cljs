@@ -1,55 +1,84 @@
 (ns day8.re-frame2-causa.theme.global-styles-cljs-test
-  "Tests for the Causa global-styles injection — fonts today; motion +
-  reduced-motion seam + grain + display-face land in later cluster
-  commits and add cases here.
+  "Tests for the Causa global-styles injection — fonts, motion +
+  reduced-motion seam, per-theme CSS variables, atmospheric grain.
 
   The injection paths are guarded against `js/document` being absent
   (node-test runs without a DOM). Under shadow-cljs `:node-test` the
   `exists? js/document` probe is `false` so `install!` is a no-op and
   every test here is a smoke probe over the *string* surface — the
-  pure-data parts of the injection (`fonts-href`, `global-css`)."
+  pure-data parts of the injection (`font-faces-css`, `motion-css`,
+  `themes-css`, `grain-css`)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-causa.theme.global-styles :as gs]))
 
-;; ---- font href ----------------------------------------------------------
+;; ---- font faces (rf2-5kfxe.1 + rf2-5kfxe.1 follow-up) ------------------
+;;
+;; The auto-injected `@font-face` rules ship `local()`-only `src:`
+;; candidates. No `url()` entry, no third-party HTTP fetch — the
+;; re-frame2 testbed enforces a 'no third-party egress by default'
+;; gate. Consuming projects opt-in to webfont URLs by layering their
+;; own `@font-face` rules.
 
-(deftest fonts-href-loads-inter-and-jetbrains-mono
-  (testing "the Google Fonts URL requests both brand faces"
-    (let [href @#'gs/fonts-href]
-      (is (string? href))
-      (is (re-find #"family=Inter" href)
-          "Inter is requested")
-      (is (re-find #"family=JetBrains\+Mono" href)
-          "JetBrains Mono is requested"))))
+(deftest font-faces-css-declares-inter-and-jetbrains-mono
+  (testing "both brand faces have `@font-face` declarations"
+    (let [css @#'gs/font-faces-css]
+      (is (string? css))
+      (is (re-find #"font-family:'Inter'" css)
+          "Inter is declared")
+      (is (re-find #"font-family:'JetBrains Mono'" css)
+          "JetBrains Mono is declared"))))
 
-(deftest fonts-href-includes-all-spec-weights
+(deftest font-faces-css-includes-all-spec-weights
   (testing "spec/007 §Typography lists 400/500/600/700 across both
-            stacks (the variable WOFF2 weights). The Google Fonts URL
-            requests every weight so none silently fall back to the
-            nearest-installed weight."
-    (let [href @#'gs/fonts-href]
+            sans + mono stacks. The auto-injected `@font-face` rules
+            declare every weight so the `:semibold` (600) and
+            `:bold` (700) tokens have explicit landings."
+    (let [css @#'gs/font-faces-css]
       (doseq [w ["400" "500" "600" "700"]]
-        (is (re-find (re-pattern w) href)
-            (str "weight " w " requested"))))))
+        (is (re-find (re-pattern (str "font-weight:" w)) css)
+            (str "weight " w " declared"))))))
 
-(deftest fonts-href-uses-display-swap
-  (testing "`display=swap` keeps the fallback rendering immediately
-            and swaps to the brand face when the WOFF2 lands (no FOIT,
-            no perceived layout shift). Spec/007 §Typography is silent
-            on the loading-display policy; `swap` is the lowest-UX-
-            disruption default for an info-dense devtool."
-    (let [href @#'gs/fonts-href]
-      (is (re-find #"display=swap" href)))))
+(deftest font-faces-css-uses-display-swap
+  (testing "`font-display: swap` keeps the fallback rendering
+            immediately and (when a consumer opt-in `url()` rule is
+            layered on top) swaps to the brand face when the WOFF2
+            lands — no FOIT, no perceived layout shift."
+    (let [css @#'gs/font-faces-css]
+      (is (re-find #"font-display:swap" css)))))
 
-(deftest fonts-href-loads-fraunces-display-face
+(deftest font-faces-css-declares-fraunces-display-face
   (testing "rf2-5kfxe.9 — Fraunces (the variable serif display face)
-            is requested alongside Inter + JetBrains Mono. Variable
-            axes opsz (optical size) + wght so the renderer can pick
-            a display-tuned glyph shape at panel-title sizes."
-    (let [href @#'gs/fonts-href]
-      (is (re-find #"family=Fraunces" href))
-      (is (re-find #"opsz,wght@" href)
-          "variable axes are requested (opsz + wght)"))))
+            is declared alongside Inter + JetBrains Mono. The variable
+            optical-size axis isn't expressible via `local()` so the
+            per-weight Fraunces family names are used (500/600/700/900
+            cover the L4 panel <h1> sizing weights)."
+    (let [css @#'gs/font-faces-css]
+      (is (re-find #"font-family:'Fraunces'" css)
+          "Fraunces is declared")
+      (doseq [w ["500" "600" "700" "900"]]
+        (is (re-find (re-pattern (str "font-family:'Fraunces';"
+                                      "font-style:normal;"
+                                      "font-weight:" w))
+                     css)
+            (str "Fraunces weight " w " declared"))))))
+
+(deftest font-faces-css-is-local-only-no-third-party-egress
+  (testing "rf2-5kfxe.1 follow-up — the auto-injected rules ship
+            `local()`-only `src:` candidates. No `url()` entries, no
+            references to fonts.googleapis.com / fonts.gstatic.com or
+            any other third-party host. The re-frame2 testbed's 'no
+            third-party egress by default' gate stays green; consumer
+            projects opt-in to webfont URLs by layering their own
+            `@font-face` rules with `url()` entries."
+    (let [css @#'gs/font-faces-css]
+      (is (not (re-find #"url\(" css))
+          "no url() candidate in any @font-face rule")
+      (is (not (re-find #"fonts\.googleapis\.com" css))
+          "no Google Fonts CSS host reference")
+      (is (not (re-find #"fonts\.gstatic\.com" css))
+          "no Google Fonts file host reference")
+      (is (re-find #"src:local\(" css)
+          "local() candidates are present"))))
 
 ;; ---- motion css ---------------------------------------------------------
 

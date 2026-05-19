@@ -205,8 +205,15 @@
   enterprise envs still land on *some* serif rather than falling
   through to a sans.
 
-  ~30KB WOFF2 (variable, optical-size axis 9-144). Loaded via the
-  Google Fonts CSS link in `theme/global-styles/inject-fonts!`."
+  ~30KB WOFF2 (variable, optical-size axis 9-144). The shell auto-
+  injects `local()`-only `@font-face` declarations (see
+  `theme/global-styles/font-faces-css`) so an OS-installed Fraunces
+  resolves automatically; absent that, the fallback chain above takes
+  over with zero HTTP fetch. Consuming projects that want web-hosted
+  Fraunces inject their own `@font-face` rules with `url()` entries
+  pointing at vendored / CDN-hosted WOFF2s — CSS layers candidates
+  by family + weight so the host-side rules compose with the
+  `local()` defaults."
   "Fraunces, ui-serif, Georgia, Cambria, Times, serif")
 
 (def type-scale

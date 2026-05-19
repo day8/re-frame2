@@ -2,110 +2,173 @@
   "One-shot global style injection for the Causa shell.
 
   Owns the `<head>` writes that the panel inline-style discipline
-  can't reach: web-font `<link>`s today; future cluster commits add
-  `@keyframes` and the reduced-motion seam here so the public surface
-  stays one `install!` call from `shell-view`.
+  can't reach: `@font-face` declarations, `@keyframes`, the reduced-
+  motion seam, per-theme CSS custom properties, and the atmospheric
+  grain overlay. Public surface is one `install!` call from
+  `shell-view`.
 
   Idempotent — `defonce`-guarded *and* DOM-probed via fixed `id`
   attributes — so shadow-cljs `:after-load` reloads, repeated shell
   mounts, and `defonce` resets all converge to a single set of nodes
   in `<head>`.
 
+  ## No third-party egress by default
+
+  The `@font-face` block ships `local()`-only `src:` candidates so an
+  OS-installed Inter / JetBrains Mono / Fraunces resolves
+  automatically and ABSENT THAT no HTTP fetch is attempted. The
+  re-frame2 testbed enforces a 'no third-party egress by default'
+  gate; an earlier wiring to Google Fonts (a `<link rel='stylesheet'>`
+  to `fonts.googleapis.com`) tripped it. Consuming projects opt-in
+  to web-hosted fonts by layering their own `@font-face` rules with
+  `url()` entries — see the `font-faces-css` docstring.
+
   ## Why a separate ns from `shell.cljs`
 
   `shell.cljs` already carries `inject-scrollbar-style!` scoped to the
   L2 list. The styles installed here are *global* (every paint of the
-  shell needs the fonts loaded; every animation downstream reads from
-  the `:root` motion-scale seam) so they want their own lifetime + a
-  clean test surface. Owning a dedicated ns also keeps the public
+  shell needs the fonts resolved; every animation downstream reads
+  from the `:root` motion-scale seam) so they want their own lifetime
+  + a clean test surface. Owning a dedicated ns also keeps the public
   contract obvious: a single `install!` call from `shell-view`.
 
   ## Lifetime
 
   `install!` is invoked once from `shell.cljs`'s `shell-view` reg-view
   body. It guards against `js/document` being absent (node-test) and
-  uses fixed `id` attributes on the `<style>` / `<link>` nodes so a
-  hot-reload that resets the `defonce` atom would still no-op when
-  the DOM node is already present."
+  uses fixed `id` attributes on the `<style>` nodes so a hot-reload
+  that resets the `defonce` atom would still no-op when the DOM node
+  is already present."
   (:require [clojure.string :as string]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
 
-;; ---- font loading (rf2-5kfxe.1) ----------------------------------------
+;; ---- font loading (rf2-5kfxe.1 + rf2-5kfxe.1 follow-up) ----------------
 ;;
-;; Inter + JetBrains Mono are the brand faces per spec/007 §Typography
-;; (~80KB Inter + ~100KB JetBrains Mono). They appear in `tokens/sans-
-;; stack` + `tokens/mono-stack` as the FIRST entries of their fallback
-;; cascades, but no `@font-face` / stylesheet was wired anywhere —
-;; bare-metal dev machines that don't have them installed silently
-;; resolved to `system-ui` / `Menlo`, never seeing the brand face.
+;; Inter + JetBrains Mono are the brand faces per spec/007 §Typography;
+;; Fraunces (rf2-5kfxe.9) is the variable serif display face for L4
+;; panel <h1>s. They appear in `tokens/sans-stack` + `tokens/mono-stack`
+;; + `tokens/display-stack` as the FIRST entries of their fallback
+;; cascades — when an OS-installed copy is present the page renders in
+;; the brand face; otherwise the cascade falls through to the platform
+;; defaults catalogued in those stacks.
 ;;
-;; Mechanism: a `<link rel='stylesheet'>` to Google Fonts. The endpoint
-;; serves WOFF2s with `display=swap`, which renders the fallback
-;; immediately and swaps to the brand face when the WOFF2 lands — no
-;; FOIT, no perceived layout shift (the metrics-bounding boxes of
-;; Inter vs. system-ui are within ~2% so the swap is a font weight
-;; change, not a reflow). Two `<link rel='preconnect'>` hints open the
-;; sockets to the CSS host + the font-file host in parallel with the
-;; stylesheet parse — shaves 100-200ms off the WOFF2 round-trip on
-;; cold loads.
+;; Mechanism: a `<style>` block carrying `local()`-only `@font-face`
+;; declarations. No `url()` entries, no third-party HTTP fetch, no
+;; preconnect hints — the re-frame2 testbed enforces a 'no third-party
+;; egress by default' gate (Causa's previous wiring to Google Fonts
+;; tripped it), and most consuming projects do not vendor WOFF2s at
+;; predictable URLs anyway. With `local()`-only rules an OS-installed
+;; Inter / JetBrains Mono / Fraunces (Mike's machines; design-system
+;; users) still resolves automatically; absent that, the fallback chain
+;; in each stack (system-ui / Menlo / ui-serif / Georgia / …) takes
+;; over with zero network activity.
+;;
+;; ## Consumer opt-in for web-hosted fonts
+;;
+;; Consuming projects that want the canonical webfont resolution inject
+;; their own `@font-face` rules with `url()` entries pointing at their
+;; self-hosted or CDN-hosted WOFF2s. CSS allows a later `@font-face`
+;; with the same family + weight to layer additional `src:` candidates
+;; on top of the dev-time `local()` default, so the opt-in path
+;; composes cleanly — the host app's `url()` declarations are tried
+;; alongside the local() candidates without any coordination with
+;; Causa itself.
+;;
+;; Fraunces in particular is unlikely to be locally installed for most
+;; users; consumers who care about the display-face hierarchy SHOULD
+;; provide a webfont URL. The fallback chain in `tokens/display-stack`
+;; lands on `ui-serif` / Georgia / Cambria / Times so panel titles
+;; still render in *some* serif even when Fraunces is absent.
 
-(def ^:private fonts-link-id
-  "rf-causa-fonts-link")
+(def ^:private fonts-style-id
+  "rf-causa-fonts")
 
-(def ^:private fonts-href
-  "Google Fonts CSS endpoint that ships Inter (400/500/600/700),
-  JetBrains Mono (400/500/600/700), and Fraunces (the display face,
-  rf2-5kfxe.9 — optical-size axis 9-144, weight 500/600/700/900) as
-  WOFF2 with `font-display: swap`. Single CDN request → three font
-  families → file fetches on demand.
+(def ^:private font-faces-css
+  "Auto-injected `@font-face` declarations for Inter (sans), JetBrains
+  Mono (mono), and Fraunces (display serif). One CSS string so callers
+  drop it into a single `<style>` element.
 
-  Fraunces is the deliberately distinctive serif Causa uses for L4
-  panel <h1>s only (panel body / chrome stays Inter). The variable
-  optical-size axis lets the renderer pick a 'display'-tuned glyph
-  shape at the panel-title size — fuller serifs, tighter spacing,
-  more character than Inter's neutral grotesque."
-  (str "https://fonts.googleapis.com/css2"
-       "?family=Inter:wght@400;500;600;700"
-       "&family=JetBrains+Mono:wght@400;500;600;700"
-       "&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900"
-       "&display=swap"))
+  ## `local()`-only by design
 
-(defn- append-link!
-  "Idempotent `<link>` append. `attrs` is a vector of [k v] tuples
-  applied via setAttribute (crossorigin needs `setAttribute` rather
-  than property assignment to render `crossorigin=\"\"`)."
-  [id rel href attrs]
-  (when-not (.getElementById js/document id)
-    (let [node (.createElement js/document "link")]
-      (set! (.-id node) id)
-      (set! (.-rel node) rel)
-      (set! (.-href node) href)
-      (doseq [[k v] attrs]
-        (.setAttribute node k v))
-      (.appendChild (.-head js/document) node))))
+  Every rule below ships `src: local('<face name>')` and NO `url()`
+  entry. The re-frame2 testbed enforces a 'no third-party egress by
+  default' gate; an earlier wiring to Google Fonts tripped it. With
+  `local()`-only rules an OS-installed copy is picked up automatically
+  and absent that the per-stack fallback chain in `tokens/sans-stack`
+  / `tokens/mono-stack` / `tokens/display-stack` takes over.
+
+  ## Consumer opt-in for webfonts
+
+  Consuming projects that want web-hosted Inter / JetBrains Mono /
+  Fraunces inject their own `@font-face` rules with `url()` entries.
+  CSS layers additional `src:` candidates by family + weight so the
+  host-side declarations compose with the `local()` defaults.
+
+  ## What is requested
+
+  - Inter — weights 400 / 500 / 600 / 700 (chrome, labels, prose).
+  - JetBrains Mono — weights 400 / 500 / 600 / 700 (code, EDN).
+  - Fraunces — weights 500 / 600 / 700 / 900 (L4 panel `<h1>` only,
+    rf2-5kfxe.9). Variable optical-size axis 9-144 isn't expressible
+    in a `local()` reference so the per-weight family names are used.
+
+  `font-display: swap` is set on every rule so when a webfont DOES
+  resolve (via consumer opt-in `url()` layering) the fallback renders
+  immediately and swaps to the brand face on WOFF2 arrival — no FOIT,
+  no perceived layout shift."
+  (str
+    ;; Inter — 4 weights.
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:400;"
+    "font-display:swap;src:local('Inter'),local('Inter Regular');}\n"
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:500;"
+    "font-display:swap;src:local('Inter Medium');}\n"
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:600;"
+    "font-display:swap;src:local('Inter SemiBold');}\n"
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:700;"
+    "font-display:swap;src:local('Inter Bold');}\n"
+    ;; JetBrains Mono — 4 weights.
+    "@font-face{font-family:'JetBrains Mono';font-style:normal;"
+    "font-weight:400;font-display:swap;"
+    "src:local('JetBrains Mono'),local('JetBrains Mono Regular');}\n"
+    "@font-face{font-family:'JetBrains Mono';font-style:normal;"
+    "font-weight:500;font-display:swap;"
+    "src:local('JetBrains Mono Medium');}\n"
+    "@font-face{font-family:'JetBrains Mono';font-style:normal;"
+    "font-weight:600;font-display:swap;"
+    "src:local('JetBrains Mono SemiBold');}\n"
+    "@font-face{font-family:'JetBrains Mono';font-style:normal;"
+    "font-weight:700;font-display:swap;"
+    "src:local('JetBrains Mono Bold');}\n"
+    ;; Fraunces — display face. Variable optical-size axis is not
+    ;; expressible via local(); per-weight family names match the
+    ;; standard naming for installed copies. Most users won't have
+    ;; Fraunces locally — they SHOULD layer their own `url()` rules.
+    "@font-face{font-family:'Fraunces';font-style:normal;font-weight:500;"
+    "font-display:swap;src:local('Fraunces Medium'),local('Fraunces');}\n"
+    "@font-face{font-family:'Fraunces';font-style:normal;font-weight:600;"
+    "font-display:swap;src:local('Fraunces SemiBold');}\n"
+    "@font-face{font-family:'Fraunces';font-style:normal;font-weight:700;"
+    "font-display:swap;src:local('Fraunces Bold');}\n"
+    "@font-face{font-family:'Fraunces';font-style:normal;font-weight:900;"
+    "font-display:swap;src:local('Fraunces Black');}\n"))
 
 (defn- inject-fonts!
-  "Append the Google Fonts `<link>` + the two preconnect hints to
-  `<head>`. No-op when the nodes already exist or when `js/document`
-  is absent (node-test)."
+  "Append the `local()`-only `@font-face` `<style>` block to `<head>`.
+  No-op when the node already exists or when `js/document` is absent
+  (node-test). No third-party HTTP fetch is initiated — consumer
+  projects opt-in to webfont URLs by injecting their own `@font-face`
+  rules with `url()` entries (CSS layers candidates by family +
+  weight)."
   []
   (when (and (exists? js/document)
              (.-head js/document)
              (.-createElement js/document)
              (.-getElementById js/document))
-    ;; Preconnect hints — open the TCP/TLS sockets to both Google Fonts
-    ;; hosts in parallel with the stylesheet parse. The font-files host
-    ;; needs `crossorigin` (it serves WOFF2s with CORS).
-    (append-link! "rf-causa-fonts-preconnect-css"
-                  "preconnect"
-                  "https://fonts.googleapis.com"
-                  [])
-    (append-link! "rf-causa-fonts-preconnect-files"
-                  "preconnect"
-                  "https://fonts.gstatic.com"
-                  [["crossorigin" ""]])
-    ;; The stylesheet link itself.
-    (append-link! fonts-link-id "stylesheet" fonts-href [])))
+    (when-not (.getElementById js/document fonts-style-id)
+      (let [node (.createElement js/document "style")]
+        (set! (.-id node) fonts-style-id)
+        (.appendChild node (.createTextNode js/document font-faces-css))
+        (.appendChild (.-head js/document) node)))))
 
 ;; ---- per-theme CSS custom properties (rf2-5kfxe.6) ---------------------
 ;;
@@ -377,10 +440,11 @@
   (atom false))
 
 (defn install!
-  "Idempotent — call from `shell-view`'s reg-view body. Triggers font
-  load + motion keyframes + per-theme CSS custom properties + the
-  atmospheric grain overlay on first paint of the shell. A future
-  cluster commit adds the display-face font."
+  "Idempotent — call from `shell-view`'s reg-view body. Injects the
+  `local()`-only `@font-face` block + motion keyframes + per-theme
+  CSS custom properties + the atmospheric grain overlay on first
+  paint of the shell. No third-party HTTP fetch is initiated; see
+  `font-faces-css` for consumer opt-in posture on webfont URLs."
   []
   (when-not @installed?
     (inject-fonts!)
