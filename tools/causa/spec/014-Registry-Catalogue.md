@@ -388,29 +388,6 @@ Consumer of the canonical 9-axis filter vocabulary documented in
 | `:rf.causa/set-trace-filter` | `[_ axis value]` | Sets / clears one axis. `nil` value clears that axis. v1 is single-value per axis; multi-value rides a follow-on. |
 | `:rf.causa/clear-trace-filters` | `[_]` | Clears every axis. |
 
-## MCP Server panel
-
-Filters the trace-buffer to events tagged `:tags :origin :causa-mcp`
-(the canonical tag a future causa-mcp jar will stamp on every
-side-effect it performs).
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.causa/mcp-filters` | `{:op-types :since-ms}` — single atomic read. |
-| `:rf.causa/mcp-server` | Composite — `{:rows :total :rendered :op-type-counts :distinct-op-types :filters :agent-attached? :empty-kind}`. |
-| `:rf.causa/mcp-origin-filter-enabled?` | Boolean — cross-panel highlight toggle. Default `false` (opt-in). Other panels MAY honour to dim non-agent events. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.causa/toggle-mcp-op-type` | `[_ op-type]` | Toggles an op-type chip. |
-| `:rf.causa/set-mcp-since-seconds` | `[_ seconds]` | s → ms; `nil` / non-positive clears. |
-| `:rf.causa/clear-mcp-filters` | `[_]` | Clears every axis. |
-| `:rf.causa/toggle-mcp-origin-filter` | `[_]` | Toggles the cross-panel highlight. |
-
 ## Routes panel
 
 Spec: [`spec/012-Routing.md`](../../../spec/012-Routing.md) (framework

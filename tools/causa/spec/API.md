@@ -291,40 +291,13 @@ yields a clickable URI rather than a no-op; source-coords without
 
 ## MCP API
 
-A future `tools/causa-mcp/` artefact will expose Causa's agent surface
-as **18 tools across five bands**. The catalogue below is the planned
-shape; the implementing jar will pin canonical counts and band layout
-in its own spec.
-
-| Tool | Band | Kind |
-|---|---|---|
-| `get-trace-buffer` | Inspection | read |
-| `get-epoch-history` | Inspection | read |
-| `get-app-db` | Inspection | read |
-| `get-app-db-diff` | Inspection | read |
-| `get-machine-state` | Inspection | read |
-| `get-machine-list` | Inspection | read |
-| `get-issues` | Inspection | read |
-| `get-handlers` | Inspection | read |
-| `get-source-coord` | Inspection | read |
-| `restore-epoch` | Mutation | mutate (user-confirmed) |
-| `reset-frame-db` | Mutation | mutate (user-confirmed) |
-| `dispatch` | Mutation | mutate (user-confirmed) |
-| `subscribe` | Streaming | stream (`notifications/progress`) |
-| `unsubscribe` | Streaming | mutate (idempotent close) |
-| `list-subscriptions` | Streaming | read (diagnostic) |
-| `eval-cljs` | Escape hatch | mutate (arbitrary CLJS form) |
-| `discover-app` | Meta | read (session-lifecycle) |
-| `tail-build` | Meta | read (waits for hot-reload) |
-
-Streaming tools keep the `tools/call` request open and emit each
-drain-batch as a `notifications/progress` notification correlated
-via `extra._meta.progressToken`; the final result is a summary.
-`eval-cljs` is the deliberate escape valve — its side-effects ride
-the trace bus tagged `:origin :causa-mcp` like every catalogue tool.
-
-JSONSchema for each tool's args is surfaced via `tools/list` per the
-MCP spec.
+Per rf2-hvl1g (closure 2026-05-19) there is no dedicated `causa-mcp`
+jar. AI agent access to Causa's surfaces flows via
+`tools/re-frame2-pair-mcp/` against the framework-published Causa
+runtime API (`day8.re-frame2-causa.runtime`) — agents read the same
+trace bus + epoch history + registrar Causa itself reads, via
+re-frame2-pair-mcp's `eval-cljs` and the runtime accessors. See
+DESIGN-RATIONALE.md Lock #6 (superseded) for the reasoning.
 
 ## Settings keys
 
@@ -366,9 +339,9 @@ and have been reset to defaults."
 ## Trace-event tags Causa emits
 
 When Causa mutates the runtime (rewind, reset, re-dispatch), it
-emits trace events tagged `:origin :causa` (or `:origin :causa-mcp`
-when from the MCP server) so its actions are visible in the trace
-stream.
+emits trace events tagged `:origin :causa` so its actions are visible
+in the trace stream. (Origins from MCP servers carry their own
+server-name tag — re-frame2-pair-mcp uses `:origin :re-frame2-pair-mcp`.)
 
 These ride the framework's existing `:event/dispatched`,
 `:rf.epoch/restored`, etc. operations — no new operation kinds

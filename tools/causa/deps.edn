@@ -28,9 +28,10 @@
 ;;
 ;; ## MCP surface
 ;;
-;; Per spec/010-MCP-Server.md the agent surface ships in
-;; tools/causa-mcp/ (day8/re-frame2-causa-mcp), a separate Node-side
-;; artefact. Nothing in this deps.edn references the MCP server.
+;; AI agent access to Causa state flows via `tools/re-frame2-pair-mcp/`
+;; (which can read the framework-published Causa runtime API on
+;; `day8.re-frame2-causa.runtime`); per rf2-hvl1g there is no dedicated
+;; causa-mcp jar. Nothing in this deps.edn references an MCP server.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
 

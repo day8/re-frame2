@@ -2,7 +2,7 @@
   "Argument-coercion helpers for MCP tools. The parsers in this ns
   take an ALREADY-RESOLVED raw value (extracted by the consumer from
   its platform-specific args object: a JS object for re-frame2-pair-mcp, a
-  Clojure map for story-mcp/causa-mcp) and normalise it into the
+  Clojure map for story-mcp) and normalise it into the
   Clojure-side type the tool body expects.
 
   ## Cross-server convention

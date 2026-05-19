@@ -29,7 +29,7 @@
   ## Why this ns is zero-dep
 
   re-frame2-pair-mcp is a CLJS Node bundle (no `re-frame.trace` on its
-  classpath); story-mcp / causa-mcp are JVM-side and DO have the
+  classpath); story-mcp is JVM-side and DOES have the
   framework primitive available. The predicate body
   (`(and (map? ev) (sensitive-stamp? (:sensitive? ev)))`) is
   conservative and matches the spirit of `re-frame.privacy/sensitive?`.
@@ -195,7 +195,7 @@
   contract — re-frame2-pair-mcp passes its union predicate that also catches
   the epoch-level `:sensitive?` rollup (`sensitive-event? OR
   sensitive-epoch?`). The default arity preserves the
-  trace-event-only filter for story-mcp / causa-mcp consumers."
+  trace-event-only filter for story-mcp consumers."
   ([snapshot include?]
    (scrub-snapshot snapshot include? strip-sensitive))
   ([snapshot include? strip-fn]

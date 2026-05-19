@@ -1,7 +1,7 @@
 (ns re-frame.mcp-base.sensitive-test
   "Tests for the spec/009 §Privacy default-suppress filter shared
-  across the MCP triplet (rf2-vw4sq). The predicate and the filter
-  must stay byte-identical across re-frame2-pair-mcp, story-mcp, and causa-mcp
+  across the MCP pair (rf2-vw4sq). The predicate and the filter
+  must stay byte-identical across re-frame2-pair-mcp and story-mcp
   — these tests pin the contract."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.sensitive :as sensitive]))
@@ -249,8 +249,8 @@
       "reset zeroes the counter for the next test"))
 
 (deftest scrub-snapshot-2-arity-delegates-to-strip-sensitive
-  ;; The 2-arity form is the default-suppress shape used by story-mcp /
-  ;; causa-mcp; its contract that it delegates to `strip-sensitive` is
+  ;; The 2-arity form is the default-suppress shape used by story-mcp;
+  ;; its contract that it delegates to `strip-sensitive` is
   ;; the load-bearing spec/009 §Privacy MUST. A regression that flipped
   ;; the default to a no-op (or any other predicate) wouldn't trip the
   ;; existing tests — those only exercise the 2-arity form's outputs

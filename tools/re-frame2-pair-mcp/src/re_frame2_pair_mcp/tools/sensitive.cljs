@@ -65,7 +65,7 @@
   delegates to `re-frame.mcp-base.sensitive`. The epoch-level union
   check is re-frame2-pair-mcp-specific (story-mcp doesn't emit epoch records);
   the trace-event-only `strip-sensitive` in the base is the right fit
-  for story-mcp / causa-mcp consumers."
+  for story-mcp consumers."
   [items include?]
   (cond
     include?            [items 0]
@@ -91,8 +91,8 @@
   Thin delegate (rf2-zpmmr) to
   `re-frame.mcp-base.sensitive/scrub-snapshot` with the re-frame2-pair-mcp
   union strip-fn (`strip-sensitive`, which gates both
-  `sensitive-event?` and `sensitive-epoch?`). Story-mcp /
-  causa-mcp use the base helper's two-arity form, which defaults to
-  the trace-event-only filter."
+  `sensitive-event?` and `sensitive-epoch?`). Story-mcp uses the base
+  helper's two-arity form, which defaults to the trace-event-only
+  filter."
   [snapshot include?]
   (base-sensitive/scrub-snapshot snapshot include? strip-sensitive))

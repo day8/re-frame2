@@ -260,7 +260,7 @@ runWithWatchdog(
     // fn keeps the historical name) so AI clients can list active
     // streaming subscriptions without an eval-cljs round-trip. Renamed
     // from `subscription-info` per rf2-4y595 (NAMING.md `list-<things>`
-    // conformance — matches causa-mcp's same-named tool). Pure-read
+    // conformance). Pure-read
     // tool, no required arguments — optional :topic / :sub-id filters
     // narrow the result. In degraded mode it returns the same
     // nrepl-port-not-found envelope as every other live-runtime tool;

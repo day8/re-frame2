@@ -48,7 +48,7 @@
   because its JVM-side single-process deploy has no nREPL `conn` and
   no streaming tool. The divergence is deliberate and documented at
   `tools/mcp-base/spec/handler-arity.md`; a phase-2 unification awaits
-  a third server instance (causa-mcp) and lands as a separate bead.
+  a third server instance and lands as a separate bead.
 
   ## Adding a new tool
 

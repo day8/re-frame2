@@ -1,12 +1,16 @@
-# `re-frame2-mcp-base` — shared primitives for the MCP triplet
+# `re-frame2-mcp-base` — shared primitives for the MCP pair
 
 `day8/re-frame2-mcp-base` is the CLJC library that holds the
 genuinely-cross-cutting primitives consumed by every MCP server in
-the re-frame2 tool triplet:
+the re-frame2 tool pair:
 
 - `tools/re-frame2-pair-mcp/` (CLJS / Node — runs over nREPL to a browser app)
 - `tools/story-mcp/` (JVM / Clojure — bridges to `tools/story/`)
-- `tools/causa-mcp/` (CLJS / Node — runs over nREPL to a browser app; eighteen-tool catalogue at `tools/causa-mcp/spec/004-Tools-Catalogue.md`)
+
+(Historical: a third server `causa-mcp` was envisaged, making this an
+MCP triplet; it was dropped per rf2-hvl1g — AI agent access to Causa
+state flows via re-frame2-pair-mcp against the framework-published
+Causa runtime API, so a dedicated causa-mcp is unnecessary.)
 
 The factoring landed under [rf2-vw4sq][bead]. The per-namespace
 contract expansion (rf2-643ia / rf2-0hs5t.5) splits each shipped
@@ -47,7 +51,7 @@ per-namespace contract doc; the table below indexes them:
 | `cap` | 242 | Wire-boundary token-budget cap pipeline + `ResultIO` protocol (rf2-eyelu) + resource controls + token splitter. | [`cap.md`](cap.md) |
 
 All `.cljc`, so consumers compile them under their own platform —
-re-frame2-pair-mcp's shadow-cljs node build, story-mcp / causa-mcp's JVM
+re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
 classpath. The library's `deps.edn` carries only
 `org.clojure/clojure`; no consumer-side runtime deps.
 
@@ -64,7 +68,7 @@ third server instance and lands as a separate bead.
 ## What deliberately does NOT live here
 
 The bead's scope holds the line at primitives that are truly
-identical across the triplet's wire / privacy / size surfaces.
+identical across the pair's wire / privacy / size surfaces.
 Three categories stay consumer-side:
 
 1. **Wire transport.** story-mcp uses Cheshire for JSON-RPC over
@@ -76,9 +80,8 @@ Three categories stay consumer-side:
    :ms ... :until-ms ... :frame ...}`) is conventional — but
    re-frame2-pair-mcp uses `js/Buffer.from … "base64"` and a JVM consumer
    would use `java.util.Base64`. Factoring the codec means a
-   protocol-shaped helper per platform; re-frame2-pair-mcp and causa-mcp
-   both run on Node and share `js/Buffer`, so a single codec helper
-   here is not yet warranted.
+   protocol-shaped helper per platform; with only one Node-side
+   consumer today, a single codec helper here is not yet warranted.
 
 3. **Tool registries.** Each MCP server's tool catalogue is domain-
    specific. The base provides building blocks; it does NOT

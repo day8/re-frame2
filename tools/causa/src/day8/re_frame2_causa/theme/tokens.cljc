@@ -44,15 +44,7 @@
 
   Semantic-mapping tables that emit token *keywords* (e.g. an outcome
   → `:green` table) live in each panel's `*_helpers.cljc` so the
-  pure-data side stays JVM-portable. The hex resolution happens here.
-
-  ## Causa-MCP origin colour
-
-  The inferential `:origin :causa-mcp` cyan (`#06B6D4`) lives in
-  `mcp_server_helpers.cljc/causa-mcp-origin-colour` per the comment
-  there — it is pinned to a follow-on spec bead and not (yet) a
-  palette-grade token. The mcp-server panel reaches for it directly
-  rather than rolling it into the shared palette."
+  pure-data side stays JVM-portable. The hex resolution happens here."
   {:no-doc true})
 
 ;; ---- per-theme palettes -------------------------------------------------

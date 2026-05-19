@@ -154,7 +154,7 @@ builds ship the tool DISABLED; the operator opts in at server launch:
 
 Without the flag, calls to `eval-cljs` return the structured error
 `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
-touching the nREPL socket. Same posture as causa-mcp's split (rf2-zyoj2).
+touching the nREPL socket.
 
 #### raw-state gate (rf2-c2dtu)
 
@@ -326,11 +326,10 @@ the surface:
 | Browser substrate | [Chrome DevTools MCP](https://github.com/anthropics/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Click, type, navigate, screenshot, viewport |
 | re-frame2 runtime | **re-frame2-pair-mcp** (this artefact) | `dispatch`, `snapshot`, `get-path`, `subscribe`, `eval-cljs`, … |
 
-The split mirrors the framing in [causa-mcp's
-DESIGN-RATIONALE](../causa-mcp/spec/DESIGN-RATIONALE.md) — browser-substrate
-ops and re-frame2-runtime ops are different contracts, and bundling
-them into one server would force every re-frame2 developer to take
-on the heavyweight Chromium dep just to read `app-db`.
+Browser-substrate ops and re-frame2-runtime ops are different
+contracts, and bundling them into one server would force every
+re-frame2 developer to take on the heavyweight Chromium dep just to
+read `app-db`.
 
 Example session: the browser MCP clicks a button → re-frame2-pair-mcp's
 `subscribe` receives the resulting `:rf/epoch-record` → the agent

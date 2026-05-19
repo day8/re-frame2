@@ -2,12 +2,17 @@
 
 Source: rf2-ll0yq.
 
-The re-frame2 MCP triplet — `tools/re-frame2-pair-mcp/`, `tools/story-mcp/`, and
-`tools/causa-mcp/` (spec-only today) — shares a normative **token-budget
-posture**: a 5,000-token-per-response cap, a single per-call override
-slot (`max-tokens`), and a single cross-server overflow marker
-(`:rf.mcp/overflow`). An agent host that attaches all three sees one
-disciplined surface, not three dialects of "I'm too big".
+The re-frame2 MCP pair — `tools/re-frame2-pair-mcp/` and
+`tools/story-mcp/` — shares a normative **token-budget posture**: a
+5,000-token-per-response cap, a single per-call override slot
+(`max-tokens`), and a single cross-server overflow marker
+(`:rf.mcp/overflow`). An agent host that attaches both sees one
+disciplined surface, not two dialects of "I'm too big".
+
+(Historical: a third server `causa-mcp` was envisaged in this contract;
+it was dropped per rf2-hvl1g. AI agent access to Causa state already
+flows via `re-frame2-pair-mcp` against the framework-published Causa
+runtime API, so a dedicated causa-mcp is unnecessary.)
 
 This doc is the canonical pin. Each server's `Principles.md` carries
 the per-server expansion (mechanism inventory, pipeline order,
@@ -34,13 +39,12 @@ fine, but the realistic working session fires dozens of tool calls. A
 single oversized response burns the budget the agent needs for the
 next ten ops.
 
-The triplet's exposed surfaces are exactly the SOTA-flagged shapes:
+The pair's exposed surfaces are exactly the SOTA-flagged shapes:
 
 | Server | Exposed surfaces | Why exposed |
 |---|---|---|
 | `re-frame2-pair-mcp` | `snapshot`, `subscribe`, `watch-epochs`, `trace-window` | Mega-op spans 5 registries; subscribe batches scale with traffic; epochs carry full app-db pairs. |
 | `story-mcp` | `run-variant`, `list-stories` on populous libraries | Variant output carries assertions + rendered hiccup + snapshot; list-* size is a function of registry size. |
-| `causa-mcp` | `get-trace-buffer`, `get-epoch-history`, `app-db-diff`, `subscribe` | All return payloads that scale with runtime state — the most-exposed of the three. |
 
 Cap-first design pushes each server to **bound its egress by
 construction** (path-slicing, lazy summary, cursor pagination,
@@ -50,7 +54,7 @@ mechanisms are the load-bearing budget posture.
 
 ## The shared contract
 
-These slots are **identical across all three servers**. An agent that
+These slots are **identical across both servers**. An agent that
 learns them once recognises them everywhere.
 
 ### Default cap
@@ -110,11 +114,9 @@ the call succeeded; the response is a budget signal.
 ### Cap-aware planning slots in tool descriptors
 
 Every catalogue entry (per re-frame2-pair-mcp's
-[`003-Tool-Catalogue.md`](../re-frame2-pair-mcp/spec/003-Tool-Catalogue.md),
-story-mcp's
-[`002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md), and
-causa-mcp's
-[`004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md))
+[`003-Tool-Catalogue.md`](../re-frame2-pair-mcp/spec/003-Tool-Catalogue.md)
+and story-mcp's
+[`002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md))
 carries:
 
 - A **typical-token** hint (`~1.2k`, `~3k under :sample`,
@@ -191,48 +193,24 @@ When the wire-boundary check lands, it follows re-frame2-pair-mcp's shape
 (`max-tokens` arg, `:rf.mcp/overflow` marker) — the keyword namespace
 is reserved cross-server.
 
-### causa-mcp — spec-locked, impl pending
-
-The cap is **spec-locked** in
-[`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"Tight token budget per response"](../causa-mcp/spec/004-Wire-Pipeline.md#tight-token-budget-per-response)
-with **six normative mechanisms**:
-
-1. **Token budget cap** (5,000-token default, `:max-tokens`
-   override).
-2. **Path slicing** (`:path` arg + tree-summary default).
-3. **Cursor pagination** (`:cursor` + `:limit`).
-4. **Lazy summary** (`:rf.mcp/summary` shape, `:mode` arg).
-5. **Structural dedup** (`:rf.mcp/dedup-table`, opt-out via
-   `:dedup? false`).
-6. **Size elision** (`:rf.size/large-elided` substitution, opt-out
-   via `:include-large? true`).
-
-Mechanisms 1-6 are deliberately the same numbered set re-frame2-pair-mcp's
-mechanisms 1-6 align against. Mechanisms 7-8 in re-frame2-pair-mcp
-(diff-encoded `:db-after`, streaming subscribe byte+event budget) are
-**re-frame2-pair-mcp-specific today** but the cross-server vocabulary
-(`:rf.mcp/diff-from`, `:overflow-reason`) is already pinned —
-causa-mcp's catalogue is expected to absorb them when its streaming /
-epoch-pair surfaces land.
-
 ## Chained budgets — when agents attach multiple servers
 
-The realistic agent host attaches **all three servers in one
-session** (causa-mcp inspecting trace causality, re-frame2-pair-mcp dispatching
-events, story-mcp running variants). The 5,000-token cap is **per
-response**, not per session — the agent host's total context budget
-absorbs the sum.
+The realistic agent host attaches **both servers in one session**
+(re-frame2-pair-mcp dispatching events + inspecting trace causality,
+story-mcp running variants). The 5,000-token cap is **per response**,
+not per session — the agent host's total context budget absorbs the
+sum.
 
-The triplet's design assumes the agent meters consumption:
+The pair's design assumes the agent meters consumption:
 
 - **Each server's responses are bounded.** No server can blow the
   session on its own.
 - **No cross-server budget coordination.** Servers don't know about
   each other's outputs; the agent host is the metering authority.
 - **Per-server `max-tokens` overrides compose additively.** An agent
-  that needs a full re-frame2-pair-mcp `snapshot` payload AND a full causa-mcp
-  `get-epoch-history` payload passes `max-tokens 0` to both — total
-  cost is the sum.
+  that needs a full re-frame2-pair-mcp `snapshot` payload AND a full
+  story-mcp `run-variant` payload passes `max-tokens 0` to both —
+  total cost is the sum.
 
 The agent-host workflow Mike's skills assume:
 
@@ -256,30 +234,17 @@ deliberate or pending alignment.
 | Server | Slot shape |
 |---|---|
 | `re-frame2-pair-mcp` (implemented) | `{:rf.mcp/overflow {:limit :reached :token-count <int> :cap-tokens <int> :tool <str> :hint <str>}}` |
-| `causa-mcp` (spec'd) | `{:rf.mcp/overflow {:cap <int> :would-be <int> :hint <kw-or-str> :continuation {:cursor <str> :next-args {...}}}}` |
 | `story-mcp` (spec'd, generic) | `:isError true` with `:reason :budget-exceeded` + hint string (legacy path; converges to `:rf.mcp/overflow` when wire-boundary check lands) |
 
-**The divergence is intentional** for re-frame2-pair-mcp vs causa-mcp.
-re-frame2-pair-mcp's wrapper measures the *post-shrunk* payload after the
-full diff-encode/dedup/elision pipeline, so the continuation hint is
-tool-specific rather than a generic `:continuation {:cursor ...
-:next-args ...}` shape. causa-mcp's spec'd `:continuation` slot is
-designed for the cursor-paginated read tools where the next call's
-args are mechanically computable.
-
-Cross-server convergence on a single slot vocabulary is tracked
-separately — when both wrappers stabilise, one shape wins. The
-**reserved keyword** (`:rf.mcp/overflow`) and the **retry-signal
+The **reserved keyword** (`:rf.mcp/overflow`) and the **retry-signal
 contract** are identical today; only the slot vocabulary differs.
 
 ### Streaming-overflow surface
 
-re-frame2-pair-mcp ships an **upstream-queue budget** (`:max-buffered-events`
-+ `:max-buffered-bytes`, OR-combined) per subscription, with
-`:overflow-reason` reported per drain. causa-mcp's streaming band
-absorbs the same posture — the chatty-filter case and the
-large-payload-storm case both apply to causa-mcp's trace stream.
-story-mcp doesn't ship streaming.
+re-frame2-pair-mcp ships an **upstream-queue budget**
+(`:max-buffered-events` + `:max-buffered-bytes`, OR-combined) per
+subscription, with `:overflow-reason` reported per drain. story-mcp
+doesn't ship streaming.
 
 ### Enforcement surface
 
@@ -287,7 +252,6 @@ story-mcp doesn't ship streaming.
 |---|---|---|
 | `re-frame2-pair-mcp` | Runtime — `apply-cap` at `invoke` boundary | Live in `tools.cljs`. |
 | `story-mcp` | Spec-only — pagination + summary modes are normative but no wire-boundary check yet | Cap-violating tools would currently ship. Pending wiring. |
-| `causa-mcp` | Runtime — six mechanisms enforced at the tool egress | Live in `tools/causa-mcp/src/day8/re_frame2_causa_mcp/token_cap.cljs` and per-tool wrappers. |
 
 The shared **default cap (5,000)**, the **shared override slot name
 (`max-tokens`)**, and the **shared overflow keyword
@@ -314,10 +278,9 @@ override-pattern convention:
    consumption across the session.
 
 The skill catalogue
-([`skills/re-frame-pair/`](../../skills/re-frame-pair/),
-[`skills/re-frame-story/`](../../skills/re-frame-story/), and
-causa-mcp's skill when its impl lands) encodes this pattern; agents
-attaching ad-hoc are encouraged to follow it.
+([`skills/re-frame-pair/`](../../skills/re-frame-pair/) and
+[`skills/re-frame-story/`](../../skills/re-frame-story/)) encodes this
+pattern; agents attaching ad-hoc are encouraged to follow it.
 
 ## When this convention changes
 
@@ -349,8 +312,6 @@ cross-server contract exists to enforce.
   — re-frame2-pair-mcp's eight mechanisms, in pipeline order.
 - [`tools/story-mcp/spec/Principles.md` §"Tight token budget per response"](../story-mcp/spec/Principles.md#tight-token-budget-per-response)
   — story-mcp's three-axis discipline.
-- [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"Tight token budget per response"](../causa-mcp/spec/004-Wire-Pipeline.md#tight-token-budget-per-response)
-  — causa-mcp's six mechanisms.
 - [`spec/Conventions.md` §"Reserved namespaces (framework-owned)"](../../spec/Conventions.md)
   — the `:rf.mcp/*` / `:rf.size/*` keyword discipline this contract
   inherits.

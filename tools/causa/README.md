@@ -24,11 +24,11 @@ bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The 16 panels are
 *presentation* of an already-structured runtime.
 
-A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP
-tools for AI agents — same architecture as `tools/re-frame2-pair-mcp/`,
-different tool catalogue (18 tools across five bands). Contract at
-[`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md);
-catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md).
+AI agent access to Causa's surfaces flows through
+`tools/re-frame2-pair-mcp/` against the framework-published Causa
+runtime API at `day8.re-frame2-causa.runtime` — per rf2-hvl1g a
+dedicated causa-mcp jar is unnecessary; agents read the same trace bus
++ epoch history + registrar Causa itself reads.
 
 ## Headline experiences
 
@@ -168,24 +168,11 @@ force-disable in dev.
 
 ### MCP (Causa as an agent surface)
 
-A separate `tools/causa-mcp/` artefact exposes Causa's surfaces as
-MCP tools so AI agents can drive the same observations through a
-tool catalogue (18 tools: Inspection band, Mutation band, Streaming
-band, Meta band, plus the `eval-cljs` escape hatch).
-
-Consumer-side wiring:
-
-```bash
-npm install -g @day8/re-frame2-causa-mcp
-```
-
-```json
-// ~/.claude/settings.json
-{ "mcpServers": { "causa": { "command": "re-frame2-causa-mcp" } } }
-```
-
-Tool catalogue at [`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md);
-Causa-panel-side prose at [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
+Per rf2-hvl1g there is no dedicated `causa-mcp` jar. AI agents reach
+Causa's surfaces through `tools/re-frame2-pair-mcp/`, which can read
+the framework-published Causa runtime API on
+`day8.re-frame2-causa.runtime` (the same trace bus + epoch history +
+registrar Causa's chrome reads).
 
 ## Spec
 
@@ -202,7 +189,6 @@ that the tool could be one-shotted from it.
 | [`spec/006-Hydration-Debugger.md`](./spec/006-Hydration-Debugger.md) | SSR render-tree diff; divergent-node surfacing. |
 | [`spec/007-UX-IA.md`](./spec/007-UX-IA.md) | Layout, interaction, visual language (typography, colour, motion). |
 | [`spec/008-Embedding-Contract.md`](./spec/008-Embedding-Contract.md) | Story-embed contract; the `Panel` component shape. |
-| [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md) | `tools/causa-mcp/`; the Causa MCP tool catalogue. |
 | [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone-via-MCP for remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
 | [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, MCP tool list). |
@@ -286,9 +272,10 @@ round-trip), the deterministic feature-matrix sweep across panels +
 shell + launch modes + redaction + 20-event load, the Panel-view
 gallery, and the performance probe.
 
-The sibling `tools/causa-mcp/` artefact ships the agent surface (18
-tools across five bands; catalogue formally pinned at
-[`tools/causa-mcp/spec/004-Tools-Catalogue.md`](../causa-mcp/spec/004-Tools-Catalogue.md)).
+Agent access to Causa's surfaces flows through
+`tools/re-frame2-pair-mcp/` against the framework-published Causa
+runtime API on `day8.re-frame2-causa.runtime` (per rf2-hvl1g — no
+dedicated causa-mcp jar).
 
 Next: alpha cut once the browser feature gate from
 [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)

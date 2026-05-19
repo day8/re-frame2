@@ -473,6 +473,12 @@ re-frame2-pair is AI-driven (an LLM integration via nREPL). Causa is human-drive
 
 ### MCP surface
 
+> **NOTE (2026-05-19, rf2-hvl1g).** The `causa-mcp` jar described
+> below was dropped — see DESIGN-RATIONALE.md Lock #6 supersedence.
+> AI agent access flows through `tools/re-frame2-pair-mcp/` against
+> the framework-published Causa runtime API instead. The text below
+> is preserved as historical design lineage.
+
 **Causa ships `tools/causa-mcp/`** (a separate jar, mirroring `tools/story-mcp/`). The MCP server exposes:
 
 - `get-trace-buffer` — slice of the trace stream by filter.

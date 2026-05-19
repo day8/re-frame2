@@ -22,7 +22,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 ### Non-goals
 
 - **No AI in Causa.** No co-pilot rail, no AI tab, no in-chrome LLM surface. AI access goes through `tools/re-frame2-pair-mcp/` over raw nREPL — the agent reads the same instrumentation Causa reads, not a Causa-curated facade. (Causa is the human-only surface; re-frame2-pair-mcp is the AI access path.)
-- **No Causa-MCP.** The `tools/causa-mcp/` artefact is dropped entirely (separate PR). MCP server panel dies with it.
+- **No Causa-MCP.** A dedicated `causa-mcp` jar was envisaged but dropped per rf2-hvl1g (2026-05-19). MCP server panel dies with it. Agent access flows through `tools/re-frame2-pair-mcp/` against the framework-published Causa runtime API.
 - **No `:sensitive? true` event-handler annotation.** Reversed in favour of unified path-marked classification per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md). Causa CONSUMES that contract; this spec defines how the sentinels render in Causa's surfaces (§12).
 - **No writes to host runtime.** Causa stays read-only forever (Lock #3 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)).
 - **No bottom rail.** The pass-2/round-1/round-2 "L0" scrubber rail is gone — the ribbon `[◀ ▶ ⏭]` cluster + the event list together ARE the scrubber.

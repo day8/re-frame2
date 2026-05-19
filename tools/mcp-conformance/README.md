@@ -1,8 +1,11 @@
 # tools/mcp-conformance
 
 End-to-end **MCP-client** conformance harness for the re-frame2 MCP
-servers — `re-frame2-pair-mcp`, `story-mcp`, and (when its implementation lands)
-`causa-mcp`. Source: rf2-cum40.
+servers — `re-frame2-pair-mcp` and `story-mcp`. Source: rf2-cum40.
+
+(Historical: a third server `causa-mcp` was envisaged; it was dropped
+per rf2-hvl1g — AI agent access to Causa state flows via
+`re-frame2-pair-mcp` against the framework-published Causa runtime API.)
 
 This artefact has four surfaces:
 
@@ -27,8 +30,8 @@ This artefact has four surfaces:
    token-budget posture: the 5,000-token default cap, the
    `max-tokens` per-call override, the `:rf.mcp/overflow` retry
    marker, per-server mechanism inventory, chained-budget rules
-   when an agent attaches all three servers in one session, and
-   the deliberate divergences between server implementations.
+   when an agent attaches both servers in one session, and the
+   deliberate divergences between server implementations.
    Source: rf2-ll0yq.
 
 ## What this is
@@ -83,8 +86,6 @@ on the server side surfaces as an SDK parse-error.
   the SKIP path leaves on each.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled)
-- `test/end-to-end-causa.cjs` — placeholder; exits 0 with a `SKIP`
-  marker until causa-mcp's server implementation lands
 
 ## How to run
 
@@ -103,10 +104,7 @@ npm run test:re-frame2-pair
 # launched via `clojure -M -m re-frame.story-mcp.server`.
 npm run test:story
 
-# causa-mcp: currently a SKIPPED no-op (see comment in the file).
-npm run test:causa
-
-# All three (re-frame2-pair must be pre-built):
+# Both (re-frame2-pair must be pre-built):
 npm test
 ```
 
@@ -221,18 +219,12 @@ fixture's location and entry script in the orchestrator's preamble.
 
 Watchdog: 90s (cold JVM boot is ~10–30s on a CI runner).
 
-### `end-to-end-causa.cjs`
-
-Placeholder — exits 0 with a `SKIP` marker. Will be filled in when
-the causa-mcp server implementation lands; the file's body comment
-documents the expected shape.
-
 ## CI
 
-`.github/workflows/test.yml` runs each of the three scripts in its own
-`mcp-conformance-{re-frame2-pair,story,causa}` job, parallel to the existing
-`node-test-tools-{re-frame2-pair,story}-mcp` jobs. Same Node 24 + JDK 21 setup
-as those jobs.
+`.github/workflows/test.yml` runs each of the conformance scripts in
+its own `mcp-conformance-{re-frame2-pair,story}` job, parallel to the
+existing `node-test-tools-{re-frame2-pair,story}-mcp` jobs. Same
+Node 24 + JDK 21 setup as those jobs.
 
 The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
 
@@ -290,10 +282,8 @@ already lives, by construction, in three other places:
 
 3. **The servers being verified.** Per-tool input / output / error
    contracts are owned by each server's own `spec/`
-   ([`tools/re-frame2-pair-mcp/spec/`](../re-frame2-pair-mcp/spec/),
-   [`tools/story-mcp/spec/`](../story-mcp/spec/), and — when its
-   implementation lands —
-   [`tools/causa-mcp/spec/`](../causa-mcp/spec/)). Duplicating that
+   ([`tools/re-frame2-pair-mcp/spec/`](../re-frame2-pair-mcp/spec/) and
+   [`tools/story-mcp/spec/`](../story-mcp/spec/)). Duplicating that
    here would create a second source of truth on a wire that already
    has one canonical home per server.
 

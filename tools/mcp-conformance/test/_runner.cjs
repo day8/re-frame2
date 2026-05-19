@@ -122,13 +122,12 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
 // Pre-flight skip helper (rf2-i3ffz F-HYG-2).
 //
 // Conformance tests gate on environment / server-implementation status
-// (`live-re-frame2-pair-overflow.cjs` requires `$SHADOW_CLJS_NREPL_PORT`;
-// `end-to-end-causa.cjs` is a placeholder until causa-mcp's
-// implementation lands). Skipping cleanly means exiting 0 BEFORE
-// spawning a child or installing the watchdog — same pattern across
-// every caller. Centralising the SKIP banner + exit here makes the
-// caller a one-liner and pins the marker shape (`SKIP <reason>`) so a
-// CI step that greps for it doesn't drift per-test.
+// (`live-re-frame2-pair-overflow.cjs` requires `$SHADOW_CLJS_NREPL_PORT`).
+// Skipping cleanly means exiting 0 BEFORE spawning a child or
+// installing the watchdog — same pattern across every caller.
+// Centralising the SKIP banner + exit here makes the caller a
+// one-liner and pins the marker shape (`SKIP <reason>`) so a CI step
+// that greps for it doesn't drift per-test.
 // ---------------------------------------------------------------------
 runWithWatchdog.skip = function skip(reason) {
   console.log('SKIP ' + reason);
@@ -139,7 +138,7 @@ runWithWatchdog.skip = function skip(reason) {
 // JSON-RPC error-code conformance gate (rf2-i3ffz F-GAP-3).
 //
 // `mcp-base/vocab.cljc` pins the five JSON-RPC 2.0 §5.1 codes the
-// triplet routes against (`-32700` ParseError, `-32600` InvalidRequest,
+// MCP servers route against (`-32700` ParseError, `-32600` InvalidRequest,
 // `-32601` MethodNotFound, `-32602` InvalidParams, `-32603`
 // InternalError). Before this gate landed no test asserted either
 // server's actual on-the-wire emission — a regression that swapped

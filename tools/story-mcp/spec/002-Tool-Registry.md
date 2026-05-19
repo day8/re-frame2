@@ -159,7 +159,7 @@ mirroring re-frame2-pair-mcp's shape — same wire-protocol slot
 `progressToken`), same idempotent `unsubscribe`, same
 `list-subscriptions` peer for the "what streams are open?"
 diagnostic (renamed from `subscription-info` in pair-mcp per
-rf2-4y595 — matches causa-mcp's catalogue).
+rf2-4y595).
 
 Topics to expose:
 

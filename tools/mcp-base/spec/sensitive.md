@@ -60,7 +60,7 @@ The default-OFF posture aligns with the framework's privacy-by-default stance (p
 
 ## Zero-dep rationale
 
-re-frame2-pair-mcp is a CLJS Node bundle (no `re-frame.trace` on its classpath); story-mcp / causa-mcp are JVM-side and DO have the framework primitive available. The predicate here (`(and (map? ev) (true? (:sensitive? ev)))`) is conservative and identical to `re-frame.privacy/sensitive?`.
+re-frame2-pair-mcp is a CLJS Node bundle (no `re-frame.trace` on its classpath); story-mcp is JVM-side and DOES have the framework primitive available. The predicate here (`(and (map? ev) (true? (:sensitive? ev)))`) is conservative and identical to `re-frame.privacy/sensitive?`.
 
 Consumers that want to bind to the framework primitive (story-mcp does, for code-review locality) alias the surface in their own ns and delegate through here.
 

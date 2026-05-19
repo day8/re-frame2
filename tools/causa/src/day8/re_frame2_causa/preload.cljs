@@ -77,16 +77,15 @@
             [day8.re-frame2-causa.mount :as mount]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.settings.effects :as settings-effects]
-            ;; rf2-8xzoe.4 (F-4) — pull the Causa-MCP injected-runtime
+            ;; rf2-8xzoe.4 (F-4) — pull the Causa-runtime accessor
             ;; namespace into the preload classpath. The `:require` is the
             ;; load: `day8.re-frame2-causa.runtime` installs its
             ;; `js/globalThis.__day8_re_frame2_causa_runtime` sentinel as
             ;; a top-level side effect (gated on `interop/debug-enabled?`).
-            ;; The MCP server's preload probe reads that sentinel to
-            ;; confirm the runtime landed. Per `tools/causa-mcp/spec/000-
-            ;; Vision.md` §"Two namespaces, two sides" — the runtime
-            ;; rides Causa-the-panel's preload, no separate `:preloads`
-            ;; entry required on the consumer side.
+            ;; Any attached MCP server (re-frame2-pair-mcp today) reads
+            ;; that sentinel as its preload probe; the runtime rides
+            ;; Causa-the-panel's preload, so no separate `:preloads`
+            ;; entry is required on the consumer side.
             [day8.re-frame2-causa.runtime]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 

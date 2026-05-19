@@ -220,52 +220,40 @@ Does Causa support mobile / tablet / phone viewports?
 
 ---
 
-## Lock #6 — MCP timing
+## Lock #6 — MCP timing (SUPERSEDED 2026-05-19)
 
-**Locked 2026-05-12 (Mike).** **Ship at v1.0.** Via
-`tools/causa-mcp/`, mirroring the `tools/re-frame2-pair-mcp/` pattern.
+**Superseded 2026-05-19 (Mike, rf2-hvl1g).** **Causa-MCP is dropped
+entirely.** AI agent access to Causa state already flows via
+`tools/re-frame2-pair-mcp/` (which can read the framework-published
+Causa runtime API on `day8.re-frame2-causa.runtime`) + Causa's raw
+trace bus + Story-MCP. No dedicated causa-mcp jar is built; there is
+no `tools/causa-mcp/` artefact.
 
-### Question
+### Original lock (2026-05-12, Mike, retained for history)
 
-When does Causa's MCP server ship — v1.0 or v1.1?
+Picked **Ship at v1.0** via `tools/causa-mcp/`, mirroring
+`tools/re-frame2-pair-mcp/`. Reasoning: fork the re-frame2-pair-mcp
+template, swap the tool catalogue for Causa surfaces, enables
+remote-attach via MCP without a custom WebSocket protocol.
 
-### Options considered
+### Why reversed
 
-- **Defer to v1.1.** Ship the panel at v1.0; the MCP server later.
-  Less scope at v1.0.
-- **Ship at v1.0.** Causa-MCP launches alongside the panel.
+- Causa's runtime API (rf2-crhr8) exposes the same accessors
+  (`get-app-db`, `get-epoch-history`, `get-machine-state`, ...) that
+  a hypothetical causa-mcp would have wrapped. Any MCP server can
+  call those accessors via `eval-cljs` — re-frame2-pair-mcp does so
+  today.
+- Maintaining a second Node-side MCP jar duplicates the cap
+  pipeline, the wire-vocab plumbing, the discover-app handshake, and
+  the streaming-subscribe budget for ~zero incremental value over
+  re-frame2-pair-mcp + eval-cljs against the runtime API.
+- The "two doors" framing in `000-Vision.md` collapses to one:
+  Causa is the human surface; re-frame2-pair-mcp is the AI surface
+  (reading the same trace bus + epoch history Causa reads).
 
-### Pick
+### Date superseded
 
-**Ship at v1.0.** Via `tools/causa-mcp/`.
-
-### Why
-
-- `tools/re-frame2-pair-mcp/` (rf2-5b8e #423, shipped 2026-05-12) is the
-  template — fork the project, swap the tool catalogue for Causa's
-  surfaces. Most of the implementation cost is already paid.
-- Enables remote-attach (one browser debugs another) as a v1.0
-  story without paying for a custom WebSocket protocol (lock #9
-  rules that out anyway).
-- The agent-driven workflow ("Claude, walk me back through the last
-  10 epochs that touched `[:cart]`") is high-leverage. Shipping
-  Causa-the-panel without Causa-the-agent-surface would mean the
-  AI assistant case is only partially served at v1.0.
-- The Causa-MCP catalogue is read-mostly (9 read tools, 3 mutate
-  tools); the mutate tools mirror the in-panel right-click
-  affordances. The user's consent model is the same.
-
-### Date locked
-
-2026-05-12 (Mike). Originally deferred 2026-05-11 (per rf2-buor
-§10.7); reversed on 2026-05-12 once re-frame2-pair-mcp shipped and the
-template existed.
-
-### Trail-of-thought citations
-
-- rf2-buor §10.7 (originally deferred).
-- rf2-buor notes ("#6 MCP timing LOCKED 2026-05-12 (Mike): MCP AT
-  v1.0").
+2026-05-19 (Mike, rf2-hvl1g).
 
 ---
 
@@ -364,8 +352,11 @@ mode?
 - **(c) Chrome extension.** The IPC-isolated approach. Out of
   process from the runtime.
 - **(d) Hybrid: in-app overlay + MCP for remote-attach.** In-app is
-  the primary; the agent-driven case is handled by `tools/causa-mcp/`,
-  not by a custom Causa protocol.
+  the primary; the agent-driven case is handled by
+  `tools/re-frame2-pair-mcp/` against the framework-published Causa
+  runtime API, not by a custom Causa protocol. (Originally pictured
+  via a dedicated causa-mcp jar — dropped per rf2-hvl1g, see
+  Lock #6 supersedence.)
 
 ### Pick
 
@@ -498,7 +489,7 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 | 3 | App-db editing | **Never — read-only forever** | 2026-05-11 |
 | 4 | Session export | **Never** | 2026-05-11 |
 | 5 | Mobile | **Desktop only** | 2026-05-11 |
-| 6 | MCP timing | **v1.0 via `tools/causa-mcp/`** | 2026-05-12 |
+| 6 | MCP timing | **SUPERSEDED 2026-05-19: causa-mcp dropped (rf2-hvl1g) — agent access via re-frame2-pair-mcp + runtime API** | 2026-05-19 |
 | 7 | Hero panel | **Event-detail** (graph demoted to peer) | 2026-05-12 |
 | 8 | AI panel default state | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 9 | Launch modes | **Hybrid: in-app + MCP** | 2026-05-12 |
