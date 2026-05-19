@@ -3,7 +3,7 @@ name: causa
 description: >
   Read-only tour of **Causa** — the re-frame2 devtools panel. Use when the
   user wants to know how to *launch* Causa (in-app inline panel, pop-out
-  window, programmatic mount, or the two wired hotkeys), which of its 16
+  window, programmatic mount, or the two wired hotkeys), which of its 13
   panels surfaces the data they're looking for, or what each panel is
   *for*. Trigger phrases: "open Causa", "where is X in Causa",
   "which Causa panel shows…", "Ctrl+Shift+C", "Causa hotkey",
@@ -35,7 +35,7 @@ This skill answers two questions, and only two:
 
 1. **How do I launch Causa?** — the inline panel, the pop-out, the
    programmatic entry points, the wired hotkeys.
-2. **Which panel shows X?** — a one-line purpose for each of the 16
+2. **Which panel shows X?** — a one-line purpose for each of the 13
    panels Causa ships.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source,
@@ -55,7 +55,7 @@ gate — zero bytes ship to consumers.
 
 Causa consumes re-frame2's instrumentation surface (Spec 009 trace bus,
 Tool-Pair epoch history, the registrar query API) — it adds nothing the
-framework didn't already expose. The 16 panels are *presentation* of an
+framework didn't already expose. The 13 panels are *presentation* of an
 already-structured runtime.
 
 For an AI agent surface against the running app, use `tools/re-frame2-pair-mcp/`
@@ -102,9 +102,9 @@ on the launcher pill.
 
 ---
 
-## The 15 panels — what each surfaces
+## The 13 panels — what each surfaces
 
-The sidebar lists 15 panels in three groups (always-active, conditional,
+The sidebar lists 13 panels in three groups (always-active, conditional,
 dormant). When the user asks "where is X?", route to the panel whose
 purpose covers it. For more detail on each — group membership, dormant
 state, activity badges, deeper "open it when…" guidance — see
@@ -125,7 +125,6 @@ state, activity badges, deeper "open it when…" guidance — see
 | **Issues** | Unified feed: errors + warnings + schema violations + hydration mismatches. Top-strip badge mirrors count. | "Anything broken?" / "Show me all schema failures." |
 | **Schemas** | One row per registered schema; coloured dot per failure with recovery-mode mapping. | "Has any schema violated this session?" / "When did `:user/profile` start failing?" |
 | **Hydration** *(dormant)* | Server-vs-client render-tree side-by-side with divergent node flagged and hash-bisector path highlighted. Dormant `◌` until the first `:rf.ssr/hydration-mismatch` trace lands. | "My SSR hydration is mismatching" — only visible when SSR runs. |
-| **MCP** | Live feed of MCP-server activity: tool calls in flight, recent results, per-origin colouring. | "What is my agent doing right now?" / "Did the MCP call land?" |
 
 The hero on first open is **Event detail**. AI integration lives in
 the separate `tools/re-frame2-pair-mcp/` jar — Causa itself is the human
