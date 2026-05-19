@@ -26,7 +26,11 @@
 
 (def discover-app
   {:name "discover-app"
-   :description "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing."
+   :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing. "
+                     "Examples: "
+                     "1. Default build: {} -> {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app}. "
+                     "2. Named build: {:build \"app\"} -> same shape against the named build. "
+                     "3. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}.")
    :typicalTokens 200
    :inputSchema {:type "object"
                  :properties {:build {:type "string"
@@ -35,7 +39,11 @@
 
 (def eval-cljs
   {:name "eval-cljs"
-   :description "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value."
+   :description (str "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value. "
+                     "Examples: "
+                     "1. Read a sub: {:form \"@(re-frame.core/subscribe [:current-user])\"} -> {:ok? true :value {:id 42 :name \"Ada\"}}. "
+                     "2. Inspect a global: {:form \"(keys js/window)\"} -> {:ok? true :value [\"document\" ...]}. "
+                     "3. Gate closed: any args -> {:ok? false :reason :rf.error/eval-cljs-disabled} when launched without --allow-eval.")
    :typicalTokens 500
    :inputSchema {:type "object"
                  :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
@@ -51,7 +59,11 @@
                      "MUST be a vector (e.g. `[:cart/checkout {:reason :user}]`). Non-vector EDN returns "
                      "`:reason :not-an-event-vector`; unreadable input returns `:reason :invalid-event-edn`. "
                      "Host-form source (e.g. `(println :x)`) is rejected — use `eval-cljs` for arbitrary "
-                     "evaluation.")
+                     "evaluation. "
+                     "Examples: "
+                     "1. Fire-and-forget: {:event \"[:cart/checkout]\"} -> {:ok? true :mode :queued}. "
+                     "2. Trace mode (get the assembled epoch back): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {:rf/epoch-id ... :event-id :cart/add :db-after ... :effects [...]}}. "
+                     "3. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
    :typicalTokens 300
    :inputSchema {:type "object"
                  :properties {:event {:type "string" :description "The event vector as EDN, e.g. \"[:cart/checkout]\" or \"[:cart/add {:sku \\\"abc\\\"}]\". MUST be a vector — non-vector EDN and host-form source are rejected."}
@@ -79,7 +91,11 @@
                      "When more remain, `:next-cursor` carries an opaque continuation token and `:has-more? true`; "
                      "pass `cursor` back on the next call to resume. The window's upper bound is sticky across "
                      "pages — fresh epochs landing during pagination don't sneak in mid-iteration. A cursor "
-                     "whose epoch-id has aged out of the runtime ring surfaces as `:reason :rf.mcp/cursor-stale`.")
+                     "whose epoch-id has aged out of the runtime ring surfaces as `:reason :rf.mcp/cursor-stale`. "
+                     "Examples: "
+                     "1. Last second on default frame: {} -> {:ok? true :window-ms 1000 :count 3 :epochs [...] :has-more? false}. "
+                     "2. Larger window, paginated: {:ms 5000 :limit 20} -> {:ok? true :count 20 :has-more? true :next-cursor \"<b64>\"}; pass back as {:cursor \"<b64>\"} to get the next page. "
+                     "3. Stale cursor: {:cursor \"<aged-out-b64>\"} -> {:ok? false :reason :rf.mcp/cursor-stale :head-id ... :hint \"drop cursor and restart\"}.")
    :typicalTokens 2000
    :inputSchema {:type "object"
                  :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
@@ -115,7 +131,11 @@
                      "When more matches remain, `:next-cursor` is non-nil and `:has-more? true`; pass `cursor` "
                      "back to consume the next page. The `:cursor` arg overrides `:since-id` when both are "
                      "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
-                     "`:reason :rf.mcp/cursor-stale`.")
+                     "`:reason :rf.mcp/cursor-stale`. "
+                     "Examples: "
+                     "1. First poll for a specific event: {:pred {:event-id :cart/checkout}} -> {:ok? true :matches [...] :count 1 :head-id \"...\"}. "
+                     "2. Resume after last seen id: {:since-id \"epoch-42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id \"epoch-47\"}. "
+                     "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}.")
    :typicalTokens 2000
    :inputSchema {:type "object"
                  :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
@@ -134,7 +154,11 @@
 
 (def tail-build
   {:name "tail-build"
-   :description "Wait for a hot-reload to land by polling a probe form until its value changes. Returns once changed, or times out."
+   :description (str "Wait for a hot-reload to land by polling a probe form until its value changes. Returns once changed, or times out. "
+                     "Examples: "
+                     "1. Default 300ms soft delay: {} -> {:ok? true :t 312 :soft? true}. "
+                     "2. Probe for a recompile signal: {:probe \"(rand)\" :wait-ms 10000} -> {:ok? true :t 1240 :soft? false}. "
+                     "3. Timed out: {:probe \"my.app/build-marker\" :wait-ms 500} -> {:ok? false :reason :timed-out}.")
    :typicalTokens 100
    :inputSchema {:type "object"
                  :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
@@ -180,7 +204,11 @@
                      "`{:rf.size/large-elided {:path [...] :handle [:rf.elision/at <path>] ...}}` marker. "
                      "Agent drills into the handle via `get-path` (or `snapshot {:path ...}` with a "
                      "non-elided sibling subpath). Pass `elision false` to bypass the walk and receive "
-                     "the raw value.")
+                     "the raw value. "
+                     "Examples: "
+                     "1. Discovery snapshot (summaries only): {:frames \"all\"} -> {:ok? true :mode :summary :snapshot {:rf/default {:app-db {:rf.mcp/summary {:type :map :keys [...] :count N :bytes ~B}} :sub-cache {...} :machines {...} :epochs {...} :traces {...}}}}. "
+                     "2. Drill into one slice: {:frames [\":rf/default\"] :include [\"app-db\"] :path \"[:cart :items]\"} -> {:ok? true :mode :path-sliced :path [:cart :items] :snapshot {:rf/default {:app-db [{:sku \"x\" :qty 2}]}}}. "
+                     "3. Full expansion (legacy shape): {:frames \"all\" :mode \"full\"} -> {:ok? true :mode :full :snapshot {:rf/default {:app-db {...} :epochs [...]}}}.")
    :typicalTokens 3000
    :inputSchema {:type "object"
                  :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
@@ -250,7 +278,11 @@
                      "to bypass the walk and receive the raw value. "
                      "Privacy (rf2-vflrg, per Tool-Pair §Direct-read privacy posture): declared-sensitive "
                      "paths return the `:rf/redacted` sentinel by default — opt in to seeing the raw "
-                     "value at sensitive paths via `include-sensitive true`.")
+                     "value at sensitive paths via `include-sensitive true`. "
+                     "Examples: "
+                     "1. Hit: {:path \"[:cart :items 0 :sku]\"} -> {:ok? true :exists? true :path [:cart :items 0 :sku] :value \"sku-abc\"}. "
+                     "2. Path-not-found: {:path \"[:cart :items 99]\"} -> {:ok? false :reason :path-not-found :path [:cart :items 99] :deepest-valid-prefix [:cart :items]}. "
+                     "3. Large slot elided: {:path \"[:big :payload]\"} -> {:ok? true :exists? true :value {:rf.size/large-elided {:path [:big :payload] :bytes 12345 :type :map :reason :schema :handle [:rf.elision/at [:big :payload]]}}}.")
    :typicalTokens 500
    :inputSchema {:type "object"
                  :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
@@ -291,7 +323,11 @@
                      "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
                      "agent host reconstructs via `(de-dupe.core/expand cache-map)`. Dedup is per-tick, not "
                      "per-stream — each notifications/progress frame carries its own cache, no cross-tick "
-                     "references. Pass `dedup false` to skip.")
+                     "references. Pass `dedup false` to skip. "
+                     "Examples: "
+                     "1. Stream every epoch: {:topic \"epoch\"} -> progress ticks {:sub-id \"<uuid>\" :events [...]} until cancel; final summary {:ok? true :sub-id \"<uuid>\" :delivered N :ticks K :reason :aborted}. "
+                     "2. Filtered fx stream: {:topic \"fx\" :filter {:event-id :cart/checkout}} -> ticks only for checkout-driven fx; ends with {:ok? true :delivered N :reason :aborted}. "
+                     "3. Time-bounded probe: {:topic \"error\" :max-ms 30000 :max-events 100} -> closes after 30s or 100 errors, whichever first; {:ok? true :delivered K :reason :max-ms-reached}.")
    :typicalTokens 1000
    :inputSchema {:type "object"
                  :properties {:topic   {:type "string"
@@ -319,7 +355,11 @@
 
 (def unsubscribe
   {:name "unsubscribe"
-   :description "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false."
+   :description (str "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false. "
+                     "Examples: "
+                     "1. Live close: {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? true}. "
+                     "2. Already-closed (idempotent): {:sub-id \"abc-123\"} -> {:ok? true :sub-id \"abc-123\" :existed? false}. "
+                     "3. Unknown id: {:sub-id \"never-was\"} -> {:ok? true :sub-id \"never-was\" :existed? false}.")
    :typicalTokens 50
    :inputSchema {:type "object"
                  :properties {:sub-id {:type "string"
@@ -340,7 +380,11 @@
                      "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error`) narrows to "
                      "a single topic; `sub-id` returns only the matching sub. A non-nil `:overflow-reason` "
                      "indicates the queue has been evicting older events to stay inside its budget — tune "
-                     "`max-buffered-events` / `max-buffered-bytes` on the next `subscribe` call.")
+                     "`max-buffered-events` / `max-buffered-bytes` on the next `subscribe` call. "
+                     "Examples: "
+                     "1. No streams open: {} -> {:ok? true :subs []}. "
+                     "2. Healthy probe alive: {:sub-id \"abc-123\"} -> {:ok? true :subs [{:id \"abc-123\" :topic :epoch :filter {} :queue-depth 0 :queue-bytes 0 :dropped-events 0 :overflow-reason nil :created-at 1234567890}]}. "
+                     "3. Pressured queue: {:topic \"trace\"} -> {:ok? true :subs [{:id \"xyz-789\" :topic :trace :queue-depth 487 :queue-bytes 2400000 :dropped-events 12 :overflow-reason :max-buffered-bytes}]}.")
    :typicalTokens 500
    :inputSchema {:type "object"
                  :properties {:topic  {:type "string"
@@ -373,7 +417,11 @@
                      "005 §Querying machines); the other kinds route through "
                      "(rf/handler-meta kind id). Returns `{:ok? true :kind k "
                      ":id i ...meta...}` on a hit or `{:ok? false :reason "
-                     ":not-registered :kind k :id i}` when no slot matches.")
+                     ":not-registered :kind k :id i}` when no slot matches. "
+                     "Examples: "
+                     "1. Find an event: {:kind \"event\" :id \":user/login\"} -> {:ok? true :kind :event :id :user/login :ns my.app.user :line 42 :file \"src/my/app/user.cljs\" :rf.source/uri \"file://...\" :doc \"...\"}. "
+                     "2. Subscription on a composite key: {:kind \"sub\" :id \"[:rf/composite [:items :by-id 42]]\"} -> {:ok? true :kind :sub :id [:rf/composite [:items :by-id 42]] :ns my.app.subs :line 18}. "
+                     "3. Miss: {:kind \"fx\" :id \":missing/fx\"} -> {:ok? false :reason :not-registered :kind :fx :id :missing/fx}.")
    :typicalTokens 400
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
@@ -402,7 +450,11 @@
                      "vector off the registrar's per-kind map. Returns "
                      "`{:ok? true :kind k :ids [...] :count n}`. The id "
                      "vector is sorted (string / keyword / symbol ordering) "
-                     "so the list shape is stable across calls.")
+                     "so the list shape is stable across calls. "
+                     "Examples: "
+                     "1. List events: {:kind \"event\"} -> {:ok? true :kind :event :ids [:cart/add :cart/checkout :user/login ...] :count 47}. "
+                     "2. List subs: {:kind \"sub\"} -> {:ok? true :kind :sub :ids [:current-user :cart/items ...] :count 23}. "
+                     "3. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
    :typicalTokens 800
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
@@ -419,7 +471,11 @@
                      "pipeline. Inline prose, no nREPL round-trip — call this at session start to orient "
                      "before the first real op. Mirrors story-mcp's `get-story-instructions`. Returns "
                      "`{:ok? true :tool \"get-re-frame2-pair-instructions\" :text <string>}` — a single text slot "
-                     "the agent host renders verbatim.")
+                     "the agent host renders verbatim. "
+                     "Examples: "
+                     "1. Session bootstrap: {} -> {:ok? true :tool \"get-re-frame2-pair-instructions\" :text \"re-frame2-pair quick reference...\"}. "
+                     "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
+                     "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
    :typicalTokens 1500
    :inputSchema {:type "object"
                  :properties {}

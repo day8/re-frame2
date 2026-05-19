@@ -231,7 +231,11 @@
   write for the gate fn)."
   [{:name           "register-variant"
     :category       :write
-    :description    "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix."
+    :description    (str "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix. "
+                         "Examples: "
+                         "1. Object body (preferred): {:variant-id \":story.cart/probe\" :body {:doc \"...\" :args {:label \"OK\"}}} -> {:variant-id :story.cart/probe :registered? true}. "
+                         "2. EDN-string body (needed for keyword payloads): {:variant-id \":story.cart/probe\" :body \"{:doc \\\"...\\\" :tags #{:dev}}\"} -> {:variant-id :story.cart/probe :registered? true}. "
+                         "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled. Set :rf.story-mcp/allow-writes? ...\"}] :structuredContent {:gated true :tool \"register-variant\"}}.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
@@ -251,7 +255,11 @@
 
    {:name           "unregister-variant"
     :category       :write
-    :description    "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`."
+    :description    (str "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`. "
+                         "Examples: "
+                         "1. Had-it: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? true}. "
+                         "2. Already-gone: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? false}. "
+                         "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled...\"}] :structuredContent {:gated true :tool \"unregister-variant\"}}.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens {:variant-id s/kw-or-string})
