@@ -95,6 +95,7 @@ nav:
       - "24.05 — Reserved namespaces": guide/24-configuration-and-safety/05-reserved-namespaces.md
       - "24.06 — State-machine substrate features": guide/24-configuration-and-safety/06-state-machine-substrate-features.md
       - "24.07 — Privacy and elision in practice": guide/24-configuration-and-safety/07-privacy-and-elision.md
+      - "24.08 — Exceptions under :sensitive?": guide/24-configuration-and-safety/08-exceptions-under-sensitive.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md
