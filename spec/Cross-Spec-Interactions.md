@@ -37,7 +37,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** `(rf/destroy-frame! :auth)` is called while the frame holds active machine instances mid-flight.
 - **Behaviour:** Each active machine runs its `:exit` cascade from leaf to root in **reverse-creation order** (the most recently spawned instance disposes first). Pending `:after` timers are cancelled — staleness via the epoch idiom (per [005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) means timers that fire after destroy land against an unmatching epoch and no-op. Outbound `:fx` from those `:exit` actions runs through `do-fx`. After every machine has settled, the sub-cache disposes (per [006 §Subscription cache — Lifetime contract](006-ReactiveSubstrate.md#lifetime-contract--frame-disposal)). The substrate adapter releases frame-scoped resources. `:rf.frame/destroyed` traces; `:rf.machine/disposed` traces fire per instance.
 - **Reason:** Run-to-completion (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)) extends to disposal — letting `:exit` cascades complete preserves the invariant that every state has its symmetric exit. Reverse-creation order matches the actor-disposal convention.
-- **Status:** `Provisional` — fixture pending: `frame-destroy-with-machines.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-frame-destroy-with-machines.edn`](conformance/fixtures/cross-spec-frame-destroy-with-machines.edn).
 
 ### 2. Sub-cache hit inside a machine microstep
 
@@ -45,7 +45,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A machine action's body reads a subscription via `(rf/subscribe-once [...])` to make a routing decision.
 - **Behaviour:** Cache lookup succeeds and returns the value computed against the most recently committed `app-db` (which is the `app-db` *before* the current Level-3 cascade started, since the machine commits one snapshot at the end). Subs do not see the in-flight `:data` of the current cascade. Sub-cache invalidation fires once after the cascade's final commit, not after each microstep.
 - **Reason:** External observers see one macrostep per machine event (per [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)). Subs are external observers. Letting subs observe in-flight data would expose the partial-snapshot view the macrostep contract specifically avoids.
-- **Status:** `Provisional` — fixture pending: `machine-microstep-subscribe.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-machine-microstep-subscribe.edn`](conformance/fixtures/cross-spec-machine-microstep-subscribe.edn).
 
 ### 3. Machine spawn at boot before substrate adapter ready
 
@@ -63,7 +63,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A request-scoped frame on the server hosts machines that drive the SSR boot sequence (auth probe, profile fetch, route resolution).
 - **Behaviour:** Machines run normally on the server with one carve-out: `:after` is a **no-op** under `:ssr-server`. The entry action skips timer scheduling; the synthetic timer-elapsed event is never queued; the request frame is destroyed before any timer could fire anyway. `:always` microsteps run normally; `:invoke` runs normally provided the invoked work is synchronous co-effects. `:invoke` of a long-running async machine that depends on a real timer to settle is a programmer error; the runtime is intended to trace `:rf.error/ssr-async-invoke-without-deadline` when the deadline-less async-invoke pattern is detected.
 - **Reason:** Server-side `setTimeout` either leaks (timer outlives the request) or is artificial (the SSR render has no time to wait). The carve-out is the only one machines need; everything else is host-agnostic and runs identically on both platforms.
-- **Status:** `Provisional` — fixture pending: `after-no-op-under-ssr.edn`. The `:rf.error/ssr-async-invoke-without-deadline` op-type is **named here as design intent, not yet emitted** by the CLJS reference; it lights up when machines-under-SSR firms up. Implementations may emit a generic `:rf.error/handler-exception` (with diagnostic tags) until the dedicated op-type lands.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-machines-under-ssr.edn`](conformance/fixtures/cross-spec-machines-under-ssr.edn). The `:rf.error/ssr-async-invoke-without-deadline` op-type is **named here as design intent, not yet emitted** by the CLJS reference; it lights up when machines-under-SSR firms up. Implementations may emit a generic `:rf.error/handler-exception` (with diagnostic tags) until the dedicated op-type lands.
 
 ### 5. Hydration with machine snapshots
 
@@ -153,7 +153,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A view's render fn calls `(rf/dispatch [:something])` (perhaps inside a `:ref` callback that fires synchronously in render).
 - **Behaviour:** The dispatched event lands on the router queue and is processed in the **next** drain cycle, after the render commits. The current drain (which produced the `app-db` value the render is reading) has already settled — run-to-completion. `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [002 §dispatch-sync](002-Frames.md#dispatch-sync)).
 - **Reason:** Re-entrant synchronous dispatch from render would cause render to observe a state that exists only mid-cascade — exactly the partial-state view run-to-completion was designed to prevent.
-- **Status:** `Provisional` — fixture pending: `dispatch-from-render.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-dispatch-sync-in-handler.edn`](conformance/fixtures/cross-spec-dispatch-sync-in-handler.edn).
 
 ## Machines × Tooling
 
@@ -173,7 +173,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A handler on the server throws during request processing.
 - **Behaviour:** The exception is caught by the drain loop; `:rf.error/handler-exception` traces; the user's per-frame `:on-error` projector fires if registered. The projector returns a sanitised error shape suitable for the public response (no stack traces, no PII). The HTTP response is built from the projected error per the request-frame's response-status fx.
 - **Reason:** Server errors must not leak internal state to the public boundary; the projector is the named sanitisation seam.
-- **Status:** `Provisional` — fixture pending: `server-error-projection.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-server-error-projection.edn`](conformance/fixtures/cross-spec-server-error-projection.edn).
 
 ### 17. Machine error inside SSR
 
@@ -191,7 +191,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A figwheel save delivers a sub re-registration via host async event handler while a drain cycle is in flight.
 - **Behaviour:** The cache slot for that sub is disposed when the re-registration arrives. Already-computed values bound to the in-flight event's effect map remain bound (the values are now-disconnected from the cache). The next dequeue, and any subsequent subscribe, builds against the new sub body.
 - **Reason:** Disposing the cache slot eagerly is correct; values already taken out of the cache (e.g., into a closure) are caller-managed. Hot-reload is non-destructive to in-flight work, but the cache itself is allowed to update mid-cycle because it's dev-time only.
-- **Status:** `Provisional` — fixture pending: `hot-reload-sub-mid-cascade.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-hot-reload-sub-mid-cascade.edn`](conformance/fixtures/cross-spec-hot-reload-sub-mid-cascade.edn).
 
 ## Stories × Testing
 
