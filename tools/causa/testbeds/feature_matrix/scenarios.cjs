@@ -10,6 +10,12 @@ const {
   readEpochHistoryAsEdn,
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
+const {
+  fireEventInLiveMode,
+  panelFocusSignature,
+  clickPanelTab,
+  assertPanelReflectsFocus,
+} = require('./helpers/live_follow.cjs');
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
 // sidebar + bottom rail is dead. The L3 tab bar exposes 7 tabs:
@@ -1786,6 +1792,170 @@ async function runConfigurePartialUpdate(page, state) {
   state.configureProbe = { ok: true };
 }
 
+// rf2-rwhat — live-follow panel-refresh sweep.
+//
+// The 14 pre-existing scenarios above sweep panel-handoff (one click
+// per tab) and per-substrate happy paths but none exercise the LIVE
+// auto-follow refresh axis Mike has been catching bugs on live:
+// rf2-70tkv (App-db doesn't refresh) / rf2-2f8jv (Machines empty) /
+// rf2-dodq2 (Views Group-By stuck). All three share the same shape —
+// "fire event while Causa is live → cursor auto-follows → each panel
+// must reflect the new focused-event". The helpers in
+// `helpers/live_follow.cjs` give that shape one canonical name; the
+// two scenarios below sweep the 7 surviving L3 tabs over it.
+//
+// Counter handles 6 panels (event / app-db / views / trace / routing /
+// issues) — they all render against the head cascade regardless of
+// host activity. The Machines panel needs a host that actually
+// transitions a machine on click, so it lives in its own scenario
+// against the deep-machine testbed.
+async function runLiveFollowCounter(page, state) {
+  await expectHostCounterEquals(page, 5, 10000);
+  await openCausa(page);
+
+  // The 6 counter-driven panels in this sweep. Each entry's
+  //   - `panel`       — the L3 tab id (matches PANEL_HANDOFFS).
+  //   - `hostButton`  — label on the host-app button to click.
+  //   - `roundTrips`  — how many click/check rounds to do for this
+  //                     panel (>= 1; rolled around for robustness so
+  //                     a fluky single-tick refresh can't pass).
+  //   - `signatureMayMatch` — opt-out of the cross-click inequality
+  //                     check. Routing renders the empty state for
+  //                     every counter cascade (no navigation in this
+  //                     testbed), so its signature legitimately stays
+  //                     equal across clicks; we still want to assert
+  //                     the panel mounts cleanly and the spine's
+  //                     focus auto-followed.
+  const sweep = [
+    { panel: 'event',   hostButton: '+', roundTrips: 2 },
+    { panel: 'app-db',  hostButton: '+', roundTrips: 2 },
+    { panel: 'views',   hostButton: '+', roundTrips: 2 },
+    { panel: 'trace',   hostButton: '+', roundTrips: 2 },
+    // Routing renders `rf-causa-routing-empty` for every cascade in
+    // counter (no navigation in this testbed). Issues renders
+    // `rf-causa-issues-empty-no-issues-for-event` for every cascade
+    // in counter (clean event flow, no errors). Both panels'
+    // signatures legitimately stay equal across clicks here; we only
+    // assert that focus advanced + the panel mounted cleanly. The
+    // dedicated deliberate-throw scenario below exercises Issues
+    // with cascades that actually carry issue rows so the content-
+    // shift bug class is still covered.
+    { panel: 'routing', hostButton: '+', roundTrips: 2, signatureMayMatch: true },
+    { panel: 'issues',  hostButton: '+', roundTrips: 2, signatureMayMatch: true },
+  ];
+
+  const perPanel = [];
+  for (const entry of sweep) {
+    // Land on the tab + read the panel's initial focus signature so
+    // we have a baseline to compare against once focus advances.
+    await clickPanelTab(page, entry.panel);
+    let sigBefore = await panelFocusSignature(page, entry.panel);
+    const rounds = [];
+
+    for (let i = 0; i < entry.roundTrips; i += 1) {
+      const focus = await fireEventInLiveMode(page, entry.hostButton);
+      const sigAfter = await assertPanelReflectsFocus(
+        page, entry.panel, focus,
+        {
+          sigBefore,
+          signatureMayMatch: entry.signatureMayMatch,
+        },
+      );
+      rounds.push({
+        round:          i + 1,
+        focus,
+        sigBefore,
+        sigAfter,
+        cascadesGained: focus.cascadeCountAfter - focus.cascadeCountBefore,
+      });
+      sigBefore = sigAfter;
+    }
+    perPanel.push({ panel: entry.panel, rounds });
+  }
+
+  state.liveFollow = { surface: 'counter', perPanel };
+}
+
+async function runLiveFollowIssues(page, state) {
+  // The deliberate-throw testbed surfaces 4 throw buttons; each click
+  // dispatches a host event that emits an `:rf.error/*` issue. The
+  // focused cascade therefore carries one or more issue rows, and the
+  // Issues feed re-renders against that cascade — so the panel
+  // signature MUST shift across clicks (renderKind: 'empty-for-event'
+  // → 'feed' on the first throw; the row-ids shift across subsequent
+  // throws).
+  await openCausa(page);
+
+  await clickPanelTab(page, 'issues');
+  let sigBefore = await panelFocusSignature(page, 'issues');
+  const rounds = [];
+
+  // Two distinct throw buttons so each round produces a different
+  // issue signature on the focused cascade (handler vs fx exception).
+  const sequence = [
+    { testId: 'throw-handler' },
+    { testId: 'throw-fx' },
+  ];
+
+  for (let i = 0; i < sequence.length; i += 1) {
+    const focus = await fireEventInLiveMode(page, sequence[i]);
+    const sigAfter = await assertPanelReflectsFocus(
+      page, 'issues', focus,
+      { sigBefore },
+    );
+    rounds.push({
+      round:          i + 1,
+      focus,
+      sigBefore,
+      sigAfter,
+      cascadesGained: focus.cascadeCountAfter - focus.cascadeCountBefore,
+    });
+    sigBefore = sigAfter;
+  }
+
+  state.liveFollow = { surface: 'deliberate-throw', perPanel: [
+    { panel: 'issues', rounds },
+  ] };
+}
+
+async function runLiveFollowDeepMachine(page, state) {
+  // The deep-machine testbed pre-loads a machine instance; clicking
+  // `work-go` dispatches `:work/go` which transitions the machine
+  // off `:idle` and emits a `:helper/tick` rendezvous. Each click is
+  // a fresh cascade with machine-transition records, so the Machines
+  // panel's `data-has-records` flips to `"true"` and the per-machine
+  // focused-event sections re-render with new keys.
+  await openCausa(page);
+
+  await clickPanelTab(page, 'machines');
+  let sigBefore = await panelFocusSignature(page, 'machines');
+  const rounds = [];
+
+  for (let i = 0; i < 2; i += 1) {
+    const focus = await fireEventInLiveMode(page, { testId: 'work-go' });
+    const sigAfter = await assertPanelReflectsFocus(
+      page, 'machines', focus,
+      // The deep-machine cascades carry machine-transition records,
+      // so the signature MUST shift across the click (renderKind
+      // flips from `blank` → `records` on the first tick; the section
+      // testids keyed by machine-id + transition shift across
+      // subsequent ticks).
+      { sigBefore },
+    );
+    rounds.push({
+      round:          i + 1,
+      focus,
+      sigBefore,
+      sigAfter,
+      cascadesGained: focus.cascadeCountAfter - focus.cascadeCountBefore,
+    });
+    sigBefore = sigAfter;
+  }
+  state.liveFollow = { surface: 'deep-machine', perPanel: [
+    { panel: 'machines', rounds },
+  ] };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -1953,6 +2123,71 @@ const SCENARIOS = [
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
     ],
     run: runConfigurePartialUpdate,
+  },
+  {
+    // rf2-rwhat — live-follow panel-refresh sweep (Counter portion).
+    //
+    // Sweeps the 6 counter-driven L3 tabs (event / app-db / views /
+    // trace / routing / issues) over the auto-follow refresh axis:
+    // each click on `+` lands a new cascade → Causa's :live mode
+    // auto-advances the spine focus to the new head → the panel must
+    // re-render against the new focus. Routing opts out of the
+    // signature-inequality check because counter cascades never
+    // navigate (the panel legitimately renders the empty state every
+    // time); the rest of the panels' signatures must shift across
+    // every click. NOTE: until rf2-70tkv / rf2-2f8jv / rf2-dodq2 land
+    // this scenario is EXPECTED to fail on `app-db` (rf2-70tkv) and
+    // `views` (rf2-dodq2 — Group-By cycle is the more specific
+    // symptom but the generic signature shift catches the same root
+    // cause). That's the regression-catching value Mike asked for.
+    name: 'live-follow panel refresh sweep (counter)',
+    url: '/counter/',
+    panels: ['event', 'app-db', 'views', 'trace', 'routing', 'issues'],
+    coveredRows: [
+      'Event Detail',
+      'App-DB Diff',
+      'Trace',
+      'Issues Ribbon',
+    ],
+    run: runLiveFollowCounter,
+  },
+  {
+    // rf2-rwhat — live-follow panel-refresh sweep (Issues content
+    // shift).
+    //
+    // Counter never produces issues, so the counter sweep above can
+    // only assert that the Issues panel mounted + focus advanced. To
+    // catch the content-shift bug class for Issues we need a host
+    // that emits an issue on every dispatch. The deliberate-throw
+    // testbed's four throw buttons (handler / fx / flow / machine)
+    // each surface a distinct `:rf.error/*` row on the focused
+    // cascade — the panel's signature shifts on every click. Two
+    // distinct buttons (`throw-handler` then `throw-fx`) are enough
+    // to assert the cross-click inequality holds for distinct
+    // payload shapes.
+    name: 'live-follow panel refresh sweep (issues / deliberate-throw)',
+    url: '/testbeds/deliberate-throw/',
+    panels: ['issues'],
+    coveredRows: ['Issues Ribbon'],
+    run: runLiveFollowIssues,
+  },
+  {
+    // rf2-rwhat — live-follow panel-refresh sweep (deep-machine).
+    //
+    // The Machines panel is silent on counter (no machines registered)
+    // so the auto-follow refresh axis must run against a host that
+    // actually transitions a machine on click. The deep-machine
+    // testbed's `work-go` button dispatches `:work/go` which
+    // transitions the machine off `:idle` and emits a `:helper/tick`
+    // rendezvous; each click is a fresh cascade carrying machine-
+    // transition records the Machines panel projects. Until rf2-2f8jv
+    // lands this scenario is EXPECTED to fail on `machines` — that's
+    // the regression-catching value.
+    name: 'live-follow panel refresh sweep (deep-machine)',
+    url: '/testbeds/deep-machine/',
+    panels: ['machines'],
+    coveredRows: ['Machines'],
+    run: runLiveFollowDeepMachine,
   },
 ];
 
