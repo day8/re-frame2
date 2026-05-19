@@ -1,4 +1,4 @@
-(ns day8.re-frame2-causa.chart.elk-layout-cljs-test
+(ns day8.re-frame2-machines-viz.chart.elk-layout-cljs-test
   "CLJS tests for the ELK adapter (rf2-m7co9 Phase 4).
 
   Two surfaces under test:
@@ -18,8 +18,8 @@
   CLJC-friendly but the loader pulls them into a CLJS-only consumer
   so we colocate the test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [day8.re-frame2-causa.chart.layout :as layout]
-            [day8.re-frame2-causa.chart.elk-layout :as elk-layout]))
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.elk-layout :as elk-layout]))
 
 ;; ---- fixtures -----------------------------------------------------------
 

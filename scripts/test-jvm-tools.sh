@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 tools=(
   tools/causa
+  tools/machines-viz
   tools/story
   tools/story-mcp
   tools/mcp-base
