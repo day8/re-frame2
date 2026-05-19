@@ -52,6 +52,8 @@
   Token data + pure helpers are .cljc-friendly; the React
   component + mount-driving side effects are CLJS-only."
   (:require [reagent.core :as r]
+            [day8.re-frame2-causa.mount :as causa-mount]
+            [day8.re-frame2-causa.panels :as causa-panels]
             [re-frame.story.causa-preset :as causa-preset]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
@@ -120,46 +122,35 @@
       default-panel)))
 
 ;; ---- mount-fn dispatch ---------------------------------------------------
-
-(defn- resolve-fn
-  "Feature-detect-safe symbol → fn lookup. Mirrors the
-  `causa-preset/resolve-fn` shape so Causa can be absent without
-  killing the shell render."
-  [sym]
-  (try
-    (let [ns-str   (namespace sym)
-          name-str (name sym)
-          ns-obj   (when ns-str (find-ns-obj (symbol ns-str)))]
-      (when ns-obj
-        (let [munged (-> name-str
-                         (.replace #"-" "_")
-                         (.replace #"\?" "_QMARK_")
-                         (.replace #"\!" "_BANG_"))
-              v      (aget ns-obj munged)]
-          (when (fn? v) v))))
-    (catch :default _ nil)))
-
-(def panel-id->mount-fn-sym
-  "Pure data → data: map a panel-id to the fully-qualified
-  `day8.re-frame2-causa.panels/mount-<panel>!` symbol. Used by the
-  mount-fn dispatch below; pure so JVM tests can assert the
-  contract without booting Reagent."
-  {:event-detail 'day8.re-frame2-causa.panels/mount-event-detail!
-   :app-db       'day8.re-frame2-causa.panels/mount-app-db-diff!
-   :views        'day8.re-frame2-causa.panels/mount-views!
-   :trace        'day8.re-frame2-causa.panels/mount-trace!
-   :machines     'day8.re-frame2-causa.panels/mount-machine-inspector!
-   :routing      'day8.re-frame2-causa.panels/mount-routing!
-   :issues       'day8.re-frame2-causa.panels/mount-issues-ribbon!})
+;;
+;; rf2-senbl: previously this ns used `find-ns-obj` + `aget` to feature-
+;; detect the Causa mount fns at runtime. That walk relied on top-level
+;; def'd fns being exposed as properties of the parent namespace's JS
+;; object — shadow-cljs's namespace organisation does not guarantee
+;; that (only sub-namespace refs hang off the parent), so every lookup
+;; returned nil and the panel-host never painted. The fix: direct
+;; `:require` of `day8.re-frame2-causa.panels` + a `case` dispatch on
+;; panel-id. Causa is on the same shadow-cljs source-path as Story (see
+;; implementation/shadow-cljs.edn :source-paths), so the require is a
+;; compile-time symbol resolution; bundle-isolation still holds because
+;; the gate only forbids `implementation/` → `tools/` requires, not
+;; `tools/story` → `tools/causa` (the inverse is explicitly fine — see
+;; this fix's PR body for the dep-arrow analysis).
 
 (defn mount-fn-for
-  "Return the Causa `mount-<panel>!` fn for `panel-id`, or nil
-  when Causa is not on the classpath / the panel-id is unknown.
-  Feature-detect-safe — every call site treats a nil result as a
-  no-op render."
+  "Return the Causa `mount-<panel>!` fn for `panel-id`, or nil when
+  `panel-id` is unknown. Compile-time symbol resolution via the
+  `case` dispatch — no runtime namespace walk."
   [panel-id]
-  (when-let [sym (get panel-id->mount-fn-sym panel-id)]
-    (resolve-fn sym)))
+  (case panel-id
+    :event-detail causa-panels/mount-event-detail!
+    :app-db       causa-panels/mount-app-db-diff!
+    :views        causa-panels/mount-views!
+    :trace        causa-panels/mount-trace!
+    :machines     causa-panels/mount-machine-inspector!
+    :routing      causa-panels/mount-routing!
+    :issues       causa-panels/mount-issues-ribbon!
+    nil))
 
 ;; ---- popout escape hatch -------------------------------------------------
 
@@ -169,17 +160,14 @@
   popout carries the full chrome the per-panel embed elides so
   power users have one click to the whole-shell shape.
 
-  Feature-detect-safe — when Causa is absent the chip click is a
-  console.warn breadcrumb."
+  Gated on `causa-available?` so the chip remains a graceful no-op
+  when Causa's preload is not on the build (e.g. a pre-rf2-v1ach
+  Story-only build); the direct `:require` of
+  `day8.re-frame2-causa.mount` above pulls the popout symbol onto
+  the compile classpath."
   []
   (when (and config/enabled? (causa-preset/causa-available?))
-    (if-let [popout! (resolve-fn 'day8.re-frame2-causa.mount/popout!)]
-      (popout!)
-      (when (and (exists? js/console) (.-warn js/console))
-        (.warn js/console
-               "[re-frame.story.ui.causa-embed] popout! not loaded — "
-               "day8.re-frame2-causa.mount/popout! is the canonical "
-               "second-window mount surface")))))
+    (causa-mount/popout!)))
 
 ;; ---- styling -------------------------------------------------------------
 

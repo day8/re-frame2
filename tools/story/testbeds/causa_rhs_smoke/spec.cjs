@@ -12,27 +12,27 @@
  *
  * Two scenarios cover the embed at the Story / Causa seam:
  *
- *   §1 Embed surface mounts. After a variant becomes focused the
- *      Story RHS renders the per-panel embed wrapper
- *      `[data-test="story-causa-embed"]` with `data-active-panel`
+ *   §1 Embed surface mounts AND the Causa panel paints. After a variant
+ *      becomes focused the Story RHS renders the per-panel embed
+ *      wrapper `[data-test="story-causa-embed"]` with `data-active-panel`
  *      reporting the resolved panel, the chip-row picker exposing one
- *      chip per Causa panel, and the panel-host mount target. Proves
- *      the rf2-v1ach Story-side seam is wired end-to-end.
+ *      chip per Causa panel, the panel-host mount target, AND Causa's
+ *      event-detail panel (`[data-testid="rf-causa-event-detail"]`)
+ *      actually paints inside the panel-host. Proves the rf2-v1ach
+ *      Story-side seam is wired end-to-end AND the rf2-senbl mount-fn
+ *      lookup resolves the Causa mount target.
  *
- *   §2 Chip-row picker retargets the embed. Clicking the App-db chip
- *      flips `data-active-panel` to `app-db`. Proves the chip-row
- *      runtime override (`state/swap-state!`) reaches `effective-panel`
- *      and re-renders the embed wrapper with the new selection.
+ *   §2 Chip-row picker retargets the embed AND the new panel paints.
+ *      Clicking the App-db chip flips `data-active-panel` to `app-db`
+ *      AND mounts Causa's app-db-diff panel into the host (proving the
+ *      panel-host's component-did-update unmount → mount round-trip is
+ *      driving real Causa fns, not nils).
  *
- * Why these two and not also a "panel actually renders" assertion:
- * the deeper "the mounted Causa panel paints its DOM" is covered by
- * Causa's own testbeds under tools/causa/testbeds/ — those run the
- * panel views in isolation against their mount-fns. From the Story
- * seam's perspective the contract is "Story drives Causa's
- * mount-<panel>! at the right place with the right panel-id"; the
- * embed wrapper + the resolved panel-id (data-active-panel attribute)
- * is the public surface Story owns. (See rf2-senbl for the separate
- * mount-fn-resolution bug surfaced during this work.)
+ * Before rf2-senbl shipped, the spec asserted only the Story-side seam
+ * (wrapper attrs + chip clicks) and skipped the panel-paint check —
+ * `mount-fn-for` was returning nil and the panel-host stayed empty.
+ * Now that the dispatch resolves the Causa fns at compile time the
+ * deeper assertion is meaningful here.
  *
  * The dedicated testbed exists rather than reusing
  * tools/story/testbeds/counter_with_stories/ because adding the Causa
@@ -129,13 +129,14 @@ module.exports = {
   name: 'causa-rhs-smoke (rf2-drprn)',
   url: '/causa-rhs-smoke/',
   run: async (page) => {
-    // ----- Scenario 1: embed surface mounts at the Story RHS ------------
+    // ----- Scenario 1: embed surface mounts + Causa event-detail paints --
     //
     // After variant focus the RHS renders the rf2-v1ach per-panel embed:
     //   - wrapper `[data-test="story-causa-embed"]`
     //   - resolved panel-id on the wrapper's `data-active-panel` attr
     //   - chip-row picker with one chip per Causa panel
     //   - mount target `[data-test="story-causa-panel-host"]`
+    //   - Causa's event-detail panel actually paints inside the host
     //
     // No story-side `:causa-panel` slot is declared on the testbed
     // story/variant, so the resolved panel is the embed's
@@ -156,12 +157,24 @@ module.exports = {
       },
     );
 
-    // ----- Scenario 2: chip-row picker retargets the embed --------------
+    // rf2-senbl: prove the panel-host actually mounted Causa content
+    // (not the pre-fix empty <div> from the nil mount-fn lookup).
+    // `rf-causa-event-detail` is Causa's Event-tab Panel root.
+    await expectVisible(
+      page
+        .locator('[data-test="story-causa-panel-host"]')
+        .locator('[data-testid="rf-causa-event-detail"]'),
+      5000,
+    );
+
+    // ----- Scenario 2: chip-row picker retargets + new panel paints ------
     //
     // Clicking the App-db chip dispatches `state/swap-state!` to set
     // `:causa-panel :app-db`; `effective-panel` then beats the
-    // story/variant slot with the user override and the wrapper
-    // re-renders with `data-active-panel="app-db"`.
+    // story/variant slot with the user override, the wrapper re-renders
+    // with `data-active-panel="app-db"`, and the panel-host's React
+    // lifecycle (component-did-update + the embed-side React key)
+    // unmounts event-detail and mounts the app-db-diff panel.
 
     const appDbChip = page.locator(
       '[data-test="story-causa-panel-chip"][data-causa-panel="app-db"]',
@@ -170,6 +183,16 @@ module.exports = {
     await appDbChip.click();
 
     await expectAttribute(embed, 'data-active-panel', 'app-db', 5000);
+
+    // rf2-senbl: prove the new panel-id maps to a live Causa mount-fn
+    // (not a `find-ns-obj` walk that returned nil). The app-db-diff
+    // panel's root carries `rf-causa-app-db-diff`.
+    await expectVisible(
+      page
+        .locator('[data-test="story-causa-panel-host"]')
+        .locator('[data-testid="rf-causa-app-db-diff"]'),
+      5000,
+    );
 
     // ----- Variant dispatch sanity (best-effort) ------------------------
     //
