@@ -53,6 +53,7 @@
             [day8.re-frame2-causa.settings.effects :as settings-effects]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.spine :as spine]
+            [day8.re-frame2-causa.spine-filters :as spine-filters]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.theme.tokens :as tokens]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
@@ -352,6 +353,12 @@
   ;; value into the slot. Idempotent — re-running with an unchanged
   ;; source produces the same slot.
   (filters/hydrate!)
+  ;; Hydrate the muted-event-ids set (rf2-ikuwt). Same rationale as
+  ;; `filters/hydrate!` above — the preload-time `spine-filters/
+  ;; install!` ran before `:rf/causa` was registered, so re-running
+  ;; here under the now-registered frame lifts the localStorage value
+  ;; into the slot.
+  (spine-filters/hydrate!)
   ;; Hydrate the Runtime ↔ Static mode slot (rf2-o5f5f.1). Same
   ;; rationale as the filter hydrate above — the persisted mode
   ;; lives in localStorage under `causa.mode` and the frame must
