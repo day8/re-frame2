@@ -250,15 +250,16 @@
 
 (defn cache-hit-result
   "Wrap `cache-hit-payload` in the MCP `{:content [{:type \"text\" ...}]}`
-  envelope. `via` annotates which cache path produced the hit
-  (`:result-hash` = rf2-3rt1f post-eval match; `:precheck` =
-  rf2-36xod pre-eval short-circuit)."
+  envelope plus the `:structuredContent` slot (rf2-hj3pi). `via`
+  annotates which cache path produced the hit (`:result-hash` =
+  rf2-3rt1f post-eval match; `:precheck` = rf2-36xod pre-eval
+  short-circuit)."
   ([entry tool] (cache-hit-result entry tool :result-hash))
   ([entry tool via]
-   #js {:content #js [#js {:type "text"
-                           :text (pr-str (cache-hit-payload
-                                           (assoc entry :tool tool)
-                                           via))}]}))
+   (let [payload (cache-hit-payload (assoc entry :tool tool) via)]
+     #js {:content          #js [#js {:type "text"
+                                      :text (pr-str payload)}]
+          :structuredContent (clj->js payload)})))
 
 ;; ---------------------------------------------------------------------------
 ;; The wire-boundary entry-point.

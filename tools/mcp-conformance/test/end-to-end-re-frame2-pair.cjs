@@ -244,6 +244,41 @@ runWithWatchdog(
       'OK   tools/call list-subscriptions (degraded) -> isError + nrepl-port-not-found',
     );
 
+    // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
+    // pair-mcp result envelope MUST carry BOTH the wire-canonical
+    // `:content [{:type "text"}]` slot AND a `:structuredContent`
+    // slot — the canonical mcp-builder pattern. The SDK already
+    // surfaces the structured slot through `result.structuredContent`
+    // when present; assert it for one tool per category: read
+    // (snapshot, list-subscriptions), action (dispatch), streaming-
+    // shaped (subscribe). All four degraded responses above route
+    // through wire/err-text which now emits both slots; we spot-
+    // check the assembled spool here.
+    for (const [label, resp] of [
+      ['dispatch', dispatchResp],
+      ['watch-epochs', watchResp],
+      ['snapshot', snapResp],
+      ['subscribe', subResp],
+      ['list-subscriptions', subInfoResp],
+    ]) {
+      if (resp.structuredContent === undefined || resp.structuredContent === null) {
+        throw new Error(
+          'tool ' + label + " result MUST carry :structuredContent slot " +
+            "(rf2-hj3pi dual-slot conformance); got: " + JSON.stringify(resp),
+        );
+      }
+      // Sanity: structured slot must be a non-null object/value.
+      if (typeof resp.structuredContent !== 'object') {
+        throw new Error(
+          'tool ' + label + " :structuredContent should be an object; got: " +
+            typeof resp.structuredContent,
+        );
+      }
+    }
+    console.log(
+      'OK   every tool envelope carries :structuredContent (rf2-hj3pi)',
+    );
+
     // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts
     // re-frame2-pair-mcp emits the canonical codes from `mcp-base/vocab.cljc`
     // for unknown-method + malformed-params. The runner-side helper

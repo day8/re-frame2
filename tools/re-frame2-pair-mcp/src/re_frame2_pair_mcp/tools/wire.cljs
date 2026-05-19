@@ -30,14 +30,39 @@
 
 ;; ---------------------------------------------------------------------------
 ;; MCP result helpers.
+;;
+;; Every result envelope carries BOTH the pr-str-rendered EDN text
+;; (the wire-canonical form — `:content [{:type \"text\" :text ...}]`)
+;; AND a `:structuredContent` slot carrying the same value as a JS
+;; object (rf2-hj3pi; mcp-builder canonical pattern). Agent hosts that
+;; understand `:structuredContent` read the typed object directly; the
+;; rest fall back to the EDN text. The two slots always agree on the
+;; payload by construction — same `v`, two projections.
+;;
+;; The `:structuredContent` value is `clj->js v` — a JSON-coercible
+;; projection (keywords lose their `:`, sets become arrays, etc.).
+;; The text slot remains the source of truth for cljs-readable round-
+;; trip; the structured slot is the SDK-friendly view.
 ;; ---------------------------------------------------------------------------
 
-(defn ok-text [v]
-  #js {:content #js [#js {:type "text" :text (pr-str v)}]})
+(defn ok-text
+  "Success result envelope. Always emits both `:content` (the
+  pr-str EDN text) and `:structuredContent` (the JS-coerced
+  projection of the same value). Agent hosts that recognise
+  `:structuredContent` read the typed object; others fall back to
+  parsing the text slot."
+  [v]
+  #js {:content          #js [#js {:type "text" :text (pr-str v)}]
+       :structuredContent (clj->js v)})
 
-(defn err-text [v]
-  #js {:isError true
-       :content #js [#js {:type "text" :text (pr-str v)}]})
+(defn err-text
+  "Error result envelope. Same dual-slot shape as `ok-text` plus
+  `:isError true` so the agent client surfaces the failure to the
+  LLM without aborting the conversation (per MCP §Error Handling)."
+  [v]
+  #js {:isError          true
+       :content          #js [#js {:type "text" :text (pr-str v)}]
+       :structuredContent (clj->js v)})
 
 (defn with-indicators
   "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,
