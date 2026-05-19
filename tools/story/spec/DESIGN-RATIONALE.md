@@ -310,6 +310,22 @@ to the relevant lock. See the rf2-38pb9 audit verdict (warm-slate +
 amber + Plex + motion-as-language >> Storybook's cold-grey + pink +
 Inter + flat) for the comparator pass.
 
+### Storybook commodity patterns (the four-pattern cluster)
+
+The four entries that follow — brand-pink-on-cold-grey, commodity-default
+fonts, addon-per-concern panels, throw-on-first-failure — are the four
+Storybook-comparator rejections recorded under the rf2-aezbb follow-on
+to the rf2-38pb9 audit. Each names the Storybook practice, what Story
+does instead, and the lock the positive contract lives under. These are
+the deliberately-named "do not drift back" markers for future workers;
+they pair with the §record-not-throw + §inline-substrate-failures locks
+above (which are also Storybook-comparator rejections, written as part
+of the original seven §rf2-m6tu §6 decisions rather than as a comparator
+sweep). Treat the cluster's intro paragraph above and the four entries
+below as a single discoverable subsection — proposals to revisit any of
+the four bear the burden of disturbing the comparator-rejection lock,
+not just the individual rationale.
+
 ### Rejected: Brand-pink-on-cold-grey chrome palette — we use amber-on-warm-slate
 
 **Rejected.** Storybook 8 ships a cold-grey chrome (`#1B1C1F` / `#2D3036`
