@@ -32,11 +32,16 @@ main read**.
   age-out. Future: branch-and-explore; "find me when path P last changed"
   walker.
 - **[003-Machine-Inspector.md](003-Machine-Inspector.md)** — The Machines
-  tab. UC1 simulation + UC2 dynamic Mode A/B/C; cancellation cascade
-  visualiser; `:after` timer countdown rings; `:invoke-all` join
-  inspector; per-instance "why am I stuck" trace; shift-click divergence;
-  ELK+SVG primitive Causa-internal. **The bug catalogue at the bottom
-  (M.1–M.10) is the per-feature motivation.**
+  tab. **Event-driven Runtime panel** (rf2-y9xmf): BLANK when the focused
+  event has no machine activity; per-machine section when it did
+  (topology + transition highlight + guards + actions + cancellation
+  cascade + `:after` rings). Cross-cutting Causa surfaces:
+  `:after`-timer countdown rings, `:invoke-all` join inspector,
+  cancellation-cascade visualiser, per-instance "why am I stuck" trace.
+  UC1 Sim + UC2 Mode A/B/C dynamic-instance UI preserved as Static
+  re-host reference below the §STATIC RE-HOST REFERENCE divider
+  (rf2-r4nao — deferred). ELK+SVG primitive Causa-internal. **The bug
+  catalogue at the bottom (M.1–M.10) is the per-feature motivation.**
 - **[004-App-DB-Diff.md](004-App-DB-Diff.md)** — Slice-centric (not
   tree-centric) app-db panel. Future: branch-aware diff (for Story
   sim-clones); cross-frame diff; pin-two-epochs side-by-side.
