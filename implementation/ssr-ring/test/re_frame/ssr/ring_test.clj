@@ -1712,3 +1712,53 @@
           (is (re-matches #"[^\d].*" (name fid))
               (str "the frame-id local-part starts with a non-numeric "
                    "character (saw " (pr-str fid) ")")))))))
+
+;; ===========================================================================
+;; rf2-zev2h — default-on-error direct positive assertion
+;; (follow-on from rf2-q1z1u F7)
+;;
+;; `default-on-error` is the Ring-layer fallback used when the SSR
+;; error projector cannot see the exception (handler-constructor throw,
+;; middleware throw ahead of the projector). The pre-existing
+;; render-time-throw tests (`handler-render-error-*` above) pin the
+;; projector path with negative assertions of the form
+;; `(not= "Internal error" body)` — they verify those paths DON'T fall
+;; through to this fixed shape.
+;;
+;; The literal `"Internal error"` body produced by `default-on-error`
+;; itself had no positive pin. A future refactor that changed the
+;; literal string (e.g. an i18n table, a richer template) would not
+;; surface today. This test pins the literal exact-string contract +
+;; the no-leak guarantee at the function boundary directly.
+;;
+;; rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT
+;; carry .getMessage (JDBC URLs, file paths, SQL fragments).
+;; ===========================================================================
+
+(deftest default-on-error-fallback-shape-pinned
+  (testing "rf2-zev2h — default-on-error returns the fixed-shape 500
+            response with the literal `\"Internal error\"` body. The
+            throwable's .getMessage MUST NOT appear anywhere in the
+            response (status, headers, or body)."
+    (let [secret-msg "boom-jdbc-secret:postgres://internal-db.svc:5432/auth"
+          t          (ex-info secret-msg {})
+          req        {:uri "/anything" :request-method :get}
+          response   (ssr-ring/default-on-error req t)]
+      (is (= 500 (:status response))
+          "status pinned to 500 — Ring-layer fallback default")
+      (is (= {"Content-Type" "text/plain; charset=utf-8"}
+             (:headers response))
+          "headers pinned to text/plain with UTF-8 charset (no HTML,
+           no JSON, no leaked Server header)")
+      (is (= "Internal error" (:body response))
+          "body is the literal `\"Internal error\"` — exact string match
+           (a refactor that changes the literal surfaces here)")
+      ;; rf2-kzvwq no-leak — the throwable's message MUST NOT appear in
+      ;; ANY slot of the response. Asserted on every channel that could
+      ;; carry it (status is a number, but headers + body are strings).
+      (is (not (str/includes? (:body response) secret-msg))
+          "rf2-kzvwq §P2.1: body does NOT carry the throwable's
+           .getMessage text — topology disclosure surface closed")
+      (is (not (str/includes? (str (:headers response)) secret-msg))
+          "rf2-kzvwq §P2.1: headers do NOT carry the throwable's
+           .getMessage text either"))))
