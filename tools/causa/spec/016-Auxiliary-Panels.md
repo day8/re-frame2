@@ -40,7 +40,7 @@ mount paths and L3-tab backing (when applicable) are:
 | 10 | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
 | 11 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | embedded in Event tab |
 | 12 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
-| 13 | 4 | Sim side-rail                      | `machine-inspector-sim/SimSideRail`     | sub of Machines tab |
+| 13 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
 
 Panel-by-panel detail (subs / events / interactions) lives in the
 sections below. Tier 4 sub-components are geometry-coupled to
