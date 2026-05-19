@@ -277,13 +277,109 @@
     (:recomputed? row)  :cache-miss-equal
     :else               :cache-hit))
 
+;; ---- flow attribution (rf2-tv8t1) --------------------------------------
+;;
+;; Per `ai/findings/2026-05-19-causa-machine-inspector-mode-s.md` §13 +
+;; §11 Comment 8 (Mike, 2026-05-19 ~15:00 AUSEST). The Views panel's
+;; per-trigger row carries a third link — "via flow Z" — when the
+;; sub's invalidation can be attributed to a flow firing this cascade.
+;;
+;; The flow link sits between the sub trigger (✱) and the upstream
+;; effect: every flow that wrote app-db this cascade is a candidate
+;; cause of any sub recomputed this cascade. The link is informational
+;; ("Z fired this cascade, possibly contributing to this sub's
+;; recompute"); the precise per-sub attribution requires per-sub
+;; input-path data the v1 runtime does not yet expose.
+;;
+;; Data source: each cascade's `:trace-events` carries one
+;; `:rf.flow/computed` entry per flow firing (per Spec 013 §Flow
+;; tracing). The helper projects these into a vector of
+;; `{:flow-id <kw> :write-path <vec>}` records — the same projection
+;; `app_db_diff_helpers.cljc/flow-writes-from-trace-events` uses for
+;; the App-db diff path-origin chips (rf2-s8r6c).
+;;
+;; Handler-effect-only writes (no flow fired) → the trigger row stays
+;; 2-link "sub Y invalidated"; the third link is absent. This matches
+;; the bead's policy: "when applicable" — the link surfaces only when
+;; flow data exists.
+
+(defn flows-fired-this-cascade
+  "Project the cascade's `:trace-events` into a vector of flow-firing
+  records:
+
+      [{:flow-id <kw> :write-path <vec>} ...]
+
+  Order preserved (cascade firing order = framework topo order).
+  Returns `[]` when no flows fired this cascade.
+
+  Pure data → data. JVM-portable. Mirrors
+  `app_db_diff_helpers/flow-writes-from-trace-events` shape so the
+  panel-level invariant (App-db diff origins ↔ Views third link) is
+  derived from the same source-of-truth projection.
+
+  Skips trace events whose `:path` or `:flow-id` tags are missing
+  (defensive — Spec 013 guarantees these on `:rf.flow/computed` but
+  older fixtures may omit them)."
+  [trace-events]
+  (vec
+    (keep (fn [ev]
+            (when (= :rf.flow/computed (:operation ev))
+              (let [tags (:tags ev)
+                    wp   (:path tags)
+                    fid  (:flow-id tags)]
+                (when (and (vector? wp) (keyword? fid))
+                  {:flow-id    fid
+                   :write-path wp}))))
+          (or trace-events []))))
+
+(defn attribute-trigger-to-flows
+  "Attribute one trigger row to the flows that fired this cascade.
+  Returns a vector of flow-ids (deduplicated, source order preserved)
+  the trigger may be 'via'.
+
+  Inputs:
+    - `row`        — one trigger row from `re-render-invalidated-by`.
+                     Only `:trigger? true` rows are candidates; non-
+                     trigger rows always return `[]` (the third link
+                     decorates the cause, not also-consumed subs).
+    - `flow-writes` — vector of `{:flow-id ... :write-path ...}` per
+                     `flows-fired-this-cascade`.
+
+  V1 attribution policy (per the bead's 'when applicable' clause):
+    - The trigger row's sub is the immediate cause; the flow link
+      surfaces the upstream cause IFF at least one flow wrote app-db
+      this cascade. Per-sub input-path data is not yet exposed by
+      the runtime, so the helper returns every flow-id that fired —
+      the renderer displays 'via :flow-z' (single) or
+      'via :flow-z, :flow-w' (multiple). When the runtime exposes
+      per-sub input paths, this fn narrows to flows whose
+      `:write-path` is a prefix of (or equal to) any of the sub's
+      input paths.
+    - Parent-forced re-renders (`:sub-id ::parent-forced`) → no flow
+      attribution — the trigger is the parent, not a sub
+      invalidation.
+    - Handler-effect-only cascades (no `:rf.flow/computed` events) →
+      empty vector → renderer omits the third link → row stays
+      2-link.
+
+  Pure data → data; JVM-portable."
+  [row flow-writes]
+  (cond
+    (not (:trigger? row))        []
+    (= ::parent-forced
+       (:sub-id row))            []
+    (empty? flow-writes)         []
+    :else
+    (vec (distinct (map :flow-id flow-writes)))))
+
 (defn re-render-invalidated-by
   "Per spec §Per-row content (Re-rendered) — derive the 'Invalidated
   by' list for one re-render row. Returns a vector
 
     `[{:sub-id <sub-id>
        :recomputed? true/false
-       :trigger? true/false}    ;; ✱ marker
+       :trigger? true/false       ;; ✱ marker
+       :via-flow-ids [<kw> ...]}  ;; rf2-tv8t1 — third link attribution
       ...]`
 
   - The render's `:triggered-by` sub-id (when present) is the
@@ -295,22 +391,37 @@
     `≈` for cache-miss-equal in the view per `sub-status`).
     The view filters these to subs the component actually consumed
     once per-render sub-attribution lands.
+  - Trigger rows carry `:via-flow-ids` — the third link in the
+    sub-flow-chain attribution (rf2-tv8t1). Computed via
+    `attribute-trigger-to-flows`; `[]` when no flows fired this
+    cascade or the trigger is parent-forced.
 
-  `sub-runs` is the cascade's `:sub-runs` vector."
-  [render sub-runs]
-  (let [triggered-by (:triggered-by render)
-        trigger      (when triggered-by
-                       {:sub-id triggered-by :recomputed? true :trigger? true})
-        parent-forced (when-not triggered-by
-                        {:sub-id      ::parent-forced
-                         :recomputed? false
-                         :trigger?    true})
-        sub-rows     (for [sr sub-runs
-                           :when (not= (:sub-id sr) triggered-by)]
-                       {:sub-id      (:sub-id sr)
-                        :recomputed? (boolean (:recomputed? sr))
-                        :trigger?    false})]
-    (vec (concat (filter some? [trigger parent-forced]) sub-rows))))
+  `sub-runs` is the cascade's `:sub-runs` vector. `flow-writes` is
+  the cascade's flow-firing projection (per
+  `flows-fired-this-cascade`); pass `[]` (or omit the arg) for the
+  handler-effect-only case."
+  ([render sub-runs]
+   (re-render-invalidated-by render sub-runs []))
+  ([render sub-runs flow-writes]
+   (let [triggered-by  (:triggered-by render)
+         trigger       (when triggered-by
+                         (let [row {:sub-id triggered-by
+                                    :recomputed? true
+                                    :trigger? true}]
+                           (assoc row :via-flow-ids
+                                  (attribute-trigger-to-flows row flow-writes))))
+         parent-forced (when-not triggered-by
+                         {:sub-id       ::parent-forced
+                          :recomputed?  false
+                          :trigger?     true
+                          :via-flow-ids []})
+         sub-rows      (for [sr sub-runs
+                             :when (not= (:sub-id sr) triggered-by)]
+                         {:sub-id       (:sub-id sr)
+                          :recomputed?  (boolean (:recomputed? sr))
+                          :trigger?     false
+                          :via-flow-ids []})]
+     (vec (concat (filter some? [trigger parent-forced]) sub-rows)))))
 
 ;; ---- group-by sub: inverted hierarchy ----------------------------------
 ;;
@@ -414,7 +525,14 @@
     - `prior-renders`    — prior cascade's `:renders` vector (or nil)
     - `sub-runs`         — current cascade's `:sub-runs` vector
     - `opts`             — `{:cluster-threshold N
-                              :component-filter <view-id-or-nil>}`
+                              :component-filter <view-id-or-nil>
+                              :trace-events     <vec or nil>}`
+
+  `:trace-events` (rf2-tv8t1) — the current cascade's trace stream.
+  When present, `flows-fired-this-cascade` projects the cascade's
+  `:rf.flow/computed` events into the flow-writes vector; the
+  Re-rendered group's trigger rows then carry `:via-flow-ids` for
+  the third link in the sub-flow-chain attribution.
 
   Output:
     `{:groups          {:mounted [<item>]
@@ -424,7 +542,8 @@
                         :rendered N
                         :unmounted N
                         :cascade-ms <sum>}
-      :cluster-counts  {:mounted N :rendered N :unmounted N}}`
+      :cluster-counts  {:mounted N :rendered N :unmounted N}
+      :flow-writes     [{:flow-id … :write-path …} ...]}`
 
   where each `<item>` is the clustered shape from `cluster-renders`
   with an added `:invalidated-by` slot (vector of trigger / non-
@@ -433,9 +552,10 @@
   single-row pointing at the cluster's `:triggered-by` sub-id (per
   spec §Per-row content (Re-rendered) → Clustered renders)."
   [current-renders prior-renders sub-runs
-   {:keys [cluster-threshold component-filter]
+   {:keys [cluster-threshold component-filter trace-events]
     :or   {cluster-threshold default-cluster-threshold
-           component-filter  nil}}]
+           component-filter  nil
+           trace-events      nil}}]
   (let [filter-renders
         (if component-filter
           (fn [rs] (filterv #(= component-filter
@@ -447,6 +567,10 @@
         clustered (into {}
                         (for [[g rs] groups]
                           [g (cluster-renders rs cluster-threshold)]))
+        ;; rf2-tv8t1 — project the cascade's flow firings once at the
+        ;; top of the assembly so every :rendered row attribution shares
+        ;; the same source-of-truth projection.
+        flow-writes (flows-fired-this-cascade trace-events)
         ;; Annotate :rendered group items with :invalidated-by.
         clustered-with-invalidated
         (update clustered :rendered
@@ -455,13 +579,20 @@
                           (case (:kind item)
                             :single
                             (assoc item :invalidated-by
-                                   (re-render-invalidated-by (:render item) sub-runs))
+                                   (re-render-invalidated-by (:render item)
+                                                             sub-runs
+                                                             flow-writes))
                             :cluster
-                            (assoc item :invalidated-by
-                                   [{:sub-id      (:triggered-by item)
-                                     :recomputed? true
-                                     :trigger?    true
-                                     :clustered?  true}])))
+                            (let [cluster-trigger
+                                  {:sub-id      (:triggered-by item)
+                                   :recomputed? true
+                                   :trigger?    true
+                                   :clustered?  true}]
+                              (assoc item :invalidated-by
+                                     [(assoc cluster-trigger
+                                             :via-flow-ids
+                                             (attribute-trigger-to-flows
+                                               cluster-trigger flow-writes))]))))
                         items)))
         cascade-ms (reduce + 0 (keep :elapsed-ms current-renders))
         ;; Per spec §Group-by toggle — the inverted hierarchy
@@ -478,4 +609,5 @@
      :cluster-counts {:mounted   (cluster-count (:mounted clustered))
                       :rendered  (cluster-count (:rendered clustered))
                       :unmounted (cluster-count (:unmounted clustered))}
+     :flow-writes      flow-writes
      :component-filter component-filter}))

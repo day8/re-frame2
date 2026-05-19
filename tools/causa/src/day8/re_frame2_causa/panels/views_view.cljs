@@ -38,7 +38,8 @@
     metadata threads through the new spine.
   - React Fiber metadata (spec §Per-component drilldown → React
     Fiber block) — out of scope v1; collapse-by-default placeholder."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.views-helpers :as h]
             ;; rf2-x9fzk landed on origin/main during this bead's worktree
             ;; lifetime. The data inspector replaces v1's pr-str
@@ -247,6 +248,49 @@
 ;; out-of-scope rename); the UI text developer-frames as "Rerendered
 ;; because" instead.
 
+;; ---- third-link 'via flow' caption (rf2-tv8t1) -------------------------
+;;
+;; The third link in the sub-flow-chain attribution — when a trigger
+;; row's sub was invalidated by a flow firing this cascade, the row
+;; carries a `via :flow-z` caption beside the sub-id. Renders as a
+;; subtle muted caption (NOT a chip) so the visual hierarchy stays:
+;;
+;;   ✱ :sub-y              ← primary: the sub that changed (amber)
+;;       via :flow-z       ← upstream: the flow that fired (muted)
+;;
+;; Handler-effect-only cascades (`:via-flow-ids` is `[]`) → omit the
+;; caption entirely → row stays 2-link. Matches the bead's "when
+;; applicable" framing.
+
+(def ^:private via-flow-caption-style
+  {:color         (:text-tertiary tokens)
+   :font-size     "11px"
+   :font-family   sans-stack
+   :margin-left   "18px"            ; line up under the sub-id
+   :font-style    "italic"})
+
+(defn- via-flow-caption
+  "Inline caption row — 'via :flow-z' (single flow) or
+  'via :flow-z, :flow-w' (multiple). Returns nil for an empty
+  `via-flow-ids` so the row stays 2-link in the handler-effect-only
+  case. The caption sits BELOW the sub-id line so the 3-link chain
+  reads top-to-bottom: ✱ sub → via flow."
+  [via-flow-ids]
+  (when (seq via-flow-ids)
+    [:div {:data-testid "rf-causa-views-via-flow"
+           :style via-flow-caption-style
+           ;; rf2-tv8t1 — both ARIA + title carry the explanation so
+           ;; the third link reads on every browser + screen reader
+           ;; without a dispatch round-trip. The phrasing mirrors the
+           ;; bead's "...because flow Z fired" framing.
+           :aria-label (str "Flow attribution: "
+                            (str/join ", " (map pr-str via-flow-ids))
+                            " fired this cascade")
+           :title (str "This sub may have invalidated because the "
+                       "following flow(s) wrote app-db this cascade: "
+                       (str/join ", " (map pr-str via-flow-ids)))}
+     (str "via " (str/join ", " (map pr-str via-flow-ids)))]))
+
 (defn- rerendered-because-list
   [invalidated-by]
   [:div {:data-testid "rf-causa-views-invalidated-by"
@@ -261,21 +305,25 @@
      ^{:key i}
      [:div {:role "listitem"
             :style mono-style}
-      [:span {:style       (:style chrome)
-              ;; Hover tooltip per rf2-87lkf — Delta 2 + rf2-r2s2l
-              ;; cache-miss-equal. `title` ships the explanation on
-              ;; every browser without a dispatch round-trip; ARIA
-              ;; labels mirror it for screen readers.
-              :title       (:tooltip chrome)
-              :aria-label  (:aria-label chrome)
-              :data-marker (:data-marker chrome)}
-       (:glyph chrome)]
-      [:span (format-sub-id (:sub-id row))]
-      (when (:clustered? row)
-        [:span {:style {:margin-left "6px"
-                        :color (:text-tertiary tokens)
-                        :font-size "11px"}}
-         "(args vary per instance)"])])])
+      [:div {:style {:display "flex" :align-items "baseline"}}
+       [:span {:style       (:style chrome)
+               ;; Hover tooltip per rf2-87lkf — Delta 2 + rf2-r2s2l
+               ;; cache-miss-equal. `title` ships the explanation on
+               ;; every browser without a dispatch round-trip; ARIA
+               ;; labels mirror it for screen readers.
+               :title       (:tooltip chrome)
+               :aria-label  (:aria-label chrome)
+               :data-marker (:data-marker chrome)}
+        (:glyph chrome)]
+       [:span (format-sub-id (:sub-id row))]
+       (when (:clustered? row)
+         [:span {:style {:margin-left "6px"
+                         :color (:text-tertiary tokens)
+                         :font-size "11px"}}
+          "(args vary per instance)"])]
+      ;; rf2-tv8t1 — third link: 'via :flow-z' caption when this
+      ;; trigger row carries flow attribution.
+      (via-flow-caption (:via-flow-ids row))])])
 
 ;; ---- per-row body builders ---------------------------------------------
 
