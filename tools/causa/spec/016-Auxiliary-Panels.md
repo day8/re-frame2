@@ -661,7 +661,7 @@ for popout-geometry; add **Actions** for factory-reset + clear-buffer):
 | Section | v1 | Future |
 |---|---|---|
 | **Theme** | dark / light / dim | + custom palettes |
-| **Density** | compact / cosy / comfy | (stable) |
+| **Density** | compact / cosy (`:comfy` dropped per 015 §Density) | (stable) |
 | **Editor** | URI scheme + project-root | (stable) |
 | **Trace** | sensitive-data gate + filter algebra | + security-advisory toggle |
 | **Keybindings** | — | Full rebind UI; conflict-detection; reset-to-defaults |

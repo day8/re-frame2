@@ -168,7 +168,7 @@ without exposing a user-facing density picker for the L2 surface
 yet. Container height drops from 224px to 200px (8 × 22px + gaps +
 outer padding); min-height drops 56px → 48px so the L2/L3 drag
 handle can still squeeze the list to ~2 rows. The named tiers
-remain in the spec (compact/cosy/comfy) so a future density picker
+remain in the spec (compact/cosy — `:comfy` was dropped per 015 §Density) so a future density picker
 re-flips the rhythm without a re-design pass.
 
 #### v1 ships — Nav-button semantics (rf2-htik0)
@@ -1104,7 +1104,7 @@ suites pin the panel render bodies post-reseed.
 | Section | Content |
 |---|---|
 | **Filters** (default) | Active filter pills (mirror of ribbon pills; edit/delete) · Recommended-filters quick-add · auto-hide-error-overrides toggle · advanced pattern-editor for complex globs |
-| **View** | Theme: `◉ Dark · ○ Light · ○ Dim` · Density: `◉ Cosy 28px · ○ Compact 22px · ○ Comfy 36px` (event-list row height) · Long-keyword treatment threshold (chars) · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/causa` etc. in ribbon picker; only useful when debugging Causa itself) |
+| **View** | Theme: `◉ Dark · ○ Light · ○ Dim` · Density: `◉ Cosy 28px · ○ Compact 22px` (event-list row height; the `:comfy` tier was dropped per 015 §Density) · Long-keyword treatment threshold (chars) · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/causa` etc. in ribbon picker; only useful when debugging Causa itself) |
 | **Keybindings** | Table of `Action / Chord / Edit` rows; per-row chord editor (click chord cell → focus, press new chord); reset-to-defaults button per row + global; `Handle keys?` master toggle |
 | **Buffer** | `:buffer/retained-epochs <int>` (default 200) · `:trace-buffer/keep <int>` (default 500) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button |
 | **Popout** | `:popout/width <px>` (default 800) · `:popout/height <px>` (default 600) · `:popout/position <:right :left :centre>` (default `:right`) · "Open in popout now" button (= `o`) |

@@ -422,15 +422,16 @@ under `npm run test:browser`.
 
 ## Density slider
 
-Three settings: **compact** / **cosy** / **comfy**. Default **cosy**.
-Density is a vertical-rhythm knob, not a redesign — applies to L2 row
-height + L4 row padding + base type token.
+Two settings: **compact** / **cosy**. Default **cosy**. Density is a
+vertical-rhythm knob, not a redesign — applies to L2 row height + L4
+row padding + base type token. The third `:comfy` tier was dropped
+per [`015-Configuration.md`](015-Configuration.md) §Density (two tiers
+cover the rhythm need; the third had no observed demand).
 
 | Setting | L2 row height | L4 vertical rhythm | Body type |
 |---|---|---|---|
 | **Compact** | 22px | tighter | -1px |
 | **Cosy** (default) | 28px | (baseline) | (baseline) |
-| **Comfy** | 36px | looser | +1px |
 
 What does *not* change between densities: icon weights, border radii,
 animation durations, accent colours. Configurable in Settings → View.
@@ -468,8 +469,8 @@ AFTER:   :some.namespace…/blah-blah-blah  ⎘                     (with hover-
          (keep first ns segment; elide middle; keep keyword name)
 ```
 
-Algorithm: when event-id exceeds N chars (compact 28; cosy 36; comfy
-44; configurable via Settings → View → Long-keyword threshold), elide
+Algorithm: when event-id exceeds N chars (compact 28; cosy 36;
+configurable via Settings → View → Long-keyword threshold), elide
 the middle of the NAMESPACE only. Keep first ns segment and the
 keyword name (after `/`) intact. Un-namespaced keywords fall back to
 tail-elide.
