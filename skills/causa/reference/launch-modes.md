@@ -163,7 +163,7 @@ guarded so a second call is a no-op.
 (causa/init!
  {:default-frame :app/main          ; target-frame for the scrubber
   :theme         :dark              ; / :light / :high-contrast
-  :density       :compact           ; / :cosy / :comfy
+  :density       :compact           ; / :cosy
   :ai-provider   {:provider :claude}
   :buffer-depths {:trace 200 :epoch 50}})
 ```

@@ -1,4 +1,4 @@
-# panels — the 14-panel tour
+# panels — the 13-panel tour
 
 Sources of truth: per-panel specs under
 [`tools/causa/spec/`](../../../tools/causa/spec/) (one `00N-*.md` per
@@ -197,4 +197,4 @@ error). Otherwise the panel has nothing to show.
 Spec: [`006-Hydration-Debugger.md`](../../../tools/causa/spec/006-Hydration-Debugger.md).
 
 For the user-question → panel routing table, see
-[`SKILL.md` §The 14 panels](../SKILL.md).
+[`SKILL.md` §The 13 panels](../SKILL.md).

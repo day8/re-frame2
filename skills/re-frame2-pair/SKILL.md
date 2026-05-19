@@ -190,7 +190,7 @@ A re-frame2-pair session and a running Causa panel are **complementary** surface
 | Pair2 just did | Open Causa to … |
 |---|---|
 | Rewound to an earlier epoch via `restore-epoch` | Scrub the bottom-rail time-travel scrubber to inspect adjacent epochs visually; pin slices in the App-DB Diff panel. |
-| Dispatched into a cascade you don't fully understand | Read the Causality graph for the dispatch-id tree; the Event Detail panel lands on the latest cascade. |
+| Dispatched into a cascade you don't fully understand | The Event Detail panel lands on the latest cascade and shows the dispatch-id tree. |
 | Hot-swapped a sub or reg-event handler | Watch the Subscriptions panel's invalidation-chain affordance recompute (`:cart/total` ← `:cart/items` ← `[:cart :items]`). |
 | Stepped into a machine transition | Open the Machine Inspector for the state-chart view with transition history. |
 | Triggered a schema violation | The Schema Violation Timeline surfaces it with recovery mode + source coord. |
