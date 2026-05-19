@@ -44,10 +44,6 @@
   []
   ;; -- panel-local UI state slots --------------------------------------
 
-  (rf/reg-sub :rf.causa/views-heatmap?
-    (fn [db _query]
-      (boolean (get db :views/heatmap?))))
-
   (rf/reg-sub :rf.causa/views-group-by
     (fn [db _query]
       (get db :views/group-by :component)))
@@ -91,13 +87,12 @@
 
   (rf/reg-sub :rf.causa/views-data
     :<- [:rf.causa/views-focused-cascade-pair]
-    :<- [:rf.causa/views-heatmap?]
     :<- [:rf.causa/views-group-by]
     :<- [:rf.causa/views-component-filter]
     :<- [:rf.causa/views-cluster-threshold]
     :<- [:rf.causa/views-expanded-rows]
     :<- [:rf.causa/views-expanded-clusters]
-    (fn [[pair heatmap? group-by component-filter cluster-threshold
+    (fn [[pair group-by component-filter cluster-threshold
           expanded-rows expanded-clusters]
          _query]
       (let [current        (:current pair)
@@ -110,9 +105,8 @@
                               current-renders
                               prior-renders
                               sub-runs
-                              {:cluster-threshold    cluster-threshold
-                               :heatmap?             heatmap?
-                               :component-filter     component-filter})]
+                              {:cluster-threshold cluster-threshold
+                               :component-filter  component-filter})]
         (assoc projected
                :focus             focus
                :frame             (:frame focus)

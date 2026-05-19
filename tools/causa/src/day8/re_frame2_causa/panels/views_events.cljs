@@ -2,9 +2,9 @@
   "Event registrations for the Views panel (rf2-21ob3).
 
   Per `tools/causa/spec/012-Views.md`. Causa-internal panel state
-  (expanded-rows set, cluster-expansion set, heatmap toggle, group-
-  by toggle, component-filter) lives on `:rf/causa`'s app-db under
-  the `:views/*` keys."
+  (expanded-rows set, cluster-expansion set, group-by toggle,
+  component-filter) lives on `:rf/causa`'s app-db under the
+  `:views/*` keys."
   (:require [re-frame.core :as rf]))
 
 (defn install!
@@ -37,33 +37,13 @@
                  (disj s cluster-key)
                  (conj s cluster-key))))))
 
-  ;; -- heatmap toggle (spec §Heatmap mode) -----------------------------
-
-  (rf/reg-event-db :rf.causa/views-set-heatmap?
-    (fn [db [_ on?]]
-      (assoc db :views/heatmap? (boolean on?))))
-
-  (rf/reg-event-db :rf.causa/views-toggle-heatmap
-    (fn [db _event]
-      (update db :views/heatmap? not)))
-
-  ;; -- component filter (spec §Heatmap segment interaction) ------------
-  ;;
-  ;; Click-on-heatmap-segment fires this AND flips heatmap? off in one
-  ;; cascade (per spec §R3-E — single action). The view's segment
-  ;; click handler dispatches both events synchronously.
+  ;; -- component filter ------------------------------------------------
 
   (rf/reg-event-db :rf.causa/views-set-component-filter
     (fn [db [_ view-id]]
       (if (nil? view-id)
         (dissoc db :views/component-filter)
         (assoc db :views/component-filter view-id))))
-
-  (rf/reg-event-db :rf.causa/views-segment-click
-    (fn [db [_ view-id]]
-      (-> db
-          (assoc :views/component-filter view-id)
-          (assoc :views/heatmap? false))))
 
   ;; -- group-by toggle (spec §Group-by toggle) -------------------------
 

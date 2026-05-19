@@ -28,8 +28,7 @@
   (story/reg-tag :feature/causa-views
     {:axis :feature
      :doc  "Causa Views tab — three-group (Mounted / Re-rendered /
-            Unmounted) classification + clustering + heatmap mode
-            per spec/012-Views.md."})
+            Unmounted) classification + clustering per spec/012-Views.md."})
 
   (story/reg-story :story.causa.views
     {:doc        "Visual gallery of the Causa Views tab under varying
@@ -79,19 +78,7 @@
      :tags       #{:dev :state/large}
      :substrates #{:reagent}})
 
-  ;; ----- 5. heatmap mode --------------------------------------------
-  (story/reg-variant :story.causa.views/heatmap
-    {:doc        "Two epochs with renders spanning multiple view-ids
-                 carrying a wide spread of :elapsed-ms. Variant
-                 toggles heatmap on so the segment bar (sorted by
-                 total-ms, < 1% folded into `<rest>`) is the
-                 dominant surface."
-     :events     [[:rf.causa/sync-epoch-history (fixtures/heatmap-mode-buffer)]
-                  [:rf.causa/views-set-heatmap? true]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
-
-  ;; ----- 6. three-group (mounted / re-rendered / unmounted) ---------
+  ;; ----- 5. three-group (mounted / re-rendered / unmounted) ---------
   (story/reg-variant :story.causa.views/three-group
     {:doc        "Two epochs designed to surface all three groups
                  (Mounted / Re-rendered / Unmounted) populated
@@ -102,7 +89,7 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 7. filter-applied (component-filter active) ----------------
+  ;; ----- 6. filter-applied (component-filter active) ----------------
   (story/reg-variant :story.causa.views/filter-applied
     {:doc        "Two epochs with renders across multiple view-ids;
                  variant seeds the panel's component-filter to
@@ -114,10 +101,9 @@
 
   ;; ----- workspace ---------------------------------------------------
   (story/reg-workspace :Workspace.causa.views/all
-    {:doc      "All seven Views tab variants in one auto-grid.
-                Scroll to see the panel's response across empty /
-                sparse / dense / grid-explosion / heatmap / three-
-                group / filter-applied."
+    {:doc      "All six Views tab variants in one auto-grid. Scroll
+                to see the panel's response across empty / sparse /
+                dense / grid-explosion / three-group / filter-applied."
      :layout   :variants-grid
      :story    :story.causa.views
      :columns  2

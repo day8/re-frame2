@@ -18,7 +18,6 @@
     invalidation mechanism.
   - Grid-explosion clustering (spec §Grid-explosion clustering) with
     `[Expand cluster ▾]` affordance for ≥ 50-render clusters.
-  - Heatmap-mode toggle + segment bar (spec §Heatmap mode, §R3-E).
   - Per-row inline expansion (spec §R3-F / spec §Per-component
     drilldown) — single-column block under the row with the raw
     `:rf/epoch-record` `:renders` entry rendered via `inspect`.
@@ -164,68 +163,6 @@
   (case (:kind item)
     :single  (pr-str (:render-key (:render item)))
     :cluster (str "cluster:" (pr-str [(:view-id item) (:triggered-by item)]))))
-
-;; ---- heatmap ------------------------------------------------------------
-
-(defn- segment-color
-  "Per spec §Heatmap mode — segment colour shades cool → warm by ms
-  cost. v1 uses three tier colours from the existing palette;
-  finer-grained tiering rides the future heatmap-tier helper."
-  [fraction]
-  (cond
-    (>= fraction 0.40) (:red tokens)
-    (>= fraction 0.20) (:orange tokens)
-    (>= fraction 0.05) (:yellow tokens)
-    :else              (:cyan tokens)))
-
-(defn- segment-label
-  [seg]
-  (case (:kind seg)
-    :rest      (str "<rest> · "
-                    (.toFixed (* 100 (:fraction seg)) 0) "% · "
-                    (format-ms (:total-ms seg)))
-    :component (str (h/format-view-id (:view-id seg)) " · "
-                    (.toFixed (* 100 (:fraction seg)) 0) "% · "
-                    (format-ms (:total-ms seg)))))
-
-(defn- heatmap-bar
-  [segments _cascade-ms]
-  [:div {:data-testid "rf-causa-views-heatmap"
-         :style {:display "flex"
-                 :width "100%"
-                 :height "48px"
-                 :background (:bg-1 tokens)
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :overflow "hidden"
-                 :border-radius "4px"}}
-   (for [seg segments]
-     ^{:key (str (:view-id seg))}
-     [:div {:data-testid (str "rf-causa-views-heatmap-segment-"
-                              (if (= ::h/rest (:view-id seg))
-                                "rest"
-                                (h/format-view-id (:view-id seg))))
-            :on-click #(when (not= ::h/rest (:view-id seg))
-                         (rf/dispatch [:rf.causa/views-segment-click
-                                       (:view-id seg)]))
-            :title (segment-label seg)
-            :style {:width (str (* 100 (:fraction seg)) "%")
-                    :background (segment-color (:fraction seg))
-                    :cursor (if (= ::h/rest (:view-id seg))
-                              "default" "pointer")
-                    :display "flex"
-                    :align-items "center"
-                    :justify-content "center"
-                    :color "#0E0F12"
-                    :font-family sans-stack
-                    :font-size "10px"
-                    :font-weight 600
-                    :overflow "hidden"
-                    :text-overflow "ellipsis"
-                    :white-space "nowrap"
-                    :padding "0 4px"
-                    :border-right (str "1px solid " (:bg-1 tokens))}}
-      (when (> (:fraction seg) 0.04)
-        (h/format-view-id (:view-id seg)))])])
 
 ;; ---- 'Rerendered because' list (Re-rendered) ---------------------------
 ;;
@@ -559,9 +496,7 @@
 
 (defn- bottom-controls
   [data]
-  (let [heatmap?  (boolean (:heatmap? data))
-        cf        (:component-filter data)
-        auto?     (boolean (:auto-suggest-heatmap? data))]
+  (let [cf (:component-filter data)]
     [:footer {:data-testid "rf-causa-views-controls"
               :style {:padding "8px 16px"
                       :border-top (str "1px solid " (:border-subtle tokens))
@@ -570,16 +505,6 @@
                       :align-items "center"
                       :font-size "11px"
                       :color (:text-secondary tokens)}}
-     [:label {:style {:cursor "pointer" :display "flex"
-                      :gap "6px" :align-items "center"}}
-      [:input {:type "checkbox"
-               :data-testid "rf-causa-views-heatmap-toggle"
-               :checked heatmap?
-               :on-change #(rf/dispatch [:rf.causa/views-toggle-heatmap])}]
-      "Heatmap mode"
-      (when auto?
-        [:span {:style {:color (:yellow tokens) :margin-left "4px"}}
-         "(auto-suggested)"])]
      (when cf
        [:button {:data-testid "rf-causa-views-clear-filter"
                  :on-click #(rf/dispatch
@@ -632,11 +557,6 @@
       (cond
         (not (:has-cascade? data))
         (empty-state data)
-
-        (:heatmap? data)
-        [:div {:style {:padding "12px 16px"}}
-         (heatmap-bar (:segments (:heatmap data))
-                      (:total-ms (:heatmap data)))]
 
         (zero? (+ (count (:mounted groups))
                   (count (:rendered groups))

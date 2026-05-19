@@ -221,7 +221,6 @@
    :rf.causa/views-expanded-rows
    :rf.causa/views-focused-cascade-pair
    :rf.causa/views-group-by
-   :rf.causa/views-heatmap?
    ;; rf2-xjhhp Phase 2 — sub-output structural-diff composite for the
    ;; Views row drilldown. Reuses the Phase 1 engine
    ;; (`diff.annotated_tree` + `diff.section_grouping`).
@@ -372,13 +371,10 @@
    ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
    ;; panel events. See `tools/causa/spec/012-Views.md`.
    :rf.causa/views-collapse-all-rows
-   :rf.causa/views-segment-click
    :rf.causa/views-set-cluster-threshold
    :rf.causa/views-set-component-filter
    :rf.causa/views-set-group-by
-   :rf.causa/views-set-heatmap?
    :rf.causa/views-toggle-cluster
-   :rf.causa/views-toggle-heatmap
    :rf.causa/views-toggle-row])
 
 (def ^:private all-fx-names
@@ -460,8 +456,8 @@
     ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
     ;; deleted with the panels themselves — every line referenced a
     ;; surface that no longer exists.
-    (is (= 101 (count all-sub-names)))
-    (is (= 120 (count all-event-names)))
+    (is (= 100 (count all-sub-names)))
+    (is (= 117 (count all-event-names)))
     (is (= 5   (count all-fx-names)))))
 
 (deftest registry-is-idempotent
@@ -816,13 +812,6 @@
     (rf/with-frame :rf/causa
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
-(deftest sub-views-heatmap-defaults-false
-  (testing ":rf.causa/views-heatmap? defaults to false (rf2-21ob3 —
-            Views panel replaces the Subs panel's chain-open? slot)"
-    (setup-causa-frame!)
-    (rf/with-frame :rf/causa
-      (is (false? @(rf/subscribe [:rf.causa/views-heatmap?]))))))
-
 (deftest sub-views-group-by-defaults-component
   (testing ":rf.causa/views-group-by defaults to :component (rf2-21ob3
             — Views panel replaces the Subs panel's sub-filters slot)"
@@ -931,7 +920,6 @@
         (is (= 0 (:rendered  (:totals data))))
         (is (= 0 (:unmounted (:totals data))))
         (is (false? (:has-cascade? data)))
-        (is (false? (:heatmap? data)))
         (is (= :component (:group-by data)))))))
 
 ;; ---- (4) high-value event contracts -------------------------------------
@@ -1024,17 +1012,13 @@
       (rf/dispatch-sync [:rf.causa/views-toggle-row "row-a"])
       (is (= #{"row-b"} @(rf/subscribe [:rf.causa/views-expanded-rows]))))))
 
-(deftest event-views-toggle-heatmap-round-trip
-  (testing ":rf.causa/views-toggle-heatmap flips the boolean; the
-            segment-click event sets the filter AND drops heatmap mode
-            in one step (per spec/012 §Heatmap segment interaction)"
+(deftest event-views-set-component-filter-round-trip
+  (testing ":rf.causa/views-set-component-filter writes and clears
+            the panel-local component filter slot (rf2-21ob3)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/views-toggle-heatmap])
-      (is (true? @(rf/subscribe [:rf.causa/views-heatmap?])))
-      (rf/dispatch-sync [:rf.causa/views-segment-click :my/view])
+      (rf/dispatch-sync [:rf.causa/views-set-component-filter :my/view])
       (is (= :my/view @(rf/subscribe [:rf.causa/views-component-filter])))
-      (is (false? @(rf/subscribe [:rf.causa/views-heatmap?])))
       (rf/dispatch-sync [:rf.causa/views-set-component-filter nil])
       (is (nil? @(rf/subscribe [:rf.causa/views-component-filter]))))))
 
