@@ -726,7 +726,7 @@ Briefly: UC1 sim sub-mode (entry toggle; event picker; guards evaluated against 
 
 The 7th tab — promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
 
-**Always-shown structure:** the **full route tree** (every route registered via `re-frame.routing/reg-route`, sorted by path). This is the orientation surface — flipping to the Routing tab immediately reveals the app's routing topology without forcing the user to dig through code.
+**FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route against the entered URL using the 6-rule `:rf.route/rank` tuple, with the **rank explainer** surfaced inline (which rule decided each rank position). The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan, and `Simulate-URL` + the 6-rule rank explainer together answer the *"what would this URL match?"* orientation question better than a static tree ever did.
 
 **Per-focused-event highlighting** (parallel to the Machines tab's focused-event lens):
 
@@ -740,7 +740,7 @@ When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When 
 
 **Detection contract:** the panel scans the focused cascade's trace events for a `:rf.route.nav-token/allocated` emit (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires inside both `:rf.route/navigate` and `:rf/url-changed`). The emit's `:tags :route-id` is the TO; the current `:rf/route` slice's `:id` (when different) is the FROM. Same-route re-navigations (different params/query, same route-id) collapse FROM — surfacing a FROM equal to TO is noise.
 
-**Below the tree:** params + query + fragment for the active route slice. Rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`.
+**Below the active route:** params + query + fragment rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`. The Simulate-URL input + ranked candidate list lives below the params block — see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Simulate-URL contract for the data shape and interaction rules.
 
 **Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
 
