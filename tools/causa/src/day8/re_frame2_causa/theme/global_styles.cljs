@@ -27,7 +27,8 @@
   uses fixed `id` attributes on the `<style>` / `<link>` nodes so a
   hot-reload that resets the `defonce` atom would still no-op when
   the DOM node is already present."
-  (:require [day8.re-frame2-causa.theme.tokens :as tokens]))
+  (:require [clojure.string :as string]
+            [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- font loading (rf2-5kfxe.1) ----------------------------------------
 ;;
@@ -167,6 +168,101 @@
                                             (themes-css themes)))
         (.appendChild (.-head js/document) node)))))
 
+;; ---- atmospheric grain overlay (rf2-5kfxe.7) ---------------------------
+;;
+;; Spec/007 §Colour system flags 'defaulting to solid colors' as an
+;; anti-pattern. Every Causa surface (bg-0 through bg-3) is currently
+;; a solid hex; this commit lifts the shell root with a fractal-
+;; turbulence SVG noise overlay at ~3.5% opacity. Zero JS, zero extra
+;; DOM nodes — the grain is a CSS `::before` pseudo-element with a
+;; data-URI SVG filter, tiled across the shell root. The browser's
+;; rasterizer GPU-tiles the small SVG so the perf cost is negligible.
+;;
+;; The pseudo-element sits BEHIND the shell's flex children via
+;; `z-index: 0` + a companion rule that lifts every direct child of
+;; the shell to `z-index: 1` with `position: relative` so each region
+;; (L1 ribbon / L2 list / L3 tabs / L4 panel) renders crisp on top
+;; of the textured backdrop.
+;;
+;; The grain renders in both themes — under the light theme it
+;; manifests as a subtle paper grain over the white canvas (warmer
+;; than a sterile flat fill); under dark it reads as a soft 'film
+;; grain' over the recessed canvas.
+
+(def ^:private grain-style-id
+  "rf-causa-grain")
+
+(def ^:private grain-svg
+  "Inline SVG: a fractalNoise filter painted into a 200x200 rect. The
+  browser tiles this across the shell root via `background-repeat:
+  repeat`. `baseFrequency 0.85` produces a fine-grained noise (not
+  blotchy); `numOctaves 2` gives the grain a touch of structure
+  without becoming a visible pattern; `stitchTiles` makes the tile
+  edges seamless so the repeat is invisible."
+  (str "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'>"
+       "<filter id='n'>"
+       "<feTurbulence type='fractalNoise' baseFrequency='0.85' "
+       "numOctaves='2' stitchTiles='stitch' seed='7'/>"
+       "<feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  "
+       "0 0 0 0.6 0'/>"
+       "</filter>"
+       "<rect width='100%' height='100%' filter='url(#n)' "
+       "opacity='1'/>"
+       "</svg>"))
+
+(defn- url-encode-svg
+  "Encode a small set of characters that browsers' data-URI parsers
+  refuse to accept inline (`<`/`>`/`#`/`%`). The SVG's structure-
+  punctuation (`'`/spaces/`=`) is left as-is for legibility — modern
+  browsers accept those un-encoded inside a `data:image/svg+xml`
+  payload, and the wire size is smaller for it."
+  [s]
+  (-> s
+      (string/replace "%" "%25")  ;; must run first to not double-encode
+      (string/replace "<" "%3C")
+      (string/replace ">" "%3E")
+      (string/replace "#" "%23")
+      (string/replace "\"" "%22")))
+
+(def ^:private grain-css
+  "Rule pinned to `[data-testid='rf-causa-shell']`. The pseudo-element
+  paints the noise SVG behind the shell's flex children; the
+  companion rule lifts every direct child to `position: relative;
+  z-index: 1` so their content paints crisp on top of the grain."
+  (str
+    "[data-testid=\"rf-causa-shell\"]::before {\n"
+    "  content: \"\";\n"
+    "  position: absolute;\n"
+    "  inset: 0;\n"
+    "  pointer-events: none;\n"
+    "  z-index: 0;\n"
+    "  opacity: 0.035;\n"
+    "  background-image: url(\"data:image/svg+xml;utf8,"
+    (url-encode-svg grain-svg)
+    "\");\n"
+    "  background-size: 200px 200px;\n"
+    "  background-repeat: repeat;\n"
+    "  mix-blend-mode: overlay;\n"
+    "}\n"
+    "[data-testid=\"rf-causa-shell\"] > * {\n"
+    "  position: relative;\n"
+    "  z-index: 1;\n"
+    "}\n"))
+
+(defn- inject-grain-style!
+  "Append the grain `<style>` block to `<head>`. Idempotent — id-keyed
+  DOM probe."
+  []
+  (when (and (exists? js/document)
+             (.-head js/document)
+             (.-createElement js/document)
+             (.-getElementById js/document))
+    (when-not (.getElementById js/document grain-style-id)
+      (let [node (.createElement js/document "style")]
+        (set! (.-id node) grain-style-id)
+        (.appendChild node (.createTextNode js/document grain-css))
+        (.appendChild (.-head js/document) node)))))
+
 ;; ---- motion keyframes (rf2-5kfxe.2 + rf2-5kfxe.3) ----------------------
 ;;
 ;; Both motion surfaces share one injected `<style>` block — the
@@ -273,13 +369,14 @@
 
 (defn install!
   "Idempotent — call from `shell-view`'s reg-view body. Triggers font
-  load + motion keyframes + per-theme CSS custom properties on first
-  paint of the shell. Future cluster commits add the atmospheric
-  grain overlay and the display-face font."
+  load + motion keyframes + per-theme CSS custom properties + the
+  atmospheric grain overlay on first paint of the shell. A future
+  cluster commit adds the display-face font."
   []
   (when-not @installed?
     (inject-fonts!)
     (inject-motion-style!)
     (inject-themes-style! tokens/themes)
+    (inject-grain-style!)
     (reset! installed? true))
   nil)

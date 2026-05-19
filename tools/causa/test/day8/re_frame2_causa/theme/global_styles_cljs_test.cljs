@@ -132,6 +132,48 @@
       (is (not (re-find #"(?<!--rf-causa-)bg-1:" css))
           "no unprefixed `bg-1:` declarations leaked into the CSS"))))
 
+;; ---- rf2-5kfxe.7 — atmospheric grain overlay ---------------------------
+
+(deftest grain-css-targets-shell-root-pseudo
+  (testing "rf2-5kfxe.7 — the grain rule is scoped to the shell's
+            `data-testid='rf-causa-shell'` via a `::before` pseudo-
+            element. No global page-level effect; no host-app
+            stylesheet contamination."
+    (is (re-find #"\[data-testid=\"rf-causa-shell\"\]::before"
+                 @#'gs/grain-css))))
+
+(deftest grain-css-lifts-direct-children-above-pseudo
+  (testing "rf2-5kfxe.7 — the companion rule lifts every direct child
+            of the shell root to `position: relative; z-index: 1` so
+            their content paints on top of the textured backdrop."
+    (let [css @#'gs/grain-css]
+      (is (re-find #"\[data-testid=\"rf-causa-shell\"\]\s*>\s*\*\s*\{[^}]*z-index:\s*1"
+                   css))
+      (is (re-find #"\[data-testid=\"rf-causa-shell\"\]\s*>\s*\*\s*\{[^}]*position:\s*relative"
+                   css)))))
+
+(deftest grain-css-embeds-svg-noise-data-uri
+  (testing "rf2-5kfxe.7 — the background-image is an inline SVG
+            data-URI carrying a `feTurbulence` filter (no external
+            asset). The browser tiles the small SVG via
+            `background-repeat: repeat` so the GPU handles the
+            painting; perf cost is negligible."
+    (let [css @#'gs/grain-css]
+      (is (re-find #"background-image:\s*url\(\"data:image/svg\+xml" css))
+      (is (re-find #"feTurbulence" css)
+          "the SVG filter primitive is the noise generator")
+      (is (re-find #"background-repeat:\s*repeat" css)))))
+
+(deftest grain-css-is-subtle
+  (testing "rf2-5kfxe.7 — the overlay sits at low opacity
+            (between 0.02 and 0.06) so it reads as 'texture' rather
+            than a visible pattern. Above 0.06 it competes with
+            content; below 0.02 the browser won't render it at all
+            on some displays."
+    (let [css @#'gs/grain-css]
+      (is (re-find #"opacity:\s*0\.03[0-9]?" css)
+          "opacity is around 0.035 — texture, not pattern"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document
