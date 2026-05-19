@@ -500,6 +500,11 @@
           (.create js/Object (.-prototype (.-Component react))))
     (set! (.. klass -prototype -constructor) klass)
     (set! (.-cljsReagentClass klass) true)
+    ;; Stash the user's `:reagent-render` on the class so out-of-band
+    ;; introspection (e.g. `re-frame.test-helpers/expand-tree`) can
+    ;; invoke it without going through React. Mirrors stock Reagent's
+    ;; convention of exposing the user fn alongside the class tag.
+    (set! (.-cljsReagentRender klass) render-fn)
 
     ;; render delegates to wrap-render over the user's :reagent-render.
     ;; make-render-method's body re-stashes argv from props at render

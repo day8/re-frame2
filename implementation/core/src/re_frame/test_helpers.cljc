@@ -62,6 +62,14 @@
   sees the leaf hiccup the user sees. The expansion is recursive
   but terminating: a non-vector / non-fn leaf is a fixed point.
 
+  Form-3 components built via `r/create-class` are detected (the
+  reagent-slim class tag + the stashed `:reagent-render` slot) and
+  expanded by invoking the render fn directly with the hiccup args.
+  The walker does NOT instantiate React or run lifecycle methods —
+  if a Form-3 view's hiccup output depends on lifecycle state, the
+  test sees the initial render only. JVM runs identically: class-3
+  detection is a no-op because the JVM has no JS class instances.
+
   ## Authoring side — the `testid` helper
 
   Tests benefit from views that **carry** a `:data-testid` on the
@@ -74,9 +82,32 @@
   Equivalent to writing `{:data-testid \"counter-inc\" :on-click ...}`
   by hand; pick whichever reads better in your view.
 
+  ## Selector convention — `data-testid` vs `data-test` vs custom
+
+  React conventionally uses `:data-testid`; some codebases (notably
+  Story) standardised on `:data-test` before the rename; framework
+  tools may use their own prefix (Causa uses `:data-rf-causa-*`).
+  This ns ships two layers:
+
+    - [[find-by-attr]] / [[find-all-by-attr]] — the underlying. Match
+      against any attr key the caller supplies. Use these directly
+      when your codebase keys on `:data-test` or a custom attribute.
+
+    - [[find-by-testid]] / [[find-all-by-testid]] — thin wrappers
+      that pre-bind the attr to `:data-testid`. Use these for the
+      common React-convention case.
+
   ## Public API
 
-  ### Walking
+  ### Walking — generic attribute
+  - [[find-by-attr]] — first node whose attrs map carries `attr == val`,
+    or nil.
+  - [[find-all-by-attr]] — all nodes whose attrs map carries
+    `attr == val`.
+  - [[find-by-attr-prefix]] — all nodes whose `attr` value (a string)
+    starts with the given prefix.
+
+  ### Walking — `:data-testid` convenience
   - [[find-by-testid]] — first node with the given testid, or nil.
   - [[find-all-by-testid]] — all nodes with the given testid.
   - [[find-by-testid-prefix]] — all nodes whose testid starts with
@@ -104,22 +135,59 @@
 
 (declare expand-tree)
 
+(defn- reagent-class-render
+  "When `head` is a reagent-slim Form-3 class constructor (built by
+  `reagent2.impl.component/create-class*`), return its stashed
+  `:reagent-render` fn. Otherwise return nil.
+
+  Detection is property-based — we look for the tag
+  `.-cljsReagentClass` (true) and pluck the render fn from
+  `.-cljsReagentRender`. No `:require` on reagent so this ns stays
+  classpath-clean for callers that don't pull reagent.
+
+  JVM: always nil — JVM has no JS classes and no `.-` property
+  access on plain fns. The reader conditional below makes the
+  body a no-op there."
+  [head]
+  #?(:cljs (when (and (some? head)
+                      (true? (.-cljsReagentClass ^js head)))
+            (.-cljsReagentRender ^js head))
+     :clj  nil))
+
 (defn expand-tree
   "Recursively expand a hiccup tree, invoking any function components
-  with their args. After expansion, every vector's first element is a
-  keyword tag or a non-component value, never a fn.
+  (or Form-3 class components) with their args. After expansion,
+  every vector's first element is a keyword tag or a non-component
+  value, never a fn / class.
 
-  Mirrors what Reagent's renderer does at mount time: a vector whose
-  first element is a fn is treated as `[component-fn & args]` and
-  invoked. Non-vector branches (strings, numbers, maps, nil) are
-  returned unchanged. Lazy sequences are walked through `map`; vectors
-  through `mapv`.
+  Mirrors what Reagent's renderer does at mount time:
+
+    - `[component-fn & args]` — invoke `component-fn` with `args`.
+    - `[reagent-class & args]` — pluck the class's `:reagent-render`
+      slot (stashed at create-class time) and invoke with `args`. The
+      class is NOT instantiated and lifecycle methods do NOT run —
+      this walker is for state/structure assertions, not behaviour
+      that depends on `componentDidMount` etc.
+
+  Non-vector branches (strings, numbers, maps, nil) are returned
+  unchanged. Lazy sequences are walked through `map`; vectors through
+  `mapv`.
 
   Public so test files mid-walk can re-expand a sub-tree if needed."
   [tree]
   (cond
     (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
+    (let [head (first tree)
+          render-fn (reagent-class-render head)]
+      (cond
+        ;; Form-3 reagent class — call its render-fn directly with
+        ;; the hiccup args. Skips React instantiation entirely.
+        (some? render-fn)
+        (expand-tree (apply render-fn (rest tree)))
+
+        ;; Plain function component — invoke as Reagent would.
+        :else
+        (expand-tree (apply head (rest tree)))))
 
     (vector? tree)
     (mapv expand-tree tree)
@@ -188,20 +256,77 @@
   (get (attrs node) event-key))
 
 ;; ---------------------------------------------------------------------------
-;; Finding by testid
+;; Finding by arbitrary attribute (the underlying)
+;;
+;; The `find-by-testid` family below is a thin wrapper around these.
+;; Use `find-by-attr` directly when your codebase keys on `:data-test`
+;; (Story's legacy convention) or a custom prefix (e.g. Causa's
+;; `:data-rf-causa-*`). Cross-framework code that doesn't want to
+;; commit to a single attr convention talks at this layer.
 ;; ---------------------------------------------------------------------------
 
-(defn- testid-of
-  "Return the `:data-testid` value of a hiccup node, or nil."
-  [node]
+(defn- attr-of
+  "Return the value of `attr` on a hiccup node's attrs map, or nil."
+  [node attr]
   (when (vector? node)
     (when-let [a (attrs node)]
-      (:data-testid a))))
+      (get a attr))))
+
+(defn find-by-attr
+  "Walk `tree` (expanding function and class components) and return
+  the FIRST hiccup node whose attrs map carries `attr == val`, or
+  nil if no node matches.
+
+  Generic over the attribute keyword — pick whichever your codebase
+  uses (`:data-testid`, `:data-test`, `:id`, a custom prefix, …):
+
+      (find-by-attr tree :data-testid \"counter-inc\")
+      (find-by-attr tree :data-test    \"submit\")
+      (find-by-attr tree :id           \"root\")"
+  [tree attr val]
+  (some (fn [node]
+          (when (= val (attr-of node attr))
+            node))
+        (hiccup-seq tree)))
+
+(defn find-all-by-attr
+  "Like [[find-by-attr]] but returns a vector of EVERY matching node,
+  in depth-first order. Empty vector when no match."
+  [tree attr val]
+  (filterv (fn [node] (= val (attr-of node attr)))
+           (hiccup-seq tree)))
+
+(defn find-by-attr-prefix
+  "Return a vector of every hiccup node whose `attr` value (a string)
+  STARTS with `prefix`. Useful for view layouts that mint a family of
+  attribute values off a stable stem (e.g. `\"counter-row-1\"`,
+  `\"counter-row-2\"`, …).
+
+  Non-string attr values do not match — only strings respond to
+  prefix comparison."
+  [tree attr prefix]
+  (filterv (fn [node]
+             (when-let [v (attr-of node attr)]
+               (and (string? v) (str/starts-with? v prefix))))
+           (hiccup-seq tree)))
+
+;; ---------------------------------------------------------------------------
+;; Finding by testid — thin wrappers over find-by-attr
+;;
+;; The common case (React's `:data-testid` convention). Authoring side
+;; uses the [[testid]] helper to keep the convention readable at view
+;; call sites. Both layers (these and `find-by-attr` directly) walk the
+;; same underlying tree-seq.
+;; ---------------------------------------------------------------------------
 
 (defn find-by-testid
-  "Walk `tree` (expanding function components) and return the FIRST
-  hiccup node whose attrs map carries `:data-testid == test-id`, or
-  nil if no node matches.
+  "Walk `tree` (expanding function and class components) and return
+  the FIRST hiccup node whose attrs map carries `:data-testid ==
+  test-id`, or nil if no node matches.
+
+  Equivalent to `(find-by-attr tree :data-testid test-id)`. Use the
+  generic [[find-by-attr]] directly when your codebase keys on a
+  different attribute (e.g. `:data-test`).
 
   Use to anchor on a stable element from a view:
 
@@ -209,28 +334,25 @@
             label (find-by-testid tree \"counter-label\")]
         (is (= \"Count: 5\" (text-content label))))"
   [tree test-id]
-  (some (fn [node]
-          (when (= test-id (testid-of node))
-            node))
-        (hiccup-seq tree)))
+  (find-by-attr tree :data-testid test-id))
 
 (defn find-all-by-testid
   "Like [[find-by-testid]] but returns a vector of EVERY matching
-  node, in depth-first order. Empty vector when no match."
+  node, in depth-first order. Empty vector when no match.
+
+  Equivalent to `(find-all-by-attr tree :data-testid test-id)`."
   [tree test-id]
-  (filterv (fn [node] (= test-id (testid-of node)))
-           (hiccup-seq tree)))
+  (find-all-by-attr tree :data-testid test-id))
 
 (defn find-by-testid-prefix
   "Return a vector of every hiccup node whose `:data-testid` STARTS
   with `prefix`. Useful for view layouts that mint a family of testids
   off a stable stem (e.g. `\"counter-row-1\"`, `\"counter-row-2\"`,
-  …)."
+  …).
+
+  Equivalent to `(find-by-attr-prefix tree :data-testid prefix)`."
   [tree prefix]
-  (filterv (fn [node]
-             (when-let [tid (testid-of node)]
-               (str/starts-with? tid prefix)))
-           (hiccup-seq tree)))
+  (find-by-attr-prefix tree :data-testid prefix))
 
 ;; ---------------------------------------------------------------------------
 ;; Driving handlers
