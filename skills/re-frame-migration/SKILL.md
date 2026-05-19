@@ -17,6 +17,9 @@ description: >
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)
+  - Bash(gh issue list *)
+  - Bash(gh issue view *)
+  - Bash(gh issue create *)
   - Read
   - Edit
   - Write

@@ -184,17 +184,7 @@ MAPPINGS: list[Mapping] = [
 #
 # Entries are keyed by mapping-name (not host_prefix) so renames in MAPPINGS
 # above stay self-consistent.
-_BASELINE: set[tuple[str, str, str]] = {
-    # rf2-scpaa — landing as part of the cluster PR that introduces this
-    # gate (rf2-yiccf). Baselined so commit 2 of the cluster passes; commit
-    # 6 trims this entry as it adds the missing allow-list line. After
-    # commit 6 lands the gate will fail if anyone re-removes the grant.
-    (
-        "bash:skills/re-frame-migration/SKILL.md",
-        "missing-bash-allow",
-        "gh issue *",
-    ),
-}
+_BASELINE: set[tuple[str, str, str]] = set()
 
 
 # ---------------------------------------------------------------------------
