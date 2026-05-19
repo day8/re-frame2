@@ -356,6 +356,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `routing-history-replace.edn` | `:routing/history-replace` | Programmatic navigation with `{:replace? true}` routes through `:rf.nav/replace-url` instead of `:rf.nav/push-url` — replaceState semantics so the back button skips the intermediate URL |
 | `hot-reload-handler-replaced-trace.edn` | `:hot-reload/handler-replaced-trace` | Per Spec 001 §Hot-reload trace surface: a re-registration emits `:rf.registry/handler-replaced` carrying `:kind` + `:id` + `:different-fn?`. Exercised through flow re-registration (the only pure-data surface today through which the corpus can re-register a slot mid-dispatch); the trace contract is cross-kind |
 | `cross-spec-frame-destroy-with-machines.edn` | `:cross-spec/frame-destroy-with-machines` | Cross-Spec #1 (Frames × Machines): `destroy-frame!` while a singleton machine snapshot is live emits `:rf.machine.lifecycle/destroyed` BEFORE `:frame/destroyed`, carrying `:reason :parent-frame-destroyed` |
+| `cross-spec-machine-microstep-subscribe.edn` | `:cross-spec/machine-microstep-subscribe` | Cross-Spec #2 (Frames × Machines): subs return the COMMITTED post-cascade snapshot, never an intermediate microstep value. The sub-cache invalidation fires once after macrostep commit, not per-microstep |
 
 Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
 

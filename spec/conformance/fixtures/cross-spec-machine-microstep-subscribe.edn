@@ -1,0 +1,112 @@
+;; Conformance fixture: cross-spec/machine-microstep-subscribe
+;;
+;; Cross-Spec Interaction #2 (Frames × Machines), per
+;; [Cross-Spec-Interactions §2 — Sub-cache hit inside a machine microstep](../../Cross-Spec-Interactions.md#2-sub-cache-hit-inside-a-machine-microstep).
+;;
+;; Specs that meet: [005-StateMachines §Drain semantics §Level 3](../../005-StateMachines.md#level-3--within-a-single-machine-event),
+;;                  [006-ReactiveSubstrate §Subscription cache](../../006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
+;;
+;; Scenario: A machine event triggers a multi-microstep cascade (an
+;; :always whose guard becomes true via the :on action). A subscription
+;; depends on a path that intersects the machine's app-db slice.
+;;
+;; Behaviour: External observers — subs are external observers — see ONE
+;; macrostep per machine event. The sub value queried AFTER the dispatch
+;; reflects the COMMITTED post-cascade snapshot, never an intermediate
+;; microstep value. Sub-cache invalidation fires once after the cascade's
+;; final commit, not after each microstep (per 006 §Subscription cache).
+;;
+;; This fixture exercises the contract via:
+;;   1. A machine starting at :asking whose :on event runs an action
+;;      (`:quiz/count-correct`) that bumps :correct-count from 9 → 10.
+;;   2. :asking's :always with guard `:enough-correct?` (true when
+;;      :correct-count >= 10) fires the microstep transition to :winner.
+;;   3. A sub `:current-stage` reading [:rf/machines :quiz :state] — the
+;;      machine's externally-observable state slot.
+;;   4. After the dispatch settles, :sub-values asserts the sub returns
+;;      :winner — the COMMITTED end-state. If the sub-cache exposed the
+;;      mid-cascade snapshot (where :state was still :asking with
+;;      counter=10) the assertion would fail.
+;;
+;; The trace stream pins the contract from the other direction: the
+;; outer :rf.machine/transition fires ONCE with :microsteps 1, proving
+;; the :always microstep ran. Subs do NOT recompute mid-cascade — the
+;; runtime's :sub/run only fires when queried.
+;;
+;; Per rf2-u7o7l — substrate-edge cluster (Cross-Spec #2).
+
+{:fixture/id           :cross-spec/machine-microstep-subscribe
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/eventless-always :core/event-handler :core/sub :core/trace}
+ :fixture/doc          "Cross-Spec #2 Sub-cache hit inside a machine microstep. A multi-microstep machine cascade settles to a final state; a sub depending on the machine's :state slot returns the COMMITTED end-state, not an intermediate microstep value. The sub-cache invalidation fires once after macrostep commit, not per-microstep."
+
+ :fixture/registry
+ {:event {:boot/init {:doc "Seed pre-dispatch marker so the frame's app-db is non-empty."}}
+  :sub   {:current-stage {:doc "Reads [:rf/machines :quiz :state] — i.e. the machine's externally-observable state slot."}
+          :correct-count {:doc "Reads [:rf/machines :quiz :data :correct-count] — the data slot the action updates."}}
+  :machine-action
+  {:quiz/count-correct {:doc "Increment :correct-count by 1."}}
+  :machine-guard
+  {:quiz/enough-correct? {:doc "True when :correct-count >= 10."}}
+  :machine
+  {:quiz
+   {:initial :asking
+    :data    {:correct-count 9}
+    :guards  {:enough-correct? :quiz/enough-correct?}
+    :actions {:count-correct   :quiz/count-correct}
+    :states
+    {:asking
+     {:always [{:guard :enough-correct? :target :winner}]
+      :on     {:answer-correct {:action :count-correct}}}
+     :winner {}}}}}
+
+ :fixture/handlers
+ {:event {:boot/init [[:set [:dispatched?] true]]}
+  :sub   {:current-stage [[:get [:rf/machines :quiz :state]]]
+          :correct-count [[:get [:rf/machines :quiz :data :correct-count]]]}
+  :machine-action
+  {:quiz/count-correct [[:set [:correct-count] [:fn :+ [:get [:correct-count]] 1]]]}
+  :machine-guard
+  {:quiz/enough-correct? [[:fn :>= [:get [:correct-count]] 10]]}}
+
+ :fixture/frame-config {:on-create [:boot/init]}
+
+ :fixture/dispatches
+ ;; Single event into the machine. Internal sequence:
+ ;;   :asking -[:answer-correct]→ :asking (action runs; counter 9→10; macrostep settles)
+ ;;   :asking's :always fires (guard now true; microstep; counter unchanged):
+ ;;     :asking -[:always]→ :winner
+ ;; External observer sees ONE macrostep: :asking → :winner with
+ ;; correct-count = 10. The intermediate "still :asking with
+ ;; correct-count 10" state is NOT visible.
+ [[:quiz [:answer-correct]]]
+
+ :fixture/expect
+ ;; Load-bearing assertion: :current-stage returns :winner (the
+ ;; COMMITTED end-state). :correct-count returns 10 (final value). If
+ ;; the sub-cache exposed an intermediate microstep snapshot, either
+ ;; sub-value would mismatch.
+ {:sub-values
+  {[:current-stage] :winner
+   [:correct-count] 10}
+
+  :final-app-db
+  {:rf/machines {:quiz {:state :winner :data {:correct-count 10}}}
+   :dispatched? true}
+
+  ;; Trace contract: ONE outer macrostep (the :rf.machine/transition
+  ;; trace), with :microsteps 1 (the :always microstep). Subs do NOT
+  ;; recompute mid-cascade — the runtime's :sub/run only fires when
+  ;; queried.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :boot/init}}
+   {:operation :event :tags {:event-id :quiz}}
+   ;; Outer macrostep trace — ONE per dispatch. Tags carry :before /
+   ;; :after snapshots (per machines.lifecycle-fx.registration/
+   ;; commit-or-finalize). The :after snapshot's :state is :winner
+   ;; (the committed end-state), not an intermediate microstep value;
+   ;; the partial-match matcher confirms :machine-id, and :sub-values
+   ;; above confirms the post-commit snapshot is what subs observe.
+   {:operation :rf.machine/transition
+    :tags      {:machine-id :quiz
+                :event      [:answer-correct]}}]}}
