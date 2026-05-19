@@ -26,8 +26,7 @@ attributed to the focused cascade. **Each view row carries its subs
 nested beneath** — the subs the view actually consumed, with their
 return values inline. Per-sub click → invalidation-chain drilldown
 ("why did this sub re-run"). Cluster-large-grids (≥50
-same-identity-key) collapse into a single row with count. Heatmap
-mode tints rows by render cost.
+same-identity-key) collapse into a single row with count.
 
 ## Affordance
 
@@ -113,7 +112,7 @@ in fixed top-to-bottom order:
 │     unmount-reason: parent <CartShell> conditional flipped                               │
 │                                                                                          │
 │ ─────────────────────────────────────────────────────────────────────────────────────── │
-│ Heatmap mode ○        Show framework-internal ○        Group by ◉ component  ○ sub      │
+│ Show framework-internal ○        Group by ◉ component  ○ sub                            │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -222,52 +221,6 @@ Cluster expanded (after click):
 
 Threshold configurable via Settings → Buffer → `:views/cluster-threshold`
 (default 50).
-
-## Heatmap mode
-
-For cascades where per-row enumeration is overwhelming even after
-clustering (hundreds of distinct clusters), toggle the **Heatmap
-mode** chip in the bottom controls. Replaces the three-group row
-layout with a single panel-wide horizontal bar showing where the
-cascade's render time was spent:
-
-```
-┌─ Views tab content · Heatmap mode (frame: :app/main · cascade #347) ────────────────────┐
-│                                                                                          │
-│ Cascade render budget: 23.8ms (tier ●)                                                   │
-│                                                                                          │
-│ ┌──────────────────────────────────────────────────────────────────────────────────────┐│
-│ │ <MyCell>×1000    │ <OrderList>│<OrderRow>│<RetryB>│<CartTotal>│<CartIcon>│ <rest> │ ││
-│ │      52%         │    18%     │   12%    │   8%   │    4%     │   1%     │   5%   │ ││
-│ │      12.4ms      │   4.3ms    │  2.9ms   │ 1.9ms  │   0.9ms   │   0.2ms  │  1.2ms │ ││
-│ └──────────────────────────────────────────────────────────────────────────────────────┘│
-│                                                                                          │
-│ Click a segment to filter the three-group layout to that component.                      │
-│ Hover a segment for per-component breakdown (mount/re-render/unmount counts).            │
-│                                                                                          │
-│ Heatmap mode ●        Show framework-internal ○        Group by ◉ component  ○ sub      │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-- **Segment width** = % of cascade's total render time consumed by
-  that component (sums to 100%).
-- **Segment colour** = tier shading (cool → warm by ms cost).
-- **`<rest>` segment** aggregates components whose share < 1% to keep
-  the bar legible.
-
-### Segment interaction
-
-| Action | Result |
-|---|---|
-| **Click segment** | (1) Flips back out of Heatmap mode to the three-group layout; (2) applies a per-component filter so only that component's mount/re-render/unmount rows are visible. Single action = "I saw the heatmap; the next thing I want is detail on the hot one." |
-| **Hover segment** | Tooltip with per-component breakdown (mount/re-render/unmount counts + per-instance avg/p95) |
-| **Right-click segment** | Context menu: "Filter to this component" / "Hide this component" (Views-local OUT filter) / "Copy component name" / "Pin in palette" |
-| **Shift-click segment** | Adds the segment's component to a multi-component filter set; visible as filter chips above the three-group layout. Rare; documented |
-| **ESC while in Heatmap** | Return to three-group layout (no filter) |
-
-Heatmap mode is OFF by default; toggle persists per-cascade-size
-threshold (auto-suggests heatmap when cluster-count > 20 after
-clustering).
 
 ## Per-component drilldown
 
@@ -446,7 +399,7 @@ plane; the reactive cache is a CLJS-substrate concern.
 Per [`Principles.md`](Principles.md) §Production elision is
 non-negotiable, the Views tab — like every Causa surface — elides
 entirely in production builds. The renderer, the cluster algorithm,
-the heatmap, the per-component drilldown all ship zero bytes when
+and the per-component drilldown all ship zero bytes when
 `goog.DEBUG=false`.
 
 CI's `npm run test:elision` ([`007-UX-IA.md`](007-UX-IA.md)
@@ -458,7 +411,6 @@ CI's `npm run test:elision` ([`007-UX-IA.md`](007-UX-IA.md)
   `:renders` slot is bounded by drain depth × per-cascade component
   count.
 - **Clustering is O(N log N)** (group-by-identity-key, then count).
-- **Heatmap is O(distinct components in cascade).**
 - **Per-row sub-status is O(visible rows).** Each row reads its own
   cache entry; the panel virtualises long lists; nothing renders >200
   rows at once.
@@ -499,4 +451,4 @@ v1.0 ships the panel as part of Causa's tab bar only.
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — the
   `:rf.causa/*` registry ids for the Views tab.
 - [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — Views
-  three-group + clustering + heatmap test rows.
+  three-group + clustering test rows.

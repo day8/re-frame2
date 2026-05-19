@@ -17,9 +17,6 @@
       renders sharing `(view-id, triggered-by)` into one aggregate row
       with `× N · total ms · avg µs` stats (spec §Grid-explosion
       clustering; default threshold 50).
-    - Heatmap-mode segments — % of cascade render time per view-id
-      with a `<rest>` bucket for components contributing < 1% (spec
-      §Heatmap mode).
     - Per-component sub list — for each render, the `:sub-runs`
       entries that recomputed this cascade and the focused view
       `:triggered-by` reference (spec §Sub-status legibility).
@@ -91,17 +88,6 @@
   threshold each render lists individually. Configurable via
   Settings → Buffer → `:views/cluster-threshold`."
   50)
-
-(def default-heatmap-rest-fraction
-  "Per spec §Heatmap mode — `<rest>` segment aggregates components
-  whose share < 1% so the bar stays legible."
-  0.01)
-
-(def default-heatmap-auto-suggest-threshold
-  "Per spec §Heatmap mode — auto-suggests heatmap when cluster-count
-  > 20 after clustering. The view consumes this number to set the
-  toggle's hinted state; it never auto-activates."
-  20)
 
 ;; ---- view-id rendering --------------------------------------------------
 
@@ -257,66 +243,10 @@
 
 (defn cluster-count
   "Count clusters (kind :cluster) in a clustered vector. Used by the
-  auto-suggest-heatmap heuristic."
+  `:cluster-counts` projection in `build-views-data` so callers can
+  display per-group cluster totals."
   [clustered]
   (count (filter #(= :cluster (:kind %)) clustered)))
-
-;; ---- heatmap segments --------------------------------------------------
-
-(defn- safe-div
-  [num den]
-  (if (zero? den) 0 (/ num den)))
-
-(defn heatmap-segments
-  "Per spec §Heatmap mode — derive horizontal-bar segments from a
-  cascade's render list. Returns a vector of segment maps sorted by
-  total-ms descending; components under the `rest-fraction` threshold
-  aggregate into one trailing `:rest` segment.
-
-    `[{:kind :component
-       :view-id <view-id>
-       :total-ms <ms>
-       :fraction <0..1>
-       :count <renders>
-       :avg-ms <ms>}
-      ...
-      {:kind :rest
-       :view-id ::rest
-       :total-ms <ms>
-       :fraction <0..1>
-       :count <renders>
-       :merged-view-ids #{<view-id> ...}}]`
-
-  `rest-fraction` defaults to `default-heatmap-rest-fraction` (0.01)."
-  ([renders]
-   (heatmap-segments renders default-heatmap-rest-fraction))
-  ([renders rest-fraction]
-   (let [total           (reduce + 0 (keep :elapsed-ms renders))
-         grouped         (group-by #(render-key->view-id (:render-key %)) renders)
-         per-component   (for [[vid rs] grouped
-                               :let [tms (reduce + 0 (keep :elapsed-ms rs))
-                                     n   (count rs)]]
-                           {:kind     :component
-                            :view-id  vid
-                            :total-ms tms
-                            :fraction (safe-div tms total)
-                            :count    n
-                            :avg-ms   (safe-div tms n)})
-         sorted          (sort-by (juxt (comp - :total-ms)
-                                        (comp str :view-id))
-                                  per-component)
-         [big small]     (split-with #(>= (:fraction %) rest-fraction) sorted)
-         big-vec         (vec big)
-         rest-vec        (if (seq small)
-                           (let [tms (reduce + 0 (map :total-ms small))]
-                             [{:kind            :rest
-                               :view-id         ::rest
-                               :total-ms        tms
-                               :fraction        (safe-div tms total)
-                               :count           (reduce + 0 (map :count small))
-                               :merged-view-ids (set (map :view-id small))}])
-                           [])]
-     (into big-vec rest-vec))))
 
 ;; ---- re-rendered group: invalidating-sub layout -----------------------
 
@@ -367,8 +297,6 @@
     - `prior-renders`    — prior cascade's `:renders` vector (or nil)
     - `sub-runs`         — current cascade's `:sub-runs` vector
     - `opts`             — `{:cluster-threshold N
-                              :heatmap-rest-fraction R
-                              :heatmap? <bool>
                               :component-filter <view-id-or-nil>}`
 
   Output:
@@ -379,10 +307,7 @@
                         :rendered N
                         :unmounted N
                         :cascade-ms <sum>}
-      :cluster-counts  {:mounted N :rendered N :unmounted N}
-      :heatmap         {:segments [<segment> ...]
-                        :total-ms <sum>}
-      :auto-suggest-heatmap?  <bool>}`
+      :cluster-counts  {:mounted N :rendered N :unmounted N}}`
 
   where each `<item>` is the clustered shape from `cluster-renders`
   with an added `:invalidated-by` slot (vector of trigger / non-
@@ -391,12 +316,9 @@
   single-row pointing at the cluster's `:triggered-by` sub-id (per
   spec §Per-row content (Re-rendered) → Clustered renders)."
   [current-renders prior-renders sub-runs
-   {:keys [cluster-threshold heatmap-rest-fraction
-           heatmap? component-filter]
-    :or   {cluster-threshold     default-cluster-threshold
-           heatmap-rest-fraction default-heatmap-rest-fraction
-           heatmap?              false
-           component-filter      nil}}]
+   {:keys [cluster-threshold component-filter]
+    :or   {cluster-threshold default-cluster-threshold
+           component-filter  nil}}]
   (let [filter-renders
         (if component-filter
           (fn [rs] (filterv #(= component-filter
@@ -424,20 +346,13 @@
                                      :trigger?    true
                                      :clustered?  true}])))
                         items)))
-        cascade-ms (reduce + 0 (keep :elapsed-ms current-renders))
-        segments   (heatmap-segments current-renders heatmap-rest-fraction)
-        rendered-clusters (cluster-count (:rendered clustered))]
+        cascade-ms (reduce + 0 (keep :elapsed-ms current-renders))]
     {:groups         clustered-with-invalidated
      :totals         {:mounted    (count (:mounted groups))
                       :rendered   (count (:rendered groups))
                       :unmounted  (count (:unmounted groups))
                       :cascade-ms cascade-ms}
      :cluster-counts {:mounted   (cluster-count (:mounted clustered))
-                      :rendered  rendered-clusters
+                      :rendered  (cluster-count (:rendered clustered))
                       :unmounted (cluster-count (:unmounted clustered))}
-     :heatmap        {:segments segments
-                      :total-ms cascade-ms}
-     :heatmap?       (boolean heatmap?)
-     :auto-suggest-heatmap?
-     (> rendered-clusters default-heatmap-auto-suggest-threshold)
      :component-filter component-filter}))

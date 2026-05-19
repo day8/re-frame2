@@ -1389,7 +1389,7 @@ not Causa.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — UC1 sim + UC2 Mode A/B/C content for the Machines tab.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
-- [`012-Views.md`](012-Views.md) — Views tab three-group layout (mounted / re-rendered / unmounted); nested subs; cluster-large-grids; heatmap mode.
+- [`012-Views.md`](012-Views.md) — Views tab three-group layout (mounted / re-rendered / unmounted); nested subs; cluster-large-grids.
 - [`013-Trace-Bus.md`](013-Trace-Bus.md) — trace ring buffer Trace tab filters from.
 - [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md) — `:rf.causa/*` registry surface (spine sub, focus events, filter slot, active-tab slot).
 - [`015-Configuration.md`](015-Configuration.md) — `configure!` API surface for filters, view, keybindings, buffer, popout, factory-reset.

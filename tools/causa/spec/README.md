@@ -63,8 +63,8 @@ main read**.
   host and standalone-via-MCP remote-attach.
 - **[012-Views.md](012-Views.md)** — Views tab: three-group layout
   (mounted / re-rendered / unmounted); subs nested under each view row;
-  cluster-large-grids; heatmap mode; per-component inline drilldown.
-  Replaces the legacy Subscriptions panel.
+  cluster-large-grids; per-component inline drilldown. Replaces the
+  legacy Subscriptions panel.
 - **[013-Trace-Bus.md](013-Trace-Bus.md)** — The trace-bus + collector
   contract: the ring-buffer data plane every panel reads from, the
   consumer-side filter algebra, the `:sensitive?` privacy gate. Future:

@@ -4,8 +4,7 @@
   Mounts `views-panel` (the plain Reagent fn per the canonical facade
   convention — the public `reg-view` lives in the `views.cljs` facade)
   and asserts the structural data-testid hooks ship: the panel root,
-  the controls footer, the heatmap toggle, and the three-group
-  container."
+  the controls footer, and the three-group container."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -37,9 +36,7 @@
     (is (has-testid? tree "rf-causa-views")
         "the root :section data-testid is present")
     (is (has-testid? tree "rf-causa-views-controls")
-        "bottom-controls footer renders")
-    (is (has-testid? tree "rf-causa-views-heatmap-toggle")
-        "heatmap toggle is mounted (default: heatmap mode off)")))
+        "bottom-controls footer renders")))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-gphsi — React unique-key warning regression guard
@@ -52,7 +49,7 @@
 ;; call respectively). That meta is dropped at evaluation — Reagent's
 ;; `get-react-key` only reads `:key` from vector meta — producing React
 ;; "unique key prop" warnings in panel_gallery fixtures (dense-subs,
-;; three-group, filter-applied, heatmap). Fix moves the key meta onto
+;; three-group, filter-applied). Fix moves the key meta onto
 ;; the returned `[:div …]` / `[:section …]` vector via `with-meta`.
 ;; This test asserts every child vector carries `:key` meta so the
 ;; regression cannot recur silently. (rf2-gphsi)

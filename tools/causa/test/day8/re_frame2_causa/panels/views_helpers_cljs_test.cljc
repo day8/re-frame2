@@ -3,10 +3,10 @@
 
   Per `tools/causa/spec/012-Views.md` the panel splits a cascade's
   render activity into three groups (mounted / re-rendered /
-  unmounted), clusters grid-explosions, surfaces per-render
-  invalidated-by sub lists, and projects a heatmap segment bar. The
-  algebra lives in `views_helpers.cljc`; this ns covers each helper
-  + the assembled `build-views-data` projection.
+  unmounted), clusters grid-explosions, and surfaces per-render
+  invalidated-by sub lists. The algebra lives in
+  `views_helpers.cljc`; this ns covers each helper + the assembled
+  `build-views-data` projection.
 
   Naming follows the dual-target `_cljs_test.cljc` pattern other
   helper tests use (Cognitect runner picks up the `.*-test$` ns name
@@ -119,38 +119,7 @@
       (is (= 1 (count clusters)))
       (is (= 2 (count singles))))))
 
-;; ---- (3) heatmap segments ------------------------------------------------
-
-(deftest heatmap-segments-empty
-  (testing "no renders → no segments"
-    (is (= [] (h/heatmap-segments [])))))
-
-(deftest heatmap-segments-dominant-component
-  (testing "a component that dominates the cascade lands as the first
-            segment; fractions sum to 1.0 (modulo float)"
-    (let [renders [(mk-render :view/cell 1 :sub/x 10.0)
-                   (mk-render :view/banner 2 :ui/theme 2.0)
-                   (mk-render :view/header 3 :ui/theme 1.0)]
-          segs    (h/heatmap-segments renders)
-          fracs   (mapv :fraction segs)]
-      (is (= :view/cell (:view-id (first segs))))
-      (is (< (Math/abs (- 1.0 (apply + fracs))) 0.001)))))
-
-(deftest heatmap-segments-rest-bucket
-  (testing "components contributing < rest-fraction collapse into a
-            single :rest segment (per spec §Heatmap mode)"
-    ;; 10 small components at 0.1 each, plus 1 dominant 99 → small
-    ;; share is 0.01 each (right at the 0.01 floor, so configure
-    ;; threshold to 0.05 to force the rest-bucket branch).
-    (let [tiny   (mapv (fn [i] (mk-render (keyword "view" (str "t" i)) i :sub/x 0.1))
-                       (range 10))
-          big    [(mk-render :view/heavy 99 :sub/y 99.0)]
-          segs   (h/heatmap-segments (concat big tiny) 0.05)
-          rest-segs (filter #(= :rest (:kind %)) segs)]
-      (is (= 1 (count rest-segs))
-          "tiny components collapse into one :rest segment"))))
-
-;; ---- (4) re-render invalidated-by ---------------------------------------
+;; ---- (3) re-render invalidated-by ---------------------------------------
 
 (deftest re-render-invalidated-by-with-trigger
   (testing "render's :triggered-by becomes the ✱ trigger row"
@@ -172,7 +141,7 @@
              (:sub-id (first out))))
       (is (true? (:trigger? (first out)))))))
 
-;; ---- (5) build-views-data assembly --------------------------------------
+;; ---- (4) build-views-data assembly --------------------------------------
 
 (deftest build-views-data-empty-cascade
   (testing "no renders → zero totals + empty groups"
@@ -222,31 +191,7 @@
         (is (= :view/a (h/render-key->view-id
                          (:render-key (:render m)))))))))
 
-(deftest build-views-data-auto-suggest-heatmap-over-20-clusters
-  (testing "more than 20 :cluster entries in :rendered → auto-suggest"
-    (let [;; 22 distinct clusters each with `threshold` re-renders.
-          ;; Instance-tokens must be unique across the entire cascade
-          ;; (per Spec-Schemas §`:rf/epoch-record` `:render-key` — slot
-          ;; 2 is a runtime counter atom), so each group's tokens are
-          ;; offset by `(* group-idx per)` to keep them disjoint.
-          n-clusters 22
-          per        50
-          mk-group   (fn [group-idx vid]
-                       (let [trigger (keyword "sub" (str "g" group-idx))]
-                         (mapv (fn [i]
-                                 (mk-render vid (+ (* group-idx per) i)
-                                            trigger 0.1))
-                               (range per))))
-          ids        (mapv (fn [i] (keyword "view" (str "g" i))) (range n-clusters))
-          prior      (vec (mapcat (fn [i] (mk-group i (get ids i)))
-                                  (range n-clusters)))
-          current    prior
-          out        (h/build-views-data current prior [] {})]
-      (is (true? (:auto-suggest-heatmap? out))
-          (str "expected auto-suggest? true at "
-               (:rendered (:cluster-counts out)) " clusters")))))
-
-;; ---- (6) view-id formatting ---------------------------------------------
+;; ---- (5) view-id formatting ---------------------------------------------
 
 (deftest format-view-id-keyword-drops-colon
   (is (= "cart/order-row" (h/format-view-id :cart/order-row))))

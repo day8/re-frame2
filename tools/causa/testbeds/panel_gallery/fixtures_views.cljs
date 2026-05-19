@@ -141,35 +141,6 @@
              :renders  grid-renders
              :sub-runs [(sub-row :grid/data true 14)]})]))
 
-(defn heatmap-mode-buffer
-  "Two epochs with renders spanning multiple view-ids carrying a wide
-  spread of :elapsed-ms — exercises the heatmap mode's segment bar
-  (sorted by total-ms, components under 1% folded into `<rest>`)."
-  []
-  (let [hot     (for [i (range 6)]
-                  (render-row :report/heavy-chart
-                              (keyword (str "chart-tok-" i))
-                              :report/data
-                              (* (inc i) 15)))
-        warm    (for [i (range 4)]
-                  (render-row :report/table-row
-                              (keyword (str "row-tok-" i))
-                              :report/data
-                              (* (inc i) 4)))
-        cold    (for [i (range 30)]
-                  (render-row (keyword "tiny" (str "leaf-" i))
-                              (keyword (str "leaf-tok-" i))
-                              :report/data
-                              1))]
-    [(epoch {:epoch-id 400 :dispatch-id 400 :event-id :report/initial
-             :event [:report/initial]
-             :renders  (vec (concat hot warm cold))
-             :sub-runs [(sub-row :report/data true 6)]})
-     (epoch {:epoch-id 401 :dispatch-id 401 :event-id :report/refresh
-             :event [:report/refresh]
-             :renders  (vec (concat hot warm cold))
-             :sub-runs [(sub-row :report/data true 6)]})]))
-
 (defn three-group-buffer
   "Two epochs designed to surface the panel's three groups (Mounted /
   Re-rendered / Unmounted) all populated simultaneously:
