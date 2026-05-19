@@ -89,21 +89,35 @@
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {}))
 
-(defn- causa-event-id? [id]
+(defn- causa-id?
+  "True when `id` is a Causa-namespaced keyword. Used to filter the
+  registrar's full per-kind registration map down to the Causa subset
+  for the snapshot test (rf2-39n8h). Covers both the bare `:rf.causa/*`
+  prefix and the per-panel `:rf.causa.<panel>/*` prefixes codified in
+  `tools/causa/spec/014-Registry-Catalogue.md` §Naming convention."
+  [id]
   (and (keyword? id)
-       (#{"rf.causa" "rf.causa.issues" "rf.causa.routing"} (namespace id))))
-
-(defn- catalogued-causa-event-id? [id]
-  (causa-event-id? id))
+       (when-let [ns (namespace id)]
+         (or (= "rf.causa" ns)
+             (re-matches #"rf\.causa\..*" ns)
+             ;; rf2-g5q8d — `:rf.editor/open` lives under the editor-
+             ;; generic prefix (cross-tool allowlist seam, rf2-cm93v).
+             (= "rf.editor" ns)))))
 
 (def ^:private all-sub-names
-  "Every :rf.causa/* sub registered by `register-causa-handlers!`. Sorted
-  for stable iteration in the smoke block."
-  [:rf.causa/active-filters
+  "Every Causa-namespaced sub registered by `register-causa-handlers!`.
+  Sorted-set literal — order-independent so concurrent PRs adding subs
+  produce rebase-clean diffs (rf2-39n8h)."
+  (sorted-set
+   :rf.causa/active-filters
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.causa/active-timers-for-focused-machine
    :rf.causa/app-db-diff
    :rf.causa/cascades
+   ;; rf2-39n8h discovered — App-DB diff data-inspector expansion slots
+   ;; (per-row + bulk expand-all). Lives under :rf.causa.data-inspector/*.
+   :rf.causa.data-inspector/all-expansion
+   :rf.causa.data-inspector/expansion
    ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
    ;; tab side-panel + Trace popover). Per
    ;; `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3.
@@ -127,6 +141,10 @@
    :rf.causa/focused-slice-path
    :rf.causa/issues-filters
    :rf.causa/issues-ribbon
+   ;; rf2-39n8h discovered — Issues-ribbon ungrouped-bucket sub
+   ;; (panel-internal). Lives under :rf.causa.issues/* per the
+   ;; per-panel namespace convention.
+   :rf.causa.issues/ungrouped
    :rf.causa/machine-definitions
    :rf.causa/machine-definitions-override
    :rf.causa/machine-inspector-data
@@ -143,6 +161,8 @@
    :rf.causa/managed-fx-for-focused-event
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
    :rf.causa/now-ms
+   ;; rf2-39n8h discovered — focused-frame slot consumed across panels.
+   :rf.causa/observed-frame
    ;; rf2-e9tb0 — App-DB segment-inspector popup subs.
    :rf.causa/segment-inspector-open?
    :rf.causa/segment-inspector-path
@@ -172,8 +192,12 @@
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
    :rf.causa/selected-epoch-diff
+   ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
+   ;; lens + redacted-modified-count surface for the App-DB diff panel.
+   :rf.causa/selected-epoch-flow-writes
    :rf.causa/selected-epoch-id
    :rf.causa/selected-epoch-record
+   :rf.causa/selected-epoch-redacted-modified-count
    :rf.causa/selected-epoch-sections
    :rf.causa/selected-machine-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
@@ -214,6 +238,9 @@
    :rf.causa/timer-hover
    :rf.causa/trace-buffer
    :rf.causa/trace-feed
+   ;; rf2-39n8h discovered — trace-feed UI-state slot (selection /
+   ;; expansion state shared by the Trace panel).
+   :rf.causa/trace-feed-state
    :rf.causa/trace-filters
    ;; Views panel (rf2-21ob3) replaces the legacy Subscriptions panel
    ;; — subs nest under the views that consumed them. See
@@ -228,15 +255,27 @@
    ;; rf2-xjhhp Phase 2 — sub-output structural-diff composite for the
    ;; Views row drilldown. Reuses the Phase 1 engine
    ;; (`diff.annotated_tree` + `diff.section_grouping`).
-   :rf.causa/views-sub-diff-for-focused-event])
+   :rf.causa/views-sub-diff-for-focused-event))
 
 (def ^:private all-event-names
-  ;; Issues-ribbon panel-internal events (rf2-nmc1f) — nested under
-  ;; `:rf.causa.issues/*` so the namespace itself encodes
-  ;; "panel-internal, no cross-panel callers". Per the
-  ;; `:rf.causa.<panel>/*` convention codified in
-  ;; `tools/causa/spec/014-Registry-Catalogue.md` §Naming convention.
-  [:rf.causa.issues/clear-filters
+  "Every Causa-namespaced event registered by `register-causa-handlers!`.
+  Sorted-set literal (rf2-39n8h) — order-independent so concurrent PRs
+  adding events produce rebase-clean diffs.
+
+  Issues-ribbon panel-internal events (rf2-nmc1f) nest under
+  `:rf.causa.issues/*` so the namespace itself encodes
+  \"panel-internal, no cross-panel callers\". Per the
+  `:rf.causa.<panel>/*` convention codified in
+  `tools/causa/spec/014-Registry-Catalogue.md` §Naming convention."
+  (sorted-set
+   ;; rf2-39n8h discovered — App-DB diff data-inspector events:
+   ;; per-row toggle/set + large-value confirmation flow (request +
+   ;; confirm). Lives under :rf.causa.data-inspector/*.
+   :rf.causa.data-inspector/confirm-large
+   :rf.causa.data-inspector/request-large-confirm
+   :rf.causa.data-inspector/set-expanded
+   :rf.causa.data-inspector/toggle-expanded
+   :rf.causa.issues/clear-filters
    :rf.causa.issues/set-since-seconds
    :rf.causa.issues/toggle-prefix
    :rf.causa.issues/toggle-severity
@@ -390,10 +429,14 @@
    :rf.causa/views-set-component-filter
    :rf.causa/views-set-group-by
    :rf.causa/views-toggle-cluster
-   :rf.causa/views-toggle-row])
+   :rf.causa/views-toggle-row))
 
 (def ^:private all-fx-names
-  [:rf.causa.fx/copy-to-clipboard
+  "Every Causa-namespaced fx registered by `register-causa-handlers!`.
+  Sorted-set literal (rf2-39n8h) — order-independent so concurrent PRs
+  adding fxs produce rebase-clean diffs."
+  (sorted-set
+   :rf.causa.fx/copy-to-clipboard
    ;; rf2-nqw0v Phase 5 — Share affordance: new-tab open fx.
    :rf.causa.fx/open-in-new-tab
    ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
@@ -410,7 +453,7 @@
    ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.causa.fx/*`
    ;; because the rf2-cm93v allowlist seam is editor-related, not
    ;; Causa-specific.
-   :rf.editor/open])
+   :rf.editor/open))
 
 ;; ---- (1) smoke: every registered name resolves -------------------------
 
@@ -428,22 +471,17 @@
       (is (some? (registrar/handler :event event-id))
           (str "expected :event handler for " event-id)))))
 
-(deftest registry-installs-every-catalogued-event-and-no-dead-core-events
-  (testing "register-causa-handlers! installs the catalogued Causa events"
-    (registry/register-causa-handlers!)
-    (let [actual (->> (registrar/registrations :event)
-                      keys
-                      (filter catalogued-causa-event-id?)
-                      set)]
-      (is (= (set all-event-names) actual)))))
-
 (deftest registry-registers-each-causa-event-once
-  (testing "each Causa event id is registered exactly once during install"
+  (testing "each Causa event id `register-causa-handlers!` registers
+            is registered exactly once during install. Scoped to the
+            orchestrator's surface — data-inspector + other per-ns
+            registrations that run at ns-load (NOT via the orchestrator)
+            are excluded; the snapshot test covers the full surface."
     (let [registered        (atom [])
           original-register! registrar/register!]
       (with-redefs [registrar/register!
                     (fn [kind id metadata]
-                      (when (and (= :event kind) (causa-event-id? id))
+                      (when (and (= :event kind) (causa-id? id))
                         (swap! registered conj id))
                       (original-register! kind id metadata))]
         (registry/reset-for-test!)
@@ -452,7 +490,12 @@
             duplicates (into {}
                              (filter (fn [[_id n]] (> n 1)))
                              freqs)]
-        (is (= (set all-event-names) (set @registered)))
+        ;; The orchestrator surface must be a subset of the full
+        ;; snapshot — every event the orchestrator registers appears
+        ;; in `all-event-names`.
+        (is (every? all-event-names @registered)
+            (str "orchestrator registered events not in snapshot: "
+                 (remove all-event-names @registered)))
         (is (= {} duplicates)
             (str "duplicate event registrations: " duplicates))))))
 
@@ -463,28 +506,39 @@
       (is (some? (registrar/handler :fx fx-id))
           (str "expected :fx handler for " fx-id)))))
 
-(deftest registry-counts-match-bead
-  (testing "registry holds the expected snapshot of subs + events + fxs"
-    ;; Counts are snapshot-pinned to detect accidental registration
-    ;; drift; bump them deliberately whenever a registered :rf.causa/*
-    ;; sub/event/fx is added or removed. The per-feature breakdown
-    ;; that lived here through rf2-qy0nu (the 8-dead-panel sweep) was
-    ;; deleted with the panels themselves — every line referenced a
-    ;; surface that no longer exists.
-    ;; rf2-e9tb0 + rf2-r9lyy combined deltas against post-rf2-ttnst
-    ;; baseline (102 / 116): e9tb0 +2 subs / -1 event; r9lyy +1 sub / 0 events.
-    ;; rf2-piye4: +3 events (:rf.causa/filter-by-{machine,http-correlation,fx}).
-    ;;
-    ;; rf2-y9xmf — Machine Inspector collapse to event-driven Runtime panel.
-    ;; (Mode A/B/C / sub-strip / arc / mini-scrubber dropped; Sim engine
-    ;; preserved.) Net subs -12 → 93; events -7+3 (piye4) → 111.
-    ;;
-    ;; rf2-lq0ef — Routes lens reshape: +3 subs (query/sim-url/expanded);
-    ;; +3 events (set-query/set-sim-url/toggle-row).
-    ;; Combined post-rebase: 93+3=96 subs, 111+3=114 events.
-    (is (= 96  (count all-sub-names)))
-    (is (= 114 (count all-event-names)))
-    (is (= 5   (count all-fx-names)))))
+(deftest registry-snapshot-matches-expected-set
+  (testing "registry's actual Causa-namespaced registrations match the
+            expected sorted-set snapshots (rf2-39n8h). Set equality
+            yields a precise drift message: clojure.test's default
+            failure on `(= expected actual)` for sets names exactly the
+            ids that differ, so concurrent PRs adding/removing subs or
+            events rebase cleanly on a sorted-set literal rather than
+            fighting a count-drift war on a single integer.
+
+            Per the bead description: when two concurrent PRs both add
+            one sub, each PR adds its sub-id to the expected set; the
+            rebase shows a clean diff at the level of distinct sorted-
+            set entries. No `(is (= N (count ...)))` line for the second
+            PR to update."
+    (registry/register-causa-handlers!)
+    (let [actual-subs   (->> (registrar/registrations :sub)
+                             keys
+                             (filter causa-id?)
+                             set)
+          actual-events (->> (registrar/registrations :event)
+                             keys
+                             (filter causa-id?)
+                             set)
+          actual-fxs    (->> (registrar/registrations :fx)
+                             keys
+                             (filter causa-id?)
+                             set)]
+      (is (= all-sub-names actual-subs)
+          "Sub registry drift — diff names the added/removed :rf.causa/* sub-ids")
+      (is (= all-event-names actual-events)
+          "Event registry drift — diff names the added/removed :rf.causa/* event-ids")
+      (is (= all-fx-names actual-fxs)
+          "Fx registry drift — diff names the added/removed :rf.causa/* fx-ids"))))
 
 (deftest registry-is-idempotent
   (testing "calling register-causa-handlers! twice is a no-op (same handler instance)"
