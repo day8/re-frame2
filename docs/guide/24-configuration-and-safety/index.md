@@ -34,7 +34,7 @@ The framework does not strip-and-warn. It does not silently normalise. It does n
 
 ## What this chapter covers
 
-Seven pages. Each page answers one concrete question:
+Eight pages. Each page answers one concrete question:
 
 - [01 — Framework configuration](01-framework-config.md). What `configure` lets you tune (and when to bother). The four keys, what they default to, and how to know your value is doing anything.
 - [02 — HTTP safety primitives](02-http-safety.md). The CRLF fail-fast on server-side responses, the JSON keyword-interning cap, and the slow-loris timeout that makes the network give up on unresponsive partners before they exhaust your pool.
@@ -43,5 +43,6 @@ Seven pages. Each page answers one concrete question:
 - [05 — Reserved namespaces](05-reserved-namespaces.md). The single catalogue of every `:rf.*/*` prefix the framework owns. Tools check; the linter checks; this is the human-readable copy.
 - [06 — Machine substrate features](06-state-machine-substrate-features.md). The four advanced state-node keys ([chapter 09](../09-state-machines.md) names them in passing) — `:always`, `:after`, `:invoke`, `:invoke-all` — with worked examples and the rules they enforce. Plus `:final?` / `:on-done` / `:output-key` and how parallel regions compose.
 - [07 — Privacy and elision in practice](07-privacy-and-elision.md). The tutorial layered on top of [ch.23a](../23a-privacy-secrets.md) and [ch.23b](../23b-large-blobs.md): a single running example (payments, GDPR export, photo upload, server-side imports) walking through the four progressive tiers of declaration that keep sensitive and oversized values off the wire.
+- [08 — Exceptions under `:sensitive?`](08-exceptions-under-sensitive.md). The residual author surface that path-marked redaction can't reach: exception messages assembled from sensitive paths, and `ex-data` maps with author-supplied keys. Three patterns and a tiny helper that closes the gap.
 
 Read in order if you're new. Skim individual pages when something specific bites.

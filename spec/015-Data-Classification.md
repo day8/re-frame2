@@ -491,6 +491,41 @@ The CLJS reference materialises the merged mark set at `[:rf/elision :sensitive-
 
 The `:source` slot is for tooling (Causa's "why is this redacted?" affordance reads it); the lookup contract only requires the path → presence mapping. Per-source attribution is a CLJS-reference convenience.
 
+## Author guidance for the exception-path residual
+
+The path-marked declarations in this Spec redact at the five observation surfaces named in [§Scope](#in-scope--the-five-observation-points-marks-must-guard). They walk **known data shapes** — the trace event's `:tags :event` slot, `:tags :app-db-after`, `:tags :sub-output`, and friends — and substitute sentinels at marked paths. They do NOT walk:
+
+- **Exception messages.** Once a sensitive value has been concatenated into an `ex-message` string, no path resolves to the substring; the walker has no rule that says "this substring of this string is a marked leaf."
+- **`ex-data` maps.** The map's keys are author-chosen (`{:user/email "..."}`); they have no relationship to the path-marked declarations in `[:rf/elision :sensitive-declarations]`. A walker rule that scrubbed `:user/email` would either need a separate ex-data-key registration (which would duplicate the path declaration and drift) or auto-detect by value comparison (the [§Out of scope §Full taint-tracking system](#out-of-scope-explicit-non-goals) non-goal).
+
+The residual surface is the intersection of *the handler read a sensitive-path value* AND *the handler then threw with that value in the message or the ex-data map*. The `:rf.error/handler-exception` trace event ([Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) the cascade emits carries the raw value in `:exception-message` / `:exception-data`. The top-level `:sensitive?` rollup fires (because some leaf in the record overlapped a marked path) and off-box shippers drop the whole event — but the on-box dev surfaces (Causa Event Detail, the re-frame2-pair-mcp surface under `:show-sensitive? true`, story scenarios saved for replay) render the exception fields verbatim.
+
+```clojure
+;; ANTI-PATTERN — the email lands in the trace event verbatim.
+(rf/reg-event-fx :auth/log-in
+  (fn [{:keys [db]} [_ {:keys [submitted-password]}]]
+    (let [email (get-in db [:user :email])]    ;; [:user :email] is marked sensitive
+      (throw (ex-info (str "User " email " failed login")
+                      {:user/email email :reason :invalid-credentials})))))
+
+;; PREFERRED — name the category; omit / sentinel-stamp the value.
+(rf/reg-event-fx :auth/log-in
+  (fn [{:keys [db]} [_ {:keys [submitted-password]}]]
+    (let [email (get-in db [:user :email])]
+      (throw (ex-info "Invalid credentials"
+                      {:reason :invalid-credentials})))))
+```
+
+The author MUSTs at the assembly site:
+
+- **Name the *category* of failure in the exception message, not the value.** A category-only message ("Invalid credentials") plus `:dispatch-id` correlation against the (correctly redacted) `:app-db-before` snapshot recovers the failing user identity for the dev without leaking it into the trace.
+- **If the structure of the failing context is essential, substitute `:rf/redacted` at the assembly site.** `(throw (ex-info "User :rf/redacted failed login" {:user/email :rf/redacted}))` matches the sentinel form the walker emits everywhere else; the dev's mental model is uniform.
+- **Pick a per-app convention.** A twelve-line `safe-throw` helper that takes a category keyword, an optional context map, and an optional scrub-key set is the recommended shape. Worked example and three patterns lives in [docs/guide §24.08 — Exceptions under :sensitive?](../docs/guide/24-configuration-and-safety/08-exceptions-under-sensitive.md).
+
+The framework deliberately does NOT ship a `rf/safe-throw` helper. The call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge — a framework helper would either demand the author name the scrub keys at every call (no value over an in-app helper) or auto-detect (the rejected taint-tracking non-goal). The right shape is a per-app convention; the framework's job is the five path-walked observation surfaces.
+
+Per rf2-dv79m (docs-side complement to rf2-4ku9l / Spec 015's path-marked redaction).
+
 ## Tests
 
 Conformance fixtures under [conformance/](conformance/README.md) assert the observable contract; the normative set:
@@ -523,4 +558,6 @@ Per-artefact unit tests cover the implementation-specific propagation mechanism 
 - [014-HTTPRequests §Reply-payload shape](014-HTTPRequests.md#reply-payload-shape) — HTTP response data lands in the `:on-success` event payload; marking happens on the receiving event handler.
 - [Conventions §Reserved indicator slots](Conventions.md#reserved-indicator-slots-mcp-shaped-returns) — the cross-MCP wire-vocabulary slots (`:dropped-sensitive`, `:elided-large`) that surface counters of sentinel substitutions on MCP tool responses.
 - [Security §Privacy / secret handling](Security.md#privacy--secret-handling) — pattern-level security posture; this Spec is the per-path declarative mechanism that grounds the pattern-level MUSTs documented there.
+- [Security §Author guidance for exceptions under path-level `:sensitive?`](Security.md#author-guidance-for-exceptions-under-path-level-sensitive) — pattern-level MUSTs for the exception-path residual surface this Spec leaves to the author.
+- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-configuration-and-safety/08-exceptions-under-sensitive.md) — author-side worked example, three patterns, and a copyable `safe-throw` helper convention.
 - [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md), [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md) — the cross-MCP wire-elision walker that consumes the same marks at the MCP wire boundary.
