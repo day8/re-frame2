@@ -76,10 +76,10 @@
   `:rf.size/include-large?` is the *walker-facing* pass-through switch
   (true = no marker). The two are inverse views of the same Boolean.
   Pre-rf2-suoj2 the helper buried the inversion (`(not enabled?)`)
-  alongside `:include-sensitive?`'s pass-through parsing — sibling
-  opts with opposite parsing rules. The helper now treats both opts
-  uniformly (`(boolean ...)`); call sites compute
-  `(not elision?)` once and pass `:include-large?` in directly.
+  alongside the `include-sensitive?` arg's pass-through parsing —
+  sibling opts with opposite parsing rules. The helper now treats both
+  opts uniformly (`(boolean ...)`); call sites compute
+  `(not elision?)` once and pass `include-large?` in directly.
 
   Both knobs default off-box-safe per the Tool-Pair §Direct-read
   privacy posture contract — large slots elide, sensitive slots
