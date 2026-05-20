@@ -43,6 +43,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.flows.registry :as flows-registry]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -360,5 +361,17 @@
     :<- [:rf.causa.static.flows/query]
     (fn [[registry-snapshot query] _query]
       (project-data registry-snapshot query)))
+
+  ;; rf2-2moh1 — register the Static Flows tab with the internal L4
+  ;; tab registry. Order 4 sits between :views (3) and :events (5)
+  ;; per the parent epic findings doc §2.4.
+  (panel-registry/reg-l4-tab!
+    {:id    :flows
+     :label "Flows"
+     :mnem  "l"
+     :modes #{:static}
+     :order 4
+     :panel Panel
+     :placeholder-bead "rf2-uhsqb"})
 
   nil)

@@ -52,6 +52,7 @@
   lives in `issues_ribbon_helpers.cljc` so the algebra runs under
   the JVM unit-test target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.theme.tokens
@@ -584,4 +585,14 @@
       (-> db
           (dissoc :issues-active-severities)
           (dissoc :issues-active-prefixes)
-          (dissoc :issues-since-ms)))))
+          (dissoc :issues-since-ms))))
+
+  ;; rf2-2moh1 — register the Runtime Issues tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :issues
+     :label "Issues"
+     :mnem  "i"
+     :modes #{:runtime}
+     :order 6
+     :panel Panel}))

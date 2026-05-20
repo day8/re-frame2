@@ -58,6 +58,7 @@
   / Helix references. Frame isolation comes from the enclosing
   `[rf/frame-provider {:frame :rf/causa}]` in `static/shell.cljs`."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.routing-helpers :as h]
             [day8.re-frame2-causa.static.routes.browse-list :as browse-list]
             [day8.re-frame2-causa.static.routes.simulate-url :as simulate-url]
@@ -216,5 +217,16 @@
     :<- [:rf.causa.static.routes/sim-url]
     (fn [[routes-map query sim-url] _query]
       (h/project-static-data routes-map query sim-url)))
+
+  ;; rf2-2moh1 — register the Static Routes tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :routes
+     :label "Routes"
+     :mnem  "r"
+     :modes #{:static}
+     :order 1
+     :panel Panel
+     :placeholder-bead "rf2-o5f5f.3"})
 
   nil)

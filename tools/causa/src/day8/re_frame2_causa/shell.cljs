@@ -106,17 +106,21 @@
             [day8.re-frame2-causa.filters.pills :as filter-pills]
             [day8.re-frame2-causa.focus-helpers :as fh]
             [day8.re-frame2-causa.frame-switcher :as frame-switcher]
-            [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
+            ;; Panel views (Event / App DB / Views / Trace / Machines /
+            ;; Routing / Issues) are pulled in via the L4 tab registry —
+            ;; each panel's `install!` registers `{:panel <view-fn>}`
+            ;; with `panel-registry/reg-l4-tab!` (rf2-2moh1) and
+            ;; `detail-panel` reaches the entry through
+            ;; `panel-registry/tab-by-id`. The shell no longer requires
+            ;; those panel nses directly; the event-detail ns is the
+            ;; one exception (kept for the inline cascade-outcome helpers
+            ;; the ribbon's :rf.causa/event-detail subscribers consume).
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
-            [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
-            [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
-            [day8.re-frame2-causa.panels.routing :as routing]
-            [day8.re-frame2-causa.panels.views :as views]
-            [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
@@ -131,36 +135,44 @@
 
 ;; ---- tab inventory ------------------------------------------------------
 ;;
-;; Frame-switcher concerns (the internal-frames filter set, distinct-frames
-;; helper, ribbon picker view) live in `frame_switcher.cljs` per rf2-iwwou
-;; — the L1 ribbon's frame slot is a single contractually-anchored surface
-;; every frame-aware feature reaches through. The ribbon's `[frame-
-;; switcher/frame-switcher-view]` is the only call site here.
+;; Per rf2-2moh1 the L3 tab inventory now lives in the internal
+;; `panel-registry` — each panel's `install!` registers its own tab
+;; metadata declaratively (`reg-l4-tab!`), and the L3 tab-bar +
+;; L4 detail-panel read the registry via `tabs-for-mode :runtime`
+;; (driven by the `:modes` set on each entry).
+;;
+;; The seven Runtime tabs registered against `#{:runtime}` retain the
+;; canonical left-to-right order via `:order` (0..6) — spec/018 §5
+;; ordering is preserved as registration metadata rather than a literal
+;; vector in this ns.
+;;
+;; Labels use spaces (`App DB` not `App-db`) so the rendered text
+;; carries no `-` glyphs — Playwright's `getByRole('button', {name:
+;; '-'})` accessible-name matching is substring-based and would
+;; otherwise lasso our tab buttons in any host whose app exposes
+;; `-`-named buttons (counter `+ / -`).
+;;
+;; Frame-switcher concerns (the internal-frames filter set, distinct-
+;; frames helper, ribbon picker view) live in `frame_switcher.cljs` per
+;; rf2-iwwou — the L1 ribbon's frame slot is a single contractually-
+;; anchored surface every frame-aware feature reaches through. The
+;; ribbon's `[frame-switcher/frame-switcher-view]` is the only call
+;; site here.
 
-(def ^:private tabs
-  "The seven L3 tabs per spec/018 §5 The 7 tabs. Order is the canonical
-  left-to-right ribbon order; the `:mnem` letter is the keyboard
-  mnemonic (spec/018 §11).
+(defn- runtime-tabs
+  "Ordered Runtime tab entries — reads the panel registry. Pulled
+  through a fn (not a def) so re-`install!`-driven registrations
+  during shadow-cljs `:after-load` are picked up by the tab bar
+  without a manual reload of this ns."
+  []
+  (panel-registry/tabs-for-mode :runtime))
 
-  Per rf2-nrbs9 Routing was promoted from 'lives in App-db + Trace' to
-  its own L3 tab — cohesive sub-domains earn their own lens tab rather
-  than overloading App-db. The tab sits between Machines and Issues
-  (alphabetical adjacency keeps the ribbon scannable).
-
-  Labels use spaces (`App DB` not `App-db`) so the rendered text
-  carries no `-` glyphs — Playwright's `getByRole('button', {name:
-  '-'})` accessible-name matching is substring-based and would
-  otherwise lasso our tab buttons in any host whose app exposes
-  `-`-named buttons (counter `+ / -`)."
-  [{:id :event    :label "Event"    :mnem "e"}
-   {:id :app-db   :label "App DB"   :mnem "a"}
-   {:id :views    :label "Views"    :mnem "v"}
-   {:id :trace    :label "Trace"    :mnem "t"}
-   {:id :machines :label "Machines" :mnem "m"}
-   {:id :routing  :label "Routing"  :mnem "r"}
-   {:id :issues   :label "Issues"   :mnem "i"}])
-
-(def ^:private default-tab :event)
+(def ^:private default-tab
+  "Default landing tab for Runtime mode per spec/018 §5 — the Event
+  lens. Registry-derived defaults (the first tab in `runtime-tabs`)
+  would land here too, but pinning the keyword keeps the documented
+  default explicit (spec/018 §5 is normative on the landing tab)."
+  :event)
 
 ;; ---- helpers (pure, exported for tests) ---------------------------------
 
@@ -1415,7 +1427,9 @@
                    :background    (:bg-1 tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     (for [{:keys [id] :as tab} tabs]
+     ;; rf2-2moh1 — iterate `runtime-tabs` (registry-derived) rather
+     ;; than a literal vector. Tab order follows each entry's `:order`.
+     (for [{:keys [id] :as tab} (runtime-tabs)]
        ^{:key id}
        [tab-button (assoc tab :active? (= id selected))])]))
 
@@ -1493,23 +1507,17 @@
                     :animation  (str "rf-causa-fade-in "
                                      (t/duration-css (:fade-duration-ms t/motion))
                                      " ease-out forwards")}}
-      (case selected
-        :event    [event-detail/Panel]
-        :app-db   [app-db-diff/Panel]
-        ;; Views tab — full Views panel per spec/012-Views.md (rf2-21ob3
-        ;; replaced the legacy Subscriptions panel with Views; the 4-
-        ;; layer chrome surfaces it as the L3 `:views` tab rather than a
-        ;; sidebar entry).
-        :views    [views/Panel]
-        :trace    [trace/Panel]
-        :machines [machine-inspector/Panel]
-        ;; Routing tab (rf2-nrbs9) — 7th L3 tab; lens on the focused
-        ;; event over the registered-routes tree per spec/016 §Routing
-        ;; tab content. Mike's design call (2026-05-18): cohesive sub-
-        ;; domains earn their own lens tab rather than overloading
-        ;; App-db.
-        :routing  [routing/Panel]
-        :issues   [issues-ribbon/Panel]
+      ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
+      ;; `install!` declares `:panel <view-fn>` via
+      ;; `panel-registry/reg-l4-tab!`; the previous case-switch over
+      ;; `{:event :app-db :views :trace :machines :routing :issues}` is
+      ;; replaced by a lookup against `tab-by-id :runtime`. The seven
+      ;; tabs and their per-panel view fns each live colocated with
+      ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
+      ;; rather than the panel-cum-shell coupling the literal case-
+      ;; switch encoded.
+      (if-let [tab (panel-registry/tab-by-id :runtime selected)]
+        [(:panel tab)]
         [unknown-tab-stub selected])]]))
 
 ;; ---- Runtime / Static surface composer (rf2-o5f5f.1) --------------------

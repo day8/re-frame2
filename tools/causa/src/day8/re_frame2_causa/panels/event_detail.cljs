@@ -65,6 +65,7 @@
     - tier-dot (reused in cascade-outcome + per-fx duration)"
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
             [day8.re-frame2-causa.panels.managed-fx-helpers :as managed-fx-h]
@@ -1288,4 +1289,15 @@
                   :dispatch-id nil
                   :epoch-id    nil
                   :mode        :live
-                  :previewing? false)))))
+                  :previewing? false))))
+
+  ;; rf2-2moh1 — register the Runtime Event tab with the internal L4
+  ;; tab registry. The runtime shell's L3 tab bar + L4 detail panel
+  ;; pick the entry up by `tabs-for-mode :runtime`.
+  (panel-registry/reg-l4-tab!
+    {:id    :event
+     :label "Event"
+     :mnem  "e"
+     :modes #{:runtime}
+     :order 0
+     :panel Panel}))

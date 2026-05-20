@@ -28,6 +28,7 @@
   delegation and the rf2-043uz lesson documented in the legacy
   `subscriptions.cljs`."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.views-events :as events]
             [day8.re-frame2-causa.panels.views-sub-diff-subs :as sub-diff-subs]
             [day8.re-frame2-causa.panels.views-subs :as subs]
@@ -53,4 +54,13 @@
   (subs/install!)
   (sub-diff-subs/install!)
   (events/install!)
+  ;; rf2-2moh1 — register the Runtime Views tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :views
+     :label "Views"
+     :mnem  "v"
+     :modes #{:runtime}
+     :order 2
+     :panel Panel})
   nil)

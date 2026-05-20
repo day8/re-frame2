@@ -84,6 +84,7 @@
   `trace_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as cch]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
@@ -773,4 +774,14 @@
   ;; 'Clear filters' button + the no-matches empty state.
   (rf/reg-event-db :rf.causa/clear-trace-filters
     (fn [db _event]
-      (dissoc db :trace-filters))))
+      (dissoc db :trace-filters)))
+
+  ;; rf2-2moh1 — register the Runtime Trace tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :trace
+     :label "Trace"
+     :mnem  "t"
+     :modes #{:runtime}
+     :order 3
+     :panel Panel}))

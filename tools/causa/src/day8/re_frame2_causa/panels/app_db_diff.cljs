@@ -29,6 +29,7 @@
   root segment of any breadcrumb."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.render :as diff-render]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
             [day8.re-frame2-causa.panels.app-db-diff-sections
              :as sections]
@@ -116,4 +117,13 @@
   []
   (subs/install!)
   (events/install!)
+  ;; rf2-2moh1 — register the Runtime App DB tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :app-db
+     :label "App DB"
+     :mnem  "a"
+     :modes #{:runtime}
+     :order 1
+     :panel Panel})
   nil)

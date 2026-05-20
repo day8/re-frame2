@@ -32,38 +32,38 @@
   reads from it. The list is small (~16 entries) and the
   duplication cost is negligible compared to the cycle-break."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-causa.palette.sources :as sources]))
+            [day8.re-frame2-causa.palette.sources :as sources]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]))
 
 ;; ---- canonical panel list ------------------------------------------------
 ;;
-;; Single source of truth for the palette source aggregator. The ids
-;; mirror the 7 L3 tab ids in `shell.cljs` (per spec/018 §5); selecting
-;; a row dispatches `:rf.causa/select-tab` so the visible tab flips.
+;; Per rf2-2moh1 the palette reads its Runtime + Static panel inventory
+;; directly from the internal L4 tab registry. Adding a tab means a
+;; single `panel-registry/reg-l4-tab!` call in the panel's `install!`;
+;; the palette's source aggregator picks it up via the helpers below.
 ;;
-;; Routing added (rf2-nrbs9) — promoted from 'lives in App-db + Trace'
-;; to its own L3 lens tab. Per Mike's design call (2026-05-18):
-;; cohesive sub-domains earn their own tab rather than overloading
-;; App-db.
-(def palette-panels
-  [{:id :event    :label "Event"}
-   {:id :app-db   :label "App DB"}
-   {:id :views    :label "Views"}
-   {:id :trace    :label "Trace"}
-   {:id :machines :label "Machines"}
-   {:id :routing  :label "Routing"}
-   {:id :issues   :label "Issues"}])
+;; The previous cycle-break rationale (avoiding `palette → shell →
+;; palette` by duplicating the tab list) is moot because the registry
+;; has no shell / palette dependencies — `palette-subs → panel-registry`
+;; is a one-way edge.
 
-;; rf2-ybjkx — Static-mode L3 tabs (5 entries; mirrors `static/shell.cljs/
-;; tabs`). The palette holds its own copy so Static-mode tab jumps land
-;; without forming a `palette → static.shell → palette` cycle. The list
-;; is small (5 entries) and stable — Static is a sealed enumeration per
-;; the parent epic (rf2-o5f5f.1).
-(def palette-static-tabs
-  [{:id :machines :label "Machines"}
-   {:id :routes   :label "Routes"}
-   {:id :schemas  :label "Schemas"}
-   {:id :views    :label "Views"}
-   {:id :events   :label "Events"}])
+(defn palette-panels
+  "Runtime-mode tab entries in the shape the palette source-aggregator
+  consumes — `[{:id :label} ...]`. Pulled at sub-recompute time so the
+  registry's runtime entries are the single source of truth.
+
+  Public so test fixtures + downstream tooling (story-mcp, pair-mcp)
+  can read the canonical Runtime tab inventory without reaching into
+  the panel registry directly."
+  []
+  (->> (panel-registry/tabs-for-mode :runtime)
+       (mapv (fn [{:keys [id label]}] {:id id :label label}))))
+
+(defn palette-static-tabs
+  "Static-mode tab entries in the same shape — see `palette-panels`."
+  []
+  (->> (panel-registry/tabs-for-mode :static)
+       (mapv (fn [{:keys [id label]}] {:id id :label label}))))
 
 (defn- handler-entries
   "Flat seq of `{:id :kind :doc :file :line}` rows from the framework
@@ -125,8 +125,8 @@
       ;; (a process-global atom) + the framework's frame registry
       ;; via the public rf wrappers.
       (sources/build-index
-        {:panels             palette-panels
-         :static-tabs        palette-static-tabs
+        {:panels             (palette-panels)
+         :static-tabs        (palette-static-tabs)
          :trace-buffer       buffer
          :frame-ids          (rf/frame-ids)
          :handlers           (handler-entries)
