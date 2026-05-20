@@ -192,11 +192,12 @@
 
 (defn fresh-keyword
   "Coerce an agent-supplied id into a keyword, INTERNING it. The
-  positive-named primitive for write paths that allocate a new
-  identifier rather than resolve an existing one (e.g.
-  `register-variant`'s `:variant-id` arg, `record-as-variant`'s
-  `:new-variant-id` arg). Strips a leading `:` if present (some agents
-  may serialise EDN-ish). Returns nil for nil / blank input.
+  primitive for paths whose allocation cost is **bounded by some
+  other gate** — either an operator-gated write path that allocates a
+  fresh identifier, or a read path whose universe of acceptable
+  identifiers is constrained by a runtime registry. Strips a leading
+  `:` if present (some agents may serialise EDN-ish). Returns nil for
+  nil / blank input.
 
   Namespaced keywords are supported (`\"ns/name\"` ⇒ `:ns/name`).
 
@@ -204,15 +205,21 @@
 
   JVM keywords are interned in a never-shrinking global table. Every
   `fresh-keyword` call permanently grows that table by one slot for a
-  hitherto-unseen input. Reserve this primitive for sites that have
-  ALREADY bounded the allocation by some other gate:
+  hitherto-unseen input. The policy is **bounded-cost allocation** —
+  reserve this primitive for sites where some other gate caps the
+  number of fresh keywords an attacker can mint:
 
-    - An operator-gated write path (story-mcp's `--allow-writes` flag,
-      re-frame2-pair-mcp's read-side frame-id coercion against a runtime-bounded
-      frame registry).
-    - A registrar that enforces a grammar over the id (e.g.
-      `:story.<path>/<name>` in `assert-id!`) — this constrains the
-      per-id allocation cost.
+    - **Operator-gated write paths** that allocate a NEW identifier —
+      story-mcp's `--allow-writes` flag plus `:story.<path>/<name>`
+      grammar bound; `register-variant`'s `:variant-id`,
+      `record-as-variant`'s `:new-variant-id`.
+    - **Runtime-bounded read paths** that resolve against a FINITE
+      registry — re-frame2-pair-mcp's frame-id coercion. The registry's
+      live size caps the allocation; an agent passing arbitrary
+      strings can mint at most one new keyword per registered frame.
+    - **Grammar-bounded registrars** (e.g. `:story.<path>/<name>` in
+      `assert-id!`) — the grammar constrains the per-id allocation
+      cost regardless of read/write direction.
 
   For finite option sets (mode keywords, slice keywords), use
   `safe-keyword` against a finite allowlist; `fresh-keyword` is the

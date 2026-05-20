@@ -1122,6 +1122,106 @@
                " — vocabulary-drift bug.")))))
 
 ;; ---------------------------------------------------------------------------
+;; `:rf/redacted` scalar-sentinel gate (rf2-xm1fv).
+;;
+;; Unlike the wrapper-shaped markers in `canonical-markers`, `:rf/redacted`
+;; rides the wire as a **bare keyword scalar** — a literal value
+;; substituted in-place for a sensitive leaf by the framework's
+;; `rf/elide-wire-value` walker and by the `with-redacted` interceptor.
+;; There is no map payload, no `:handle`, no re-fetch affordance; the
+;; value is gone. Per Spec 009 §Privacy and `mcp-base/vocab.cljc`
+;; `redacted-sentinel`.
+;;
+;; Why this scalar needs its own gate
+;;
+;; The `canonical-markers` table validates wrapped-marker-map shapes
+;; (`{<marker-key> <body>}`) with per-marker Malli schemas. A bare
+;; keyword scalar has no body to schema-validate — but it IS a wire-
+;; protocol contract: every agent reading sensitive-leaf data pattern-
+;; matches on the literal `:rf/redacted`. A rename in `vocab.cljc`
+;; (e.g. `:rf.size/redacted` — the historical doc-drift in
+;; rf2-pv7we) or a near-miss spelling that escapes the canonical-marker
+;; gate would slip past silently because the existing near-miss anti-
+;; pin only checks `:rf.mcp/*` / `:rf.size/*` marker keys (the namespace
+;; pattern fixed in `near-miss-variants`).
+;;
+;; The pin shape mirrors `:rf.mcp/cursor-stale` above (the other scalar
+;; reserved value in the cross-MCP vocabulary):
+;;   1. literal-presence pin in the canonical declaration site
+;;      (`mcp-base/vocab.cljc`), AFTER stripping docstrings/comments.
+;;   2. near-miss anti-pin across all conformance-tracked sources.
+;;   3. doc-source mention pin in re-frame2-pair-mcp prose docs (soft —
+;;      raw `str/includes?`).
+;; ---------------------------------------------------------------------------
+
+(def ^:private redacted-sentinel-near-miss-variants
+  "Near-miss spellings of `:rf/redacted`. The default
+  `near-miss-variants` generator targets the marker-key namespace
+  patterns (`:rf.mcp/*` / `:rf.size/*`) — `:rf/redacted` rides the
+  single-segment `:rf/*` namespace and needs bespoke variants.
+
+  Conservative list — false positives here would block legitimate
+  occurrences in surrounding prose.
+
+  - snake_case tail (`:rf/redact_ed`) — irrelevant for `redacted`
+    (no hyphen), included as a guard if a future scalar lands with a
+    multi-segment name.
+  - pluralised (`:rf/redacteds`).
+  - predicate `?` suffix (`:rf/redacted?`).
+  - the historical wrong-namespace forms — the rf2-pv7we doc-drift
+    targeted exactly these.
+  - capitalised name (`:rf/Redacted`) — caught here even though
+    canonical Clojure idiom is all-lowercase."
+  #{":rf/redacteds"
+    ":rf/redacted?"
+    ":rf.size/redacted"        ;; the rf2-pv7we historical doc-drift
+    ":rf.mcp/redacted"
+    ":rf.privacy/redacted"
+    ":rf/Redacted"})
+
+(deftest redacted-sentinel-literal-in-re-frame2-pair-mcp-emit-source
+  ;; The canonical declaration lives in mcp-base/vocab.cljc as
+  ;; `redacted-sentinel` (the single-source-of-truth `def`). Strip
+  ;; comments/docstrings before grep — a rename of the `def` value
+  ;; trips the gate even if old docstrings still mention the prior
+  ;; literal. Mirrors `cursor-stale-literal-in-re-frame2-pair-mcp-emit-source`.
+  (let [literal  ":rf/redacted"
+        rel      "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"
+        stripped (fx/strip-comments-and-strings (fx/read-source rel))]
+    (is (str/includes? stripped literal)
+        (str literal " missing from " rel
+             " AFTER stripping docstrings/comments. The canonical "
+             "scalar sentinel declaration moved — restore the literal "
+             "or update this test."))))
+
+(deftest redacted-sentinel-literal-in-re-frame2-pair-mcp-doc-sources
+  ;; Doc-source pin — looser, raw `str/includes?` against the prose
+  ;; docs catalogue. Drift here means the docs lag, not that the emit
+  ;; broke.
+  (let [literal ":rf/redacted"
+        files   (get doc-source-files :re-frame2-pair-mcp)]
+    (is (some (fn [rel] (str/includes? (fx/read-source rel) literal)) files)
+        (str literal " missing from re-frame2-pair-mcp doc-sources " files
+             ". The docs may have re-organised the prose; either "
+             "restore the mention or update `doc-source-files`."))))
+
+(deftest redacted-sentinel-no-near-miss-in-any-server-source
+  ;; Defence-in-depth: the bespoke near-miss set above MUST NOT appear
+  ;; anywhere in the conformance-tracked sources. The rf2-pv7we
+  ;; doc-drift (a `:rf.size/redacted` row in `tools/mcp-base/spec/vocab.md`)
+  ;; would surface here if it returned — the anti-pin catches it before
+  ;; the doc ships.
+  (doseq [variant        redacted-sentinel-near-miss-variants
+          [server files] all-source-files
+          rel            files]
+    (testing (str server " — " rel " — near-miss " variant)
+      (is (not (str/includes? (fx/read-source rel) variant))
+          (str "Found near-miss variant " variant
+               " for :rf/redacted scalar sentinel in " server "/" rel
+               " — vocabulary-drift bug. The canonical form is "
+               ":rf/redacted (per mcp-base/vocab.cljc `redacted-sentinel`).")))))
+
+;; ---------------------------------------------------------------------------
 ;; `notifications/progress` streaming gate (rf2-i3ffz F-GAP-1).
 ;;
 ;; re-frame2-pair-mcp's `subscribe` streaming tool emits exactly one

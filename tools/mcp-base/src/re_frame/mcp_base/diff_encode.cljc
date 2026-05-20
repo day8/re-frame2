@@ -365,13 +365,29 @@
 
   Idempotent on already-full epochs (the marker check returns the
   input unchanged when `:db-after` isn't a diff). Provided for
-  agent-host round-trip parity and for the unit tests."
+  agent-host round-trip parity and for the unit tests.
+
+  ## Decoder-boundary section validation (rf2-j6oay)
+
+  Mirrors the encoder's `validate-sections!` gate. `sections->patches`
+  is a permissive `mapcat :patches` — a section with malformed
+  `:section-path` / `:section-kind` slots, or extra/missing slots,
+  would slip through to `apply-patches` whose own gate only validates
+  the flattened `:patches` list. Validating `sections` here gives
+  encoder/decoder symmetry per the rf2-8e61v argument: the cross-MCP
+  wire convention surfaces drift on the receiving side too, rather
+  than silently passing the cosmetic `:section-kind` / `:section-path`
+  slots through to an agent-host UI that paints them as truth.
+
+  Soft-pass + `goog-define`-elidable by construction — reuses the
+  same `validate-sections!` helper as the encoder."
   [epoch]
   (let [da (when (map? epoch) (:db-after epoch))]
     (if-not (and (map? da)
                  (= :db-before (get da vocab/diff-from-key)))
       epoch
       (let [sections  (:sections da)
+            _         (validate-sections! (or sections []))
             patches   (sg/sections->patches (or sections []))
             db-before (:db-before epoch)
             rebuilt   (apply-patches db-before patches)]
