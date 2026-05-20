@@ -605,9 +605,7 @@ The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose regi
 (rf/clear-flow :flow-id {:frame :session})
 ```
 
-The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is the same mounting key in the same kwarg position across the dispatch/subscribe/`reg-*`/`clear-*` family. New `reg-*` surfaces MUST adopt this shape: `:frame` lives in the trailing `opts` kwarg, not inside the registration's primary map argument.
-
-**Exception: `reg-http-interceptor`.** `reg-http-interceptor` carries `:frame` inside the interceptor map alongside `:id` / `:before` — `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` (per [API §HTTP requests](API.md#http-requests-spec-014) and [014 §Middleware](014-HTTPRequests.md#middleware)). This is the sole documented exception to the opts-kwarg convention and reflects that an HTTP interceptor's `:frame` is **semantically part of its identity**, not an orthogonal mounting concern: every HTTP interceptor binds to a specific frame's request-side middleware chain, the chain order is per-frame, and the `:rf.http.interceptor/registered` trace tags the `:frame` alongside the `:id` as co-equal identity coordinates. Splitting `:frame` to an opts kwarg would falsely suggest a default-frame fallback that the HTTP middleware substrate does not support. New `reg-*` APIs MUST use the opts-kwarg shape; `reg-http-interceptor`'s exception is grandfathered, not a precedent.
+The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is the same mounting key in the same kwarg position across the dispatch/subscribe/`reg-*`/`clear-*` family. All `reg-*` surfaces — including `reg-http-interceptor` per rf2-eyjbn (`(rf/reg-http-interceptor id opts? before)`) — adopt this shape: `:frame` lives in the trailing `opts` kwarg, not inside the registration's primary argument. No exceptions; the family is uniform.
 
 ## `reg-view` auto-id derivation rule
 

@@ -279,10 +279,11 @@
        "Register a request-side HTTP interceptor on a frame's
        `:rf.http/managed` middleware chain. Captures source-coords
        (Spec 001) at this call site. Implementation ships in
-       `day8/re-frame2-http` (Spec 014 §Middleware). See
-       `re-frame.core-http/reg-http-interceptor` for the full
-       signature."
-       {:arglists '([interceptor])})))
+       `day8/re-frame2-http` (Spec 014 §Middleware). Signature:
+       `(reg-http-interceptor id opts? before)` — per rf2-eyjbn the
+       surface aligns with the rest of the `reg-*` family (positional
+       id + opts kwarg + positional handler, matching `reg-flow`)."
+       {:arglists '([id before] [id opts before])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
 

@@ -36,8 +36,11 @@
 
 (defwrapper reg-http-interceptor
   "Spec 014 §Middleware — register a request-side interceptor on a
-  frame's `:rf.http/managed` middleware chain. The interceptor map
-  shape is `{:frame <frame-id> :id <kw> :before (fn [ctx] ctx')}`.
+  frame's `:rf.http/managed` middleware chain. Signature:
+  `(reg-http-interceptor id opts? before)` — `id` is a keyword;
+  `before` is `(fn [ctx] ctx')`; `opts` is an optional map carrying
+  `:frame` (default `:rf/default`) plus `:rf/registration-metadata`
+  keys (`:doc` / `:tags` / `:schema` / `:sensitive?`).
 
   The chain runs in registration order before each request fires; each
   `:before` receives a ctx `{:request :args :frame :event}` and returns
@@ -48,7 +51,8 @@
   Late-bound via `:http/reg-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/reg-http-interceptor :artefact http-artefact :on-absent :throw}
-  ([interceptor] :delegate))
+  ([id before]      :delegate)
+  ([id opts before] :delegate))
 
 (defwrapper clear-http-interceptor
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's

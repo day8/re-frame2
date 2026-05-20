@@ -205,9 +205,11 @@
 ;; use for everything else — `[:fx [[:rf.fx/reg-http-interceptor {...}]]]`
 ;; / `[:fx [[:rf.fx/clear-http-interceptor {...}]]]`.
 ;;
-;; Args shapes mirror the fns 1:1:
-;;   :rf.fx/reg-http-interceptor   {:frame <id> :id <kw> :before <fn>}
-;;   :rf.fx/clear-http-interceptor {:frame <id> :id <kw>}
+;; Args shapes (data-shape, EDN-friendly — per rf2-eyjbn the fn-form is
+;; positional; the fx stays map-shaped because fx args are always pure
+;; data and EDN fixtures can't carry positional fn arguments):
+;;   :rf.fx/reg-http-interceptor   {:id <kw> :before <fn> :frame <id>? ...}
+;;   :rf.fx/clear-http-interceptor {:id <kw> :frame <id>?}
 ;;
 ;; Both fxs are dev+prod (`:platforms #{:client :server}`). Authors can
 ;; register interceptors via an event-handler at boot, which is a clean
@@ -216,10 +218,12 @@
 
 (fx/reg-fx :rf.fx/reg-http-interceptor
            {:doc "Spec 014 §Middleware (rf2-6y3q) — register a request-side
-                  interceptor as an fx. Args is the same `{:frame :id :before}`
-                  map `reg-http-interceptor` accepts."}
-           (fn [_ctx args]
-             (middleware/reg-http-interceptor args)))
+                  interceptor as an fx. Args is a map carrying `:id` (kw),
+                  `:before` (fn), `:frame` (id, optional), plus any
+                  `:rf/registration-metadata` slots. The fx body translates
+                  the map to the positional fn-form (rf2-eyjbn)."}
+           (fn [_ctx {:keys [id before] :as args}]
+             (middleware/reg-http-interceptor id (dissoc args :id :before) before)))
 
 (fx/reg-fx :rf.fx/clear-http-interceptor
            {:doc "Spec 014 §Middleware (rf2-6y3q) — clear a request-side

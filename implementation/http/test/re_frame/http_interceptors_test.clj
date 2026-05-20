@@ -96,11 +96,10 @@
               (reset! seen-auth (header-of ex "Authorization"))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-http-interceptor
-          {:id     :auth-header
-           :before (fn [ctx]
-                     (assoc-in ctx [:request :headers "Authorization"]
-                               "Bearer secret-token-42"))})
+        (rf/reg-http-interceptor :auth-header
+          (fn [ctx]
+            (assoc-in ctx [:request :headers "Authorization"]
+                      "Bearer secret-token-42")))
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -129,24 +128,21 @@
                        "X-Three" (header-of ex "X-Three")})
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf/reg-http-interceptor
-          {:id     :first
-           :before (fn [ctx]
-                     (swap! order conj :first)
-                     (assoc-in ctx [:request :headers "X-One"] "1"))})
-        (rf/reg-http-interceptor
-          {:id     :second
-           :before (fn [ctx]
-                     (swap! order conj :second)
-                     ;; verify earlier interceptor's output is visible
-                     (is (= "1" (get-in ctx [:request :headers "X-One"])))
-                     (assoc-in ctx [:request :headers "X-Two"] "2"))})
-        (rf/reg-http-interceptor
-          {:id     :third
-           :before (fn [ctx]
-                     (swap! order conj :third)
-                     (is (= "2" (get-in ctx [:request :headers "X-Two"])))
-                     (assoc-in ctx [:request :headers "X-Three"] "3"))})
+        (rf/reg-http-interceptor :first
+          (fn [ctx]
+            (swap! order conj :first)
+            (assoc-in ctx [:request :headers "X-One"] "1")))
+        (rf/reg-http-interceptor :second
+          (fn [ctx]
+            (swap! order conj :second)
+            ;; verify earlier interceptor's output is visible
+            (is (= "1" (get-in ctx [:request :headers "X-One"])))
+            (assoc-in ctx [:request :headers "X-Two"] "2")))
+        (rf/reg-http-interceptor :third
+          (fn [ctx]
+            (swap! order conj :third)
+            (is (= "2" (get-in ctx [:request :headers "X-Two"])))
+            (assoc-in ctx [:request :headers "X-Three"] "3")))
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -191,11 +187,10 @@
       (try
         (rf/reg-frame :other-frame {:doc "alt frame"})
         ;; Register interceptor ONLY on :rf/default. :other-frame has none.
-        (rf/reg-http-interceptor
-          {:frame  :rf/default
-           :id     :marker
-           :before (fn [ctx]
-                     (assoc-in ctx [:request :headers "X-Marker"] "default-only"))})
+        (rf/reg-http-interceptor :marker
+          {:frame :rf/default}
+          (fn [ctx]
+            (assoc-in ctx [:request :headers "X-Marker"] "default-only")))
         ;; Two events — one on each frame — both fire :rf.http/managed.
         (rf/reg-event-fx :load-default
           (fn [_ _]
@@ -239,10 +234,9 @@
       (try
         (trace/register-trace-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
-        (rf/reg-http-interceptor
-          {:id     :boom
-           :before (fn [_ctx]
-                     (throw (ex-info "kaboom" {:detail :synthetic})))})
+        (rf/reg-http-interceptor :boom
+          (fn [_ctx]
+            (throw (ex-info "kaboom" {:detail :synthetic}))))
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -286,10 +280,9 @@
       (try
         (trace/register-trace-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
-        (rf/reg-http-interceptor
-          {:id     :boom
-           :before (fn [_ctx]
-                     (throw (ex-info "kaboom" {:detail :synthetic})))})
+        (rf/reg-http-interceptor :boom
+          (fn [_ctx]
+            (throw (ex-info "kaboom" {:detail :synthetic}))))
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -327,11 +320,10 @@
               (reset! seen-auth (header-of ex "Authorization"))
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf/reg-http-interceptor
-          {:id     :auth-header
-           :before (fn [ctx]
-                     (assoc-in ctx [:request :headers "Authorization"]
-                               "Bearer A"))})
+        (rf/reg-http-interceptor :auth-header
+          (fn [ctx]
+            (assoc-in ctx [:request :headers "Authorization"]
+                      "Bearer A")))
         (rf/reg-event-fx :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
@@ -363,13 +355,10 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf/reg-http-interceptor
-          {:id :a :before (fn [ctx] (swap! order conj :a-v1) ctx)})
-        (rf/reg-http-interceptor
-          {:id :b :before (fn [ctx] (swap! order conj :b) ctx)})
+        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-v1) ctx))
+        (rf/reg-http-interceptor :b (fn [ctx] (swap! order conj :b)    ctx))
         ;; Replace :a — should keep its position (first), not append.
-        (rf/reg-http-interceptor
-          {:id :a :before (fn [ctx] (swap! order conj :a-v2) ctx)})
+        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-v2) ctx))
         (rf/reg-event-fx :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -409,19 +398,15 @@
               (write-response! ex 200 "application/json" "{}")))]
       (try
         ;; Register three interceptors in order: :a, :b, :c.
-        (rf/reg-http-interceptor
-          {:id :a :before (fn [ctx] (swap! order conj :a) ctx)})
-        (rf/reg-http-interceptor
-          {:id :b :before (fn [ctx] (swap! order conj :b) ctx)})
-        (rf/reg-http-interceptor
-          {:id :c :before (fn [ctx] (swap! order conj :c) ctx)})
+        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a) ctx))
+        (rf/reg-http-interceptor :b (fn [ctx] (swap! order conj :b) ctx))
+        (rf/reg-http-interceptor :c (fn [ctx] (swap! order conj :c) ctx))
 
         ;; Clear :a — slot is removed entirely.
         (rf/clear-http-interceptor :a)
         ;; Re-register :a. Per the contract this is a FRESH registration,
         ;; not a position-preserving replace — it appends to the end.
-        (rf/reg-http-interceptor
-          {:id :a :before (fn [ctx] (swap! order conj :a-fresh) ctx)})
+        (rf/reg-http-interceptor :a (fn [ctx] (swap! order conj :a-fresh) ctx))
 
         ;; Confirm the chain order in the registry directly so the test
         ;; pins the slot ordering before the dispatch ever runs.
@@ -450,36 +435,45 @@
             while clear-then-reg appends to the end. These are deliberately
             different paths; the test asserts they do NOT collapse into one."
     ;; Register in order :a, :b.
-    (rf/reg-http-interceptor {:id :a :before identity})
-    (rf/reg-http-interceptor {:id :b :before identity})
+    (rf/reg-http-interceptor :a identity)
+    (rf/reg-http-interceptor :b identity)
     (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default))))
 
     ;; Bare re-reg of :a — replaces in place; order unchanged.
-    (rf/reg-http-interceptor {:id :a :before (fn [c] c)})
+    (rf/reg-http-interceptor :a (fn [c] c))
     (is (= [:a :b] (mapv :id (get @http-managed/interceptors :rf/default)))
         "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
 
     ;; Clear-then-reg of :a — appends to end; order changes.
     (rf/clear-http-interceptor :a)
-    (rf/reg-http-interceptor {:id :a :before (fn [c] c)})
+    (rf/reg-http-interceptor :a (fn [c] c))
     (is (= [:b :a] (mapv :id (get @http-managed/interceptors :rf/default)))
         "clear-then-reg lands at the end (rf2-kg5nw contract)")))
 
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
 
 (deftest invalid-interceptor-shape-raises
-  (testing "reg-http-interceptor with a non-map / missing :id / non-fn :before throws :rf.error/http-bad-interceptor"
-    (let [thrown (try (rf/reg-http-interceptor {:id :no-before})
+  (testing "reg-http-interceptor with a non-keyword id / non-fn before / non-map opts throws :rf.error/http-bad-interceptor"
+    ;; non-keyword id
+    (let [thrown (try (rf/reg-http-interceptor "string-id" identity)
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
-    (let [thrown (try (rf/reg-http-interceptor {:before (fn [c] c)})
+    ;; non-fn before
+    (let [thrown (try (rf/reg-http-interceptor :x "not-a-fn")
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
-    (let [thrown (try (rf/reg-http-interceptor {:id :x :before "not-a-fn"})
+    ;; non-map opts in three-arity
+    (let [thrown (try (rf/reg-http-interceptor :x "not-a-map" identity)
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown))
+      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+    ;; non-keyword :frame in opts
+    (let [thrown (try (rf/reg-http-interceptor :x {:frame "not-a-keyword"} identity)
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
@@ -508,12 +502,12 @@
               (write-response! ex 200 "application/json" "{}")))]
       (try
         ;; Register three interceptors on :rf/default.
-        (rf/reg-http-interceptor
-          {:id :hdr-a :before (fn [ctx] (assoc-in ctx [:request :headers "X-A"] "1"))})
-        (rf/reg-http-interceptor
-          {:id :hdr-b :before (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2"))})
-        (rf/reg-http-interceptor
-          {:id :hdr-c :before (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3"))})
+        (rf/reg-http-interceptor :hdr-a
+          (fn [ctx] (assoc-in ctx [:request :headers "X-A"] "1")))
+        (rf/reg-http-interceptor :hdr-b
+          (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2")))
+        (rf/reg-http-interceptor :hdr-c
+          (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3")))
 
         ;; Confirm the per-frame chain has all three before the bulk-clear.
         (let [chain (get @http-managed/interceptors :rf/default)]
@@ -559,8 +553,7 @@
 (deftest clear-all-http-interceptors-leaves-other-registries-untouched
   (testing "clear-all-http-interceptors! touches only the http interceptor
             registry — :event / :sub / :fx slots are preserved"
-    (rf/reg-http-interceptor
-      {:id :test.lfvi/dummy :before identity})
+    (rf/reg-http-interceptor :test.lfvi/dummy identity)
     (rf/reg-event-db :test.lfvi/ev (fn [db _] db))
     (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
     (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
@@ -644,8 +637,7 @@
 (deftest clear-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
   (testing "rf2-oyd1b — [:rf.fx/clear-http-interceptor {:id ...}] removes
             the slot from :rf/default (the implicit frame)."
-    (http-managed/reg-http-interceptor
-      {:id :oyd1b/to-clear :before identity})
+    (http-managed/reg-http-interceptor :oyd1b/to-clear identity)
     (is (= 1 (count (get @http-managed/interceptors :rf/default)))
         "pre-clear: the slot is present")
 
@@ -659,10 +651,8 @@
 
 (deftest clear-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
   (testing "rf2-oyd1b — explicit :frame on the clear fx scopes the removal"
-    (http-managed/reg-http-interceptor
-      {:frame :rf/api :id :oyd1b/scoped :before identity})
-    (http-managed/reg-http-interceptor
-      {:id :oyd1b/default-survivor :before identity})
+    (http-managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api} identity)
+    (http-managed/reg-http-interceptor :oyd1b/default-survivor identity)
 
     (rf/reg-event-fx :oyd1b/clear-on-named
       (fn [_ _]
@@ -678,8 +668,7 @@
 (deftest clear-http-interceptor-fx-defaults-frame-to-rf-default-rf2-oyd1b
   (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
             (matching the fn-form behaviour)."
-    (http-managed/reg-http-interceptor
-      {:id :oyd1b/dflt :before identity})
+    (http-managed/reg-http-interceptor :oyd1b/dflt identity)
     (rf/reg-event-fx :oyd1b/clear-no-frame
       (fn [_ _]
         ;; No :frame key — must default to :rf/default.
