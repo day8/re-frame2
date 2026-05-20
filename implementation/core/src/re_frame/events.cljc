@@ -62,6 +62,64 @@
                   :recovery    :ignored}))
   nil)
 
+;; ---- at-boundary registration-time validation (rf2-iftj4) -----------------
+;;
+;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
+;; is structurally meaningless without a `:schema` to validate against. If a
+;; developer attaches it to a handler that carries no `:schema` metadata,
+;; pre-rf2-iftj4 the runtime emitted `:rf.warning/boundary-without-spec` on
+;; the FIRST dispatch in a production build only — dev builds were silent,
+;; and the misconfiguration only surfaced in prod. Per rf2-ycqtv finding #8
+;; (Mike-pick option (b)), the registrar now hard-rejects the registration
+;; with `:rf.error/at-boundary-missing-schema` so the developer learns
+;; immediately, regardless of dev/prod gate.
+;;
+;; Detection is by interceptor `:id` (`:rf.schema/at-boundary`), not by var
+;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
+;; transitively on this ns via core re-exports).
+
+(defn- attaches-at-boundary?
+  "Truthy when `interceptors` (the positional vector) contains the
+  `:rf.schema/at-boundary` interceptor. Detects by `:id` so the check
+  stays cycle-free against `re-frame.spec`."
+  [interceptors]
+  (and (sequential? interceptors)
+       (some (fn [icpt]
+               (and (map? icpt)
+                    (= :rf.schema/at-boundary (:id icpt))))
+             interceptors)))
+
+(defn- reject-at-boundary-without-schema!
+  "Raise `:rf.error/at-boundary-missing-schema` (ex-info) when the
+  positional `interceptors` vector includes `:rf.schema/at-boundary`
+  but the metadata-map carries no `:schema`. Per Spec 010 §Production
+  builds + rf2-iftj4: the boundary interceptor is structurally
+  meaningless without a `:schema`, so the registrar rejects the call
+  at registration time rather than waiting until first dispatch.
+
+  Hard-fail by design (per the pre-alpha posture): no warn-and-accept
+  fallback. The two fixes are (1) attach a `:schema` to the metadata
+  map, or (2) remove the boundary interceptor."
+  [reg-fn-name id meta interceptors]
+  (when (and (attaches-at-boundary? interceptors)
+             (not (and (map? meta) (contains? meta :schema))))
+    (throw (ex-info ":rf.error/at-boundary-missing-schema"
+                    {:error    :rf.error/at-boundary-missing-schema
+                     :reg-fn   reg-fn-name
+                     :id       id
+                     :reason
+                     (str reg-fn-name " for `" id "` attaches the "
+                          "`:rf.schema/at-boundary` interceptor but the "
+                          "registration carries no `:schema` metadata. "
+                          "The boundary interceptor cannot validate "
+                          "without a schema and is structurally "
+                          "meaningless without one. Either attach a "
+                          "`:schema` to the metadata-map "
+                          "(recommended) or remove the boundary "
+                          "interceptor from the positional vector.")
+                     :recovery :no-recovery})))
+  nil)
+
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
@@ -252,6 +310,14 @@
   (let [[meta interceptors handler-fn] (normalise-args args)
         wrapped (wrap-event-handler kind handler-fn)]
     (warn-interceptors-in-meta! reg-fn-name id meta)
+    ;; Per Spec 010 §Production builds + rf2-iftj4: reject the
+    ;; registration when `:rf.schema/at-boundary` is attached but no
+    ;; `:schema` is declared on the metadata-map. The boundary
+    ;; interceptor is structurally meaningless without a schema, so
+    ;; surface the misconfiguration at the moment of registration
+    ;; (always — both dev and prod) rather than waiting for the first
+    ;; dispatch in production.
+    (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
     (registrar/register! :event id
       (assoc (source-coords/merge-coords meta)
              :event/kind   kind

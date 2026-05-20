@@ -1281,37 +1281,77 @@
           (is (empty? boundary-violations)
               "no boundary-tagged trace fired — only the dev-mode step-1 trace ran"))))))
 
-(deftest boundary-interceptor-warns-when-handler-has-no-spec
-  (testing "Per Spec 010 L147 — the boundary interceptor attached to a
-            handler with no :spec emits :rf.warning/boundary-without-spec
-            once and no-ops. The misconfiguration is flagged but the
-            handler still runs (no schema means nothing to validate
-            against)."
-    (let [calls (atom 0)]
-      (rf/reg-event-fx :api/no-spec
-        ;; No metadata-map at all — the middle slot is the interceptor
-        ;; vector. Handler carries no :spec.
-        [rf/at-boundary]
-        (fn [_ _] (swap! calls inc) {}))
-      (let [traces (atom [])]
-        (rf/register-trace-listener! ::nospec (fn [ev] (swap! traces conj ev)))
-        (with-redefs [spec/dev-mode? (constantly false)]
-          ;; First dispatch — emits the warning, handler runs.
-          (rf/dispatch-sync [:api/no-spec :anything])
-          ;; Second dispatch — warning is suppressed (warn-once),
-          ;; handler runs.
-          (rf/dispatch-sync [:api/no-spec :again]))
-        (rf/unregister-trace-listener! ::nospec)
-        (is (= 2 @calls)
-            "handler ran for both dispatches — no schema, no skip")
-        (let [warnings (filter #(= :rf.warning/boundary-without-spec (:operation %))
-                               @traces)]
-          (is (= 1 (count warnings))
-              "exactly one boundary-without-spec warning fired — second dispatch was suppressed")
-          (let [w (first warnings)]
-            (is (= :api/no-spec (-> w :tags :event-id)))
-            (is (string? (-> w :tags :reason)))
-            (is (str/includes? (-> w :tags :reason) "no `:schema`"))))))))
+(deftest boundary-without-schema-rejected-at-registration
+  (testing "Per Spec 010 §Production builds + rf2-iftj4 — a registration
+            that attaches `:rf.schema/at-boundary` but carries no
+            `:schema` metadata is rejected at registration time with
+            `:rf.error/at-boundary-missing-schema`. Pre-rf2-iftj4 the
+            warning fired at first dispatch in production builds only;
+            now the misconfiguration surfaces immediately regardless of
+            dev/prod gate."
+    (testing "two-arg form (interceptors middle slot, no metadata-map)"
+      (let [calls (atom 0)]
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #":rf\.error/at-boundary-missing-schema"
+              (rf/reg-event-fx :api/no-schema-2
+                [rf/at-boundary]
+                (fn [_ _] (swap! calls inc) {}))))
+        (let [data (try (rf/reg-event-fx :api/no-schema-2-data
+                          [rf/at-boundary]
+                          (fn [_ _] {}))
+                        (catch clojure.lang.ExceptionInfo e
+                          (ex-data e)))]
+          (is (= :rf.error/at-boundary-missing-schema (:error data)))
+          (is (= "reg-event-fx" (:reg-fn data)))
+          (is (= :api/no-schema-2-data (:id data)))
+          (is (string? (:reason data)))
+          (is (str/includes? (:reason data) ":rf.schema/at-boundary"))
+          (is (str/includes? (:reason data) ":schema"))
+          (is (= :no-recovery (:recovery data))))
+        (is (= 0 @calls) "handler never invoked — registration rejected")))
+
+    (testing "three-arg form (metadata-map without :schema + interceptors)"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event-fx :api/no-schema-3
+              {:doc "metadata-map but no :schema"}
+              [rf/at-boundary]
+              (fn [_ _] {})))))
+
+    (testing "rejection covers reg-event-db and reg-event-ctx as well"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event-db :api/db-no-schema
+              [rf/at-boundary]
+              (fn [db _] db))))
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event-ctx :api/ctx-no-schema
+              [rf/at-boundary]
+              (fn [ctx] ctx)))))
+
+    (testing "registration with `:schema` + at-boundary completes silently"
+      (is (= :api/with-schema
+             (rf/reg-event-fx :api/with-schema
+               {:schema [:cat [:= :api/with-schema] :int]}
+               [rf/at-boundary]
+               (fn [_ _] {})))
+          "registration returns the event id when the metadata carries :schema"))
+
+    (testing "registration without at-boundary is unaffected by the new check"
+      (is (= :api/no-boundary
+             (rf/reg-event-fx :api/no-boundary
+               (fn [_ _] {})))
+          "no at-boundary, no schema, no error")
+      (is (= :api/just-meta
+             (rf/reg-event-fx :api/just-meta
+               {:doc "no boundary, no schema"}
+               (fn [_ _] {})))
+          "metadata-map without :schema is fine when at-boundary isn't attached"))))
 
 ;; ---- snapshot / restore / clear schemas-by-frame (rf2-6lka) --------------
 ;;

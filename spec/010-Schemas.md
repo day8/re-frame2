@@ -171,7 +171,7 @@ The interceptor is exposed as a value at both `re-frame.core/at-boundary` (for u
 
 - In **dev builds**, every event handler's `:schema` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
 - In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:schema` check inline, so handlers carrying it still validate at the boundary.
-- In **production builds with no `:schema`** on the handler, the boundary interceptor is a no-op (nothing to validate against) and emits `:rf.warning/boundary-without-spec` once per `(handler-id)` to flag the misconfiguration.
+- **Registration without `:schema`** is rejected at registration time (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — `:rf.error/at-boundary-missing-schema`, rf2-iftj4). The boundary interceptor is structurally meaningless without a schema to validate against, so `reg-event-*` raises an `ex-info` from the registrar rather than waiting until first dispatch in production builds to surface the misconfiguration. There is no warn-and-accept fallback; the registrar polices the contract uniformly across dev and prod.
 
 Failures from the boundary interceptor flow through the same `:rf.error/schema-validation-failure :where :event` path as dev-mode step-1 failures — the recovery (skip handler; downstream queue continues) is identical. The only difference is *whether the check ran*, not *what happens when it fails*.
 

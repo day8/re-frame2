@@ -55,11 +55,11 @@ For handlers that **must** validate even in production (HTTP response ingestion,
 
 The interceptor reuses the handler's existing `:schema` (or the deprecated `:spec` alias) — it does NOT introduce a parallel schema (`spec.cljc:30-31`).
 
-Behaviour matrix (`spec.cljc:36-43`):
+Behaviour matrix:
 
 - **Dev build** — no-op (step-1 validation already runs).
 - **Production with `:schema`** — runs the same validation inline.
-- **Production with no `:schema`** — no-op + once-per-handler `:rf.warning/boundary-without-spec`.
+- **Registration without `:schema`** — rejected at `reg-event-*` time with `:rf.error/at-boundary-missing-schema` (rf2-iftj4). The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
 
 ## Canonical mini-example
 
@@ -98,7 +98,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:schema` is a misconfiguration.** Adding `[rf/at-boundary]` to a handler that has no `:schema` metadata emits `:rf.warning/boundary-without-spec` once and passes the dispatch through unchecked.
+- **Boundary interceptor without `:schema` is rejected at registration.** Adding `[rf/at-boundary]` to a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 
