@@ -175,11 +175,20 @@
   `:trace-id`, `:origin`, `:source`. When `parent-envelope` is nil
   (caller did not thread one through — legacy routing-artefact callers
   or test fixtures), falls back to `{:frame frame-id}` so single-key
-  propagation still holds."
+  propagation still holds.
+
+  Per rf2-t1lxr: `:rf/dispatch-origin` is NOT inherited from the parent
+  — it's the *immediate* functional source of the dispatch, so the
+  child gets `:fx-emit` (this dispatch was emitted by the parent's
+  `:dispatch` / `:dispatch-later` fx-handler running in the do-fx
+  phase). Lineage is preserved via `:parent-dispatch-id`; the origin
+  tag answers \"who emitted THIS dispatch?\" not \"what initiated the
+  cascade?\"."
   [frame-id parent-envelope]
   (if parent-envelope
-    (select-keys parent-envelope inheritable-envelope-keys)
-    {:frame frame-id}))
+    (-> (select-keys parent-envelope inheritable-envelope-keys)
+        (assoc :rf/dispatch-origin :fx-emit))
+    {:frame frame-id :rf/dispatch-origin :fx-emit}))
 
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.

@@ -112,6 +112,13 @@
                      Origin tags the actor that issued the dispatch
                      (`:app` / `:pair` / `:story` / `:test` / ...) per
                      Spec 002 §Dispatch origin tagging.
+    :rf/dispatch-origin — keep only events whose `:tags :rf/dispatch-origin`
+                     matches the closed-enum value (one of `:user`,
+                     `:router`, `:websocket`, `:http`, `:ssr`,
+                     `:fx-emit`, `:timer`, `:test-harness`, `:tool`,
+                     `:internal`) per Spec 009 §Dispatch-origin tagging
+                     (rf2-t1lxr). Distinct from `:origin` (actor identity)
+                     and `:source` (trigger kind).
     :dispatch-id   — keep only events whose `:tags :dispatch-id` matches.
                      Cascade-wide post rf2-g6ih4 — every emit inside a
                      drain carries the in-flight cascade's dispatch-id.
@@ -140,6 +147,11 @@
                    severity event-id handler-id source origin
                    dispatch-id since-ms between pred]} opts
            sensitive-filter (:sensitive? opts)
+           ;; Per rf2-t1lxr: the closed-enum functional-source filter axis.
+           ;; Read directly via the namespaced key — `:keys` destructuring
+           ;; doesn't accept namespaced keys without `:as`-binding bulk so
+           ;; we lift it explicitly.
+           rf-dispatch-origin (:rf/dispatch-origin opts)
            [between-t0 between-t1] (when (and (sequential? between)
                                               (= 2 (count between)))
                                      between)
@@ -162,6 +174,9 @@
                                     (get-in ev [:tags :source]))))
                   (or (nil? origin)
                       (= origin (get-in ev [:tags :origin])))
+                  (or (nil? rf-dispatch-origin)
+                      (= rf-dispatch-origin
+                         (get-in ev [:tags :rf/dispatch-origin])))
                   (or (nil? dispatch-id)
                       (= dispatch-id (get-in ev [:tags :dispatch-id])))
                   (or (nil? since-ms)

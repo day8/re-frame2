@@ -153,11 +153,16 @@
   `args` is the same map `build-reply-event` consumes; `frame` (optional)
   is threaded as `{:frame <id>}` onto the dispatch options when present.
   No-op when the registered router is absent or `build-reply-event`
-  returns nil (silenced reply)."
+  returns nil (silenced reply).
+
+  Per rf2-t1lxr: reply dispatches self-tag with
+  `:rf/dispatch-origin :http` so Causa's L2 timeline + tools can
+  discriminate HTTP-completion cascades from user-origin events."
   [args frame]
   (when-let [ev (build-reply-event args)]
     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-      (dispatch! ev (cond-> {} frame (assoc :frame frame))))))
+      (dispatch! ev (cond-> {:rf/dispatch-origin :http}
+                      frame (assoc :frame frame))))))
 
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,

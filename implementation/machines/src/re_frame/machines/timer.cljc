@@ -294,9 +294,13 @@
                 (interop/set-timeout!
                   (fn []
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                      ;; Per rf2-t1lxr: machine :after timer firing tags
+                      ;; the resulting dispatch with :rf/dispatch-origin
+                      ;; :timer so Causa can prefix the L2 row + filter on
+                      ;; timer-origin epochs.
                       (dispatch! [parent-id [:rf.machine.timer/after-elapsed
                                               delay-key epoch]]
-                                 {:frame frame-id})))
+                                 {:frame frame-id :rf/dispatch-origin :timer})))
                   resolved-ms)
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]
