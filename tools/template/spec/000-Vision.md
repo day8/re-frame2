@@ -83,12 +83,23 @@ and recognises the shape. That continuity is deliberate.
   choices materially exceed clj-new's substitution capability
   ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §clj-new vs CLI).
 
-  **Exception (rf2-t009p):** branching flags are permitted when
-  they enable an *optional shared scaffolding* whose absence would
-  force the user into hand-wiring known idioms — currently
-  `:include-story?` (emits a `counter_with_stories`-shaped story
-  scaffold alongside the live app). Each such flag is justified
-  in DESIGN-RATIONALE alongside the no-other-branching default.
+  **Locked v1 exceptions:** branching flags are permitted when
+  they enable an *optional shared scaffolding* whose absence
+  would force the user into hand-wiring known idioms. The v1
+  set is locked at **three** flags total
+  ([003-DepsNew-Rebuild-Plan.md §5](003-DepsNew-Rebuild-Plan.md)):
+
+  - `:include-story?` (rf2-t009p, shipped today) — emits a
+    `counter_with_stories`-shaped story scaffold alongside the
+    live app. Reagent-only in v1.
+  - `:css :tailwind` (rf2-gthro, deferred until gating bead
+    flips) — Tailwind v4 in place of the default plain-CSS
+    `app.css`.
+  - `:include-ssr?` (rf2-0m5ea, deferred until gating bead
+    flips) — SSR scaffolding per Spec 011.
+
+  Resist further proliferation — every additional flag requires
+  explicit DESIGN-RATIONALE justification.
 - **Bundling Story by default.** [`tools/story/`](../../story/)
   is the Storybook-class playground for re-frame2; the template
   does **not** pre-wire it on the default path. The opt-in
