@@ -1,0 +1,14 @@
+;; Splint configuration (rf2-4v147 · dual-linter CI gate).
+;;
+;; First-iteration posture: report-only (no rules disabled here; the
+;; `lint.yml` workflow runs Splint with `continue-on-error: true`).
+;; Triage + rule-tuning lands in a follow-on bead.
+;;
+;; The only configuration we MUST carry is the exclusion of
+;; `tools/template/resources/` — those `.cljs` files ship deps-new
+;; placeholder substitutions (`{{top/ns}}`) and are not valid Clojure
+;; (see tools/deps.edn → "Why template is NOT in the base :deps map"
+;; for the matching shadow-cljs exclusion). Splint's parser errors on
+;; them.
+
+{global {:excludes ["tools/template/resources/"]}}

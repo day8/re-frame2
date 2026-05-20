@@ -1,0 +1,185 @@
+name: lint
+
+# Dual-linter CI gate (rf2-4v147 · Mike-confirmed 2026-05-21).
+#
+# Two complementary linters run as parallel jobs:
+#
+#   - clj-kondo: bug-class linter (unresolved symbols, arity mismatches,
+#     redefined vars, unused bindings). The `.clj-kondo/config.edn` at
+#     repo root is the shared source of truth — editor integrations
+#     (Calva, CIDER, Cursive) read the same file.
+#
+#   - Splint (noahtheduke/splint): style-shape linter inspired by the
+#     Clojure Style Guide. Catches idiomatic-Clojure smells that
+#     kondo's lexical analysis is not designed to surface. Per-project
+#     config lives in `.splint.edn` at repo root.
+#
+# FIRST-ITERATION POSTURE: both jobs are REPORT-ONLY
+# (`continue-on-error: true`). The baseline at landing is ~4100 kondo
+# warnings + 25 errors and ~1660 Splint warnings + 4 errors — a mix of
+# pre-existing test-fixture quirks (slashed keywords like `:no/such/event`
+# in trace tests), kondo's "Unresolved var" noise on the framework's
+# dynamically-defined registration macros, and Splint's style suggestions
+# that need triaging before they earn their teeth. Follow-on bead tightens
+# both gates once the baseline is triaged.
+#
+# Lint surface: implementation/, tools/ (minus template/resources/),
+# examples/, testbeds/. Generated trees (.shadow-cljs/, target/,
+# node_modules/, .beads/, ai/) are excluded by virtue of the explicit
+# `--lint` paths below. The `tools/template/resources/` deps-new
+# template tree is excluded explicitly — those `.cljs` files carry
+# `{{placeholder}}` substitutions and are not valid Clojure (see
+# tools/deps.edn for the matching shadow-cljs exclusion rationale).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'implementation/**'
+      - 'tools/**'
+      - 'examples/**'
+      - 'testbeds/**'
+      - '.clj-kondo/**'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'implementation/**'
+      - 'tools/**'
+      - 'examples/**'
+      - 'testbeds/**'
+      - '.clj-kondo/**'
+      - '.github/workflows/lint.yml'
+  # Nightly run keeps the gate honest even when no lint-surface file
+  # changes (e.g. a dep bump in another tree might silently break kondo
+  # via :lint-as). 03:30 UTC sits below the 04:00 UTC `expensive-tests`
+  # window so the lint gate's signal lands before the deeper sweep.
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clj-kondo:
+    name: clj-kondo (report-only, first iteration)
+    runs-on: ubuntu-latest
+    # First-iteration posture: kondo is informational while we baseline
+    # the 25-ish pre-existing errors (a mix of test-fixture keywords
+    # like `:no/such/event`, internal-private references, and a couple
+    # of arity drifts in test code). Follow-on bead tightens this to
+    # fail-loud once those are triaged. See rf2-4v147 PR description for
+    # the baseline report.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # Install the official binary directly — the published GitHub
+      # Actions for clj-kondo are either unmaintained (DeLaGuardo's runs
+      # on node12, deprecated by GitHub) or community-forked. The
+      # upstream `install-clj-kondo` script is the documented path and
+      # leaves the binary on $PATH.
+      - name: Install clj-kondo
+        run: |
+          curl -fsSL -o install-clj-kondo \
+            https://raw.githubusercontent.com/clj-kondo/clj-kondo/master/script/install-clj-kondo
+          chmod +x install-clj-kondo
+          sudo ./install-clj-kondo --version 2026.04.15
+          clj-kondo --version
+
+      # Cache the kondo classpath / project-analysis under
+      # ~/.clj-kondo so subsequent runs reuse the type info. The cache
+      # key is keyed on every `deps.edn` in the lint surface so a dep
+      # bump invalidates the cache.
+      - name: Cache clj-kondo analysis
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.clj-kondo
+            .clj-kondo/.cache
+          key: ${{ runner.os }}-kondo-${{ hashFiles('.clj-kondo/config.edn', 'implementation/**/deps.edn', 'tools/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-kondo-
+
+      # `tools/template/resources/` is excluded — those `.cljs` files
+      # ship deps-new placeholders (`{{top/ns}}`) and are not valid
+      # Clojure (see tools/deps.edn → "Why template is NOT in the base
+      # :deps map" for the matching shadow-cljs exclusion). `tools/`
+      # subdirs are listed explicitly to skip resources/ while keeping
+      # tools/template/{src,test}.
+      #
+      # `--parallel` fans out file analysis across cores. `|| true`
+      # caps the first-iteration report-only posture (belt-and-braces
+      # with continue-on-error so a non-zero exit from kondo doesn't
+      # bubble up either way).
+      - name: Run clj-kondo
+        run: |
+          clj-kondo \
+            --parallel \
+            --lint implementation \
+            --lint examples \
+            --lint testbeds \
+            --lint tools/causa \
+            --lint tools/machines-viz \
+            --lint tools/mcp-base \
+            --lint tools/mcp-conformance \
+            --lint tools/re-frame2-pair-mcp \
+            --lint tools/story \
+            --lint tools/story-mcp \
+            --lint tools/template/src \
+            --lint tools/template/test \
+            || true
+
+  splint:
+    name: Splint (report-only, first iteration)
+    runs-on: ubuntu-latest
+    # Splint never fails the gate at first-iteration. The `continue-on-error`
+    # at the job level is intentional: we want PR authors to see the report
+    # without blocking on style noise until the baseline stabilises.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-splint-${{ hashFiles('implementation/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-splint-
+            ${{ runner.os }}-clj-
+
+      # Splint is JVM-only and lives on the `:splint` alias of the
+      # top-level coordinator. Running from `implementation/` keeps the
+      # alias next to the artefacts it lints; the explicit path args
+      # widen the surface to tools/ + examples/ + testbeds/.
+      #
+      # `|| true` is the report-only gate: Splint exits non-zero when it
+      # finds style warnings, but we don't fail the workflow on that.
+      # Combined with the job-level continue-on-error this gives us two
+      # belt-and-braces against blocking PRs on style noise.
+      - name: Run Splint
+        working-directory: implementation
+        run: |
+          clojure -M:splint \
+            ../implementation \
+            ../tools \
+            ../examples \
+            ../testbeds \
+            || true

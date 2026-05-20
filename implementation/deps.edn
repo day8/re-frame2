@@ -79,4 +79,18 @@
                  day8/re-frame2-test-quiet {:local/root "test-quiet"}
                  io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-   :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
+   :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+
+  ;; Splint (rf2-4v147) — Mike-confirmed dual-linter posture
+  ;; (2026-05-21): clj-kondo catches bugs (unresolved symbols, arity
+  ;; mismatch); Splint catches style smells inspired by the Clojure
+  ;; Style Guide. CI invokes the alias from `.github/workflows/lint.yml`;
+  ;; locally run `clojure -M:splint <paths>` from this directory.
+  ;;
+  ;; Splint is JVM-only and operates on text, so it does not need any
+  ;; of the per-artefact classpaths — pinning the dep on the top-level
+  ;; coordinator keeps the version in one place. Pre-1.0 we exact-pin
+  ;; per the lockstep convention.
+  :splint
+  {:replace-deps {io.github.noahtheduke/splint {:mvn/version "1.24.0"}}
+   :main-opts    ["-m" "noahtheduke.splint"]}}}

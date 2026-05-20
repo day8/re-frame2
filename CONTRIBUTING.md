@@ -78,6 +78,43 @@ no tilde — so every artefact's lockfile and `deps.edn` resolves identically.
 If you bump a shared dep, bump it everywhere in the same PR; CI gates this
 across the matrix.
 
+## Linting
+
+Two complementary linters run on every PR (rf2-4v147):
+
+- **clj-kondo** — bug-class linter (unresolved symbols, arity mismatches,
+  redefined vars, unused bindings). Config lives at
+  [`.clj-kondo/config.edn`](.clj-kondo/config.edn); editor integrations (Calva,
+  CIDER, Cursive) read the same file.
+- **Splint** — style-shape linter inspired by the
+  [Clojure Style Guide](https://guide.clojure.style). Catches idiomatic-Clojure
+  smells outside kondo's lexical analysis. Per-project config in
+  [`.splint.edn`](.splint.edn).
+
+**First-iteration posture (rf2-4v147 follow-on bead pending):** both jobs are
+**report-only** — they surface findings in the PR's check log but do not block
+the merge. The baseline at landing is ~4 000 kondo warnings + 25 errors and
+~1 600 Splint warnings + 4 errors, a mix of pre-existing test-fixture quirks
+(slashed keywords in trace tests), kondo's "Unresolved var" noise on the
+framework's dynamically-defined registration macros, and Splint's style
+suggestions that need triaging before they earn their teeth. The follow-on
+bead tightens the gates once the baseline is triaged.
+
+Run locally before opening a PR:
+
+```bash
+# clj-kondo (install via https://github.com/clj-kondo/clj-kondo#installation)
+clj-kondo --lint implementation tools examples testbeds
+
+# Splint (no install — the alias pins the dep)
+cd implementation
+clojure -M:splint ../implementation ../tools ../examples ../testbeds
+```
+
+Editor integration is kondo-only for now — Calva/CIDER/Cursive consume the
+shared `.clj-kondo/config.edn` automatically. Splint is CI-only at first
+iteration.
+
 ## Security issues
 
 Please do not file security-relevant problems as public issues or pull
