@@ -979,8 +979,65 @@
     ;; the row from the earlier 28px / "4px 8px" spec-baseline. Causa is
     ;; info-dense; keeps clickable hit-area while letting ~10 rows fit in
     ;; the same vertical budget the old 8 rows used.
+    ;;
+    ;; rf2-6gstp — keyboard a11y. Rows expose `role="button"` +
+    ;; `tab-index="0"` + `aria-label` so keyboard-only users can Tab
+    ;; into the list and operate it. Enter / Space activates the body
+    ;; (select cascade); Shift+F10 + ContextMenu key open the row's
+    ;; context menu (Mute / Hide event-type) — the same affordance
+    ;; right-click users get. The audit (2026-05-20) flagged this
+    ;; surface as P1 because the menu's actions had no keyboard path.
     [:li (cond-> {:data-testid (str "rf-causa-event-row-" (str id))
+                  :role        "button"
+                  :tab-index   "0"
+                  :aria-label  (cond
+                                 ungrouped?
+                                 ":ungrouped pseudo-cascade — events outside any dispatch"
+
+                                 ev-id
+                                 (str "Event " (str ev-id)
+                                      (when focused? " (focused)")
+                                      (when in-focus? " (in focus set)"))
+
+                                 :else
+                                 "Event row")
+                  :aria-pressed (if focused? "true" "false")
                   :on-click    body-click
+                  :on-key-down (fn [^js e]
+                                 ;; rf2-6gstp — keyboard activation +
+                                 ;; menu fallback. Enter / Space fires
+                                 ;; the body-click selection; Shift+F10
+                                 ;; (Windows / Linux platform standard)
+                                 ;; and the dedicated ContextMenu key
+                                 ;; open the row's context menu so the
+                                 ;; Mute / Hide affordances are reachable
+                                 ;; without right-click. The menu opens
+                                 ;; at the row's bounding-box top-left
+                                 ;; (the click-coords path has no
+                                 ;; equivalent for keyboard activation
+                                 ;; — anchoring on the row itself is
+                                 ;; the standard WAI-ARIA recipe).
+                                 (let [k       (.-key e)
+                                       shift?  (.-shiftKey e)
+                                       target  (.-currentTarget e)]
+                                   (cond
+                                     (or (= k "Enter") (= k " "))
+                                     (do (.preventDefault e)
+                                         (body-click e))
+
+                                     (or (= k "ContextMenu")
+                                         (and shift? (= k "F10")))
+                                     (when ev-id
+                                       (.preventDefault e)
+                                       (let [rect (when target (.getBoundingClientRect target))
+                                             x    (if rect (.-left rect) 0)
+                                             y    (if rect (.-bottom rect) 0)]
+                                         (rf/dispatch
+                                           [:rf.causa/open-row-context-menu
+                                            {:event-id ev-id
+                                             :x        x
+                                             :y        y}]
+                                           {:frame :rf/causa}))))))
                   :on-context-menu (fn [^js e]
                                      ;; rf2-ikuwt — open the row's
                                      ;; floating context menu at the

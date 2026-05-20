@@ -443,6 +443,31 @@
     "@keyframes rf-causa-fade-in {\n"
     "  from { opacity: 0; transform: translateY(2px); }\n"
     "  to   { opacity: 1; transform: translateY(0); }\n"
+    "}\n"
+    ;; rf2-fxde5 — global `:focus-visible` focus ring. Causa-wide
+    ;; keyboard-only focus indicator scoped to descendants of the
+    ;; shell roots (`[data-testid="rf-causa-shell"]` for Runtime,
+    ;; `[data-testid="rf-causa-static-shell"]` for Static). Many
+    ;; interactive elements set `:border "none"` and rely on the
+    ;; UA outline, which is suppressed by various theme resets and
+    ;; reads weakly against the dark `#0E0F12` background. The
+    ;; palette input explicitly sets `outline: none` (palette/view
+    ;; line 107). Without this rule keyboard-only users have no
+    ;; reliable focus indicator anywhere in Causa.
+    ;;
+    ;; Token: `:yellow #FBBF24` from `theme/tokens.cljc` — the warm
+    ;; amber matches Causa's design language (sibling to Story's
+    ;; `#F5A524` amber focus ring at `theme/motion.cljc:173`). 2px
+    ;; outline + 2px offset is the documented high-contrast hit
+    ;; threshold. `:focus-visible` (rather than `:focus`) ensures
+    ;; the ring only paints for keyboard navigation, not mouse
+    ;; clicks — matches platform expectations.
+    "[data-testid=\"rf-causa-shell\"] *:focus-visible,\n"
+    "[data-testid=\"rf-causa-static-shell\"] *:focus-visible,\n"
+    "[data-testid=\"rf-causa-palette-backdrop\"] *:focus-visible {\n"
+    "  outline: 2px solid #FBBF24;\n"
+    "  outline-offset: 2px;\n"
+    "  border-radius: 3px;\n"
     "}\n"))
 
 (defn- inject-motion-style!

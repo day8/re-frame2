@@ -147,6 +147,37 @@
           "the override value is a hair above zero — runs to completion
            in a single frame so the end state is reached immediately"))))
 
+;; ---- rf2-fxde5 — global :focus-visible ring ----------------------------
+
+(deftest motion-css-declares-focus-visible-ring
+  (testing "rf2-fxde5 — Causa ships a global `:focus-visible` focus ring
+            scoped to the shell roots so keyboard-only users get a
+            visible focus indicator. Many interactive elements set
+            `:border \"none\"` and the palette input explicitly sets
+            `outline: none` (palette/view line 107). Without this rule
+            keyboard-only users had no reliable focus indicator anywhere
+            in Causa. Sister-pattern to Story (`theme/motion.cljc:173`)."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"\[data-testid=\"rf-causa-shell\"\][^,]*:focus-visible" css)
+          "focus-visible rule scoped to the Runtime shell root")
+      (is (re-find #"\[data-testid=\"rf-causa-static-shell\"\][^,]*:focus-visible" css)
+          "focus-visible rule scoped to the Static shell root")
+      (is (re-find #"\[data-testid=\"rf-causa-palette-backdrop\"\][^,]*:focus-visible" css)
+          "focus-visible rule scoped to the palette backdrop (palette
+           mounts outside the shell roots so it needs its own scope)"))))
+
+(deftest motion-css-focus-visible-uses-warm-amber-token
+  (testing "rf2-fxde5 — the ring colour is `#FBBF24` (token
+            `:yellow` from `theme/tokens.cljc`) — warm amber matching
+            Causa's design language and Story's amber focus-ring
+            convention. 2px outline + 2px offset is the documented
+            high-contrast hit threshold."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"outline:\s*2px\s+solid\s+#FBBF24" css)
+          "2px solid amber outline")
+      (is (re-find #"outline-offset:\s*2px" css)
+          "2px outline-offset so the ring doesn't graze the element"))))
+
 ;; ---- rf2-5kfxe.6 — light theme CSS variables ---------------------------
 
 (deftest themes-css-publishes-root-defaults

@@ -969,6 +969,92 @@
         (is (= "200px" (:height style))
             "list container is ~8 rows × 22px + gaps + padding")))))
 
+;; -------------------------------------------------------------------------
+;; rf2-6gstp — L2 event-list rows are keyboard-operable buttons + menu
+;; -------------------------------------------------------------------------
+
+(deftest event-row-exposes-keyboard-button-semantics
+  (testing "rf2-6gstp — every L2 event-row exposes `role=\"button\"` +
+            `tab-index=\"0\"` + an `aria-label` so keyboard-only users
+            can Tab into the L2 list and operate it. Without these the
+            j/k chord covers next/prev focus but Tab-into-list / Enter-
+            to-select are absent — keyboard users can't drive L2 at
+            all. The audit (2026-05-20) flagged this as P1."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (rf/with-frame :rf/causa
+      (let [tree  (shell/shell-view)
+            row   (find-by-testid tree "rf-causa-event-row-1")
+            props (second row)]
+        (is (some? row) "row renders")
+        (is (= "button" (:role props))
+            "every event-row exposes role=button")
+        (is (= "0" (:tab-index props))
+            "every event-row exposes tabindex=0 so it joins the
+             sequential focus order")
+        (is (fn? (:on-key-down props))
+            "every event-row carries an on-key-down handler for
+             Enter / Space activation + Shift+F10 / ContextMenu
+             keyboard-menu fallback")
+        (is (string? (:aria-label props))
+            "every event-row carries an aria-label naming the row")
+        (is (re-find #":cart/add-item" (:aria-label props))
+            "the aria-label includes the event-id so screen-reader
+             users hear which event the row represents")))))
+
+(deftest event-row-keyboard-enter-fires-body-click
+  (testing "rf2-6gstp — Enter (and Space) on a focused row fire the
+            same selection path right-click + on-click do. The audit
+            (2026-05-20) flagged the absence of Enter-to-select as a P1
+            keyboard-a11y miss."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [tree    (shell/shell-view)
+                row     (find-by-testid tree "rf-causa-event-row-1")
+                handler (:on-key-down (second row))
+                ;; Synthetic key event — preventDefault is a no-op stub
+                ;; so the test body just records the dispatch effect.
+                evt     #js {:key "Enter"
+                             :preventDefault (fn [])
+                             :currentTarget nil
+                             :shiftKey false}]
+            (is (some? handler))
+            (when handler (handler evt)))))
+      (is (some #(and (= :rf.causa/focus-cascade (first %))
+                      (= 1 (second %))) @dispatches)
+          "Enter on a row fires the same :rf.causa/focus-cascade
+           dispatch as the mouse click"))))
+
+(deftest event-row-keyboard-context-menu-fallback
+  (testing "rf2-6gstp — Shift+F10 (Windows / Linux platform standard)
+            and the dedicated ContextMenu key open the row's context
+            menu so the Mute / Hide affordances are reachable without
+            right-click. The audit flagged the absence of a keyboard
+            path to these actions as a P1 a11y miss."
+    (causa-setup!)
+    (trace-bus/collect-trace! (dispatch-trace-ev 1 [:cart/add-item]))
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch* (fn
+                                   ([ev]       (swap! dispatches conj ev) nil)
+                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/causa
+          (let [tree    (shell/shell-view)
+                row     (find-by-testid tree "rf-causa-event-row-1")
+                handler (:on-key-down (second row))
+                evt     #js {:key "F10"
+                             :preventDefault (fn [])
+                             :currentTarget nil
+                             :shiftKey true}]
+            (when handler (handler evt)))))
+      (is (some #(= :rf.causa/open-row-context-menu (first %)) @dispatches)
+          "Shift+F10 fires :rf.causa/open-row-context-menu — same
+           handler the right-click path uses"))))
+
 (deftest event-row-renders-event-id-only
   (testing "Round-3 rf2-cmtkw — the default L2 row body renders ONLY
             the bare event-id keyword. Args / payload are NOT inline

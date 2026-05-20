@@ -258,6 +258,26 @@
          ;; aria-label round-trips for screen-reader users.
          (is (= "tests failing" (get (second dot-fail) :aria-label)))))))
 
+;; ---- rf2-k3y92 — status-dot is decorative img (not a live region) -------
+
+#?(:cljs
+   (deftest sidebar-dot-uses-img-role-not-status
+     (testing "rf2-k3y92 — the status-dot is a static decoration painted
+               alongside the row label, not an out-of-band update channel.
+               `role=\"status\"` adds an implicit `aria-live=\"polite\"`
+               which made every mounted dot a live region — with ~50–200
+               variant rows in a typical registry the AT noise was real.
+               `role=\"img\"` keeps the `aria-label` exposed as the
+               accessible name without the live-region announcement."
+       (let [dot-fail (sidebar/status-dot :fail)
+             dot-pass (sidebar/status-dot :pass)]
+         (is (= "img" (get (second dot-fail) :role))
+             "status-dot is exposed as an img with a label")
+         (is (= "img" (get (second dot-pass) :role))
+             "every status produces the same img role")
+         (is (not= "status" (get (second dot-fail) :role))
+             "must NOT use role=status (live-region noise)")))))
+
 #?(:cljs
    (deftest widget-run-all-button-disabled-while-running
      (testing "if any variant is :running the Run all button disables"
