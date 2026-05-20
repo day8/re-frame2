@@ -346,10 +346,31 @@
                         (name ev*))))))
        set))
 
+(defn- to-path-from-trace
+  "Pull the `:to` state path off a `:rf.machine/transition` trace
+  event. Tolerant of three shapes:
+
+    1. Modern runtime: `:tags {:after {:state ...}}` (per
+       `lifecycle_fx/registration` `trace/emit!` of
+       `:rf.machine/transition`).
+    2. Legacy/test fixtures: top-level `:to` or `:tags :to`.
+    3. Pre-rf2-hwuki: `:payload :to`.
+
+  Returns the normalised path vector or nil."
+  [ev]
+  (let [after-state (get-in ev [:tags :after :state])
+        to          (or (get-in ev [:tags :to])
+                        (:to ev)
+                        (get-in ev [:payload :to]))]
+    (normalise-path (or after-state to))))
+
 (defn current-state-from-traces
   "Resolve the current-state path for `machine-id` from the
   `:rf.machine/transition` trace events vector. Returns the `:to`
-  path of the most recent matching trace, or nil. Pure."
+  path of the most recent matching trace, or nil. Pure.
+
+  Reads modern (`:tags :after :state`) + legacy (`:to`,
+  `:payload :to`) shapes — see `to-path-from-trace`."
   [trace-events machine-id]
   (let [matching (filter (fn [ev]
                            (and (= :rf.machine/transition (:operation ev))
@@ -357,5 +378,27 @@
                                     (= machine-id (get-in ev [:tags :machine-id])))))
                          (or trace-events []))]
     (when-let [last-ev (last matching)]
-      (normalise-path (or (:to last-ev)
-                          (get-in last-ev [:payload :to]))))))
+      (to-path-from-trace last-ev))))
+
+(defn current-state-from-epoch-history
+  "Walk `epoch-history` (a vector of epoch records, oldest-first per
+  `:rf/epoch-record`) backwards looking for the most recent
+  `:rf.machine/transition` trace for `machine-id`. Returns the `:to`
+  path of that transition, or nil if no transition for `machine-id`
+  appears anywhere in history.
+
+  Per spec/021 §6.3 (Queries / Per-frame state · current-state ●
+  annotation for case B): when the focused epoch has no transition,
+  the panel still renders topology with the most-recent-known state
+  annotated. This helper is the historical fallback caller — the view
+  layer composes it with `current-state-from-traces` (focused epoch)
+  + live snapshot `:state`.
+
+  Pure fn — JVM-runnable."
+  [epoch-history machine-id]
+  (let [history (vec (or epoch-history []))]
+    (loop [i (dec (count history))]
+      (when (>= i 0)
+        (let [events (get-in history [i :trace-events])
+              found  (current-state-from-traces events machine-id)]
+          (or found (recur (dec i))))))))

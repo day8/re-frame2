@@ -244,3 +244,123 @@
     (is (= #{} (topology/extract-fired-edge-ids nil :cart)))
     (is (= #{} (topology/extract-fired-edge-ids
                  [{:operation :something-else}] :cart)))))
+
+;; ---- rf2-dbi87: always-visible empty-state (Case B) --------------------
+;;
+;; Per spec/021 §6.2 Case B + §17.4.1 — when the focused epoch has NO
+;; machine transition, the topology MUST still render with the most-
+;; recent-known state annotated as :current. The projector keeps emitting
+;; the full topology unchanged (Case B is a render-layer concern); these
+;; tests pin the helpers that resolve "most-recent-known" from sources
+;; OUTSIDE the focused epoch (epoch-history walk-back + runtime trace
+;; shapes).
+
+(deftest project-emits-full-graph-with-no-fired-edges
+  (testing "case-B render: full topology + current-state overlay, no fired"
+    (let [out         (topology/project
+                        {:definition         (toy-definition)
+                         :current-state-path [:populated]
+                         :fired-edge-ids     #{}})
+          edges-kinds (into #{} (map #(-> % :data :kind) (:edges out)))
+          nodes-by-lb (into {} (map (juxt #(-> % :data :label) identity)
+                                    (:nodes out)))]
+      (is (= 3 (count (:nodes out)))
+          "all states still emit")
+      (is (= 2 (count (:edges out)))
+          "all transitions still emit (no overlay arrows added)")
+      (is (= #{:registered} edges-kinds)
+          "no edge is :fired-this-epoch when fired-edge-ids is empty")
+      (is (= :current (-> nodes-by-lb (get "populated") :data :kind))
+          "current-state overlay still annotates the matching node"))))
+
+(deftest current-state-from-traces-reads-tags-after-state
+  (testing "modern runtime shape: :tags {:after {:state ...}}"
+    ;; Per lifecycle_fx/registration the runtime stamps
+    ;;   {:tags {:after  {:state <to-kw> ...}
+    ;;           :before {:state <from-kw> ...}
+    ;;           :machine-id <id>}}
+    ;; The legacy top-level :to slot still works (existing tests pin it).
+    (let [events [{:operation :rf.machine/transition
+                   :tags      {:machine-id :cart
+                               :after      {:state :populated}}}]]
+      (is (= [:populated]
+             (topology/current-state-from-traces events :cart))))))
+
+(deftest current-state-from-traces-prefers-modern-shape-over-legacy
+  (testing "when both :after :state AND legacy :to are present, modern wins"
+    (let [events [{:operation :rf.machine/transition
+                   :tags      {:machine-id :cart
+                               :after      {:state :populated}
+                               :to         :should-be-ignored}}]]
+      ;; Per to-path-from-trace: `(or after-state to)` — `after-state`
+      ;; wins when present.
+      (is (= [:populated]
+             (topology/current-state-from-traces events :cart))))))
+
+(deftest current-state-from-epoch-history-walks-back
+  (testing "walks epoch-history newest→oldest, returns most-recent :to"
+    (let [history [{:epoch-id 1
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :cart}
+                                    :from [:empty] :to [:populated]
+                                    :event :populate}]}
+                   {:epoch-id 2
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :cart}
+                                    :from [:populated] :to [:submitting]
+                                    :event :submit}]}
+                   ;; Epoch 3 has no machine activity — the walk
+                   ;; back skips it and picks epoch 2's :submitting.
+                   {:epoch-id 3
+                    :trace-events [{:operation :something-else}]}]]
+      (is (= [:submitting]
+             (topology/current-state-from-epoch-history history :cart))))))
+
+(deftest current-state-from-epoch-history-empty-cases
+  (testing "nil history → nil"
+    (is (nil? (topology/current-state-from-epoch-history nil :cart))))
+  (testing "empty history → nil"
+    (is (nil? (topology/current-state-from-epoch-history [] :cart))))
+  (testing "history with no transition for this machine → nil"
+    (let [history [{:epoch-id 1 :trace-events []}
+                   {:epoch-id 2 :trace-events [{:operation :something-else}]}]]
+      (is (nil? (topology/current-state-from-epoch-history history :cart))))))
+
+(deftest current-state-from-epoch-history-scopes-by-machine-id
+  (testing "ignores transitions belonging to other machines"
+    (let [history [{:epoch-id 1
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :other}
+                                    :from [:x] :to [:y]
+                                    :event :wrong-machine}]}
+                   {:epoch-id 2
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :cart}
+                                    :from [:empty] :to [:populated]
+                                    :event :populate}]}]]
+      (is (= [:populated]
+             (topology/current-state-from-epoch-history history :cart))))))
+
+(deftest current-state-from-epoch-history-reads-modern-shape
+  (testing "epoch-history walk-back honours the modern :tags :after :state shape"
+    (let [history [{:epoch-id 1
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :cart
+                                           :after {:state :authing}}}]}]]
+      (is (= [:authing]
+             (topology/current-state-from-epoch-history history :cart))))))
+
+(deftest current-state-from-epoch-history-picks-latest-within-epoch
+  (testing "within an epoch's trace-events, the LAST matching transition wins"
+    (let [history [{:epoch-id 1
+                    :trace-events [{:operation :rf.machine/transition
+                                    :tags {:machine-id :cart}
+                                    :from [:empty] :to [:populated]
+                                    :event :populate}
+                                   ;; Microstep after — should be picked.
+                                   {:operation :rf.machine/transition
+                                    :tags {:machine-id :cart}
+                                    :from [:populated] :to [:submitting]
+                                    :event :submit}]}]]
+      (is (= [:submitting]
+             (topology/current-state-from-epoch-history history :cart))))))
