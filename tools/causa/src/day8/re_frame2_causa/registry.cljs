@@ -50,7 +50,9 @@
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.spine-filters :as spine-filters]
+            [day8.re-frame2-causa.static.events.panel :as static-events-panel]
             [day8.re-frame2-causa.static.flows.panel :as static-flows-panel]
+            [day8.re-frame2-causa.static.interceptors.panel :as static-interceptors-panel]
             [day8.re-frame2-causa.static.machines.panel :as static-machines-panel]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
@@ -737,13 +739,20 @@
     ;; entry. Sits at order 8 (after Issues at 7) — both tabs occupy
     ;; the diagnostics group at the right end of the tab strip.
     (chrome-a11y-panel/install!)
-    ;; rf2-2moh1 — register the Static :events placeholder tab. The
-    ;; other Static tabs (machines / routes / schemas / views / flows)
-    ;; each register their entry from their own panel's `install!`
-    ;; above; the `:events` tab is not yet panelled (sibling bead
-    ;; rf2-o5f5f.6 fills it) so its placeholder registration lives
-    ;; in `static.shell` alongside the placeholder-card helper.
-    (static-shell/register-events-placeholder!))
+    ;; Static Events sub-tab (rf2-o5f5f.6) — browse every registered
+    ;; event handler (reg-event-db / reg-event-fx / reg-event-ctx) +
+    ;; interceptor chain + hermetic single-step simulate. Reads
+    ;; `(re-frame.registrar/registrations :event)`. Source-coord chip
+    ;; dispatches `:rf.causa/open-in-editor` (open-in-editor installed
+    ;; above).
+    (static-events-panel/install!)
+    ;; Static Interceptors sub-tab (rf2-o5f5f.6) — pure-browse lens
+    ;; over every interceptor surfaced through the registered event
+    ;; chains. Collapses by `:id` so each interceptor appears once
+    ;; with a chain-count. No simulate — interceptors are composition
+    ;; primitives; simulate fires through the handler-level simulate
+    ;; in the Events sub-tab.
+    (static-interceptors-panel/install!))
   nil)
 
 (defn reset-for-test!

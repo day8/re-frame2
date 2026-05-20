@@ -29,19 +29,18 @@
   state, and motion dampening, the user reads Static at a glance even
   without looking at the pill.
 
-  ## Tab inventory (5 sub-tabs)
+  ## Tab inventory (7 sub-tabs)
 
-  This bead registers the 5 Static sub-tabs as PLACEHOLDERS — each
-  renders a 'rf2-o5f5f.<N> will fill this' card. The sibling beads
-  (.2 Machines, .3 Routes, .4 Schemas, .5 Views, .6 Events) replace
-  the placeholders with real catalogue content.
+  The Static surface now mounts seven sub-tabs. Each sibling bead
+  installs its own panel into the L4 tab registry (rf2-2moh1):
+
+      Machines (m, default) · Routes (r) · Schemas (c) · Views (v) ·
+      Flows (f) · Events (e) · Interceptors (i)
 
   Tab order + mnemonics per the findings doc §5.2 (mode-scoped: same
   letter, different target per mode — `m` in Runtime opens the
   Machines instance inspector, `m` in Static opens the Machines
-  registry browse):
-
-      Machines (m, default) · Routes (r) · Schemas (c) · Views (v) · Events (e)
+  registry browse).
 
   Tab-mnemonic mode-scoping lives in `static/keybinding.cljs`
   follow-on — Phase 1 ships only the click path.
@@ -73,16 +72,17 @@
     4. **Chrome silhouette** — Runtime is 4-layer; Static is 3-layer
        (no L2 / no spine). The shape itself is a signal.
 
-  ## What's deferred to siblings
+  ## Sibling beads filling the tab inventory
 
-  This bead registers the chrome + the empty tabs only. The siblings
-  fill the placeholder content:
+  Each sibling bead owned its sub-tab panel:
 
     - rf2-o5f5f.2 — Machines registry browse + Topology
     - rf2-o5f5f.3 — Routes registry browse + Simulate-URL
     - rf2-o5f5f.4 — Schemas registry browse + sample data
     - rf2-o5f5f.5 — Views registry browse (Fiber-walker consumer)
-    - rf2-o5f5f.6 — Events registry browse + interceptor stack"
+    - rf2-uhsqb   — Flows registry browse
+    - rf2-o5f5f.6 — Events registry browse + interceptor stack +
+                    hermetic simulate (Events) + Interceptors lens"
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
@@ -349,21 +349,15 @@
 
   Each Static panel's `install!` registers its tab entry via
   `panel-registry/reg-l4-tab!` with `:modes #{:static}` + a `:panel`
-  view fn. The previous case-switch over the six static tab ids is
-  replaced by a lookup against `panel-registry/tab-by-id :static`:
+  view fn. The Static-mode L4 tabs are:
 
-    :machines → `static.machines.panel/panel` (rf2-o5f5f.2)
-    :routes   → `static.routes.panel/Panel`   (rf2-o5f5f.3)
-    :schemas  → `static.schemas.panel/Panel`  (rf2-o5f5f.4)
-    :views    → `static.views.panel/Panel`    (rf2-o5f5f.5)
-    :flows    → `static.flows.panel/Panel`    (rf2-uhsqb)
-    :events   — placeholder card (rf2-o5f5f.6 — sibling bead fills)
-
-  The placeholder `:events` tab is registered alongside the others by
-  `register-events-placeholder!` (called from
-  `registry.cljs/register-causa-handlers!`); its `:panel` is a closed-
-  over `placeholder-card` invocation so the registry's `:panel`
-  contract (any view fn) holds even for not-yet-filled tabs.
+    :machines     → `static.machines.panel/panel`         (rf2-o5f5f.2)
+    :routes       → `static.routes.panel/Panel`           (rf2-o5f5f.3)
+    :schemas      → `static.schemas.panel/Panel`          (rf2-o5f5f.4)
+    :views        → `static.views.panel/Panel`            (rf2-o5f5f.5)
+    :flows        → `static.flows.panel/Panel`            (rf2-uhsqb)
+    :events       → `static.events.panel/Panel`           (rf2-o5f5f.6)
+    :interceptors → `static.interceptors.panel/Panel`     (rf2-o5f5f.6)
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -391,35 +385,6 @@
                       :color       (:text-secondary tokens)
                       :font-family sans-stack}}
         "Unknown Static tab: " [:code (pr-str selected)]])]))
-
-(defn- events-placeholder-panel
-  "Placeholder panel-view for the not-yet-implemented Static
-  `:events` tab. Sibling bead rf2-o5f5f.6 will replace this with an
-  events-registry browse panel — at which point the install! call
-  in `registry.cljs` is dropped and `static/events/panel.cljs`
-  becomes the canonical registrar of the `:events` tab."
-  []
-  [placeholder-card
-   {:id               :events
-    :label            "Events"
-    :placeholder-bead "rf2-o5f5f.6"}])
-
-(defn register-events-placeholder!
-  "rf2-2moh1 — register the placeholder `:events` Static tab. The
-  other Static tabs each carry their own `install!` (machines,
-  routes, schemas, views, flows); this one has no panel ns yet so
-  the registration lives here, alongside the placeholder-card
-  helper it composes against."
-  []
-  (panel-registry/reg-l4-tab!
-    {:id               :events
-     :label            "Events"
-     :mnem             "e"
-     :modes            #{:static}
-     :order            5
-     :panel            events-placeholder-panel
-     :placeholder-bead "rf2-o5f5f.6"})
-  nil)
 
 ;; ---- Static surface ------------------------------------------------------
 
