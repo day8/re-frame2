@@ -36,9 +36,10 @@
     :compound-pad-x
     :compound-pad-y
     :compound-stroke-dash
-    ;; typography
+    ;; typography (rf2-gg7ws — lifted 11/9 → 13/11)
     :state-label-px
     :edge-label-px
+    :edge-label-backplate-opacity
     :final-glyph-px
     :compound-title-px
     :caption-strip-px
@@ -52,9 +53,7 @@
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
     :dot-grid-radius-px
-    :dot-grid-alpha
-    ;; motion (rf2-xfx6l)
-    :pulse-stroke-width-add})
+    :dot-grid-alpha})
 
 ;; ---- shape pins ---------------------------------------------------------
 
@@ -78,7 +77,8 @@
 
 (deftest chart-numeric-keys-are-numbers
   (testing "every key that the chart code uses as a numeric (geometry,
-            typography sizes, padding, alpha) resolves to a number"
+            typography sizes, padding, alpha, opacity) resolves to a
+            number"
     (let [numeric-keys (disj expected-chart-keys :compound-stroke-dash)]
       (doseq [k numeric-keys]
         (is (number? (get vc/chart k))
@@ -98,13 +98,26 @@
             future drift fails CI rather than landing silently."
     (is (= 6 (:corner-radius vc/chart)))))
 
-(deftest chart-typography-honours-refused-floor
-  (testing "rf2-cd053 — state-label-px + edge-label-px restored to the
-            spec/007-UX-IA refused-floor (state 11, edge 9). Pin so a
-            future layout-fit win that walks under the floor again
-            (the previous 9/7 regression) fails CI."
-    (is (= 11 (:state-label-px vc/chart)))
-    (is (= 9  (:edge-label-px vc/chart)))))
+(deftest chart-typography-meets-chart-floor
+  (testing "rf2-gg7ws — state-label-px + edge-label-px lifted from the
+            spec/007-UX-IA refused-floor (11 / 9) to a chart-
+            appropriate 13 / 11 per the 2026-05-20 visual-quality
+            audit. The refused-floor was set for dense data-grid
+            surfaces; applying it to a chart that competes with
+            xstate-stately's typography was a category error. Pin so a
+            future layout-fit win that walks back under the chart
+            floor fails CI."
+    (is (= 13 (:state-label-px vc/chart)))
+    (is (= 11 (:edge-label-px vc/chart)))))
+
+(deftest chart-edge-label-backplate-opacity-is-fractional
+  (testing "rf2-gg7ws — edge-label backplate opacity is in (0, 1).
+            At 1 the backplate would be opaque white (overprinted
+            chart canvas); at 0 it would be invisible (no
+            collision-avoidance). ~0.85 is the sweet spot."
+    (let [a (:edge-label-backplate-opacity vc/chart)]
+      (is (pos? a))
+      (is (< a 1.0)))))
 
 (deftest chart-dot-grid-alpha-is-fractional
   (testing "rf2-m4nj4 — dot-grid is a subtle backdrop; alpha must

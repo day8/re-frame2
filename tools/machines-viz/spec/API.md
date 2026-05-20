@@ -144,8 +144,10 @@ exist so that coupling never lands.
   from `(rf/machine-meta machine-id)` plus the user's expand/collapse
   state. This plane is **structural**: changing it requires re-laying
   out the graph.
-- **Runtime-highlight plane.** The active-state pulse, transition
-  edge glow, microstep flash, `:after` countdown ring progress,
+- **Runtime-highlight plane.** The active-state affordance (static
+  tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0),
+  transition edge glow, microstep flash, `:after` countdown ring
+  progress,
   `:invoke-all` row state, spawn-tray contents, timer state, and
   every other per-trace decoration. Derived from `[:rf/machines <id>]`
   plus the `:rf.machine/*` trace bus. This plane is **decorative**:
@@ -164,8 +166,9 @@ by any `:rf.machine/*` trace event MUST mutate **only**:
 - DOM attributes (`class`, `style.opacity`, `style.transform` on
   decoration layers, SVG `stroke-dasharray` / `stroke-dashoffset`,
   ARIA labels).
-- CSS-driven animations (the heartbeat pulse, the transition glow,
-  the microstep flash, the `prefers-reduced-motion` step animation).
+- CSS-driven animations (the transition glow, the microstep flash,
+  the `prefers-reduced-motion` step animation). The heartbeat pulse
+  was retired 2026-05-20 (rf2-2sez0).
 
 Live updates MUST NOT:
 
@@ -222,9 +225,12 @@ Lock #11.
 
 ### One chart-level, visibility-gated animation clock
 
-`:after` countdown rings, the active-state heartbeat pulse, and any
-other continuous animation in the chart MUST be driven by a
-**single, per-chart-instance animation clock**.
+`:after` countdown rings and any continuous animation in the chart
+MUST be driven by a **single, per-chart-instance animation clock**.
+(The active-state heartbeat pulse was retired 2026-05-20 per
+rf2-2sez0; only the `:after` countdown rings remain on the clock.
+The transition glow is event-driven and resolves to a stable end-
+state, so it does not consume the clock.)
 
 - The clock is **one** `requestAnimationFrame` loop (or equivalent)
   per `MachineChart` instance. It MUST NOT be one loop per ring,
@@ -233,14 +239,13 @@ other continuous animation in the chart MUST be driven by a
   becomes visible (per `IntersectionObserver` and/or
   `document.visibilityState`) and MUST stop when the chart leaves
   the viewport or the document is hidden.
-- The clock drives ring fills and pulse phase by reading the
-  framework's authoritative timer state on each tick; it does not
-  own the timer. The framework's clock keeps running regardless of
-  the chart's visibility (per Lock #8); the chart's clock is purely
+- The clock drives ring fills by reading the framework's
+  authoritative timer state on each tick; it does not own the
+  timer. The framework's clock keeps running regardless of the
+  chart's visibility (per Lock #8); the chart's clock is purely
   presentational.
-- A chart with no scheduled `:after` timers and no active state to
-  pulse MUST stop its clock entirely until the next snapshot or
-  trace tick wakes it.
+- A chart with no scheduled `:after` timers MUST stop its clock
+  entirely until the next snapshot or trace tick wakes it.
 
 Implementations MUST NOT create `setInterval`, `setTimeout`, or
 `requestAnimationFrame` registrations per-node, per-ring, or

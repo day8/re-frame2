@@ -56,6 +56,15 @@
     (is (vector? (:children g)))
     (is (vector? (:edges g)))))
 
+(deftest ->elk-graph-uses-spline-edge-routing
+  (testing "rf2-gg7ws — edgeRouting is SPLINES (bezier curves), lifted
+            from the previous ORTHOGONAL (90° dog-legs) per the
+            2026-05-20 visual-quality audit. Splines read as polished
+            / organic; orthogonal reads as schematic."
+    (let [g (elk-layout/->elk-graph small-machine :tb)]
+      (is (= "SPLINES"
+             (get-in g [:layoutOptions "elk.edgeRouting"]))))))
+
 (deftest ->elk-graph-direction-switches-on-axis
   (is (= "DOWN"  (get-in (elk-layout/->elk-graph small-machine :tb)
                          [:layoutOptions "elk.direction"])))

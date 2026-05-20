@@ -327,17 +327,40 @@
             rgba string"
     (is (nil? (tokens/with-alpha :no-such-token 0.5)))))
 
-;; ---- rf2-cd053 — refused-floor typography ------------------------------
+;; ---- rf2-gg7ws — chart-appropriate typography lift ---------------------
 
-(deftest state-label-font-size-meets-refused-floor
-  (testing "rf2-cd053 — state labels render at >= 11px (spec/007-UX-IA
-            refused-floor)"
-    (is (>= (:state-label-px vc/chart) 11))
-    (is (>= (:final-glyph-px vc/chart) 11))))
+(deftest state-label-font-size-meets-chart-floor
+  (testing "rf2-gg7ws — state labels render at >= 13px (lifted from
+            the previous 11px refused-floor per the 2026-05-20
+            visual-quality audit)"
+    (is (>= (:state-label-px vc/chart) 13))
+    (is (>= (:final-glyph-px vc/chart) 13))))
 
-(deftest edge-label-font-size-meets-refused-floor
-  (testing "rf2-cd053 — edge labels render at >= 9px"
-    (is (>= (:edge-label-px vc/chart) 9))))
+(deftest edge-label-font-size-meets-chart-floor
+  (testing "rf2-gg7ws — edge labels render at >= 11px (lifted from
+            the previous 9px refused-floor)"
+    (is (>= (:edge-label-px vc/chart) 11))))
+
+;; ---- rf2-gg7ws — edge-label backplate (collision-avoidance v1) ---------
+
+(deftest edge-labels-carry-backplate
+  (testing "rf2-gg7ws — every edge label is rendered with a light
+            backplate <rect> behind the text so overlapping labels on
+            dense charts remain readable. White fill at <1.0
+            opacity."
+    (let [tree    (chart-svg/render-from-definition small-machine)
+          plates  (find-all-by-testid-prefix
+                    tree "rf-mv-chart-edge-label-backplate-")]
+      (is (= 3 (count plates))
+          "one backplate per labelled edge (3 edges in small-machine)")
+      (doseq [plate plates]
+        (let [attrs (second plate)]
+          (is (= (:white tokens/tokens) (:fill attrs))
+              "backplate fill is the white palette token")
+          (is (number? (:fill-opacity attrs))
+              "backplate carries numeric fill-opacity")
+          (is (< 0.0 (:fill-opacity attrs) 1.0)
+              "backplate opacity is fractional (collision-avoidance)"))))))
 
 ;; ---- rf2-m4nj4 — dot-grid background -----------------------------------
 
@@ -370,45 +393,99 @@
       (is (.startsWith ^String (:fill (second circle)) expected-prefix)
           "dot fill is the accent-violet token tinted via with-alpha"))))
 
-;; ---- rf2-xfx6l — heartbeat pulse + transition-glow ---------------------
+;; ---- rf2-xfx6l + rf2-2sez0 — static active affordance + transition-glow
 
-(deftest inline-stylesheet-defines-pulse-keyframes
-  (testing "rf2-xfx6l — the chart's inline <style> carries the
-            heartbeat + glow keyframes + the reduced-motion seam"
+(deftest inline-stylesheet-defines-transition-glow-keyframes
+  (testing "rf2-xfx6l / rf2-2sez0 — the chart's inline <style> carries
+            the transition-glow keyframes + the reduced-motion seam.
+            The previous heartbeat-pulse keyframes block was retired
+            with rf2-2sez0; only the glow remains."
     (let [tree (chart-svg/render-from-definition small-machine)
           ss   (find-by-testid tree "rf-mv-chart-stylesheet")
           css  (last ss)]
       (is (some? ss))
-      (is (re-find #"@keyframes mv-chart-heartbeat-pulse" css)
-          "heartbeat-pulse keyframes defined")
       (is (re-find #"@keyframes mv-chart-transition-glow" css)
           "transition-glow keyframes defined")
       (is (re-find #"prefers-reduced-motion: reduce" css)
           "reduced-motion media query is wired"))))
 
-(deftest active-state-marked-pulse-target
-  (testing "rf2-xfx6l — the active state node carries data-pulse=true
-            so the keyframes apply"
+(deftest inline-stylesheet-omits-pulse-keyframes
+  (testing "rf2-2sez0 — the heartbeat-pulse animation was retired
+            2026-05-20. The `mv-chart-heartbeat-pulse` keyframes block
+            must NOT appear in the inline stylesheet."
+    (let [tree (chart-svg/render-from-definition small-machine)
+          ss   (find-by-testid tree "rf-mv-chart-stylesheet")
+          css  (last ss)]
+      (is (some? ss))
+      (is (nil? (re-find #"mv-chart-heartbeat-pulse" css))
+          "pulse keyframes must be absent (rf2-2sez0)"))))
+
+(deftest active-state-carries-static-affordance
+  (testing "rf2-2sez0 — the active state node carries
+            data-active-affordance=true (replacement for the retired
+            data-pulse attr). The affordance is STATIC — no
+            continuous animation."
     (let [hid  (layout/highlight-id :loading)
           tree (chart-svg/render-from-definition
                  small-machine {:highlight-id hid})
           node (find-by-testid tree (str "rf-causa-chart-node-" hid))]
-      (is (= "true" (:data-pulse (second node)))))))
+      (is (= "true" (:data-active-affordance (second node)))))))
 
-(deftest non-active-state-not-pulse-target
-  (testing "rf2-xfx6l — non-active states do NOT carry the pulse
-            animation (only one node breathes at a time)"
-    (let [tree  (chart-svg/render-from-definition
-                  small-machine
-                  {:highlight-id (layout/highlight-id :loading)})
-          nodes (find-all-by-testid-prefix tree "rf-causa-chart-node-")
-          pulsing (filter (fn [n] (= "true" (:data-pulse (second n)))) nodes)]
-      (is (= 1 (count pulsing))
-          "exactly one node pulses (the active one)"))))
+(deftest active-state-not-marked-as-pulse-target
+  (testing "rf2-2sez0 — the legacy `data-pulse` attr must be ABSENT;
+            nodes no longer carry pulse animation metadata."
+    (let [hid  (layout/highlight-id :loading)
+          tree (chart-svg/render-from-definition
+                 small-machine {:highlight-id hid})
+          node (find-by-testid tree (str "rf-causa-chart-node-" hid))]
+      (is (nil? (:data-pulse (second node)))
+          "data-pulse attr is gone (rf2-2sez0)"))))
 
-(deftest from-highlight-does-not-pulse
-  (testing "rf2-xfx6l — the FROM node (just-exited state) does NOT
-            pulse; only the active / landing state breathes"
+(deftest active-state-has-bolder-stroke-than-inactive
+  (testing "rf2-2sez0 — the static active-state affordance: the active
+            node's rect carries a thicker stroke than an inactive
+            sibling so the eye reads emphasis without animation"
+    (let [hid    (layout/highlight-id :loading)
+          tree   (chart-svg/render-from-definition
+                   small-machine {:highlight-id hid})
+          active-node   (find-by-testid tree
+                                        (str "rf-causa-chart-node-" hid))
+          inactive-node (find-by-testid tree
+                                        (str "rf-causa-chart-node-"
+                                             (layout/highlight-id :idle)))
+          ;; the main node rect is the LAST :rect descendant of the
+          ;; node <g> that carries a numeric :stroke-width.
+          node-stroke-w (fn [node]
+                          (let [rects (filter (fn [n]
+                                                (and (vector? n)
+                                                     (= :rect (first n))
+                                                     (number?
+                                                       (:stroke-width
+                                                         (second n)))))
+                                              (hiccup-seq node))]
+                            (some-> (last rects) second :stroke-width)))]
+      (is (> (node-stroke-w active-node)
+             (node-stroke-w inactive-node))
+          "active node stroke-width > inactive node stroke-width"))))
+
+(deftest non-active-states-have-no-active-affordance
+  (testing "rf2-2sez0 — only the active / landing state carries the
+            static active affordance (data-active-affordance=true);
+            inactive siblings carry the attr as `false`."
+    (let [tree   (chart-svg/render-from-definition
+                   small-machine
+                   {:highlight-id (layout/highlight-id :loading)})
+          nodes  (find-all-by-testid-prefix tree "rf-causa-chart-node-")
+          active (filter (fn [n]
+                           (= "true"
+                              (:data-active-affordance (second n))))
+                         nodes)]
+      (is (= 1 (count active))
+          "exactly one node carries the active affordance"))))
+
+(deftest from-highlight-not-marked-as-active-affordance
+  (testing "rf2-2sez0 — the FROM node (just-exited state) does NOT
+            carry the active-affordance; only the landing state does."
     (let [from-id (layout/highlight-id :idle)
           to-id   (layout/highlight-id :loading)
           tree    (chart-svg/render-from-definition
@@ -417,10 +494,10 @@
                      :to-highlight-id   to-id})
           from-node (find-by-testid tree (str "rf-causa-chart-node-" from-id))
           to-node   (find-by-testid tree (str "rf-causa-chart-node-" to-id))]
-      (is (= "false" (:data-pulse (second from-node)))
-          "FROM node is NOT a pulse target")
-      (is (= "true"  (:data-pulse (second to-node)))
-          "TO (landing) node IS a pulse target"))))
+      (is (= "false" (:data-active-affordance (second from-node)))
+          "FROM node has no active affordance")
+      (is (= "true"  (:data-active-affordance (second to-node)))
+          "TO (landing) node carries the active affordance"))))
 
 (deftest focused-edge-marked
   (testing "rf2-xfx6l — when both FROM and TO are set, the edge
