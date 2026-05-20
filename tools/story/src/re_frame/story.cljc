@@ -610,6 +610,20 @@
 
   `{:rf.story/global-args {...}}` — replace the global args map.
 
+  `{:rf.story/global-decorators [[<dec-id> & ref-args] ...]}` — replace
+  the global-decorators ref vector per rf2-9qpk3 (Storybook `preview.ts`
+  `decorators: [...]` parity). Each entry is `[decorator-id & ref-args]`
+  — same shape a `:decorators` slot on `reg-story` / `reg-variant`
+  takes. The decorator BODIES must already be registered via
+  `reg-decorator` (or `reg-global-decorator` if you'd rather couple
+  registration + opt-in into one call). Earliest-entry-in-the-vector is
+  the outermost wrap layer; the resolved per-variant stack is
+  `(concat globals story variant)`. Passing `nil` or `[]` clears the
+  global stack. The args-precedence-chain analog already exists at
+  Layer 1; this is the decorators analog — both are project-wide
+  defaults the host application sets once at boot. Per Feature-Parity-
+  Audit C-1 / Finding F-1.
+
   `{:rf.story/editor <kw>}` — 'Open in editor' preference per
   rf2-evgf5. One of `:vscode` (default) / `:cursor` / `:idea` /
   `{:custom \"<template>\"}`. Drives the `vscode://` / `cursor://` /
@@ -646,11 +660,13 @@
   to see the raw cascade.
 
   Unrecognised keys are accepted (for forward compat) but ignored."
-  [{:rf.story/keys [global-args editor project-root]
+  [{:rf.story/keys [global-args global-decorators editor project-root]
     show-sensitive? :rf.privacy/show-sensitive?
     :as opts}]
   (when (some? global-args)
     (config/set-global-args! global-args))
+  (when (contains? opts :rf.story/global-decorators)
+    (config/set-global-decorators! global-decorators))
   (when (some? editor)
     (config/set-editor! editor))
   (when (contains? opts :rf.story/project-root)

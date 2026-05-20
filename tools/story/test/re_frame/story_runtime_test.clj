@@ -832,6 +832,105 @@
     (is (= :cursor (config/get-editor)))
     (config/set-editor! :vscode)))
 
+(deftest configure-sets-global-decorators
+  (testing "configure! :rf.story/global-decorators replaces the global
+            ref vector wholesale (rf2-9qpk3 · audit C-1/F-1 — preview.ts
+            parity)"
+    ;; The decorator bodies must already be registered; configure! is
+    ;; the opt-in surface, not the body-registration surface.
+    (story/reg-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/reg-decorator :app/wrap
+      {:kind :hiccup :wrap (fn [body _] [:div.wrap body])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/theme] [:app/wrap]]})
+    (is (= [[:app/theme] [:app/wrap]] (config/get-global-decorators))
+        "the configure! call lands the vector verbatim — earliest first")
+    (is (= [[:app/theme] [:app/wrap]] (story/global-decorators))
+        "and the public accessor reflects the same shape"))
+  (testing "every variant inherits the global stack as the outermost
+            wrap layer — composition, not override"
+    (story/reg-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/reg-decorator :variant-deco
+      {:kind :hiccup :wrap (fn [body _] [:div.variant body])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/theme]]})
+    (story/reg-variant :story.cfg.gd/v
+      {:decorators [[:variant-deco]]
+       :events     []})
+    (let [r       (story/resolve-decorators :story.cfg.gd/v)
+          ids     (mapv :id (:hiccup r))
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "leaf"] {})]
+      (is (= [:app/theme :variant-deco] ids)
+          "global is outermost; variant decorator composes inside")
+      (is (= [:div.theme [:div.variant [:span "leaf"]]] wrapped)
+          ":app/theme wraps :variant-deco wraps the leaf")))
+  (testing "configure! :rf.story/global-decorators nil clears the vector"
+    (story/reg-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/theme]]})
+    (is (seq (config/get-global-decorators)))
+    (story/configure! {:rf.story/global-decorators nil})
+    (is (= [] (config/get-global-decorators))
+        "explicit nil clears the global vector"))
+  (testing "configure! :rf.story/global-decorators [] clears the vector"
+    (story/reg-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/theme]]})
+    (is (seq (config/get-global-decorators)))
+    (story/configure! {:rf.story/global-decorators []})
+    (is (= [] (config/get-global-decorators))
+        "explicit empty vector clears the global vector"))
+  (testing "configure! with no :rf.story/global-decorators key leaves
+            the slot untouched (forward-compat for partial configure
+            calls)"
+    (story/reg-decorator :app/keep
+      {:kind :hiccup :wrap (fn [body _] [:div.keep body])})
+    (config/set-global-decorators! [[:app/keep]])
+    (story/configure! {:rf.story/global-args {:theme :dark}})
+    (is (= [[:app/keep]] (config/get-global-decorators))
+        "the global-decorators slot is preserved across a global-args-only configure call")
+    (config/set-global-decorators! []))
+  (testing "configure! :rf.story/global-decorators accepts entries with
+            ref-args — `[<id> & ref-args]` shape exactly like a variant's
+            :decorators slot"
+    (story/reg-decorator :app/tagged
+      {:kind :hiccup
+       :wrap (fn [body args]
+               [:div.tagged {:tag (-> args :decorator/args first)} body])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/tagged :my-tag]]})
+    (story/reg-variant :story.cfg.gd2/v {:events []})
+    (let [r       (story/resolve-decorators :story.cfg.gd2/v)
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "x"] {})]
+      (is (= [:div.tagged {:tag :my-tag} [:span "x"]] wrapped)
+          "ref-args from the global-decorators ref reach the :wrap fn")))
+  (testing "configure! :rf.story/global-decorators composes with both
+            story-level and variant-level :decorators — all three layers
+            apply (the precedence chain is additive, not override-style)"
+    (story/reg-decorator :app/g    {:kind :hiccup :wrap (fn [b _] [:div.g b])})
+    (story/reg-decorator :app/s    {:kind :hiccup :wrap (fn [b _] [:div.s b])})
+    (story/reg-decorator :app/v    {:kind :hiccup :wrap (fn [b _] [:div.v b])})
+    (story/configure!
+      {:rf.story/global-decorators [[:app/g]]})
+    (story/reg-story :story.cfg.gd3
+      {:decorators [[:app/s]]})
+    (story/reg-variant :story.cfg.gd3/v
+      {:decorators [[:app/v]]
+       :events     []})
+    (let [r       (story/resolve-decorators :story.cfg.gd3/v)
+          ids     (mapv :id (:hiccup r))
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "leaf"] {})]
+      (is (= [:app/g :app/s :app/v] ids)
+          "globals outermost, then story, then variant — full composition")
+      (is (= [:div.g [:div.s [:div.v [:span "leaf"]]]] wrapped)))))
+
 (deftest configure-sets-project-root
   (testing "configure! writes the :rf.story/project-root config slot (rf2-zfy1e)"
     ;; Default is nil — no prefix applied to source-coord files.
