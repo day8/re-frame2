@@ -30,6 +30,8 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.diff.render :as diff-render]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
+            [day8.re-frame2-causa.panels.app-db-diff-downstream
+             :as downstream]
             [day8.re-frame2-causa.panels.app-db-diff-events :as events]
             [day8.re-frame2-causa.panels.app-db-diff-sections
              :as sections]
@@ -105,10 +107,19 @@
          ;; React mount per section and the diff-flash keyframes
          ;; auto-play (yellow wash decaying to transparent over 400ms,
          ;; scaled by the `--rf-causa-motion-scale` seam).
+         ;; rf2-op9v2 — `:extra-affordance-fn` lets us inject the
+         ;; downstream-subs hover trigger into every section's
+         ;; breadcrumb. The trigger renders its own popover when
+         ;; hovered/focused; only one popover is open at a time per
+         ;; `:rf.causa.app-db/popover-slot`.
          (diff-render/render-sections changed-sections "app-db-diff"
                                        {:flow-writes  flow-writes
                                         :diff-triples diff-triples
-                                        :epoch-id     selected-epoch-id})
+                                        :epoch-id     selected-epoch-id
+                                        :extra-affordance-fn
+                                        (fn [section-path]
+                                          [downstream/hover-trigger
+                                           section-path])})
          (sections/reserved-group changed-reserved)])]]))
 
 (defn install!
@@ -117,6 +128,9 @@
   []
   (subs/install!)
   (events/install!)
+  ;; rf2-op9v2 — downstream-subs overlay subs + events (the hover
+  ;; popover that lists subs/views downstream of each changed path).
+  (downstream/install!)
   ;; rf2-2moh1 — register the Runtime App DB tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!
