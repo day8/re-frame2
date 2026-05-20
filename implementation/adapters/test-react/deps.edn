@@ -1,0 +1,26 @@
+;; day8/re-frame2-test-react — Test-React adapter (rf2-gqyqv).
+;;
+;; A substrate adapter that simulates React class-3 lifecycle
+;; (constructor → didMount → didUpdate → willUnmount) in pure CLJC.
+;; No React, no DOM, no jsdom — runs on the JVM and on Node-CLJS at
+;; unit-test speed. Purpose: catch React-lifecycle-driven bugs (the
+;; rf2-4l7t2 unmount-during-render class) without browser machinery.
+;;
+;; Per Spec 006 §Adapter shipping convention: each adapter ships in
+;; its own Maven artefact. This artefact supplies the
+;; re-frame.adapter.test-react ns and depends on the core artefact for
+;; everything else.
+;;
+;; NOT for production use. Tests `:require [re-frame.adapter.test-react]`
+;; and call `(rf/init! test-react/adapter)` in a fixture; bundle-isolation
+;; treats this adapter as test-only (no example or production build
+;; should ever pull it in).
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

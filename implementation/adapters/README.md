@@ -12,6 +12,7 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
 | [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
 | [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/re-frame2-reagent-slim` (NB: artefact coord is `day8/reagent-slim` per IMPL-SPEC DECISION-1) | Reagent rewrite for React 19 — Stage 4-A landed |
+| [`test-react/`](test-react/) | Test-React adapter | `day8/re-frame2-test-react` | Pure-CLJC React class-3 lifecycle simulator — unit-testable lifecycle bug catching (rf2-gqyqv placeholder skeleton) |
 
 A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
 
