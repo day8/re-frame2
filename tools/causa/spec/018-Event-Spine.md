@@ -1049,13 +1049,13 @@ The popup's "Match scope" checkboxes — `event-id` / `event-args` / `source-coo
 
 Ribbon pills persist via localStorage per host-app under a Causa-namespaced key. **v1 storage key:** `"re-frame2.causa.filters.v1"` (versioned so future schema changes can ignore stale payloads). Configurable via `(causa-config/configure! {:rf.causa/filters-storage-key "<key>"})` per [`015-Configuration.md`](015-Configuration.md) — hosts that run multiple Causa instances in the same browser session (Story testbeds) override so each instance keeps its own pill state.
 
-Host-supplied seed via `(causa-config/configure! {:filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Causa itself ships with `nil` seed (first-session honesty).
+Host-supplied seed via `(causa-config/configure! {:rf.causa/filters {:in […] :out […]}})` lands ONLY on first install when localStorage is empty — the seed never clobbers a user's hand-tuned set. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Causa itself ships with `nil` seed (first-session honesty).
 
 The Settings popup §9 exposes the pill set + Recommended quick-add + factory-reset (the §9 Filters tab in v1 is a pointer into the ribbon pill UI — full per-pill management surface lives in the ribbon per spec §3; see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup — v1 ships).
 
 ### Error overrides
 
-When a filtered event raises an exception, surface it anyway (`:filters/auto-hide-error-overrides?` config key, default `true`). The row appears with both `⚠` and `▽` (filter-bypass) gutter; user knows "this would normally be hidden, but it errored."
+When a filtered event raises an exception, surface it anyway (`:rf.causa/filters-auto-hide-error-overrides?` config key, default `true`). The row appears with both `⚠` and `▽` (filter-bypass) gutter; user knows "this would normally be hidden, but it errored."
 
 ### Data-layer filtering
 
@@ -1233,10 +1233,9 @@ ribbon and re-implementing it in two places would invite drift.
 
 Every Settings popup field maps to a `(causa-config/configure! {…})` key. See [`015-Configuration.md`](015-Configuration.md) for the full enumeration. New keys this spec adds:
 
-- `:filters/in` — vec of `{:pattern :scope}` IN pills.
-- `:filters/out` — vec of `{:pattern :scope}` OUT pills.
-- `:filters/auto-hide-error-overrides?` — bool, default `true`.
-- `:picker/show-tool-frames?` — bool, default `false`.
+- `:rf.causa/filters` `{:in […] :out […]}` — IN/OUT pill seeds.
+- `:rf.causa/filters-auto-hide-error-overrides?` — bool, default `true`.
+- `:rf.causa/picker-show-tool-frames?` — bool, default `false`.
 
 ---
 

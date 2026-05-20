@@ -117,10 +117,10 @@
   ;; collectors/API/keybinding installed but skip the default panel
   ;; launch; app pages that want Causa inline still provide the normal
   ;; `[data-rf-causa-host]` contract.
-  (causa-config/configure! {:launch/auto-open? false})
+  (causa-config/configure! {:rf.causa/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   (story/install-canonical-vocabulary!)
-  ;; rf2-r1uod — `:project-root` plumbed through Story; the
+  ;; rf2-r1uod — `:rf.story/project-root` plumbed through Story; the
   ;; `causa-preset` bridge propagates it into Causa's slot so the
   ;; Causa-as-RHS open-in-editor chips resolve absolute on-disk paths.
   (story/configure! {:rf.story/project-root (resolve-project-root)})

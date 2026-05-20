@@ -140,7 +140,7 @@
 ;; editor with a classpath-relative path
 ;; ("panel_gallery/event_detail_stories.cljs:115:3") that the editor's
 ;; filesystem resolver could not find. The Causa config now exposes
-;; `:project-root` — set once at boot via `causa-config/configure!` — and
+;; `:rf.causa/project-root` — set once at boot via `causa-config/configure!` — and
 ;; `resolve-uri` (which both the chip and the `:rf.editor/open` fx share)
 ;; prepends it before the URI ships. Mirror of Story's rf2-zfy1e matrix.
 
@@ -165,7 +165,7 @@
 (deftest open-chip-project-root-regression-rf2-5m5n2
   (testing "regression: the panel-gallery testbed's failure case now
             resolves to an absolute on-disk URI when the host has
-            plumbed :project-root through causa-config/configure!"
+            plumbed :rf.causa/project-root through causa-config/configure!"
     (config/set-project-root!
       "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
     (let [hiccup (open-in-editor/open-chip
