@@ -45,6 +45,41 @@
                 [:risky :paid :auth/ok :final :loading :error
                  :rec :checkout :session/active :flow/start]))))
 
+;; ---- light palette (rf2-usord) -----------------------------------------
+
+(deftest light-palette-exists-and-mirrors-dark-shape
+  (testing "rf2-usord — light-palette exposes the same keys as
+            dark-palette so callers can swap palettes without losing
+            tokens. The HEX values are independent (light theme inverts
+            lightness + darkens accents for contrast on a white
+            canvas)."
+    (is (= (set (keys tokens/dark-palette))
+           (set (keys tokens/light-palette))))))
+
+(deftest light-palette-inverts-surface-lightness
+  (testing "rf2-usord — light theme bg-0 is the LIGHTEST recess (FAFBFC)
+            while dark theme bg-0 is the DEEPEST canvas (0E0F12)."
+    (is (= "#0E0F12" (:bg-0 tokens/dark-palette)))
+    (is (= "#FAFBFC" (:bg-0 tokens/light-palette)))
+    (is (= "#E8EAF0" (:text-primary tokens/dark-palette)))
+    (is (= "#15171B" (:text-primary tokens/light-palette)))))
+
+(deftest palettes-map-exposes-both-themes
+  (testing "rf2-usord — palettes map keys both themes by name so the
+            substrate-adapter MachineChart re-exports can resolve via
+            `(get palettes theme)` without per-theme conditionals."
+    (is (= tokens/dark-palette  (:dark  tokens/palettes)))
+    (is (= tokens/light-palette (:light tokens/palettes)))))
+
+(deftest with-alpha-resolves-through-custom-palette
+  (testing "rf2-usord — with-alpha already supports a custom palette
+            arg; this test pins the LIGHT-palette path so chart code
+            can resolve tints against the light theme without forking
+            the helper."
+    (let [s (tokens/with-alpha :cyan 0.5 tokens/light-palette)]
+      ;; Light :cyan is #2A8B96 → rgba(42, 139, 150, 0.5)
+      (is (= "rgba(42, 139, 150, 0.5)" s)))))
+
 ;; ---- motion seam (rf2-xfx6l) -------------------------------------------
 
 (deftest duration-css-interpolates-scale-var

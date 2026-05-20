@@ -141,7 +141,7 @@
                       compound? (some (fn [node]
                                         (and (vector? node)
                                              (map? (second node))
-                                             (= "rf-causa-chart-compounds"
+                                             (= "rf-mv-chart-compounds"
                                                 (:data-testid (second node)))))
                                       flat)]
                   (is (true? (boolean compound?))

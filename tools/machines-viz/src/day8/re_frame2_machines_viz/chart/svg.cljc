@@ -226,7 +226,7 @@
   grouping CHROME, not data; sans reads as 'section heading' where
   mono would read as 'identifier value'."
   [{:keys [x y width height label node-id]}]
-  [:g {:data-testid (str "rf-causa-chart-compound-" node-id)
+  [:g {:data-testid (str "rf-mv-chart-compound-" node-id)
        :data-node-id node-id}
    [:rect {:x x :y y :width width :height height
            :rx 10
@@ -278,7 +278,7 @@
           cy (+ (:y initial-node) (quot (:height initial-node) 2))
           nx (:x initial-node)
           ny cy]
-      [:g {:data-testid "rf-causa-chart-initial-marker"}
+      [:g {:data-testid "rf-mv-chart-initial-marker"}
        [:circle {:cx cx :cy cy :r 5
                  :fill (:accent-violet tokens/tokens)
                  :stroke (:accent-violet tokens/tokens)
@@ -287,7 +287,7 @@
                :x2 (- nx 2) :y2 ny
                :stroke (:text-secondary tokens/tokens)
                :stroke-width stroke-width
-               :marker-end "url(#rf-causa-chart-arrow)"}]])))
+               :marker-end "url(#rf-mv-chart-arrow)"}]])))
 
 (defn- render-tag-pills
   "rf2-m1b88 — render a horizontal row of state-tag pills ABOVE the
@@ -378,7 +378,7 @@
                           active-affordance? (+ highlight-stroke-width 0.75)
                           emphasised?        highlight-stroke-width
                           :else              stroke-width)]
-    [:g {:data-testid (str "rf-causa-chart-node-" node-id)
+    [:g {:data-testid (str "rf-mv-chart-node-" node-id)
          :data-active (str active?)
          :data-from-highlight (str from-highlight?)
          :data-to-highlight (str to-highlight?)
@@ -505,8 +505,8 @@
                   (:cyan tokens/tokens)
                   (:border-default tokens/tokens))
         marker  (if emphasised?
-                  "url(#rf-causa-chart-arrow-highlight)"
-                  "url(#rf-causa-chart-arrow)")
+                  "url(#rf-mv-chart-arrow-highlight)"
+                  "url(#rf-mv-chart-arrow)")
         [lx ly] (edge-label-position points)
         ;; rf2-jeim7 — `:event-label` is now the full xstate label
         ;; `event [guard] / action` built upstream by `layout/edge-label`
@@ -524,7 +524,7 @@
                            (tokens/duration-css (:glow-duration-ms tokens/motion))
                            " ease-out infinite")})
         base-w (if emphasised? highlight-stroke-width stroke-width)]
-    [:g {:data-testid (str "rf-causa-chart-edge-" from-id "-to-" to-id)
+    [:g {:data-testid (str "rf-mv-chart-edge-" from-id "-to-" to-id)
          :data-event event-label
          :data-guard (when guard
                        (if (keyword? guard) (name guard) (str guard)))
@@ -553,11 +553,15 @@
              bp-h         14
              bp-x         (- lx (long (* char-w-half label-len)))
              bp-y         (- ly 10)]
-         [:g {:data-testid (str "rf-mv-chart-edge-label-" from-id "-to-" to-id)}
+         [:g {:data-testid (str "rf-mv-chart-edgelabel-" from-id "-to-" to-id)}
           ;; rf2-gg7ws — light backplate behind the edge label. White
           ;; at ~85% fill-opacity reads as a small label "card" on
-          ;; both the dark canvas and over edges / dot-grid.
-          [:rect {:data-testid (str "rf-mv-chart-edge-label-backplate-"
+          ;; both the dark canvas and over edges / dot-grid. rf2-0r2co
+          ;; — the testid uses `edgelabel` (one word) rather than
+          ;; `edge-label` so the prefix doesn't collide with the
+          ;; per-edge `rf-mv-chart-edge-<a>-to-<b>` prefix used by
+          ;; selectors that count edges.
+          [:rect {:data-testid (str "rf-mv-chart-edgelabel-backplate-"
                                     from-id "-to-" to-id)
                   :x bp-x :y bp-y
                   :width bp-w :height bp-h
@@ -706,7 +710,7 @@
             sim? on-state-click testid show-caption? caption
             viewport-transform svg-attrs]}]
    (if (empty? nodes)
-     [:div {:data-testid (or testid "rf-causa-chart-empty")
+     [:div {:data-testid (or testid "rf-mv-chart-empty")
             :style {:padding "16px"
                     ;; rf2-trorn — sans-stack token rather than the
                     ;; previous `'Inter, system-ui, ...'` literal.
@@ -743,7 +747,7 @@
            transform-attr (when transform-applied?
                             (str "translate(" tx "," ty ")"
                                  " scale(" scale ")"))
-           svg-base-attrs {:data-testid (or testid "rf-causa-chart-svg")
+           svg-base-attrs {:data-testid (or testid "rf-mv-chart-svg")
                            :data-highlight-id (or highlight-id "")
                            :data-from-highlight-id (or from-highlight-id "")
                            :data-to-highlight-id (or to-highlight-id "")
@@ -770,14 +774,14 @@
         (inline-stylesheet)
         ;; ---- arrow markers + dot-grid pattern ----
         [:defs
-         [:marker {:id "rf-causa-chart-arrow"
+         [:marker {:id "rf-mv-chart-arrow"
                    :viewBox "0 0 10 10"
                    :refX "9" :refY "5"
                    :markerWidth "8" :markerHeight "8"
                    :orient "auto-start-reverse"
                    :fill (:text-secondary tokens/tokens)}
           [:path {:d "M 0 0 L 10 5 L 0 10 z"}]]
-         [:marker {:id "rf-causa-chart-arrow-highlight"
+         [:marker {:id "rf-mv-chart-arrow-highlight"
                    :viewBox "0 0 10 10"
                    :refX "9" :refY "5"
                    :markerWidth "8" :markerHeight "8"
@@ -809,12 +813,12 @@
               :transform (str "translate(0," caption-h ")")}
           ;; Compound containers sit BELOW edges + nodes so the dashed
           ;; outline reads as a backdrop. rf2-m7co9 Phase 4.
-          (into [:g {:data-testid "rf-causa-chart-compounds"}]
+          (into [:g {:data-testid "rf-mv-chart-compounds"}]
                 (for [c containers]
                   ^{:key (:node-id c)}
                   (render-compound-container c)))
           ;; Edges first so nodes paint over them
-          (into [:g {:data-testid "rf-causa-chart-edges"}]
+          (into [:g {:data-testid "rf-mv-chart-edges"}]
                 (for [edge edges]
                   ^{:key (str (:from-id edge) "->" (:to-id edge)
                               "/" (:event-label edge))}
@@ -822,7 +826,7 @@
                                      :from-highlight-id from-highlight-id
                                      :to-highlight-id   to-highlight-id})))
           (render-initial-marker initial-node)
-          (into [:g {:data-testid "rf-causa-chart-nodes"}]
+          (into [:g {:data-testid "rf-mv-chart-nodes"}]
                 (for [node nodes]
                   ^{:key (:node-id node)}
                   (render-node node
@@ -893,7 +897,7 @@
         token-key (get ring-color->token color :text-tertiary)
         stroke    (get tokens/tokens token-key)
         opacity   (if cancelled? 0.4 0.85)]
-    [:g {:data-testid    (or testid "rf-causa-chart-countdown-ring")
+    [:g {:data-testid    (or testid "rf-mv-chart-countdown-ring")
          :data-color     (name color)
          :data-cancelled (str (boolean cancelled?))
          :data-fraction  (when fraction (str fraction))
@@ -942,7 +946,7 @@
              :or   {width  60
                     height 16
                     stroke (:cyan tokens/tokens)
-                    testid "rf-causa-chart-sparkline"}}]
+                    testid "rf-mv-chart-sparkline"}}]
    (let [n        (count samples)
          max-v    (or max-sample
                       (when (seq samples)

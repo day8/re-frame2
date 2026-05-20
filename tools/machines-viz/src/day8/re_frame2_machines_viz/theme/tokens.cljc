@@ -17,6 +17,18 @@
   v1.x affordance; the current chart consumes the dark palette
   directly).
 
+  ## Light + dark palettes (rf2-usord)
+
+  Both `dark-palette` (the default Causa surface) and `light-palette`
+  (lighter hosts) are catalogued here. The `palettes` map keys both
+  by theme name (`:dark` / `:light`) so the substrate-adapter
+  `MachineChart` re-exports resolve via the `:theme` prop. `tokens`
+  remains an alias of `dark-palette` for back-compat with the existing
+  inline-style call sites — a light-theme host either passes the light
+  palette through `with-alpha`'s three-arg arity OR (downstream)
+  consumes the per-theme CSS-variable surface once the consolidation
+  lands.
+
   ## Tint helper
 
   rf2-pyvmr — `with-alpha` resolves a token key to its hex value
@@ -78,10 +90,59 @@
    :red-deep       "#a83a3a"
    :white          "#ffffff"})
 
+(def light-palette
+  "Light-theme colour tokens (rf2-usord). Mirrors
+  `day8.re-frame2-causa.theme.tokens/light-palette` at the values level
+  so the chart renders identically whether embedded by Causa, Story,
+  the read-only viewer, or a user dev shell whose host runs a light
+  theme. Surfaces invert (`bg-2` is the brightest 'top' canvas, `bg-0`
+  the gentlest 'recess'); text inverts so primary is near-black;
+  accents darken ~15-20% to maintain AA contrast on a white canvas.
+
+  Hosts that want the chart to render against a light background pass
+  this palette through the `:palette` render option (or via the
+  `:theme :light` prop on the substrate-adapter `MachineChart`
+  re-exports — wiring lives downstream)."
+  {:bg-0           "#FAFBFC"
+   :bg-1           "#F1F3F6"
+   :bg-2           "#FFFFFF"
+   :bg-3           "#E6E9EE"
+   :bg-active      "#DCE0E7"
+
+   :border-subtle  "#E6E9EE"
+   :border-default "#CFD4DC"
+
+   :text-primary   "#15171B"
+   :text-secondary "#4B5160"
+   :text-tertiary  "#8B92A1"
+
+   :accent-violet  "#5538D8"
+   :cyan           "#2A8B96"
+   :green          "#2F9E5C"
+   :yellow         "#B07A05"
+   :orange         "#C2570F"
+   :red            "#C84444"
+   :magenta        "#B146C2"
+
+   :red-deep       "#9A3030"
+   :white          "#ffffff"})
+
+(def palettes
+  "Map of theme-name → palette map (rf2-usord). Mirrors Causa's
+  `theme/tokens/themes`. The downstream substrate-adapter
+  `MachineChart` exports look this up by the `:theme :dark | :light`
+  prop; absent that, hosts can pick a palette from this map directly
+  and pass it through the `with-alpha` helper's three-arg arity."
+  {:dark  dark-palette
+   :light light-palette})
+
 (def tokens
   "Backwards-compatible alias for the dark palette — same shape
   Causa's `tokens` map exposes so the chart's `(:bg-1 tokens)` style
-  call sites read identically."
+  call sites read identically. The light theme is layered on top via
+  the `:palette` render option (rf2-usord); the 200+ inline-style
+  reads in `chart/svg` continue to resolve through this alias until
+  the CSS-variable migration consolidates the indirection."
   dark-palette)
 
 ;; ---- font stacks -------------------------------------------------------

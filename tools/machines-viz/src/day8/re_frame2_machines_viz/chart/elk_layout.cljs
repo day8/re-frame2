@@ -191,6 +191,37 @@
 (def ^:private default-node-width 140)
 (def ^:private default-node-height 44)
 
+(def default-layout-options
+  "rf2-ikdi3 — the canonical ELK `layoutOptions` map the chart ships
+  with. Callers can merge a host-side override on top (`->elk-graph`'s
+  three-arg arity; the `:layout-options` prop on the downstream
+  `MachineChart` re-exports threads the same map).
+
+  Knob choices (per the rf2-0yil0 visual-quality audit + rf2-gg7ws):
+
+    - `\"elk.algorithm\"` `\"layered\"` — the canonical state-chart
+      algorithm; ELK's other engines (`force`, `stress`, `mrtree`) are
+      worse fits for typical state-machine topology.
+    - `\"elk.direction\"` `\"DOWN\"` — set per the `direction` arg
+      below; included here so the default map is complete.
+    - `\"elk.spacing.nodeNode\"` `\"32\"` — Causa-panel-sized default.
+      Narrow hosts (Story per-variant ribbon) override to ~20; wide
+      hosts (viewer page full-window) can afford 40+.
+    - `\"elk.layered.spacing.nodeNodeBetweenLayers\"` `\"60\"` —
+      vertical rhythm between ranks.
+    - `\"elk.layered.crossingMinimization.strategy\"` `\"LAYER_SWEEP\"`
+      — produces visually clean rank ordering. Alternative
+      `INTERACTIVE` preserves source order at the cost of crossings.
+    - `\"elk.edgeRouting\"` `\"SPLINES\"` (rf2-gg7ws) — bezier curves
+      for a polished, organic edge style competitive with
+      xstate-stately. `ORTHOGONAL` reads as schematic; below the
+      000-Vision visual-ergonomics floor per the 2026-05-20 audit."
+  {"elk.algorithm"                              "layered"
+   "elk.spacing.nodeNode"                       "32"
+   "elk.layered.spacing.nodeNodeBetweenLayers"  "60"
+   "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
+   "elk.edgeRouting"                            "SPLINES"})
+
 (defn ->elk-graph
   "Project a parsed machine-definition into the ELK JSON graph shape:
 
@@ -208,12 +239,20 @@
   per-region LR/TB hybrid that Spec 003 sketches lives in a follow-on
   bead.
 
+  rf2-ikdi3 — `layout-options` (optional) is a map of string → string
+  ELK option overrides that merge ON TOP of the canonical
+  `default-layout-options` (so the host can tighten / widen / swap
+  individual knobs without re-stating the whole map). The `direction`
+  arg always wins for `\"elk.direction\"` so the substrate-adapter
+  `:direction` prop stays the authoritative axis.
+
   Note: v1 projects the flat parsed graph (compound children appear
   alongside their parents at the top level — same shape the layered
   fallback produces). Hierarchical ELK containment is deferred — see
   the ns docstring."
-  ([definition] (->elk-graph definition :tb))
-  ([definition direction]
+  ([definition] (->elk-graph definition :tb nil))
+  ([definition direction] (->elk-graph definition direction nil))
+  ([definition direction layout-options]
    (let [{:keys [nodes edges]} (layout/parse-definition definition)
          dir-str (case direction
                    :lr "RIGHT"
@@ -234,21 +273,16 @@
                      ;; placement heuristic can reserve enough width
                      ;; for `event [guard] / action` (longer strings
                      ;; need wider lanes).
-                     :labels  [{:text (layout/edge-label e)}]})]
+                     :labels  [{:text (layout/edge-label e)}]})
+         ;; rf2-ikdi3 — merge host override on top of defaults, then
+         ;; force `elk.direction` from the `direction` arg so the
+         ;; substrate-adapter `:direction` prop is the authoritative
+         ;; axis source (host can still override every other knob).
+         merged-opts (-> default-layout-options
+                         (merge (or layout-options {}))
+                         (assoc "elk.direction" dir-str))]
      {:id            "root"
-      ;; rf2-gg7ws — `:edgeRouting` walked from "ORTHOGONAL" (90°
-      ;; dog-legs; below the 000-Vision visual-ergonomics floor per
-      ;; the 2026-05-20 audit) to "SPLINES" (smooth bezier curves)
-      ;; for a polished, organic edge style that reads as competitive
-      ;; with xstate-stately. The `path-from-points` `:case 4` branch
-      ;; in `chart/svg` already emits SVG cubic-bezier `d` strings, so
-      ;; the renderer handles the spline points transparently.
-      :layoutOptions {"elk.algorithm"                              "layered"
-                      "elk.direction"                              dir-str
-                      "elk.spacing.nodeNode"                       "32"
-                      "elk.layered.spacing.nodeNodeBetweenLayers"  "60"
-                      "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
-                      "elk.edgeRouting"                            "SPLINES"}
+      :layoutOptions merged-opts
       :children      (mapv mk-child nodes)
       :edges         (vec (map-indexed mk-edge edges))})))
 
@@ -385,18 +419,23 @@
 
 (defn cached-layout
   "Synchronous read: return the cached chart-layout for `definition` +
-  `direction`, or nil when the cache is stale / empty. Pure read; the
-  caller is responsible for triggering a `compute-layout!` when this
-  returns nil."
-  [definition direction]
-  (let [c @layout-cache]
-    (when (and c (= (:key c) [definition direction]))
-      (:layout c))))
+  `direction` (+ optional `layout-options`), or nil when the cache is
+  stale / empty. Pure read; the caller is responsible for triggering a
+  `compute-layout!` when this returns nil.
+
+  rf2-ikdi3 — `layout-options` is part of the cache key so a host that
+  toggles density (`nodeNode 32` → `20`) gets a fresh layout pass
+  rather than stale positions from the previous knob."
+  ([definition direction] (cached-layout definition direction nil))
+  ([definition direction layout-options]
+   (let [c @layout-cache]
+     (when (and c (= (:key c) [definition direction layout-options]))
+       (:layout c)))))
 
 (defn- write-cache!
-  [definition direction chart-layout]
+  [definition direction layout-options chart-layout]
   (reset! layout-cache
-          {:key    [definition direction]
+          {:key    [definition direction layout-options]
            :layout chart-layout})
   chart-layout)
 
@@ -407,13 +446,14 @@
   nil)
 
 (defn compute-layout!
-  "Async: run an ELK layout pass for `definition` + `direction` and
-  write the result to the cache. Calls `done-fn` with the chart-layout
-  map once available, or with nil if ELK isn't ready / layout failed.
+  "Async: run an ELK layout pass for `definition` + `direction`
+  (+ optional `layout-options`) and write the result to the cache.
+  Calls `done-fn` with the chart-layout map once available, or with
+  nil if ELK isn't ready / layout failed.
 
   Idempotent w.r.t. the cache: if a layout for this `[definition
-  direction]` key is already cached, the cached value is delivered
-  synchronously without re-running ELK.
+  direction layout-options]` key is already cached, the cached value
+  is delivered synchronously without re-running ELK.
 
   The async path looks like:
 
@@ -423,45 +463,71 @@
        `elk-result->chart-layout`, write to cache, fire callback.
     3. ELK not ready → callback fires sync with nil. Caller falls
        back to `layered-fallback` (and re-tries on the next render
-       tick after `ensure-elk!` resolves)."
-  [definition direction done-fn]
-  (if-let [cached (cached-layout definition direction)]
-    (done-fn cached)
-    (if-let [elk (elk-instance)]
-      (let [input    (->elk-graph definition direction)
-            input-js (clj->js input)
-            p        (try (.layout elk input-js)
-                          (catch :default _ nil))]
-        (if (and p (.-then p))
-          (-> p
-              (.then (fn [result]
-                       (let [clj-result (js->clj result :keywordize-keys true)
-                             chart-layout (elk-result->chart-layout
-                                            definition clj-result)]
-                         (write-cache! definition direction chart-layout)
-                         (done-fn chart-layout))))
-              (.catch (fn [_e]
-                        ;; Layout failure is transient — leave the
-                        ;; cache untouched so the next attempt can
-                        ;; retry. Caller falls back to layered.
-                        (done-fn nil))))
-          (done-fn nil)))
-      (done-fn nil))))
+       tick after `ensure-elk!` resolves).
+
+  rf2-ikdi3 — `layout-options` is forwarded to `->elk-graph` so host
+  overrides reach ELK; it is also part of the cache key so a knob
+  flip triggers a fresh layout pass."
+  ([definition direction done-fn]
+   (compute-layout! definition direction nil done-fn))
+  ([definition direction layout-options done-fn]
+   (if-let [cached (cached-layout definition direction layout-options)]
+     (done-fn cached)
+     (if-let [elk (elk-instance)]
+       (let [input    (->elk-graph definition direction layout-options)
+             input-js (clj->js input)
+             p        (try (.layout elk input-js)
+                           (catch :default _ nil))]
+         (if (and p (.-then p))
+           (-> p
+               (.then (fn [result]
+                        (let [clj-result (js->clj result :keywordize-keys true)
+                              chart-layout (elk-result->chart-layout
+                                             definition clj-result)]
+                          (write-cache! definition direction layout-options
+                                        chart-layout)
+                          (done-fn chart-layout))))
+               (.catch (fn [_e]
+                         ;; Layout failure is transient — leave the
+                         ;; cache untouched so the next attempt can
+                         ;; retry. Caller falls back to layered.
+                         (done-fn nil))))
+           (done-fn nil)))
+       (done-fn nil)))))
 
 ;; ---- public entry --------------------------------------------------------
 
 (defn layout-or-fallback
-  "Sync entry. Returns a chart-layout map immediately:
+  "Sync entry. Returns a chart-layout map immediately based on the
+  selected engine (rf2-ikdi3):
 
-    - When ELK is ready AND the cache holds a layout for `[definition
-      direction]` → return the cached ELK layout.
-    - Otherwise → return the layered-fallback layout (sync, pure).
+    - `:auto` (default) — when ELK is ready AND the cache holds a
+      layout for `[definition direction layout-options]` → return the
+      cached ELK layout. Otherwise → return the layered-fallback
+      layout (sync, pure).
+    - `:elk` — same as `:auto` but never falls back: returns the
+      cached ELK layout when present, or `nil` when not (host can
+      then choose to wait + retry rather than render the layered
+      fallback). Useful for hosts that prefer 'show nothing' to
+      'show the inferior engine'.
+    - `:layered` — bypass ELK entirely and always return the layered
+      fallback. Useful for hosts that need deterministic layout
+      (Causa's screenshot tests) or want to avoid ELK's async + bundle
+      cost.
 
   The caller (the panel) typically calls this once per render. The
   panel is also responsible for calling `ensure-elk!` (to start the
   lazy import) and `compute-layout!` (to populate the cache + trigger
   a re-render via a dispatched pulse event)."
-  ([definition] (layout-or-fallback definition :tb))
-  ([definition direction]
-   (or (cached-layout definition direction)
-       (layout/layered-fallback definition))))
+  ([definition] (layout-or-fallback definition :tb nil :auto))
+  ([definition direction] (layout-or-fallback definition direction nil :auto))
+  ([definition direction layout-options]
+   (layout-or-fallback definition direction layout-options :auto))
+  ([definition direction layout-options engine]
+   (case engine
+     :layered (layout/layered-fallback definition)
+     :elk     (cached-layout definition direction layout-options)
+     ;; :auto (and any unknown value defaults to the historical
+     ;; behaviour — ELK when cached, layered fallback otherwise).
+     (or (cached-layout definition direction layout-options)
+         (layout/layered-fallback definition)))))

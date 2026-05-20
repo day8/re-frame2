@@ -413,8 +413,8 @@ old text-first surface.
   event with `ctrlKey=true`; both are accepted.
 - **Click-drag** anywhere on canvas background (not on a state
   node) pans. The drag handler walks up to 5 DOM ancestors looking
-  for `data-testid` starting `rf-causa-chart-node-` /
-  `rf-causa-chart-edge-`; clicks that hit a node fall through to
+  for `data-testid` starting `rf-mv-chart-node-` /
+  `rf-mv-chart-edge-`; clicks that hit a node fall through to
   the node's own `:on-click` (state-click event).
 
 **Keyboard shortcuts** (chart canvas must hold focus — `tabIndex=0`

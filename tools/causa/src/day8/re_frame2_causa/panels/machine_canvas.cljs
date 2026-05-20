@@ -354,8 +354,8 @@
                   (try (.getAttribute el "data-testid")
                        (catch :default _ nil)))]
         (if (and (string? tid)
-                 (or (.startsWith tid "rf-causa-chart-node-")
-                     (.startsWith tid "rf-causa-chart-edge-")))
+                 (or (.startsWith tid "rf-mv-chart-node-")
+                     (.startsWith tid "rf-mv-chart-edge-")))
           true
           (recur (when el (.-parentNode el)) (inc depth)))))))
 

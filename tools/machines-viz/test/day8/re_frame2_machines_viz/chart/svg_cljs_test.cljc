@@ -46,7 +46,7 @@
 
 (deftest render-empty-shows-fallback
   (let [tree (chart-svg/render-from-definition nil)]
-    (is (some? (find-by-testid tree "rf-causa-chart-empty"))
+    (is (some? (find-by-testid tree "rf-mv-chart-empty"))
         "nil definition renders a friendly fallback")))
 
 ;; ---- viewport transform (rf2-y3l8z) ------------------------------------
@@ -75,7 +75,7 @@
                  small-machine
                  {:viewport-transform {:scale 1.5 :tx 12 :ty 24}})
           [_ root-attrs] tree]
-      (is (= "rf-causa-chart-svg" (:data-testid root-attrs)))
+      (is (= "rf-mv-chart-svg" (:data-testid root-attrs)))
       (is (= "1.5" (:data-viewport-scale root-attrs)))
       (is (= "12"  (:data-viewport-tx root-attrs)))
       (is (= "24"  (:data-viewport-ty root-attrs))))))
@@ -97,18 +97,18 @@
 
 (deftest render-emits-svg-root
   (let [tree (chart-svg/render-from-definition small-machine)]
-    (is (some? (find-by-testid tree "rf-causa-chart-svg"))
+    (is (some? (find-by-testid tree "rf-mv-chart-svg"))
         "root SVG present")))
 
 (deftest render-emits-one-node-per-state
   (let [tree    (chart-svg/render-from-definition small-machine)
-        nodes   (find-all-by-testid-prefix tree "rf-causa-chart-node-")]
+        nodes   (find-all-by-testid-prefix tree "rf-mv-chart-node-")]
     (is (= 4 (count nodes))
         "four state nodes — :idle :loading :success :failed")))
 
 (deftest render-emits-edges
   (let [tree (chart-svg/render-from-definition small-machine)
-        edges (find-all-by-testid-prefix tree "rf-causa-chart-edge-")]
+        edges (find-all-by-testid-prefix tree "rf-mv-chart-edge-")]
     (is (= 3 (count edges))
         "three edges — :start, :ok, :err")))
 
@@ -118,20 +118,20 @@
                small-machine
                {:highlight-id hid})
         ;; node-id derived from path
-        node (find-by-testid tree (str "rf-causa-chart-node-" hid))]
+        node (find-by-testid tree (str "rf-mv-chart-node-" hid))]
     (is (some? node))
     (is (= "true" (:data-active (second node)))
         ":loading node is data-active=\"true\"")))
 
 (deftest render-no-active-when-no-highlight
   (let [tree (chart-svg/render-from-definition small-machine)
-        nodes (find-all-by-testid-prefix tree "rf-causa-chart-node-")]
+        nodes (find-all-by-testid-prefix tree "rf-mv-chart-node-")]
     (is (every? (fn [n] (= "false" (:data-active (second n)))) nodes)
         "no node is active when highlight-id is omitted")))
 
 (deftest render-initial-marker-present
   (let [tree (chart-svg/render-from-definition small-machine)]
-    (is (some? (find-by-testid tree "rf-causa-chart-initial-marker"))
+    (is (some? (find-by-testid tree "rf-mv-chart-initial-marker"))
         "the initial-state marker is rendered")))
 
 (deftest render-on-state-click-fires-with-path
@@ -141,7 +141,7 @@
                  {:on-state-click (fn [p] (swap! seen conj p))})
         node   (find-by-testid
                  tree
-                 (str "rf-causa-chart-node-" (layout/highlight-id :loading)))
+                 (str "rf-mv-chart-node-" (layout/highlight-id :loading)))
         click  (:on-click (second node))]
     (is (some? click))
     (when click (click nil))
@@ -154,7 +154,7 @@
   (let [svg (chart-svg/sparkline [1 2 3])]
     (is (vector? svg))
     (is (= :svg (first svg)))
-    (is (= "rf-causa-chart-sparkline"
+    (is (= "rf-mv-chart-sparkline"
            (:data-testid (second svg))))))
 
 (deftest sparkline-empty-samples-still-renders-baseline-only
@@ -217,10 +217,10 @@
   (testing "render-from-definition emits a compound container <g> with
             the spec'd testid for each compound state"
     (let [tree   (chart-svg/render-from-definition compound-machine)
-          group  (find-by-testid tree "rf-causa-chart-compounds")
-          inner  (find-all-by-testid-prefix tree "rf-causa-chart-compound-")]
+          group  (find-by-testid tree "rf-mv-chart-compounds")
+          inner  (find-all-by-testid-prefix tree "rf-mv-chart-compound-")]
       (is (some? group)
-          "a top-level <g data-testid=\"rf-causa-chart-compounds\"> hosts
+          "a top-level <g data-testid=\"rf-mv-chart-compounds\"> hosts
            every compound rectangle")
       (is (= 1 (count inner))
           "exactly one compound-state rectangle (:authenticated)"))))
@@ -228,7 +228,7 @@
 (deftest compound-containers-empty-for-flat-machine
   (testing "a flat machine (no compound states) produces no containers"
     (let [tree   (chart-svg/render-from-definition small-machine)
-          inner  (find-all-by-testid-prefix tree "rf-causa-chart-compound-")]
+          inner  (find-all-by-testid-prefix tree "rf-mv-chart-compound-")]
       (is (zero? (count inner))))))
 
 (deftest compound-container-honours-label
@@ -350,7 +350,7 @@
             opacity."
     (let [tree    (chart-svg/render-from-definition small-machine)
           plates  (find-all-by-testid-prefix
-                    tree "rf-mv-chart-edge-label-backplate-")]
+                    tree "rf-mv-chart-edgelabel-backplate-")]
       (is (= 3 (count plates))
           "one backplate per labelled edge (3 edges in small-machine)")
       (doseq [plate plates]
@@ -428,7 +428,7 @@
     (let [hid  (layout/highlight-id :loading)
           tree (chart-svg/render-from-definition
                  small-machine {:highlight-id hid})
-          node (find-by-testid tree (str "rf-causa-chart-node-" hid))]
+          node (find-by-testid tree (str "rf-mv-chart-node-" hid))]
       (is (= "true" (:data-active-affordance (second node)))))))
 
 (deftest active-state-not-marked-as-pulse-target
@@ -437,7 +437,7 @@
     (let [hid  (layout/highlight-id :loading)
           tree (chart-svg/render-from-definition
                  small-machine {:highlight-id hid})
-          node (find-by-testid tree (str "rf-causa-chart-node-" hid))]
+          node (find-by-testid tree (str "rf-mv-chart-node-" hid))]
       (is (nil? (:data-pulse (second node)))
           "data-pulse attr is gone (rf2-2sez0)"))))
 
@@ -449,9 +449,9 @@
           tree   (chart-svg/render-from-definition
                    small-machine {:highlight-id hid})
           active-node   (find-by-testid tree
-                                        (str "rf-causa-chart-node-" hid))
+                                        (str "rf-mv-chart-node-" hid))
           inactive-node (find-by-testid tree
-                                        (str "rf-causa-chart-node-"
+                                        (str "rf-mv-chart-node-"
                                              (layout/highlight-id :idle)))
           ;; the main node rect is the LAST :rect descendant of the
           ;; node <g> that carries a numeric :stroke-width.
@@ -475,7 +475,7 @@
     (let [tree   (chart-svg/render-from-definition
                    small-machine
                    {:highlight-id (layout/highlight-id :loading)})
-          nodes  (find-all-by-testid-prefix tree "rf-causa-chart-node-")
+          nodes  (find-all-by-testid-prefix tree "rf-mv-chart-node-")
           active (filter (fn [n]
                            (= "true"
                               (:data-active-affordance (second n))))
@@ -492,8 +492,8 @@
                     small-machine
                     {:from-highlight-id from-id
                      :to-highlight-id   to-id})
-          from-node (find-by-testid tree (str "rf-causa-chart-node-" from-id))
-          to-node   (find-by-testid tree (str "rf-causa-chart-node-" to-id))]
+          from-node (find-by-testid tree (str "rf-mv-chart-node-" from-id))
+          to-node   (find-by-testid tree (str "rf-mv-chart-node-" to-id))]
       (is (= "false" (:data-active-affordance (second from-node)))
           "FROM node has no active affordance")
       (is (= "true"  (:data-active-affordance (second to-node)))
@@ -509,7 +509,7 @@
                     small-machine
                     {:from-highlight-id from-id
                      :to-highlight-id   to-id})
-          edges   (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          edges   (find-all-by-testid-prefix tree "rf-mv-chart-edge-")
           focused (filter (fn [e] (= "true" (:data-focused-edge (second e))))
                           edges)]
       (is (= 1 (count focused))
@@ -608,7 +608,7 @@
   (testing "rf2-g6cig L4 — compound-container title font is sans-stack
             (chrome, not data)"
     (let [tree   (chart-svg/render-from-definition compound-machine)
-          compd  (find-by-testid tree "rf-causa-chart-compounds")
+          compd  (find-by-testid tree "rf-mv-chart-compounds")
           title (some (fn [n] (and (vector? n) (= :text (first n))
                                    (= 600 (:font-weight (second n)))
                                    n))
@@ -656,7 +656,7 @@
   (testing "rf2-jeim7 — an edge with both guard + action renders the
             full xstate label `event [guard] / action`"
     (let [tree   (chart-svg/render-from-definition guards-actions-machine)
-          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          edges  (find-all-by-testid-prefix tree "rf-mv-chart-edge-")
           labels (set (keep edge-label-text edges))]
       (is (contains? labels "submit [authed?] / log-it")
           "event + guard + action segment shape")
@@ -673,7 +673,7 @@
   (testing "rf2-jeim7 — `data-guard` + `data-action` surface on the edge
             `<g>` so host tests + future click-handlers can target them"
     (let [tree   (chart-svg/render-from-definition guards-actions-machine)
-          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          edges  (find-all-by-testid-prefix tree "rf-mv-chart-edge-")
           attrs  (map (fn [e] (select-keys (second e)
                                            [:data-event :data-guard :data-action]))
                       edges)]
@@ -690,7 +690,7 @@
   (testing "rf2-jeim7 — an event-only edge renders as just the event id;
             no stray brackets or slash leak in"
     (let [tree   (chart-svg/render-from-definition small-machine)
-          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          edges  (find-all-by-testid-prefix tree "rf-mv-chart-edge-")
           labels (keep edge-label-text edges)]
       (is (seq labels))
       (doseq [l labels]
