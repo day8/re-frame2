@@ -228,3 +228,52 @@
     (let [positioned {:nodes [] :edges [] :width 100 :height 50 :initial-id nil}
           tree (mc/Chart {:positioned positioned :machine-id :m})]
       (is (some? (find-by-testid tree "rf-causa-machine-canvas-view-mode-toggle"))))))
+
+;; ---- 7. Static-mode opt-out knobs (rf2-md9oz) --------------------------
+
+(deftest chart-view-omits-view-mode-toggle-when-knob-false
+  (testing "rf2-md9oz — Static Topology consumer passes
+            :show-view-mode-toggle? false to suppress the Canvas/List
+            pill (Static panel owns sub-mode at L3)."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [positioned {:nodes [] :edges [] :width 100 :height 50 :initial-id nil}
+            tree (mc/Chart {:positioned positioned
+                            :machine-id :m
+                            :show-view-mode-toggle? false})]
+        (is (some? (find-by-testid tree "rf-causa-machine-canvas-host"))
+            "canvas host still mounts")
+        (is (nil? (find-by-testid tree "rf-causa-machine-canvas-view-mode-toggle"))
+            "view-mode toggle is suppressed")))))
+
+(deftest chart-view-omits-controls-toolbar-when-knob-false
+  (testing "Optional escape hatch — callers can suppress the controls
+            toolbar without forking the adapter. Default-on (covered
+            in chart-view-emits-canvas-host)."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [positioned {:nodes [] :edges [] :width 100 :height 50 :initial-id nil}
+            tree (mc/Chart {:positioned positioned
+                            :machine-id :m
+                            :show-controls-toolbar? false})]
+        (is (nil? (find-by-testid tree "rf-causa-machine-canvas-toolbar"))
+            "controls toolbar suppressed when knob is false")))))
+
+(deftest chart-view-forwards-testid-to-inner-svg
+  (testing "rf2-md9oz — the static panel needs to override the inner
+            SVG's data-testid so existing static-panel selectors keep
+            matching. Chart forwards :testid to mv-svg/render."
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (let [positioned {:nodes [{:node-id :a :x 0 :y 0
+                                 :width 40 :height 20
+                                 :path [:a] :label "a"}]
+                        :edges []
+                        :width 200 :height 100
+                        :initial-id nil}
+            tree (mc/Chart {:positioned positioned
+                            :machine-id :m
+                            :testid     "rf-causa-static-machines-topology-svg"})]
+        (is (some? (find-by-testid tree
+                                   "rf-causa-static-machines-topology-svg"))
+            "inner SVG carries the overridden testid")))))

@@ -430,6 +430,62 @@
                                  "rf-causa-static-machines-topology-no-definition"))))))
 
 ;; -------------------------------------------------------------------------
+;; (11b) Topology mode — interactive canvas adapter (rf2-md9oz)
+;; -------------------------------------------------------------------------
+
+(deftest topology-mode-wraps-chart-in-canvas-host
+  (testing "rf2-md9oz — Static Topology body delegates to
+            machine-canvas/Chart so users get zoom / pan / fit."
+    (causa-setup!)
+    (seed-machines! [:m/a])
+    (seed-definitions! {:m/a {:initial :idle
+                              :states  {:idle {} :done {}}}})
+    (rf/with-frame :rf/causa
+      (let [tree (panel/panel)]
+        (is (some? (find-by-testid tree "rf-causa-machine-canvas-host"))
+            "the chart is now wrapped in the interactive canvas-host")
+        (is (some? (find-by-testid tree "rf-causa-machine-canvas-toolbar"))
+            "controls toolbar (zoom / pan / fit) is present on static too")
+        ;; The inner SVG testid still resolves so existing static-panel
+        ;; selectors keep working.
+        (is (some? (find-by-testid tree "rf-causa-static-machines-topology-svg"))
+            ":testid forwards through Chart to the SVG primitive")))))
+
+(deftest topology-mode-omits-view-mode-toggle-on-static
+  (testing "rf2-md9oz — Static surface already owns the per-machine
+            sub-mode pill strip at L3; the canvas's Canvas/List toggle
+            is meaningless on static and must NOT mount."
+    (causa-setup!)
+    (seed-machines! [:m/a])
+    (seed-definitions! {:m/a {:initial :idle
+                              :states  {:idle {} :done {}}}})
+    (rf/with-frame :rf/causa
+      (let [tree (panel/panel)]
+        (is (nil? (find-by-testid tree
+                                  "rf-causa-machine-canvas-view-mode-toggle"))
+            "view-mode toggle is suppressed on static via
+             :show-view-mode-toggle? false")))))
+
+(deftest topology-mode-keeps-popout-and-source-coord-affordances
+  (testing "The Static panel's existing 'open in popout' affordance +
+            source-coord chip still live in the chart-toolbar ABOVE
+            the canvas — they did not absorb into the canvas's own
+            controls toolbar."
+    (causa-setup!)
+    (seed-machines! [:m/a])
+    (seed-definitions! {:m/a {:initial :idle
+                              :states  {:idle {} :done {}}
+                              :source-coord {:file "src/m_a.cljs" :line 12}}})
+    (rf/with-frame :rf/causa
+      (let [tree (panel/panel)]
+        (is (some? (find-by-testid tree
+                                   "rf-causa-static-machines-topology-toolbar"))
+            "static chart-toolbar still mounts above the canvas")
+        (is (some? (find-by-testid tree
+                                   "rf-causa-static-machines-topology-popout"))
+            "Pop-out affordance still present")))))
+
+;; -------------------------------------------------------------------------
 ;; (12) Public install — install-fx + hydrate
 ;; -------------------------------------------------------------------------
 
