@@ -18,8 +18,8 @@
           - true on non-Reagent substrates throws with a clear message
 
    Mirrors the surface checks that previously lived in the clj-new test
-   suite at `test/clj/new/re_frame2_test.clj`. The clj-new tree is
-   still present alongside (§2.5 removes it later)."
+   suite at `test/clj/new/re_frame2_test.clj` (removed in rf2-40vmd /
+   §2.5 along with the clj-new template body)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -81,7 +81,7 @@
   the JVM start-up cost.
 
   Mirrors the entry-fn shape the clj-new template's test suite used
-  (`test/clj/new/re_frame2_test.clj`)."
+  (`test/clj/new/re_frame2_test.clj`, removed in rf2-40vmd / §2.5)."
   ([tmp project-name substrate]
    (run-template! tmp project-name substrate nil))
   ([tmp project-name substrate include-story?]

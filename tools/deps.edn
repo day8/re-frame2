@@ -6,7 +6,8 @@
 ;;   - re-frame2-pair-mcp/   (@day8/re-frame2-pair-mcp, npm only)
 ;;   - story/       (day8/re-frame2-story)
 ;;   - story-mcp/   (day8/re-frame2-story-mcp)
-;;   - template/    (day8/clj-template.re-frame2)
+;;   - template/    (day8/re-frame2-template — git-coord, not Clojars
+;;                   per rf2-dolpf §2.5)
 ;; see tools/causa/deps.edn, tools/mcp-base/deps.edn,
 ;; tools/re-frame2-pair-mcp/deps.edn, tools/story/deps.edn,
 ;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
@@ -31,14 +32,15 @@
 ;;
 ;; ## Why template is NOT in the base :deps map
 ;;
-;; `tools/template/` ships clj-new templates — its `src/` tree contains
-;; placeholder-bearing `.cljs` template files (e.g. `(ns {{namespace}}...)`
-;; in src/clj/new/re_frame2/shared/events_test.cljs) that are NOT valid
-;; ClojureScript. Adding `day8/clj-template.re-frame2` to the base `:deps`
-;; map would put those files on the shadow-cljs classpath; shadow-cljs
-;; would try to compile them and fail at the read-loop. The template dep
-;; therefore lives ONLY on the `:test` alias, which runs on the JVM
-;; where the .cljs templates are treated as plain resources.
+;; `tools/template/` ships deps-new template resources — the `resources/`
+;; tree contains placeholder-bearing `.cljs` files (e.g.
+;; `(ns {{top/ns}}.{{main/ns}}...)` in
+;; resources/day8/re_frame2_template/_shared/src/events_test.cljs) that
+;; are NOT valid ClojureScript. Adding `day8/re-frame2-template` to the
+;; base `:deps` map would put those files on the shadow-cljs classpath;
+;; shadow-cljs would try to compile them and fail at the read-loop. The
+;; template dep therefore lives ONLY on the `:test` alias, which runs
+;; on the JVM where the .cljs templates are treated as plain resources.
 ;;
 ;; ## Bundle-isolation
 ;;
@@ -71,13 +73,20 @@
   {:extra-deps  {;; template lives on the JVM-only path — see the
                  ;; "Why template is NOT in the base :deps map" block
                  ;; above for the shadow-cljs incompatibility.
-                 day8/clj-template.re-frame2
+                 day8/re-frame2-template
                  {:local/root "template"}
                  ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet
                  {:local/root "../implementation/test-quiet"}
                  io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                 ;; deps-new (rf2-40vmd / rf2-dolpf §2.5) is required by
+                 ;; the template tests since the §2 deps-new migration —
+                 ;; they drive `org.corfield.new/create` in-process. The
+                 ;; per-tool `tools/template :test` alias already pulls
+                 ;; it in; the aggregate runner needs the same dep.
+                 io.github.seancorfield/deps-new
+                 {:git/tag "v0.12.1" :git/sha "883e82c"}}
    :extra-paths ["mcp-base/test"
                  "story/test"
                  "story-mcp/test"

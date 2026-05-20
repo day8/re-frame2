@@ -50,6 +50,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.pprint :as pprint]
             [clojure.string :as string]
             [org.corfield.new :as deps-new])
   (:import [java.nio.file Files LinkOption Path FileVisitOption]
@@ -155,7 +156,7 @@
                       {:local/root (rel-of "tools/causa")})
             (assoc-in [:deps 'day8/re-frame2-schemas]
                       {:local/root (rel-of "implementation/schemas")}))]
-    (spit deps-file (with-out-str (clojure.pprint/pprint rewritten)))))
+    (spit deps-file (with-out-str (pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------
 

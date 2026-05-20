@@ -1430,14 +1430,15 @@ jobs:
         working-directory: implementation
         run: npm ci
 
-      # tools/template is a clj-new template — its tests
-      # (`re_frame2_test.clj`, `template_emission_test.clj`,
-      # `emitted_test_run_test.clj`) generate scaffolded apps into a
-      # tmp dir and assert the shape, static parse, AND behavioural
-      # compile+run. This is the only PR-time CI surface for this
-      # artefact.
+      # tools/template is a deps-new template (rf2-dolpf §2; clj-new
+      # body dropped in §2.5 / rf2-40vmd) — its tests
+      # (`template_test.clj`, `template_emission_test.clj`,
+      # `emitted_test_run_test.clj`, `version_lockstep_test.clj`)
+      # generate scaffolded apps into a tmp dir and assert the shape,
+      # static parse, AND behavioural compile+run. This is the only
+      # PR-time CI surface for this artefact.
       #
-      # The template's `re_frame2_test.clj` opportunistically invokes
+      # The template's `template_test.clj` opportunistically invokes
       # `clojure -P` against generated deps.edn if `clojure` is on PATH
       # to confirm the deps parse — the setup-clojure step above ensures
       # that probe runs. The probe is gated behind

@@ -231,7 +231,7 @@ implementation/                CLJS reference implementation — per-artefact su
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
                                it — bundle-isolated from production builds.
-  template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2
+  template/                    day8/re-frame2-template — deps-new template for new re-frame2
                                apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
   story/                       day8/re-frame2-story — Storybook-flavoured playground
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
