@@ -1250,11 +1250,11 @@ When `destroy-frame!` runs, every cached reactive needs its `dispose!`-equivalen
 
 ### Transducer-shaped event processing (substrate-agnostic router)
 
-> **Status: post-v1 deferred.** v1 ships the existing drain loop; the Spec-level design pass on a transducer-shaped router is deferred to v1.1 to keep v1 scope tight and avoid coupling the router redesign to other v1-critical work. Tracked in rf2-cl8me.
+> **Status: post-v1 deferred — v1.1 design pass landed.** v1 ships the existing drain loop; the Spec-level design pass on a transducer-shaped router lives at [Design-TransducerRouter.md](Design-TransducerRouter.md) with a Phase-1 reference scaffold at `implementation/core/src/re_frame/router_transducer.cljc`. The design is non-normative for v1 — the runtime does **not** consume the scaffold yet. Tracked in rf2-cl8me.
 
-pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed.
+pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed. The full v1.1 design — primitive contract, reducing-function presets (`sync-rf` / `queued-rf` / `batch-rf`), driver model, two-stage compatibility plan with the v1 drain loop, and interactions with Specs 005 / 009 / 011 / 012 — lives at [Design-TransducerRouter.md](Design-TransducerRouter.md).
 
-Originally flagged as worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API — but the design pass is non-trivial and overlaps with the router work in [012-Routing.md](012-Routing.md), so the call for v1 is to keep the drain loop and revisit the transducer formulation post-v1.
+Originally flagged as worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API — but the design pass is non-trivial, so the call for v1 was to keep the drain loop and revisit the transducer formulation post-v1. On the v1.1 re-examination, the suspected overlap with [012-Routing.md](012-Routing.md) (URL routing) was non-existent — the two specs live on orthogonal axes.
 
 ## Resolved decisions
 
