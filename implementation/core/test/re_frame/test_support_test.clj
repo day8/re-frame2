@@ -1,9 +1,10 @@
 (ns re-frame.test-support-test
   "Coverage for the public test-flavoured helpers landed under rf2-0l3s
-  (resolves rf2-hkr5):
+  (resolves rf2-hkr5; renamed under rf2-8j9m6):
 
     - dispatch-sequence
-    - assert-state
+    - assert-path-equals
+    - assert-db-equals
 
   Plus rf2-j9phb (TE-R2.2): explicit hook-cascade coverage for
   `make-reset-runtime-fixture` — pins that every row in the late-bind
@@ -107,36 +108,36 @@
       (is (= {:n 0} (rf/get-frame-db :rf/default))
           ":rf/default is unaffected"))))
 
-;; ---- assert-state ---------------------------------------------------------
+;; ---- assert-path-equals + assert-db-equals (rf2-8j9m6) --------------------
 
-(deftest assert-state-path-form-pass
+(deftest assert-path-equals-pass
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (rf/dispatch-sync [:counter/add 7])
   (let [outcomes (record-reports
-                   (fn [] (ts/assert-state [:n] 7)))]
+                   (fn [] (ts/assert-path-equals [:n] 7)))]
     (is (= [:pass] outcomes)
-        "matching path form fires a clojure.test :pass")))
+        "matching path/value pair fires a clojure.test :pass")))
 
-(deftest assert-state-path-form-fail
+(deftest assert-path-equals-fail
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (let [outcomes (record-reports
-                   (fn [] (ts/assert-state [:n] 99)))]
+                   (fn [] (ts/assert-path-equals [:n] 99)))]
     (is (= [:fail] outcomes)
-        "mismatching path form fires a clojure.test :fail")))
+        "mismatching path/value pair fires a clojure.test :fail")))
 
-(deftest assert-state-full-db-form
+(deftest assert-db-equals-pass-and-fail
   (register-counter-handlers!)
   (rf/dispatch-sync [:counter/init])
   (let [pass-outcomes (record-reports
-                        (fn [] (ts/assert-state {:n 0})))
+                        (fn [] (ts/assert-db-equals {:n 0})))
         fail-outcomes (record-reports
-                        (fn [] (ts/assert-state {:n 42})))]
+                        (fn [] (ts/assert-db-equals {:n 42})))]
     (is (= [:pass] pass-outcomes))
     (is (= [:fail] fail-outcomes))))
 
-(deftest assert-state-frame-opt
+(deftest assert-path-equals-frame-opt
   (testing ":frame opt selects which frame's app-db is asserted against"
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
@@ -144,10 +145,23 @@
     (rf/dispatch-sync [:counter/add 3] {:frame :test-support/assert-frame})
     (let [outcomes (record-reports
                      (fn []
-                       (ts/assert-state [:n] 3 {:frame :test-support/assert-frame})
-                       (ts/assert-state [:n] 0 {:frame :rf/default})))]
+                       (ts/assert-path-equals [:n] 3 {:frame :test-support/assert-frame})
+                       (ts/assert-path-equals [:n] 0 {:frame :rf/default})))]
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
+
+(deftest assert-db-equals-frame-opt
+  (testing ":frame opt also selects the frame for the full-db form"
+    (register-counter-handlers!)
+    (rf/dispatch-sync [:counter/init])
+    (rf/reg-frame :test-support/assert-db-frame {:on-create [:counter/init]})
+    (rf/dispatch-sync [:counter/add 4] {:frame :test-support/assert-db-frame})
+    (let [outcomes (record-reports
+                     (fn []
+                       (ts/assert-db-equals {:n 4} {:frame :test-support/assert-db-frame})
+                       (ts/assert-db-equals {:n 0} {:frame :rf/default})))]
+      (is (= [:pass :pass] outcomes)
+          "full-db assertion respects :frame opt"))))
 
 ;; ---- rf2-j9phb (TE-R2.2) — make-reset-runtime-fixture hook-cascade coverage ----
 ;;

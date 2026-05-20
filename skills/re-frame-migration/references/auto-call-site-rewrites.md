@@ -100,7 +100,7 @@ Same for `uix` / `helix` variants.
 (:require [re-frame.test-support :as rf-test])
 ```
 
-Surviving helper names (`dispatch-sequence`, `assert-state`) unchanged. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
+`dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per **M-62** (the fn-side mirrors the `:rf.assert/*` Story event-family). `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
 Also: drop `day8/re-frame-test` from the Maven coords.
 
 ### M-52 — `run-test-sync` removed

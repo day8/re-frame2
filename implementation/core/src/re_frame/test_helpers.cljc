@@ -6,7 +6,8 @@
 
   Sibling namespace covering the **runtime-state assertion axis** —
   registrar snapshot/restore, the `make-reset-runtime-fixture`
-  per-process `:each` fixture, `dispatch-sequence`, `assert-state`,
+  per-process `:each` fixture, `dispatch-sequence`, the `assert-*-equals`
+  fn-family (mirrors the `:rf.assert/*` Story event-family),
   bounded-deadline `poll-until`.
 
   This namespace owns the **view-tree assertion axis**: call the view-fn

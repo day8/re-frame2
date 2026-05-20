@@ -9,7 +9,7 @@ You'll know how to:
 - Spin up an isolated frame for a test and tear it down cleanly.
 - Test event handlers, fxs, and subs without a browser.
 - Test state machines as pure transitions, no frame required.
-- Use `dispatch-sequence` and `assert-state` to keep test bodies short.
+- Use `dispatch-sequence` and `assert-path-equals` / `assert-db-equals` to keep test bodies short.
 - Decide what runs on the JVM and what needs CLJS.
 
 ## The artefact
@@ -316,17 +316,22 @@ Capturing intermediate states between dispatches:
 
 Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests.
 
-### `assert-state`
+### `assert-path-equals` and `assert-db-equals`
 
-A `clojure.test`-aware assertion that doubles as the path-or-full-db check:
+A pair of `clojure.test`-aware assertions — one per shape. `assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play` blocks (per [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions)); a reader who knows one surface navigates the other without a translation table.
 
 ```clojure
 (rf/dispatch-sync [:auth/login-pressed])
-(ts/assert-state [:auth :state] :validating)
-;; or full-db form:
-(ts/assert-state {:auth {:state :validating}})
-;; with a non-default frame:
-(ts/assert-state [:auth :state] :validating {:frame :test/auth-flow})
+
+;; path form — the common case
+(ts/assert-path-equals [:auth :state] :validating)
+
+;; full-db form
+(ts/assert-db-equals {:auth {:state :validating}})
+
+;; with a non-default frame
+(ts/assert-path-equals [:auth :state] :validating {:frame :test/auth-flow})
+(ts/assert-db-equals   {:auth {:state :validating}} {:frame :test/auth-flow})
 ```
 
 Mismatch fires a `clojure.test/is`-style failure via `do-report`. The path form is the common case; the full-db form is for "the whole thing should equal this" assertions in small fixtures.

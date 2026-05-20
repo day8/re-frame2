@@ -77,7 +77,8 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `ts/with-fresh-registrar` | `(body-fn)` — registrar snapshot/restore bracket |
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore |
 | `ts/dispatch-sequence` | `(events)` / `(events opts)` — sync-drain each, `:after-each` hook |
-| `ts/assert-state` | `(expected-db)` / `(path expected-val)` / `(... opts)` |
+| `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals` |
+| `ts/assert-db-equals` | `(expected-db)` / `(expected-db opts)` — companion full-db form |
 
 ## SSR — `day8/re-frame2-ssr`
 

@@ -1019,7 +1019,7 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 **Type A** (mechanical).
 
-Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. Two of the three test-flavoured helpers — `dispatch-sequence` and `assert-state` — keep their v1 names and ship under the new ns; `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
+Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6) so the fn-side shares a name root with the `:rf.assert/*` Story event-family. `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
 
 **What to look for** in the codebase:
 
@@ -1038,10 +1038,11 @@ Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re
 (rf-test/dispatch-sequence ...)
 (rf-test/assert-state ...)
 
-;; after — single mechanical require-rewrite; helper names unchanged
+;; after — require rewrite + assert-state -> assert-path-equals (or assert-db-equals)
 (:require [re-frame.test-support :as ts])
 (ts/dispatch-sequence ...)
-(ts/assert-state ...)
+(ts/assert-path-equals [:path] expected)   ;; was: (rf-test/assert-state [:path] expected)
+(ts/assert-db-equals   {:expected :db})    ;; was: (rf-test/assert-state {:expected :db})
 ```
 
 Any `run-test-sync` call sites encountered during this rewrite are handled by [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture) — the body is hoisted to inline `dispatch-sync` calls under the standard per-test fixture; no shim survives in `re-frame.test-support`.
@@ -1049,7 +1050,7 @@ Any `run-test-sync` call sites encountered during this rewrite are handled by [M
 **Signature notes** (the v2 helpers are frame-aware; v1 helpers were single-frame implicit):
 
 - `(dispatch-sequence events)` / `(dispatch-sequence events {:after-each f :frame f-id})` — v1's frame-implicit form maps to the no-opts arity; tests targeting a non-default frame supply `{:frame ...}`.
-- `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` is the path form; the full-db form and `:frame` opt are v2 additions.
+- `(assert-path-equals path expected-val)` / `(assert-db-equals expected-db)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` maps to `(assert-path-equals path expected-val)`; the full-db form is now the separate `(assert-db-equals expected-db)`. The split (per [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6)) gives the fn-side a shared name root with the `:rf.assert/*` Story event-family. The `:frame` opt is a v2 addition on both shapes.
 
 If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the surviving helpers in the core artefact (no separate coordinate to require).
 
@@ -1920,7 +1921,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 
 **Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
 
-**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`dispatch-sequence`, `assert-state`); [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
+**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`dispatch-sequence`, `assert-path-equals` / `assert-db-equals`); [M-62](#m-62-test-assertion-fn-family-alignment--assert-state--assert-path-equals--assert-db-equals-rf2-8j9m6) for the `assert-state` split; [Spec 008 §`re-frame-test` library compatibility](../../spec/008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
 
 ---
 
@@ -2300,6 +2301,41 @@ Per rf2-v779c (audit-of-audits testing #14) the per-test fixture builder is rena
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
 **Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [API.md §Testing](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue). Sibling renames in the same `make-*` family: [M-57](#m-57-machine-handler-builder-verb-unification--create-machine-handler--make-machine-handler-rf2-g0bbk) (`make-machine-handler`).
+
+---
+
+### M-62. Test assertion fn-family alignment — `assert-state` → `assert-path-equals` + `assert-db-equals` (rf2-8j9m6)
+
+**Type A** (mechanical). Single-fn split into a two-fn predicate-family.
+
+Per rf2-8j9m6 (audit-of-audits testing #13) the generic `assert-state` is split into per-shape fns whose names share a root with the `:rf.assert/*` event family used inside Story `:play` blocks (per [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions)). The fn-side and the event-side covered the same predicate (`= expected (get-in db path)`) under completely different names; the rename gives the fn-family the same `path-equals` root as the event-family so a reader who knows one surface can navigate the other without a translation table.
+
+| Old | New | Mirrors event |
+|---|---|---|
+| `(assert-state path expected-val)` | `(assert-path-equals path expected-val)` | `:rf.assert/path-equals` |
+| `(assert-state expected-db)` | `(assert-db-equals expected-db)` | *(no event analog — full-db form)* |
+
+The two arities of v2's `assert-state` (path form + full-db form) become two named fns. The disambiguation that lived inside the old fn (vector? → path form, else → full-db form) is gone; each new fn does exactly one thing. The `{:frame ...}` trailing opt is preserved on both.
+
+**Detect.** v2-pre-rename codebases trip this. v1's `re-frame.test/assert-state` was the path form only; v1-→-v2 migrations land on `assert-path-equals` directly via the bundled sweep.
+
+```clojure
+;; before
+(ts/assert-state [:auth :state] :validating)
+(ts/assert-state {:auth {:state :validating}})
+(ts/assert-state [:auth :state] :validating {:frame :test/auth-flow})
+
+;; after
+(ts/assert-path-equals [:auth :state] :validating)
+(ts/assert-db-equals   {:auth {:state :validating}})
+(ts/assert-path-equals [:auth :state] :validating {:frame :test/auth-flow})
+```
+
+**No alias.** Per pre-alpha posture, the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Future extensions.** Additional predicate-fns mirroring the remaining `:rf.assert/*` events (`assert-path-matches`, `assert-sub-equals`, `assert-dispatched?`, `assert-state-is`, `assert-no-warnings`, `assert-effect-emitted`) are scope-deferred — those predicates require Story-side infrastructure (warning capture, dispatch capture, effect-emit listening) that doesn't live in `re-frame.test-support`. The `assert-*-equals` family is **open** under the same root, ready for those siblings to land alongside.
+
+**Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions) (the `:rf.assert/*` event-family the fn-family mirrors); [API.md §Testing](../../spec/API.md); [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the require-side namespace move.
 
 ---
 
