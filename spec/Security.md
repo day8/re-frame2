@@ -87,6 +87,8 @@ The SSR host-adapter's default HTML envelope (CLJS reference: `re-frame.ssr.ring
 
 ### Privacy / secret handling
 
+> Cross-reference: [Privacy.md](Privacy.md) — the cross-artefact inventory of every privacy + data-classification surface (path-marks, schema-attached marks, HTTP denylists, the epoch `:redact-fn`, the cross-MCP filters) and the composition order from handler exit to off-box wire. This section pins the **pattern-level posture**; Privacy.md pins **where each primitive lives + what runs when**.
+
 Sensitive values — credentials, session tokens, PII, partner secrets — flow through the framework on three paths: the trace surface (`:rf.error/*` events carry failing values verbatim by default), direct reads against `app-db` from MCP tools (`get-app-db`, `get-path`), and the always-on error-emit / event-emit substrates that forward to hosted observability back-ends. Each path must default-redact and offer explicit opt-in. The `:sensitive?` declaration is the single normative privacy marker; the canonical emission site for the `:rf/redacted` sentinel is the framework's wire-elision walker ([API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker)).
 
 #### Direct-read privacy posture for sub-cache and get-path

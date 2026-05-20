@@ -234,6 +234,8 @@ The bullet glyph (`●`) and the square-bracket delimiters are the canonical sha
 
 ## Privacy config-knob naming (on-box UI vs off-box wire egress)
 
+> Cross-reference: [Privacy.md §Config knobs](Privacy.md#config-knobs) — the cross-artefact inventory of every privacy surface (Spec 010 schema meta, Spec 014 HTTP denylists, Spec 015 path-marks, the epoch `:redact-fn`, the cross-MCP filters) plus the composition order from handler exit to off-box wire. This section pins the verb split; Privacy.md pins where each verb is consumed.
+
 Consumers of the `:sensitive?` filter (per [Spec 009 §"Privacy / sensitive data in traces"](009-Instrumentation.md#privacy--sensitive-data-in-traces)) expose a user-controllable knob that decides whether sensitive values pass through the consumer's surface. Two consumer classes exist, and they MUST use different verbs for the knob name — the verb encodes which trust boundary the user is crossing:
 
 - **On-box devtools UI consumers** (Causa panel, story trace panel, future on-box panels) use the **`show-sensitive?`** verb under the `:trace/*` ns (e.g. `:trace/show-sensitive?`). The semantics are "the panel is for me, do I want to look" — the sensitive values are already in the same process as the operator; the toggle controls UI visibility, not egress.
