@@ -262,8 +262,9 @@ namespace `panels.reactive-panel` is the post-rf2-wyvf2 spelling
 overlay verb per `spec/021 §7`; the Static-mode browse-all +
 Simulate-URL verb lives at `static.routes.panel/Panel` (not part of
 the Runtime canonical nine — Static-mode L4 sub-tabs live under
-`day8.re-frame2-causa.static.*` and are not enumerated here per the
-canonical 9 framing of `spec/018-Event-Spine.md` §The 9 tabs).
+`day8.re-frame2-causa.static.*` and are enumerated separately in
+§Static-mode Panel reg-views below per the canonical 9 framing of
+`spec/018-Event-Spine.md` §The 9 tabs).
 `chrome-a11y.panel/Panel` is the **dogfood** L4 tab that runs
 axe-core scoped to `#rf-causa-root` — Causa's own chrome — mirroring
 Story's `chrome-a11y` panel (PR #1695); added per rf2-yxw57.)
@@ -276,6 +277,46 @@ embed contract. The `mount-<panel>!` aggregator surface enumerated in
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract is
 internal-but-stable (used by shell composition and tests); it accepts
 one `opts` key — `:frame` — defaulting to `:rf/causa`.
+
+### Static-mode Panel reg-views
+
+The canonical nine above are the **Runtime-mode** L4 tabs (the
+event-coupled spine — every panel narrates against the focused
+event). Causa's Static mode (per §Static mode above and
+[`007-UX-IA.md`](./007-UX-IA.md) §Static mode) ships a parallel set
+of L4 sub-tabs that browse the **registrar** rather than the event
+spine — flat catalogues of registered events / flows / interceptors
+/ routes / schemas / views with optional hermetic Simulate inputs
+(per Lock #15 — two-verbs-two-homes — browse-all lives in Static).
+Each Static sub-tab is its own namespace under
+`day8.re-frame2-causa.static.*` and exports a single public `Panel`
+component:
+
+```clojure
+day8.re-frame2-causa.static.events.panel/Panel
+day8.re-frame2-causa.static.flows.panel/Panel
+day8.re-frame2-causa.static.interceptors.panel/Panel
+day8.re-frame2-causa.static.routes.panel/Panel
+day8.re-frame2-causa.static.schemas.panel/Panel
+day8.re-frame2-causa.static.views.panel/Panel
+```
+
+These six Static-mode `Panel` exports are a **sibling inventory** to
+the canonical nine — they do NOT extend the Runtime list. The
+Runtime panel-registry (per [`018-Event-Spine.md`](./018-Event-Spine.md)
+§The 9 tabs) and the Static panel-registry are disjoint dispatch
+tables keyed by L3 tab id; the surface composer renders one or the
+other under the mode flag (`:rf.causa/mode` — `:runtime` /
+`:static`). Naming convention is the same as Runtime (bare `Panel`
+per `rf2-qiek0`); reg-view registration uses `rf/reg-view` per
+`rf2-in6l2` so subscribes resolve to `:rf/causa`.
+
+The Static-mode Routes sub-tab is the **browse-all + Simulate-URL**
+verb (the flat catalogue + hermetic Simulate-navigation preview);
+the Runtime-mode Routes tab at `panels.routing/Panel` is the
+**focused-event lens** (FROM/TO markers when the focused event
+triggered navigation). Two surfaces, two verbs, two homes per
+Mike's 2026-05-19 decision (Lock #15).
 
 ## Public JS API
 
