@@ -80,7 +80,7 @@ Closed mechanical rename set. Apply across all source files; the framework accep
 **What to NOT rewrite.** Do NOT rewrite the bare `:spec` keyword outside a registration metadata-map slot:
 
 - `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
-- `(:spec invoke-all-state)` — the machine `:invoke-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`InvokeAllJoinState`](../../../spec/Spec-Schemas.md#rfspawned)); that `:spec` is a different domain and is NOT renamed by M-54.
+- `(:spec invoke-all-state)` — the machine `:invoke-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/spawned`](../../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key)); that `:spec` is a different domain and is NOT renamed by M-54.
 - The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/at-boundary` going forward.
 
 **Deprecation alias semantics.** The framework emits `:rf.warning/deprecated-schema-alias` once per `(kind, id)` at registration time when `:spec` is still present on `reg-*` metadata; the warning's `:source-coords` slot points the rewriter at every offending call site without breaking the build. After the one-cycle deprecation window the alias support is removed.
