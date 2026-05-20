@@ -48,7 +48,7 @@ day8/re-frame2-template/                ; eventually its own repo
 │   │   ├── editorconfig                (→ .editorconfig)
 │   │   ├── clj-kondo/config.edn        (→ .clj-kondo/config.edn)
 │   │   ├── cljfmt.edn                  (→ .cljfmt.edn)
-│   │   ├── lefthook.yml                (→ .lefthook.yml)
+│   │   ├── lefthook.yml                (→ lefthook.yml)
 │   │   ├── events.cljs · subs.cljs · events_test.cljs
 │   │   ├── index.html · resources/public/css/app.css
 │   │   └── dev/{user.clj, scratch.cljs}

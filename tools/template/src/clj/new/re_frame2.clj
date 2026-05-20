@@ -201,7 +201,7 @@
              ;; cljfmt config — `clojure -M:cljfmt check` / `fix`.
              [".cljfmt.edn"     (sub-render "shared/cljfmt.edn")]
              ;; lefthook — pre-commit format + lint gate.
-             [".lefthook.yml"   (sub-render "shared/lefthook.yml")]
+             ["lefthook.yml"    (sub-render "shared/lefthook.yml")]
              ;; -- src tree --
              ;;
              ;; `core.cljs` swaps to the hash-routing with-stories variant
