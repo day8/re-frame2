@@ -113,6 +113,13 @@
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.causa/active-timers-for-focused-machine
    :rf.causa/app-db-diff
+   ;; rf2-op9v2 — App-db panel downstream-subs overlay (per-path hover
+   ;; popover listing subs/views downstream of each changed path).
+   ;; Three popover-state subs + one per-path downstream query.
+   :rf.causa.app-db/popover-slot
+   :rf.causa.app-db/popover-open?
+   :rf.causa.app-db/popover-path
+   :rf.causa/app-db-downstream-for-path
    :rf.causa/cascades
    ;; rf2-jgip1 — shared L4 data-display renderer expansion-state subs.
    ;; Per `tools/causa/spec/021-Dynamic-Panel-Designs.md` §10. The
@@ -335,6 +342,11 @@
   `:rf.causa.<panel>/*` convention codified in
   `tools/causa/spec/014-Registry-Catalogue.md` §Naming convention."
   (sorted-set
+   ;; rf2-op9v2 — App-db downstream-subs overlay events (popover
+   ;; show/hide + cross-panel navigation to the Reactive panel).
+   :rf.causa.app-db/show-downstream
+   :rf.causa.app-db/hide-downstream
+   :rf.causa/navigate-to-panel
    ;; rf2-39n8h discovered — App-DB diff data-inspector events:
    ;; per-row toggle/set + large-value confirmation flow (request +
    ;; confirm). Lives under :rf.causa.data-inspector/*.

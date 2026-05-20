@@ -308,10 +308,16 @@
   omitted (older test callers that pass `[path child-summary]` or
   `[path child-summary subtree-value]` still work)."
   ([section-path child-summary]
-   (breadcrumb section-path child-summary nil nil))
+   (breadcrumb section-path child-summary nil nil nil))
   ([section-path child-summary subtree-value]
-   (breadcrumb section-path child-summary subtree-value nil))
+   (breadcrumb section-path child-summary subtree-value nil nil))
   ([section-path child-summary subtree-value origin-tag]
+   (breadcrumb section-path child-summary subtree-value origin-tag nil))
+  ;; rf2-op9v2 — 5-arg arity accepts an `extra-affordance` hiccup that
+  ;; renders between the origin-tag chip and the standard affordance
+  ;; row. The App-db panel injects its downstream-subs hover trigger
+  ;; via this slot. Nil → legacy layout preserved.
+  ([section-path child-summary subtree-value origin-tag extra-affordance]
    (let [{:keys [added removed modified children]
           :or   {added 0 removed 0 modified 0 children 0}} child-summary
          total-changes (+ added removed modified children)
@@ -340,6 +346,13 @@
       ;; preserving the legacy hiccup shape.
       (when origin-tag
         (origin-tag-chip section-path origin-tag))
+      ;; rf2-op9v2 — App-db panel's downstream-subs hover trigger (or
+      ;; any future caller's per-section affordance) renders between
+      ;; the origin chip and the standard affordance row so the
+      ;; trigger sits next to the path/writer attribution where the
+      ;; operator is already looking.
+      (when extra-affordance
+        extra-affordance)
       ;; Affordance row — Show-me-when / Copy path / Copy value.
       ;; Pin was dropped under rf2-e9tb0 when pinned-watches was
       ;; superseded by the clickable-segment inspector popup.
@@ -646,9 +659,13 @@
   `prefers-reduced-motion: reduce`. The `:animation-fill-mode forwards`
   pins the end state (transparent) so the row settles at `bg-3` once
   the wash decays."
-  ([s surface] (section s surface nil false))
-  ([s surface origin-tag] (section s surface origin-tag false))
-  ([{:keys [path subtree]} surface origin-tag flash?]
+  ([s surface] (section s surface nil false nil))
+  ([s surface origin-tag] (section s surface origin-tag false nil))
+  ([s surface origin-tag flash?] (section s surface origin-tag flash? nil))
+  ;; rf2-op9v2 — 5-arg arity threads an `extra-affordance` hiccup into
+  ;; the breadcrumb. Used by the App-db panel to inject its
+  ;; downstream-subs hover trigger per-section.
+  ([{:keys [path subtree]} surface origin-tag flash? extra-affordance]
    (let [child-summary (if (= :children (at/op-of subtree))
                          (:child-summary subtree)
                          nil)
@@ -675,7 +692,7 @@
      [:section {:data-testid (str "rf-causa-diff-section-"
                                   (pr-str path))
                 :style (merge base-style flash-style)}
-      (breadcrumb path child-summary after-value origin-tag)
+      (breadcrumb path child-summary after-value origin-tag extra-affordance)
       [:div {:style {:padding "8px 12px"
                      :font-family mono-stack
                      :font-size "12px"
@@ -703,7 +720,8 @@
   When `opts` is omitted (older callers, test rigs), no origin chip
   renders and no flash plays — the legacy hiccup shape is preserved."
   ([sections surface] (render-sections sections surface nil))
-  ([sections surface {:keys [flow-writes diff-triples epoch-id] :as _opts}]
+  ([sections surface {:keys [flow-writes diff-triples epoch-id
+                             extra-affordance-fn] :as _opts}]
    (if (empty? sections)
      [:div {:data-testid "rf-causa-diff-empty"
             :style {:padding "12px"
@@ -720,7 +738,14 @@
            ;; supplied (the caller is the live panel). Test rigs that
            ;; omit `:epoch-id` get the legacy no-flash render so the
            ;; hiccup-walking tests stay deterministic.
-           flash?     (some? epoch-id)]
+           flash?     (some? epoch-id)
+           ;; rf2-op9v2 — per-section caller-supplied affordance hook
+           ;; (e.g. App-db panel's downstream-subs hover trigger).
+           ;; `extra-affordance-fn` is `(fn [path] hiccup-or-nil)`.
+           ;; Omitting it preserves the legacy hiccup shape.
+           extra-for  (fn [section-path]
+                        (when extra-affordance-fn
+                          (extra-affordance-fn section-path)))]
        (into [:div {:data-testid "rf-causa-diff-sections"}]
              (for [s sections]
                ;; React key combines epoch-id + section path so a new
@@ -738,6 +763,7 @@
                ;; `with-meta` on the returned vector is the correct
                ;; surface.
                (with-meta
-                 (section s surface (origin-for (:path s)) flash?)
+                 (section s surface (origin-for (:path s))
+                          flash? (extra-for (:path s)))
                  {:key (str (when epoch-id (str epoch-id "/"))
                             (pr-str (:path s)))})))))))
