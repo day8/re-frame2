@@ -149,7 +149,7 @@ Two ways out:
 ;; 2. Or keep the preload but force the shell off
 {:builds {:app {:compiler-options
                 {:closure-defines
-                 {day8.re-frame2-causa.config/enabled? false}}}}}
+                 {re-frame.interop/debug-enabled? false}}}}}
 ```
 
 Option 2 is for the rare case where you want to disable Causa in a specific dev build (say, when profiling raw render cost). Option 1 is the canonical way to keep Causa out of a release.

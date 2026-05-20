@@ -126,7 +126,7 @@ inline host).
 ### Force-disable
 
 ```clojure
-:closure-defines {day8.re-frame2-causa.config/enabled? false}
+:closure-defines {re-frame.interop/debug-enabled? false}
 ```
 
 When set false (or in a production build via `goog.DEBUG=false`), the
@@ -194,7 +194,7 @@ authoritative list.
 | Namespace | Source | Public surfaces |
 |---|---|---|
 | `day8.re-frame2-causa.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
-| `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 6 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `views/Panel`, `trace/Panel`, `machine-inspector/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)). |
+| `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 7 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `views/Panel`, `trace/Panel`, `machine-inspector/Panel`, `issues-ribbon/Panel`, `machines-canvas/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)). |
 | `day8.re-frame2-causa.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-static-mode-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the 10-now-30-planned key surface by topical cluster prefix — editor / launch / keybinding / static-mode / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-causa.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Causa's preload and wants to take the chord back. |
 | `day8.re-frame2-causa.runtime` | `runtime.cljs` | The Causa ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
@@ -243,13 +243,14 @@ day8.re-frame2-causa.panels.views/Panel
 day8.re-frame2-causa.panels.trace/Panel
 day8.re-frame2-causa.panels.machine-inspector/Panel
 day8.re-frame2-causa.panels.issues-ribbon/Panel
+day8.re-frame2-causa.panels.machines-canvas/Panel
 ```
 
 (rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,
 `time-travel`, `effects`, `flows`, `routes`, `performance`, `schema-
 violation-timeline`, `hydration-debugger`, and `mcp-server`. The
-4-layer shell switches over the 6 L3 tab ids in `spec/018-Event-
-Spine.md` §5 — these six are the surviving `Panel` exports.)
+4-layer shell switches over the L3 tab ids in `spec/018-Event-
+Spine.md` §5 — these seven are the surviving `Panel` exports.)
 
 These `Panel` components are the leaves the shell composes — they
 are NOT a host-facing single-panel embed surface. Hosts that want to
