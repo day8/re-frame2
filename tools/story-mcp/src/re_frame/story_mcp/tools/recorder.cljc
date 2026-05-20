@@ -11,11 +11,23 @@
   filter work (op-type :event/dispatched, frame scope, internal-ns
   suppression) — see `re-frame.story.recorder/recordable-event?`.
 
-  Optional `:write-back?` re-registers the source variant with the
+  Optional `:write-back` re-registers the source variant with the
   captured `:play` slot — gated by the same `allow-writes?` flag as
   `register-variant` (`tools.write/assert-writes-allowed`). This is
   the self-healing-loop hook the spec mentions: agent drives canvas →
-  tool returns snippet AND patches the variant in place."
+  tool returns snippet AND patches the variant in place.
+
+  ## Wire-key shape (rf2-pmwgn)
+
+  The wire-arg key is `:write-back` (no `?`) to satisfy Anthropic's
+  `^[a-zA-Z0-9_.-]{1,64}$` constraint on tool input-schema property
+  keys — the same rationale as `:include-sensitive`. The structured-
+  content response key `:written-back?` keeps the `?` because response-
+  payload keys are NOT bound by that regex (per
+  `schemas.cljc` §wire-key shape). The predicate function
+  `write-back?` in scope retains the `?` per the Clojure predicate
+  idiom — the `?` belongs on predicates and on response data, not on
+  the input-schema property whose wire form disallows it."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
@@ -77,7 +89,7 @@
                                           [:rf.error :explain]))))))
 
 (defn tool-record-as-variant
-  "Dev (or Write when `:write-back?` is true): bridge the recorder's
+  "Dev (or Write when `:write-back` is true): bridge the recorder's
   start → capture → snippet pipeline across the MCP boundary.
 
   Args:
@@ -95,7 +107,7 @@
                               threaded; durations above the ceiling are
                               rejected with a structured error
                               (rf2-4yuhi).
-    :new-variant-id optional — when `:write-back?` is true, register the
+    :new-variant-id optional — when `:write-back` is true, register the
                               captured `:play` body as a NEW variant
                               with this id. Defaults to the source
                               `:variant-id` (overwrites in place).
@@ -106,10 +118,12 @@
                               canvas it ran against).
     :alias         optional — short ns alias in the rendered form
                               (default `\"story\"`).
-    :write-back?   optional — when true, also re-register the variant
+    :write-back    optional — when true, also re-register the variant
                               via `reg-variant*` with `:play <captured>`.
                               Requires `allow-writes?` (same gate as
-                              `register-variant`).
+                              `register-variant`). Wire-key shape per
+                              rf2-pmwgn: no `?` — Anthropic's input-
+                              schema property-name regex rejects it.
 
   Output:
     `{:variant-id <source>
@@ -123,8 +137,8 @@
 
   Errors:
     - Source `:variant-id` is not registered.
-    - `:write-back?` true but `allow-writes?` is false.
-    - `:write-back?` true and the underlying `reg-variant*` fails (shape
+    - `:write-back` true but `allow-writes?` is false.
+    - `:write-back` true and the underlying `reg-variant*` fails (shape
       validation, unknown extends, etc.).
 
   Filter layers are inherited from the recorder verbatim (op-type
@@ -134,7 +148,7 @@
   [arguments]
   (h/with-variant arguments
     (fn [vk body]
-      (let [write-back? (args/parse-boolean (:write-back? arguments) false)
+      (let [write-back? (args/parse-boolean (:write-back arguments) false)
             duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)]
         (or (when write-back? (write/assert-writes-allowed "record-as-variant"))
             (when (> duration-ms max-duration-ms)
@@ -163,10 +177,10 @@
             ;;   interning. Defaults to the source `vk` when omitted.
             ;;
             ;; - `:new-variant-id` is the write-back target. When
-            ;;   `:write-back?` is true we DO need a fresh keyword
+            ;;   `:write-back` is true we DO need a fresh keyword
             ;;   (the registrar's gate is `--allow-writes`; the
             ;;   operator chose to grow the registry). When
-            ;;   `:write-back?` is false the slot exists only for the
+            ;;   `:write-back` is false the slot exists only for the
             ;;   rendered snippet's first-line `:variant-id` literal —
             ;;   we render the caller's string as `:<string>` via
             ;;   `read-string` ONLY when the existing variant-id grammar
@@ -232,10 +246,10 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). "
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
                          "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :play [[:cart/add ...]]})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
-                         "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back? true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
+                         "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
                          "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500
     :inputSchema {:type "object"
@@ -246,15 +260,16 @@
                                                                     "Hard ceiling " max-duration-ms "ms — the MCP server's request loop is single-threaded so "
                                                                     "this call blocks unrelated tools for the full window; abusive durations are rejected (rf2-4yuhi).")}
                                  :new-variant-id (assoc s/kw-or-string
-                                                   :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                                                   :description "When `:write-back` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
                                  :doc            {:type "string"
                                                   :description "Optional docstring embedded in the rendered snippet."}
                                  :extends        (assoc s/kw-or-string
                                                    :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
                                  :alias          {:type "string"
                                                   :description "Short ns alias for the rendered form (default \"story\")."}
-                                 :write-back?    {:type "boolean"
-                                                  :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
+                                 :write-back     {:type "boolean"
+                                                  :description (str "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`. "
+                                                                    "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema

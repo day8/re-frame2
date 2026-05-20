@@ -76,6 +76,17 @@ Differs from `run-variant` in semantics: `preview-variant` is the
 "show me what this would look like" call; `run-variant` (in the
 Testing category) is the "execute and report pass/fail" call.
 
+**Annotation (rf2-8h778).** `preview-variant` carries
+`:destructiveHint true` — the same annotation as `run-variant`.
+Both tools invoke the same `(story/run-variant vk opts)` lifecycle
+under the covers; they dispatch events into the variant's frame
+and accumulate assertions. The semantic split (`preview-variant`
+returns the share URL; `run-variant` returns the `:passing?`
+boolean) does not change the side-effect surface, and the
+annotation must reflect that side-effect surface (agent hosts
+that auto-approve `readOnlyHint true` would otherwise auto-approve
+a call that mutates the frame).
+
 ### `list-substrates`
 
 Returns the set registered via
@@ -318,7 +329,7 @@ Three write tools. `register-variant` and `unregister-variant` are
 both gated behind `re-frame.story-mcp.config/allow-writes?` per
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md);
 `record-as-variant` is ungated for the recording path and gated only
-when `:write-back?` is set.
+when `:write-back` is set.
 
 ### `register-variant`
 
@@ -349,11 +360,19 @@ contract per
 [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
 §Test Codegen.
 
-Optional `:write-back?` re-registers the source variant with
+Optional `:write-back` re-registers the source variant with
 `:play <captured-events>` via `reg-variant*` (preserving the
 existing `:component`, `:args`, `:decorators`, etc.). This branch is
 gated behind the same `allow-writes?` flag as `register-variant`; the
 read-only path (snippet only) needs no gate.
+
+Wire-key shape (rf2-pmwgn): the input-schema property key is
+`:write-back` (no `?`) — the same Anthropic `^[a-zA-Z0-9_.-]{1,64}$`
+constraint that mandates `:include-sensitive` (no `?`) applies here.
+The response-payload key `:written-back?` retains the `?`: response
+keys are NOT bound by the input-schema regex. The Clojure-idiomatic
+`?` belongs on predicates and on response data, not on input-schema
+property keys whose wire form disallows it.
 
 `:new-variant-id` lets the write-back land under a different id (the
 default is to overwrite the source). `:extends` defaults to the source

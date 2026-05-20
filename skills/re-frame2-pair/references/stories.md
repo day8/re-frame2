@@ -20,7 +20,7 @@ The `re-frame2-pair` skill's `allowed-tools` (per the SKILL.md frontmatter, land
 | `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | Vector of `{:assertion :path :expected :actual :passed? :source}` |
 | `mcp__re-frame2-story-mcp__snapshot-identity` | Content hash of `(variant × args × decorators × loaders × substrate × modes)` | `{:identity <hash>}` — use to skip cells unchanged since a prior run |
 | `mcp__re-frame2-story-mcp__run-a11y` | axe-core results for the variant's rendered DOM | `{:violations [...]}` (JVM-standalone hosts return `[]` + a hint) |
-| `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back?` re-registers | `{:snippet <string> :events <vector>}` |
+| `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back` re-registers | `{:snippet <string> :events <vector>}` |
 
 `record-as-variant` is the only one whose read-only path is ungated; the write-back branch needs `re-frame.story-mcp.config/allow-writes?` truthy, same gate as `register-variant`. See `tools/story-mcp/spec/002-Tool-Registry.md` for full I/O schemas.
 
@@ -96,7 +96,7 @@ When the loop terminates, optionally call `record-as-variant` to capture the now
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
 - **`run-a11y` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
 - **`record-as-variant`'s filter layers are not free-form.** Filtering is inherited verbatim from `re-frame.story.recorder/recordable-event?` — op-type `:event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`). You can't widen the filter via tool input.
-- **Write-back gate is per-server, not per-call.** `record-as-variant` with `:write-back? true` needs `--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true` set on the story-mcp server start. The read-only path (snippet returned, no registration) needs no gate.
+- **Write-back gate is per-server, not per-call.** `record-as-variant` with `:write-back true` needs `--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true` set on the story-mcp server start. The read-only path (snippet returned, no registration) needs no gate. Wire-key `:write-back` (no `?`) per rf2-pmwgn.
 
 ## Cross-references
 

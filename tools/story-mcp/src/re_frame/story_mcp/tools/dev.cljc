@@ -169,7 +169,16 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
-    :annotations  s/read-only-annotations
+    ;; rf2-8h778 — `preview-variant` invokes the same `story/run-variant`
+    ;; pipeline as `run-variant`: it dispatches events into the variant's
+    ;; frame, accumulates assertions, and mutates the runtime. The audit
+    ;; (rf2-3pn6c Finding #2) caught the asymmetry — `read-only-annotations`
+    ;; here would have allowed agent hosts to auto-approve a call that
+    ;; mutates the frame. The semantic distinction between the two tools
+    ;; (`preview-variant` returns the share URL too; `run-variant` returns
+    ;; the `:passing?` boolean) is real but doesn't change the destructive
+    ;; nature of the underlying lifecycle run.
+    :annotations  s/run-variant-annotations
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
