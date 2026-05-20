@@ -449,20 +449,22 @@
         ;; (the published-build default). `sensitive/strip-sensitive`
         ;; below honours the post-gate value, so a caller's
         ;; `:include-sensitive true` arg is dropped before reaching the
-        ;; runtime drain.
-        incl?              (if (raw-state/force-redact?)
-                             false
-                             (args/parse-bool-arg raw-args :include-sensitive))
+        ;; runtime drain. rf2-p1qli: single intention-naming predicate
+        ;; `raw-state-allowed?` (positive sense — true when operator
+        ;; opted in at launch).
+        incl?              (if (raw-state/raw-state-allowed?)
+                             (args/parse-bool-arg raw-args :include-sensitive)
+                             false)
         ;; rf2-vr2hn — the `--allow-raw-state` boot gate forces
         ;; `:elision true` on every streamed event when OFF, mirroring
         ;; the snapshot / get-path gate. Server-side, the drain envelope's
         ;; `:events` flow through `re-frame.core/elide-wire-value` before
         ;; crossing the nREPL wire — declared-large slots elide and
-        ;; declared-sensitive slots redact. `force-elision?` is the
-        ;; single arbiter; a caller's `:elision false` arg is dropped
-        ;; when the gate is OFF.
-        elision?           (or (args/parse-bool-arg raw-args :elision)
-                               (raw-state/force-elision?))
+        ;; declared-sensitive slots redact. A caller's `:elision false`
+        ;; arg is dropped when the gate is OFF.
+        elision?           (if (raw-state/raw-state-allowed?)
+                             (args/parse-bool-arg raw-args :elision)
+                             true)
         dedup?             (args/parse-bool-arg raw-args :dedup)
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond

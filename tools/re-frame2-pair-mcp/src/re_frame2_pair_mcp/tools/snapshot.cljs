@@ -27,10 +27,12 @@
         ;; `:include-sensitive` to false AND `:elision` to true when
         ;; OFF (the default). The per-call args are still parsed (so the
         ;; response envelope reports the effective post-gate value), but
-        ;; the gate wins.
-        incl?       (if (raw-state/force-redact?)
-                      false
-                      (args/parse-bool-arg raw-args :include-sensitive))
+        ;; the gate wins. rf2-p1qli: single intention-naming predicate
+        ;; `raw-state-allowed?` (positive sense — true when operator
+        ;; opted in at launch).
+        incl?       (if (raw-state/raw-state-allowed?)
+                      (args/parse-bool-arg raw-args :include-sensitive)
+                      false)
         path        (args/parse-path-arg (wire/arg raw-args :path))
         mode        (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         ;; Global lazy-summary mode (rf2-u2029): `:summary` (default)
@@ -40,8 +42,9 @@
         slice-mode  (args/parse-mode-arg (wire/arg raw-args :mode))
         slice-modes (args/parse-modes-arg (wire/arg raw-args :modes))
         dedup?      (args/parse-bool-arg raw-args :dedup)
-        elision?    (or (args/parse-bool-arg raw-args :elision)
-                        (raw-state/force-elision?))
+        elision?    (if (raw-state/raw-state-allowed?)
+                      (args/parse-bool-arg raw-args :elision)
+                      true)
         opts        {:frames frames :include include}
         ;; Eval form composition (rf2-urjnc + rf2-e35a5 + rf2-vflrg).
         ;; The snapshot composer returns a per-frame map; we wrap each

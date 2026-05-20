@@ -31,9 +31,12 @@
         path      (args/parse-path-arg (wire/arg raw-args :path))
         ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
         ;; the per-call `:elision false` arg is overridden so the walker
-        ;; still fires. `force-elision?` is the single arbiter.
-        elision?  (or (args/parse-bool-arg raw-args :elision)
-                      (raw-state/force-elision?))
+        ;; still fires. rf2-p1qli: single intention-naming predicate
+        ;; `raw-state-allowed?` (positive sense — true when operator
+        ;; opted in at launch); the gate-off branch forces elision true.
+        elision?  (if (raw-state/raw-state-allowed?)
+                    (args/parse-bool-arg raw-args :elision)
+                    true)
         ;; rf2-vflrg — `:include-sensitive` threads into the walker's
         ;; `:rf.size/include-sensitive?` opt. Off-box default per
         ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
@@ -44,9 +47,9 @@
         ;; rf2-c2dtu — when the `--allow-raw-state` boot gate is OFF,
         ;; the per-call `:include-sensitive true` arg is dropped before
         ;; reaching the walker.
-        incl?     (if (raw-state/force-redact?)
-                    false
-                    (args/parse-bool-arg raw-args :include-sensitive))]
+        incl?     (if (raw-state/raw-state-allowed?)
+                    (args/parse-bool-arg raw-args :include-sensitive)
+                    false)]
     (cond
       (nil? path)
       (js/Promise.resolve

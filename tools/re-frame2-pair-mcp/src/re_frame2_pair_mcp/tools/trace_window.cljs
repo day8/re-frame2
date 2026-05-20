@@ -26,10 +26,12 @@
         build-id  (wire/arg-build raw-args)
         frame     (wire/arg-keyword raw-args :frame)
         ;; rf2-c2dtu — the `--allow-raw-state` boot gate forces
-        ;; `:include-sensitive false` when OFF (the default).
-        incl?     (if (raw-state/force-redact?)
-                    false
-                    (args/parse-bool-arg raw-args :include-sensitive))
+        ;; `:include-sensitive false` when OFF (the default). rf2-p1qli:
+        ;; single intention-naming predicate `raw-state-allowed?`
+        ;; (positive sense — true when operator opted in at launch).
+        incl?     (if (raw-state/raw-state-allowed?)
+                    (args/parse-bool-arg raw-args :include-sensitive)
+                    false)
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))

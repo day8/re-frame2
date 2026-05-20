@@ -1,12 +1,13 @@
 (ns re-frame2-pair-mcp.raw-state-test
-  "Unit tests for the `--allow-raw-state` boot gate (rf2-c2dtu).
+  "Unit tests for the `--allow-raw-state` boot gate (rf2-c2dtu) and the
+  single intention-naming predicate `raw-state-allowed?` (rf2-p1qli).
 
   Pins the three behaviours the gate guarantees:
 
-    1. Default state — `allow-raw-state-enabled?` returns false; the two
-       `force-*?` predicates return true so the wire path defaults to
-       redact + elide regardless of per-call args.
-    2. Opt-in state — flipping the gate flips the predicates so the
+    1. Default state — `allow-raw-state-enabled?` and `raw-state-allowed?`
+       both return false; per-tool branches force redact + elide
+       regardless of per-call args.
+    2. Opt-in state — flipping the gate flips the predicate so the
        per-call args win again (pre-rf2-c2dtu posture).
     3. `parse-launch-flags` parses `--allow-raw-state` and stays
        symmetric with `--allow-eval`.
@@ -27,24 +28,44 @@
   ;; `--allow-eval` default (rf2-cxx5s).
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/allow-raw-state-enabled?)))
-  (is (true?  (raw-state/force-redact?))
-      "Gate OFF ⇒ force-redact? true so :include-sensitive collapses to false")
-  (is (true?  (raw-state/force-elision?))
-      "Gate OFF ⇒ force-elision? true so :elision collapses to true"))
+  (is (false? (raw-state/raw-state-allowed?))
+      "Gate OFF ⇒ raw-state-allowed? false; per-tool branches force redact + elide"))
 
 ;; ---------------------------------------------------------------------------
 ;; Opt-in (--allow-raw-state) posture.
 ;; ---------------------------------------------------------------------------
 
-(deftest opt-in-flips-predicates
+(deftest opt-in-flips-predicate
   ;; --allow-raw-state ⇒ per-call args win (pre-rf2-c2dtu posture).
   (raw-state/set-allow-raw-state! true)
   (is (true?  (raw-state/allow-raw-state-enabled?)))
-  (is (false? (raw-state/force-redact?))
-      "Gate ON ⇒ caller's :include-sensitive arg wins")
-  (is (false? (raw-state/force-elision?))
-      "Gate ON ⇒ caller's :elision arg wins")
+  (is (true?  (raw-state/raw-state-allowed?))
+      "Gate ON ⇒ raw-state-allowed? true; caller's :include-sensitive / :elision args win")
   ;; Restore for downstream tests.
+  (raw-state/set-allow-raw-state! false))
+
+;; ---------------------------------------------------------------------------
+;; raw-state-allowed? predicate semantics (rf2-p1qli).
+;; ---------------------------------------------------------------------------
+
+(deftest raw-state-allowed-tracks-gate
+  ;; The single intention-naming predicate (rf2-p1qli) matches its truth
+  ;; value to the operator's opt-in state — positive sense, no inversion.
+  ;; Per-tool bodies branch on this directly:
+  ;;
+  ;;   (if (raw-state/raw-state-allowed?)
+  ;;     (args/parse-bool-arg raw-args :include-sensitive) ; gate ON  → caller wins
+  ;;     false)                                            ; gate OFF → force redact
+  ;;
+  ;;   (if (raw-state/raw-state-allowed?)
+  ;;     (args/parse-bool-arg raw-args :elision)           ; gate ON  → caller wins
+  ;;     true)                                             ; gate OFF → force elide
+  (raw-state/set-allow-raw-state! false)
+  (is (false? (raw-state/raw-state-allowed?))
+      "Gate OFF ⇒ operator did NOT opt in; force redact + elide")
+  (raw-state/set-allow-raw-state! true)
+  (is (true? (raw-state/raw-state-allowed?))
+      "Gate ON ⇒ operator opted in via --allow-raw-state; per-call args win")
   (raw-state/set-allow-raw-state! false))
 
 (deftest set-coerces-to-boolean

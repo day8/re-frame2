@@ -219,6 +219,58 @@ app-db on the second inspect; with the cache it ships ~100
 bytes. Saving the round-trip too needs a server-side hash
 precheck and is filed as a follow-on bead.
 
+## Universal: `:reason` keyword vocabulary (`:ok? false` responses)
+
+Every `{:ok? false ...}` response carries a `:reason` keyword. The
+catalogue uses **three deliberate namespacing dialects** — they look
+similar at a glance but signal different categories of failure. An
+agent host pattern-matching on `:reason` should treat the dialect as
+load-bearing: each carries different recovery semantics.
+
+| Dialect       | Meaning                                                            | Example reasons                                                                              |
+|---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:eval-error`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| `:rf.error/*` | Operator-gated denial — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran | `:rf.error/eval-cljs-disabled`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
+| `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
+
+### Rationale for the split
+
+**Why `:rf.error/*` and not bare for operator-gated denials?** The
+`:rf.error/*` namespace carries a distinct recovery shape: the operator
+must add a server-launch flag (`--allow-eval`) or raise an integer cap
+(`--max-concurrent-streams`) before the call will succeed. Bare reasons
+are recoverable by adjusting per-call args; `:rf.error/*` reasons are
+recoverable only by adjusting server configuration. An agent host that
+sees `:rf.error/eval-cljs-disabled` knows to surface a setup hint
+("ask the operator to relaunch with `--allow-eval`") rather than retry
+with different args.
+
+**Why `:rf.mcp/cursor-stale` and not `:rf.error/cursor-stale`?**
+`:rf.mcp/*` is the wire-vocabulary family — every other `:rf.mcp/*`
+keyword (`:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`,
+`:rf.mcp/summary`, `:rf.mcp/diff-from`) is a substitution marker that
+replaces a normal payload at the wire boundary. Cursor-staleness is
+detected at the same boundary (the cursor envelope, before the tool
+body runs) and shares the wire-vocabulary lineage even though it
+appears in the `:reason` slot rather than as a payload substitution.
+Migrating it to `:rf.error/*` would break the cross-MCP recognition
+("everything `:rf.mcp/*` is wire-boundary vocabulary, regardless of
+which slot it lives in") that an agent host learns once on a sibling
+server.
+
+**Why bare for per-call validation?** Short, readable, no namespace
+ceremony for the common case. Bare reasons dominate the surface
+(~32 distinct keywords) because per-call validation failures are
+the common path; the dialect cost would tax the common case.
+
+### Recognition rules for agent hosts
+
+- A bare reason ⇒ try different args (path, frame, event vector, …).
+- A `:rf.error/*` reason ⇒ surface a server-config hint; do not retry
+  with different args.
+- `:rf.mcp/cursor-stale` ⇒ drop the cursor; restart pagination from
+  the head (same as cross-MCP cursor-staleness on story-mcp).
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the
