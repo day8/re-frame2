@@ -51,6 +51,23 @@ Most of Story's distinctive properties — the test-mode reporter, the snapshot 
 
 ## Where to install
 
+### One-liner — scaffold a fresh Story-enabled app
+
+The canonical [`re-frame2-template`](https://github.com/day8/re-frame2/tree/main/tools/template) scaffolds a working Reagent app with the Story playground wired in. One invocation, one command:
+
+```bash
+clojure -Tnew create \
+        :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :include-story? true
+```
+
+The generated tree carries a `src/acme/my_app/stories.cljs` namespace with the canonical `reg-story` / `reg-variant` / `reg-workspace` shapes wired against the counter, a `core.cljs` entry that hash-routes `#/stories` to the Story shell, and a `deps.edn` / `package.json` with Story on the dev classpath. `cd my-app && npm install && npx shadow-cljs watch app`, open `http://localhost:8280/#/stories`, and you're in.
+
+This is the Story-flavoured equivalent of `npx storybook init` (rf2-jg11l — audit D-1). The `:include-story?` flag is Reagent-only at v1; UIx + Helix variants follow once Story's adapter coverage matches Reagent's. See [`tools/template/README.md`](https://github.com/day8/re-frame2/tree/main/tools/template/README.md) for the full flag matrix and the local-development variant of the invocation.
+
+### Adding Story to an existing app
+
 Story lives at [`tools/story/`](https://github.com/day8/re-frame2/tree/main/tools/story) under coord `day8/re-frame2-story`. While re-frame2 is in alpha, vendor through a checkout:
 
 ```clojure
@@ -68,13 +85,12 @@ In your app's entry namespace:
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (story/install-canonical-vocabulary!)
   ;; ... normal app boot ...
   (when (= "#/stories" js/window.location.hash)
     (story/mount-shell! (js/document.getElementById "app"))))
 ```
 
-`install-canonical-vocabulary!` registers the seven canonical tags, the lifecycle machine, the seven `:rf.assert/*` handlers, the built-in `force-fx-stub` decorator, and the v1.0 panel set. Idempotent. Production builds — where `re-frame.story.config/enabled?` is `false` via `:closure-defines` — short-circuit at registration time, and `mount-shell!` short-circuits before any DOM call.
+No explicit `(story/install-canonical-vocabulary!)` call — the first `reg-*` in `my-app.stories` (loaded via the `:require` above) auto-installs the seven canonical tags, the lifecycle machine, the `:rf.assert/*` handlers, the built-in `force-fx-stub` decorator, and the v1.0 panel set per rf2-p1ydc. The boot ceremony is implicit; Storybook has no equivalent step, neither does Story. Production builds — where `re-frame.story.config/enabled?` is `false` via `:closure-defines` — short-circuit at registration time, and `mount-shell!` short-circuits before any DOM call.
 
 The shell is a three-pane Reagent component: a **left sidebar** (stories tree + tag filter + workspaces), the **main pane** (selected variant's canvas or selected workspace), and a **right panel** — Causa embedded as the primary inspector, plus controls, the dispatch console, play status, and any project-custom `reg-story-panel` placements (rf2-sgdd3).
 

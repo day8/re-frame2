@@ -42,10 +42,10 @@
 (defn register-all!
   "Register the login-form testbed's Story artefacts. Idempotent.
   Fired once at namespace load; the test fixture re-fires after a
-  clear-all! per test."
+  clear-all! per test. The canonical vocabulary auto-installs on the
+  first `reg-*` call below per rf2-p1ydc — no explicit boot step
+  required (audit D-2 / rf2-y8gag)."
   []
-  (story/install-canonical-vocabulary!)
-
   ;; -------------------------------------------------------------------------
   ;; Project tag — the screenshot pinned to the tutorial.
   ;; -------------------------------------------------------------------------

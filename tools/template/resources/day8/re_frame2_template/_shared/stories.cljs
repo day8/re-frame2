@@ -31,14 +31,12 @@
 (defn register-all!
   "Register the scaffolded Story artefacts. Idempotent — the trailing
    top-level call fires this at namespace load; tests / hot-reload may
-   call it again after a `clear-all!`."
+   call it again after a `clear-all!`. The canonical Story vocabulary
+   (`:dev :docs :test :screenshot :experimental :internal :agent` tags,
+   the lifecycle machine, the `:rf.assert/*` handlers, the layout-debug
+   decorator set, and the v1 panel set) auto-installs on the first
+   `reg-*` call below per rf2-p1ydc — no explicit boot step required."
   []
-  ;; Install the seven canonical Story tags (`:dev :docs :test
-  ;; :screenshot :experimental :internal :agent`), the lifecycle
-  ;; machine, the canonical `:rf.assert/*` handlers, the layout-debug
-  ;; decorator set, and the v1 panel set. Idempotent.
-  (story/install-canonical-vocabulary!)
-
   ;; -- reg-tag — a project-scoped tag for the canonical screenshot ---------
   (story/reg-tag :{{main}}/canonical
     {:doc "Tag applied to the variant that ships as the example's
