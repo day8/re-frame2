@@ -809,7 +809,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:nav/scroll` | `:rf.nav/scroll` |
 | `:nav/external` | `:rf.nav/external` |
 | `:route/navigate` | `:rf.route/navigate` |
-| `:route/url-changed` | `:rf/url-changed` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/url-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/url-changed` rename target) |
+| `:route/url-changed` | `:rf.route/transitioned` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/fragment-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
 | `:route/not-found` | `:rf.route/not-found` |
 | `:route/navigation-blocked` | `:rf.route/navigation-blocked` |
@@ -1159,12 +1159,12 @@ Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/ma
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf/url-changed` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/reg-route`, `re-frame.core/match-url`, or `re-frame.core/route-url`.
-- Any dispatch of `:rf.route/navigate`, `:rf/url-changed`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
+- Any dispatch of `:rf.route/navigate`, `:rf.route/transitioned`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
 
@@ -1436,7 +1436,7 @@ The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Sch
 
 **Type A — note only** (no codebase rewrite needed; the v1→v2 rename target was already canonical).
 
-Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf/url-changed` (was `:rf.route/url-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
+Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf.route/transitioned` (was `:rf.route/fragment-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
 
 **No user-side migration.** The v1→v2 rename table above (`app-db [:route]` → `app-db [:rf/route]`, `[:route]` framework sub → `[:rf/route]`) was already correct — the drift was internal to the v2 corpus, not a change to the rename target. Codebases following [M-20](#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix) land at `:rf/route` regardless.
 
@@ -2242,6 +2242,39 @@ The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **uncha
 
 ---
 
+### M-60. Route event + trace rename — `:rf/url-changed` / `:rf.route/url-changed` → `:rf.route/transitioned` / `:rf.route/fragment-changed` (rf2-ixezs)
+
+**Type A** (mechanical). Two-keyword global rename.
+
+Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-changed` as an event, `:rf.route/url-changed` as a trace op) trapped readers. The rename gives each a distinct verb, and the event moves into the `:rf.route/*` reserved namespace alongside its siblings.
+
+| Old | New | Surface |
+|---|---|---|
+| `:rf/url-changed` | `:rf.route/transitioned` | the route-change event dispatched by the routing layer when navigation commits |
+| `:rf.route/url-changed` | `:rf.route/fragment-changed` | the trace op emitted on fragment-only URL changes (the new name is more accurate — the op only fires on fragment-only transitions, not on every URL change) |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no routing substrate; v1 codebases land directly on the new names via the bundled sweep.
+
+```clojure
+;; before
+(rf/reg-event-fx :rf/url-changed
+  (fn [{:keys [db]} [_ url opts]] ...))
+
+(when (= :rf.route/url-changed (:operation trace-ev)) ...)
+
+;; after
+(rf/reg-event-fx :rf.route/transitioned
+  (fn [{:keys [db]} [_ url opts]] ...))
+
+(when (= :rf.route/fragment-changed (:operation trace-ev)) ...)
+```
+
+**No alias.** Per pre-alpha posture, the old names are **removed** — stale handler registrations sit unfired; stale trace-filter `=` checks silently mismatch.
+
+**Cross-references.** [Spec 012 §Route-change event catalogue](../../spec/012-Routing.md); [Spec 009 §Trace event catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the `:rf.route/*` ownership).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
@@ -2381,8 +2414,8 @@ If the user wants to adopt the standard surface, the migration shape is:
 2. **Move per-route data fetches into `:on-match`.** What was probably a per-route-id multimethod or a `route->fetch-effects` helper becomes a vector of event vectors on the route metadata. The runtime owns the dispatch.
 3. **Split path params from query params.** v1 routers usually flattened these; re-frame2 keeps them in distinct `:params` and `:query` schemas (and distinct `:route` slice keys).
 4. **Replace any `pushState` calls in views with `[rf/route-link {:to ...}]`.** Views should never call browser APIs directly.
-5. **Replace `popstate` listener bodies with `(rf/dispatch [:rf/url-changed url])`** and remove the application's bespoke URL-changed handler — the runtime ships `:rf.route/handle-url-change` as the default.
-6. **For server-side rendering**, dispatch `:rf/url-changed` against the request URL in `:on-create`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
+5. **Replace `popstate` listener bodies with `(rf/dispatch [:rf.route/transitioned url])`** and remove the application's bespoke URL-changed handler — the runtime ships `:rf.route/handle-url-change` as the default.
+6. **For server-side rendering**, dispatch `:rf.route/transitioned` against the request URL in `:on-create`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
 
 This is a meaningful migration of consumer code, not a mechanical rewrite. Do not apply unless the user has explicitly asked to adopt the standard routing surface.
 

@@ -742,7 +742,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
 
-Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
@@ -827,18 +827,18 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 ```clojure
 (defn install-router! [frame-id]
   (.addEventListener js/window "popstate"
-    #(rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
-  (rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
+    #(rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
+  (rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
 ```
 
-`:rf/url-changed` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
+`:rf.route/transitioned` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
 
 **Pattern-level discipline:**
 
 - The route is in `app-db`; the URL is derivable. Never make routing state live outside `app-db`.
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
-- Server-side renders set the route via `:rf/url-changed` against the request URL; the same `:on-match` events run server-side.
+- Server-side renders set the route via `:rf.route/transitioned` against the request URL; the same `:on-match` events run server-side.
 - Path params and query params are **separate maps** — `(:params (:rf/route db))` and `(:query (:rf/route db))`.
 
 **AI-first checklist:**

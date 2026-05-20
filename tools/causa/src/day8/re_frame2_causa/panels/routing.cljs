@@ -33,7 +33,7 @@
       │   From      /                                                       │
       │   To        /cart                                                   │
       │   Match     {:route :cart}                                          │
-      │   Events    [:rf/url-changed] [:cart/route-entered]                 │
+      │   Events    [:rf.route/transitioned] [:cart/route-entered]                 │
       │                                                                     │
       │ Empty (no route activity this epoch):                               │
       │   Shows tree with current active node highlighted; 'This epoch'     │

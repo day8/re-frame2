@@ -841,7 +841,7 @@ is denser AND simpler. Lines-per-screen target ~16-30.
 │   From        /                                                      │
 │   To          /cart                                                  │
 │   Match       {:route :cart}                                         │
-│   Events      [:rf/url-changed] [:cart/route-entered]                │
+│   Events      [:rf.route/transitioned] [:cart/route-entered]                │
 │                                                                      │
 │ Empty (no route activity this epoch):                                │
 │   Shows tree with current active node highlighted; "This epoch"      │
@@ -853,7 +853,7 @@ is denser AND simpler. Lines-per-screen target ~16-30.
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`, `:rf.route/url-changed` — filtered by `:dispatch-id` |
+| Trace bus | `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`, `:rf.route/fragment-changed` — filtered by `:dispatch-id` |
 | Registries | Route tree (`reg-route`) |
 | Per-frame state | Current active route + phase (for empty-state) |
 

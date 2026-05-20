@@ -242,7 +242,7 @@ Two blocks:
   the tree visible above.
 
 Reads `:rf.route/can-leave`, `:rf.route/can-enter`, `:rf.route/on-match`,
-`:rf.route/url-changed` filtered by `:dispatch-id`.
+`:rf.route/fragment-changed` filtered by `:dispatch-id`.
 
 **Open when:** "what route am I on?", "what params did the nav-token
 resolve?", "did the route change this epoch?"

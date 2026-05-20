@@ -29,7 +29,7 @@
  :fixture/dispatches
  ;; :rf.route/handle-url-change is the runtime's URL-driven entry point —
  ;; Spec 012 §URL changes are events specifies it routes to
- ;; :rf.route/not-found on miss. The :rf/url-changed branch only emits the
+ ;; :rf.route/not-found on miss. The :rf.route/transitioned branch only emits the
  ;; error trace and leaves the slice unchanged.
  [[:rf.route/handle-url-change "/garbage/path"]]
 

@@ -323,7 +323,7 @@
   `:rf.route.nav-token/allocated` event. Returns the trace event map
   (with its `:tags` carrying `:route-id` + `:nav-token`) when present;
   nil otherwise. The emit fires inside both `:rf.route/navigate` (a
-  programmatic dispatch) and `:rf/url-changed` (browser-driven URL
+  programmatic dispatch) and `:rf.route/transitioned` (browser-driven URL
   change), so this catches both navigation paths uniformly."
   [cascade]
   (when cascade
@@ -533,7 +533,7 @@
 ;;     From      /
 ;;     To        /cart
 ;;     Match     {:route :cart}
-;;     Events    [:rf/url-changed] [:cart/route-entered]
+;;     Events    [:rf.route/transitioned] [:cart/route-entered]
 ;;
 ;; The phase derives from the trace-event mix in the focused cascade:
 ;;   - cascade carries :rf.route.nav-token/allocated → :on-match

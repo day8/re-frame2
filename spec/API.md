@@ -193,8 +193,8 @@ Standard route-related events:
 | Event | Notes | Spec |
 |---|---|---|
 | `:rf.route/navigate` | Navigate to a registered route. | 012 |
-| `:rf.route/handle-url-change` | Default handler for `:rf/url-changed`. | 012 |
-| `:rf/url-changed` | The browser URL changed. | 012 |
+| `:rf.route/handle-url-change` | Default handler for `:rf.route/transitioned`. | 012 |
+| `:rf.route/transitioned` | The browser URL changed. | 012 |
 | `:rf/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |

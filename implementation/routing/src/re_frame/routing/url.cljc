@@ -62,7 +62,7 @@
   "Public predicate: true when `url`'s percent-encoding is malformed in
   any of its decode'd portions (path captures via the registered
   routes' patterns, query keys, query values, or `#fragment`). Used by
-  `:rf/url-changed` / `:rf.route/handle-url-change` to discriminate the
+  `:rf.route/transitioned` / `:rf.route/handle-url-change` to discriminate the
   bare route-miss case (`{:url url}`) from the malformed-URL fail-
   closed case (`{:url url :reason :malformed-url}`) — both end up at
   `:rf.route/not-found` but the structured `:reason` lets per-route

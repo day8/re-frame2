@@ -21,15 +21,15 @@
 
  :fixture/dispatches
  [;; Step 1: Visit /docs/routing#scroll-restoration. :fragment seeded.
-  [:rf/url-changed "/docs/routing#scroll-restoration"]
+  [:rf.route/transitioned "/docs/routing#scroll-restoration"]
 
   ;; Step 2: Same path/params, different fragment. :fragment updates.
-  [:rf/url-changed "/docs/routing#caching"]
+  [:rf.route/transitioned "/docs/routing#caching"]
 
   ;; Step 3: Same path/params, NO fragment. :fragment clears to nil.
-  ;; Note: :rf/url-changed treats this as a fragment-only update from
+  ;; Note: :rf.route/transitioned treats this as a fragment-only update from
   ;; "caching" → nil (slice-level).
-  [:rf/url-changed "/docs/routing"]]
+  [:rf.route/transitioned "/docs/routing"]]
 
  :fixture/expect
  {:final-app-db

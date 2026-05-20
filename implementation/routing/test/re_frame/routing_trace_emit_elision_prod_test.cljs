@@ -17,7 +17,7 @@
 
   Surfaces exercised:
 
-  - `:rf.route/fragment-changed`         (emitted by `:rf/url-changed` on fragment-only nav; rf2-cj9fn)
+  - `:rf.route/fragment-changed`         (emitted by `:rf.route/transitioned` on fragment-only nav; rf2-cj9fn)
   - `:rf.route.nav-token/allocated`      (emitted by `navigate` / `handle-url-change`)
   - `:rf.route/registered`               (emitted by `reg-route` on first-time register; rf2-dn26r)
   - `:rf.route/cleared`                  (emitted by `unregister-route!`; rf2-dn26r)

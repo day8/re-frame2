@@ -11,7 +11,7 @@
 ;; gone (pre-alpha — no back-compat shim).
 ;;
 ;; `match-url` itself returns nil for the malformed case (the same
-;; sentinel the no-route-matched branch uses); `:rf/url-changed` /
+;; sentinel the no-route-matched branch uses); `:rf.route/transitioned` /
 ;; `:rf.route/handle-url-change` route the failure to
 ;; `:rf.route/not-found` with `{:url url :reason :malformed-url}` in
 ;; `:params`. The reason discriminates from the bare-miss case
@@ -21,7 +21,7 @@
 {:fixture/id           :routing/malformed-url-fail-closed
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Malformed percent-encoding in path, query, or fragment fails closed as a route-miss (`match-url` returns nil). The lenient `drop the bad query pair` branch is gone — pre-alpha, no back-compat shim. `:rf/url-changed` translates the miss to `:rf.route/not-found` with `{:url url :reason :malformed-url}`."
+ :fixture/doc          "Malformed percent-encoding in path, query, or fragment fails closed as a route-miss (`match-url` returns nil). The lenient `drop the bad query pair` branch is gone — pre-alpha, no back-compat shim. `:rf.route/transitioned` translates the miss to `:rf.route/not-found` with `{:url url :reason :malformed-url}`."
 
  :fixture/registry
  {:route
@@ -39,7 +39,7 @@
   ;; --- Malformed in query ----------------------------------------------
   ;; Pre-rf2-4ic0f the bad pair was silently dropped; post-rf2-4ic0f the
   ;; whole URL fails closed. `match-url` returns nil -- the
-  ;; `:rf.route/not-found` slice writeback happens at `:rf/url-changed`.
+  ;; `:rf.route/not-found` slice writeback happens at `:rf.route/transitioned`.
   {:call :match-url :url "/search?x=%"            :expect nil}    ;; bad value
   {:call :match-url :url "/search?good=1&bad=%"   :expect nil}    ;; bad value, good neighbour
   {:call :match-url :url "/search?%=v"            :expect nil}    ;; bad key
