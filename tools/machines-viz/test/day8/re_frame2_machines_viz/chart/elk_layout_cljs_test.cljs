@@ -106,6 +106,47 @@
     (is (contains? labels "ok"))
     (is (contains? labels "err"))))
 
+(deftest ->elk-graph-edge-labels-include-guard-and-action
+  (testing "rf2-jeim7 — ELK gets the full xstate label so its label-
+            placement heuristic reserves the right lane width"
+    (let [m  {:initial :idle
+              :states  {:idle    {:on {:submit {:target :loading
+                                                :guard  :authed?
+                                                :action :log-it}
+                                       :reset  {:target :idle
+                                                :action :clear-form}}}
+                        :loading {}}}
+          g  (elk-layout/->elk-graph m :tb)
+          labels (set (mapcat (fn [e] (map :text (:labels e))) (:edges g)))]
+      (is (contains? labels "submit [authed?] / log-it"))
+      (is (contains? labels "reset / clear-form")))))
+
+(deftest elk-result->chart-layout-emits-full-xstate-label
+  (testing "rf2-jeim7 — the ELK adapter's chart-layout output carries
+            the full `event [guard] / action` label on every edge so
+            the SVG renderer consumes the same shape as the layered
+            engine"
+    (let [m  {:initial :idle
+              :states  {:idle    {:on {:submit {:target :loading
+                                                :guard  :authed?
+                                                :action :log-it}}}
+                        :loading {}}}
+          id-idle    (layout/node-id [:idle])
+          id-loading (layout/node-id [:loading])
+          elk-result {:id "root"
+                      :children [{:id id-idle    :x 0 :y 0   :width 140 :height 48}
+                                 {:id id-loading :x 0 :y 100 :width 140 :height 48}]
+                      :edges    [{:id (str "e0-" id-idle "-" id-loading)
+                                  :sources [id-idle]
+                                  :targets [id-loading]
+                                  :sections [{:startPoint {:x 70 :y 48}
+                                              :endPoint   {:x 70 :y 100}}]}]
+                      :width 200
+                      :height 200}
+          chart  (elk-layout/elk-result->chart-layout m elk-result)
+          edge   (first (:edges chart))]
+      (is (= "submit [authed?] / log-it" (:event-label edge))))))
+
 ;; ---- elk-result->chart-layout (pure) -----------------------------------
 
 (deftest elk-result->chart-layout-uses-positions-from-elk

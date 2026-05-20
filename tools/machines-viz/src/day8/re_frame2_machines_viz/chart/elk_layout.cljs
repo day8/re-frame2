@@ -224,20 +224,17 @@
                      :width  default-node-width
                      :height default-node-height
                      :labels [{:text (:label n)}]})
-         mk-edge  (fn [edge-idx {:keys [from to event] :as e}]
+         mk-edge  (fn [edge-idx {:keys [from to] :as e}]
                     {:id      (str "e" edge-idx "-"
                                    (layout/node-id from) "-"
                                    (layout/node-id to))
                      :sources [(layout/node-id from)]
                      :targets [(layout/node-id to)]
-                     :labels  [{:text (cond
-                                        (:after e)    (str "after(" (:after e) ")")
-                                        (:always? e)  "always"
-                                        (keyword? event)
-                                        (if-let [ns (namespace event)]
-                                          (str ns "/" (name event))
-                                          (name event))
-                                        :else (str event))}]})]
+                     ;; ELK gets the full xstate label so its label-
+                     ;; placement heuristic can reserve enough width
+                     ;; for `event [guard] / action` (longer strings
+                     ;; need wider lanes).
+                     :labels  [{:text (layout/edge-label e)}]})]
      {:id            "root"
       :layoutOptions {"elk.algorithm"                              "layered"
                       "elk.direction"                              dir-str
@@ -251,17 +248,12 @@
 ;; ---- ELK output → chart-layout shape (pure) ----------------------------
 
 (defn- edge-event-label
-  "Build the human-readable event-label string for an edge — same shape
-  the layered fallback produces (so the SVG renderer reads either
-  identically)."
-  [{:keys [event after always?]}]
-  (cond
-    after            (str "after(" after ")")
-    always?          "always"
-    (keyword? event) (if-let [ns (namespace event)]
-                       (str ns "/" (name event))
-                       (name event))
-    :else            (str event)))
+  "Build the human-readable edge label string per the xstate-stately
+  convention: `event [guard] / action`. Delegates to
+  `layout/edge-label` so the layered + ELK paths emit identical
+  labels — the SVG renderer reads either identically."
+  [edge]
+  (layout/edge-label edge))
 
 (defn elk-result->chart-layout
   "Adapter: parsed-definition + ELK layout result map → the same

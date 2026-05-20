@@ -539,3 +539,85 @@
       (is (some? title))
       (is (= tokens/sans-stack (:font-family (second title)))
           "compound title uses sans-stack"))))
+
+;; ---- rf2-jeim7 — guards + actions render on edge labels (xstate) -------
+;;
+;; Critical contract per machines-viz spec/API.md + Principles.md:
+;; "Hover an edge for its guard + action functions." Layout walks
+;; guards/actions into edge records; the renderer must paint them.
+;; Convention: `event [guard] / action`.
+
+(def guards-actions-machine
+  "A machine exercising all four edge-label segment combinations
+  plus an :after transition with both guard + action."
+  {:initial :idle
+   :states  {:idle    {:on    {:submit [{:target :loading
+                                         :guard  :authed?
+                                         :action :log-it}
+                                        {:target :failed
+                                         :guard  :anon?}]
+                               :reset  {:target :idle
+                                        :action :clear-form}}
+                       :after {1500 {:target :loading
+                                     :guard  :timeout?
+                                     :action :cleanup}}}
+             :loading {:on {:ok :success}}
+             :success {:final? true}
+             :failed  {:final? true}}})
+
+(defn- edge-label-text
+  "Walk an edge `<g>` and return the rendered label `<text>` body
+  string (the last child of the `:text` form)."
+  [edge-g]
+  (let [text-node (some (fn [n] (and (vector? n)
+                                     (= :text (first n))
+                                     n))
+                        (hiccup-seq edge-g))]
+    (when text-node (last text-node))))
+
+(deftest edge-label-renders-event-with-guard-and-action
+  (testing "rf2-jeim7 — an edge with both guard + action renders the
+            full xstate label `event [guard] / action`"
+    (let [tree   (chart-svg/render-from-definition guards-actions-machine)
+          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          labels (set (keep edge-label-text edges))]
+      (is (contains? labels "submit [authed?] / log-it")
+          "event + guard + action segment shape")
+      (is (contains? labels "submit [anon?]")
+          "event + guard segment shape")
+      (is (contains? labels "reset / clear-form")
+          "event + action segment shape")
+      (is (contains? labels "after(1500) [timeout?] / cleanup")
+          "after + guard + action segment shape")
+      (is (contains? labels "ok")
+          "event-only segment shape"))))
+
+(deftest edge-data-attrs-surface-guard-and-action
+  (testing "rf2-jeim7 — `data-guard` + `data-action` surface on the edge
+            `<g>` so host tests + future click-handlers can target them"
+    (let [tree   (chart-svg/render-from-definition guards-actions-machine)
+          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          attrs  (map (fn [e] (select-keys (second e)
+                                           [:data-event :data-guard :data-action]))
+                      edges)]
+      (is (some (fn [a] (and (= "authed?" (:data-guard a))
+                             (= "log-it"  (:data-action a))))
+                attrs)
+          "guard+action edge carries both data-attrs")
+      (is (some (fn [a] (and (= "anon?" (:data-guard a))
+                             (nil? (:data-action a))))
+                attrs)
+          "guard-only edge surfaces nil :data-action"))))
+
+(deftest edge-label-event-only-omits-brackets-and-slash
+  (testing "rf2-jeim7 — an event-only edge renders as just the event id;
+            no stray brackets or slash leak in"
+    (let [tree   (chart-svg/render-from-definition small-machine)
+          edges  (find-all-by-testid-prefix tree "rf-causa-chart-edge-")
+          labels (keep edge-label-text edges)]
+      (is (seq labels))
+      (doseq [l labels]
+        (is (not (str/includes? l "["))
+            (str "no `[` in event-only label: " l))
+        (is (not (str/includes? l "/"))
+            (str "no `/` in event-only label: " l))))))
