@@ -345,39 +345,68 @@ check on the emitted tree is the spike's effective signal.
 
 Goal: tag-based release replaces the Clojars publish pipeline.
 
-Suggested commit decomposition:
+### §3.1 — Tag-on-release CI workflow (rf2-h0w5y — DONE 2026-05-20)
 
-### §3.1 — Tag-on-release CI workflow (rf2 follow-on bead)
+- ✓ Added `.github/workflows/template-release.yml`:
+  - Triggers on push of tags matching
+    `template-v[0-9]+.[0-9]+.[0-9]+*` (e.g.
+    `template-v0.0.1.alpha`). The `template-v…` prefix keeps the
+    trigger disjoint from the framework `v…` and Causa
+    `causa-v…` tag spaces.
+  - Verifies the pushed tag against the template's co-located
+    `VERSION` file (`tools/template/VERSION`). A mismatched tag
+    fails the gate before any deploy step runs.
+  - Runs the template's JVM test suite (`clojure -M:test` from
+    `tools/template/`) as a pre-release gate — shape +
+    static-parse + pin-lockstep + (CI-gated) behavioural slice.
+  - Cuts a GitHub Release pointing at the tagged commit. No
+    artefact upload — the tagged commit IS the artefact under
+    git-coord distribution.
+- ✓ Added `tools/template/VERSION` (initial value `0.0.1.alpha` —
+  tracks the framework alpha-channel cadence while the template
+  is in pre-alpha; bumps independently once the post-1.0 cadence
+  decouples). The in-template lockstep guard
+  ([`version_lockstep_test.clj`](../test/day8/re_frame2_template/version_lockstep_test.clj))
+  continues to read the repo-root `VERSION` as the source of
+  truth for `:rf2-version`; the template's own `VERSION` drives
+  the release tag space.
 
-- Add `.github/workflows/template-release.yml`:
-  - Trigger on push to `main` after the template's tests pass.
-  - Tag the commit `template/v<version>` (read from a `VERSION` file
-    co-located with the template, similar to today's
-    `re-frame2-test-quiet`).
-  - Optionally update a `template/latest` annotated tag pointer.
-- No artefact upload step (git-coord = the commit IS the artefact).
+### §3.2 — Document the invocation form (rf2-h0w5y — DONE 2026-05-20)
 
-### §3.2 — Document the invocation form (rf2 follow-on bead)
-
-- `tools/template/README.md` — switch invocation examples from
-  `-X:project/new` to `-Tnew create`. Add the tag-pin examples.
-- `tools/template/spec/API.md` — rewrite the §Invocation surface.
-- `tools/template/spec/001-Substrate-Variants.md` — drop the
-  `:edn-args` plumbing language.
-- `tools/template/spec/000-Vision.md` §Non-goals — reconcile
-  the locked-flags enumeration with the post-rebuild invocation
-  form (already enumerates the three flags as of rf2-22lre;
-  drop any residual `:edn-args` language).
-- `tools/template/spec/Principles.md` §P4 — rewrite from
-  "Substrate selection via `:edn-args`" to "Substrate selection
-  via top-level k/v". The axis-name and rationale survive; the
-  plumbing language changes.
-- `tools/template/spec/DESIGN-RATIONALE.md` §1 — flip the clj-new vs
-  deps-new decision; archive §2 (`:edn-args`-not-top-level) as a
-  retired rationale.
-- `tools/template/spec/DESIGN-RATIONALE.md` §5 — update the
-  `:include-story?` invocation example from
-  `:edn-args '[:include-story? true]'` to top-level k/v.
+- ✓ `tools/template/README.md` — Quick start section reflects the
+  steady-state `-Tnew create` invocation, the tag-pin example
+  uses `#template-v0.0.1.alpha`, and a callout explains the
+  release-pipeline shape + the local-development `:local/root`
+  fallback.
+- ✓ `tools/template/spec/API.md` — full rewrite of §Invocation
+  + §Args reference + §Examples + §Errors against deps-new
+  semantics. `:edn-args` pass-through bag removed; substrate +
+  include-story? are top-level k/v.
+- ✓ `tools/template/spec/001-Substrate-Variants.md` —
+  `:edn-args` plumbing language removed. Invocation examples,
+  coercion section, future-variants checklist all reflect the
+  deps-new shape.
+- ✓ `tools/template/spec/000-Vision.md` — invocation form +
+  lineage paragraph + non-goals enumeration aligned with the
+  three-flag lock; new §Distribution section calls out git-coord
+  + the `template-v…` tag sequence.
+- ✓ `tools/template/spec/Principles.md` §P4 — rewritten to
+  "Substrate selection via top-level k/v". §P1 + §P2 + §P3 + §P7
+  swept for `:edn-args` / `clj-new` / `shared/` residue and
+  realigned with the deps-new shape.
+- ✓ `tools/template/spec/DESIGN-RATIONALE.md` — §1 flipped to
+  "deps-new over clj-new"; §2 (`:edn-args`-not-top-level)
+  archived as a retired rationale under §Retired
+  §`:edn-args`-not-top-level; the v1 clj-new-over-deps-new
+  rationale archived under §Retired §clj-new-over-deps-new for
+  historical record. §5 invocation example updated to top-level
+  k/v.
+- ✓ `tools/template/spec/002-Generated-Shape.md` — resource-tree
+  diagram + substitution-variable table + clj-new-finds-resources
+  section rewritten against the deps-new `root/` + `_shared/` +
+  per-substrate layout.
+- ✓ `tools/template/spec/README.md` — index entries reflect the
+  new shape.
 
 ## §4 Stage 4 — Docs + migration for existing template users
 

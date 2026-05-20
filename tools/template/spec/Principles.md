@@ -8,26 +8,29 @@
 
 The template is **never on a consumer's runtime classpath**. It is a
 build-time scaffold; consumers invoke it via
-`clojure -X:project/new` and what lands in their project is the
-generated source tree, not this jar.
+`clojure -Tnew create :template io.github.day8/re-frame2-template`
+and what lands in their project is the generated source tree, not
+this artefact.
 
 This is the strongest version of the bundle-isolation contract
 [`tools/README.md`](../../README.md) lays out. Every other tool in
 `tools/` has to argue why it satisfies the contract (separate
 classpath root, deps.edn hygiene, DCE-friendly macros). The
 template satisfies it trivially: it never appears anywhere except
-the user's `clojure -X:project/new` invocation, and only then on
-the CLJ-side build tool's classpath, never the generated app's.
+the user's `clojure -Tnew create` invocation, and only then on
+the CLJ-side build tool's classpath (deps-new clones the tagged
+commit into `~/.gitlibs/` and reads it once), never the generated
+app's.
 
 The dependency flow is unidirectional:
 
 ```
-user → clj-new → this template → generated files
+user → deps-new → this template → generated files
 ```
 
 The generated app has **no compile-time or runtime knowledge of
 the template**. The generated `deps.edn` does not depend on
-`day8/clj-template.re-frame2`; the generated source does not
+`day8/re-frame2-template`; the generated source does not
 `:require` from it. Once the template emits its files, the
 template's role is over.
 
@@ -45,8 +48,8 @@ Every variant emits a working counter. The counter:
 
 This is the "counter throughline" principle applied to the
 scaffolding tool. A developer who runs
-`clojure -X:project/new :template re-frame2 :name acme/my-app` and
-then opens the guide sees the same code in both places. No
+`clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`
+and then opens the guide sees the same code in both places. No
 mismatch, no "wait, what's this different shape doing here?"
 moment.
 
@@ -59,7 +62,8 @@ template keeps the example minimal.
 Events (`events.cljs`), subs (`subs.cljs`), and the host shell
 (`README.md`, `.gitignore`, `resources/public/index.html`) are
 **identical across all three substrates**. They live under
-`shared/` in the resource tree.
+`_shared/` in the resource tree (plus `root/` for the bulk-copied
+content with default placement).
 
 The substrate-specific files are:
 
@@ -79,23 +83,29 @@ logic (events + subs + state shape) is substrate-portable. Only
 the render edge differs. The template's resource layout demonstrates
 this.
 
-## P4 — Substrate selection via `:edn-args`
+## P4 — Substrate selection via top-level k/v
 
-The substrate selector rides on `:edn-args`, not on a top-level
-`:substrate` key:
+The substrate selector is a **top-level k/v argument** on the
+`-Tnew create` invocation:
 
 ```bash
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :uix]'
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :uix
 ```
 
-This is a clj-new harness constraint surfaced during implementation
-— clj-new's `create` strips unknown top-level args before
-classloading the template's entry fn. `:edn-args` is the documented
-pass-through bag, and it is what the template reads from.
+deps-new hands template arguments directly to the template's
+`data-fn` as a Clojure map; there is no pass-through bag, no
+nested EDN payload. `data-fn` in
+[`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj)
+reads `:substrate` off the map and threads the coerced keyword
+through to `template-fn`'s per-substrate `case`.
 
-See [DESIGN-RATIONALE](DESIGN-RATIONALE.md) §edn-args-not-top-level
-for the audit trail.
+The v1 clj-new template plumbed `:substrate` through `:edn-args`
+to work around clj-new's top-level-arg stripping; the deps-new
+migration (rf2-dolpf) removed the workaround. See
+[DESIGN-RATIONALE.md §Retired §`:edn-args`-not-top-level](DESIGN-RATIONALE.md#retired--edn-args-not-top-level)
+for the historical record.
 
 ## P5 — Pins in lockstep with the reference implementation
 
@@ -123,32 +133,47 @@ fuzz. The user sees the typo and fixes it.
 
 ## P7 — Tested end-to-end, per substrate
 
-The template ships a three-file layered JVM test suite under
-`test/clj/new/`. Each substrate (Reagent / UIx / Helix) is exercised
-end-to-end across the three layers:
+The template ships a layered JVM test suite under
+`test/day8/re_frame2_template/`. Each substrate (Reagent / UIx /
+Helix) is exercised end-to-end across the layers:
 
-1. **Shape.** `re_frame2_test.clj` — generates a tmp app via the
-   template's main fn, walks the produced file tree, asserts file
-   presence + `deps.edn` substrate-adapter coords. Always runs.
+1. **Shape.** `template_test.clj` — generates a tmp app via
+   `org.corfield.new/create` in-process (the full deps-new pipeline
+   — `data-fn` / `template-fn` / `post-process-fn` — runs exactly
+   as a `clojure -Tnew create` shell invocation would), walks the
+   produced file tree, asserts file presence + `deps.edn`
+   substrate-adapter coords. Always runs.
 2. **Static parse.** `template_emission_test.clj` — parses every
    emitted `.cljs` file, resolves each `<alias>/<sym>` reference
    against the framework source under `implementation/core/src/`,
    and asserts the symbol exists. Catches rename/cut drift between
    the template scaffold and the runtime API. Always runs.
-3. **Behavioural.** `emitted_test_run_test.clj` — compiles and runs
+3. **Pin lockstep.** `version_lockstep_test.clj` — emits a Reagent
+   app and asserts the template's `:rf2-version` matches the
+   repo-root `VERSION`, the `:shadow-version` matches
+   `implementation/package.json` :devDependencies/shadow-cljs, and
+   the `:react-version` matches the same file's
+   :devDependencies/react. Catches drift between the template's
+   inline pin literals and their external sources of truth. Always
+   runs.
+4. **Behavioural.** `emitted_test_run_test.clj` — compiles and runs
    the emitted `events_test.cljs` end-to-end via shadow-cljs + Node.
    Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
    locally for fast loop).
 
-A `clojure -P` deps-parse smoke also runs in `re_frame2_test.clj`,
+A `clojure -P` deps-parse smoke also runs in `template_test.clj`,
 gated behind `RF2_TEMPLATE_DEPS_RESOLVE=1` (CI sets it). It is
 default-off locally until the alpha artefacts land on Clojars —
 until publication every `clojure -P` fails with a "couldn't find
 artifact" error that is a known skip, not a real signal.
 
 CI sets both env vars; a change that breaks file-tree shape, drifts
-the framework surface, or breaks the emitted test compile fails the
-build. Local fast-loop default is shape + static-parse only.
+the framework surface, breaks the pin lockstep, or breaks the
+emitted test compile fails the build. The git-coord release
+workflow (`.github/workflows/template-release.yml`) runs the same
+`clojure -M:test` suite as a pre-release gate, so a `template-v…`
+tag push that would publish a drifted template fails before the
+GitHub Release is cut.
 
 ## Cross-references
 
