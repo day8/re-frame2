@@ -150,7 +150,9 @@ no fn-slots):
 {:doc                   "..."
  :extends               <variant-id>             ; parent variant; merged at registration
  :events                [[:event-id args ...]]   ; setup events; phase 2
- :play                  [[:event-id args ...]]   ; post-render events; phase 4
+ :play-script           {:script [...steps]      ; post-render rich-DSL script; phase 4
+                         :auto-run? true         ; (rf2-0wrud — canonical AND ONLY phase-4 slot)
+                         :name "happy path"}
  :args                  {<arg-key> <value>}      ; override/extend story args
  :argtypes              {<arg-key> {...}}        ; override story argtypes
  :tags                  #{:dev :docs ...}        ; subset of registered tags
@@ -168,6 +170,46 @@ no fn-slots):
                          :filters {...}
                          :focus   {...}}}
 ```
+
+### `:play-script` — the canonical phase-4 surface (rf2-0wrud)
+
+`:play-script` is the canonical AND ONLY phase-4 play surface
+(rf2-0wrud, 2026-05-20). Pre-alpha posture: the legacy `:play`
+event-vector slot has been removed — no transitional dual-acceptance.
+Authors compose post-render behaviour as a sequence of TAGGED steps:
+
+| Step                                  | Semantics                                                |
+|---------------------------------------|----------------------------------------------------------|
+| `[:dispatch event-vec]`               | `rf/dispatch` (async) into the variant's frame           |
+| `[:dispatch-sync event-vec]`          | `rf/dispatch-sync` (synchronous) into the variant's frame |
+| `[:wait ms]`                          | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM)       |
+| `[:assert-db path value]`             | Assert `(= (get-in @app-db path) value)`                  |
+| `[:assert-db path :pred fn-or-sym]`   | Assert custom predicate (fn preferred under advanced CLJS) |
+| `[:assert-dom selector :visible]`     | Assert selector resolves to a visible DOM node            |
+| `[:assert-dom selector :hidden]`      | Assert selector resolves to nothing (or hidden node)      |
+| `[:assert-dom selector :text txt]`    | Assert selector's text-content matches `txt`              |
+| `[:click selector]`                   | Synthetic click event at selector                         |
+| `[:type selector text]`               | Synthetic `input` event at selector with `text`           |
+
+The canonical seven `:rf.assert/*` assertion events (per
+[`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`
+rail: `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]`. The
+assertion handler runs synchronously and records into
+`:rf.story/assertions` on the variant's frame — identical semantics
+to what the legacy `:play` slot delivered.
+
+Two body shapes are accepted:
+
+- **Bare vector** — `:play-script [[:dispatch-sync [:foo]] ...]`
+  shorthand for `{:script <vector> :auto-run? true}`.
+- **Map**       — `:play-script {:script [...] :auto-run? bool :name str}`
+  for explicit opt-out of auto-run on mount or naming the play.
+
+The runner's `coerce-script` also tolerates bare event vectors at the
+script level — `[[:counter/inc] ...]` lifts each entry to
+`[:dispatch <event-vec>]`. Prefer explicit `:dispatch-sync` wrapping
+when porting code that depended on the legacy `:play` slot's
+drain-to-completion ordering.
 
 The `:rf/variant` schema (in
 [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md)) enforces the
@@ -679,8 +721,8 @@ state between variants and no hooks-inside-stories problem.
 
 This means "stateful variants" in Story is not a separate authoring
 mode — it's the default. You drive state with `:events` (setup) and
-`:play` (post-render), and you read it with subs (the canvas renders
-against the variant's frame) or assertions (which read through
+`:play-script` (post-render), and you read it with subs (the canvas
+renders against the variant's frame) or assertions (which read through
 `:rf.assert/sub-equals` etc.).
 
 ### The contract
@@ -713,10 +755,12 @@ against the variant's frame) or assertions (which read through
               :at-five  {:events [[:counter/initialise]
                                   [:counter/set 5]]}
               :driven   {:events [[:counter/initialise]]
-                         :play   [[:counter/increment]
-                                  [:counter/increment]
-                                  [:counter/increment]
-                                  [:rf.assert/sub-equals [:counter/value] 3]]}}})
+                         :play-script
+                         [[:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:counter/increment]]
+                          [:dispatch-sync [:rf.assert/sub-equals
+                                           [:counter/value] 3]]]}}})
 ```
 
 Three variants, three independent app-dbs. Mount the
@@ -727,7 +771,7 @@ side-by-side, each cell starting fresh.
 
 | Storybook pattern | Story counterpart |
 |---|---|
-| `render: (args) => { const [a, setA] = useArgs(); ... }` | `:play` body dispatching events into the variant's frame |
+| `render: (args) => { const [a, setA] = useArgs(); ... }` | `:play-script` body dispatching events into the variant's frame |
 | `useState(...)` inside the render fn | The view's subs read from the per-variant frame's `app-db` |
 | Hooks-inside-stories re-render gotcha | None — there is no render fn |
 | One global app instance, decorator-wrapped per story | Per-variant frame; no global shared state |
@@ -834,17 +878,17 @@ discussion.
 
 ```clojure
 (story/reg-variant :story.auth.login-form/happy-path
-  {:doc    "Full login flow."
-   :events [[:auth/initialise]]
-   :play   [[:auth/email-changed "alice@example.com"]
-            [:auth/password-changed "hunter2"]
-            [:auth/login-pressed]
-            [:rf.assert/path-equals  [:auth :status] :authenticated]
-            [:rf.assert/sub-equals   [:auth/current-user] {:id 42 :name "Alice"}]
-            [:rf.assert/state-is     :auth/login :authenticated]
-            [:rf.assert/no-warnings]
-            [:rf.assert/effect-emitted :navigate]]
-   :tags   #{:dev :docs :test}})
+  {:doc         "Full login flow."
+   :events      [[:auth/initialise]]
+   :play-script [[:dispatch-sync [:auth/email-changed "alice@example.com"]]
+                 [:dispatch-sync [:auth/password-changed "hunter2"]]
+                 [:dispatch-sync [:auth/login-pressed]]
+                 [:dispatch-sync [:rf.assert/path-equals  [:auth :status] :authenticated]]
+                 [:dispatch-sync [:rf.assert/sub-equals   [:auth/current-user] {:id 42 :name "Alice"}]]
+                 [:dispatch-sync [:rf.assert/state-is     :auth/login :authenticated]]
+                 [:dispatch-sync [:rf.assert/no-warnings]]
+                 [:dispatch-sync [:rf.assert/effect-emitted :navigate]]]
+   :tags        #{:dev :docs :test}})
 ```
 
 ### Loaders with `:loaders-complete-when`
@@ -962,7 +1006,7 @@ macro-expansion time. Story propagates this through:
 
 Stage 2's `reg-story*` / `reg-variant*` macros stamp `:source` from
 `&form`'s `:line` / `:file` meta into the registry entry. The
-play-runner copies the `:source` of each `:play` event into the
+play-runner copies the `:source` of each `:play-script` step into the
 corresponding `:assertions` record.
 
 ## Schema-derivation pipeline

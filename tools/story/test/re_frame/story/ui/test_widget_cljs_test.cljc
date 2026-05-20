@@ -135,12 +135,12 @@
 (deftest testable-variant-ids-filters-by-tag-and-play
   (testing "only :test-tagged variants with non-empty :play count"
     (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                   :play [[:rf.assert/path-equals [:c] 0]]})
-    (story/reg-variant :story.x/b {:tags #{:test} :events [] :play []})
+                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+    (story/reg-variant :story.x/b {:tags #{:test} :events [] :play-script []})
     (story/reg-variant :story.x/c {:tags #{:dev} :events []
-                                   :play [[:rf.assert/path-equals [:c] 0]]})
+                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
     (story/reg-variant :story.x/d {:tags #{:test :dev} :events []
-                                   :play [[:rf.assert/path-equals [:c] 0]]})
+                                   :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
     (let [vs (story-registrar/registrations :variant)
           testable (state/testable-variant-ids vs)]
       (is (= [:story.x/a :story.x/d] testable))
@@ -203,15 +203,15 @@
      (testing "with 3 pass / 1 fail / 1 pending the widget headline and
                count chips reflect the fixture"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/b {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/c {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/d {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/e {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
              fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}]
          (state/swap-state! state/record-test-run :story.x/a pass)
@@ -282,7 +282,7 @@
    (deftest widget-run-all-button-disabled-while-running
      (testing "if any variant is :running the Run all button disables"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (state/swap-state! state/mark-test-running :story.x/a)
        (let [tree (sidebar/test-widget (state/get-state)
                                        (state/registry-snapshot))
@@ -299,11 +299,11 @@
                restricted subset and asserts the headline counts reflect
                only that subset"
        (story/reg-variant :story.x/a {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/b {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        (story/reg-variant :story.x/c {:tags #{:test} :events []
-                                      :play [[:rf.assert/path-equals [:c] 0]]})
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
        ;; Supply a 1-variant subset. The registry has three; the widget
        ;; should report total=1 because we threaded a 1-element seq, not
        ;; the full registry-derived set.

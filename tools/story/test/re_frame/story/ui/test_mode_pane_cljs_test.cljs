@@ -166,7 +166,7 @@
       (fn [db _] (assoc db :counter 7)))
     (story/reg-variant :story.pane.mount/v
       {:events [[:test/set]]
-       :play   [[:rf.assert/path-equals [:counter] 7]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 7]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.mount/v)
           (async-lib/then
@@ -198,9 +198,9 @@
     (rf/reg-event-db :test/set-b
       (fn [db _] (assoc db :v "b")))
     (story/reg-variant :story.pane.switch/a
-      {:events [[:test/set-a]] :play [[:rf.assert/path-equals [:v] "a"]]})
+      {:events [[:test/set-a]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
     (story/reg-variant :story.pane.switch/b
-      {:events [[:test/set-b]] :play [[:rf.assert/path-equals [:v] "b"]]})
+      {:events [[:test/set-b]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "b"]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.switch/a)
           (async-lib/then
@@ -256,7 +256,7 @@
     (rf/reg-event-db :test/inc (fn [db _] (update db :n (fnil inc 0))))
     (story/reg-variant :story.pane.debounce/v
       {:events [[:test/inc]]
-       :play   [[:rf.assert/path-equals [:n] 1]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
       (let [p (tm-state/run-variant-pane! :story.pane.debounce/v)]
         ;; The synchronous prelude of run-variant-pane! calls begin-run!
@@ -288,7 +288,7 @@
             allowed (the gate is :running?, not a permanent lock)"
     (rf/reg-event-db :test/inc (fn [db _] (update db :n (fnil inc 0))))
     (story/reg-variant :story.pane.cycle/v
-      {:events [[:test/inc]] :play [[:rf.assert/path-equals [:n] 1]]})
+      {:events [[:test/inc]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
       (-> (tm-state/run-variant-pane! :story.pane.cycle/v)
           (async-lib/then

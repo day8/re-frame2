@@ -221,8 +221,8 @@
     (story/reg-variant :story.authfx-rt/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
        :events     []
-       :play       [[:do/emit-http]
-                    [:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:do/emit-http]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking
               (story/run-variant :story.authfx-rt/v) 5000)]
       (is (= :ready (:lifecycle r)))

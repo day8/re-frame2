@@ -108,8 +108,8 @@
     (story/reg-variant :story.fxscen.http/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
        :events     []
-       :play       [[:do/http-emit]
-                    [:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:do/http-emit]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxscen.http/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.http/v :http
                                 {:url "/api" :method :get} r))
@@ -122,8 +122,8 @@
     (story/reg-variant :story.fxscen.analytics/v
       {:decorators [[:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     []
-       :play       [[:do/analytics-emit]
-                    [:rf.assert/effect-emitted :analytics]]})
+       :play-script [[:dispatch-sync [:do/analytics-emit]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxscen.analytics/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.analytics/v :analytics
                                 {:event "page-view" :path "/home"} r))
@@ -136,8 +136,8 @@
     (story/reg-variant :story.fxscen.websocket/v
       {:decorators [[:rf.story/force-fx-stub :websocket {:connected? true}]]
        :events     []
-       :play       [[:do/websocket-emit]
-                    [:rf.assert/effect-emitted :websocket]]})
+       :play-script [[:dispatch-sync [:do/websocket-emit]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :websocket]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxscen.websocket/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.websocket/v :websocket
                                 {:topic "live" :payload {:tick 1}} r))
@@ -150,8 +150,8 @@
     (story/reg-variant :story.fxscen.navigation/v
       {:decorators [[:rf.story/force-fx-stub :navigation {:landed? true}]]
        :events     []
-       :play       [[:do/navigation-emit]
-                    [:rf.assert/effect-emitted :navigation]]})
+       :play-script [[:dispatch-sync [:do/navigation-emit]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :navigation]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxscen.navigation/v) 5000)]
       (assert-stub-intercepted! :story.fxscen.navigation/v :navigation
                                 {:to "/dashboard" :replace? false} r))
@@ -193,8 +193,8 @@
       (story/reg-variant :story.fxoverride/real
         {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
          :events     []
-         :play       [[:do/http-call]
-                      [:rf.assert/effect-emitted :http]]})
+         :play-script [[:dispatch-sync [:do/http-call]]
+                      [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
       (let [r (async/deref-blocking (story/run-variant :story.fxoverride/real) 5000)]
         (is (= :ready (:lifecycle r))
             "lifecycle reaches :ready — the stub absorbed the call, the real
@@ -257,13 +257,13 @@
       (story/reg-variant :story.fxfail/v
         {:decorators [[:rf.story/force-fx-stub :http failure-payload]]
          :events     []
-         :play       [[:do/http-emit-fail]
-                      [:record/failure]
-                      [:rf.assert/effect-emitted :http]
-                      [:rf.assert/path-equals [:http-result :status] :error]
-                      [:rf.assert/path-equals [:http-result :code]   500]
-                      [:rf.assert/path-equals [:http-result :body]
-                                             {:reason "server-down"}]]})
+         :play-script [[:dispatch-sync [:do/http-emit-fail]]
+                      [:dispatch-sync [:record/failure]]
+                      [:dispatch-sync [:rf.assert/effect-emitted :http]]
+                      [:dispatch-sync [:rf.assert/path-equals [:http-result :status] :error]]
+                      [:dispatch-sync [:rf.assert/path-equals [:http-result :code]   500]]
+                      [:dispatch-sync [:rf.assert/path-equals [:http-result :body]
+                                             {:reason "server-down"}]]]})
       (let [r       (async/deref-blocking (story/run-variant :story.fxfail/v) 5000)
             asserts (:assertions r)]
         (is (= :ready (:lifecycle r))

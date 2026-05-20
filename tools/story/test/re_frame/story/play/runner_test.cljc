@@ -22,6 +22,28 @@
     (is (nil? (runner/step-type "not-a-vec")))
     (is (nil? (runner/step-type [])))))
 
+(deftest async-yield-classification
+  (testing "async-yield? returns true for steps whose effects queue
+            outside the runner — :dispatch (router), :click / :type
+            (synthetic-event handlers re-entering dispatch), :wait
+            (explicit sleep). Used by run-loop! to decide whether to
+            recur synchronously or yield. rf2-ftow6."
+    (is (true? (runner/async-yield? [:dispatch [:foo]])))
+    (is (true? (runner/async-yield? [:click "[data-test=x]"])))
+    (is (true? (runner/async-yield? [:type "[data-test=x]" "text"])))
+    (is (true? (runner/async-yield? [:wait 0])))
+    (is (true? (runner/async-yield? [:wait 100]))))
+  (testing "sync-class steps must NOT yield — that's the bug the race
+            fix corrects. :dispatch-sync, :assert-db, :assert-dom are
+            purely synchronous on CLJS; yielding between them allowed
+            concurrent runs to interleave and overshoot counter incs."
+    (is (false? (runner/async-yield? [:dispatch-sync [:foo]])))
+    (is (false? (runner/async-yield? [:assert-db [:k] 1])))
+    (is (false? (runner/async-yield? [:assert-db [:k] :pred even?])))
+    (is (false? (runner/async-yield? [:assert-dom "sel" :visible])))
+    (is (false? (runner/async-yield? [:assert-dom "sel" :hidden])))
+    (is (false? (runner/async-yield? [:assert-dom "sel" :text "x"])))))
+
 (deftest known-step-pred
   (testing "known-step? is true only for registered step tags"
     (is (true?  (runner/known-step? [:dispatch [:foo]])))

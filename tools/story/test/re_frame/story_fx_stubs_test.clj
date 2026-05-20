@@ -135,8 +135,8 @@
     (story/reg-variant :story.fxemit/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
        :events     []
-       :play       [[:do/http-call]
-                    [:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:do/http-call]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [r (async/deref-blocking (story/run-variant :story.fxemit/v) 5000)
           last-a (last (:assertions r))]
       (is (true? (:passed? last-a))
@@ -155,7 +155,7 @@
     (story/reg-variant :story.fxlog/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
        :events     []
-       :play       [[:do/http-call2]]})
+       :play-script [[:dispatch-sync [:do/http-call2]]]})
     (async/deref-blocking (story/run-variant :story.fxlog/v) 5000)
     (let [log (re-frame.story.frames/stub-call-log-for :story.fxlog/v)]
       (is (= 1 (count log)))
@@ -179,13 +179,13 @@
     (story/reg-variant :story.fxisolation/a
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
        :events     []
-       :play       [[:do/http-a]
-                    [:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:do/http-a]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (story/reg-variant :story.fxisolation/b
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
        :events     []
-       :play       [[:do/http-b]
-                    [:rf.assert/effect-emitted :http]]})
+       :play-script [[:dispatch-sync [:do/http-b]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
     (let [ra (async/deref-blocking (story/run-variant :story.fxisolation/a) 5000)
           rb (async/deref-blocking (story/run-variant :story.fxisolation/b) 5000)
           log-a (frames/stub-call-log-for :story.fxisolation/a)

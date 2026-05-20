@@ -124,9 +124,9 @@
       (fn [db _] (assoc-in db [:auth :token] "BEARER-secret-12345")))
     (story/reg-variant :story.redaction.path-equals/probe
       {:events [[:auth/login]]
-       :play   [[:rf.assert/path-equals
+       :play-script [[:dispatch-sync [:rf.assert/path-equals
                  [:auth :token]
-                 :rf/redacted]]})
+                 :rf/redacted]]]})
     (async done
       (-> (story/run-variant :story.redaction.path-equals/probe)
           (async-lib/then
@@ -176,9 +176,9 @@
     (rf/reg-sub :user/ssn (fn [db _] (:user/ssn db)))
     (story/reg-variant :story.redaction.sub-equals/probe
       {:events [[:session/save-pii]]
-       :play   [[:rf.assert/sub-equals
+       :play-script [[:dispatch-sync [:rf.assert/sub-equals
                  [:user/ssn]
-                 :rf/redacted]]})
+                 :rf/redacted]]]})
     (async done
       (-> (story/run-variant :story.redaction.sub-equals/probe)
           (async-lib/then

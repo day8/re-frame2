@@ -766,12 +766,12 @@
 (deftest test-mode-variant-has-tests?-checks-play-slot
   (testing "variant-has-tests? is false when :play is absent or empty"
     (story/reg-variant :story.tm/empty {:events []})
-    (story/reg-variant :story.tm/empty-play {:events [] :play []})
+    (story/reg-variant :story.tm/empty-play {:events [] :play-script []})
     (is (not (test-mode/variant-has-tests? :story.tm/empty)))
     (is (not (test-mode/variant-has-tests? :story.tm/empty-play))))
   (testing "variant-has-tests? is true when :play carries any event"
     (story/reg-variant :story.tm/has
-      {:events [] :play [[:rf.assert/path-equals [:count] 0]]})
+      {:events [] :play-script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
     (is (test-mode/variant-has-tests? :story.tm/has)))
   (testing "variant-has-tests? returns false for an unknown variant-id"
     (is (not (test-mode/variant-has-tests? :story.tm/unknown)))))

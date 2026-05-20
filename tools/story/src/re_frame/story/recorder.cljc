@@ -160,15 +160,35 @@
   [:rf/redacted])
 
 ;; ---------------------------------------------------------------------------
-;; Pure: code-gen — `(reg-variant ... :play [...])` snippet
+;; Pure: code-gen — `(reg-variant ... :play-script {...})` snippet
+;;
+;; rf2-0wrud (2026-05-20): `:play-script` is the canonical AND ONLY
+;; phase-4 slot. `gen-play-snippet` wraps each captured event vector as
+;; a `[:dispatch-sync <event-vec>]` step under `:play-script :script`.
+;; Assertion events (`:rf.assert/*`) ride the same dispatch-sync rail —
+;; the assertion handler is registered, so dispatch-sync runs it and
+;; the result lands in `:rf.story/assertions` exactly as it did under
+;; the legacy `:play` slot.
 ;; ---------------------------------------------------------------------------
+
+(defn- event->step
+  "Wrap a captured event vector as a `:play-script` step. Per
+  rf2-0wrud the canonical wrapping is `:dispatch-sync` — preserves the
+  legacy `:play`'s drain-to-completion ordering and lets `:rf.assert/*`
+  events record on the very next step."
+  [event-vec]
+  [:dispatch-sync event-vec])
 
 (defn gen-play-snippet
   "Build the EDN snippet for the captured events. Pure data → string.
 
-  Returns a `(re-frame.story/reg-variant <id> {... :play [...]})` form
-  the user can paste into source. The variant id and any extra body
-  keys come from `opts`:
+  Returns a `(re-frame.story/reg-variant <id> {... :play-script
+  {:script [...]}})` form the user can paste into source. Per rf2-0wrud
+  (2026-05-20) `:play-script` is the canonical AND ONLY phase-4 slot;
+  each captured event vector is wrapped as `[:dispatch-sync <event-vec>]`
+  inside the script body.
+
+  Opts:
 
       :variant-id  required — keyword id of the new variant
                               (e.g. `:story.counter/recorded-flow`)
@@ -179,28 +199,31 @@
                               (default `\"story\"`)
 
   When `events` is empty the snippet still renders (with an empty
-  `:play` vector) so the user sees the shape they're about to fill.
+  `:script` vector) so the user sees the shape they're about to fill.
 
-  The output is human-readable EDN — each event renders on its own
-  line, indented under `:play [`. The form is `read-string`-able and
+  The output is human-readable EDN — each step renders on its own
+  line, indented under `:script [`. The form is `read-string`-able and
   round-trips through re-frame's registrar machinery."
   [events {:keys [variant-id doc extends alias]
            :or   {alias "story"}}]
-  (let [;; The shared `indent-after` helper (predicates leaf) aligns events
-        ;; on continuation lines directly under the `[` of `:play [` —
-        ;; derived from the literal first-line prefix so the geometry is
-        ;; self-documenting. See `predicates/indent-after`.
-        play-prefix "   :play ["
+  (let [;; The shared `indent-after` helper (predicates leaf) aligns
+        ;; steps on continuation lines directly under the `[` of
+        ;; `:script [` — derived from the literal first-line prefix so
+        ;; the geometry is self-documenting.
+        script-prefix "                          :script ["
+        steps         (map event->step events)
+        script-str    (if (seq steps)
+                        (str "["
+                             (str/join (pred/indent-after script-prefix)
+                                       (map pr-str steps))
+                             "]")
+                        "[]")
+        play-script-str (str "{:auto-run? true\n"
+                             "                          :script    " script-str "}")
         body-keys   (cond-> []
                       doc     (conj [:doc (pr-str doc)])
                       extends (conj [:extends (pr-str extends)])
-                      true    (conj [:play
-                                     (if (seq events)
-                                       (str "["
-                                            (str/join (pred/indent-after play-prefix)
-                                                      (map pr-str events))
-                                            "]")
-                                       "[]")]))
+                      true    (conj [:play-script play-script-str]))
         body-str    (->> body-keys
                          (map (fn [[k v]] (str k " " v)))
                          (str/join "\n   "))]

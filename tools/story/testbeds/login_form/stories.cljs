@@ -103,8 +103,8 @@
              `[:rf/machines :login/flow]` slot is nil and the
              state-pill in the view renders empty."
      :events [[:login/flow [:login/dismiss]]]
-     :play   [[:rf.assert/path-equals  [:rf/machines :login/flow :state] :idle]
-              [:rf.assert/state-is :login/flow :idle]]
+     :play-script [[:dispatch-sync [:rf.assert/path-equals  [:rf/machines :login/flow :state] :idle]]
+              [:dispatch-sync [:rf.assert/state-is :login/flow :idle]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -126,8 +126,8 @@
      :events [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play   [[:rf.assert/state-is      :login/flow :submitting]
-              [:rf.assert/effect-emitted :rf.http/managed]]
+     :play-script [[:dispatch-sync [:rf.assert/state-is      :login/flow :submitting]]
+              [:dispatch-sync [:rf.assert/effect-emitted :rf.http/managed]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -156,10 +156,10 @@
                             {:failure {:status  401
                                        :message "Invalid credentials."}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play   [[:rf.assert/state-is :login/flow :error]
-              [:rf.assert/path-equals
+     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
+              [:dispatch-sync [:rf.assert/path-equals
                [:rf/machines :login/flow :data :error]
-               "Invalid credentials."]]
+               "Invalid credentials."]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -184,10 +184,10 @@
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play   [[:rf.assert/state-is :login/flow :submitting-retry]
-              [:rf.assert/path-equals
+     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :submitting-retry]]
+              [:dispatch-sync [:rf.assert/path-equals
                [:rf/machines :login/flow :data :attempts]
-               1]]
+               1]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -212,8 +212,8 @@
                             {:value {:user  {:email "ada@example.com"}
                                      :token "story-token"}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :play   [[:rf.assert/state-is :login/flow :authenticated]
-              [:rf.assert/sub-equals [:login/email] "ada@example.com"]]
+     :play-script [[:dispatch-sync [:rf.assert/state-is :login/flow :authenticated]]
+              [:dispatch-sync [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
      :tags   #{:dev :docs :test :login-form/tutorial}
      :substrates #{:reagent}})
 

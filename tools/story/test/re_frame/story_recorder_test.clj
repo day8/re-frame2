@@ -213,11 +213,13 @@
                {:variant-id :story.x/y :alias "rf"})]
     (is (str/includes? snip "rf/reg-variant"))))
 
-(defn- extract-play-vector
-  "Pull the `:play` vector substring out of the rendered snippet by
-  walking balanced brackets after the `:play` token."
+(defn- extract-play-script-vector
+  "Pull the `:script` vector substring out of the rendered snippet by
+  walking balanced brackets after the `:play-script` body's `:script`
+  token. Per rf2-0wrud the canonical phase-4 slot is `:play-script`
+  with a `{:auto-run? ... :script [...]}` body."
   [snippet]
-  (let [start  (str/index-of snippet ":play")
+  (let [start  (str/index-of snippet ":script")
         after  (subs snippet start)
         open   (str/index-of after "[")]
     (loop [i (inc open) depth 1]
@@ -235,17 +237,33 @@
             \] (recur (inc i) (dec depth))
             (recur (inc i) depth)))))))
 
+(defn- unwrap-dispatch-sync-steps
+  "Project the parsed `:script` vector back to the bare event-vector
+  list. Each step is `[:dispatch-sync <event-vec>]` (per rf2-0wrud)."
+  [script-vec]
+  (mapv second script-vec))
+
 (deftest gen-play-snippet-roundtrips-events
-  (testing "the rendered :play vector reads back as the original events"
-    (let [events   [[:counter/inc]
-                    [:auth/login {:email "alice@example.com" :remember? true}]
-                    [:cart/add-item :widget-x 3]]
-          snippet  (recorder/gen-play-snippet
-                     events
-                     {:variant-id :story.x/y})
-          play-str (extract-play-vector snippet)]
-      (is (some? play-str) "extractor found a :play vector substring")
-      (is (= events (edn/read-string play-str))))))
+  (testing "the rendered :play-script :script vector reads back as
+            [:dispatch-sync <event>] steps that unwrap to the original
+            events (per rf2-0wrud — :play-script is the canonical and
+            ONLY phase-4 slot; gen-play-snippet wraps each captured
+            event as a :dispatch-sync step)"
+    (let [events     [[:counter/inc]
+                      [:auth/login {:email "alice@example.com" :remember? true}]
+                      [:cart/add-item :widget-x 3]]
+          snippet    (recorder/gen-play-snippet
+                       events
+                       {:variant-id :story.x/y})
+          script-str (extract-play-script-vector snippet)
+          script-vec (edn/read-string script-str)]
+      (is (some? script-str) "extractor found a :script vector substring")
+      (is (every? #(and (vector? %)
+                        (= :dispatch-sync (first %)))
+                  script-vec)
+          "every step is a [:dispatch-sync <event-vec>] form")
+      (is (= events (unwrap-dispatch-sync-steps script-vec))
+          "unwrapping :dispatch-sync round-trips to the original events"))))
 
 ;; ---- rf2-d5u89: DOM-event entries + per-event timestamps ----------------
 
@@ -450,12 +468,13 @@
     (recorder/insert-assertion! :rf.assert/path-equals
                                 {:path [:n] :expected 8})
     (recorder/stop-recording!)
-    (let [events   (recorder/recorded-events)
-          snippet  (recorder/gen-play-snippet
-                     events
-                     {:variant-id :story.counter/recorded
-                      :extends    :story.counter/x})
-          play-str (extract-play-vector snippet)]
+    (let [events     (recorder/recorded-events)
+          snippet    (recorder/gen-play-snippet
+                       events
+                       {:variant-id :story.counter/recorded
+                        :extends    :story.counter/x})
+          script-str (extract-play-script-vector snippet)
+          script-vec (edn/read-string script-str)]
       (is (= [[:counter/inc]
               [:rf.assert/sub-equals [:counter] 1]
               [:counter/by 7]
@@ -465,10 +484,10 @@
       (is (str/includes? snippet ":rf.assert/sub-equals"))
       (is (str/includes? snippet ":rf.assert/path-equals"))
       (is (str/includes? snippet "[:counter/inc]"))
-      (is (some? play-str)
-          "extractor found the rendered :play vector")
-      (is (= events (edn/read-string play-str))
-          "the :play vector round-trips through read-string"))))
+      (is (some? script-str)
+          "extractor found the rendered :script vector")
+      (is (= events (unwrap-dispatch-sync-steps script-vec))
+          "the :play-script :script vector unwraps to the original events"))))
 
 ;; ---- end-to-end: trace-bus integration -----------------------------------
 
@@ -614,18 +633,19 @@
     (rf/dispatch-sync [:counter/inc]        {:frame :story.recorder/source})
     (rf/dispatch-sync [:counter/by 7]       {:frame :story.recorder/source})
     (let [{:keys [events variant-id]} (recorder/stop-recording!)
-          snippet (recorder/gen-play-snippet
-                    events
-                    {:variant-id :story.recorder/captured
-                     :extends    variant-id
-                     :doc        "recorded via Test Codegen"})
-          play-str (extract-play-vector snippet)]
+          snippet    (recorder/gen-play-snippet
+                       events
+                       {:variant-id :story.recorder/captured
+                        :extends    variant-id
+                        :doc        "recorded via Test Codegen"})
+          script-str (extract-play-script-vector snippet)
+          script-vec (edn/read-string script-str)]
       (is (= 3 (count events)))
       (is (str/includes? snippet "reg-variant"))
       (is (str/includes? snippet ":story.recorder/captured"))
       (is (str/includes? snippet ":story.recorder/source")
           "the recorder-target id rides into the :extends slot")
-      (is (= events (edn/read-string play-str))
-          "the rendered :play vector round-trips back through read-string"))
+      (is (= events (unwrap-dispatch-sync-steps script-vec))
+          "the rendered :play-script :script vector unwraps back to the captured events"))
     (story/destroy-variant! :story.recorder/source)
     (recorder/remove-trace-listener!)))

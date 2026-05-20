@@ -166,7 +166,7 @@
 ;; ---- shared shapes --------------------------------------------------------
 
 (def EventVector
-  "An event vector: `[<event-id> & args]`. Used in `:events`, `:play`,
+  "An event vector: `[<event-id> & args]`. Used in `:events`,
   `:loaders`, decorator `:init`, etc. No fn-valued slots."
   [:and
    [:vector :any]
@@ -370,8 +370,8 @@
   - `[:type selector text]`              — synthetic input
 
   Plain event vectors are ALSO accepted at the script level — the
-  runner lifts them to `[:dispatch <event-vec>]` so legacy `:play`
-  authoring still works inside the new shape.
+  runner lifts them to `[:dispatch <event-vec>]` for ergonomic
+  authoring sugar.
 
   Schema is left loose here (`[:vector :any]` + first-element keyword)
   so authors get clear runner error messages rather than schema
@@ -450,18 +450,27 @@
   - `:plays`       — a vector of named plays (multiple scenarios).
 
   These slots are mutually exclusive. If both are present the runner
-  prefers `:plays` and emits a one-time console warning."
+  prefers `:plays` and emits a one-time console warning.
+
+  ## :play-script is the ONLY play surface (rf2-0wrud, 2026-05-20)
+
+  Pre-alpha posture: `:play-script` is the canonical AND ONLY play
+  surface. The legacy `:play` slot (vector of event vectors) has been
+  removed entirely — there is no transitional dual-acceptance. Authors
+  migrate event-vector lists by wrapping each entry as `[:dispatch-sync
+  <event-vec>]` in a `:play-script` body."
   [:and
    [:map
     [:doc                   {:optional true} :string]
     [:extends               {:optional true} :keyword]
     [:events                {:optional true} [:vector EventVector]]
-    [:play                  {:optional true} [:vector EventVector]]
-    ;; rf2-8i2a9 — the rich Storybook-style play script. Coexists with
-    ;; `:play` (the existing phase-4 plain-event-vector sequence).
-    ;; `:play-script` is interpreted post-mount by the play runner; each
-    ;; step is a tagged vector (`[:dispatch ...]`, `[:wait ms]`,
-    ;; `[:assert-db path value]`, etc.). See `PlaySpec`.
+    ;; rf2-8i2a9 — the rich Storybook-style play script. rf2-0wrud
+    ;; (2026-05-20): `:play-script` is the canonical AND ONLY phase-4
+    ;; surface; the legacy `:play` slot is REMOVED. Each step is a
+    ;; tagged vector (`[:dispatch ...]`, `[:dispatch-sync ...]`,
+    ;; `[:wait ms]`, `[:assert-db path value]`, `[:assert-dom selector
+    ;; ...]`, `[:click selector]`, `[:type selector text]`). See
+    ;; `PlaySpec`.
     [:play-script           {:optional true} PlaySpec]
     ;; rf2-tl7zk — multi-play: a vector of named plays. Mutually
     ;; exclusive with `:play-script` (validated by the `:fn` clause

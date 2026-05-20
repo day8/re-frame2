@@ -29,14 +29,26 @@
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
 (defn variant-has-tests?
-  "True iff `variant-id`'s registered body declares a non-empty `:play`
-  vector. Used by the pane to gate between the run-and-render path and
-  the empty-state placeholder.
+  "True iff `variant-id`'s registered body declares a non-empty
+  `:play-script` body. Used by the pane to gate between the
+  run-and-render path and the empty-state placeholder.
+
+  Per rf2-0wrud (2026-05-20) `:play-script` is the canonical AND ONLY
+  phase-4 slot. The body is a map `{:auto-run? ... :script [...]}`; we
+  consider the variant 'has tests' iff `:script` is non-empty.
 
   Pure data → data; JVM-testable."
   [variant-id]
-  (let [vb (registrar/handler-meta :variant variant-id)]
-    (boolean (seq (:play vb)))))
+  (let [vb     (registrar/handler-meta :variant variant-id)
+        script (:play-script vb)]
+    (boolean
+      (cond
+        ;; Map form — {:auto-run? ... :script [...]}
+        (map? script)    (seq (:script script))
+        ;; Bare-vector form — legacy callers + the test fixtures pass
+        ;; the script vector directly; the runner normalises both.
+        (vector? script) (seq script)
+        :else            false))))
 
 ;; ---- pure: aggregate-summary --------------------------------------------
 ;;

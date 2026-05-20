@@ -132,9 +132,9 @@
        :events     [[:record/observed]]
        ;; :emit/track dispatches in :play so the assertion accumulator
        ;; (reset at play-start by reset-trace-accumulators!) sees it.
-       :play       [[:rf.assert/path-equals [:seen-user :name] "alice"]
-                    [:emit/track]
-                    [:rf.assert/effect-emitted :analytics]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
+                    [:dispatch-sync [:emit/track]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
     ;; Resolve-decorators classifies the stack into the three slots.
     (let [pack (story/resolve-decorators :story.multi-kind/v)]
       (is (= 1 (count (:hiccup pack)))      ":hiccup slot populated")
@@ -236,18 +236,18 @@
        ;; :play emits one more inc-and-track so :rf.assert/effect-emitted
        ;; sees a fresh emission (the events-phase emissions are wiped by
        ;; reset-trace-accumulators! at play start by design).
-       :play       [[:rf.assert/path-equals [:counter] 102]
-                    [:inc-and-track]
-                    [:rf.assert/effect-emitted :analytics]
-                    [:rf.assert/path-equals [:counter] 103]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
+                    [:dispatch-sync [:inc-and-track]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :analytics]]
+                    [:dispatch-sync [:rf.assert/path-equals [:counter] 103]]]})
     (story/reg-variant :story.isolation/B
       {:decorators [[:seed-B]
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :events     [[:inc-and-track] [:inc-and-track]]
-       :play       [[:rf.assert/path-equals [:counter] 202]
-                    [:inc-and-track]
-                    [:rf.assert/effect-emitted :analytics]
-                    [:rf.assert/path-equals [:counter] 203]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 202]]
+                    [:dispatch-sync [:inc-and-track]]
+                    [:dispatch-sync [:rf.assert/effect-emitted :analytics]]
+                    [:dispatch-sync [:rf.assert/path-equals [:counter] 203]]]})
     ;; Run both variants. They share event ids + decorator ids; only the
     ;; :frame-setup seed differs. The proof of frame isolation is that
     ;; each lands on its own counter terminal value AND each frame's

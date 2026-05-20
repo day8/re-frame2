@@ -24,7 +24,8 @@
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.loaders    :as loaders]
-            [re-frame.story.play       :as play]))
+            [re-frame.story.play       :as play]
+            [re-frame.story.play.runner-events :as runner-events]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -66,7 +67,9 @@
       (rf/reg-event-db :step/c (fn [db _] (swap! order conj :c) db))
       (story/reg-variant :story.order/v
         {:events []
-         :play   [[:step/a] [:step/b] [:step/c]]})
+         :play-script [[:dispatch-sync [:step/a]]
+                  [:dispatch-sync [:step/b]]
+                  [:dispatch-sync [:step/c]]]})
       (async/deref-blocking (story/run-variant :story.order/v) 5000)
       (is (= [:a :b :c] @order)))
     (story/destroy-variant! :story.order/v)))
@@ -77,12 +80,12 @@
       (fn [db _] (update db :n (fnil inc 0))))
     (story/reg-variant :story.mix/v
       {:events []
-       :play   [[:counter/inc]
-                [:rf.assert/path-equals [:n] 1]
-                [:counter/inc]
-                [:rf.assert/path-equals [:n] 2]
-                [:counter/inc]
-                [:rf.assert/path-equals [:n] 3]]})
+       :play-script [[:dispatch-sync [:counter/inc]]
+                [:dispatch-sync [:rf.assert/path-equals [:n] 1]]
+                [:dispatch-sync [:counter/inc]]
+                [:dispatch-sync [:rf.assert/path-equals [:n] 2]]
+                [:dispatch-sync [:counter/inc]]
+                [:dispatch-sync [:rf.assert/path-equals [:n] 3]]]})
     (let [r (async/deref-blocking (story/run-variant :story.mix/v) 5000)]
       (is (= 3 (count (:assertions r))))
       (is (every? :passed? (:assertions r)))
@@ -90,22 +93,30 @@
     (story/destroy-variant! :story.mix/v)))
 
 (deftest execute-play-exception-records-phase-4
-  (testing "an exception in a play event lands as :phase-4-play"
+  (testing "an exception in a play event is captured + the script keeps walking"
     (rf/reg-event-db :boom/now
       (fn [_ _] (throw (ex-info "boom" {:cause :test}))))
     (story/reg-variant :story.boom/v
       {:events []
-       :play   [[:boom/now]
-                [:rf.assert/path-equals [:after] :ok]]})
-    (let [r (async/deref-blocking (story/run-variant :story.boom/v) 5000)
-          exc (->> (:assertions r)
-                   (filter #(= :rf.error/exception (:assertion %)))
-                   first)]
-      (is (some? exc) "an exception assertion record was captured")
-      (is (= :phase-4-play (:phase exc))
-          "the exception is tagged as phase-4-play (record-don't-throw)")
-      ;; The follow-on assertion still ran:
-      (is (= 2 (count (:assertions r)))))
+       :play-script [[:dispatch-sync [:boom/now]]
+                [:dispatch-sync [:rf.assert/path-equals [:after] :ok]]]})
+    (let [result (async/deref-blocking (story/run-variant :story.boom/v) 5000)]
+      ;; rf2-z2dq8 (:play -> :play-script): re-frame's router catches the
+      ;; handler exception and emits a `:rf.error/handler-exception`
+      ;; trace event; the per-frame trace listener captures it, and the
+      ;; runner-events driver drains it into `:rf.story/assertions` as a
+      ;; `:rf.error/exception` record. The runner sees the dispatch-sync
+      ;; return cleanly and continues; both steps walk.
+      (let [state (runner-events/current-state :story.boom/v)]
+        (is (some #(and (= :rf.error/exception (:assertion %))
+                        (= :phase-4-play (:phase %))
+                        (= [:boom/now] (:event %)))
+                  (:assertions result))
+            "an :rf.error/exception assertion was recorded for :boom/now")
+        ;; The follow-on assertion step still ran — runner records both
+        ;; steps' results regardless of the handler exception.
+        (is (= 2 (count (:results state)))
+            "both play-script steps walked even after the handler threw")))
     (story/destroy-variant! :story.boom/v)))
 
 ;; ===========================================================================
@@ -117,8 +128,8 @@
     (rf/reg-event-db :do/work (fn [db _] (assoc db :did? true)))
     (story/reg-variant :story.reset/v
       {:events []
-       :play   [[:do/work]
-                [:rf.assert/dispatched? [:do/work]]]})
+       :play-script [[:dispatch-sync [:do/work]]
+                [:dispatch-sync [:rf.assert/dispatched? [:do/work]]]]})
     (async/deref-blocking (story/run-variant :story.reset/v) 5000)
     ;; The first run's dispatched-events accumulator must NOT leak into
     ;; the second run — reset-variant tears the frame down + re-runs.
@@ -135,7 +146,7 @@
   (testing "destroy-variant! clears per-frame accumulator slots"
     (story/reg-variant :story.tear/v
       {:events []
-       :play   [[:rf.assert/path-equals [:x] :nope]]})
+       :play-script [[:dispatch-sync [:rf.assert/path-equals [:x] :nope]]]})
     (async/deref-blocking (story/run-variant :story.tear/v) 5000)
     (story/destroy-variant! :story.tear/v)
     (is (not (contains? @assertions/trace-accumulators :story.tear/v)))))
@@ -150,7 +161,8 @@
     (rf/reg-event-db :step/two (fn [db _] (assoc db :two? true)))
     (story/reg-variant :story.stepper/v
       {:events []
-       :play   [[:step/one] [:step/two]]})
+       :play-script [[:dispatch-sync [:step/one]]
+                [:dispatch-sync [:step/two]]]})
     ;; Run the variant phases 1-3; the play stepper takes over phase 4.
     (let [decorator-stack (story/resolve-decorators :story.stepper/v)]
       (re-frame.story.frames/allocate! :story.stepper/v decorator-stack)

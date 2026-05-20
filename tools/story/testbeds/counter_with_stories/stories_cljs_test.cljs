@@ -24,6 +24,7 @@
             [re-frame.story.async      :as async-lib]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.play       :as play]
             [re-frame.test-support     :as test-support]
             [counter-with-stories.events]
             [counter-with-stories.subs]
@@ -263,7 +264,14 @@
               (done)))))))
 
 (deftest diagnostic-event-exception-records-failure
-  (testing ":story.counter-diagnostics/event-throws projects handler exceptions into assertions"
+  (testing ":story.counter-diagnostics/event-throws — the handler
+            exception is captured by the play module's trace listener
+            and drained into `:rf.story/assertions` as a
+            :rf.error/exception record. Per rf2-z2dq8 the router
+            catches the handler throw, the script step resolves
+            cleanly, and `runner-events` drains the captured
+            exception into the assertions list so the test-mode UI
+            + Causa assertions panel see the failure."
     (async done
       (-> (story/run-variant :story.counter-diagnostics/event-throws)
           (async-lib/then
@@ -271,9 +279,12 @@
               (is (not (story/assertions-passing? result)))
               (is (some #(and (= :rf.error/exception (:assertion %))
                               (= :phase-4-play (:phase %))
+                              (= [:counter/throw-deterministic] (:event %))
                               (re-find #"story-load deterministic event handler failure"
                                        (get-in % [:error :message] "")))
-                        (:assertions result)))
+                        (:assertions result))
+                  "an :rf.error/exception assertion was recorded for the
+                  throwing event in phase-4-play")
               (story/destroy-variant! :story.counter-diagnostics/event-throws)
               (done)))))))
 

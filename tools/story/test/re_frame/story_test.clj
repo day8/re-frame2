@@ -208,7 +208,8 @@
     (story/reg-variant :story.ui.button/edn-test
       {:doc    "EDN check."
        :events [[:button/init]]
-       :play   [[:button/click] [:rf.assert/path-equals [:click] true]]
+       :play-script [[:dispatch-sync [:button/click]]
+                [:dispatch-sync [:rf.assert/path-equals [:click] true]]]
        :args   {:label "Hi"}
        :tags   #{:dev}})
     (let [body (story/handler-meta :variant :story.ui.button/edn-test)

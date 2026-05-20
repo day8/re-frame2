@@ -1,24 +1,25 @@
 (ns re-frame.story.play
-  "Phase 4 — `:play` sequence execution. Per IMPL-SPEC §5.4 phase 4 +
-  spec/007 §Play functions + §Assertion vocabulary.
+  "Phase 4 — play-script trace listener + stepper helpers.
+
+  rf2-0wrud (2026-05-20): the variant body's legacy `:play`
+  event-vector slot was REMOVED. `:play-script` is the canonical AND
+  ONLY phase-4 surface. This module retains the per-frame trace
+  listener (which feeds the assertion accumulators consumed by
+  `:rf.assert/dispatched?` / `:rf.assert/effect-emitted` /
+  `:rf.assert/no-warnings`) and the step-by-step play-stepper helpers.
+  The rich-DSL execution itself lives in
+  `re-frame.story.play.runner-events`.
 
   ## What this module does
 
-  The variant body's `:play` slot is a vector of event vectors:
-
-      :play [[:auth/email-changed \"alice@example.com\"]
-             [:auth/password-changed \"hunter2\"]
-             [:auth/login-pressed]
-             [:rf.assert/path-equals [:auth :status] :authenticated]
-             [:rf.assert/path-equals [:nav :route] :dashboard]]
-
-  Each event is `dispatch-sync`'d into the variant's frame in declared
-  order, draining run-to-completion between each. `:rf.assert/*` events
-  ride the same dispatch path — re-frame's interceptor chain runs the
-  registered assertion handler (see `re-frame.story.assertions`), which
-  appends a record into `[:rf.story/assertions]` on the variant frame's
-  app-db. Per IMPL-SPEC §2.3 the assertion never throws; the play
-  sequence runs to completion regardless of which assertions fail.
+  A `:play-script` body carries tagged steps. Authors wrap event
+  vectors as `[:dispatch-sync <event-vec>]` (or `:dispatch` for async).
+  The `:rf.assert/*` events ride the same dispatch path — re-frame's
+  interceptor chain runs the registered assertion handler (see
+  `re-frame.story.assertions`), which appends a record into
+  `[:rf.story/assertions]` on the variant frame's app-db. Per IMPL-SPEC
+  §2.3 the assertion never throws; the play sequence runs to completion
+  regardless of which assertions fail.
 
   ## Trace-bus accumulators
 
@@ -69,6 +70,7 @@
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.frames     :as frames]
+            [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar  :as registrar]))
 
 ;; ---------------------------------------------------------------------------
@@ -146,12 +148,24 @@
                             (assertions/record-emitted-fx! frame-id fx-id)))
           nil)))))
 
-(defn- drain-pending-exceptions!
+(defn drain-pending-exceptions!
   "Append any pending exception trace events from `frame-id` as
   assertion records on the variant's assertions slot. Called by the
   play-runner after each dispatch-sync returns (i.e. after the drain
-  has settled). Clears the pending slot on exit."
-  [frame-id]
+  has settled) AND by the runtime's phase-1 loaders + phase-2 events
+  drivers so handler exceptions from any phase land in the assertions
+  list rather than evaporating into trace-event noise.
+
+  `phase` is stamped onto each record — callers pass `:phase-1-loaders`,
+  `:phase-2-events`, or `:phase-4-play` to match the originating phase.
+  Clears the pending slot on exit.
+
+  Public (rf2-z2dq8) so the new rich-DSL runner (`runner-events`) and
+  the runtime's loader/events drivers can drain between dispatches. The
+  legacy `:rf.story/assertions` contract is load-bearing — the test-mode
+  pane, the chrome-level widget, and the Causa assertions panel all
+  read off this slot."
+  [frame-id phase]
   (let [evs (get @pending-exceptions frame-id [])]
     (when (seq evs)
       (doseq [ev evs]
@@ -162,7 +176,7 @@
             frame-id
             {:assertion :rf.error/exception
              :variant-id frame-id
-             :phase     :phase-4-play
+             :phase     phase
              :event     event-vec
              :error     {:message (or msg
                                       #?(:clj (when exc (.getMessage ^Throwable exc))
@@ -230,7 +244,7 @@
   ;; After the drain settles, walk any captured handler-exception
   ;; trace events into assertion records. Safe to dispatch-sync now —
   ;; the drain has ended.
-  (drain-pending-exceptions! frame-id))
+  (drain-pending-exceptions! frame-id :phase-4-play))
 
 (defn- read-assertions-after
   "Return the per-frame assertions vector, post-play."
@@ -238,10 +252,29 @@
   (assertions/read-assertions frame-id))
 
 (defn variant-play-events
-  "Resolve `:play` for `variant-id` from the registered body. Defaults
-  to an empty vector when the body has no `:play`."
+  "Resolve a flat event-vector list for `variant-id`'s phase-4 play.
+
+  rf2-0wrud (2026-05-20): the legacy `:play` event-vector slot has been
+  removed. This fn now derives a flat event-vector list from the
+  variant's `:play-script` body by extracting events from the
+  `:dispatch` / `:dispatch-sync` steps. Other step types (`:wait`,
+  `:click`, `:type`, `:assert-db`, `:assert-dom`) have no event-vector
+  representation and are skipped here — the rich-DSL runner
+  (`re-frame.story.play.runner-events`) is the canonical executor.
+
+  This shape stays around for the play-stepper UI which advances ONE
+  event at a time."
   [variant-id]
-  (or (:play (registrar/handler-meta :variant variant-id)) []))
+  (let [body   (registrar/handler-meta :variant variant-id)
+        spec   (runner/parse-spec (:play-script body))
+        script (:script spec)]
+    (->> (or script [])
+         (keep (fn [step]
+                 (when (and (vector? step)
+                            (#{:dispatch :dispatch-sync} (first step))
+                            (vector? (second step)))
+                   (second step))))
+         vec)))
 
 (defn execute-play!
   "Run the play sequence against `variant-id`'s frame. Drives the

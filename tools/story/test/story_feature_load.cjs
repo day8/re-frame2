@@ -443,11 +443,23 @@ async function assertToolbarRecorder(page, phase) {
     }
     await page.locator('[data-test="story-recorder-close"]').click();
 
-    await clickVariant(page, '/clicked-three-times');
-    await waitForCanvasVariant(page, ':story.counter/clicked-three-times');
+    // rf2-0wrud post-:play-script: navigate to a variant whose state
+    // settles deterministically from `:events` alone — the prior
+    // `/clicked-three-times` target relied on three play-script
+    // increments landing synchronously before this read; the
+    // runner-events driver now yields between steps on CLJS, so a
+    // remount mid-script could double-fire the increments and the
+    // canvas would read past 3. `/loaded` initialises via
+    // `:events [[:counter/initialise 7]]` with no play-script
+    // increments, so the post-recorder navigation read is race-free.
+    // The architectural plan (rf2-tglku) is to migrate this Playwright
+    // surface to CLJS; the variant swap is the mechanical fix for the
+    // intervening PR (rf2-7ycvy).
+    await clickVariant(page, '/loaded');
+    await waitForCanvasVariant(page, ':story.counter/loaded');
     await expectTextEquals(
-      canvasFor(page, ':story.counter/clicked-three-times').locator('[data-test="count"]').first(),
-      '3',
+      canvasFor(page, ':story.counter/loaded').locator('[data-test="count"]').first(),
+      '7',
       10000,
     );
   });
