@@ -155,8 +155,8 @@
     (is (= [] (:subs-recomputed out)))
     (is (= [] (:subs-skipped out)))
     (is (= [] (:views-rendered out)))
-    (is (false? (:path-filtered? out))
-        "rf2-op9v2 MVP marker — path-filter is not yet implemented")))
+    (is (true? (:path-filtered? out))
+        "rf2-gblq6 — sub now reports path-filtered? true")))
 
 (deftest downstream-for-path-projects-sub-runs-and-renders
   ;; Seed a minimal epoch-history sub + focus pair so the downstream
@@ -184,6 +184,77 @@
            (:subs-skipped out)))
     (is (= 1 (count (:views-rendered out))))
     (is (= :cart/state (:triggered-by (first (:views-rendered out)))))))
+
+(deftest downstream-for-path-filters-by-registry-walk
+  ;; rf2-gblq6 — register two layer-1 subs whose ids overlap
+  ;; different paths. The popover should only include subs whose
+  ;; registry walk overlaps the hovered path.
+  (downstream/install!)
+  ;; Register `:cart/state` as layer-1 — its sub-id segments
+  ;; `#{:cart :state}` overlap path `[:cart :state]`.
+  (rf/reg-sub :cart/state (fn [db _] (get-in db [:cart :state])))
+  ;; Register `:user/profile` as layer-1 — its segments
+  ;; `#{:user :profile}` DON'T overlap `[:cart :state]`.
+  (rf/reg-sub :user/profile (fn [db _] (get-in db [:user :profile])))
+  (rf/reg-sub :rf.causa/epoch-history
+    (fn [_ _]
+      [{:epoch-id :ep-1
+        :sub-runs [{:sub-id :cart/state   :recomputed? true}
+                   {:sub-id :user/profile :recomputed? true}]
+        :renders  []}]))
+  (rf/reg-sub :rf.causa/focus
+    (fn [_ _] {:epoch-id :ep-1 :dispatch-id 1 :frame :rf/default}))
+
+  (let [out @(rf/subscribe [:rf.causa/app-db-downstream-for-path
+                            [:cart :state]])]
+    (is (= [{:sub-id :cart/state :recomputed? true}]
+           (:subs-recomputed out))
+        "only the sub whose layer-1 leaves overlap the path survives")
+    (is (true? (:path-filtered? out))
+        "rf2-gblq6 marker — path-filter is active")))
+
+(deftest downstream-for-path-includes-unknown-subs-conservatively
+  ;; rf2-gblq6 — when a sub isn't in the registrar (cascade-captured
+  ;; but registration cleared), resolve-input-paths returns nil
+  ;; (unknown) and the conservative-include branch keeps it in the
+  ;; popover so we never lie by omission.
+  (downstream/install!)
+  (rf/reg-sub :rf.causa/epoch-history
+    (fn [_ _]
+      [{:epoch-id :ep-1
+        :sub-runs [{:sub-id :totally-unregistered :recomputed? true}]
+        :renders  []}]))
+  (rf/reg-sub :rf.causa/focus
+    (fn [_ _] {:epoch-id :ep-1 :dispatch-id 1 :frame :rf/default}))
+
+  (let [out @(rf/subscribe [:rf.causa/app-db-downstream-for-path
+                            [:cart :state]])]
+    (is (= [{:sub-id :totally-unregistered :recomputed? true}]
+           (:subs-recomputed out))
+        "unknown sub-ids fall through to conservative-include")))
+
+(deftest downstream-for-path-includes-layer-2-via-transitive-walk
+  ;; rf2-gblq6 — a layer-2 sub depending on a layer-1 sub whose
+  ;; id overlaps the path should be included via the transitive
+  ;; walk. Validates that the walk follows `:<-` chains.
+  (downstream/install!)
+  (rf/reg-sub :cart/state (fn [db _] (get-in db [:cart :state])))
+  (rf/reg-sub :cart/can-submit?
+    :<- [:cart/state]
+    (fn [state _] (= state :ready)))
+  (rf/reg-sub :rf.causa/epoch-history
+    (fn [_ _]
+      [{:epoch-id :ep-1
+        :sub-runs [{:sub-id :cart/can-submit? :recomputed? true}]
+        :renders  []}]))
+  (rf/reg-sub :rf.causa/focus
+    (fn [_ _] {:epoch-id :ep-1 :dispatch-id 1 :frame :rf/default}))
+
+  (let [out @(rf/subscribe [:rf.causa/app-db-downstream-for-path
+                            [:cart :state]])]
+    (is (= [{:sub-id :cart/can-submit? :recomputed? true}]
+           (:subs-recomputed out))
+        "layer-2 sub kept via transitive walk to its layer-1 upstream")))
 
 (deftest downstream-for-path-falls-back-to-head-when-focus-stale
   ;; When :rf.causa/focus carries an :epoch-id NOT in history, the
@@ -253,9 +324,9 @@
     (is (some? (find-by-testid out
                                 "rf-causa-app-db-popover-jump-reactive"))
         "⤴ footer 'jump to Reactive panel' affordance")
-    (is (some? (find-by-testid out
-                                "rf-causa-app-db-popover-mvp-note"))
-        "MVP affordance flags 'not yet path-filtered' state")))
+    (is (nil? (find-by-testid out
+                               "rf-causa-app-db-popover-mvp-note"))
+        "rf2-gblq6 — MVP-note affordance removed once true path-filter ships")))
 
 (deftest hover-trigger-popover-empty-state
   (downstream/install!)
