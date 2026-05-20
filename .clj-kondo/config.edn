@@ -25,4 +25,14 @@
   re-frame.core/reg-event-fx    clojure.core/def
   re-frame.core/reg-sub         clojure.core/def
   re-frame.core/reg-fx          clojure.core/def
-  re-frame.core/reg-cofx        clojure.core/def}}
+  re-frame.core/reg-cofx        clojure.core/def}
+
+ ;; rf2-4v147 — outputs filtered post-analysis. `tools/template/resources/`
+ ;; ships deps-new template resources whose `.cljs` files contain
+ ;; `{{placeholder}}` substitutions and are not valid Clojure (see
+ ;; tools/deps.edn → "Why template is NOT in the base :deps map" for
+ ;; the matching shadow-cljs exclusion). The CI workflow also avoids
+ ;; passing that path to `--lint`; this filter is the belt-and-braces
+ ;; for editor integrations and ad-hoc local runs that pass the broader
+ ;; `tools/` path.
+ :output {:exclude-files ["tools/template/resources/"]}}
