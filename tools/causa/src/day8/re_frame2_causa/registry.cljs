@@ -43,10 +43,13 @@
             [day8.re-frame2-causa.settings.popup :as settings-popup]
             [day8.re-frame2-causa.spine :as spine]
             [day8.re-frame2-causa.spine-filters :as spine-filters]
+            [day8.re-frame2-causa.static.flows.panel :as static-flows-panel]
             [day8.re-frame2-causa.static.machines.panel :as static-machines-panel]
             [day8.re-frame2-causa.static.persistence :as static-persistence]
             [day8.re-frame2-causa.static.routes.panel :as static-routes-panel]
+            [day8.re-frame2-causa.static.schemas.panel :as static-schemas-panel]
             [day8.re-frame2-causa.static.shell :as static-shell]
+            [day8.re-frame2-causa.static.views.panel :as static-views-panel]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
             [day8.re-frame2-causa.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-causa.panels.app-db-segment-inspector
@@ -688,6 +691,24 @@
     ;; registered above) — order is cosmetic since re-frame resolves
     ;; `:<-` chains lazily.
     (static-routes-panel/install!)
+    ;; Static Schemas sub-tab (rf2-o5f5f.4) — browse every registered
+    ;; Malli schema across app-db slots + events + subs. Reads
+    ;; `re-frame.schemas.storage/schemas-by-frame` + the registrar's
+    ;; `:event` / `:sub` `:spec` slots. Source-coord chip dispatches
+    ;; `:rf.causa/open-in-editor` (open-in-editor installed above).
+    (static-schemas-panel/install!)
+    ;; Static Views sub-tab (rf2-o5f5f.5) — browse every registered
+    ;; view via the registrar's `:view` slot. Pure-browse verb —
+    ;; event-INDEPENDENT registry catalogue (no Fiber-walker live
+    ;; mount tree at this surface; that's the Runtime Views panel's
+    ;; concern).
+    (static-views-panel/install!)
+    ;; Static Flows sub-tab (rf2-uhsqb) — browse every flow registered
+    ;; via `re-frame.flows/reg-flow`. Reads the per-frame flows atom
+    ;; `re-frame.flows.registry/flows`. Flows are frame-scoped per
+    ;; Spec 013 — the sub flattens the two-level shape into a single
+    ;; row vector for the view.
+    (static-flows-panel/install!)
     (views/install!)
     (trace/install!))
   nil)

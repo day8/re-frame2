@@ -68,6 +68,26 @@
          ;; re-frame2-epoch dep above.
          day8/re-frame2-routing {:local/root "../../implementation/routing"}
 
+         ;; Per rf2-uhsqb — `day8/re-frame2-flows` is a hard dep of
+         ;; Causa. The Static Flows sub-tab reads
+         ;; `re-frame.flows.registry/flows` at view-render time to
+         ;; project the registered-flows catalogue. Same posture as
+         ;; the routing dep above: most real hosts already pull the
+         ;; flows artefact, but the Static Flows sub-tab must work
+         ;; (rendering an empty catalogue when no flows are registered)
+         ;; even for hosts that haven't registered any flows yet.
+         day8/re-frame2-flows {:local/root "../../implementation/flows"}
+
+         ;; Per rf2-o5f5f.4 — `day8/re-frame2-schemas` is a hard dep
+         ;; of Causa. The Static Schemas sub-tab reads
+         ;; `re-frame.schemas.storage/schemas-by-frame` at view-render
+         ;; time to project the registered-schemas catalogue. Same
+         ;; posture as the flows + routing deps above: the Static
+         ;; Schemas sub-tab must work (rendering an empty catalogue
+         ;; when no schemas are registered) even for hosts that
+         ;; haven't registered any schemas yet.
+         day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
+
          ;; Per rf2-o9arp — the MachineChart implementation lives in
          ;; day8/re-frame2-machines-viz. Causa's panel imports
          ;; (`day8.re-frame2-causa.chart.{svg,layout,elk-layout}`)

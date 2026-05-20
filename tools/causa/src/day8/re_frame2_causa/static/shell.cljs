@@ -84,9 +84,12 @@
     - rf2-o5f5f.5 — Views registry browse (Fiber-walker consumer)
     - rf2-o5f5f.6 — Events registry browse + interceptor stack"
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.static.flows.panel :as flows-panel]
             [day8.re-frame2-causa.static.machines.panel :as static-machines]
             [day8.re-frame2-causa.static.mode-pill :as mode-pill]
             [day8.re-frame2-causa.static.routes.panel :as routes-panel]
+            [day8.re-frame2-causa.static.schemas.panel :as schemas-panel]
+            [day8.re-frame2-causa.static.views.panel :as views-panel]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens type-scale layout sans-stack]]))
@@ -112,6 +115,7 @@
    {:id :routes   :label "Routes"   :mnem "r" :placeholder-bead "rf2-o5f5f.3"}
    {:id :schemas  :label "Schemas"  :mnem "c" :placeholder-bead "rf2-o5f5f.4"}
    {:id :views    :label "Views"    :mnem "v" :placeholder-bead "rf2-o5f5f.5"}
+   {:id :flows    :label "Flows"    :mnem "l" :placeholder-bead "rf2-uhsqb"}
    {:id :events   :label "Events"   :mnem "e" :placeholder-bead "rf2-o5f5f.6"}])
 
 (def default-tab :machines)
@@ -328,9 +332,13 @@
 
   Live mounts:
     :machines → `static.machines.panel/panel` (rf2-o5f5f.2)
+    :routes   → `static.routes.panel/Panel`   (rf2-o5f5f.3)
+    :schemas  → `static.schemas.panel/Panel`  (rf2-o5f5f.4)
+    :views    → `static.views.panel/Panel`    (rf2-o5f5f.5)
+    :flows    → `static.flows.panel/Panel`    (rf2-uhsqb)
 
   Placeholder still-pending (the sibling-bead card):
-    :routes :schemas :views :events
+    :events
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/causa`."
@@ -350,6 +358,15 @@
 
        (= selected :routes)
        [routes-panel/Panel]
+
+       (= selected :schemas)
+       [schemas-panel/Panel]
+
+       (= selected :views)
+       [views-panel/Panel]
+
+       (= selected :flows)
+       [flows-panel/Panel]
 
        tab
        [placeholder-card tab]

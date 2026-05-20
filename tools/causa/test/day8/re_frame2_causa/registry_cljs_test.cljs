@@ -211,6 +211,26 @@
    ;; set + view-facing composite.
    :rf.causa.static.routes/sim-nav-open
    :rf.causa.static.routes/tab-data
+   ;; rf2-o5f5f.4 — Static Schemas sub-tab subs (browse-all over the
+   ;; app-db schemas storage + the registrar's `:event` / `:sub`
+   ;; `:spec` slots + view-facing composite + test seam).
+   :rf.causa.static.schemas/query
+   :rf.causa.static.schemas/registry
+   :rf.causa.static.schemas/registry-override
+   :rf.causa.static.schemas/tab-data
+   ;; rf2-o5f5f.5 — Static Views sub-tab subs (browse-all over the
+   ;; registrar's `:view` slot + view-facing composite + test seam).
+   :rf.causa.static.views/query
+   :rf.causa.static.views/registry
+   :rf.causa.static.views/registry-override
+   :rf.causa.static.views/tab-data
+   ;; rf2-uhsqb — Static Flows sub-tab subs (browse-all over the live
+   ;; `re-frame.flows.registry/flows` atom + view-facing composite +
+   ;; test seam).
+   :rf.causa.static.flows/query
+   :rf.causa.static.flows/registered-flows
+   :rf.causa.static.flows/registered-flows-override
+   :rf.causa.static.flows/tab-data
    :rf.causa/selected-dispatch-frame
    :rf.causa/selected-dispatch-id
    :rf.causa/selected-epoch-annotated-tree
@@ -463,6 +483,15 @@
    :rf.causa.static.routes/toggle-row
    :rf.causa.static.routes/toggle-sim-nav
    :rf.causa.static.routes/jump-to-runtime
+   ;; rf2-o5f5f.4 — Static Schemas sub-tab events.
+   :rf.causa.static.schemas/set-query
+   :rf.causa.static.schemas/set-registry-override-for-test
+   ;; rf2-o5f5f.5 — Static Views sub-tab events.
+   :rf.causa.static.views/set-query
+   :rf.causa.static.views/set-registry-override-for-test
+   ;; rf2-uhsqb — Static Flows sub-tab events.
+   :rf.causa.static.flows/set-query
+   :rf.causa.static.flows/set-registered-flows-override-for-test
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.causa/set-modal-positioning
    ;; rf2-x8h9y — resize-handle live update event.
