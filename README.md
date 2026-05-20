@@ -233,6 +233,8 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
                                it — bundle-isolated from production builds.
   template/                    day8/re-frame2-template — deps-new template for new re-frame2
                                apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
+                               Permanent home: github.com/day8/re-frame2-template (lives here while
+                               the rebuild settles; see tools/template/spec/005-Repo-Split.md).
   story/                       day8/re-frame2-story — Storybook-flavoured playground
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story
   re-frame2-pair-mcp/                   day8/re-frame2-re-frame2-pair-mcp — MCP agent surface for the re-frame2-pair

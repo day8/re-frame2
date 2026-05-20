@@ -13,10 +13,13 @@ Once the counter mounts, the author switches to the main `re-frame2` skill (for 
 
 ## Relationship to the generator template
 
-re-frame2 also ships a one-command project generator under
-[`tools/template/`](../../tools/template/) (`clojure -X:project/new
-:template re-frame2 :name acme/my-app`). The two routes are complementary,
-not redundant:
+re-frame2 also ships a one-command project generator —
+`day8/re-frame2-template`, a [deps-new](https://github.com/seancorfield/deps-new)
+template living under [`tools/template/`](../../tools/template/) in
+the monorepo today (final home:
+[`github.com/day8/re-frame2-template`](https://github.com/day8/re-frame2-template)).
+Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
+The two routes are complementary, not redundant:
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|

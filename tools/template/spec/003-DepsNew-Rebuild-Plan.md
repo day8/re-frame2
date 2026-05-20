@@ -408,28 +408,44 @@ Goal: tag-based release replaces the Clojars publish pipeline.
 - ✓ `tools/template/spec/README.md` — index entries reflect the
   new shape.
 
-## §4 Stage 4 — Docs + migration for existing template users
+## §4 Stage 4 — Docs + migration for existing template users (rf2-7jgkv — IN-FLIGHT 2026-05-20)
 
-Goal: existing clj-new template users have a clean upgrade path.
+Goal: existing clj-new template users have a clean upgrade path;
+the template's permanent home moves to the dedicated
+`github.com/day8/re-frame2-template` repo.
 
-Suggested commit decomposition:
+Status: docs sweep landed at rf2-h0w5y §3.2 (#1724); migration note
++ repo-split scaffolding landed at rf2-7jgkv. The actual external
+repo creation + initial push is a Mike-operator handoff (see
+[005-Repo-Split.md](005-Repo-Split.md)).
 
-### §4.1 — Repo split: extract to `day8/re-frame2-template` (rf2 follow-on bead)
+### §4.1 — Skill / repo-root docs residue sweep (DONE 2026-05-20)
 
-- Move `tools/template/` to the dedicated `day8/re-frame2-template`
-  repo (git-history preserved via `git subtree split` or filter-repo).
-- Update `tools/README.md` to point at the external repo.
-- Update the top-level repo `README.md` "Project layout" section.
-- All cross-references in the wider re-frame2 spec
-  (`docs/guide/03-your-first-app.md`, top-level README, blog-post-ish
-  copy under `docs/`) sweep through.
+The rf2-h0w5y §3.2 sweep covered the template's own spec/ tree +
+`tools/template/README.md`. The residue swept under rf2-7jgkv:
 
-### §4.2 — Migration note for existing users (rf2 follow-on bead)
+- ✓ `tools/shadow-cljs.edn` — "JVM-only (clj-new template)" comment
+  flipped to "(deps-new template)" + path under
+  `resources/day8/re_frame2_template/`.
+- ✓ `skills/README.md` — re-frame2-setup index entry's template
+  invocation example flipped to `clojure -Tnew create
+  :template io.github.day8/re-frame2-template`.
+- ✓ `skills/re-frame2-setup/README.md` — Relationship-to-the-
+  generator-template section rewritten against the deps-new shape;
+  external-repo home called out.
+- ✓ Repo-root `README.md` — Project Layout entry annotated with
+  the eventual external repo home + cross-ref to 005-Repo-Split.md.
+- ✓ `tools/template/README.md` — Spec table entry corrected
+  ("deps-new vs clj-new vs CLI" → "deps-new + git-coord over
+  clj-new + Clojars"); added entries for the new 004 + 005 specs;
+  repo-home callout block added.
+- ✓ `tools/template/spec/README.md` — index entries added for
+  004 + 005.
 
-- Add `migration/from-clj-new-template/README.md` (or wherever the
-  existing migration tree lives — `migration/from-re-frame-v1/`
-  is the precedent).
-- One-liner change for the user:
+### §4.2 — Migration note for existing users (DONE 2026-05-20)
+
+- ✓ Added [`migration/from-clj-new-template/README.md`](../../../migration/from-clj-new-template/README.md).
+  One-liner change for the user:
   ```
   # OLD
   clojure -X:project/new :template re-frame2 :name acme/my-app
@@ -437,7 +453,38 @@ Suggested commit decomposition:
   # NEW
   clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app
   ```
-- Surface the locked-three-flags rule + the v1 flag set.
+- ✓ Surfaces the locked-three-flags rule + the v1 flag set
+  (`:include-story?`, `:css`, `:include-ssr?`).
+- ✓ Lists the per-flag deltas (each `:edn-args '[...]'` flag now
+  rides as a top-level k/v pair).
+- ✓ Added the migration note to `mkdocs.yml`'s Migration nav.
+
+### §4.3 — Repo split (SCAFFOLDING DONE 2026-05-20; operator-handoff pending)
+
+- ✓ [`tools/template/spec/005-Repo-Split.md`](005-Repo-Split.md)
+  documents the full migration procedure (what to copy out, how to
+  retarget the deps-new coord, the cutover sequence). Numbered 005
+  because 004 is taken by the SSR Validation Report (rf2-0m5ea).
+- ✓ `tools/template/README.md` flags the future external location
+  prominently; cross-refs to 005-Repo-Split.md.
+- ⚠ **Operator action required** (Mike-side):
+  - Create `github.com/day8/re-frame2-template` repo.
+  - Run `git subtree split` from this monorepo to seed the
+    external repo's history.
+  - Push initial commits + first release tag.
+  - Move `.github/workflows/template-release.yml` to the
+    external repo (the workflow lives in the external repo
+    post-split; it's the template's own CI surface).
+  - Update the in-monorepo `tools/template/` to a "see external
+    repo" stub (or delete; the deps-new coord
+    `io.github.day8/re-frame2-template` resolves against the
+    external repo from that point on).
+  - File a follow-on bead to retire the in-monorepo
+    `tools/template/` resource tree once the external repo's CI
+    is green and at least one release tag exists.
+
+Once §4.3's operator handoff completes, the EPIC bead rf2-dolpf can
+be closed.
 
 ## §5 Cross-references to locked v1 emit spec
 
