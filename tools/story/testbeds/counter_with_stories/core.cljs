@@ -124,7 +124,7 @@
   ;; collectors/API/keybinding installed but skip the default panel
   ;; launch; app pages that want Causa inline still provide the normal
   ;; `[data-rf-causa-host]` contract.
-  (causa-config/configure! {:launch/auto-open? false})
+  (causa-config/configure! {:rf.causa/auto-open? false})
   (rf/init! reagent-adapter/adapter)
   ;; Install the Story canonical vocabulary (seven tags, lifecycle
   ;; machine, seven :rf.assert/* handlers, force-fx-stub decorator,
