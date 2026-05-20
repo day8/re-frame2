@@ -50,11 +50,13 @@ Snapshot scrubbing is **stricter** than trace-event filtering — the snapshot p
 
 ## Cross-server arg-vocabulary convention
 
-The opt-in arg name **`:include-sensitive?`** is the fixed, cross-server vocabulary an agent learns once. Every MCP tool that surfaces trace-like data MUST:
+The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices) — but the **wire-key spelling is in-flight** today:
 
-1. Accept this arg.
-2. Default it to `false`.
-3. Feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices).
+- **story-mcp** ships the unqualified `:include-sensitive` (no trailing `?`, per rf2-y710n — the Anthropic tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`).
+- **re-frame2-pair-mcp** still ships `:include-sensitive?` (with `?`) pending rf2-ihq4d.
+- The walker option key inside the framework (`vocab/include-sensitive-opt`) is the namespaced `:rf.size/include-sensitive?` — internal, not a wire-key, so the predicate `?` is retained.
+
+When rf2-ihq4d lands and pair-mcp drops the `?`, this section becomes a single fixed claim again. Until then, treat the cross-server wire-key as a **policy + behaviour** pin, not a literal-spelling pin; the literal each server accepts is documented in its own tool catalogue.
 
 The default-OFF posture aligns with the framework's privacy-by-default stance (per [`../../../spec/Security.md` §Privacy / secret handling](../../../spec/Security.md#privacy--secret-handling) and [`../../../spec/Conventions.md` §Privacy config-knob naming](../../../spec/Conventions.md)).
 

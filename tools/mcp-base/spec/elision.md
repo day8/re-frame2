@@ -31,12 +31,19 @@ Definition (effectively):
 ```clojure
 (defn count-elided-markers [v]
   (cond
-    (and (map? v) (contains? v :rf.size/large-elided)) 1
-    (coll? v)                                          (reduce + 0 (map count-elided-markers v))
-    :else                                              0))
+    (and (map? v) (contains? v :rf.size/large-elided))   1
+    (map? v)                                             (reduce-kv
+                                                           (fn [n _ c] (+ n (count-elided-markers c)))
+                                                           0 v)
+    (or (vector? v) (set? v) (seq? v))                   (reduce
+                                                           (fn [n c] (+ n (count-elided-markers c)))
+                                                           0 v)
+    :else                                                0))
 ```
 
 The counter is non-negative integer; 0 means nothing was elided. The slot itself rides the response envelope (per [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)).
+
+**Records are NOT walked.** The walker descends through the explicit collection-type triad (`vector?` / `set?` / `seq?`) plus `map?`, not the broader `coll?` predicate. On CLJS, defrecord instances satisfy `coll?` but neither `map?` nor any of the three sequential predicates, so a record-shaped slot carrying an elision marker is treated as a leaf. This is OK in practice because the wire egress path stamps payloads through `pr-str` / `read-string` so record types are stripped to plain maps before the walker sees them — but JVM-side decoders walking pre-egress data should not rely on record descent.
 
 ## Cousin to `sensitive`
 
