@@ -145,7 +145,7 @@
   (case panel-id
     :event-detail causa-panels/mount-event-detail!
     :app-db       causa-panels/mount-app-db-diff!
-    :views        causa-panels/mount-views!
+    :views        causa-panels/mount-reactive-panel!
     :trace        causa-panels/mount-trace!
     :machines     causa-panels/mount-machine-inspector!
     :routing      causa-panels/mount-routing!

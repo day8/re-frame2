@@ -83,8 +83,10 @@
 (defonce ^{:doc "The L4 tab registry. Map of `[mode tab-id] → tab-entry`
                  — composite key because the same `:id` may legitimately
                  register against multiple modes (e.g. `:views` exists
-                 as both the Runtime Views tab — `panels/views.cljs` —
-                 and the Static Views catalogue tab — `static/views/
+                 as both the Runtime Reactive tab — `panels/reactive_
+                 panel.cljs` (rf2-wyvf2 · key stays `:views`, display
+                 label rebases to `Reactive` per spec/021 §11.5) — and
+                 the Static Views catalogue tab — `static/views/
                  panel.cljs`; same id, different content). Atom (not a
                  defonce on a literal map) so per-panel `install!`
                  mutations are visible to readers without re-loading

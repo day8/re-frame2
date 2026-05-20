@@ -23,7 +23,7 @@
 
     - **Event**           → `event-detail/Panel`
     - **App-db**          → `app-db-diff/Panel`
-    - **Views**           → `views/Panel`
+    - **Reactive**        → `reactive-panel/Panel`
     - **Trace**           → `trace/Panel`
     - **Machines**        → `machine-inspector/Panel`
     - **Machines Canvas** → `machines-canvas-panel/Panel` (rf2-mkpnb — 6th tab)
@@ -58,7 +58,7 @@
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
-            [day8.re-frame2-causa.panels.views :as views]
+            [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.shell :as shell]
             [day8.re-frame2-causa.theme.tokens :refer [tokens]]))
 
@@ -105,13 +105,13 @@
          :data-testid "panel-gallery-app-db-card"}
    [app-db-diff/Panel]])
 
-(defn- views-tab-panel
-  "Embedded mount of the Views tab body — the views panel
-  (rf2-21ob3; spec/012-Views.md replaces the legacy Subs panel)."
+(defn- reactive-tab-panel
+  "Embedded mount of the Reactive tab body — the reactive panel
+  (rf2-wyvf2 · spec/021 §3 · renamed from Views per §11.5)."
   [_args]
   [:div {:style       card-style
-         :data-testid "panel-gallery-views-card"}
-   [views/Panel]])
+         :data-testid "panel-gallery-reactive-card"}
+   [reactive-panel/Panel]])
 
 (defn- trace-tab-panel
   "Embedded mount of the Trace tab body — the trace panel."
@@ -184,7 +184,7 @@
   []
   (rf/reg-view* :panel-gallery.event/Panel    event-tab-panel)
   (rf/reg-view* :panel-gallery.app-db/Panel   app-db-tab-panel)
-  (rf/reg-view* :panel-gallery.views/Panel    views-tab-panel)
+  (rf/reg-view* :panel-gallery.reactive/Panel reactive-tab-panel)
   (rf/reg-view* :panel-gallery.trace/Panel    trace-tab-panel)
   (rf/reg-view* :panel-gallery.machines/Panel machines-tab-panel)
   (rf/reg-view* :panel-gallery.routing/Panel  routing-tab-panel)

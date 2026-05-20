@@ -113,6 +113,72 @@
                             (symbol (str (ns-name ~'*ns*)))
                             (list* '~qualified args#))))))
 
+;; ---- defreg-event-macro --------------------------------------------------
+;;
+;; Per Spec 009 §`:rf.handler/source` and Causa Spec 021 §11.2 B.7
+;; stretch (rf2-xgfuy): `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
+;; additionally capture the WHOLE `(reg-event-X :id ...)` form as a
+;; string under `:rf.handler/source` so Causa's Event panel can render
+;; the source inline.
+;;
+;; Scope decision (rf2-xgfuy): capture the WHOLE form (`(reg-event-X
+;; :id [interceptors] (fn ...))`), not just the handler-fn. The Causa
+;; Event panel mockup (Spec 021 §2.2) renders the macro name + id +
+;; full handler-fn body — the whole form gives the consumer everything
+;; in one slot rather than forcing it to re-derive the wrapping shape
+;; from `:event/kind` + `:handler-fn`.
+;;
+;; CLJS production elision: the emitted form binds
+;; `source-coords/*pending-form-source*` to
+;; `(if interop/debug-enabled? <pr-str-of-form> nil)` so Closure
+;; constant-folds the bound value to `nil` under `:advanced` +
+;; `goog.DEBUG=false` and DCEs the literal source-string bytes. JVM:
+;; the same expansion is emitted but `interop/debug-enabled?` is a
+;; runtime flag (dev-default `true`), so JVM/SSR/test builds carry the
+;; source string. The elision-probe asserts the production absence.
+
+#?(:clj
+   (defn with-form-source-form
+     "Wrap `body-form` in a binding of `source-coords/*pending-form-
+     source*` to the compile-time `pr-str` of `whole-form` (the entire
+     `(reg-event-X :id ...)` form as the user wrote it). Returns a
+     syntax-quote-safe form suitable for a reg-event-* defmacro to
+     emit. Per rf2-xgfuy.
+
+     The bound value rides an outer `(if interop/debug-enabled? <src>
+     nil)` gate so Closure DCEs the source-string literal under
+     `:advanced` + `goog.DEBUG=false`. JVM/SSR/test builds with
+     `interop/debug-enabled?` true carry the source string into the
+     registry meta via `events/merge-form-source`."
+     [whole-form body-form]
+     (let [src-string (pr-str whole-form)]
+       `(binding [re-frame.source-coords/*pending-form-source*
+                  (if re-frame.interop/debug-enabled? ~src-string nil)]
+          ~body-form))))
+
+#?(:clj
+   (defmacro defreg-event-macro
+     "Emits a `defmacro` for a `reg-event-{db,fx,ctx}` surface. Same
+     coord-capture skeleton as [[defreg-macro]] PLUS the form-source
+     capture per rf2-xgfuy: the emitted macro binds
+     `source-coords/*pending-form-source*` to a DEBUG-gated `pr-str`
+     of the whole user-written form so `re-frame.events/register-
+     event!` can stamp `:rf.handler/source` into the registry meta.
+
+     `delegate-sym` resolves through `re-frame.core`'s aliases at
+     `defreg-event-macro` expansion time (see
+     [[resolve-delegate-sym]])."
+     [macro-sym delegate-sym docstring & [attr-map]]
+     (let [qualified (resolve-delegate-sym delegate-sym)]
+       `(defmacro ~macro-sym
+          ~docstring
+          ~(or attr-map {})
+          [~'& args#]
+          (with-form-source-form ~'&form
+            (with-coords-form (meta ~'&form) ~'*file*
+                              (symbol (str (ns-name ~'*ns*)))
+                              (list* '~qualified args#)))))))
+
 ;; ---- reg-machine expansion (per-element coord stamping) ------------------
 ;;
 ;; The bespoke reg-* form (Spec 005 §Source-coord stamping; rf2-xbtj) —

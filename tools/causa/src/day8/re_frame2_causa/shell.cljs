@@ -124,6 +124,11 @@
             ;; the ribbon's :rf.causa/event-detail subscribers consume).
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
+            ;; rf2-gf58j — L2 epoch-timeline dispatch-origin prefix +
+            ;; activity badges. Pure-fn helpers live in `panels/l2-
+            ;; timeline.cljc` so the shape is JVM-testable; the shell
+            ;; consumes them in `event-row` (single insertion site).
+            [day8.re-frame2-causa.panels.l2-timeline :as l2-timeline]
             [day8.re-frame2-causa.palette :as palette]
             [day8.re-frame2-causa.resize-handle :as resize-handle]
             [day8.re-frame2-causa.settings.popup :as settings-popup]
@@ -930,7 +935,15 @@
         ;; signal "this is a pseudo-cascade outside any dispatch".
         ungrouped?  (ungrouped-cascade? cascade)
         glyph       (gutter-glyph cascade focused-id)
-        badges      (row-badges cascade)
+        ;; rf2-gf58j — L2 row chrome: per-origin prefix + per-cascade
+        ;; activity badges. Both pulled from the cascade record;
+        ;; helpers live in `panels.l2-timeline` so the projection is
+        ;; pure-data and JVM-testable.
+        origin         (l2-timeline/dispatch-origin-of cascade)
+        origin-prefix  (l2-timeline/origin-prefix-glyph origin)
+        origin-title   (l2-timeline/origin-prefix-title origin)
+        badges         (l2-timeline/activity-badges cascade)
+        badges-tooltip (l2-timeline/activity-badges-tooltip cascade)
         ev-id       (event-id-of-cascade cascade)
         event-vec   (:event cascade)
         ;; rf2-b76v4 — canonical event-lifecycle status colour. ONE
@@ -1195,6 +1208,23 @@
               gutter-click (assoc :on-click gutter-click))
       (or focus-marker
           [:span {:style {:color glyph-col}} glyph])]
+     ;; rf2-gf58j — dispatch-origin prefix. Renders a per-origin
+     ;; glyph (`R` / `🌐` / `💧` / `⚡` / `⏲` / `T` / `🔧` / `i` /
+     ;; `🌊`) before the event-id when the origin is non-`:user`;
+     ;; `:user` stays silent so the common case doesn't clutter the
+     ;; row. The `:title` carries the closed-enum value as a hover
+     ;; affordance. Suppressed for the `:ungrouped` pseudo-cascade
+     ;; (no real dispatch envelope, no origin tag to surface).
+     (when (and origin-prefix (not ungrouped?))
+       [:span {:data-testid (str "rf-causa-row-origin-" (name origin))
+               :data-rf-causa-origin (name origin)
+               :title origin-title
+               :style {:flex-shrink 0
+                       :color (:accent-violet tokens)
+                       :font-size (:caption type-scale)
+                       :min-width "12px"
+                       :text-align "center"}}
+        origin-prefix])
      ;; Round-3 rf2-cmtkw — minimal default row renders ONLY the
      ;; bare event-id keyword (e.g. `:cart/add-item`). The full event
      ;; vector with args moves to the row's hover tooltip + the L4
@@ -1216,10 +1246,16 @@
          ":ungrouped (pseudo-cascade)"]
         (render-event-id-only event-vec))]
      (when (seq badges)
-       [:span {:data-testid "rf-causa-row-badges"
-               :style {:display "flex" :gap "4px" :flex-shrink 0
-                       :color (:yellow tokens)
-                       :font-size (:caption type-scale)}}
+       ;; rf2-gf58j — activity-badge cluster sourced from
+       ;; `panels.l2-timeline/activity-badges`. Render order matches
+       ;; the spec/021 §17.1.5 canonical sequence (⚠ ◆ 🌐 ⚡ ⏲);
+       ;; the tooltip names the present classes so the operator can
+       ;; read what the cluster means without leaving L2.
+       [:span (cond-> {:data-testid "rf-causa-row-badges"
+                       :style {:display "flex" :gap "4px" :flex-shrink 0
+                               :color (:yellow tokens)
+                               :font-size (:caption type-scale)}}
+                badges-tooltip (assoc :title badges-tooltip))
         (for [b badges]
           ^{:key b} [:span b])])
      ;; Relative-time chip (rf2-vbbq0). Right-aligned per Mike's design

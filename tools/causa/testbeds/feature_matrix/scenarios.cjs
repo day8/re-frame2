@@ -22,8 +22,8 @@ const PANEL_HANDOFFS = [
   ['app-db', 'rf-causa-app-db-diff'],
   // The :views tab routes to the full Views panel per spec/012-Views.md
   // (rf2-21ob3 replaced the legacy Subscriptions panel). The Views
-  // panel renders its canonical `rf-causa-views` root testid.
-  ['views', 'rf-causa-views'],
+  // panel renders its canonical `rf-causa-reactive` root testid.
+  ['views', 'rf-causa-reactive'],
   ['trace', 'rf-causa-trace'],
   ['machines', 'rf-causa-machine-inspector'],
   // The :routing tab (promoted under rf2-nrbs9 + reshaped under
