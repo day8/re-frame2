@@ -1,10 +1,21 @@
 (ns day8.re-frame2-causa.panels.reactive-panel
-  "Reactive panel facade (rf2-wyvf2 · spec/021 §3).
+  "View panel facade (rf2-e33ad · Mike-direction 2026-05-21 ·
+  prior name: Reactive · prior bead: rf2-wyvf2 · spec/021 §3).
 
-  Per spec/021 §11.5 the L4 tab displays as `Reactive` (renamed from
-  `Views`) while the panel-registry key stays `:views` (internal id;
-  not a user contract). The panel renders the canonical sub-cascade
-  + view-re-render visualisation per §3.
+  Per Mike's 2026-05-21 design direction the tab is renamed from
+  `Reactive` to `View` — the panel's primary subject is the rendered
+  view (the operator hovers a view-row, the rendered DOM highlights)
+  while the sub cascade is the supporting context.
+
+  The internal panel-registry key stays `:views` (it was always the
+  internal id, never a user contract). The panel renders the full
+  reactive cascade per spec/021 §3 reorganised into four sections:
+
+      Subs ran (count)            entries with [code] chip
+      Subs whose value changed    entries
+      Subs that cascaded          entries
+      Views re-rendered           entries named via `reg-view :name`,
+                                  `[code] chip` + hover-highlight
 
   ## Public surface
 
@@ -40,7 +51,9 @@
   ;; the slot for the smaller diff).
   (panel-registry/reg-l4-tab!
     {:id    :views
-     :label "Reactive"
+     ;; rf2-e33ad — display label renamed from `Reactive` to `View`
+     ;; per Mike-direction 2026-05-21. Internal id stays `:views`.
+     :label "View"
      :mnem  "v"
      :modes #{:runtime}
      :order 2
