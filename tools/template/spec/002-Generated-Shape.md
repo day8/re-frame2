@@ -37,9 +37,12 @@ my-app/
                               experiments against the running app
 ```
 
-`shadow-cljs.edn` ships `:source-paths ["src" "test"]` so the `:test`
-build (`:target :node-test`, `:ns-regexp "-test$"`) picks the file
-up out of the box.
+`shadow-cljs.edn` ships `:source-paths ["src" "test" "dev"]` so the
+`:test` build (`:target :node-test`, `:ns-regexp "-test$"`) picks
+the emitted test file up out of the box, and `dev/scratch.cljs` +
+`dev/user.clj` (the Q8 dev-ergonomics lock — REPL scratch ns and
+`(user/refresh)` entry) are reachable from `clojure -M:shadow` and
+shadow's nREPL without further classpath plumbing.
 
 The UIx and Helix variants follow the same shape; only `core.cljs`,
 `views.cljs`, `deps.edn`, and the substrate-adapter coord change.

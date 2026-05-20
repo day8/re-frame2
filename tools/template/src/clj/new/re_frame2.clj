@@ -162,7 +162,7 @@
                             ;; the smoke-tested combination is what users
                             ;; get.
                             :shadow-version    "3.4.10"
-                            :react-version     "18.3.1"})
+                            :react-version     "19.2.0"})
         ;; Each renderer is scoped to its sub-tree, so the per-substrate
         ;; views.cljs / deps.edn / shadow-cljs.edn / package.json live
         ;; under .../re-frame2/<substrate>/ and substrate-agnostic files

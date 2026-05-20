@@ -232,9 +232,20 @@ Suggested commit decomposition:
 - `tools/template/spec/API.md` — rewrite the §Invocation surface.
 - `tools/template/spec/001-Substrate-Variants.md` — drop the
   `:edn-args` plumbing language.
+- `tools/template/spec/000-Vision.md` §Non-goals — reconcile
+  the locked-flags enumeration with the post-rebuild invocation
+  form (already enumerates the three flags as of rf2-22lre;
+  drop any residual `:edn-args` language).
+- `tools/template/spec/Principles.md` §P4 — rewrite from
+  "Substrate selection via `:edn-args`" to "Substrate selection
+  via top-level k/v". The axis-name and rationale survive; the
+  plumbing language changes.
 - `tools/template/spec/DESIGN-RATIONALE.md` §1 — flip the clj-new vs
   deps-new decision; archive §2 (`:edn-args`-not-top-level) as a
   retired rationale.
+- `tools/template/spec/DESIGN-RATIONALE.md` §5 — update the
+  `:include-story?` invocation example from
+  `:edn-args '[:include-story? true]'` to top-level k/v.
 
 ## §4 Stage 4 — Docs + migration for existing template users
 
@@ -283,7 +294,7 @@ The locks below are inherited from the template walkthrough (Mike,
 | SSR opt-in: `:include-ssr?` | Q7 lock; gated on rf2-0m5ea | `template-fn` branch on `:include-ssr?` |
 | Story opt-in: `:include-story?` | Q3/Q4 era | `template-fn` branch on `:include-story?` |
 | Causa preload (always-on) | Q9 lock | `_shared/shadow-cljs.edn` :preloads |
-| Skill install stub: `install-skills.sh` | Q9 lean A | `_shared/install-skills.sh` placeholder + README mention |
+| Skill install stub: `install-skills.sh` | Q9 lean A | Deferred — README mention only today (`_shared/README.md` §Future: skill install); placeholder script lands when the Claude Code skill marketplace publishes. |
 | Layout: `src/` + `test/` + `dev/scratch.cljs` + `dev/user.clj` | Q8 lock | Unconditional under `_shared/` |
 
 Three flags total (`:include-story?`, `:css`, `:include-ssr?`). Resist
