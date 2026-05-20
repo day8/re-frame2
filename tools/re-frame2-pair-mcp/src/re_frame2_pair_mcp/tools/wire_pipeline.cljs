@@ -76,7 +76,34 @@
   Tools call this once and splice the result through
   `wire/with-indicators` onto their envelope — the per-tool tail
   collapses from a 20-line `let` of intermediate names to a 5-line
-  pipeline call + envelope assembly."
+  pipeline call + envelope assembly.
+
+  ## Role: orchestrator (first stop on the wire)
+
+  This ns is the FIRST stop for any payload heading to or from the
+  nREPL bridge. It is a general orchestrator: it dispatches on
+  `:kind` and delegates the per-kind transforms. The orchestrator
+  itself owns only the cross-kind invariants (ordering, indicator
+  shape, envelope contract); per-kind elaboration lives elsewhere.
+
+  ## Cross-file split (deliberate factoring)
+
+  The `:snapshot-map` arm is intentionally factored out into
+  `re-frame2-pair-mcp.tools.snapshot-pipeline`. Path-slicing and
+  slice-mode resolution (per-slice `:modes` override · global
+  `:mode` arg · the `:path`-forces-`:path-sliced` rule for
+  `:app-db`) are markedly more elaborate than the other kinds
+  need — `:epoch-vector` and `:scalar-value` never touch app-db
+  slices and never resolve a mode. Inlining the snapshot-specific
+  machinery here would dwarf the orchestrator with concerns only
+  one kind cares about.
+
+  This is a deliberate factoring choice, not accidental drift:
+  see `re-frame2-pair-mcp.tools.snapshot-pipeline` for the
+  `:snapshot-map` specialisation (path-slicing + slice-mode
+  resolution). Readers tracing a `:kind :snapshot-map` payload
+  land here first (orchestrator + ordering invariant) and then
+  jump to `snapshot-pipeline` for the slice-level transforms."
   (:require [re-frame.mcp-base.elision :as base-elision]
             [re-frame2-pair-mcp.config :as config]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
