@@ -1026,7 +1026,7 @@
   (testing "rf2-zv9r9 — the §2 6-step pipeline renders six numbered step
             headers ([1]–[6]) in canonical order"
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :widget/poke (fn [_ _] {})))
+      (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -1040,7 +1040,7 @@
   (testing "rf2-zv9r9 — per §2.2 explicit ▼ arrows separate steps 1→2,
             2→3, 3→4, 4→5, 5→6 (five arrows in total)"
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :widget/poke (fn [_ _] {})))
+      (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
@@ -1088,7 +1088,7 @@
             DEBUG-gated stamp lands, or in a production goog.DEBUG=false
             build)"
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :widget/poke (fn [_ _] {})))
+      (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
