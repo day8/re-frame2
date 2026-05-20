@@ -29,7 +29,7 @@
   "Public predicate: true when `url`'s percent-encoding is malformed in
   any of its decode'd portions (path captures via the registered
   routes' patterns, query keys, query values, or `#fragment`). Used by
-  `:rf/url-changed` / `:rf.route/handle-url-change` to discriminate the
+  `:rf.route/transitioned` / `:rf.route/handle-url-change` to discriminate the
   bare route-miss case (`{:url url}`) from the malformed-URL fail-
   closed case (`{:url url :reason :malformed-url}`) — both end up at
   `:rf.route/not-found` but the structured `:reason` lets per-route
@@ -817,7 +817,7 @@
   the flow-lifecycle symmetry: the activated/deactivated pair is to
   routes what `:rf.flow/computed` is to flows in giving tools a
   per-transition lifecycle signal independent of the underlying
-  `:rf/url-changed` event."
+  `:rf.route/transitioned` event."
   [prev-id next-id]
   (when (and prev-id (not= prev-id next-id))
     (trace/emit! :event :rf.route/deactivated
@@ -1266,9 +1266,9 @@
       (let [[_ target params opts] event-vec]
         [:rf.route/navigate target params (assoc (or opts {}) :bypass-leave-guard? true)])
 
-      :rf/url-changed
+      :rf.route/transitioned
       (let [[_ url opts] event-vec]
-        [:rf/url-changed url (assoc (or opts {}) :bypass-leave-guard? true)])
+        [:rf.route/transitioned url (assoc (or opts {}) :bypass-leave-guard? true)])
 
       :rf.route/handle-url-change
       (let [[_ url opts] event-vec]
@@ -1305,21 +1305,21 @@
         blocked
 
         :else
-        ;; can leave — push the URL and dispatch :rf/url-changed.
+        ;; can leave — push the URL and dispatch :rf.route/transitioned.
         ;; Per Spec 012 §URL changes are events route-link clicks call
         ;; `.preventDefault` and dispatch :rf/url-requested; the browser's
         ;; URL has NOT updated. The handler is responsible for pushing
         ;; the new URL (history pushState) and then synthesising the
-        ;; :rf/url-changed event the slice + on-match write keys off.
+        ;; :rf.route/transitioned event the slice + on-match write keys off.
         {:fx [[:rf.nav/push-url app-url]
-              [:dispatch [:rf/url-changed app-url {:bypass-leave-guard? true}]]]}))))
+              [:dispatch [:rf.route/transitioned app-url {:bypass-leave-guard? true}]]]}))))
 
 (events/reg-event-fx :rf.route/continue
   (fn [{:keys [db]} [_ pn-id]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
     ;; re-issues the original navigation request, *bypassing* the leave
     ;; guard for this one shot. Pre-rf2-yursn this dispatched
-    ;; :rf/url-changed + :rf.nav/push-url directly, skipping
+    ;; :rf.route/transitioned + :rf.nav/push-url directly, skipping
     ;; :rf/url-requested's policy interceptors and racing the slice
     ;; write with the URL push. Right model: re-emit
     ;; :rf/url-requested with :bypass-leave-guard? true so the same
@@ -1366,10 +1366,10 @@
             {})))))
 
 ;; ---- URL-driven navigation: shared full-rewrite path ---------------------
-;; `:rf/url-changed` (forward nav, default scroll `:top`) and
+;; `:rf.route/transitioned` (forward nav, default scroll `:top`) and
 ;; `:rf.route/handle-url-change` (popstate / initial / SSR, default
 ;; scroll `:restore`) share `url-change-fx`. The fragment-only branch is
-;; exclusive to `:rf/url-changed`.
+;; exclusive to `:rf.route/transitioned`.
 
 (defn- url-change-fx
   "Pure helper: given db + url + default scroll strategy (+ optional
@@ -1486,7 +1486,7 @@
                         [[:dispatch [:rf.route.internal/settle-transition token]]])
                       (when scroll-fx [scroll-fx])))}))
 
-(events/reg-event-fx :rf/url-changed
+(events/reg-event-fx :rf.route/transitioned
   (fn [{:keys [db frame]} [_ url opts :as event-vec]]
     ;; Per Spec 012 §URL changes are events / §Fragments. match-url
     ;; surfaces the URL's `#fragment` directly on its result; if only
@@ -1520,8 +1520,8 @@
         ;; (rf2-cj9fn): :rf.route/fragment-changed is the canonical
         ;; op-name for fragment-only navigation. The op-name says what
         ;; fires it (only a `#fragment` differed) and disambiguates from
-        ;; the runtime event `:rf/url-changed`, which fires on every URL
-        ;; transition. Pre-rf2-cj9fn this emitted `:rf.route/url-changed`
+        ;; the runtime event `:rf.route/transitioned`, which fires on every URL
+        ;; transition. Pre-rf2-cj9fn this emitted `:rf.route/fragment-changed`
         ;; — one path segment away from the runtime event with very
         ;; different meaning. The new op-name pairs with the fragment-
         ;; only branch's contract: full URL transitions never emit it,
@@ -1543,7 +1543,7 @@
   (fn [{:keys [db frame]} [_ url opts :as event-vec]]
     ;; Per Spec 012 §URL changes are events — popstate, initial load,
     ;; SSR. Always a full slice rewrite (the fragment-only branch is
-    ;; exclusive to `:rf/url-changed`); default scroll strategy is
+    ;; exclusive to `:rf.route/transitioned`); default scroll strategy is
     ;; `:restore` so the saved position trumps. `:frame` is threaded
     ;; through to `url-change-fx` so the SSR error-projection listener
     ;; can attribute the :no-such-handler trace per-frame.

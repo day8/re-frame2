@@ -115,7 +115,7 @@
                (fn [_ _] nil))
 
     ;; 1. Land on the editor route. nav-token allocates; slice is set.
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (is (= :editor/article (get-in (rf/get-frame-db :rf/default)
                                    [:rf/route :id]))
         "initial nav landed on :editor/article")
@@ -181,7 +181,7 @@
 
       ;; 1. Land on /search with ?theme=dark&locale=en — the URL-driven
       ;;    path populates the slice via match-url + handle-url-change.
-      (rf/dispatch-sync [:rf/url-changed "/search?theme=dark&locale=en"])
+      (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark&locale=en"])
       (is (= {:theme "dark" :locale "en"}
              (get-in (rf/get-frame-db :rf/default) [:rf/route :query]))
           "initial slice carries the URL's query keys")
@@ -215,7 +215,7 @@
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf/url-changed "/search?theme=dark"])
+      (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark"])
       (rf/dispatch-sync [:rf.route/navigate :route/cart])
       (is (= "/cart" (last @pushed))
           ":query-retain undeclared → no carry-through, URL stays bare"))))
@@ -239,13 +239,13 @@
       (rf/register-trace-listener! ::nav-token (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
-      (rf/dispatch-sync [:rf/url-changed "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
                              [:rf/route :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's response lands, navigate to /articles/B → "nav-2".
-      (rf/dispatch-sync [:rf/url-changed "/articles/B"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
       (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
                              [:rf/route :nav-token]))
           "second navigation advanced the epoch to nav-2")
@@ -313,13 +313,13 @@
                              (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
-      (rf/dispatch-sync [:rf/url-changed "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
                              [:rf/route :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's async :on-success lands, navigate to id="B" — "nav-2".
-      (rf/dispatch-sync [:rf/url-changed "/articles/B"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
       (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
                              [:rf/route :nav-token]))
           "second navigation advanced the epoch to nav-2")
@@ -445,11 +445,11 @@
       (is (empty? @calls)
           ":scroll false on the route suppresses the :rf.nav/scroll fx")
 
-      ;; 5. :rf/url-changed (URL-driven) also emits the fx — default :top.
+      ;; 5. :rf.route/transitioned (URL-driven) also emits the fx — default :top.
       (reset! calls [])
-      (rf/dispatch-sync [:rf/url-changed "/articles"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles"])
       (is (= :top (-> @calls first :strategy))
-          ":rf/url-changed emits :rf.nav/scroll with default :top")
+          ":rf.route/transitioned emits :rf.nav/scroll with default :top")
 
       ;; 6. :rf.route/handle-url-change (popstate / initial) defaults to
       ;;    :restore — the saved position trumps a forward-style :top.
@@ -460,7 +460,7 @@
 
       ;; 7. Fragment in URL is forwarded in the fx args.
       (reset! calls [])
-      (rf/dispatch-sync [:rf/url-changed "/articles/intro#section-2"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
       (is (= "section-2" (-> @calls first :fragment))
           "fragment from URL flows into :rf.nav/scroll args"))))
 
@@ -776,7 +776,7 @@
 ;; previously threw `IllegalArgumentException` on JVM; pre-rf2-4ic0f
 ;; resolved to `{:route-id :route/search :query {}}`; post-rf2-4ic0f
 ;; resolves to nil (route-miss → `:rf.route/not-found` with
-;; `:reason :malformed-url` at `:rf/url-changed`).
+;; `:reason :malformed-url` at `:rf.route/transitioned`).
 
 (deftest match-url-malformed-percent-in-path-is-route-miss
   (testing "a bare `%` in the path returns nil (route-miss), does not throw"
@@ -832,7 +832,7 @@
 (deftest malformed-url?-predicate-discriminates-decode-failures
   (testing "rf2-4ic0f: `malformed-url?` returns true for any URL whose
             %-encoding cannot be uniformly decoded; false otherwise.
-            `:rf/url-changed` uses this to write `:reason :malformed-url`
+            `:rf.route/transitioned` uses this to write `:reason :malformed-url`
             on the `:rf.route/not-found` slice."
     (is (false? (routing/malformed-url? "/")))
     (is (false? (routing/malformed-url? "/articles/intro")))
@@ -1060,7 +1060,7 @@
         (finally (restore))))))
 
 (deftest url-changed-validation-fail-routes-to-not-found-with-reason
-  (testing ":rf/url-changed for a structurally-matched URL whose params
+  (testing ":rf.route/transitioned for a structurally-matched URL whose params
             fail schema validation routes to :rf.route/not-found with
             `:reason :validation` in :params (Spec 012 §Param validation)"
     (let [restore (with-stub-validator)]
@@ -1072,7 +1072,7 @@
         (rf/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _] nil))
-        (rf/dispatch-sync [:rf/url-changed "/articles/zoo"])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/zoo"])
         (let [slice (:rf/route (rf/get-frame-db :rf/default))]
           (is (= :rf.route/not-found (:id slice))
               "validation failure routes to :rf.route/not-found")
@@ -1127,7 +1127,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
@@ -1157,7 +1157,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::blocked (fn [ev] (swap! traces conj ev)))
@@ -1173,7 +1173,7 @@
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
 ;; "re-issue the original navigation request, *bypassing* the leave guard".
-;; Pre-fix dispatched :rf/url-changed + :rf.nav/push-url directly, skipping
+;; Pre-fix dispatched :rf.route/transitioned + :rf.nav/push-url directly, skipping
 ;; the :rf/url-requested policy chain.
 
 (deftest continue-re-issues-via-url-requested-with-bypass
@@ -1191,7 +1191,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on editor; dirty the form; try to leave; guard blocks.
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (is (some? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
@@ -1203,7 +1203,7 @@
         "continue cleared the pending slot")
     (is (= :route/cart
            (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
-        "continue completed the navigation through :rf/url-requested → :rf/url-changed")
+        "continue completed the navigation through :rf/url-requested → :rf.route/transitioned")
     (is (true? (get-in (rf/get-frame-db :rf/default) [:editor :dirty?]))
         ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
 
@@ -1220,7 +1220,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (let [pending (:rf/pending-navigation (rf/get-frame-db :rf/default))]
@@ -1245,7 +1245,7 @@
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/navigate :route/cart])
       (let [db (rf/get-frame-db :rf/default)]
@@ -1269,7 +1269,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/handle-url-change "/cart"])
     (let [db (rf/get-frame-db :rf/default)]
@@ -1291,7 +1291,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (let [pending-id (get-in (rf/get-frame-db :rf/default)
@@ -1319,7 +1319,7 @@
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf/url-changed "/"])
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
       (rf/register-trace-listener! ::external-url (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}])
       (rf/unregister-trace-listener! ::external-url)
@@ -1432,7 +1432,7 @@
 ;; route's UI through a navigation to a nonexistent URL.
 
 (deftest url-changed-unmatched-url-routes-to-not-found
-  (testing ":rf/url-changed for an unmatched URL writes the
+  (testing ":rf.route/transitioned for an unmatched URL writes the
             :rf.route/not-found slice with {:url url} in :params"
     (rf/reg-route :route/home {:path "/"})
     (rf/reg-route :rf.route/not-found {:path "/404"})
@@ -1440,11 +1440,11 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on home first so we have a previous slice to displace.
-    (rf/dispatch-sync [:rf/url-changed "/"])
+    (rf/dispatch-sync [:rf.route/transitioned "/"])
     (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
         "initial nav landed on home")
     ;; Navigate to a URL that matches no registered route.
-    (rf/dispatch-sync [:rf/url-changed "/this/does/not/exist"])
+    (rf/dispatch-sync [:rf.route/transitioned "/this/does/not/exist"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :rf.route/not-found (:id slice))
           "unmatched URL → slice id becomes :rf.route/not-found")
@@ -1465,7 +1465,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::no-not-found
                              (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-changed "/somewhere/unknown"])
+      (rf/dispatch-sync [:rf.route/transitioned "/somewhere/unknown"])
       (rf/unregister-trace-listener! ::no-not-found)
       (let [slice (:rf/route (rf/get-frame-db :rf/default))]
         (is (= :rf.route/not-found (:id slice))
@@ -1475,7 +1475,7 @@
                 @traces)
           ":rf.warning/no-not-found-route trace fires when no 404 route is registered"))))
 
-;; ---- rf2-4ic0f: malformed URL fail-closed at :rf/url-changed -------------
+;; ---- rf2-4ic0f: malformed URL fail-closed at :rf.route/transitioned -------------
 ;;
 ;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding. A
 ;; URL whose %-encoding is malformed anywhere (path captures, query
@@ -1487,7 +1487,7 @@
 ;; ({:url url :reason :validation}).
 
 (deftest url-changed-malformed-url-routes-to-not-found-with-reason
-  (testing ":rf/url-changed for a malformed-%-encoded URL writes the
+  (testing ":rf.route/transitioned for a malformed-%-encoded URL writes the
             :rf.route/not-found slice with `:reason :malformed-url`"
     (rf/reg-route :route/home    {:path "/"})
     (rf/reg-route :route/search  {:path "/search"})
@@ -1496,31 +1496,31 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Path: a bare `%` in a captured segment.
-    (rf/dispatch-sync [:rf/url-changed "/articles/%"])
+    (rf/dispatch-sync [:rf.route/transitioned "/articles/%"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :rf.route/not-found (:id slice))
           "malformed path → :rf.route/not-found")
       (is (= {:url "/articles/%" :reason :malformed-url} (:params slice))
           "params carries the URL AND `:reason :malformed-url`"))
     ;; Query value.
-    (rf/dispatch-sync [:rf/url-changed "/search?x=%"])
+    (rf/dispatch-sync [:rf.route/transitioned "/search?x=%"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :rf.route/not-found (:id slice)) "malformed query value → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))
           "the malformed-URL reason is on the slice"))
     ;; Query key.
-    (rf/dispatch-sync [:rf/url-changed "/search?%=v"])
+    (rf/dispatch-sync [:rf.route/transitioned "/search?%=v"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :rf.route/not-found (:id slice)) "malformed query key → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))
     ;; Fragment.
-    (rf/dispatch-sync [:rf/url-changed "/search#%"])
+    (rf/dispatch-sync [:rf.route/transitioned "/search#%"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :rf.route/not-found (:id slice)) "malformed fragment → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))))
 
 (deftest url-changed-malformed-url-emits-structured-trace
-  (testing ":rf/url-changed emits :rf.warning/malformed-url alongside the
+  (testing ":rf.route/transitioned emits :rf.warning/malformed-url alongside the
             standard :rf.error/no-such-handler when the URL is malformed"
     (rf/reg-route :route/home {:path "/"})
     (rf/reg-route :rf.route/not-found {:path "/404"})
@@ -1530,7 +1530,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::malformed-trace
                              (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-changed "/articles/%"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/%"])
       (rf/unregister-trace-listener! ::malformed-trace)
       (is (some (fn [ev]
                   (and (= :rf.warning/malformed-url (:operation ev))
@@ -1554,7 +1554,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::no-malformed-trace
                              (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-changed "/search?q=clojure"])
+      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure"])
       (rf/unregister-trace-listener! ::no-malformed-trace)
       (is (not-any? (fn [ev] (= :rf.warning/malformed-url (:operation ev)))
                     @traces)
@@ -1568,7 +1568,7 @@
 ;; never observed the :loading state.
 
 (deftest url-changed-transition-loading-when-on-match-fires
-  (testing ":rf/url-changed sets :transition :loading when the route
+  (testing ":rf.route/transitioned sets :transition :loading when the route
             declares :on-match events"
     (rf/reg-event-db :prefs/loaded (fn [db _] (assoc db :prefs/loaded? true)))
     (rf/reg-route :route/cart
@@ -1595,11 +1595,11 @@
                          (reset! observed
                                  (get-in db [:rf/route :transition]))
                          (assoc db :prefs/loaded? true)))
-      (rf/dispatch-sync [:rf/url-changed "/cart"])
+      (rf/dispatch-sync [:rf.route/transitioned "/cart"])
       (is (= :loading @observed)
           ":on-match handler observed :transition :loading mid-drain"))
     ;; Route without :on-match → :idle.
-    (rf/dispatch-sync [:rf/url-changed "/"])
+    (rf/dispatch-sync [:rf.route/transitioned "/"])
     (is (= :idle (get-in (rf/get-frame-db :rf/default)
                          [:rf/route :transition]))
         "route with no :on-match — transition stays :idle")))
@@ -1618,12 +1618,12 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on a URL with a fragment — the slice carries :fragment "x"
-    (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
+    (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
     (is (= "scroll-restoration"
            @(rf/subscribe [:rf.route/fragment]))
         ":rf.route/fragment returns the URL's #fragment")
     ;; Land on a URL with no fragment — sub returns nil
-    (rf/dispatch-sync [:rf/url-changed "/docs/api"])
+    (rf/dispatch-sync [:rf.route/transitioned "/docs/api"])
     (is (nil? @(rf/subscribe [:rf.route/fragment]))
         ":rf.route/fragment returns nil when the URL has no #fragment")))
 
@@ -1670,7 +1670,7 @@
     (is (nil? @(rf/subscribe [:rf/pending-navigation]))
         ":rf/pending-navigation returns nil when no nav is pending")
     ;; Set up a pending nav via the can-leave guard
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (let [pending @(rf/subscribe [:rf/pending-navigation])]
@@ -2048,20 +2048,20 @@
 
 (deftest fragment-only-url-change-trace-payload
   (testing "fragment-only URL change emits :rf.route/fragment-changed
-            (rf2-cj9fn; pre-rename `:rf.route/url-changed`) with
+            (rf2-cj9fn; pre-rename `:rf.route/fragment-changed`) with
             :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
     (rf/reg-route :route/docs {:path "/docs/:page"})
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on /docs/routing first (no fragment).
-    (rf/dispatch-sync [:rf/url-changed "/docs/routing"])
+    (rf/dispatch-sync [:rf.route/transitioned "/docs/routing"])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::frag-only (fn [ev] (swap! traces conj ev)))
       ;; Same path/query, different fragment → fragment-only nav.
-      (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
+      (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
       ;; And again — prev→next this time.
-      (rf/dispatch-sync [:rf/url-changed "/docs/routing#fragments"])
+      (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#fragments"])
       (rf/unregister-trace-listener! ::frag-only)
       (let [frag-events (filter #(= :rf.route/fragment-changed (:operation %)) @traces)]
         (is (= 2 (count frag-events))
@@ -2088,7 +2088,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
+    (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
     (is (= "scroll-restoration"
            (get-in (rf/get-frame-db :rf/default) [:rf/route :fragment]))
         ":fragment from URL is written to slice")))
@@ -2109,7 +2109,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/dashboard"])
+    (rf/dispatch-sync [:rf.route/transitioned "/dashboard"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :error (:transition slice))
           ":transition flips to :error on :on-match throw")
@@ -2138,7 +2138,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/cart"])
+    (rf/dispatch-sync [:rf.route/transitioned "/cart"])
     (let [db    (rf/get-frame-db :rf/default)
           slice (:rf/route db)]
       (is (= :error (:transition slice))
@@ -2162,7 +2162,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/page"])
+    (rf/dispatch-sync [:rf.route/transitioned "/page"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))]
       (is (= :error (:transition slice))
           ":transition :error even without :on-error declared")
@@ -2186,7 +2186,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/p"])
+    (rf/dispatch-sync [:rf.route/transitioned "/p"])
     (is (true? (:handled? (rf/get-frame-db :rf/default)))
         "bare-keyword :on-error wraps as a vector and dispatches")))
 
@@ -2213,7 +2213,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/attributed"])
+    (rf/dispatch-sync [:rf.route/transitioned "/attributed"])
     (let [slice (:rf/route (rf/get-frame-db :rf/default))
           err   (:error slice)]
       (is (= :error (:transition slice))
@@ -2252,7 +2252,7 @@
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     ;; A non-truthy non-false value (`nil`) would also be a non-boolean
     ;; — but we want to specifically exercise the "truthy non-boolean"
     ;; polarity bug, so dirty the editor first.

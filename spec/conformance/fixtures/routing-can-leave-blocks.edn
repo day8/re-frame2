@@ -39,7 +39,7 @@
 
  :fixture/dispatches
  [;; Step 1: Land on :editor/article id=A.
-  [:rf/url-changed "/editor/articles/A"]
+  [:rf.route/transitioned "/editor/articles/A"]
 
   ;; Step 2: Dirty the form. :can-leave? now returns false.
   [:editor/set-dirty]

@@ -78,7 +78,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
 ```clojure
 (rf/reg-event-fx :app/boot
   {:doc "Application boot: config → auth → profile → hydrate → route → ready."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :configuring
      :data    {:config nil :user nil :error nil :phase-attempt 0}
 
@@ -243,7 +243,7 @@ The pattern, distilled to a worked sketch:
 ;; that doesn't fit inside :rf.http/managed's :retry slot.
 
 (rf/reg-event-fx :auth/flow
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :loading-me
      :data    {:token nil :user nil :error nil}
 

@@ -47,7 +47,7 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /editor/articles/A. nav-token allocates; route lands.
-  [:rf/url-changed "/editor/articles/A"]
+  [:rf.route/transitioned "/editor/articles/A"]
 
   ;; Step 2: Dirty the form.
   [:editor/set-dirty]

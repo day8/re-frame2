@@ -100,13 +100,13 @@
     (let [[recorded unreg] (record! ::stale-1)]
       (try
         ;; Land on /articles/A — nav-token = "nav-1".
-        (rf/dispatch-sync [:rf/url-changed "/articles/A"])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
         (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
                                [:rf/route :nav-token]))
             "precondition: navigation A allocated nav-1")
 
         ;; Land on /articles/B — nav-token bumps to "nav-2".
-        (rf/dispatch-sync [:rf/url-changed "/articles/B"])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
         (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
                                [:rf/route :nav-token]))
             "precondition: navigation B advanced to nav-2")
@@ -174,7 +174,7 @@
 
     ;; Land on /editor/draft, then issue a long-running managed HTTP
     ;; from a user event (not :on-match — so it stays in-flight).
-    (rf/dispatch-sync [:rf/url-changed "/editor/draft"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
                                  [:rf/route :id]))
         "precondition: landed on :route/editor")
@@ -251,7 +251,7 @@
 ;;
 ;; The continue branch re-issues the original navigation with
 ;; :bypass-leave-guard? true. The nav-token advances on the new
-;; :rf/url-changed; any in-flight managed HTTP from before the
+;; :rf.route/transitioned; any in-flight managed HTTP from before the
 ;; pending-nav cycle is still in the registry until naturally aborted /
 ;; resolved — but the continued nav's own HTTP requests are tracked
 ;; under fresh entries.
@@ -273,7 +273,7 @@
                (fn [_ url] nil))
 
     ;; Land on /editor/draft.
-    (rf/dispatch-sync [:rf/url-changed "/editor/draft"])
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/get-frame-db :rf/default)
                                  [:rf/route :id]))
         "precondition: landed on :route/editor")
@@ -283,7 +283,7 @@
 
       ;; Capture the :rf.nav/push-url so the continued nav doesn't
       ;; require a real browser-history. The route slice still updates
-      ;; via :rf/url-changed dispatched from :rf/url-requested.
+      ;; via :rf.route/transitioned dispatched from :rf/url-requested.
       (let [pushed (atom [])]
         (rf/clear-fx :rf.nav/push-url)
         (rf/reg-fx :rf.nav/push-url
@@ -356,7 +356,7 @@
                    (fn [_ url] (swap! pushed conj url)))
 
         ;; Land on /articles/A.
-        (rf/dispatch-sync [:rf/url-changed "/articles/A"])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
         (let [token-A (get-in (rf/get-frame-db :rf/default)
                               [:rf/route :nav-token])]
           (is (= "nav-1" token-A) "precondition: A's nav-token is nav-1")
@@ -368,7 +368,7 @@
             (is (some? pending) "precondition: pending-nav slot populated")
 
             ;; Continue — nav-token bumps as part of the continued
-            ;; :rf/url-changed dispatch.
+            ;; :rf.route/transitioned dispatch.
             (rf/dispatch-sync [:rf.route/continue (:id pending)]))
           (let [token-after (get-in (rf/get-frame-db :rf/default)
                                     [:rf/route :nav-token])]

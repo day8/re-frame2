@@ -73,7 +73,7 @@
     ;; The runtime stamps :rf/parent-id and :rf/spawn-all-child-id
     ;; into each spawned child's :data at allocate-time, so the child
     ;; reads them out for the dispatch-back. The parent's
-    ;; create-machine-handler intercepts the event and updates the
+    ;; make-machine-handler intercepts the event and updates the
     ;; join state at [:rf/spawned :deep/main [:work :phase-b]].
     (fn action-dispatch-child-done [data _event]
       {:fx [[:dispatch [(:rf/parent-id data)
@@ -218,7 +218,7 @@
       ;; parallel; each child dispatches the parent's
       ;; `:on-child-done` keyword (`:helper/child-done`) from its
       ;; terminal `:done` `:entry`. The runtime intercepts these
-      ;; events at the parent's create-machine-handler boundary,
+      ;; events at the parent's make-machine-handler boundary,
       ;; updates the join state at [:rf/spawned :deep/main
       ;; [:work :phase-b]], and — once all three have reported —
       ;; dispatches the parent's `:on-all-complete` event vector

@@ -13,7 +13,7 @@
             [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/create-machine-handler
+            ;; registers its late-bind hooks so rf/make-machine-handler
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
@@ -75,7 +75,7 @@
          intent is one submission per click; a transient error surfaces
          in `:error` and the user retries themselves."
    :rf.http/decode-schemas [schema/UserResponse]}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
     ;; the id is the surrounding reg-event-fx id.
     {:initial :idle

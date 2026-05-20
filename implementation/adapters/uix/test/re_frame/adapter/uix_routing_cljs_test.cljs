@@ -5,7 +5,7 @@
   Verifies the routing pipeline runs under the UIx reactive substrate
   and locks the multi-frame routing contract.
 
-  - routing-handle-url-change-uix       — :rf/url-changed /
+  - routing-handle-url-change-uix       — :rf.route/transitioned /
                                           handle-url-change drive the
                                           :rf/route slice under the
                                           UIx adapter; subscriptions
@@ -35,7 +35,7 @@
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
 
 (deftest routing-handle-url-change-uix
-  (testing ":rf/url-changed drives the slice on UIx"
+  (testing ":rf.route/transitioned drives the slice on UIx"
     (let [f (rf/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.uix/home
                     {:path "/uix/home"})
@@ -50,7 +50,7 @@
       (rf/reg-sub :rf.uix.route/params
                   (fn [db _] (get-in db [:rf/route :params])))
 
-      (rf/dispatch-sync [:rf/url-changed "/uix/articles/intro"] {:frame f})
+      (rf/dispatch-sync [:rf.route/transitioned "/uix/articles/intro"] {:frame f})
       (is (= :route.uix/article
              (rf/subscribe-once f [:rf.uix.route/id]))
           ":rf.route/id sub resolves under the UIx adapter")
@@ -60,7 +60,7 @@
       (is (true? (:article-loaded? (rf/get-frame-db f)))
           ":on-match's [:uix/article-load] dispatched and ran")
 
-      (rf/dispatch-sync [:rf/url-changed "/uix/articles/welcome"] {:frame f})
+      (rf/dispatch-sync [:rf.route/transitioned "/uix/articles/welcome"] {:frame f})
       (is (= {:id "welcome"}
              (rf/subscribe-once f [:rf.uix.route/params]))
           "new params land in the slice on subsequent navigation")
@@ -80,9 +80,9 @@
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]
 
-      (rf/dispatch-sync [:rf/url-changed "/uix2/articles"]
+      (rf/dispatch-sync [:rf.route/transitioned "/uix2/articles"]
                         {:frame left})
-      (rf/dispatch-sync [:rf/url-changed "/uix2/articles/intro"]
+      (rf/dispatch-sync [:rf.route/transitioned "/uix2/articles/intro"]
                         {:frame right})
 
       (let [left-route  (rf/subscribe-once left  [:rf.uix2/route])
@@ -96,7 +96,7 @@
         (is (= {:id "intro"} (:params right-route))
             "right frame has the article id"))
 
-      (rf/dispatch-sync [:rf/url-changed "/uix2/"] {:frame left})
+      (rf/dispatch-sync [:rf.route/transitioned "/uix2/"] {:frame left})
       (is (= :route.uix2/home
              (:id (rf/subscribe-once left [:rf.uix2/route])))
           "left re-navigated to :route.uix2/home")

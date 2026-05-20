@@ -16,7 +16,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Canonical homes.**
 - [009-Instrumentation.md §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the `rf/elide-wire-value` walker, the `:rf.size/large-elided` marker shape, the per-call `:rf.size/elision-policy` map, the predicate cascade with sensitivity precedence, and the `:rf.warning/large-value-unschema'd` dev-mode advisory.
 - [010-Schemas.md §`:large?`](010-Schemas.md) and [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces (rf2-kj51z)](010-Schemas.md) — schema-driven nominations: per-slot Malli props that feed the unified elision registry at `app-db [:rf/elision :declarations]` / `app-db [:rf/elision :sensitive-declarations]`.
-- [009 §The `with-redacted` interceptor](009-Instrumentation.md) — handler-side drop-on-trace surface for sensitive event vector keys and downstream cofx.
+- [009 §The `redact-interceptor` interceptor](009-Instrumentation.md) — handler-side drop-on-trace surface for sensitive event vector keys and downstream cofx.
 - [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.size/*` and `:rf.elision/*` reserved-namespace rows.
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
 

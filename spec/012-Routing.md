@@ -31,7 +31,7 @@ Audience column (rf2-576on): **user** = an event apps dispatch or handle directl
 |---|---|---|---|
 | `:rf.route/navigate` | user | Programmatic navigation. | [§Navigation is an event](#navigation-is-an-event) |
 | `:rf.route/handle-url-change` | user | Default handler for URL change (popstate / initial load / SSR). | [§URL changes are events](#url-changes-are-events) |
-| `:rf/url-changed` | user | Fired by the runtime on every URL transition. | [§Standard runtime events](#standard-runtime-events) |
+| `:rf.route/transitioned` | user | Fired by the runtime on every URL transition. | [§Standard runtime events](#standard-runtime-events) |
 | `:rf/url-requested` | user | Fired by `route-link` and equivalent. Decides internal vs external navigation. | [§Standard runtime events](#standard-runtime-events) |
 | `:rf.route/navigation-blocked` | user | Dispatched by the runtime when a `:can-leave` guard rejects. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/continue` | user | User-dispatched: confirm pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
@@ -87,7 +87,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per rf2-dn26r.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition. Renamed from `:rf.route/url-changed` per rf2-cj9fn so the trace op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
+- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. Renamed from `:rf.route/fragment-changed` per rf2-cj9fn so the trace op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract per rf2-5pyyl; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
@@ -321,7 +321,7 @@ The route-id form is preferred everywhere it can be used because the route-id is
 
 ### URL changes are events
 
-When the user clicks a link, presses Back/Forward, or arrives via a deep link, the runtime fires the canonical event `:rf/url-changed` (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). The default handler is `:rf.route/handle-url-change`:
+When the user clicks a link, presses Back/Forward, or arrives via a deep link, the runtime fires the canonical event `:rf.route/transitioned` (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). The default handler is `:rf.route/handle-url-change`:
 
 ```clojure
 (rf/reg-event-fx :rf.route/handle-url-change
@@ -533,7 +533,7 @@ Semantics:
 2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:on-error`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
 3. **Required by contract.** Apps **must** register a `:rf.route/not-found` route. If no `:rf.route/not-found` is registered when an unmatched URL arrives, the runtime emits a `:rf.warning/no-not-found-route` trace event and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 4. **Validation failures.** A URL that matches a route's path but fails the route's `:params` / `:query` schema also routes to `:rf.route/not-found`, with `:reason :validation` in the `:params` slice (per [§URL changes are events](#url-changes-are-events)).
-5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and `:rf/url-changed` writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`). Pre-rf2-4ic0f the query branch was lenient (silently dropped the bad pair, preserving the rest of the URL); that let hostile URLs land in the routing slice when the host route had no required query keys. Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
+5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and `:rf.route/transitioned` writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`). Pre-rf2-4ic0f the query branch was lenient (silently dropped the bad pair, preserving the rest of the URL); that let hostile URLs land in the routing slice when the host route had no required query keys. Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
 6. **Reserved id.** `:rf.route/not-found` is the **single locked id** for this purpose. Implementations and tools depend on it; users do not redefine the meaning of the keyword. Hosts that want a different visual treatment per error kind branch inside the `:rf.route/not-found` view (e.g., on `:reason`).
 
 Tooling enumerates `(rf/handler-meta :route :rf.route/not-found)` to confirm the route is registered; the registrar emits the warning trace event at the first unmatched URL if it isn't.
@@ -578,7 +578,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 ### Mechanism
 
-1. **Allocation.** When `:rf/url-changed` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
+1. **Allocation.** When `:rf.route/transitioned` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 2. **Carry.** Each `:on-match` dispatch receives the current `:nav-token` in cofx (under the key `:nav-token`):
 
    ```clojure
@@ -642,7 +642,7 @@ Two named events are part of the routing contract. Implementations register them
 
 | Event | When it fires | Default handler |
 |---|---|---|
-| `:rf/url-changed` | The browser URL has changed (popstate, initial load, server-side request URL). The runtime dispatches this on every URL transition. | The default handler (the runtime registers it) is `:rf.route/handle-url-change`. Users can override by re-registering. |
+| `:rf.route/transitioned` | The browser URL has changed (popstate, initial load, server-side request URL). The runtime dispatches this on every URL transition. | The default handler (the runtime registers it) is `:rf.route/handle-url-change`. Users can override by re-registering. |
 | `:rf/url-requested` | The user clicked a link the framework owns (a `route-link` view, or any `<a>` whose `href` resolved to a registered route). The handler decides: navigate internally (dispatch `:rf.route/navigate`) or let the browser follow the link externally (dispatch `:rf.nav/external` or do nothing). | The default handler classifies internal vs external by feeding the URL to `match-url`; matched URLs become `:rf.route/navigate`, unmatched become external. Users can override to enforce per-frame policy (auth-guard, modifier-key handling, etc.). |
 
 These events are the **decision points** for navigation policy. The policy is enumerable and testable: dispatch `[:rf/url-requested {:url "/cart"}]` from a test, observe the resulting `:rf.route/navigate`, no DOM simulation required.
@@ -795,13 +795,13 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
 1. Updates `:fragment` in the `:rf/route` slice.
-2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn; pre-rename `:rf.route/url-changed`) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
+2. Emits a `:rf.route/fragment-changed` trace event (rf2-cj9fn; pre-rename `:rf.route/fragment-changed`) with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
 The reason: `:on-match` exists to re-load route-scoped data when path or query changes. A fragment-only change does not change loaded data — only the in-page anchor target. Re-firing the loaders would re-fetch unchanged data on every `#section` jump, which is exactly the kind of thrash users complain about.
 
-Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). The `:rf/url-changed` event still fires for fragment-only changes — the surface for "the URL is now different" — but `:rf.route/handle-url-change`'s default behaviour distinguishes the cases.
+Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). The `:rf.route/transitioned` event still fires for fragment-only changes — the surface for "the URL is now different" — but `:rf.route/handle-url-change`'s default behaviour distinguishes the cases.
 
 ### `:rf.nav/scroll` integration
 
@@ -1017,7 +1017,7 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 - `(rf/registrations :route)` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render route-loading dependency graphs without parsing handler bodies.
 - The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
-- `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
+- `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
 
 ## Frame-destroy teardown

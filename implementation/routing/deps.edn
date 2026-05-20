@@ -2,7 +2,7 @@
 ;; third per-feature split per rf2-5vjj Strategy B).
 ;;
 ;; Per Spec 012 §Routing the route grammar (`reg-route`,
-;; `:rf.route/navigate`, `:rf/url-changed`, `:rf/url-requested`,
+;; `:rf.route/navigate`, `:rf.route/transitioned`, `:rf/url-requested`,
 ;; `:rf.route/handle-url-change`, `:rf.route/continue` /
 ;; `:rf.route/cancel`, the `:rf.nav/push-url` / `:rf.nav/replace-url` /
 ;; `:rf.nav/scroll` fxs, `match-url` / `route-url`, the `:rf/route` /

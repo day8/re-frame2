@@ -181,7 +181,7 @@
 
   Per rf2-zq0n1 / rf2-3cted, sensitive trace events are stripped from
   `:traces` and `:epochs` but `:app-db`, `:sub-cache`, `:machines`
-  are LEFT ALONE — app-db payload redaction is `with-redacted`'s job
+  are LEFT ALONE — app-db payload redaction is `redact-interceptor`'s job
   at write-time, not the forwarder's job at read-time. Re-asserted
   by the snapshot-scrubber tests in every MCP that emits per-frame
   snapshots.

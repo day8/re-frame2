@@ -128,7 +128,7 @@
 (defn build-initial-snapshot
   "Build the freshly-derived initial snapshot for `machine` (rf2-fgqs4).
   The single source of truth used by both the singleton-registration path
-  (`lifecycle-fx.registration/create-machine-handler`) and the spawn path
+  (`lifecycle-fx.registration/make-machine-handler`) and the spawn path
   (`lifecycle-fx.spawn/install-spawn!`). Steps:
 
    1. Compute `:state` — for parallel-region machines, a map of

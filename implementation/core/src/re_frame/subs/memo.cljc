@@ -83,7 +83,7 @@
      under `:advanced` + `re-frame.performance/enabled?=false` the
      bracket DCEs.
   3. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
-     return value against the sub's `:spec` meta. Failures emit
+     return value against the sub's `:schema` meta. Failures emit
      :rf.error/schema-validation-failure and yield nil (recovery
      :replaced-with-default).
   4. Spec 009 §Error contract — `try/catch` around (1)+(2)+(3). On

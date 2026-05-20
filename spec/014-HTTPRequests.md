@@ -1136,7 +1136,7 @@ The cascade-wide stamping uses the **innermost in-scope handler** rule from [Spe
 | Surface | Behaviour |
 |---|---|
 | × `:large?` ([Spec 009 §Size elision](009-Instrumentation.md#size-elision-in-traces)) | A trace-event slot that is BOTH sensitive AND large drops (no `:rf.size/large-elided` marker — the marker would leak `:path` / `:bytes` / `:digest`). Sensitive wins per Spec 009's unified `rf/elide-wire-value` walker. |
-| × `with-redacted` (Spec 009 §Privacy) | `with-redacted` operates on event-vector slots; the HTTP redactor operates on `:rf.http/*` trace-event slots. Both compose additively — a handler that uses both gets event-vector redaction AND HTTP trace redaction. |
+| × `redact-interceptor` (Spec 009 §Privacy) | `redact-interceptor` operates on event-vector slots; the HTTP redactor operates on `:rf.http/*` trace-event slots. Both compose additively — a handler that uses both gets event-vector redaction AND HTTP trace redaction. |
 | × Spec 014 §Middleware | Request-side interceptors run **before** the privacy machinery reads `:sensitive?` (the interceptor chain may itself attach an `Authorization` header). Headers added by interceptors are subject to the same denylist. |
 | × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets the redaction treatment when sensitive. `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
 | × Spec 005 actor-destroy abort | The in-flight handle propagates the effective `:sensitive?` flag, so the `:rf.http/aborted-on-actor-destroy` emit (issued from the registry namespace, distant from the originating fx ctx) still stamps correctly. |

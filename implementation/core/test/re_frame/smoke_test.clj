@@ -563,7 +563,7 @@
            ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [data _id] data)}}
-          handler (rf/create-machine-handler machine)]
+          handler (rf/make-machine-handler machine)]
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
       (rf/reg-event-fx :flow handler)
@@ -645,7 +645,7 @@
       ;; The login machine. Mirrors the structure of examples/login/core.cljs's
       ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
       (rf/reg-event-fx :auth.login/flow
-        (rf/create-machine-handler
+        (rf/make-machine-handler
           ;; Per Spec 005: spec map does NOT carry :id; the id comes
           ;; from the reg-event-fx call above.
           {:initial :idle

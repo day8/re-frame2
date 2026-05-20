@@ -29,7 +29,7 @@
 ;; ---- metadata-map mis-use detection (rf2-bbea) ----------------------------
 ;;
 ;; `reg-event-*`'s middle slot may be a metadata-map (open shape — `:doc`,
-;; `:spec`, `:tags`, ...) OR an interceptor vector. The interceptor chain
+;; `:schema`, `:tags`, ...) OR an interceptor vector. The interceptor chain
 ;; lives in the *positional* slot only, NOT inside the metadata-map. Putting
 ;; `:interceptors` inside the metadata-map silently drops the chain — which
 ;; surfaced via rf2-w3vn (Circle Drawer): `{:interceptors [undoable]}` placed
@@ -42,7 +42,7 @@
 
 (defn- warn-interceptors-in-meta!
   "Emit `:rf.warning/interceptors-in-metadata-map` when `meta` carries the
-  `:interceptors` key. The metadata-map is for reflection (`:doc`, `:spec`,
+  `:interceptors` key. The metadata-map is for reflection (`:doc`, `:schema`,
   `:tags`, `:platforms`, ...) and the interceptor chain belongs in the
   positional slot. Returns nil."
   [reg-fn-name id meta]
@@ -63,7 +63,7 @@
                   :recovery    :ignored}))
   nil)
 
-;; ---- at-boundary registration-time validation (rf2-iftj4) -----------------
+;; ---- validate-at-boundary-interceptor registration-time validation (rf2-iftj4) -----------------
 ;;
 ;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
 ;; is structurally meaningless without a `:schema` to validate against. If a
@@ -79,7 +79,7 @@
 ;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
 ;; transitively on this ns via core re-exports).
 
-(defn- attaches-at-boundary?
+(defn- attaches-validate-at-boundary-interceptor?
   "Truthy when `interceptors` (the positional vector) contains the
   `:rf.schema/at-boundary` interceptor. Detects by `:id` so the check
   stays cycle-free against `re-frame.spec`."
@@ -102,7 +102,7 @@
   fallback. The two fixes are (1) attach a `:schema` to the metadata
   map, or (2) remove the boundary interceptor."
   [reg-fn-name id meta interceptors]
-  (when (and (attaches-at-boundary? interceptors)
+  (when (and (attaches-validate-at-boundary-interceptor? interceptors)
              (not (and (map? meta) (contains? meta :schema))))
     (throw (ex-info ":rf.error/at-boundary-missing-schema"
                     {:error    :rf.error/at-boundary-missing-schema
@@ -376,10 +376,10 @@
   interceptor-vector, NOT both — per Conventions §`:interceptors` is
   positional, not metadata):
 
-      (reg-event-db :id                          (fn [db ev] new-db))
-      (reg-event-db :id {:doc \"...\" :spec ...}   (fn [db ev] new-db))
-      (reg-event-db :id [(path :counter)]        (fn [slice ev] new-slice))
-      (reg-event-db :id {:doc \"...\"} [icpt]      (fn [db ev] new-db))
+      (reg-event-db :id                            (fn [db ev] new-db))
+      (reg-event-db :id {:doc \"...\" :schema ...} (fn [db ev] new-db))
+      (reg-event-db :id [(path :counter)]          (fn [slice ev] new-slice))
+      (reg-event-db :id {:doc \"...\"} [icpt]        (fn [db ev] new-db))
 
   Returns `id`.
 

@@ -210,7 +210,7 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-8bp3"
     :description "Register a state machine definition (plain-fn surface)."}
-   {:key         :machines/create-machine-handler
+   {:key         :machines/make-machine-handler
     :producer-ns 're-frame.machines
     :description "Create the event-handler that drives a machine instance."}
    {:key         :machines/machine-transition

@@ -45,7 +45,7 @@
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
             ;; Loading the ns publishes the late-bind hooks for
-            ;; `rf/create-machine-handler`, the `:rf.machine/spawn` /
+            ;; `rf/make-machine-handler`, the `:rf.machine/spawn` /
             ;; `:rf.machine/destroy` fx, and the `:rf/machine` /
             ;; `:rf/machine-has-tag?` framework subs.
             [re-frame.machines :as machines]
@@ -63,7 +63,7 @@
 
 (def connection-machine
   "Spec for the `:ws/connection` machine. Held in a `def` so the handler
-   can be re-built via `create-machine-handler` from inside the
+   can be re-built via `make-machine-handler` from inside the
    `register-all!` re-registration helper."
     {:initial :disconnected
 
@@ -338,7 +338,7 @@
   "Idempotent re-registration of every event handler / sub this ns
    owns. See `websocket.core/register-all!`."
   []
-  ;; Use `rf/reg-machine` (not `reg-event-fx` + `create-machine-handler`)
+  ;; Use `rf/reg-machine` (not `reg-event-fx` + `make-machine-handler`)
   ;; so the registration metadata carries `:rf/machine? true` —
   ;; declarative `:spawn` resolves the spawn target via this
   ;; metadata, and without it the spawn-fx silently no-ops (the

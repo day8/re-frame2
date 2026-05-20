@@ -826,7 +826,7 @@ The 7th tab — promoted from "lives in App-db + Trace" to its own lens tab per 
 
 When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When the focused cascade has no routing impact, only `◆ HERE` surfaces (orientation only).
 
-**Detection contract:** the panel scans the focused cascade's trace events for a `:rf.route.nav-token/allocated` emit (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires inside both `:rf.route/navigate` and `:rf/url-changed`). The emit's `:tags :route-id` is the TO; the current `:rf/route` slice's `:id` (when different) is the FROM. Same-route re-navigations (different params/query, same route-id) collapse FROM — surfacing a FROM equal to TO is noise.
+**Detection contract:** the panel scans the focused cascade's trace events for a `:rf.route.nav-token/allocated` emit (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires inside both `:rf.route/navigate` and `:rf.route/transitioned`). The emit's `:tags :route-id` is the TO; the current `:rf/route` slice's `:id` (when different) is the FROM. Same-route re-navigations (different params/query, same route-id) collapse FROM — surfacing a FROM equal to TO is noise.
 
 **Below the active route:** params + query + fragment rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`. The Simulate-URL input + ranked candidate list lives below the params block — see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Simulate-URL contract for the data shape and interaction rules.
 

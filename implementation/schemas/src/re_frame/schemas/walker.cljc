@@ -23,7 +23,7 @@
 
   The walker is **pure data** — it doesn't import malli.core. Malli EDN
   forms are vectors of the shape `[op props? children...]`; we pattern-
-  match on shape. Per Spec 010 §The `:spec` value is opaque to re-frame,
+  match on shape. Per Spec 010 §The `:schema` value is opaque to re-frame,
   the framework MUST NOT call into the registered validator to introspect
   schema structure — we walk the EDN ourselves. This means the walker
   handles the **vector form** (`[:map [:k :string]]`) — the form

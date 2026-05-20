@@ -27,7 +27,7 @@
   app; in Story it's intercepted."
   (:require [re-frame.core :as rf]
             ;; Loads the machine substrate's late-bind hooks so
-            ;; rf/create-machine-handler resolves below.
+            ;; rf/make-machine-handler resolves below.
             [re-frame.machines]
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw
@@ -52,7 +52,7 @@
 
 (rf/reg-event-fx :login/flow
   {:doc "Login flow machine — five-state authentication FSM."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :idle
      :data    {:email      ""
                :error      nil

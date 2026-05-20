@@ -86,7 +86,7 @@
           ;; The cofx's injected value is whatever it just stashed under
           ;; :coeffects keyed by the cofx's id (the conventional shape).
           ;; If the cofx fn injected under a different key, we fall back
-          ;; to the cofx-id key — validation only runs when :spec is
+          ;; to the cofx-id key — validation only runs when :schema is
           ;; declared, so users opt in by registering against the same
           ;; key they inject under.
           value    (get (:coeffects ctx) cofx-id)
@@ -126,14 +126,14 @@
 
   Shapes:
 
-      (reg-cofx :id                                (fn [ctx] ...))
-      (reg-cofx :id {:doc \"...\" :spec ...}         (fn [ctx] ...))
+      (reg-cofx :id                                  (fn [ctx] ...))
+      (reg-cofx :id {:doc \"...\" :schema ...}       (fn [ctx] ...))
 
   Optional metadata keys:
 
       :doc        one-sentence what-and-why; surfaces via
                   `(rf/handler-meta :cofx id)`.
-      :spec       Malli schema for the injected value (validated per
+      :schema     Malli schema for the injected value (validated per
                   Spec 010 §Validation order step 2).
       :platforms  set of `#{:client :server}`; default
                   `#{:client :server}`. The cofx is skipped on platforms
@@ -184,7 +184,7 @@
                                               the handler still runs but
                                               with no injection (recovery
                                               :no-recovery).
-    `:rf.error/schema-validation-failure`  — cofx carries a `:spec` and
+    `:rf.error/schema-validation-failure`  — cofx carries a `:schema` and
                                               the injected value fails it;
                                               the handler is short-circuited
                                               via `:rf/skip-handler?`.

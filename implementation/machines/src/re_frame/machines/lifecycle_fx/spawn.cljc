@@ -90,7 +90,7 @@
 ;; Per rf2-fgqs4: the spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared
 ;; with the singleton-registration path
-;; (`lifecycle-fx.registration/create-machine-handler`). Pre-rf2-fgqs4
+;; (`lifecycle-fx.registration/make-machine-handler`). Pre-rf2-fgqs4
 ;; the spawn-path's local helper silently omitted `:rf/spawn-counter`
 ;; (so an `:entry`-declared `:spawn` fell to `allocate-spawned-id`'s
 ;; defensive `(fnil inc 0)` backstop) and `:meta` (so spawned actors
@@ -150,7 +150,7 @@
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
       OR an inline `:definition`).
    2. Register the live event handler under the spawned id via
-      `create-machine-handler` / `reg-event-fx`. Re-spawn under the
+      `make-machine-handler` / `reg-event-fx`. Re-spawn under the
       same id replaces — last-write-wins, matching standard
       re-registration.
    3. Initialise the actor's snapshot at `[:rf/machines <spawned-id>]`
@@ -266,7 +266,7 @@
      :spec      <invoke-all-spec>}
 
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
-  parent's `create-machine-handler` boundary and are intercepted by
+  parent's `make-machine-handler` boundary and are intercepted by
   `intercept-invoke-all-event` (in `lifecycle-fx.join`)."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [parent-id  (:rf/parent-id args)

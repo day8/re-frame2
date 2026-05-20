@@ -20,7 +20,7 @@
   prose at the call sites in `re-frame.core`.
 
   Note: only the active machine surfaces (`reg-machine`, `reg-machine*`,
-  `create-machine-handler`, `machine-transition`) raise the missing-
+  `make-machine-handler`, `machine-transition`) raise the missing-
   artefact error. The read-only query surfaces (`machines`,
   `machine-meta`, `machine-by-system-id`) deliberately return safe
   defaults — Spec 005 §Querying machines."
@@ -93,21 +93,21 @@
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 
-(deftest create-machine-handler-raises-when-machines-artefact-missing
-  (testing "rf/create-machine-handler raises :rf.error/machines-artefact-missing when the :machines/create-machine-handler hook is nil"
-    (with-hook-as-nil :machines/create-machine-handler
+(deftest make-machine-handler-raises-when-machines-artefact-missing
+  (testing "rf/make-machine-handler raises :rf.error/machines-artefact-missing when the :machines/make-machine-handler hook is nil"
+    (with-hook-as-nil :machines/make-machine-handler
       (fn []
-        (let [thrown (try (rf/create-machine-handler {:initial :idle
+        (let [thrown (try (rf/make-machine-handler {:initial :idle
                                                       :states  {:idle {}}})
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
-              "create-machine-handler throws when the machines artefact is absent")
+              "make-machine-handler throws when the machines artefact is absent")
           (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'rf/create-machine-handler (:where data))
-                "ex-data carries :where = 'rf/create-machine-handler")
+            (is (= 'rf/make-machine-handler (:where data))
+                "ex-data carries :where = 'rf/make-machine-handler")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 

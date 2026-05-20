@@ -2,7 +2,7 @@
 ;; second per-feature split per rf2-5vjj Strategy B).
 ;;
 ;; Per Spec 005 §State machines the machine grammar
-;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
+;; (`reg-machine`, `make-machine-handler`, `machine-transition`,
 ;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
 ;; `:rf.machine/destroy` effect handlers) ships as a separate
 ;; Maven artefact so apps that don't register any machines don't drag
@@ -23,7 +23,7 @@
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to machines (e.g. `re-frame.core`'s `reg-machine` /
-;; `create-machine-handler` / `machine-transition` re-exports,
+;; `make-machine-handler` / `machine-transition` re-exports,
 ;; `re-frame.test-support`'s reset-runtime fixture's
 ;; `(machines/reset-timers!)` step) flow through `re-frame.late-bind`
 ;; exactly as the schemas / router / flows hooks already do.

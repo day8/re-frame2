@@ -5,7 +5,7 @@
   Verifies the routing pipeline runs under the Helix reactive substrate
   and locks the multi-frame routing contract.
 
-  - routing-handle-url-change-helix       — :rf/url-changed /
+  - routing-handle-url-change-helix       — :rf.route/transitioned /
                                             handle-url-change drive the
                                             :rf/route slice under the
                                             Helix adapter; subscriptions
@@ -35,7 +35,7 @@
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
 
 (deftest routing-handle-url-change-helix
-  (testing ":rf/url-changed drives the slice on Helix"
+  (testing ":rf.route/transitioned drives the slice on Helix"
     (let [f (rf/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.helix/home
                     {:path "/helix/home"})
@@ -50,7 +50,7 @@
       (rf/reg-sub :rf.helix.route/params
                   (fn [db _] (get-in db [:rf/route :params])))
 
-      (rf/dispatch-sync [:rf/url-changed "/helix/articles/intro"] {:frame f})
+      (rf/dispatch-sync [:rf.route/transitioned "/helix/articles/intro"] {:frame f})
       (is (= :route.helix/article
              (rf/subscribe-once f [:rf.helix.route/id]))
           ":rf.route/id sub resolves under the Helix adapter")
@@ -60,7 +60,7 @@
       (is (true? (:article-loaded? (rf/get-frame-db f)))
           ":on-match's [:helix/article-load] dispatched and ran")
 
-      (rf/dispatch-sync [:rf/url-changed "/helix/articles/welcome"] {:frame f})
+      (rf/dispatch-sync [:rf.route/transitioned "/helix/articles/welcome"] {:frame f})
       (is (= {:id "welcome"}
              (rf/subscribe-once f [:rf.helix.route/params]))
           "new params land in the slice on subsequent navigation")
@@ -80,9 +80,9 @@
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]
 
-      (rf/dispatch-sync [:rf/url-changed "/helix2/articles"]
+      (rf/dispatch-sync [:rf.route/transitioned "/helix2/articles"]
                         {:frame left})
-      (rf/dispatch-sync [:rf/url-changed "/helix2/articles/intro"]
+      (rf/dispatch-sync [:rf.route/transitioned "/helix2/articles/intro"]
                         {:frame right})
 
       (let [left-route  (rf/subscribe-once left  [:rf.helix2/route])
@@ -96,7 +96,7 @@
         (is (= {:id "intro"} (:params right-route))
             "right frame has the article id"))
 
-      (rf/dispatch-sync [:rf/url-changed "/helix2/"] {:frame left})
+      (rf/dispatch-sync [:rf.route/transitioned "/helix2/"] {:frame left})
       (is (= :route.helix2/home
              (:id (rf/subscribe-once left [:rf.helix2/route])))
           "left re-navigated to :route.helix2/home")

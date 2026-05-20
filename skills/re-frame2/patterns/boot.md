@@ -27,7 +27,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 ```clojure
 (rf/reg-event-fx :app/boot
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :configuring
      :data    {:phase :configuring :config nil :user nil :error nil :phase-attempt 0}
 

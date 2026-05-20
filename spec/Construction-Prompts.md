@@ -347,9 +347,9 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **When to use this prompt:** the user describes a multi-step interaction with discrete, named states — a login flow, a checkout wizard, a video player, a modal lifecycle, a websocket connection. If you can list the states and the events that move between them, you have a machine.
 
-**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event-fx` whose body comes from `create-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
+**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event-fx` whose body comes from `make-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
 
-**Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside `create-machine-handler`. This is the **default** because the named id carries semantic meaning that visualisers, AIs, conformance fixtures, and humans all read; an inline `(fn [snap ev] ...)` is opaque to inspection. Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
+**Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside `make-machine-handler`. This is the **default** because the named id carries semantic meaning that visualisers, AIs, conformance fixtures, and humans all read; an inline `(fn [snap ev] ...)` is opaque to inspection. Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
 
 **Pre-flight checks:**
 
@@ -359,7 +359,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [snapshot event] boolean)` and each action `(fn [snapshot event] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). **Inline only when the body is a single non-branching expression.**
 
-**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/machines <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/machines :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `create-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `:rf/machines` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
+**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/machines <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/machines :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `:rf/machines` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
 **Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/sub-machine :auth.login/flow)` returns the snapshot (sugar over `@(rf/subscribe [:rf/machine :auth.login/flow])`) — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
@@ -375,7 +375,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :idle
      :data    {:attempts 0 :error nil}
 
@@ -455,7 +455,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 - A diagram exporter can label the transition arrow with the guard's name.
 - A Level-1 test can stub the spec's `:actions :begin-submit` for deterministic HTTP behaviour by re-defining one entry in the spec — no need to re-register a global handler.
 - A conformance fixture can assert "the `:failed` event in `:submitting` runs the `:record-failure` action."
-- `create-machine-handler` validates every keyword reference against `:guards` / `:actions` at registration time — typos surface immediately as `:rf.error/machine-unresolved-guard` / `:rf.error/machine-unresolved-action`, not at runtime when the transition fires.
+- `make-machine-handler` validates every keyword reference against `:guards` / `:actions` at registration time — typos surface immediately as `:rf.error/machine-unresolved-guard` / `:rf.error/machine-unresolved-action`, not at runtime when the transition fires.
 
 **Template — internal vs external self-transitions:**
 
@@ -532,10 +532,10 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
     (is (= :submitting (:state s1)))))
 
 ;; Level 2 — unregistered handler fn (handler-level wiring; still no test frame).
-;; Possible because create-machine-handler is a pure factory.
+;; Possible because make-machine-handler is a pure factory.
 ;; Snapshots live at [:rf/machines <id>] in app-db (runtime-managed).
 (deftest auth-login-happy-path-l2
-  (let [handler (rf/create-machine-handler {:initial :idle ...})]
+  (let [handler (rf/make-machine-handler {:initial :idle ...})]
     (let [{:keys [db]} (handler {:db {:rf/machines {:auth.login/flow {:state :idle :data {}}}}}
                                 [:auth.login/flow [:submit {:email "..."}]])]
       (is (= :submitting (get-in db [:rf/machines :auth.login/flow :state]))))))
@@ -578,12 +578,12 @@ For projections, compose against `:rf/machine` via `:<-`:
 
 **AI-first checklist:**
 
-- [ ] Machine id is namespaced; registered via `reg-event-fx` + `create-machine-handler`.
+- [ ] Machine id is namespaced; registered via `reg-event-fx` + `make-machine-handler`.
 - [ ] No `:path` key in the machine spec — the runtime stores snapshots at `[:rf/machines <id>]`.
 - [ ] All states are listed in `:states`; no string-based or computed state names.
 - [ ] Every input the machine listens to is in some state's `:on` map.
 - [ ] **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
-- [ ] Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `create-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
+- [ ] Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `make-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
 - [ ] No `reg-machine-guard` / `reg-machine-action` calls — those APIs are removed; guards and actions are machine-scoped.
 - [ ] `:guard` and `:action` are single fns (or single keyword references) — not vectors.
 - [ ] No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.
@@ -742,7 +742,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
 
-Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
@@ -827,18 +827,18 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 ```clojure
 (defn install-router! [frame-id]
   (.addEventListener js/window "popstate"
-    #(rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
-  (rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
+    #(rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
+  (rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
 ```
 
-`:rf/url-changed` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
+`:rf.route/transitioned` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
 
 **Pattern-level discipline:**
 
 - The route is in `app-db`; the URL is derivable. Never make routing state live outside `app-db`.
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
-- Server-side renders set the route via `:rf/url-changed` against the request URL; the same `:on-match` events run server-side.
+- Server-side renders set the route via `:rf.route/transitioned` against the request URL; the same `:on-match` events run server-side.
 - Path params and query params are **separate maps** — `(:params (:rf/route db))` and `(:query (:rf/route db))`.
 
 **AI-first checklist:**
@@ -908,7 +908,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 (rf/reg-event-fx :webhook/handle
   {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]}
-  [rf/at-boundary]                                   ;; positional; rejects payload at boundary if invalid
+  [rf/validate-at-boundary-interceptor]                                   ;; positional; rejects payload at boundary if invalid
   ...)
 ```
 
@@ -917,7 +917,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 - **Open by default.** Don't add `:closed true` unless the data crosses a process boundary.
 - **Don't model object hierarchies.** A schema describes the *shape* of an open map. There are no classes.
 - **Schemas grow additively.** Once a schema ships, you can add new optional keys; you cannot remove or rename existing keys without bumping a version (Spec-ulation).
-- **Validation runs in dev, elides in prod** by default. Use the `:rf.schema/at-boundary` interceptor (Var `rf/at-boundary`) for runtime validation in prod at system boundaries.
+- **Validation runs in dev, elides in prod** by default. Use the `:rf.schema/at-boundary` interceptor (Var `rf/validate-at-boundary-interceptor`) for runtime validation in prod at system boundaries.
 
 **AI-first checklist:**
 

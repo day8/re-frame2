@@ -4,7 +4,7 @@
   references in NESTED states and in non-`:on` slots
   (`:always`, `:entry`, `:exit`).
 
-  Background: in `re-frame.machines`, `create-machine-handler`
+  Background: in `re-frame.machines`, `make-machine-handler`
   validates keyword `:guard` / `:action` references via a manual
   top-level `doseq` over `(:states machine)`, walking only `:on`
   transitions. The sibling helper `walk-state-nodes` (used just above

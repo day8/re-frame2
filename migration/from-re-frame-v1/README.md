@@ -809,7 +809,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:nav/scroll` | `:rf.nav/scroll` |
 | `:nav/external` | `:rf.nav/external` |
 | `:route/navigate` | `:rf.route/navigate` |
-| `:route/url-changed` | `:rf/url-changed` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/url-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/url-changed` rename target) |
+| `:route/url-changed` | `:rf.route/transitioned` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/fragment-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
 | `:route/not-found` | `:rf.route/not-found` |
 | `:route/navigation-blocked` | `:rf.route/navigation-blocked` |
@@ -1130,11 +1130,11 @@ CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot 
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-machine`, `re-frame.core/create-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, `re-frame.core/machine-meta`, or `re-frame.core/sub-machine`.
+- Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, `re-frame.core/machine-meta`, or `re-frame.core/sub-machine`.
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (e.g. `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
@@ -1147,9 +1147,9 @@ Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strat
         day8/re-frame2-machines {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
+Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/create-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/make-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-xbtj](#).
 
@@ -1159,12 +1159,12 @@ Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf/url-changed` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/reg-route`, `re-frame.core/match-url`, or `re-frame.core/route-url`.
-- Any dispatch of `:rf.route/navigate`, `:rf/url-changed`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
+- Any dispatch of `:rf.route/navigate`, `:rf.route/transitioned`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
 
@@ -1436,7 +1436,7 @@ The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Sch
 
 **Type A — note only** (no codebase rewrite needed; the v1→v2 rename target was already canonical).
 
-Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf/url-changed` (was `:rf.route/url-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
+Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf.route/transitioned` (was `:rf.route/fragment-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
 
 **No user-side migration.** The v1→v2 rename table above (`app-db [:route]` → `app-db [:rf/route]`, `[:route]` framework sub → `[:rf/route]`) was already correct — the drift was internal to the v2 corpus, not a change to the rename target. Codebases following [M-20](#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix) land at `:rf/route` regardless.
 
@@ -1632,7 +1632,7 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:spawn-all`](../../spec/005-Sta
 
 **New trace events.** The 009 trace vocabulary picks up four `:spawn-all` lifecycle events (`:rf.machine.spawn-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.spawn/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md#op-type-vocabulary).
 
-**New error categories.** `create-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
+**New error categories.** `make-machine-handler` rejects malformed `:spawn-all` slots at registration time with `:rf.error/machine-spawn-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-spawn-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-spawn-all-with-spawn` (a state declares both `:spawn` and `:spawn-all`). All registration-time; the runtime never sees a malformed `:spawn-all`. Per [005 §Errors](../../spec/005-StateMachines.md#errors_1).
 
 **What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:spawn-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:spawn-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
 
@@ -1975,11 +1975,11 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 |---|---|---|
 | `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
 | `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
-| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on `rf/at-boundary`; the Var alias `re-frame.core/at-boundary` is unchanged (the rename is the `:id`, not the surface) |
+| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator (Var rename to `validate-at-boundary-interceptor` documented separately in M-59); at rf2-ieu0i time the surface was `re-frame.core/at-boundary` and only the keyword `:id` was changing |
 | `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
 | `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
 
-**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/at-boundary`. The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (per the M-59 Var-name rename — at rf2-ieu0i time the recommended surface was `re-frame.core/at-boundary`). The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
 
 **What to look for.**
 
@@ -2019,7 +2019,7 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
 3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
-5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/at-boundary` (recommended) or `re-frame.spec/at-boundary` (legacy).
+5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (recommended; per M-59) or `re-frame.spec/validate-at-boundary-interceptor` (the ns/Var path).
 
 **No deprecation alias (pre-alpha posture, rf2-0zlcd).**
 
@@ -2105,7 +2105,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 | `:rf.error/machine-invoke-all-duplicate-id` | `:rf.error/machine-spawn-all-duplicate-id` | registration-time error category |
 | `:rf.error/machine-invoke-all-with-invoke` | `:rf.error/machine-spawn-all-with-spawn` | registration-time error category (`:spawn` and `:spawn-all` mutually exclusive on a state) |
 | `:rf.error/invoke-timeout-ms-removed` | `:rf.error/spawn-timeout-ms-removed` | registration-time error (per M-44) |
-| `:rf.invoke/*` (generated action namespace) | `:rf.spawn/*` | desugared entry/exit action ids generated by `create-machine-handler` |
+| `:rf.invoke/*` (generated action namespace) | `:rf.spawn/*` | desugared entry/exit action ids generated by `make-machine-handler` |
 
 **Detect.** v1 codebases adopting `:invoke` / `:invoke-all` state-node keys, and any code reading the snapshot-internal `:rf/invoke-*` keys or filtering trace events on `:rf.machine.invoke*/*`.
 
@@ -2141,9 +2141,137 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 
 **Mechanical sweep.** A repository-wide text rename over the table above will land the change. Order longer keys before shorter (`:invoke-all` before `:invoke`, `:rf/invoke-all-id` before `:rf/invoke-id`); the `:rf.machine.invoke-all/` and `:rf.machine.invoke/` trace-op prefixes rewrite to `:rf.machine.spawn-all/` and `:rf.machine.spawn/` respectively (the new prefix sits in the `:rf.machine.*` namespace and does NOT collide with the existing `:rf.machine/spawn` fx-id since they live in different namespaces).
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `create-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
+**No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — `make-machine-handler` does not accept `:invoke` / `:invoke-all` and will treat them as unknown state-node keys.
 
 **Cross-references.** [005 §Declarative `:spawn`](../../spec/005-StateMachines.md#declarative-spawn) (the canonical surface); [005 §Spawn-and-join via `:spawn-all`](../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all); [005 §Deliberate name divergence — `:spawn` (NOT `:invoke`)](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2) (the rationale); [CP-5-MachineGuide §Lessons from xstate](../../spec/CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) (where the divergence sits in the broader xstate-comparison table); [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-) (the parent runtime-owned spawn-id tracking change this rename now aligns names with); [M-43](#m-43-spawn-all-spawn-and-join-is-added--additive-no-user-side-action) (the original `:invoke-all` add — supplanted by this rename); [M-44](#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after) (the `:timeout-ms` retirement — same surface, prior step).
+
+---
+
+### M-57. Machine-handler builder verb unification — `create-machine-handler` → `make-machine-handler` (rf2-g0bbk)
+
+**Type A** (mechanical). Single-symbol global rename.
+
+Per rf2-g0bbk (audit-of-audits state-machines #12) the machine-handler builder is renamed from `create-machine-handler` to `make-machine-handler` to align with the `make-*` verb already used by the sibling `make-frame`. `create-*` was the lone outlier in the public-API surface; the new name slots into the existing factory-verb convention.
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/create-machine-handler` | `re-frame.core/make-machine-handler` | the public builder fn |
+| `:machines/create-machine-handler` | `:machines/make-machine-handler` | the late-bind hook key |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no machine substrate; v1-→-v2 migrations land directly on the new name.
+
+```clojure
+;; before
+(def my-handler (rf/create-machine-handler my-machine-spec))
+
+;; after
+(def my-handler (rf/make-machine-handler my-machine-spec))
+```
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [005-StateMachines §Registration](../../spec/005-StateMachines.md); [API.md §State machines](../../spec/API.md); [Conventions §Factory-verb convention](../../spec/Conventions.md) (where `make-*` sits in the verb-shape catalogue).
+
+---
+
+### M-58. Trace-redaction factory rename — `with-redacted` → `redact-interceptor` (rf2-aas6o)
+
+**Type A** (mechanical). Single-symbol global rename.
+
+Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to drop into a `:interceptors` vector. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor` per rf2-k367k).
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/with-redacted` | `re-frame.core/redact-interceptor` | the factory fn (returns a Class-1 interceptor map) |
+| `:rf/with-redacted` (interceptor `:id`) | `:rf/redact-interceptor` | the interceptor's identity slot |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no trace surface or sensitive-data redaction interceptor; v1 codebases land directly on the new name.
+
+```clojure
+;; before
+(rf/reg-event-fx :auth/login
+  [(rf/with-redacted [[:password] [:token]])]
+  (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
+
+;; after
+(rf/reg-event-fx :auth/login
+  [(rf/redact-interceptor [[:password] [:token]])]
+  (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
+```
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
+
+---
+
+### M-59. Interceptor-value family suffix — `at-boundary` / `unwrap` → `*-interceptor` (rf2-k367k + rf2-todvi)
+
+**Type A** (mechanical). Two-symbol rename across all source files.
+
+Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming](../../spec/Conventions.md), rf2-nalp6). Combined with rf2-todvi (the `at-boundary` Var carries a *time/build-mode* axis, not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/at-boundary` | `re-frame.core/validate-at-boundary-interceptor` | the production-side schema-validation Var (no-op in dev, validates in prod) |
+| `re-frame.spec/at-boundary` | `re-frame.spec/validate-at-boundary-interceptor` | the Var-defining ns; legacy reach path |
+| `re-frame.core/unwrap` | `re-frame.core/unwrap-interceptor` | the `[<id> <payload-map>]` shape-assertion Var |
+| `re-frame.std-interceptors/unwrap` | `re-frame.std-interceptors/unwrap-interceptor` | the Var-defining ns |
+
+The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **unchanged** — only the Var names move. `path` is a *factory fn* (returns an interceptor when called with path-segs); per Conventions §Value-vs-fn naming the factory itself does NOT carry the suffix. Likewise the `redact-interceptor` rename (M-58) keeps `redact-interceptor` as a factory-fn shape because the bundled-PR task explicitly named it that way.
+
+**Detect.** v2-pre-rename codebases trip this. v1 had `at-boundary` as part of M-54's `:spec` → `:schema` rename (the Var itself was preserved at rf2-ieu0i time); the new rename moves the Var name too. v1 codebases land directly on the new name via the bundled sweep.
+
+```clojure
+;; before
+(rf/reg-event-fx :api/payload
+  {:schema PayloadSchema}
+  [rf/at-boundary rf/unwrap]
+  (fn [_ {:keys [...]}] ...))
+
+;; after
+(rf/reg-event-fx :api/payload
+  {:schema PayloadSchema}
+  [rf/validate-at-boundary-interceptor rf/unwrap-interceptor]
+  (fn [_ {:keys [...]}] ...))
+```
+
+**No alias.** Per pre-alpha posture, the old names are **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md) (the rule, rf2-nalp6); [API.md §Standard interceptors](../../spec/API.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [M-54](#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) (the prior `:spec` → `:schema` keyword unification, sibling pass).
+
+---
+
+### M-60. Route event + trace rename — `:rf/url-changed` / `:rf.route/url-changed` → `:rf.route/transitioned` / `:rf.route/fragment-changed` (rf2-ixezs)
+
+**Type A** (mechanical). Two-keyword global rename.
+
+Per rf2-ixezs (audit-of-audits routing): two near-identical names (`:rf/url-changed` as an event, `:rf.route/url-changed` as a trace op) trapped readers. The rename gives each a distinct verb, and the event moves into the `:rf.route/*` reserved namespace alongside its siblings.
+
+| Old | New | Surface |
+|---|---|---|
+| `:rf/url-changed` | `:rf.route/transitioned` | the route-change event dispatched by the routing layer when navigation commits |
+| `:rf.route/url-changed` | `:rf.route/fragment-changed` | the trace op emitted on fragment-only URL changes (the new name is more accurate — the op only fires on fragment-only transitions, not on every URL change) |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no routing substrate; v1 codebases land directly on the new names via the bundled sweep.
+
+```clojure
+;; before
+(rf/reg-event-fx :rf/url-changed
+  (fn [{:keys [db]} [_ url opts]] ...))
+
+(when (= :rf.route/url-changed (:operation trace-ev)) ...)
+
+;; after
+(rf/reg-event-fx :rf.route/transitioned
+  (fn [{:keys [db]} [_ url opts]] ...))
+
+(when (= :rf.route/fragment-changed (:operation trace-ev)) ...)
+```
+
+**No alias.** Per pre-alpha posture, the old names are **removed** — stale handler registrations sit unfired; stale trace-filter `=` checks silently mismatch.
+
+**Cross-references.** [Spec 012 §Route-change event catalogue](../../spec/012-Routing.md); [Spec 009 §Trace event catalogue](../../spec/009-Instrumentation.md); [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the `:rf.route/*` ownership).
 
 ---
 
@@ -2286,8 +2414,8 @@ If the user wants to adopt the standard surface, the migration shape is:
 2. **Move per-route data fetches into `:on-match`.** What was probably a per-route-id multimethod or a `route->fetch-effects` helper becomes a vector of event vectors on the route metadata. The runtime owns the dispatch.
 3. **Split path params from query params.** v1 routers usually flattened these; re-frame2 keeps them in distinct `:params` and `:query` schemas (and distinct `:route` slice keys).
 4. **Replace any `pushState` calls in views with `[rf/route-link {:to ...}]`.** Views should never call browser APIs directly.
-5. **Replace `popstate` listener bodies with `(rf/dispatch [:rf/url-changed url])`** and remove the application's bespoke URL-changed handler — the runtime ships `:rf.route/handle-url-change` as the default.
-6. **For server-side rendering**, dispatch `:rf/url-changed` against the request URL in `:on-create`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
+5. **Replace `popstate` listener bodies with `(rf/dispatch [:rf.route/transitioned url])`** and remove the application's bespoke URL-changed handler — the runtime ships `:rf.route/handle-url-change` as the default.
+6. **For server-side rendering**, dispatch `:rf.route/transitioned` against the request URL in `:on-create`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
 
 This is a meaningful migration of consumer code, not a mechanical rewrite. Do not apply unless the user has explicitly asked to adopt the standard routing surface.
 

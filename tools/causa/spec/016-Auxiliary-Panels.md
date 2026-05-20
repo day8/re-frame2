@@ -393,7 +393,7 @@ surfaces — orientation glyph.
 The composite scans the focused cascade's trace events for a
 `:rf.route.nav-token/allocated` emit (per
 [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires
-inside both `:rf.route/navigate` and `:rf/url-changed`). Detection:
+inside both `:rf.route/navigate` and `:rf.route/transitioned`). Detection:
 
 - The emit's `:tags :route-id` is the **TO** (the new route).
 - The current `:rf/route` slice's `:id` (when different from TO) is

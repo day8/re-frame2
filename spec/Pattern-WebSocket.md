@@ -69,7 +69,7 @@ The connection machine composes the locked substrate:
 (rf/reg-event-fx :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :disconnected
      :data    {:url            nil               ;; supplied by :ws/connect; refreshed by :ws/refresh-token
                :auth-token     nil               ;; supplied by :ws/connect (or refreshed at runtime)

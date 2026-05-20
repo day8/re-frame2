@@ -34,7 +34,7 @@ Closed mechanical rename table. Apply across all source files.
 :route/<framework-id>        → :rf.route/<framework-id>
 ```
 
-**Framework `:route/*` ids are the closed list** in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) M-20 (`:route/navigate`, `:route/url-changed`, `:route/handle-url-change`, `:route/not-found`, `:route/navigation-blocked`, `:route/continue`, `:route/cancel`, `:route/error`, `:route/transition`, `:route/resolved`, `:route/auth-guard`, `:route/equal`, `:route/chain`). One exception to the mechanical `:route/<x>` → `:rf.route/<x>` rewrite: `:route/url-changed` maps to the runtime event `:rf/url-changed` (rf2-cj9fn — the v2 trace op `:rf.route/url-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/url-changed` rename target). The closed framework-id list in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) M-20 is the source of truth for the per-id rewrite target.
+**Framework `:route/*` ids are the closed list** in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) M-20 (`:route/navigate`, `:route/url-changed`, `:route/handle-url-change`, `:route/not-found`, `:route/navigation-blocked`, `:route/continue`, `:route/cancel`, `:route/error`, `:route/transition`, `:route/resolved`, `:route/auth-guard`, `:route/equal`, `:route/chain`). One exception to the mechanical `:route/<x>` → `:rf.route/<x>` rewrite: `:route/url-changed` maps to the runtime event `:rf.route/transitioned` (rf2-cj9fn — the v2 trace op `:rf.route/fragment-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target). The closed framework-id list in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) M-20 is the source of truth for the per-id rewrite target.
 
 **User `:route/<name>` ids** are user-defined and left alone (mechanical) or rewritten to a feature prefix (suggested, Type B). The closed framework list is the discriminator.
 
@@ -83,7 +83,7 @@ Closed mechanical rename set. Apply across all source files. Per rf2-0zlcd (pre-
 
 - `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
 - `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/spawned`](../../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key)); that `:spec` is a different domain and is NOT renamed by M-54.
-- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/at-boundary` going forward.
+- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` going forward.
 
 **No alias semantics (rf2-0zlcd).** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
 

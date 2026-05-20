@@ -7,16 +7,16 @@
   > the handler-metadata key is `:schema`, and the hot-reload trace
   > category is `:rf.schema/violation`. The namespace alias remains
   > available for back-compat; new code should reach the interceptor
-  > through `re-frame.core/at-boundary`.
+  > through `re-frame.core/validate-at-boundary-interceptor`.
 
-  The headline export is `at-boundary` — the production-side
+  The headline export is `validate-at-boundary-interceptor` — the production-side
   validation interceptor users attach to event handlers that ingest
   data from untrusted sources (HTTP responses, websocket messages,
   postMessage, query-string values). Per Spec 010 §Production builds
   the canonical CLJS reference elides every dev-time `validate-*!`
   call site at `:advanced` + `goog.DEBUG=false`; system-boundary
   handlers that still want shape enforcement opt back in by adding
-  `at-boundary` to their interceptor chain.
+  `validate-at-boundary-interceptor` to their interceptor chain.
 
   Usage:
 
@@ -26,7 +26,7 @@
 
   (rf/reg-event-fx :api/response-received
     {:schema ApiResponseSchema}
-    [rf/at-boundary]
+    [rf/validate-at-boundary-interceptor]
     (fn [_ [_ payload]] ...))
   ```
 
@@ -111,10 +111,10 @@
 ;; continues.
 ;;
 ;; The interceptor's `:id` is `:rf.schema/at-boundary` — renamed from
-;; `:spec/at-boundary` at rf2-ieu0i as part of the framework-wide
-;; `:spec` → `schema` vocabulary unification.
+;; `:spec/at-boundary` at rf2-ieu0i and finalised under the schema-
+;; vocabulary strip in rf2-9brg7 (audit-of-audits schemas #6).
 
-(def at-boundary
+(def validate-at-boundary-interceptor
   "Production-side schema validation interceptor. Per Spec 010 §Production
   builds. Add to a `reg-event-*` handler's positional interceptor vector
   to force `:schema` validation against the dispatched event vector even
@@ -125,7 +125,7 @@
   fires); no-op when no validator is registered (`set-schema-validator!`
   was called with `nil`).
 
-  Per rf2-iftj4, registering a handler that attaches `at-boundary` but
+  Per rf2-iftj4, registering a handler that attaches `validate-at-boundary-interceptor` but
   carries no `:schema` is rejected at registration time with
   `:rf.error/at-boundary-missing-schema`; the runtime can therefore
   assume `:schema` is present whenever this interceptor's `:before`
@@ -163,7 +163,7 @@
                 ctx
 
                 ;; Per rf2-iftj4, registration would have rejected an
-                ;; at-boundary attachment without `:schema`. A nil
+                ;; validate-at-boundary-interceptor attachment without `:schema`. A nil
                 ;; schema here can only happen if a caller mutated the
                 ;; registry metadata after registration; fall through
                 ;; as a no-op (defensive — never expected in practice).

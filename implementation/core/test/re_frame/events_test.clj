@@ -483,7 +483,7 @@
             "filtering by :rf/default? leaves the two user interceptors")
         (is (= [:test.twt7m/a :test.twt7m/b] (mapv :id user-only)))))))
 
-;; ---- rf2-iftj4 — at-boundary without :schema is rejected at registration --
+;; ---- rf2-iftj4 — validate-at-boundary-interceptor without :schema is rejected at registration --
 ;;
 ;; Per Spec 010 §Production builds + rf2-iftj4 (audit rf2-ycqtv finding #8):
 ;; attaching `:rf.schema/at-boundary` to a handler that has no `:schema`
@@ -503,7 +503,7 @@
 
 (def ^:private at-boundary-stub
   ;; Surface-faithful stand-in for the boundary interceptor — same `:id` as
-  ;; the canonical interceptor (`re-frame.spec/at-boundary`), which is what
+  ;; the canonical interceptor (`re-frame.spec/validate-at-boundary-interceptor`), which is what
   ;; `register-event!` looks for. Avoids pulling `re-frame.spec` and its
   ;; schemas-late-bind dance into this core test.
   {:id :rf.schema/at-boundary
@@ -569,7 +569,7 @@
              (fn [_ _] {}))
            (catch clojure.lang.ExceptionInfo _ nil))
       (is (nil? (registrar/lookup :event :test.iftj4/no-side-effect))
-          "registry slot is untouched when the at-boundary check throws"))))
+          "registry slot is untouched when the validate-at-boundary-interceptor check throws"))))
 
 (deftest at-boundary-with-schema-registers-cleanly
   (testing "Per rf2-iftj4 — attaching :rf.schema/at-boundary alongside a
@@ -582,13 +582,13 @@
              (fn [_ _] {})))
         "registration returns the event id when :schema is present"))
 
-  (testing "registration without at-boundary is unaffected by the check"
+  (testing "registration without validate-at-boundary-interceptor is unaffected by the check"
     (is (= :test.iftj4/no-boundary
            (rf/reg-event-fx :test.iftj4/no-boundary
              (fn [_ _] {})))
-        "no at-boundary, no schema, no error"))
+        "no validate-at-boundary-interceptor, no schema, no error"))
 
-  (testing "metadata-map without :schema is fine when at-boundary isn't attached"
+  (testing "metadata-map without :schema is fine when validate-at-boundary-interceptor isn't attached"
     (is (= :test.iftj4/just-meta
            (rf/reg-event-fx :test.iftj4/just-meta
              {:doc "no boundary, no schema"}

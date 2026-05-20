@@ -28,7 +28,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-helix` | substrate | Instead of `-reagent` if you target Helix. |
 | `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` or `reg-event-schema`. |
-| `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `create-machine-handler`. |
+| `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When you dispatch `:rf.http/managed`. |
@@ -99,7 +99,7 @@ The seven per-feature artefacts are pay-as-you-go. Add them **at the moment** th
 | If the author writes... | Add to `deps.edn`... |
 |---|---|
 | `(rf/reg-app-schema ...)` or any `:schema` key in a `reg-*` opts map | `day8/re-frame2-schemas` |
-| `(rf/reg-machine ...)` or `(rf/create-machine-handler ...)` | `day8/re-frame2-machines` |
+| `(rf/reg-machine ...)` or `(rf/make-machine-handler ...)` | `day8/re-frame2-machines` |
 | `(rf/reg-route ...)` or dispatches `:rf.route/handle-url-change` | `day8/re-frame2-routing` |
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |

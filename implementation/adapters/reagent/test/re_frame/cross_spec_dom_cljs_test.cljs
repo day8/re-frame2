@@ -79,7 +79,7 @@
 ;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
 ;; call (registrar/clear-all!): CLJS has no runtime (require :reload), so
 ;; wiping the registrar would permanently lose routing's framework events
-;; (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll fx, …) and
+;; (:rf.route/transitioned, :rf.route/navigate, :rf.nav/scroll fx, …) and
 ;; machines.cljc's :rf/machine sub, which were registered at ns-load time.
 ;; Snapshot/restore preserves those while rolling back the test's own
 ;; registrations on the way out.

@@ -36,11 +36,11 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /articles/A. :article/load fires.
-  [:rf/url-changed "/articles/A"]
+  [:rf.route/transitioned "/articles/A"]
 
   ;; Step 2: Same route-id, different params. The slice changes; :on-match
   ;; re-fires.
-  [:rf/url-changed "/articles/B"]]
+  [:rf.route/transitioned "/articles/B"]]
 
  :fixture/expect
  {:final-app-db

@@ -144,7 +144,7 @@ The order is locked: state changes first, URL update second, then `:on-match` an
 
 ## URL changes are events
 
-When the user clicks a link, presses Back/Forward, or arrives via a deep link, the runtime fires `:rf/url-changed` — the canonical event for "the URL is now different." The default handler is `:rf.route/handle-url-change`, which:
+When the user clicks a link, presses Back/Forward, or arrives via a deep link, the runtime fires `:rf.route/transitioned` — the canonical event for "the URL is now different." The default handler is `:rf.route/handle-url-change`, which:
 
 1. Calls `match-url` to resolve the URL against the registered route table.
 2. Sets the `:rf/route` slice with the matched id, params, query, fragment, transition, and a fresh `:nav-token`.
@@ -161,7 +161,7 @@ The same handler runs **on the server during SSR** — the request URL is fed in
 
 Two named events surface in the trace stream:
 
-- **`:rf/url-changed`** — the runtime event fired on every URL transition. Default handler is `:rf.route/handle-url-change`. Users can override by re-registering — to log analytics, run an auth-check, or apply per-app routing policy.
+- **`:rf.route/transitioned`** — the runtime event fired on every URL transition. Default handler is `:rf.route/handle-url-change`. Users can override by re-registering — to log analytics, run an auth-check, or apply per-app routing policy.
 - **`:rf.route/fragment-changed`** — a **trace event** (not a runtime event) fired when the URL changes only in its `#fragment`. Distinct from the runtime event above; the runtime emits the trace and updates `:fragment` in the slice but does NOT re-fire `:on-match`. The reason: `:on-match` exists to re-load route-scoped data when path or query changes; a fragment-only change does not change loaded data, only the in-page anchor target.
 
 If your view subscribes to `:rf.route/fragment` and re-renders when the fragment changes, you'll see the update. If your view subscribes only to `:rf.route/id` or `:rf.route/params`, fragment changes don't ripple through.

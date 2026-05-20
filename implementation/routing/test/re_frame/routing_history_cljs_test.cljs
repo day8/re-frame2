@@ -8,7 +8,7 @@
 
   - `:rf.nav/push-url`     fx — calls `(.pushState js/window.history nil \"\" url)`.
   - `:rf.nav/replace-url`  fx — calls `(.replaceState js/window.history nil \"\" url)`.
-  - `:rf/url-changed`      event — forward nav (push / link click).
+  - `:rf.route/transitioned`      event — forward nav (push / link click).
   - `:rf.route/handle-url-change` event — popstate / initial / SSR.
 
   The runtime does NOT wire `window.addEventListener('popstate', ...)`
@@ -378,11 +378,11 @@
 ;; 3. hashchange — fragment-only round-trip
 ;; =========================================================================
 ;;
-;; Per Spec 012 §Fragments and routing.cljc's `:rf/url-changed`
+;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/transitioned`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
 ;; :rf/route :fragment and emits :rf.route/fragment-changed (rf2-cj9fn,
-;; pre-rename: `:rf.route/url-changed`) instead of re-firing :on-match.
+;; pre-rename: `:rf.route/fragment-changed`) instead of re-firing :on-match.
 ;; That's the framework's hashchange surface.
 
 (deftest hashchange-fragment-only-cljs
@@ -409,7 +409,7 @@
               (swap! allocations conj (:tags ev))
               nil)))
         (try
-          (rf/dispatch-sync [:rf/url-changed "/articles/intro#section-2"])
+          (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
           (finally
             (trace-tooling/unregister-trace-listener! cb-key)))
 

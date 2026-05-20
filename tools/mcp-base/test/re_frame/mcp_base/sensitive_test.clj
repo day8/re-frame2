@@ -144,7 +144,7 @@
     (is (= [] (get-in out [:stories :traces])))))
 
 (deftest scrub-snapshot-leaves-non-trace-slices-alone
-  ;; App-db payload redaction is `with-redacted`'s job, not the
+  ;; App-db payload redaction is `redact-interceptor`'s job, not the
   ;; forwarder's. The scrubber must NOT touch :app-db / :sub-cache /
   ;; :machines even when they carry literal "sensitive"-looking shapes.
   (let [snap {:rf/default

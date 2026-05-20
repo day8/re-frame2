@@ -10,7 +10,7 @@
 
 ## Abstract
 
-A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + create-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
+A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + make-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
 
 For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lists the divergences inline and forward-points to [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) for the full divergence table.
 
@@ -21,7 +21,7 @@ Machines serve two distinct use cases:
 1. **High-level workflow.** Multi-step user flows (signup → verify → onboard → home), modal dismissal logic, wizard navigation. Without machines these get smeared across many event handlers and an `:app/screen` keyword in `app-db`; the smearing is the pain.
 2. **Low-level protocols.** Async resource lifecycles (HTTP request: `idle → loading → success/error/retry`), websocket connection states, animation transitions. Without machines these live as ad-hoc keywords in some sub-tree of `app-db`, with handlers that have to remember "if state is `:loading`, ignore another `:fetch`."
 
-Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `create-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event-fx`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
+Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `make-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event-fx`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
 
 ## Naming — `:state` and `:data`
 
@@ -122,9 +122,9 @@ The shim is keyed off the sentinel `:rf/transition-pure` parent-id stamp on the 
 
 ## Where snapshots live
 
-Every machine snapshot lives at a fixed reserved path: **`[:rf/machines <machine-id>]`** in the frame's `app-db`. The runtime owns this path; users do not pick a path per machine and `create-machine-handler` does not accept a `:path` key.
+Every machine snapshot lives at a fixed reserved path: **`[:rf/machines <machine-id>]`** in the frame's `app-db`. The runtime owns this path; users do not pick a path per machine and `make-machine-handler` does not accept a `:path` key.
 
-For the registration `(rf/reg-event-fx :drawer/editor (rf/create-machine-handler {...}))`:
+For the registration `(rf/reg-event-fx :drawer/editor (rf/make-machine-handler {...}))`:
 
 ```clojure
 ;; in the frame's app-db, after initialisation:
@@ -228,11 +228,11 @@ Every state in `:states` is a map. The complete state-node grammar — every key
 
 All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:spawn`, `:spawn-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
 
-A state node MUST NOT declare both `:spawn` and `:spawn-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:spawn`; a node spawning N parallel children uses `:spawn-all`). `create-machine-handler` rejects the combination at registration time as a malformed transition table.
+A state node MUST NOT declare both `:spawn` and `:spawn-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:spawn`; a node spawning N parallel children uses `:spawn-all`). `make-machine-handler` rejects the combination at registration time as a malformed transition table.
 
 `:entry` and `:exit` are **single fns or single keyword references into the machine's `:actions` map** — never vectors. To run multiple actions on entry, write a fn that calls them in order (or name a compound entry in the machine's `:actions` map; the named id is richer for tooling).
 
-`:spawn` is **declarative sugar** that `create-machine-handler` desugars into entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` fx at registration time; per-state at most one `:spawn`. See [§Declarative `:spawn`](#declarative-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
+`:spawn` is **declarative sugar** that `make-machine-handler` desugars into entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` fx at registration time; per-state at most one `:spawn`. See [§Declarative `:spawn`](#declarative-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
 
 ### Transitions
 
@@ -311,7 +311,7 @@ A guard is **`(fn [data event] boolean)`** — 2-arity is canonical. **One inlin
 :guard (fn [data ev] (and (active? data ev) (under-quota? data ev)))
 
 ;; even better — declare a named compound in the machine's :guards map
-(rf/create-machine-handler
+(rf/make-machine-handler
   {:guards {:active-and-under-quota?
             (fn [data ev] (and (active? data ev) (under-quota? data ev)))}
    :states {... :on {... {:guard :active-and-under-quota?}}}})
@@ -365,7 +365,7 @@ An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (
 :action :clear-form
 
 ;; the body lives in the machine's :actions map:
-(rf/create-machine-handler
+(rf/make-machine-handler
   {:actions {:clear-form
              (fn [_ _]
                {:data {:circle-id nil :initial-radius nil :preview-radius nil}})}
@@ -385,7 +385,7 @@ Multiple steps in one action are **fn composition**, not a vector:
 If the composition is reused, name it in the machine's `:actions` map:
 
 ```clojure
-(rf/create-machine-handler
+(rf/make-machine-handler
   {:actions {:clear-and-record (fn [data ev] ...)}
    :states {... :on {... {:action :clear-and-record}}}})
 ```
@@ -454,7 +454,7 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 - **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] boolean)`.
 - **What the fn sees:** the snapshot's `:data` slot directly (a map). The full `{:state :data :meta}` snapshot is reachable only via the 3-arity opt-in. Never `app-db`; never cofx.
 
-The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `create-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
+The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `make-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
 
 **Cross-cutting reads via the event payload.** A view that needs to pass the circle's current radius into the editor includes it in the dispatch:
 
@@ -547,13 +547,13 @@ The `ctx` projection's shape — `{:state :meta}`, no other keys — is closed. 
 
 ## Registration — the machine IS the event handler
 
-A machine is registered as **one event handler** via `reg-event-fx` whose body comes from `create-machine-handler`.
+A machine is registered as **one event handler** via `reg-event-fx` whose body comes from `make-machine-handler`.
 
 ```clojure
 (rf/reg-event-fx :drawer/editor
   {:doc "Modal-edit flow."}
   [undoable]
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
      :guards  {:circle-exists? (fn [data _] (some? (:circle-id data)))}
@@ -571,7 +571,7 @@ Reference resolution:
 - `:action (fn [...] ...)` → inline fn, called directly.
 - `:on-spawn :record-pending` (when `:on-spawn` appears as a keyword reference, e.g. inside a `:spawn` slot) → resolved against an optional `:on-spawn-actions` map at the spec root if present, then falling back to `:actions`. Inline fns work as for `:action`. The `:on-spawn-actions` map is intended for spawn-callbacks whose role is the parent's id-recording side, distinct from transition-time `:actions`; declaring it is optional and the fallback to `:actions` keeps single-map machines simple.
 
-`create-machine-handler` walks the transition table at construction time and verifies every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) resolves to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
+`make-machine-handler` walks the transition table at construction time and verifies every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) resolves to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
 **Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a Clojure var and reference the var from each machine's `:guards` / `:actions` map:
 
@@ -580,19 +580,19 @@ Reference resolution:
   (some? (:user-id data)))
 
 (rf/reg-event-fx :auth/login {}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
 
 (rf/reg-event-fx :settings/page {}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
 ```
 
 No framework support beyond ordinary Clojure var resolution. Each machine names the shared fn locally; the id is the meaning at the call site.
 
-**Hot-reload.** Re-evaluating `(reg-event-fx :machine-id (create-machine-handler {:guards {...} :actions {...} ...}))` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
+**Hot-reload.** Re-evaluating `(reg-event-fx :machine-id (make-machine-handler {:guards {...} :actions {...} ...}))` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
 
 What this gives:
 
@@ -634,9 +634,9 @@ This makes the standard fx-callback convention work without ceremony. Idiomatic 
 
 The fold only applies when the outer event has length ≥ 3 AND the second element is itself a vector. Length-2 dispatches (`[:machine-id [:inner-id]]`) and the legacy single-arg form (`[:machine-id]`) are unaffected. The runtime resolves the outer-shape ambiguity by inspecting the second element's type — a vector second element means "sub-event, fold extras"; anything else means "use the whole vector as the inner event" (compatibility fallback).
 
-### `create-machine-handler` is a pure factory
+### `make-machine-handler` is a pure factory
 
-The fn `create-machine-handler` returns is the event handler. Crucially, the factory itself:
+The fn `make-machine-handler` returns is the event handler. Crucially, the factory itself:
 
 - **Registers nothing.** No `reg-*` side effects at construction time.
 - **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
@@ -646,7 +646,7 @@ This is a real constraint on the implementation, not just a testing affordance �
 
 ### `reg-machine` — public registration surface
 
-Alongside the underlying `reg-event-fx + create-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
+Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
 
 ```clojure
 (rf/reg-machine :auth.login/flow
@@ -661,7 +661,7 @@ Alongside the underlying `reg-event-fx + create-machine-handler` form (per [§Re
 **Surface signature.** Two arities of two forms:
 
 - `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and stamps a per-element source-coord index onto the spec's `:rf.machine/source-coords` key (per [§Source-coord stamping](#source-coord-stamping-rf2-8bp3)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
-- `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (create-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
+- `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (make-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
@@ -788,11 +788,11 @@ Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaf
 
 [002 §State machines are just event handlers](002-Frames.md) commits the following at the foundation level:
 
-- **The machine IS the event handler.** A registered event handler whose body comes from `create-machine-handler` is the machine; machines register under the `:event` registry kind.
+- **The machine IS the event handler.** A registered event handler whose body comes from `make-machine-handler` is the machine; machines register under the `:event` registry kind.
 - **Three-way conceptual split:** definition (data), instance (snapshot at the runtime-managed `[:rf/machines <id>]`), frame (actor-system boundary).
 - **Snapshot shape:** `{:state <fsm-keyword> :data <map>}`. `:state` is the discrete FSM keyword (`:idle`, `:editing`, ...); `:data` is the extended state — the machine's own private memory.
 - **Pure transition contract:** `(machine-transition definition snapshot event) → [next-snapshot effects]`.
-- **Pure factory:** `(create-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
+- **Pure factory:** `(make-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
 - **Definition shape:** transition table is pure data; guards/actions referenced by id or supplied as fns; both forms are first-class.
 - **Inspection:** lifecycle/transition events emitted on the existing trace surface with `:source :machine`.
 - **Composition:** ordinary `dispatch` between machines, made deterministic by drain semantics.
@@ -937,9 +937,9 @@ The four-level drain has a small number of recurring implementation mistakes. Ea
 - **Treating "transition without `:target`" as external.** It is **internal** — neither `:exit` nor `:entry` fires; only the transition's `:action` runs. *Instead:* omit `:target` only when you want a pure data update with no exit/entry machinery; if you want exit/entry, name the target.
 - **Forgetting to cascade `:initial` when entering a compound state via vector target.** *What goes wrong:* a transition with `:target [:authenticated]` (a compound state) lands the snapshot at the compound itself instead of descending — the snapshot's `:state` is `[:authenticated]` rather than `[:authenticated :dashboard]`, and downstream code that walks to a leaf gets confused. *Instead:* every vector target whose final segment names a compound state continues to cascade the compound's `:initial` chain until it hits a leaf; the snapshot's `:state` is always a leaf path. Each cascaded state's `:entry` fires shallowest-first.
 - **Resolving keyword `:target` against the runtime's current path instead of the declaring state.** *What goes wrong:* a transition `{:target :browsing}` declared on a parent state is resolved as "the current state's sibling" rather than "this declaration's parent's child." Across deeply-nested machines the two diverge. *Instead:* keyword targets are **statically resolved** against the parent of the state-node that owns the `:on` map; the resolution is a property of the transition table, not of the snapshot. When in doubt, use the vector form — it is unambiguous.
-- **Referencing an undeclared guard or action id.** *What goes wrong:* a transition slot `:guard :form-valid?` (or `:action :clear-error`) names a keyword that does not appear in the machine's `:guards` (or `:actions`) map — a typo, a stale reference left over after a rename, or a copy-paste from another machine's spec. *Instead:* `create-machine-handler` walks every `:guard` / `:action` slot at construction time (in `:on`, `:always`, `:entry`, `:exit`) and verifies each keyword reference resolves against the machine-local `:guards` / `:actions` map. Misses surface as `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` at registration time, with `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). The error fires before any snapshot is created — caught at registration, not at runtime.
+- **Referencing an undeclared guard or action id.** *What goes wrong:* a transition slot `:guard :form-valid?` (or `:action :clear-error`) names a keyword that does not appear in the machine's `:guards` (or `:actions`) map — a typo, a stale reference left over after a rename, or a copy-paste from another machine's spec. *Instead:* `make-machine-handler` walks every `:guard` / `:action` slot at construction time (in `:on`, `:always`, `:entry`, `:exit`) and verifies each keyword reference resolves against the machine-local `:guards` / `:actions` map. Misses surface as `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` at registration time, with `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). The error fires before any snapshot is created — caught at registration, not at runtime.
 - **Unbounded `:always` cycle.** *What goes wrong:* `:a` has `:always {:guard :p? :target :b}` and `:b` has `:always {:guard :q? :target :a}`; both guards remain true and the microstep loop never reaches a fixed point. The handler hangs the runtime. *Instead:* enforce the default depth-16 limit on the microstep loop and emit `:rf.error/machine-always-depth-exceeded` when it's hit; halt the cascade with the snapshot uncommitted, and surface the visited path. Gotcha is the same shape as the `:raise` cycle gotcha above — a separate counter, the same recovery pattern.
-- **`:always` self-loop accepted at registration.** *What goes wrong:* a state declares `{:always [{:guard :ok? :target :same-state}]}` (or `{:target <itself>}` with the same guard reference). The first microstep matches; the next microstep matches again on the same state and same guard; the loop runs to depth-limit and aborts. The author meant a no-op or got the topology wrong. *Instead:* `create-machine-handler` rejects any `:always` entry whose `:target` resolves to the declaring state itself **with the same `:guard` reference** (or no guard) at registration time, surfacing `:rf.error/machine-always-self-loop` with `:tags {:state <state-keyword> :machine-id <id>}`. The error fires before any snapshot is created — caught at registration, not at runtime. (A self-targeting `:always` with a *different* guard, used as a re-entry on a changed condition, is permitted; only the same-guard case is rejected.)
+- **`:always` self-loop accepted at registration.** *What goes wrong:* a state declares `{:always [{:guard :ok? :target :same-state}]}` (or `{:target <itself>}` with the same guard reference). The first microstep matches; the next microstep matches again on the same state and same guard; the loop runs to depth-limit and aborts. The author meant a no-op or got the topology wrong. *Instead:* `make-machine-handler` rejects any `:always` entry whose `:target` resolves to the declaring state itself **with the same `:guard` reference** (or no guard) at registration time, surfacing `:rf.error/machine-always-self-loop` with `:tags {:state <state-keyword> :machine-id <id>}`. The error fires before any snapshot is created — caught at registration, not at runtime. (A self-targeting `:always` with a *different* guard, used as a re-entry on a changed condition, is permitted; only the same-guard case is rejected.)
 - **Forgetting to advance the `:after` epoch on state entry.** *What goes wrong:* a machine handler schedules a fresh `:after` timer at state entry but reuses the *prior* visit's epoch counter — so an in-flight timer from the previous visit fires with a matching epoch and triggers an unintended transition long after the user moved on. Symptom: "a timer fired that I thought was cancelled." *Instead:* `:rf/after-epoch` advances **on every state entry** (per [§Delayed `:after` transitions §Epoch-based stale detection](#epoch-based-stale-detection)); each scheduled timer carries the post-increment epoch; the receiving handler validates the epoch before firing. There is no cancellation — staleness is the cancellation mechanism.
 - **Scheduling `:after` timers under SSR.** *What goes wrong:* a machine entered server-side schedules a `:dispatch-later` for a 5-second timeout; the SSR render captures the timer-handle but the request-frame is destroyed before it fires; the timer leaks (or fires against a destroyed frame). Symptom: stray events on the server, or hydration mismatches because the server's snapshot includes "scheduled timer" state the client doesn't share. *Instead:* `:after` no-ops in SSR mode (per [§SSR mode](#ssr-mode) and [011-SSR §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)); the entry action skips timer scheduling on the server, and the client schedules them after hydration.
 
@@ -1349,7 +1349,7 @@ A state whose `:always` targets itself with the same `:guard` reference (or no g
  {:always [{:guard :ready? :target :checking}]}}    ;; rejected
 ```
 
-`create-machine-handler` walks every `:always` entry at construction time and surfaces `:rf.error/machine-always-self-loop` with `:tags {:state <state-keyword> :machine-id <id>}` for any same-state same-guard entry. Rationale: the loop either fires repeatedly to depth-exceeded (if the guard remains true) or is a no-op (if the guard flips on the first hit) — in both cases the author intended something else. Catch the typo at registration; surface the topology bug.
+`make-machine-handler` walks every `:always` entry at construction time and surfaces `:rf.error/machine-always-self-loop` with `:tags {:state <state-keyword> :machine-id <id>}` for any same-state same-guard entry. Rationale: the loop either fires repeatedly to depth-exceeded (if the guard remains true) or is a no-op (if the guard flips on the first hit) — in both cases the author intended something else. Catch the typo at registration; surface the topology bug.
 
 A self-targeting `:always` with a **different** guard — used as a re-entry on a changed condition — is permitted. Only the same-guard same-target case is rejected.
 
@@ -1364,7 +1364,7 @@ Both levels are emitted unconditionally; consumers filter.
 
 ### Guard references
 
-Guards in `:always` resolve against the **machine's `:guards` map** (per [§Registration](#registration--the-machine-is-the-event-handler) and the machine-scoped lock per [§Resolved decisions](#globally-registered-guardsactions-vs-machine-scoped-resolved)). There is no separate registry, no global lookup. `create-machine-handler` walks every `:always` entry's `:guard` slot at registration time and verifies the keyword resolves; misses surface as `:rf.error/machine-unresolved-guard` exactly as for `:on` transitions.
+Guards in `:always` resolve against the **machine's `:guards` map** (per [§Registration](#registration--the-machine-is-the-event-handler) and the machine-scoped lock per [§Resolved decisions](#globally-registered-guardsactions-vs-machine-scoped-resolved)). There is no separate registry, no global lookup. `make-machine-handler` walks every `:always` entry's `:guard` slot at registration time and verifies the keyword resolves; misses surface as `:rf.error/machine-unresolved-guard` exactly as for `:on` transitions.
 
 ### Worked example — quiz
 
@@ -1686,7 +1686,7 @@ The epoch is **per-machine**, not per-state. Any state exit advances it once; mu
 
 Per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca), the epoch counter advances on **any** state exit, whether the exit is a leaf-only transition or a multi-level cascade. A leaf-to-sibling transition under the same parent does not exit the parent, so the parent's `:after` timers stay live; a transition that exits the parent advances the epoch and all of the parent's pending `:after` timers go stale on next firing.
 
-**Implementation note:** the epoch is per-machine, not per-level. A leaf-only sibling-transition advances the epoch even though the parent's state is unchanged — but that's fine: the parent's `:after` was scheduled *before* the leaf transition, and re-entry of the leaf doesn't re-schedule the parent's timers. To keep parent timers live across leaf transitions, implementations track which `:after` entries belong to which level on the path and only re-schedule the level(s) that the cascade newly enters. The contract is *external* — "parent `:after` outlives sibling-leaf transitions" — and `create-machine-handler` is responsible for upholding it.
+**Implementation note:** the epoch is per-machine, not per-level. A leaf-only sibling-transition advances the epoch even though the parent's state is unchanged — but that's fine: the parent's `:after` was scheduled *before* the leaf transition, and re-entry of the leaf doesn't re-schedule the parent's timers. To keep parent timers live across leaf transitions, implementations track which `:after` entries belong to which level on the path and only re-schedule the level(s) that the cascade newly enters. The contract is *external* — "parent `:after` outlives sibling-leaf transitions" — and `make-machine-handler` is responsible for upholding it.
 
 **Normative rule (external contract).** A parent state's `:after` timer is suspended-but-not-stale while the snapshot is in any child of the parent: leaf-only sibling transitions inside the same parent MUST NOT cause that parent's pending `:after` timer to fire as stale on its next match. Conversely, a transition whose LCA is at-or-above the parent MUST advance the epoch such that any of the parent's pending `:after` timers (from the just-exited visit) all observe a mismatch and silently drop. Implementations that cannot satisfy both clauses with a single per-machine epoch (because a leaf transition advances it) MUST track which `:after` entries belong to which level on the active path and selectively re-schedule only the levels the cascade newly enters. The per-level re-scheduling sketch above is the recommended implementation; the contract is the observable behaviour, not the implementation strategy.
 
@@ -2071,7 +2071,7 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
 
 `:spawn` on a state node is **declarative sugar** for "spawn this child actor on entry; destroy it on exit." The child's lifetime is bound to the state's lifetime: while the machine is in this state, the child runs; when the machine leaves the state (by any transition, including a parent-level cascade), the child is destroyed.
 
-`:spawn` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:spawn` slot into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy` fx. The runtime sees only the desugared form — no new mechanics, no new lifecycle event, no new error category.
+`:spawn` is **registration-time sugar.** `make-machine-handler` walks the spec at construction time and rewrites every `:spawn` slot into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy` fx. The runtime sees only the desugared form — no new mechanics, no new lifecycle event, no new error category.
 
 ### The pattern
 
@@ -2110,13 +2110,15 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 **Path convention.** The `:on-spawn` callback receives the snapshot's `:data` directly and returns a new `:data` map. The runtime patches the result back into the snapshot. Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), this is uniform with `:guard` and `:action`: the body operates on `:data`, never on the wrapping snapshot. A typical body is `(assoc data :pending id)` or `(update data :workers (fnil conj []) id)` — *not* `(assoc-in snap [:data :pending] id)`.
 
-**`:on-spawn` is purely advisory.** Per rf2-t07u (Option A revised), the runtime tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` (where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state node). The `:on-spawn` callback runs because most apps want a user-side handle on the id (so other transitions can address the child by name in their own bookkeeping) — but the runtime no longer depends on it for the destroy-side resolution. Apps can omit `:on-spawn` entirely when no user-side bookkeeping is needed; the parent's `:exit` cascade still tears down the spawned child via the runtime registry.
+**`:on-spawn` is purely advisory — a side-channel observation hook.** Per rf2-t07u (Option A revised), the runtime tracks each declarative-`:spawn` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` (where `<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state node) **regardless of whether `:on-spawn` is declared**. The `:on-spawn` callback runs because most apps want a user-side handle on the id (so other transitions can address the child by name in their own bookkeeping) — but the runtime no longer depends on it for the destroy-side resolution. Apps can omit `:on-spawn` entirely when no user-side bookkeeping is needed; the parent's `:exit` cascade still tears down the spawned child via the runtime registry.
+
+> **Use `:on-spawn` ONLY for side-channel observation.** Per audit-of-audits (rf2-cthfn) state-machines #7 — the callback is the canonical place to log spawn events, mirror the new id into instrumentation, or fold the id into the parent's `:data` for user-side addressing. It is NOT load-bearing for destroy-side lifecycle, which the runtime owns via the `[:rf/spawned <parent-id> <invoke-id>]` registry. Treat `:on-spawn` as the convenient observer hook for "the spawn just happened, here's the id" — not as a step the framework needs you to perform for correctness.
 
 > **Semantic shift from older drafts (rf2-1aswm).** Pre-rf2-t07u, `:on-spawn` was **load-bearing**: it was the parent's only way to track the spawned id, and the destroy-side cascade read the id back from whichever `:data` key the user's `:on-spawn` had stashed it under. Post-rf2-t07u the runtime owns the destroy-side resolution via the `[:rf/spawned <parent-id> <invoke-id>]` registry, so `:on-spawn` has shifted to **user bookkeeping only**. Readers of older code or older spec drafts that show `:on-spawn` patterns wired into destroy-side flows should treat those examples as historical: the parent's `:exit` cascade no longer requires the user-recorded id to function. The keyword name is unchanged — `:on-spawn` still fires on spawn and still receives `(fn [data spawned-id] new-data)` — but its category has moved from "framework-required hook" to "optional user-bookkeeping convenience." Per the audit (rf2-a2xhr Finding 7), a rename to a noun-form (e.g. `:bookkeeping`) was considered and rejected: the verb-form remains the clearer description of when the callback fires, and the docstring above is the canonical disambiguation.
 
 ### Desugaring rules
 
-`create-machine-handler` walks every state node at construction time. For each `:spawn`-bearing state, it:
+`make-machine-handler` walks every state node at construction time. For each `:spawn`-bearing state, it:
 
 1. **Composes** an `:rf.spawn/spawn-<state>` registered action that emits a `:rf.machine/spawn` fx whose args are the `:spawn` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/spawn-id` (the absolute prefix-path of the `:spawn`-bearing state node) onto the spawn args; the `:rf.machine/spawn` fx handler binds the spawned id at `[:rf/spawned <parent-id> <invoke-id>]` in the frame's app-db.
 2. **Composes** an `:rf.spawn/destroy-<state>` registered action that emits a `:rf.machine/destroy` fx whose args carry the same `{:rf/parent-id ... :rf/spawn-id ...}`. The fx handler reads the spawned id back from `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:spawn-id` literals — the explicit-id case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
@@ -2136,7 +2138,7 @@ Before / after:
   :on     {:succeeded :loaded
            :failed    :error}}}
 
-;; create-machine-handler rewrites to (runtime sees this):
+;; make-machine-handler rewrites to (runtime sees this):
 {:loading
  {:entry (fn [data _ev]
            {:fx [[:rf.machine/spawn {:machine-id   :request/protocol
@@ -2160,9 +2162,9 @@ Before / after:
           :failed    :error}}}
 ```
 
-From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — except that the runtime no longer requires the user's `:on-spawn` callback to write the spawned id under any particular `:data` slot. The pure-factory invariant on `create-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
+From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — except that the runtime no longer requires the user's `:on-spawn` callback to write the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
 
-> **Spec-as-data caveat for `:spawn` / `:spawn-all` (rf2-4kowj).** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `create-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record (e.g. via `:rf.machine/wants-ctx` introspection — see [§3-arity escape hatch](#3-arity-escape-hatch--snapshot-introspection)) sees the desugared form, not the literal `:spawn` map. The two surfaces are deliberately split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is intentionally not part of the public contract and may evolve. Per audit rf2-a2xhr Finding 3.
+> **Spec-as-data caveat for `:spawn` / `:spawn-all` (rf2-4kowj).** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record (e.g. via `:rf.machine/wants-ctx` introspection — see [§3-arity escape hatch](#3-arity-escape-hatch--snapshot-introspection)) sees the desugared form, not the literal `:spawn` map. The two surfaces are deliberately split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is intentionally not part of the public contract and may evolve. Per audit rf2-a2xhr Finding 3.
 
 ### Composition with explicit `:entry` / `:exit`
 
@@ -2195,7 +2197,7 @@ The desugaring is uniform — no special-casing for hierarchy. Whatever cascadin
 
 - If `:data` is a function and it throws, the error surfaces as `:rf.error/machine-action-exception` (the standard category for any user-supplied fn that throws during a machine action — see [Cross-Spec-Interactions §11](Cross-Spec-Interactions.md#11-machine-action-throws)). The transition halts; the snapshot does not commit.
 - If `:machine-id` references an unregistered machine, the spawn fx itself errors per existing spawn semantics — no `:spawn`-specific category.
-- If the user supplies neither `:machine-id` nor `:definition`, `create-machine-handler` rejects the spec at registration time as a malformed transition table — the schema makes "exactly one of `:machine-id` or `:definition`" a registration-time constraint per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table).
+- If the user supplies neither `:machine-id` nor `:definition`, `make-machine-handler` rejects the spec at registration time as a malformed transition table — the schema makes "exactly one of `:machine-id` or `:definition`" a registration-time constraint per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table).
 
 ### Deliberate omissions vs xstate
 
@@ -2316,8 +2318,8 @@ When `:auth-flow` enters `:done`, the runtime:
 
 ### `:final?` constraints
 
-- **Leaf-only.** A state declaring `:final? true` MUST NOT declare `:states` (or `:initial`). Compound states cannot themselves be final — their finality is expressed by a leaf inside them. `create-machine-handler` rejects compound `:final?` declarations at registration with `:rf.error/machine-final-state-compound`.
-- **No `:on`, `:always`, `:after`, `:spawn`, `:spawn-all` on a `:final?` state.** Final means final — no further transitions. `create-machine-handler` rejects these combinations at registration with `:rf.error/machine-final-state-has-transitions`. `:entry` and `:exit` actions ARE permitted (the final-state's `:entry` runs as part of the entering cascade; `:exit` runs from the auto-destroy teardown).
+- **Leaf-only.** A state declaring `:final? true` MUST NOT declare `:states` (or `:initial`). Compound states cannot themselves be final — their finality is expressed by a leaf inside them. `make-machine-handler` rejects compound `:final?` declarations at registration with `:rf.error/machine-final-state-compound`.
+- **No `:on`, `:always`, `:after`, `:spawn`, `:spawn-all` on a `:final?` state.** Final means final — no further transitions. `make-machine-handler` rejects these combinations at registration with `:rf.error/machine-final-state-has-transitions`. `:entry` and `:exit` actions ARE permitted (the final-state's `:entry` runs as part of the entering cascade; `:exit` runs from the auto-destroy teardown).
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`). On a final state, `:output-key` is optional — when absent, the `result` passed to `:on-done` is `nil`.
 - **Parallel regions and `:final?`.** A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts (no further transitions accepted for it; sibling regions continue). The parent machine as a whole is `:final?` only when EVERY region's active state is `:final?` — at which point the auto-destroy and `:on-done` cascade fires as usual. (This composability uses the existing parallel-region routing; no new primitive.)
 
@@ -2466,7 +2468,7 @@ The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all`
 
 `:spawn-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per boot-as-state-machine §M1, rf2-6vmw).
 
-`:spawn-all` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:spawn-all` slot into entry/exit actions emitting N parallel `:rf.machine/spawn` fx (on entry) and per-child `:rf.machine/destroy` fx (on exit), plus an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves.
+`:spawn-all` is **registration-time sugar.** `make-machine-handler` walks the spec at construction time and rewrites every `:spawn-all` slot into entry/exit actions emitting N parallel `:rf.machine/spawn` fx (on entry) and per-child `:rf.machine/destroy` fx (on exit), plus an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves.
 
 ### The pattern
 
@@ -2559,7 +2561,7 @@ The dispatched event has shape `[<parent-id> [<event-keyword> <child-id> & extra
 - `<child-id>` is the user-supplied `:id` from the parent's invoke-all entry.
 - `& extra` is whatever the child wants to forward to the parent — typically the child's final `:data` slice or an error reason; the parent's join-resolution event handler can read this from the event vector that fired the join.
 
-The runtime intercepts these events at the parent's `create-machine-handler` boundary. Specifically, the parent's handler checks `event[1][0]` (the inner event keyword) against `:on-child-done` / `:on-child-error` declared on the currently-active state's `:spawn-all` entry. On match, the handler:
+The runtime intercepts these events at the parent's `make-machine-handler` boundary. Specifically, the parent's handler checks `event[1][0]` (the inner event keyword) against `:on-child-done` / `:on-child-error` declared on the currently-active state's `:spawn-all` entry. On match, the handler:
 
 1. Updates the join state at `[:rf/spawned <parent-id> <invoke-id>]` (adds `<child-id>` to the `:done` or `:failed` set inside the same direct map).
 2. Evaluates the join condition.
@@ -2706,7 +2708,7 @@ Both are pure functions over the registry. Both are JVM-runnable (they touch onl
 Why a lens, not a registry kind:
 
 - **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf/machines)` is a `filter` call, not a separate index.
-- **`:rf/machine? true` metadata is the discriminator.** `create-machine-handler` carries this metadata onto the registration; `reg-event-fx` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
+- **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event-fx` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
 - **One-line implementation.** `(rf/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
@@ -2747,6 +2749,8 @@ The framework exposes two surfaces, both equivalent:
   (defn sub-machine [machine-id]
     (rf/subscribe [:rf/machine machine-id]))
   ```
+
+  > **Name parse — the `sub-` prefix is the subscription family, NOT child-machine.** Per audit-of-audits (rf2-cthfn) state-machines #11, `sub-machine` returns a **reactive subscription** on the named machine's state. The `sub-` prefix is re-frame's subscription-family verb (sibling of `subscribe`, `sub-once`, `subscriber`) — it does NOT denote a child-machine / sub-machine relationship. Declarative child-machine binding uses `:spawn` (per rf2-5r4q2), not `sub-machine`. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," `sub-machine` is the call.
 
 - **`(rf/subscribe [:rf/machine :drawer/editor])`** — explicit registry use. The `:rf/machine` sub is in `(registrations :sub)`, traceable, introspectable. Power-users and tools use this form.
 
@@ -2814,11 +2818,11 @@ The framework provides the entry point; users write the derivations. Same patter
 
 ### Pure-factory invariant preserved
 
-`create-machine-handler` registers nothing — it returns a pure handler fn. Registration of the *machine's event handler* happens at the `reg-event-fx` call site; reading the snapshot happens through the framework-registered `:rf/machine` sub. There is no auto-registration tied to the machine's id, no self-id capture, no registration side effects in the factory.
+`make-machine-handler` registers nothing — it returns a pure handler fn. Registration of the *machine's event handler* happens at the `reg-event-fx` call site; reading the snapshot happens through the framework-registered `:rf/machine` sub. There is no auto-registration tied to the machine's id, no self-id capture, no registration side effects in the factory.
 
 ## Testing
 
-Three test levels fall out naturally from the pure-factory contract on `create-machine-handler`. No new primitive needed.
+Three test levels fall out naturally from the pure-factory contract on `make-machine-handler`. No new primitive needed.
 
 ### Level 1 — pure `machine-transition`
 
@@ -2832,7 +2836,7 @@ No `:db`, no `[:rf/machines]` plumbing, no fx interpretation — just the FSM. B
 ### Level 2 — unregistered handler fn
 
 ```clojure
-(def handler (rf/create-machine-handler {:initial :idle :states {...}}))
+(def handler (rf/make-machine-handler {:initial :idle :states {...}}))
 
 ;; The runtime stores snapshots at [:rf/machines <id>], where <id> is the
 ;; surrounding registration's id. A Level-2 test calls the handler against the
@@ -2842,7 +2846,7 @@ No `:db`, no `[:rf/machines]` plumbing, no fx interpretation — just the FSM. B
 ;; → {:db ... :fx ...}
 ```
 
-Tests handler-level integration (snapshot read/write at `[:rf/machines <id>]`, `:data`-to-`:db` lowering, fx composition) without going near the dispatch pipeline. **Possible only because `create-machine-handler` is a pure factory** — no registration, no test frame.
+Tests handler-level integration (snapshot read/write at `[:rf/machines <id>]`, `:data`-to-`:db` lowering, fx composition) without going near the dispatch pipeline. **Possible only because `make-machine-handler` is a pure factory** — no registration, no test frame.
 
 The handler resolves its id from the inbound event vector's first element (`:drawer/editor`), reads `(get-in db [:rf/machines :drawer/editor])` for the current snapshot, and writes the next snapshot back at the same location.
 
@@ -2850,7 +2854,7 @@ The handler resolves its id from the inbound event vector's first element (`:dra
 
 ```clojure
 (rf/with-frame [f (rf/make-frame {:on-create [:my/init]})]
-  (rf/reg-event-fx :my/editor {} (rf/create-machine-handler {...}))
+  (rf/reg-event-fx :my/editor {} (rf/make-machine-handler {...}))
   (rf/dispatch-sync [:my/editor [:event]] {:frame f})
   (assert ...))
 ```
@@ -2928,7 +2932,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 
 (rf/reg-event-fx :drawer/editor
   {:doc "Modal-edit flow."}
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :idle
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
      :actions
@@ -3103,7 +3107,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Own state + message ports** — actor identity is the registered event id; the state lives at `[:rf/machines <id>]` | Prose: §Where snapshots live, §Strict encapsulation; Schema: `:rf/machine-snapshot`, `:rf/machines`; Fixtures: machine-transition, machine-actor-isolation | ✓ claimed | Already specced. |
 | **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (the canonical actor-lifecycle fx-ids; emitted by `:spawn` desugar and authored by hand inside a machine action's `:fx` or any user event handler's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
-| **Declarative `:spawn`** (sugar over spawn) — a state's `:spawn` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:spawn`](#declarative-spawn); Schema: `:rf/state-node` extended for `:spawn` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:spawn` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
+| **Declarative `:spawn`** (sugar over spawn) — a state's `:spawn` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:spawn`](#declarative-spawn); Schema: `:rf/state-node` extended for `:spawn` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `make-machine-handler` translates `:spawn` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
 | **Spawn-and-join via `:spawn-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`), the runtime fires one of three parent events when the join resolves and (by default) cancels surviving siblings | Prose: [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all); Schema: `:rf/state-node` extended for `:spawn-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-all-join-all-completes`, `spawn-all-join-any-fails-cancels`, `spawn-all-n-of-cancels-extras` | ✓ claimed (specified) | Sugar over N parallel `:spawn`s plus a runtime-owned join-state at `[:rf/spawned <parent> <invoke-id>]` (the direct map shape per rf2-ujhzw — `:children` / `:done` / `:failed` / `:resolved?` / `:spec` co-mingle at the root). Cancel-on-decision is the default (matches Dash8/rf8 boot-page-reload semantics). Per rf2-6vmw. |
 | **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | ~~**Wall-clock `:timeout-ms` on `:spawn` / `:spawn-all`**~~ | DROPPED in favour of state-level `:after`. See [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after). | n/a | The `:after` capability subsumes this; one canonical primitive, not two. The `:fsm/delayed-after` capability above covers wall-clock-on-state semantics for both pure timed-transition states and `:spawn`-bearing states. Per rf2-3y3y. |
@@ -3132,7 +3136,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
 
-**Error category for unclaimed grammar:** when `create-machine-handler` encounters a key whose capability is not in the host's claimed capability list, it emits a single structured error trace event:
+**Error category for unclaimed grammar:** when `make-machine-handler` encounters a key whose capability is not in the host's claimed capability list, it emits a single structured error trace event:
 
 ```clojure
 {:operation :rf.error/machine-grammar-not-in-v1
@@ -3162,7 +3166,7 @@ Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class c
 
 ### Globally-registered guards/actions vs machine-scoped (RESOLVED)
 
-Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec; transition-table keyword references resolve **machine-locally** at registration time. There is no `reg-machine-guard` / `reg-machine-action` API and no `:machine-guard` / `:machine-action` registry kind. Cross-machine reuse is via Clojure vars (define a var; reference it from each machine's `:guards` / `:actions` map) — no framework support needed beyond ordinary var resolution. See [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and [§Inspectability bias](#inspectability-bias).
+Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `:actions` maps inside the `make-machine-handler` spec; transition-table keyword references resolve **machine-locally** at registration time. There is no `reg-machine-guard` / `reg-machine-action` API and no `:machine-guard` / `:machine-action` registry kind. Cross-machine reuse is via Clojure vars (define a var; reference it from each machine's `:guards` / `:actions` map) — no framework support needed beyond ordinary var resolution. See [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and [§Inspectability bias](#inspectability-bias).
 
 ### Library packaging — in-tree or separate? (RESOLVED)
 
@@ -3266,7 +3270,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 ### v1 ships the machine-as-event-handler foundation
 
-- `(create-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf/machines <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:rf.machine/spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
+- `(make-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf/machines <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:rf.machine/spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
 - `(machine-transition definition snapshot event)` → `[next-snapshot effects]` — pure function. JVM-runnable. No re-frame dependencies; guard/action references resolve against the definition's own `:guards` / `:actions` maps.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.

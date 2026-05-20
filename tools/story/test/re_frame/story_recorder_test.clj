@@ -583,17 +583,17 @@
     (recorder/remove-trace-listener!)))
 
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
-  (testing "a `with-redacted`-interceptor handler still appears in the
+  (testing "a `redact-interceptor`-interceptor handler still appears in the
             recording with the payload scrubbed (rf2-hdadz). The
             handler-meta `:sensitive?` annotation has been removed,
-            so sensitivity now flows via the `with-redacted`
+            so sensitivity now flows via the `redact-interceptor`
             interceptor (or schema-marked paths)."
     (reset-rf-state!)
     (rf/reg-event-db :counter/inc
       (fn [db _] (update db :n (fnil inc 0))))
-    ;; Use `with-redacted` so the trace surface sees the redacted payload.
+    ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
     (rf/reg-event-db :auth/login
-      [(rf/with-redacted [[:password] [:totp]])]
+      [(rf/redact-interceptor [[:password] [:totp]])]
       (fn [db _] db))
     (story/reg-variant :story.recorder/sens-end-to-end {:events []})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)
@@ -607,7 +607,7 @@
     (recorder/stop-recording!)
     (let [events (recorder/recorded-events)]
       ;; The `:auth/login` event vector survives in position; the
-      ;; with-redacted interceptor scrubbed the secret-bearing keys
+      ;; redact-interceptor interceptor scrubbed the secret-bearing keys
       ;; on the trace surface.
       (is (= 3 (count events)) "all three dispatches captured in position")
       ;; Belt-and-braces: no slice of the captured trace contains either secret literal.

@@ -2,7 +2,7 @@
 ;;
 ;; The :rf/route slice carries :fragment from the URL. Fragment-only changes update
 ;; the slice and emit :rf.route/fragment-changed (rf2-cj9fn; pre-rename
-;; `:rf.route/url-changed`) but do NOT re-fire :on-match. Path changes (with or
+;; `:rf.route/fragment-changed`) but do NOT re-fire :on-match. Path changes (with or
 ;; without a different fragment) DO re-fire :on-match.
 ;;
 ;; Per [012 §Fragments](../../012-Routing.md#fragments).
@@ -30,14 +30,14 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /docs/routing#scroll-restoration. :on-match fires once.
-  [:rf/url-changed "/docs/routing#scroll-restoration"]
+  [:rf.route/transitioned "/docs/routing#scroll-restoration"]
 
   ;; Step 2: Same path, same params, different fragment.
   ;; :fragment updates; :on-match does NOT fire; :rf.route/fragment-changed trace fires.
-  [:rf/url-changed "/docs/routing#caching"]
+  [:rf.route/transitioned "/docs/routing#caching"]
 
   ;; Step 3: Different path (still has a fragment). :on-match DOES re-fire.
-  [:rf/url-changed "/docs/instrumentation#scroll-restoration"]]
+  [:rf.route/transitioned "/docs/instrumentation#scroll-restoration"]]
 
  :fixture/expect
  {:final-app-db

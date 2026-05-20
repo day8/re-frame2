@@ -235,14 +235,14 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/create-machine-handler {:type :parallel}))
+          (machines/make-machine-handler {:type :parallel}))
         ":type :parallel requires :regions"))
 
   (testing ":type :parallel with :initial / :states is rejected at registration"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/create-machine-handler {:type :parallel
+          (machines/make-machine-handler {:type :parallel
                                             :initial :foo
                                             :regions {:r {:initial :s :states {:s {}}}}}))
         ":type :parallel is mutually exclusive with :initial / :states at the root"))
@@ -251,7 +251,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/create-machine-handler {:type :parallel
+          (machines/make-machine-handler {:type :parallel
                                             :regions {:r {:states {:s {}}}}}))
         "each region body must declare :initial"))
 
@@ -259,7 +259,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-nested-not-supported"
-          (machines/create-machine-handler
+          (machines/make-machine-handler
             {:type    :parallel
              :regions {:outer {:type    :parallel
                                :regions {:inner {:initial :s :states {:s {}}}}}}}))
@@ -269,7 +269,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-nested-not-supported"
-          (machines/create-machine-handler
+          (machines/make-machine-handler
             {:type    :parallel
              :regions {:r {:initial :compound
                            :states  {:compound {:type    :parallel

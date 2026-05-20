@@ -22,9 +22,9 @@
   | `re-frame.test-helpers` | core | View-assertion helpers — hiccup-walk (`find-by-testid` / `find-by-attr` family, `text-content`, `extract-handler`, `invoke-handler`), the `testid` authoring helper, and the `expand-tree` walker (per [§Testing — View-assertion helpers](#testing--view-assertion-helpers)). **View-tree axis** — hiccup data, testids, attached handlers (per rf2-v7kjq). Runtime-state assertions live in the sibling `re-frame.test-support`. |
   | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`, `project-error` (per [§SSR](#ssr-spec-011)). |
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
-  | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `at-boundary` (per [§Schemas](#schemas)). |
+  | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `validate-at-boundary-interceptor` (per [§Schemas](#schemas)). |
   | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
-  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `create-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
+  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `make-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
   | `re-frame.epoch` | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `(rf/configure :epoch-history ...)`. Re-exported through `re-frame.core` via late-bind hooks — `(:require [re-frame.epoch])` at boot before consuming the surfaces through `re-frame.core` (per [Tool-Pair §Time-travel — Artefact home](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
   | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `day8/re-frame2-helix` | UIx- and Helix-specific surfaces (per [§UIx adapter](#uix-adapter-spec-006-rf2-3yij) / [§Helix adapter](#helix-adapter-spec-006-rf2-2qit)). |
 
@@ -102,6 +102,18 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
 **Canonical `event` / `query-v` shape (best practice).** `[<id>]` (trivial), `[<id> <single-scalar>]` (single-arg), `[<id> {<k> <v>}]` (multi-arg → single map payload). Variadic `[<id> a b c]` is tolerated by the runtime for v1-migration and caller convenience; the linter nudges new code toward the map form. Full rationale and cross-refs: [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice).
+
+### `dispatch-*` family taxonomy
+
+Per audit-of-audits (rf2-cthfn) state-machines #10, the `dispatch-*` family has two sub-shapes that look alike on first read but answer different questions. Both *are* dispatch operations — the family-prefix is honest — but they sit in different sub-families.
+
+**Stamping-pair sub-family** (`dispatch` / `dispatch-sync` macros + `dispatch*` / `dispatch-sync*` fn variants).
+The pair-shape question is **"do you want call-site stamping or not?"** The macro form captures `:rf.trace/call-site` from the surrounding source position (rf2-ts1a) so tooling can navigate from a trace event back to the originating expression. The `*` fn-form skips the stamping — needed for HoF composition (`(map dispatch* events)`) where a macro can't sit inside the higher-order call. Both shapes route through the same dispatcher; only the trace stamping differs.
+
+**Named-target sugar sub-family** (`dispatch-to-system`, per [005 §Cross-machine messaging by name](005-StateMachines.md)).
+This question is **"do you have a `:system-id` instead of a target machine-id?"** `dispatch-to-system` is sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))` — it dispatches just like the macros, but it resolves the target through the per-frame `[:rf/system-ids]` reverse index first. It is **not** outside the dispatch family; it's a named-addressing sugar built on top of `dispatch`. The hyphen-after-`dispatch` reads as "dispatch with extra routing logic on top," not "different kind of dispatch."
+
+The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, so the same `:rf.trace/call-site` stamping fires (call-site at the `dispatch-to-system` invocation, since that's the macro the user wrote). When future named-addressing variants land (per actor-model patterns) they slot into the same sub-family; new call-site-stamping variants slot into the same pair.
 
 ---
 
@@ -181,8 +193,8 @@ Standard route-related events:
 | Event | Notes | Spec |
 |---|---|---|
 | `:rf.route/navigate` | Navigate to a registered route. | 012 |
-| `:rf.route/handle-url-change` | Default handler for `:rf/url-changed`. | 012 |
-| `:rf/url-changed` | The browser URL changed. | 012 |
+| `:rf.route/handle-url-change` | Default handler for `:rf.route/transitioned`. | 012 |
+| `:rf.route/transitioned` | The browser URL changed. | 012 |
 | `:rf/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |
@@ -396,7 +408,7 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 | `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` / `(set-schema-validator! {:validate validate-fn :explain explain-fn})` — install the validator (and optionally the explainer) every dev-time schema-validation site routes through. `nil` disables validation entirely. Default ships Malli's `validate`/`explain` pair; this seam lets apps swap in their own validator to drop the Malli dep. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-printer!` | Fn | `(set-schema-printer! print-fn)` — install the **schema-print companion** the digest pipeline (per [010 §Schema digest](010-Schemas.md#schema-digest)) hashes. `print-fn` is `(fn [schema-value] canonical-string)` and MUST be pure + deterministic across runtimes. `nil` falls back to the default EDN canonicaliser so the digest is never undefined. Parallel to `set-schema-validator!` / `set-schema-explainer!`: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `at-boundary` | Var (interceptor value) | `at-boundary` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/at-boundary ...)` raises `ArityException`). | v1 | 010 |
+| `validate-at-boundary-interceptor` | Var (interceptor value) | `validate-at-boundary-interceptor` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`). | v1 | 010 |
 
 See [010 §Schemas](010-Schemas.md) for `:schema` metadata, validation timing, and dev/prod elision. (v1's `:spec` metadata key is accepted as a deprecated alias for one cycle — per [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).)
 
@@ -510,14 +522,14 @@ Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateM
 
 ### Privacy (Spec 009 §Privacy / sensitive data in traces)
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the two composition sites (`with-redacted` + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md). The **cross-artefact inventory + composition order** (every privacy surface in `re-frame.core`, `re-frame.http`, `re-frame.schemas`, `re-frame.epoch`, `tools/mcp-base`, with the data-flow from handler exit to off-box wire) lives in [Privacy.md](Privacy.md).
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the two composition sites (`redact-interceptor` + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md). The **cross-artefact inventory + composition order** (every privacy surface in `re-frame.core`, `re-frame.http`, `re-frame.schemas`, `re-frame.epoch`, `tools/mcp-base`, with the data-flow from handler exit to off-box wire) lives in [Privacy.md](Privacy.md).
 
-Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, re-frame2-pair server, Causa, Story, story-mcp, re-frame2-pair-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
+Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, re-frame2-pair server, Causa, Story, story-mcp, re-frame2-pair-mcp) MUST default-drop the stamped events at their egress boundary. `redact-interceptor` is the in-place payload scrub composed alongside the stamp.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `sensitive?` | Fn | `(sensitive? trace-event)` → `boolean`. True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check (rf2-sqxjn). | v1 | 009 |
-| `with-redacted` | Fn | `(with-redacted paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | post-v1 (planned, rf2-461sp) | 009 |
+| `redact-interceptor` | Fn | `(redact-interceptor paths)` → interceptor. Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map. | post-v1 (planned, rf2-461sp) | 009 |
 
 ---
 
@@ -696,13 +708,13 @@ The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing key
 
 ## Machines
 
-Split between the v1 machine-as-event-handler foundation and the post-v1 `re-frame.machines` scaffolding library — see [005-StateMachines.md §Disposition](005-StateMachines.md#disposition). The machine *is* the event handler: a machine is registered as one `reg-event-fx` whose body comes from `create-machine-handler`.
+Split between the v1 machine-as-event-handler foundation and the post-v1 `re-frame.machines` scaffolding library — see [005-StateMachines.md §Disposition](005-StateMachines.md#disposition). The machine *is* the event handler: a machine is registered as one `reg-event-fx` whose body comes from `make-machine-handler`.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `reg-machine` | M | `(reg-machine machine-id machine-spec)` — registers a machine as an event handler. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` (rf2-8bp3). | v1 | 005 |
 | `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` — plain-fn surface beneath the macro. No source-coord walking. | v1 | 005 |
-| `create-machine-handler` | Fn | `(create-machine-handler spec)` → event-handler fn | v1 | 005 |
+| `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | 005 |
 | `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | 005 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |

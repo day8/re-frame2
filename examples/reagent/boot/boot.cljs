@@ -55,7 +55,7 @@
             ;; Spec 005 state-machine ns ships in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so `rf/reg-machine` and
-            ;; `rf/create-machine-handler` resolve at ns-load.
+            ;; `rf/make-machine-handler` resolve at ns-load.
             [re-frame.machines]
             ;; `:rf.http/managed` ships in day8/re-frame2-http. Loading
             ;; the ns registers the fx; without it, the child loaders

@@ -37,7 +37,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 ```clojure
 (rf/reg-event-fx :ws/connection
-  (rf/create-machine-handler
+  (rf/make-machine-handler
     {:initial :disconnected
      ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
      ;; client-side at actor spawn via the :rf.cred/fetch cofx.
@@ -156,7 +156,7 @@ The `:rf.cred/*` family is the recommended sketch — your app's auth slice prov
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.
-- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`at-boundary`.
+- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`validate-at-boundary-interceptor`.
 
 ## Worked example
 

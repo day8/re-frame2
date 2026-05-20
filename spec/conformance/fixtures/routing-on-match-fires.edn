@@ -1,7 +1,7 @@
 ;; Conformance fixture: routing/on-match-fires
 ;;
 ;; A route's :on-match events fire — in order — when the route becomes active
-;; via :rf/url-changed (URL-driven navigation) or :rf.route/navigate
+;; via :rf.route/transitioned (URL-driven navigation) or :rf.route/navigate
 ;; (programmatic). Each :on-match dispatches as an ordinary event, so the
 ;; events' handlers populate app-db like any other handler would.
 ;;
@@ -10,7 +10,7 @@
 {:fixture/id           :routing/on-match-fires
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler}
- :fixture/doc          "When a route declares :on-match [[:e1] [:e2]], navigating to that route dispatches :e1 then :e2 in order. URL-driven (via :rf/url-changed) and programmatic (via :rf.route/navigate) both fire the loaders."
+ :fixture/doc          "When a route declares :on-match [[:e1] [:e2]], navigating to that route dispatches :e1 then :e2 in order. URL-driven (via :rf.route/transitioned) and programmatic (via :rf.route/navigate) both fire the loaders."
 
  :fixture/registry
  {:route
@@ -36,8 +36,8 @@
  :fixture/frame-config {:on-create [:rf/init]}
 
  :fixture/dispatches
- ;; URL-driven navigation: :rf/url-changed dispatches the on-match events.
- [[:rf/url-changed "/cart"]]
+ ;; URL-driven navigation: :rf.route/transitioned dispatches the on-match events.
+ [[:rf.route/transitioned "/cart"]]
 
  :fixture/expect
  {:final-app-db

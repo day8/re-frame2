@@ -149,7 +149,7 @@
     ;; Per Spec 012 §Standard runtime events the click handler emits
     ;; `:rf/url-requested {:url ... :to ... :params ... :query ...}`.
     ;; The default `:rf/url-requested` handler classifies via match-url
-    ;; and dispatches `:rf/url-changed`, which updates the :rf/route
+    ;; and dispatches `:rf.route/transitioned`, which updates the :rf/route
     ;; slice. This test pins the round-trip without a DOM event — the
     ;; CLJS test covers the click branching that produces the dispatch.
     (rf/reg-route :route/home    {:path "/"})
@@ -163,7 +163,7 @@
                (fn [_ _] nil))
 
     ;; Land on /home first so :rf/route has a current id.
-    (rf/dispatch-sync [:rf/url-changed "/"])
+    (rf/dispatch-sync [:rf.route/transitioned "/"])
     (is (= :route/home
            (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
         "initial nav lands at :route/home")

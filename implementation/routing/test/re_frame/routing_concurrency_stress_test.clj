@@ -9,7 +9,7 @@
   rf2-q4twq decomposition, routing has three concurrency-shaped
   surfaces never exercised under load by the deterministic suite:
 
-    1. **N concurrent `:rf/url-changed` from N frames.** Each frame
+    1. **N concurrent `:rf.route/transitioned` from N frames.** Each frame
        drains independently (Spec 002 §Rules rule 1 — frames are
        independent state machines, their drain-locks don't share). N
        threads each fire `iters` URL-driven nav events at their OWN
@@ -20,7 +20,7 @@
     2. **Popstate / hashchange firing mid-push.** On JVM the popstate
        analogue is `:rf.route/handle-url-change` (per Spec 012 §URL
        changes are events — popstate, initial load, SSR all funnel
-       through this event). Forward navigation (push) is `:rf/url-changed`.
+       through this event). Forward navigation (push) is `:rf.route/transitioned`.
        Each thread alternates the two event types on its own frame.
        Invariant: total on-match count = iters per frame; ordering is
        stable per-thread (last URL pushed wins the slice). The two
@@ -103,12 +103,12 @@
 ;; tangle across frames.
 (def ^:private n-threads 8)
 
-;; ---- Scenario 1: N concurrent :rf/url-changed from N frames -------------
+;; ---- Scenario 1: N concurrent :rf.route/transitioned from N frames -------------
 
 (deftest ^:stress url-changed-cross-frame-stress
   ;; rf2-ksbur scenario 1.
   ;;
-  ;; Each thread owns its own frame and fires `stress-iters` `:rf/url-changed`
+  ;; Each thread owns its own frame and fires `stress-iters` `:rf.route/transitioned`
   ;; events at it. Per Spec 012 §Multi-frame routing each non-default
   ;; frame may opt in to its own `:rf/route` slice without owning the
   ;; URL (`:url-bound? false` — the documented default for story /
@@ -123,7 +123,7 @@
   ;; — divergence indicates the per-thread observation lost track even
   ;; when the global total happened to balance.
   (testing (str n-threads " threads × " stress-iters
-                " iters :rf/url-changed — no drops, no doubles")
+                " iters :rf.route/transitioned — no drops, no doubles")
     (let [global-counter      (AtomicLong. 0)
           per-thread-counters (vec (repeatedly n-threads #(atom 0)))
           per-thread
@@ -138,7 +138,7 @@
                :tick-event (keyword "ksbur.stress" (str "tick-f" i))}))
           ;; Stable route shared across threads — a single registry
           ;; entry whose `:on-match` fans out to per-thread tick events.
-          ;; Per-frame `dispatch-sync` of `:rf/url-changed` produces
+          ;; Per-frame `dispatch-sync` of `:rf.route/transitioned` produces
           ;; a `:rf.route/handle-url-change` style cascade that emits
           ;; the on-match events to each thread's own frame.
           on-match-events (mapv (fn [{:keys [tick-event]}] [tick-event])
@@ -166,7 +166,7 @@
       ;; per-frame routes so the `:on-match` payload is per-frame.
       ;;
       ;; Re-register: per-thread routes carrying the per-thread
-      ;; on-match event id. Each thread's :rf/url-changed dispatch
+      ;; on-match event id. Each thread's :rf.route/transitioned dispatch
       ;; matches that thread's URL pattern and fires its own
       ;; on-match → per-thread counter bump.
       (registrar/clear-kind! :route)
@@ -182,7 +182,7 @@
                           (.await latch)
                           (dotimes [k stress-iters]
                             (rf/dispatch-sync
-                              [:rf/url-changed
+                              [:rf.route/transitioned
                                (str "/p" idx "/" k)]
                               {:frame frame-id})))))]
         (.countDown latch)
@@ -243,7 +243,7 @@
   ;; rf2-ksbur scenario 2.
   ;;
   ;; Per Spec 012 §URL changes are events forward navigation
-  ;; (`:rf/url-changed`) and popstate / initial load
+  ;; (`:rf.route/transitioned`) and popstate / initial load
   ;; (`:rf.route/handle-url-change`) share `url-change-fx`. The race
   ;; window is the drain interleaving when both arrive at the same
   ;; frame in tight succession — pre-fix this could double-process the
@@ -289,14 +289,14 @@
                         (future
                           (.await latch)
                           (dotimes [k stress-iters]
-                            ;; Alternate forward (`:rf/url-changed`) and
+                            ;; Alternate forward (`:rf.route/transitioned`) and
                             ;; popstate (`:rf.route/handle-url-change`).
                             ;; Both funnel through `url-change-fx`; the
                             ;; on-match cascade fires exactly once per
                             ;; dispatch.
                             (let [url   (str "/q" idx "/" k)
                                   evt-id (if (even? k)
-                                           :rf/url-changed
+                                           :rf.route/transitioned
                                            :rf.route/handle-url-change)]
                               (rf/dispatch-sync [evt-id url]
                                                 {:frame frame-id}))))))]
@@ -359,7 +359,7 @@
   ;;     registrar map identity, invalidating the route-table-cache.
   ;;     Yields between operations so dispatcher threads make forward
   ;;     progress.
-  ;;   - **N dispatcher threads** each fire `iters` `:rf/url-changed`
+  ;;   - **N dispatcher threads** each fire `iters` `:rf.route/transitioned`
   ;;     events at the stable route on their own frame.
   ;;
   ;; Invariants:
@@ -453,7 +453,7 @@
                     (.await latch)
                     (dotimes [k stress-iters]
                       (rf/dispatch-sync
-                        [:rf/url-changed (str "/r" idx "/" k)]
+                        [:rf.route/transitioned (str "/r" idx "/" k)]
                         {:frame frame-id}))
                     (catch Throwable t
                       (swap! errors conj

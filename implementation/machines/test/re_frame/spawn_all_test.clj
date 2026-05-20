@@ -9,7 +9,7 @@
 
   Children dispatch their completion via [<parent-id> [:on-child-done
   <child-id> & extra]] (or :on-child-error). The runtime intercepts
-  these at the parent's create-machine-handler boundary and updates
+  these at the parent's make-machine-handler boundary and updates
   the join-state at [:rf/spawned <parent> <invoke-id>] in app-db.
   When the join condition resolves, the runtime fires the parent
   join event (:on-all-complete / :on-some-complete / :on-any-failed)

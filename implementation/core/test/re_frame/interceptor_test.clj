@@ -189,7 +189,7 @@
             the canonical [event-id payload-map] envelope shape."
     (let [seen-event (atom ::not-set)]
       (rf/reg-event-fx :unwrap-test/consume
-                       [rf/unwrap]
+                       [rf/unwrap-interceptor]
                        ;; With unwrap, the second arg is the payload map
                        ;; itself — not the [id payload] vector.
                        (fn [_cofx event-arg]
@@ -218,7 +218,7 @@
           seen-event (atom ::not-set)]
       (rf/register-trace-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/consume
-                       [rf/unwrap]
+                       [rf/unwrap-interceptor]
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -253,7 +253,7 @@
           seen-event (atom ::not-set)]
       (rf/register-trace-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/arity
-                       [rf/unwrap]
+                       [rf/unwrap-interceptor]
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -271,7 +271,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/ok
-                       [rf/unwrap]
+                       [rf/unwrap-interceptor]
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
       (rf/unregister-trace-listener! ::unwrap-ok)

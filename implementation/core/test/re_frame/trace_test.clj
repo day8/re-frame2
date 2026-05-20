@@ -52,7 +52,7 @@
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
-  ;; so :rf/url-changed, :rf/url-requested, :rf.route/* etc. resurrect.
+  ;; so :rf.route/transitioned, :rf/url-requested, :rf.route/* etc. resurrect.
   (require 're-frame.routing :reload)
   (test-fn))
 
@@ -212,26 +212,26 @@
       (rf/reg-route :route/b {:path "/foo"})
 
       ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/fragment-changed ----
-      ;; A reg-route + dispatch [:rf/url-changed url] threads through the
+      ;; A reg-route + dispatch [:rf.route/transitioned url] threads through the
       ;; allocate-token + match-url emit path.
       (rf/reg-route :user/show {:path "/users/:id"})
-      (rf/dispatch-sync [:rf/url-changed "/users/42"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/transitioned "/users/42"] {:frame :test/main})
       ;; Now repeat with a fragment change only — emits :rf.route/fragment-changed
       ;; with prev/next-fragment shape.
-      (rf/dispatch-sync [:rf/url-changed "/users/42#section"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/transitioned "/users/42#section"] {:frame :test/main})
 
       ;; ---- Routing: :rf.route/navigation-blocked --------------------------
       ;; Set up a :can-leave sub that returns false, then request a URL.
       (rf/reg-sub :always-block (fn [_ _] false))
       (rf/reg-route :nav/blocker {:path "/blockable" :can-leave :always-block})
       ;; Move "into" the blockable route so its :can-leave guards the next nav.
-      (rf/dispatch-sync [:rf/url-changed "/blockable"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/transitioned "/blockable"] {:frame :test/main})
       (rf/dispatch-sync [:rf/url-requested {:url "/users/42"}] {:frame :test/main})
 
       ;; ---- Routing: :rf.route.nav-token/stale-suppressed ---------------------
       ;; Allocate a token by navigating, then dispatch the framework's
       ;; nav-token-checking event with a deliberately mismatched token.
-      (rf/dispatch-sync [:rf/url-changed "/users/7"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/transitioned "/users/7"] {:frame :test/main})
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
                          {:carried-nav-token :stale/token
                           :on-success-event  [:noop]}]
@@ -400,7 +400,7 @@
             (is (number?  (:delay t)))))
 
         ;; ---- routing :event ops --------------------------------------------
-        (testing ":event :rf.route.nav-token/allocated fires on :rf/url-changed full nav"
+        (testing ":event :rf.route.nav-token/allocated fires on :rf.route/transitioned full nav"
           (is (has-op? events :event :rf.route.nav-token/allocated)
               "expected :event :rf.route.nav-token/allocated")
           (let [t (:tags (find-op events :event :rf.route.nav-token/allocated))]

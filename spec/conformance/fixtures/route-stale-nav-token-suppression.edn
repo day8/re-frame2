@@ -50,12 +50,12 @@
  :fixture/dispatches
  [;; Step 1: Navigate to /articles/A. nav-token = "nav-1". :on-match dispatches
   ;; [:article/load] which schedules the http fx with :on-success carrying nav-1.
-  [:rf/url-changed "/articles/A"]
+  [:rf.route/transitioned "/articles/A"]
 
   ;; Step 2: Before A's http completes, navigate to /articles/B. nav-token
   ;; advances to "nav-2". :on-match dispatches [:article/load] which schedules
   ;; another http fx (this one carrying nav-2).
-  [:rf/url-changed "/articles/B"]
+  [:rf.route/transitioned "/articles/B"]
 
   ;; Step 3: A's http :on-success arrives. It carries the stale token "nav-1".
   ;; The cofx-validator checks against current ("nav-2"), mismatches, suppresses.

@@ -298,7 +298,7 @@ The same routing setup runs **server-side under SSR** without modification. The 
 
 - `(rf/registrations :route)` enumerates every registered route. AI scaffolds consult this before generating new routes to avoid collisions.
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is enumerable — tools render route-loading dependency graphs without parsing handler bodies.
-- `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
+- `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required by contract; tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
 
 ## What routing-as-state buys you

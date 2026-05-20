@@ -144,7 +144,7 @@
 ;; ============================================================================
 ;;
 ;; Two equivalent forms; we use the convenience `reg-machine`. The
-;; longer form `(reg-event-fx machine-id (create-machine-handler m))`
+;; longer form `(reg-event-fx machine-id (make-machine-handler m))`
 ;; is what reg-machine wraps, and is the form to use when you need
 ;; registration metadata (`:doc`, `:interceptors`, ...).
 

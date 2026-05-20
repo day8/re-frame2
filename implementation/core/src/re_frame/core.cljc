@@ -830,8 +830,8 @@
 
 (def ^{:doc "Build an event-fx handler from a machine spec. Per Spec 005
   §Registration. Implementation ships in `day8/re-frame2-machines`.
-  Late-bound via `:machines/create-machine-handler`."}
-  create-machine-handler rf-machines/create-machine-handler)
+  Late-bound via `:machines/make-machine-handler`."}
+  make-machine-handler rf-machines/make-machine-handler)
 
 (def ^{:doc "Pure `(machine, snapshot, event) -> [snapshot fx]`. Per
   Spec 005 §Drain semantics §Level 3. **Pure / JVM-runnable testing
@@ -840,7 +840,7 @@
   returns the next snapshot + the effects to interpret. The
   conformance corpus and JVM unit-test suites consume `machine-transition`
   directly; CLJS handler bodies normally reach the same engine via
-  `create-machine-handler` and `dispatch`. Implementation ships in
+  `make-machine-handler` and `dispatch`. Implementation ships in
   `day8/re-frame2-machines`. Late-bound via
   `:machines/machine-transition`. Per rf2-7t1a6."}
   machine-transition     rf-machines/machine-transition)
@@ -999,9 +999,10 @@
 (def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
   the dispatched event has shape `[<id> <payload-map>]` and replaces
   the `:event` coeffect with the payload map itself. Usage:
-  `(reg-event-fx :foo [unwrap] (fn [_ {:keys [a b]}] ...))`. Per
-  Conventions §Canonical event-vector shape (M-19)."}
-  unwrap          std-interceptors/unwrap)
+  `(reg-event-fx :foo [unwrap-interceptor] (fn [_ {:keys [a b]}] ...))`.
+  Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
+  naming (rf2-k367k)."}
+  unwrap-interceptor std-interceptors/unwrap-interceptor)
 
 (def ^{:doc "Build a positional interceptor that overwrites the named
   payload keys with the `:rf/redacted` sentinel on the trace surface
@@ -1010,9 +1011,9 @@
   into the M-19 payload map. Composes additively with schema-declared
   sensitive slots (handler-meta `:sensitive?` has been removed in
   favour of path-marked classification). Usage:
-  `(reg-event-fx :auth/login [(with-redacted [[:password]])] ...)`.
+  `(reg-event-fx :auth/login [(redact-interceptor [[:password]])] ...)`.
   Per spec/API.md §Privacy and Spec 009 §Privacy."}
-  with-redacted   privacy/with-redacted)
+  redact-interceptor   privacy/redact-interceptor)
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
@@ -1022,12 +1023,16 @@
   sensitive?           privacy/sensitive?)
 
 (def ^{:doc "Production-side schema validation interceptor. Add to a
-  `reg-event-*` handler's positional interceptor vector to force `:spec`
+  `reg-event-*` handler's positional interceptor vector to force `:schema`
   validation against the dispatched event vector even in production
-  builds where dev-time validation is elided. Per Spec 010 §Production
-  builds. The interceptor reuses the handler's existing `:spec`
-  metadata — no parallel schema."}
-  at-boundary spec/at-boundary)
+  builds where dev-time validation is elided. The verb `validate-` (per
+  rf2-todvi) telegraphs the time/build-mode axis the interceptor lives
+  on (no-op in dev, validates in prod); the `-interceptor` suffix (per
+  rf2-k367k, Conventions §Value-vs-fn naming) telegraphs that this is a
+  Var holding a value, not a fn. Per Spec 010 §Production builds.
+  The interceptor reuses the handler's existing `:schema` metadata —
+  no parallel schema."}
+  validate-at-boundary-interceptor spec/validate-at-boundary-interceptor)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body
   entirely (Closure DCE on the `interop/debug-enabled?` gate); in dev /

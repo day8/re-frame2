@@ -2,7 +2,7 @@
 
 ## When to load
 
-Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or attaching the `at-boundary` interceptor to a handler that ingests untrusted data (HTTP responses, websocket messages, query-strings).
+Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or attaching the `validate-at-boundary-interceptor` interceptor to a handler that ingests untrusted data (HTTP responses, websocket messages, query-strings).
 
 ## Prerequisite
 
@@ -39,9 +39,9 @@ Every `reg-*` macro accepts a `:schema` key in its metadata-map (the canonical n
 
 In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:schema` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (`spec.cljc:154-238`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
 
-## `at-boundary` — opt-in production validation
+## `validate-at-boundary-interceptor` — opt-in production validation
 
-For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor (`:rf.schema/at-boundary`, Var `rf/at-boundary`):
+For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor (`:rf.schema/at-boundary`, Var `rf/validate-at-boundary-interceptor`):
 
 ```clojure
 (ns my-app.api
@@ -49,7 +49,7 @@ For handlers that **must** validate even in production (HTTP response ingestion,
 
 (rf/reg-event-fx :api/response-received
   {:schema ApiResponseSchema}
-  [rf/at-boundary]
+  [rf/validate-at-boundary-interceptor]
   (fn [_ [_ payload]] ...))
 ```
 
@@ -98,7 +98,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:schema` is rejected at registration.** Adding `[rf/at-boundary]` to a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
+- **Boundary interceptor without `:schema` is rejected at registration.** Adding `[rf/validate-at-boundary-interceptor]` to a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 
@@ -108,4 +108,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `at-boundary` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary-interceptor` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*
