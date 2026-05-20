@@ -203,48 +203,17 @@ const EXAMPLES = [
   // `OUT_ROOT/testbeds/<id>/` so http-server serves it under the same
   // origin as the adapter smokes. The `bundleSrc` field opts a build
   // into the bundle-copy step.
-  {
-    build: 'testbeds/deliberate-throw',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'deliberate_throw', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'deliberate-throw'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'deliberate-throw'),
-  },
-  {
-    build: 'testbeds/http-toggle',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'http_toggle', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'http-toggle'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'http-toggle'),
-    extraFiles: [
-      {
-        src: path.join(REPO_ROOT, 'testbeds', 'http_toggle', 'api', 'success.json'),
-        dest: path.join('api', 'success.json'),
-      },
-    ],
-  },
-  {
-    build: 'testbeds/deep-machine',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'deep_machine', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'deep-machine'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'deep-machine'),
-  },
-  {
-    build: 'testbeds/non-trivial-app-db',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'non_trivial_app_db', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'non-trivial-app-db'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'non-trivial-app-db'),
-  },
-  {
-    build: 'testbeds/long-flow-w-failure',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'long_flow_w_failure', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'long-flow-w-failure'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'long-flow-w-failure'),
-  },
-  {
-    build: 'testbeds/drain-depth-trigger',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'drain_depth_trigger', 'index.html'),
-    bundleSrc: path.join(IMPL_ROOT, 'out', 'testbeds', 'drain-depth-trigger'),
-    outDir: path.join(OUT_ROOT, 'testbeds', 'drain-depth-trigger'),
-  },
+  //
+  // Wave 1 of rf2-tglku (rf2-4j0tb) retired the Playwright spec.cjs files
+  // for six framework testbeds (`deliberate_throw`, `http_toggle`,
+  // `deep_machine`, `non_trivial_app_db`, `long_flow_w_failure`,
+  // `drain_depth_trigger`) — their assertions migrated to CLJS unit
+  // tests under `implementation/{core,epoch,flows,http,machines}/test/`.
+  // The testbed surfaces themselves stay in-tree as the canonical
+  // observation targets for Causa / Story / re-frame2-pair-mcp, but
+  // they no longer ship a spec.cjs, so they're dropped from the
+  // examples-orchestrator EXAMPLES list per the "never stage a surface
+  // that nothing tests" contract above.
 ];
 
 // rf2-h9ut9 — substring-match a build id against the filter. Empty
