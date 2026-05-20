@@ -239,10 +239,15 @@
     ;; [:rf.machine/spawned] so generic child machines can declare their
     ;; first transition out of an :initial state at spec-write time.
     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-      (let [start (:start args)]
+      ;; Per rf2-t1lxr: machine-spawn :start dispatches are framework-
+      ;; internal lifecycle events — tag :rf/dispatch-origin :internal
+      ;; so Causa's L2 timeline can distinguish actor-bootstrap from
+      ;; user-origin events.
+      (let [start (:start args)
+            opts  {:frame frame-id :rf/dispatch-origin :internal}]
         (if (some? start)
-          (dispatch! [spawned-id start] {:frame frame-id})
-          (dispatch! [spawned-id [:rf.machine/spawned]] {:frame frame-id}))))
+          (dispatch! [spawned-id start] opts)
+          (dispatch! [spawned-id [:rf.machine/spawned]] opts))))
     spawned-id))
 
 ;; ---- :rf.machine/invoke-all-init -------------------------------------------

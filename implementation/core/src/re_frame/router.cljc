@@ -82,6 +82,12 @@
     :source             :ui :timer :http :repl :machine ...
     :origin             actor identity tag (:app default; :pair, :story,
                         :test, ... per Spec 002 §Dispatch origin tagging)
+    :rf/dispatch-origin closed-enum functional source per Causa A.5 /
+                        Spec 009 §Dispatch-origin tagging — one of
+                        :user :router :websocket :http :ssr :fx-emit
+                        :timer :test-harness :tool :internal. Defaults
+                        to :user. Distinct from :origin (actor identity)
+                        and :source (trigger kind). Per rf2-t1lxr.
     :dispatch-id        process-monotonic id allocated here per
                         Spec 009 §Dispatch correlation
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
@@ -137,6 +143,15 @@
              :trace-id               (:trace-id opts)
              :source                 (:source opts :ui)
              :origin                 (:origin opts :app)
+             ;; Per rf2-t1lxr: the closed-enum functional source per
+             ;; Causa A.5 / Spec 009 §Dispatch-origin tagging. The 10-value
+             ;; taxonomy (:user :router :websocket :http :ssr :fx-emit
+             ;; :timer :test-harness :tool :internal) classifies WHERE the
+             ;; dispatch came from. Defaults to :user; internal callers
+             ;; (router routing emits, fx `:dispatch` cascades, HTTP reply
+             ;; dispatches, machine timer fires, …) self-tag at their
+             ;; emit site to override the default.
+             :rf/dispatch-origin     (:rf/dispatch-origin opts :user)
              :dispatched-at          (interop/now-ms)}
       ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
@@ -1232,8 +1247,11 @@
   "Emit the :event :event/dispatched trace event for this envelope. Per
   Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
   ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
-  on :tags too. Spec elision is automatic — trace/emit! short-circuits
-  when interop/debug-enabled? is false at compile time.
+  on :tags too. Per rf2-t1lxr, :rf/dispatch-origin (Causa A.5 closed-
+  enum functional source) also rides on :tags so Causa's L2 epoch
+  timeline can render the per-row origin tag. Spec elision is
+  automatic — trace/emit! short-circuits when interop/debug-enabled?
+  is false at compile time.
 
   Per rf2-qsjda: queue-time `:rf.trace/no-emit?` consideration. The
   `*handler-scope*` binding's `:no-emit?` slot doesn't exist yet at
@@ -1260,11 +1278,12 @@
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
         (trace/emit! :event :event/dispatched
-                     (cond-> {:event    event
-                              :frame    (:frame envelope)
-                              :origin   (:origin envelope)
-                              :source   (:source envelope)
-                              :sync?    sync?}
+                     (cond-> {:event              event
+                              :frame              (:frame envelope)
+                              :origin             (:origin envelope)
+                              :rf/dispatch-origin (:rf/dispatch-origin envelope)
+                              :source             (:source envelope)
+                              :sync?              sync?}
                        (:dispatch-id envelope)
                        (assoc :dispatch-id (:dispatch-id envelope))
                        (:parent-dispatch-id envelope)

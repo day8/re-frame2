@@ -981,10 +981,14 @@
                                                       (.getMessage ^Throwable exception))
                                                :cljs (some-> exception .-message))
                          :reason            "An :on-match event threw."}]
+          ;; Per rf2-t1lxr: routing-internal dispatches self-tag with
+          ;; :rf/dispatch-origin :router so Causa's L2 timeline + tools
+          ;; filter pills can discriminate framework-origin events from
+          ;; user-origin events.
           (router/dispatch! [:rf.route.internal/on-match-error
                              {:error     error-map
                               :nav-token nav-token}]
-                            {:frame frame}))))))
+                            {:frame frame :rf/dispatch-origin :router}))))))
 
 ;; Register the listener at ns-load. The listener id is namespaced under
 ;; :rf.route/* so accidental re-registration by another artefact is
@@ -1927,12 +1931,17 @@ unknown strategies as :preserve (no-op)."}
                               (when (and (not (.-defaultPrevented e))
                                          (plain-left-click? e))
                                 (.preventDefault e)
+                                ;; Per rf2-t1lxr: route-link click → :router
+                                ;; origin so the L2 epoch timeline tags the
+                                ;; resulting :rf/url-requested cascade as a
+                                ;; routing-substrate dispatch (not :user).
                                 (router/dispatch!
                                   [:rf/url-requested
                                    (cond-> {:url url :to to}
                                      (seq params)   (assoc :params params)
                                      (seq query)    (assoc :query  query)
-                                     fragment       (assoc :fragment fragment))])))))]
+                                     fragment       (assoc :fragment fragment))]
+                                  {:rf/dispatch-origin :router})))))]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
