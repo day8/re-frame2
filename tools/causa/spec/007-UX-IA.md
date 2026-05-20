@@ -1551,6 +1551,84 @@ ribbon-left and the chord drives the toggle.
 The flag flips to default-on once sibling beads rf2-o5f5f.2 … .6 fill
 the placeholder Static sub-tabs (a separate decision).
 
+### Mode bifurcation rule (rf2-qgnle)
+
+> **Dynamic and Static are parallel modes by design, not legacy
+> duplication.**
+>
+> The two shells (`shell.cljs` and `static/shell.cljs`) deliberately
+> stand alongside each other rather than collapse into one
+> mode-axis-parameterised component. The split is the architecture; the
+> rules below lock how mode-divergent surface area is structured so a
+> future third mode (or a fourth) slots in symmetrically rather than
+> compounding.
+
+**Namespace rule.** Shared state — anything Dynamic and Static read or
+write identically — lives under bare `:rf.causa/<key>`. Mode-keyed
+slots — anything that diverges between the two modes — live under
+`:rf.causa.<mode>/<key>`. The canonical pair today is
+`:rf.causa/selected-tab` (Dynamic's tab choice; uses the shared root)
+vs `:rf.causa.static/selected-tab` (Static's tab choice, default
+`:machines`). A future Dynamic-keyed slot that needs to coexist with a
+Static counterpart MAY migrate from `:rf.causa/*` to
+`:rf.causa.dynamic/*`; until that happens, the shared root IS
+Dynamic's default surface.
+
+**Shell ns rule.** Dynamic's shell is
+`tools/causa/src/day8/re_frame2_causa/shell.cljs`. Static's shell is
+`tools/causa/src/day8/re_frame2_causa/static/shell.cljs`. Each shell
+owns its own tab inventory, its own ribbon composition, and its own
+chrome silhouette (see §Surface inventory above — Dynamic is 4-layer
+with L2; Static is 3-layer without). The composer (`surface-composer`
+in `shell.cljs`) `case`-dispatches between the two on `[:rf.causa/mode]`.
+
+**Tab inventory rule.** Tab inventories are mode-keyed and not shared.
+Dynamic ships 7 tabs (Event / App-DB / Views / Trace / Machines /
+Routing / Issues — see [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+for the per-panel content designs). Static ships 5 tabs (Machines /
+Routes / Schemas / Views / Events — see §Sub-tab inventory above). New
+tabs MUST declare which mode(s) they belong to; tab-id keyword
+collisions across modes (`:machines`, `:views`) are deliberate and
+resolved by the active-mode dispatch, not by renaming. Mnemonic
+collisions across modes (`m` · `v` · `e` · `r`) are likewise resolved
+by the mode-scoped resolver (Cmd-Shift-M flips the active mode; the
+letter then dispatches the active mode's tab — see §Keyboard).
+
+**Shared-token rule.** Design tokens — colours, spacing, typography,
+motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,
+`theme/global-styles/*`) and apply across both modes. Visual cohesion
+between Dynamic and Static is achieved at the token layer, not by
+shell-ns reuse. The mode-signal mechanism (mode pill, 2-px ribbon
+stripe colour, motion-dampening, chrome silhouette — see §Mode-signal
+mechanism above) reads from tokens; the divergence is in which tokens
+each shell selects (Dynamic's `:accent-violet` stripe vs Static's
+`:cyan` stripe), not in the token system itself. **Zero new tokens
+introduced per mode** is the standing constraint.
+
+**Cycle-avoidance rule.** When one shell needs to reach into another
+mode's chrome (the canonical case today: Static's ribbon needs the
+right-icons cluster originally authored in Dynamic's `shell.cljs`),
+**inline the affected cluster locally** in the borrowing shell rather
+than `:require` across modes and form a cycle. The cost is a small,
+acknowledged duplication (today: `static/shell.cljs`'s
+`ribbon-right-icons` mirrors `shell.cljs`'s same-named cluster — see
+the comment block at the inline). The gain is that each shell stays
+independently buildable, has no compile-time dependency on its
+sibling, and can drift cleanly when one mode's chrome evolves ahead of
+the other. The duplication is a feature, not debt — it is the
+mechanism that keeps the bifurcation honest.
+
+**Consequence.** Adding a third mode (a hypothetical `:debug`,
+`:simple`, etc.) follows the same shape: a new
+`tools/causa/src/day8/re_frame2_causa/<mode>/shell.cljs`; a new
+`:rf.causa.<mode>/*` namespace for mode-keyed slots; the composer's
+`case` gains a new branch; tokens stay shared; any borrowed chrome
+clusters inline locally. The pattern scales linearly per added mode;
+the per-mode shell duplication is the predictable cost. **No further
+mode-related work may unify the shells or share mode-divergent
+state under the bare `:rf.causa/*` root** — both moves contradict
+this rule.
+
 ### See also
 
 - [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — the
@@ -1562,3 +1640,6 @@ the placeholder Static sub-tabs (a separate decision).
 - [`Conventions.md`](./Conventions.md) §Panel facade + leaf split —
   the canonical per-panel facade shape (`Panel` reg-view +
   `install!`) every mount-fn target adheres to.
+- [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) —
+  the per-panel content designs for the 7 Dynamic L4 panels; the
+  per-panel companion to the Mode bifurcation rule above.
