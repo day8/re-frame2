@@ -69,13 +69,14 @@
 ;; ---- rf2-r40km — :rf.http/cors retry-set membership ----------------------
 
 (deftest cors-is-a-valid-retry-on-member
-  (testing "rf2-r40km — `:rf.http/cors` is a valid member of `:retry :on`.
-  Audit finding 5.1: the retry-set membership contract is open to any
-  `:rf.http/*` failure kind; CORS is in the closed taxonomy and so
-  should compose cleanly with the helper arg path. A semantic decision
-  on whether to AUTO-retry CORS belongs to the caller (typically NO —
-  CORS is a config error, not transient — but a probing app may want
-  to)."
+  (testing "rf2-r40km / rf2-apwkm — `:rf.http/cors` is a valid member of
+  `:retry :on`. CORS sits in the closed retryable set documented at
+  Spec 014 §Closed-set `:retry :on` validation
+  (#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx
+  :rf.http/http-5xx}) and so composes cleanly with the helper arg path.
+  A semantic decision on whether to AUTO-retry CORS belongs to the
+  caller (typically NO — CORS is a config error, not transient — but a
+  probing app may want to)."
     (let [retry {:on #{:rf.http/transport :rf.http/cors :rf.http/timeout}
                  :max-attempts 2}
           out   (rf.http/get "https://api.example.invalid/x"

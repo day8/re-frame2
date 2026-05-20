@@ -289,13 +289,33 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 
 | Key | Type | Purpose |
 |---|---|---|
-| `:on` | set of category keywords | Which failure categories trigger a retry. Drawn from the `:rf.http/*` set in [§Failure categories](#failure-categories-closed-set). Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. `:rf.http/aborted` is never retried regardless of `:on`. |
+| `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation--rf2-apwkm) below. |
 | `:max-attempts` | int | Total attempts including the first. `1` = no retry. Default: 1. |
 | `:backoff` | map | Exponential backoff config. |
 | `:backoff.:base-ms` | int | Initial delay (ms). |
 | `:backoff.:factor` | num | Multiplier per attempt. |
 | `:backoff.:max-ms` | int | Cap on delay. |
 | `:backoff.:jitter` | bool | Add random ±25% jitter to each delay. |
+
+#### Closed-set `:retry :on` validation — rf2-apwkm
+
+`:retry :on` is restricted to the **retryable subset** of the failure-category vocabulary:
+
+```clojure
+#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
+```
+
+The other `:rf.http/*` categories from [§Failure categories](#failure-categories-closed-set) are **non-retryable by construction** and rejected when they appear in `:retry :on`:
+
+| Category | Why excluded |
+|---|---|
+| `:rf.http/aborted` | A cancelled request MUST NOT issue a fresh attempt under any retry policy — re-issuing it would violate Spec 014 §Abort precedence. Abort always wins. |
+| `:rf.http/decode-failure` | The next attempt would deterministically reproduce the same schema-validation / parser failure for the same response shape — retrying buys nothing and burns attempts. |
+| `:rf.http/accept-failure` | A `{:failure user-map}` projection from `:accept` is the caller's own classification of a successful transport + decode; retrying the transport will not change the response body. Domain-level retry of this shape belongs to a state machine (see [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry)), not to `:retry`. |
+
+Implementations **MUST validate `:retry :on` at fx-call time** (when the `:rf.http/managed` fx body is invoked, before any attempt is issued). A non-empty intersection between `:on` and the rejected set throws an `:rf.error/http-bad-retry-on` ex-info, per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). This catches the misuse at the dispatch site rather than silently letting a useless retry policy ride for the request's lifetime (or, for `:rf.http/aborted`, deferring the rejection to retry-attempt time inside the transport loop). Membership outside the full `:rf.http/*` namespace is also rejected — the set is closed.
+
+Per the rf2-apwkm spec tighten: implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
 
 Each retry advances the carried epoch (per Pattern-StaleDetection); a stale request (e.g. one whose target route changed mid-retry) is suppressed without dispatching the reply.
 

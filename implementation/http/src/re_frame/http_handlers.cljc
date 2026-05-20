@@ -27,6 +27,53 @@
             [re-frame.http-registry  :as registry]
             [re-frame.http-transport :as transport]))
 
+;; ---- rf2-apwkm — closed-set `:retry :on` validation ----------------------
+;;
+;; Per Spec 014 §Closed-set `:retry :on` validation: `:retry :on` is
+;; restricted to the *retryable* subset of the failure-category vocabulary.
+;; The other `:rf.http/*` categories (`:rf.http/aborted`,
+;; `:rf.http/decode-failure`, `:rf.http/accept-failure`) are
+;; non-retryable by construction and rejected at fx-call time — the
+;; runtime previously rejected only `:rf.http/aborted` and only at
+;; retry-attempt time, letting useless members ride for the request's
+;; lifetime. The closed-set tighten catches misuse at the dispatch site.
+(def retryable-categories
+  "The closed set of `:rf.http/*` failure categories permitted in
+  `:retry :on`. Per Spec 014 §Closed-set `:retry :on` validation
+  (rf2-apwkm)."
+  #{:rf.http/transport
+    :rf.http/cors
+    :rf.http/timeout
+    :rf.http/http-4xx
+    :rf.http/http-5xx})
+
+(defn- validate-retry!
+  "Per Spec 014 §Closed-set `:retry :on` validation (rf2-apwkm): a
+  `:retry :on` set may only contain members of `retryable-categories`.
+  Anything outside (a non-retryable `:rf.http/*` category like
+  `:rf.http/aborted`, `:rf.http/decode-failure`, `:rf.http/accept-failure`
+  — or any keyword outside the `:rf.http/*` namespace) throws an
+  `:rf.error/http-bad-retry-on` ex-info per Spec 009 §Error event
+  catalogue. The throw fires at fx-call time, before `run-attempt!`,
+  so the misuse surfaces at the dispatch site rather than being
+  silently swallowed inside the transport retry loop.
+
+  Absent `:retry`, absent `:on`, or an empty `:on` set: no-op. A
+  caller who supplied `:retry` without `:on` already disables retry
+  (the transport loop's `(contains? on-set kind)` gate is false for
+  every kind), so we don't force `:on` to be non-empty here."
+  [args-map]
+  (when-let [on (some-> args-map :retry :on)]
+    (when (seq on)
+      (let [bad-members (into #{} (remove retryable-categories) on)]
+        (when (seq bad-members)
+          (throw (ex-info ":rf.error/http-bad-retry-on"
+                          {:where         :rf.http/managed
+                           :recovery      :no-recovery
+                           :bad-members   bad-members
+                           :retryable-set retryable-categories
+                           :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))
+
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
   per-host attempt loop.
@@ -117,6 +164,12 @@
   same flag is then re-stamped onto the normalised ctx so the
   attempt loop in `http-transport` sees a single resolved value."
   [frame-ctx args-map]
+  ;; rf2-apwkm — closed-set `:retry :on` validation. Fires BEFORE the
+  ;; middleware chain runs so misuse surfaces at the dispatch site
+  ;; rather than being deferred to retry-attempt time inside the
+  ;; transport loop (or silently dropped when the bad member never
+  ;; fires). Per Spec 014 §Closed-set `:retry :on` validation.
+  (validate-retry! args-map)
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         ;; rf2-622e3 — resolve once, thread the result through
         ;; frame-ctx's :event slot so normalise-args reads it
