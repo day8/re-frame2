@@ -40,7 +40,7 @@ jobs:
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
       reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
-      examples_browser: ${{ steps.detect.outputs.examples_browser }}
+      adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       template_expensive: ${{ steps.detect.outputs.template_expensive }}
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
@@ -260,7 +260,7 @@ jobs:
       # returns 0 when there are no test namespaces matching its
       # pattern. Per rf2-3yij Decision 7 the substrate's smoke-test
       # surface is the browser-side counter + login specs — see the
-      # examples-browser job below.
+      # adapter-testbed-smokes job below.
       - name: Run JVM tests (uix artefact, classpath probe)
         run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
 
@@ -305,7 +305,7 @@ jobs:
       # test-runner returns 0 when there are no test namespaces
       # matching its pattern. Per rf2-2qit Decision 7 the substrate's
       # smoke-test surface is the browser-side counter + login specs —
-      # see the examples-browser job below.
+      # see the adapter-testbed-smokes job below.
       - name: Run JVM tests (helix artefact, classpath probe)
         run: clojure -M:test || echo "no JVM-runnable tests in helix artefact (expected)"
 
@@ -987,10 +987,10 @@ jobs:
       - name: Verify counter bundle isolates every per-feature artefact
         run: npm run test:bundle-isolation
 
-  examples-browser:
-    name: Examples (browser, headless Chromium, rf2-lyj0)
+  adapter-testbed-smokes:
+    name: Adapter testbed smokes (browser, headless Chromium)
     needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.examples_browser == 'true'
+    if: needs.detect_changed_surfaces.outputs.adapter_testbed_smokes == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:

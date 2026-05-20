@@ -8,7 +8,7 @@
  *   4. Snapshot console errors         — none beyond the expected.
  *
  * Wired into CI behind the RF2_CAUSA_RUN_GALLERY_SMOKES=1 opt-in
- * (rf2-1w76p): the examples-browser job sets the flag and the
+ * (rf2-1w76p): the adapter-testbed-smokes job sets the flag and the
  * orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
  * compiles :testbeds/panel-gallery, stages index.html alongside the
  * bundle, and invokes this script after the main spec sweep. Run
