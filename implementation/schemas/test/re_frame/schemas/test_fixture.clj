@@ -32,6 +32,10 @@
     rf2-fq7d2 `:rf.warning/schema-validator-unavailable` one-shot
     so test cases that exercise the unbound-validator path each
     start from a clean slate.
+  - `(schemas/clear-walker-opaque-warned!)` — clears the rf2-jsokn
+    `:rf.warning/schema-walker-opaque` one-shot so test cases that
+    exercise the non-vector schema-registration path each start from
+    a clean slate.
   - `(rf/init! plain-atom/adapter)` — installs the schemas-artefact
     JVM tests' standard substrate."
   (:require [re-frame.core :as rf]
@@ -52,5 +56,6 @@
   (schemas/reset-schema-validator!)
   (spec/clear-boundary-warned-handler-ids!)
   (schemas/clear-validator-unavailable-warned!)
+  (schemas/clear-walker-opaque-warned!)
   (rf/init! plain-atom/adapter)
   (test-fn))

@@ -86,6 +86,73 @@
   []
   (reset! validator-unavailable-warned false))
 
+;; ---- walker-opaque warning (rf2-jsokn / rf2-ycqtv finding #12) ------------
+;;
+;; Per Spec 010 §The `:spec` value is opaque to re-frame, the framework's
+;; schema walker (`re-frame.schemas.walker`) is pure data — it handles
+;; vector-form Malli EDN and treats compiled `m/schema` values, registry
+;; refs, and anything-else-non-vector as opaque leaves. A user that
+;; registers a registry-ref schema (`(rf/reg-app-schema [:user]
+;; :my/user-schema)`) and puts `:sensitive?` / `:large?` per-slot flags
+;; inside the registry definition will see the walker **silently skip**
+;; them — the validation-failure trace won't redact the sensitive slot
+;; and the size-elision walker won't see the `:large?` declarations.
+;;
+;; This warning fires once per process from `reg-app-schema` /
+;; `reg-app-schemas` when the registered schema is not a vector form
+;; (i.e. the walker cannot introspect it). Symmetric with the
+;; `:rf.warning/schema-validator-unavailable` warn-once-per-process
+;; pattern above. Cost is one boot-time predicate per `reg-app-schema`
+;; call; the warning is the discoverability nudge for the two workable
+;; fallbacks (vector form, or registration-meta `:sensitive?`).
+
+(defonce ^:private walker-opaque-warned
+  ;; Process-lifecycle one-shot. Reset by `clear-walker-opaque-warned!`
+  ;; (used by the schemas test-fixture's `reset-runtime`).
+  (atom false))
+
+(defn clear-walker-opaque-warned!
+  "Reset the one-shot `:rf.warning/schema-walker-opaque` cache. Used by
+  test fixtures so each case starts from a clean diagnostic slate."
+  []
+  (reset! walker-opaque-warned false))
+
+(defn- maybe-warn-walker-opaque!
+  "Emit `:rf.warning/schema-walker-opaque` once per process when
+  `reg-app-schema` / `reg-app-schemas` is invoked with a schema value
+  that is NOT a vector form (the walker can only introspect Malli EDN
+  vector forms — `m/schema` compiled values and registry-ref keywords
+  are treated as opaque leaves).
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  so the production bundle DCEs the consult+emit branch (Spec 009
+  §Production builds)."
+  [schema path]
+  (when (and (not (vector? schema))
+             (not @walker-opaque-warned))
+    (when (compare-and-set! walker-opaque-warned false true)
+      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+        (emit! :warning :rf.warning/schema-walker-opaque
+               {:path path
+                :schema-kind (cond
+                               (keyword? schema) :registry-ref
+                               (map?     schema) :compiled-schema-object
+                               :else             :unknown)
+                :reason
+                (str "reg-app-schema was called with a non-vector schema"
+                     " form (registry ref / compiled m/schema / other"
+                     " opaque value). The schema-walker (used for"
+                     " per-slot `:sensitive?` / `:large?` extraction)"
+                     " can only introspect vector-form Malli EDN —"
+                     " per-slot flags inside an opaque value are"
+                     " silently skipped. Two workable shapes: (1)"
+                     " register the vector form directly so the walker"
+                     " can introspect it; (2) use registration-level"
+                     " `:sensitive?` metadata on the consuming"
+                     " `reg-event-*` for coarse-grained honour. Per"
+                     " Spec 010 §The `:spec` value is opaque to"
+                     " re-frame.")})))))
+
 (defn- maybe-warn-validator-unavailable!
   "Emit `:rf.warning/schema-validator-unavailable` once per process when
   `reg-app-schema` / `reg-app-schemas` is invoked AND the Malli adapter
@@ -143,7 +210,14 @@
      ;; Production elides via the outer `interop/debug-enabled?` gate
      ;; (Spec 009 §Production builds).
      (when interop/debug-enabled?
-       (maybe-warn-validator-unavailable!))
+       (maybe-warn-validator-unavailable!)
+       ;; Per rf2-jsokn: dev-time nudge when the registered schema is
+       ;; a non-vector form (registry-ref keyword, compiled m/schema
+       ;; object, etc.) — the schema walker can only introspect vector
+       ;; Malli EDN, so per-slot `:sensitive?` / `:large?` flags inside
+       ;; an opaque value are silently skipped. Production elides via
+       ;; the outer `interop/debug-enabled?` gate.
+       (maybe-warn-walker-opaque! schema path))
      path)))
 
 (defn reg-app-schemas
