@@ -201,9 +201,9 @@
   (let [cb-id (keyword "re-frame.story.frames"
                        (str "teardown-capture-"
                             (swap! teardown-capture-counter inc)))]
-    (trace-tooling/register-trace-cb! cb-id listener)
+    (trace-tooling/register-trace-listener! cb-id listener)
     (try (body-fn)
-      (finally (trace-tooling/remove-trace-cb! cb-id)))))
+      (finally (trace-tooling/unregister-trace-listener! cb-id)))))
 
 (defn- apply-frame-teardown!
   "Walk the resolved `:frame-setup` decorators IN REVERSE-DECLARATION
