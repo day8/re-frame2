@@ -1,5 +1,7 @@
 # 003-Machine-Inspector
 
+> **See also**: [`021-Dynamic-Panel-Designs.md` §6](021-Dynamic-Panel-Designs.md#6-the-machines-panel-topology--overlay) for the canonical content design layered onto the topology view.
+
 > **2026-05-19 collapse note (rf2-y9xmf):** the Runtime Machines panel
 > is now **event-driven only**. The panel is BLANK when the currently
 > focused event triggered no machine transitions; it renders one

@@ -1,5 +1,7 @@
 # 004-App-DB-Diff
 
+> **See also**: [`021-Dynamic-Panel-Designs.md` §4](021-Dynamic-Panel-Designs.md#4-the-app-db-panel-state-bridge) for the canonical content design including downstream-subs overlay.
+
 ## Bug class
 
 **"What part of app-db actually changed when I dispatched this event?"**
