@@ -340,6 +340,39 @@ two CSS vars, two knobs, one shell. Hosts that want a single density
 knob target `--rf-causa-font-size` and leave the slider's var alone.
 See [`007-UX-IA.md`](./007-UX-IA.md) §Sizes — one knob, whole scale.
 
+### Cascade rule — three `--rf-causa-*` size / motion vars
+
+Causa publishes three same-prefix CSS custom properties that govern the
+shell's type scale and motion budget. A fresh reader sees three
+`--rf-causa-*` vars and asks "which one wins?". The cascade is **fixed
+and independent** — the three vars drive disjoint surfaces and do not
+compete:
+
+| CSS var | Knob axis | Surface | Origin |
+|---|---|---|---|
+| `--rf-causa-font-size` | Host-overridable density anchor (also driven by the Settings → General Density radio: `:compact 12px` / `:cosy 13px` / `:comfy 14px`) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-causa-font-size, 13px) * <multiplier>)`. Flipping it rescales every typographic surface in lockstep. | rf2-n8i2c |
+| `--rf-causa-text-size` | User-side Settings → General Text-size slider (10–18 px; default 13) | Causa surfaces that opt-in read `var(--rf-causa-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | rf2-9poxq |
+| `--rf-causa-motion-scale` | Reduced-motion gate (`1` = full motion; `0` = motion off; `:cycle-reduced-motion` palette verb cycles `:os → :always → :never`) | Every Causa transition / animation reads `calc(<duration> * var(--rf-causa-motion-scale, 1))`. Setting to `0` collapses motion to zero duration without losing the end-state geometry. | rf2-5kfxe |
+
+**The rule:** host overrides density via `--rf-causa-font-size` (the
+density anchor); the user fine-tunes per-row text via the slider's
+`--rf-causa-text-size` (the row knob); motion gates collapse to 0
+under `--rf-causa-motion-scale: 0` (the motion knob). Each var has
+its own write path
+(`settings/effects/apply-density-font-size!` for `--rf-causa-font-size`;
+`settings/effects/apply-text-size!` for `--rf-causa-text-size`;
+`theme/global-styles/motion-css` for `--rf-causa-motion-scale`) and
+its own persistence slot — they do NOT cascade onto each other. A
+host stylesheet writing `--rf-causa-font-size: 14px` is unaffected
+by a user moving the text-size slider, and vice-versa. The vars
+share a prefix and a publishing site (the shell root); they do not
+share a domain.
+
+The full Settings-popup contract enumerating both `--rf-causa-*-size`
+vars side-by-side lives in [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md)
+§Two CSS custom properties — `--rf-causa-text-size` vs
+`--rf-causa-font-size`.
+
 ## Command palette (rf2-ybjkx)
 
 The palette is a centred 560px modal opened via the global
@@ -359,14 +392,76 @@ The six chord-reachable command verbs that ship post-rf2-ybjkx —
 `:jump-to-settings`, `:toggle-mode`, `:clear-epoch-history` — are
 catalogued at
 `tools/causa/src/day8/re_frame2_causa/palette/sources.cljc`
-§`command-items`. There is no public verb-registration API at v1.0
-(consistent with §What this doesn't expose); the catalogue is
-internal but the chord + recents key + reduced-motion override are
-public surfaces hosts may rely on.
+§`command-items` and enumerated normatively in §Command palette
+verbs (catalogue) below. There is no public verb-registration API at
+v1.0 (consistent with §What this doesn't expose); the catalogue is
+internal-but-stable — the chord + recents key + reduced-motion
+override are the public surfaces hosts may rely on, and the
+catalogue's per-verb dispatch shape is stable across patch releases.
 
 See [`007-UX-IA.md`](./007-UX-IA.md) §Command palette for the full
 indexed-sources list, fuzzy-match algorithm, recents-boost decay
 shape, and close behaviour.
+
+### Command palette verbs (catalogue)
+
+The palette ships ten command verbs in total at v1; six are mode-agnostic
+(surface in both Runtime and Static modes) and four are Runtime-only
+(scoped to the event-coupled spine). Plus one palette-internal verb
+(`:close-palette` — `Esc` keybind echo). Each row below mirrors the
+literal map shape in
+`tools/causa/src/day8/re_frame2_causa/palette/sources.cljc`
+§`command-items`; the spec is normative, the source is the load-bearing
+catalogue.
+
+#### Mode-agnostic verbs (Runtime + Static — the six "chord-reachable" verbs from rf2-ybjkx)
+
+| Verb id | Label | Hint | Action | Notes |
+|---|---|---|---|---|
+| `:toggle-theme` | Toggle theme (dark ↔ light) | `Settings · Theme` | `[:palette/toggle-theme]` | Dark ↔ Light cycle of the theme class. Popup radio is the canonical UI; this is the keyboard-first ergonomic shortcut. |
+| `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `user override of prefers-reduced-motion` | `[:palette/cycle-reduced-motion]` | Three-state cycle `:os → :always → :never → :os`. Overrides `prefers-reduced-motion: reduce` via the `--rf-causa-motion-scale` seam. Persists across reloads. |
+| `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. |
+| `:jump-to-settings` | Jump to Settings | `,` | `[:palette/jump-to-settings]` | Opens the Settings popup at the General tab. Equivalent to the `,` bare-key shortcut. |
+| `:toggle-mode` | Toggle mode (Runtime ↔ Static) | `Cmd/Ctrl+Shift+M` | `[:palette/toggle-mode]` | Flip Runtime ↔ Static. Chord parity with `Cmd/Ctrl+Shift+M` in `keybinding.cljs`. |
+| `:open-popout` | Open Causa in a pop-out window | `rf-causa-popout` | `[:palette/open-popout]` | Opens the same-origin pop-out window via `popout!`. |
+
+#### Runtime-only verbs (event-coupled spine)
+
+| Verb id | Label | Hint | Action | Notes |
+|---|---|---|---|---|
+| `:clear-trace-buffer` | Clear trace buffer | `drops Causa's ring buffer` | `[:palette/clear-trace-buffer]` | Drops Causa's trace ring buffer. Runtime-only — Static mode has no spine. |
+| `:clear-epoch-history` | Clear epoch history | `drops Causa's epoch snapshots` | `[:palette/clear-epoch-history]` | Drops Causa's per-frame epoch history. Runtime-only. |
+| `:reset-suppressed-counters` | Reset redacted-events counter | `clears the REDACTED N indicator` | `[:palette/reset-suppressed-counters]` | Clears the `REDACTED N` overlay counter that surfaces when filters elide events. Runtime-only. |
+
+#### Palette-internal verb
+
+| Verb id | Label | Hint | Action | Notes |
+|---|---|---|---|---|
+| `:close-palette` | Close command palette | `ESC` | `[:palette/close]` | Echo of the `Esc` keybind. Mode-agnostic; not a public-API verb hosts target externally, but listed for completeness because it ships in the same catalogue. |
+
+#### Catalogue invariants
+
+1. **Pure-data items.** Every entry is a map (`{:source :command :id <kw>
+   :label <str> :hint <str> :icon <str> :boost <int> :action <vec>
+   :modes <set> :popout? <bool>}`); the aggregator filters by
+   `:modes` membership against the active `:rf.causa/mode`.
+
+2. **Static catalogue.** No `reg-command-verb` is exposed at v1.0 —
+   the catalogue is closed (consistent with §What this doesn't expose
+   "No plugin registration API"). Hosts that need a new verb file
+   a bead against `tools/causa/spec/API.md` §Command palette verbs.
+
+3. **Stable dispatch shape.** Each verb's `:action` vector
+   (`[:palette/<verb>]`) is a re-frame event dispatched into
+   `:rf/causa`; the event id is part of the public catalogue contract
+   and stable across patch releases. The handler implementations live
+   under `palette/events.cljs`.
+
+4. **Boost weighting.** Every command-source item carries `:boost 40`
+   (the `boost-table :command` value); recently-invoked commands
+   receive an additional position-decayed bonus (`recents-boost-max
+   60` / `recents-boost-step 20` per `palette/sources.cljc`). The
+   weight tunings are internal and may evolve across minor releases.
 
 ## MCP API
 
@@ -377,6 +472,143 @@ runtime API (`day8.re-frame2-causa.runtime`) — agents read the same
 trace bus + epoch history + registrar Causa itself reads, via
 re-frame2-pair-mcp's `eval-cljs` and the runtime accessors. See
 DESIGN-RATIONALE.md Lock #6 (superseded) for the reasoning.
+
+## Runtime accessor surface (Causa ↔ MCP read contract)
+
+`day8.re-frame2-causa.runtime` is the **public read-and-mutate seam**
+between Causa's browser-side runtime and any out-of-process tool
+that drives a re-frame2 app via Causa (today: `tools/re-frame2-pair-mcp/`;
+tomorrow: any future MCP server / IDE plugin / record-replay harness).
+The `re-frame2-pair-mcp/eval-cljs` channel evaluates forms addressed
+at `day8.re-frame2-causa.runtime/<accessor>` against the browser's
+shadow-cljs nREPL; the return value comes back over the bencode-framed
+channel. The accessor signatures below are the **stable contract** —
+the same Tool-Pair-style discipline (the framework emits; the tool
+consumes) that governs `:trace-bus` and `epoch-history` per
+[`Principles.md`](./Principles.md) §Observation only.
+
+### Discovery sentinel
+
+Two markers prove the runtime landed in the host browser process:
+
+| Marker | Spelling | Lifetime |
+|---|---|---|
+| CLJS var | `day8.re-frame2-causa.runtime/session-id` | Random UUID set once per preload load; survives `:after-load`; wiped by full page refresh. |
+| JS global mirror | `js/globalThis.__day8_re_frame2_causa_runtime` | JS object carrying `session-id` + `installed` ms-timestamp. The MCP-server-side probe reads this without a CLJS compile round-trip. |
+
+The install side-effect is gated on `re-frame.interop/debug-enabled?`
+— a stray production load is a no-op (no `js/globalThis` pollution).
+A page-refresh-cleared sentinel surfaces as
+`{:reason :runtime-not-preloaded}` on the next `discover-app` tool
+call with a setup hint.
+
+### Origin tag (`*current-origin*`)
+
+Every mutation the runtime performs on behalf of a tool client
+carries `:tags :origin <tool-name>`. The runtime exposes a
+`^:dynamic` var:
+
+```clojure
+(def ^:dynamic *current-origin*
+  "Default :causa-mcp. Tool clients (re-frame2-pair-mcp et al.) rebind for
+   the synchronous extent of an eval'd form to their own origin."
+  :causa-mcp)
+```
+
+Tool clients re-bind via `(binding [runtime/*current-origin* :my-tool] ...)`
+for the synchronous extent of an eval'd form. The async-tagging gap
+(per Lock #4 / I6 — a dispatched event's downstream cascade carries
+the origin only through the synchronous handler frame) is documented;
+later cascades pick up the framework's natural origin tagging. A
+read-only `(runtime/current-origin)` accessor lets tests pin the
+rebind contract without `#'`-piercing the dynamic var.
+
+### Frame resolution
+
+Every accessor that operates on a frame resolves it via the same
+fallback ladder:
+
+1. Caller-supplied `:frame <id>` arg.
+2. The sole registered frame (when exactly one is registered).
+3. `nil` → accessor returns `{:ok? false :reason :no-frame-resolved
+   :hint "Pass :frame :foo or register at least one frame."}`.
+
+Multi-frame apps without an explicit `:frame` pick are surfaced
+via `discover-app`'s `:ambiguous-frame? true` flag rather than
+silently picking one. The MCP server's tool-arg layer is the right
+place to refuse mutations against an ambiguous resolution; reads
+degrade through the documented `:no-frame-resolved` fallback.
+
+### Privacy egress (single emission site)
+
+Every direct-read accessor routes returned values through
+`re-frame.core/elide-wire-value` before egress. The single normative
+emission site lives in the framework; the runtime's job is to call
+it with `:include-sensitive?` and `:include-large?` defaulting
+`false` and to honour the caller's opt-in (per MUST-inventory rows
+#2 / #15 / #17 / #19). Callers pass plain `:include-sensitive?` /
+`:include-large?` opts; the runtime translates to the framework's
+`:rf.size/*` namespaced opt keys.
+
+### Inspection band (9 accessors — read-only)
+
+| Accessor (fn) | Tool name | Returns | Reads |
+|---|---|---|---|
+| `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). |
+| `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
+| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/get-frame-db` (optionally scoped by `:path`). |
+| `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:before … :after …}}` | Reads `:db-before` + `:db-after` off a named epoch record. Heavier nested-diff projection lives MCP-side. |
+| `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <edn>}` | `rf/machine-meta` for the registered machine spec. |
+| `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |
+| `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to issue-tier op-types (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`). |
+| `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of `:event :sub :fx :cofx :machine :flow :reg-machine :frame :view`. |
+| `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`. |
+
+### Mutation band (3 accessors — write)
+
+| Accessor (fn) | Tool name | Returns | Behaviour |
+|---|---|---|---|
+| `dispatch!` | `dispatch` | `{:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}` | Fire `event-vec` tagged `:origin *current-origin*`. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors. |
+| `restore-epoch!` | `restore-epoch` | `{:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}` | Rewinds a frame's `app-db` to the named epoch's `:db-after` via `rf/restore-epoch`. Failures (per Tool-Pair §Time-travel — Restore, six documented failure modes) emit a structured `:rf.epoch/*` trace and leave `app-db` unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus. |
+| `reset-frame-db!` | `reset-frame-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `rf/reset-frame-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/reset-frame-db-during-drain` / `:rf.epoch/reset-frame-db-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
+
+### Streaming band (3 accessors — subscription bookkeeping)
+
+| Accessor (fn) | Tool name | Returns | Behaviour |
+|---|---|---|---|
+| `subscribe!` | `subscribe` | `{:ok? true :sub-id <uuid> :topic <kw> :filter <map>}` | Open a streaming subscription for `:topic` ∈ `#{:trace :epoch :fx :error}` with `:filter`. Runtime records metadata; the MCP server owns the per-tick drain pump + queue overflow bookkeeping. |
+| `unsubscribe!` | `unsubscribe` | `{:ok? true :sub-id <id> :existed? <bool>}` | Idempotent close per the catalogue entry. |
+| `list-subscriptions` | `list-subscriptions` | `{:ok? true :subs <vec> :count <n>}` | Diagnostic enumerating active runtime-side subscription metadata. Per-tick `:queue-depth` / `:queue-bytes` / `:dropped-events` fields live MCP-side. |
+
+### Escape hatch (1 accessor)
+
+| Accessor (fn) | Tool name | Returns | Behaviour |
+|---|---|---|---|
+| `eval-form-result` | `eval-cljs` (runtime-side companion) | `{:ok? true :value <elided>}` | The MCP server renders the user's CLJS form inside a `(binding [*current-origin* …] …)` wrapper, then `cljs-eval`s the wrapped form directly. This fn is the runtime-side **result shaper** — privacy + size scrubbing applied to the eval'd value before egress with caller's `:include-sensitive?` / `:include-large?` opt-in. |
+
+### Meta band (2 accessors)
+
+| Accessor (fn) | Tool name | Returns | Behaviour |
+|---|---|---|---|
+| `health` | `discover-app` (runtime-side companion) | `{:ok? true :session-id <uuid> :debug-enabled? <bool> :frames <vec> :ambiguous-frame? <bool> :coord-annotation-enabled? <bool> :origin <kw>}` | One-call summary of the runtime's view of the world. Side-effect-free — Causa-the-panel's preload owns the trace + epoch listeners; this accessor installs no listeners of its own. |
+| `tail-build-probe` | `tail-build` (runtime-side companion) | `{:ok? true :probe <int> :session-id <uuid> :build-tick <int>}` | Returns a fresh monotonic counter every call. MCP servers poll until the value changes — proving a hot-reload landed and the runtime re-evaluated. The counter survives `:after-load` (defonce) and resets only on full page refresh (same lifetime as `session-id`). Change-detect lives MCP-side. |
+
+### Test support
+
+`reset-for-test!` clears `subscriptions` + `probe-counter` for
+fixture isolation. Does NOT touch `session-id` (per-preload constant
+by design) or the JS-global sentinel. Test-only — never call from
+production code.
+
+### Cross-side coupling — one-way
+
+The MCP server depends on the accessor signatures above (the
+contract). The runtime is independent of any server — Causa-the-panel
+loads `runtime.cljs` without an MCP server running, and any future
+MCP consumer can attach later without the runtime needing to know.
+Adding an accessor is an additive change at the Causa layer; removing
+or renaming one is a breaking change to the Tool-Pair contract and
+requires a major-version bump per §Versioning.
 
 ## Settings keys
 
