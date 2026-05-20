@@ -55,6 +55,7 @@
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -338,5 +339,16 @@
     :<- [:rf.causa.static.views/query]
     (fn [[registrations-map query] _query]
       (project-data registrations-map query)))
+
+  ;; rf2-2moh1 — register the Static Views tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :views
+     :label "Views"
+     :mnem  "v"
+     :modes #{:static}
+     :order 3
+     :panel Panel
+     :placeholder-bead "rf2-o5f5f.5"})
 
   nil)

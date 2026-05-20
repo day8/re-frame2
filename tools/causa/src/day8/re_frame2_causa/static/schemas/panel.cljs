@@ -53,6 +53,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas.storage :as schemas-storage]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -414,5 +415,16 @@
     :<- [:rf.causa.static.schemas/query]
     (fn [[{:keys [schemas-by-frame events subs]} query] _query]
       (project-data schemas-by-frame events subs query)))
+
+  ;; rf2-2moh1 — register the Static Schemas tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :schemas
+     :label "Schemas"
+     :mnem  "c"
+     :modes #{:static}
+     :order 2
+     :panel Panel
+     :placeholder-bead "rf2-o5f5f.4"})
 
   nil)

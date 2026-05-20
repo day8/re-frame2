@@ -57,6 +57,7 @@
   `[rf/frame-provider {:frame :rf/causa}]` in `shell.cljs` scopes
   subscribes / dispatches to Causa's frame."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.static.machines.browse-list :as browse-list]
             [day8.re-frame2-causa.static.machines.definition-detail
              :as definition-detail]
@@ -249,4 +250,14 @@
   ;; Hydrate from localStorage. The persistence ns guards storage
   ;; availability internally so the JVM test path is a no-op.
   (persistence/hydrate!)
+  ;; rf2-2moh1 — register the Static Machines tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :machines
+     :label "Machines"
+     :mnem  "m"
+     :modes #{:static}
+     :order 0
+     :panel panel
+     :placeholder-bead "rf2-o5f5f.2"})
   nil)

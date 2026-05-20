@@ -56,6 +56,7 @@
   and now power the Static Routes panel — same shared primitives,
   per the parent-epic findings §5.1."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.routing-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -316,5 +317,16 @@
          :to-id      (:to-id nav)
          :navigated? (:navigated? nav)
          :current    slice})))
+
+  ;; rf2-2moh1 — register the Runtime Routing tab with the internal L4
+  ;; tab registry. Per rf2-nrbs9 Mike's design call (2026-05-18) Routing
+  ;; earns its own L3 lens tab between Machines and Issues.
+  (panel-registry/reg-l4-tab!
+    {:id    :routing
+     :label "Routing"
+     :mnem  "r"
+     :modes #{:runtime}
+     :order 5
+     :panel Panel})
 
   nil)

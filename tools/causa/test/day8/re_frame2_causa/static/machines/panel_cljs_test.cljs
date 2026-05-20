@@ -507,5 +507,5 @@
             placeholder is replaced by the live panel"
     (is (= "rf2-o5f5f.2"
            (-> (some #(when (= :machines (:id %)) %)
-                     static-shell/tabs)
+                     (static-shell/tabs))
                :placeholder-bead)))))

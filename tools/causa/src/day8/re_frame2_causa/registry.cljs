@@ -364,7 +364,7 @@
 
     (rf/reg-event-db :rf.causa.static/select-tab
       (fn [db [_ tab-id]]
-        (if (contains? static-shell/tab-ids tab-id)
+        (if (contains? (static-shell/tab-ids) tab-id)
           (assoc db :rf.causa.static/selected-tab tab-id)
           db)))
 
@@ -710,7 +710,14 @@
     ;; row vector for the view.
     (static-flows-panel/install!)
     (views/install!)
-    (trace/install!))
+    (trace/install!)
+    ;; rf2-2moh1 — register the Static :events placeholder tab. The
+    ;; other Static tabs (machines / routes / schemas / views / flows)
+    ;; each register their entry from their own panel's `install!`
+    ;; above; the `:events` tab is not yet panelled (sibling bead
+    ;; rf2-o5f5f.6 fills it) so its placeholder registration lives
+    ;; in `static.shell` alongside the placeholder-card helper.
+    (static-shell/register-events-placeholder!))
   nil)
 
 (defn reset-for-test!

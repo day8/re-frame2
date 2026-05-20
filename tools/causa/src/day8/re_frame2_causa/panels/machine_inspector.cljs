@@ -46,6 +46,7 @@
             [day8.re-frame2-causa.chart.layout :as chart-layout]
             [day8.re-frame2-causa.chart.elk-layout :as elk-layout]
             [day8.re-frame2-causa.chart.svg :as chart-svg]
+            [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
@@ -723,4 +724,14 @@
   (machine-canvas/install!)
 
   ;; ---- Share affordance (rf2-nqw0v) -----------------------------
-  (share/install!))
+  (share/install!)
+
+  ;; rf2-2moh1 — register the Runtime Machines tab with the internal L4
+  ;; tab registry.
+  (panel-registry/reg-l4-tab!
+    {:id    :machines
+     :label "Machines"
+     :mnem  "m"
+     :modes #{:runtime}
+     :order 4
+     :panel Panel}))

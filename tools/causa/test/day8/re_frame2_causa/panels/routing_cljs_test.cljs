@@ -133,9 +133,10 @@
 
 (deftest palette-includes-routing
   (testing "the palette's canonical panel list carries the :routing entry"
-    (let [ids (set (map :id palette-subs/palette-panels))]
+    (let [panels (palette-subs/palette-panels)
+          ids    (set (map :id panels))]
       (is (contains? ids :routing) ":routing in palette-panels")
-      (is (= 7 (count palette-subs/palette-panels))
+      (is (= 7 (count panels))
           "exactly 7 entries — Event / App DB / Views / Trace / Machines / Routing / Issues"))))
 
 ;; ---- (2) empty state ---------------------------------------------------

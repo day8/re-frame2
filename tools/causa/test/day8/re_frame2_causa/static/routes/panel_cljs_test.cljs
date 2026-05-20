@@ -330,7 +330,7 @@
 
 (deftest static-shell-routes-tab-is-in-inventory
   (testing ":routes is in the Static tab inventory + the shell can render it"
-    (is (contains? (set (map :id static-shell/tabs)) :routes)
+    (is (contains? (set (map :id (static-shell/tabs))) :routes)
         ":routes is in the Static tab inventory")
     (setup-causa-frame!)
     (rf/with-frame :rf/causa

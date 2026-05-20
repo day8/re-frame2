@@ -495,9 +495,9 @@
   (testing "tab inventory carries id/label/mnem/placeholder-bead and
             preserves canonical order"
     (is (= [:machines :routes :schemas :views :flows :events]
-           (mapv :id static-shell/tabs))
+           (mapv :id (static-shell/tabs)))
         "6 tabs in canonical order (rf2-uhsqb added :flows)")
-    (doseq [{:keys [id label mnem placeholder-bead]} static-shell/tabs]
+    (doseq [{:keys [id label mnem placeholder-bead]} (static-shell/tabs)]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))
       (is (and (string? mnem) (= 1 (count mnem)))
