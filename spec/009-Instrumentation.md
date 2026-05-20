@@ -586,6 +586,89 @@ Six surfaces survive elision and are the canonical production-debugging fallback
 5. **The SSR error-projector boundary** (per [011 §Server error projection](011-SSR.md#server-error-projection)) — on the server (JVM/SSR), `re-frame.interop/debug-enabled?` is hardcoded `true` (per [§JVM builds](#jvm-builds)), so the trace surface is live. The runtime emits structured `:rf.error/*` traces, the registered error projector consumes them, and the locked `:rf/public-error` shape is written to the HTTP response. Apps with an SSR tier get the full trace + projection pipeline server-side independent of the client-side bundle's elision.
 6. **Native browser machinery** — uncaught exceptions still reach `window.onerror` / `window.onunhandledrejection`. A re-frame2 event handler that throws in production still surfaces there; what's missing is the structured `:rf.error/handler-exception` shape, the `:dispatch-id` correlation, and the `:rf.trace/trigger-handler` coord — those rode the trace surface. Prefer the `:on-error` slot (#1) for structured access to the failing handler's id and the exception.
 
+### Observability decision matrix — six surfaces × three postures
+
+The prose above catalogues the surfaces in elision-framing — what disappears under `goog.DEBUG=false` and what survives. Users wiring up observability typically arrive with the opposite framing: *"which surface do I use for this use case?"* This subsection flips the framing and pins, for each of the six observation surfaces, the production posture, the record shape, and the use cases the surface serves.
+
+The framework exposes **six observation surfaces**:
+
+1. **Raw trace listener** — `register-trace-listener!` / `unregister-trace-listener!` ([§Listener API](#the-listener-api)).
+2. **Assembled-epoch listener** — `register-epoch-listener!` / `unregister-epoch-listener!` ([§Assembled-epoch listener](#register-epoch-listener--assembled-epoch-listener), [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
+3. **Event-emit listener** — `register-event-emit-listener!` / `unregister-event-emit-listener!` ([API.md §Event-emit](API.md#event-emit-always-on-production-survivable)).
+4. **Error-emit listener** — `register-error-emit-listener!` / `unregister-error-emit-listener!` ([API.md §Error-emit](API.md#error-emit-always-on-production-survivable)).
+5. **Per-frame `:on-error` slot** — frame-registration metadata ([002-Frames](002-Frames.md), [§Error-handler policy](#error-handler-policy-on-error-per-frame)).
+6. **Performance API channel** — `performance.mark` / `performance.measure` brackets ([§Performance instrumentation](#performance-instrumentation)).
+
+Each surface sits in exactly one of **three production postures**:
+
+- **dev-only DCE** — gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`, default `true` in dev / `false` in `:advanced` prod CLJS, default `true` JVM with `-Dre-frame.debug=false` opt-out). Compile-time eliminated in production; allocates zero in the bundle. Per [§Production builds](#production-builds-zero-overhead-zero-code).
+- **always-on** — runs through a small substrate that survives `goog.DEBUG=false` (and survives `-Dre-frame.debug=false` JVM-side). Tight record shape, post-elision (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`), per-listener exceptions isolated. Designed for production observability without preserving the dev-only trace surface. Per rf2-rirbq / rf2-bacs4 / rf2-hqbeh.
+- **opt-in goog-define** — gated on an independent compile-time flag distinct from `goog.DEBUG`. Default off; consumer flips the flag explicitly via `:closure-defines`. Production bundles that don't opt in carry zero instrumentation; those that do retain the surface even with `goog.DEBUG=false`.
+
+#### Posture × surface matrix
+
+| Surface | Dev (`goog.DEBUG=true`) | Nightly (`goog.DEBUG=true` + retain-N tuned) | Production (`goog.DEBUG=false`) | Posture |
+| --- | --- | --- | --- | --- |
+| 1. Raw trace listener (`register-trace-listener!`) | **live** — full structured trace stream, every `:op-type` (`:event`, `:sub/run`, `:fx`, `:error`, `:warning`, `:rf.machine/*`, `:rf.flow/*`, `:rf.fx/*`, …), dev-side enrichments (`:rf.trace/trigger-handler` source-coord, `:dispatch-id` / `:parent-dispatch-id` correlation, `:origin` tag) | **live** — same as dev; tune retain-N via `(rf/configure :trace-buffer {:depth N})` for long-tail traces | **elided** — `emit!` gate constant-folded; registration is a no-op, listener never invoked; zero allocation in bundle | dev-only DCE |
+| 2. Assembled-epoch listener (`register-epoch-listener!`) | **live** — one `:rf/epoch-record` per drain-settle (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)); `:db-before` / `:db-after` / `:trace-events` payload; `(rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})` controls retention and per-record redaction | **live** — bump `:depth` for longer post-mortem windows; `:redact-fn` runs at build-time before ring-append | **elided** — projection runs inside the trace surface and elides with it; epoch ring records nothing, listeners never fire, `restore-epoch` / `reset-frame-db!` refuse | dev-only DCE |
+| 3. Event-emit listener (`register-event-emit-listener!`) | **live** — one tight record per processed event: `{:event :event-id :frame :time :outcome :elapsed-ms}`, post-elision (per rf2-rirbq) | **live** — same record shape; no tuning knobs | **live** — survives `goog.DEBUG=false`; identical record shape and elision; per-listener exceptions isolated; consumer SHOULD belt-and-braces `(when (not ^boolean re-frame.interop/debug-enabled?) …)` registration to catch dev-bundle-with-prod-config bug class | **always-on** |
+| 4. Error-emit listener (`register-error-emit-listener!`) | **live** — one tight record per `:rf.error/*` event: `{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision (per rf2-bacs4) | **live** — same record shape | **live** — survives `goog.DEBUG=false`; identical record shape and elision; isolated from the per-frame `:on-error` policy fn fan-out (#5); per-listener exceptions isolated | **always-on** |
+| 5. Per-frame `:on-error` slot | **live** — policy fn invoked with `:operation :rf.error/handler-exception` event; return-map shape governs recovery (`{:recovery :default | :swallow | :replacement <new-event>}`) per [§Return-map contract](#return-map-contract) | **live** — same semantics; tune via the policy fn's own logic | **live** — survives `goog.DEBUG=false` (per rf2-hqbeh); handler-exception path runs through the same always-on error-emit substrate as #4 but along an independent fan-out path; policy-fn exceptions caught inside the substrate so a buggy policy cannot break the cascade | **always-on** |
+| 6. Performance API channel | **default off** — `re-frame.performance/enabled?` defaults to `false`; bracket sites elided. Apps that want timing in dev opt in via `:closure-defines {re-frame.performance/enabled? true}` and read via `performance.getEntriesByType('measure')` or DevTools Performance panel | **default off** — same as dev; opt in for nightly perf regression catches | **default off** — bracket sites DCEd. Apps that want production timing observability opt in via the same `:closure-defines` flag; brackets at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries readable by any `PerformanceObserver` including the host APM | **opt-in goog-define** |
+
+**Posture-row reading.** A surface in the **dev-only DCE** row is *gone* from production bundles — no listener, no allocation, no overhead. A surface in the **always-on** row keeps firing under `goog.DEBUG=false`; the record is tight by design, post-elision, exception-isolated. A surface in the **opt-in goog-define** row is gone by default but *recoverable* in production without preserving the full trace surface — the consumer flips one independent compile-time flag.
+
+#### Use case × surface routing
+
+The same six surfaces map onto the canonical observability use cases. The table below pins, for each use case, the surface that fits and the surface that does NOT (with the reason — typically posture mismatch or wrong record shape).
+
+| Use case | Recommended surface | Why this one | What to avoid |
+| --- | --- | --- | --- |
+| Real-time UI dashboard (re-frame-10x style) — live cascade view, per-domino timing, error highlighting in dev | #1 raw trace listener + #2 epoch listener (composed) | Need every `:op-type` event with dev-side enrichments (`:dispatch-id` correlation, source-coord, `:origin`). Tools like re-frame-10x consume both: raw stream for the timeline, epoch records for the structured per-cascade slice. Dev-only is the right posture (the dashboard isn't shipped to production). | Don't use #3 / #4 — the tight record shape strips correlation fields the dashboard needs. Don't use #6 — Performance API is timing-only, no semantics. |
+| Off-box APM forwarder (Datadog, Honeycomb, New Relic) — ship event throughput + latency to a hosted backend, including in production | #3 event-emit listener + #4 error-emit listener | Always-on posture is mandatory (the forwarder MUST run in production). Tight record shape is the contract — already post-elision, already wire-shaped. Per-listener exceptions isolated. | Don't use #1 — it's elided in production. Don't use the dev-only stream then "promote" via `goog.DEBUG=true` in prod just to get APM — that ships the entire trace surface for no benefit. |
+| Post-mortem error monitor (Sentry, Rollbar, Honeybadger) — capture handler exceptions with frame + event-id context, ship to hosted backend | #5 `:on-error` per-frame slot (primary) + #4 error-emit listener (secondary, for cross-frame fan-out) | `:on-error` rides the always-on error-emit substrate (per rf2-hqbeh); fires in production. Receives `{:event-id :frame :exception …}` structured shape — enough for the monitor's `tags` / `extra` fields. `:on-error` ALSO controls recovery semantics (the return-map governs cascade continuation) which the listener surface does not. | Don't rely on `window.onerror` alone — it sees the bare exception without re-frame2's structured frame/event-id context. Don't use #1 in production — it's elided. |
+| Performance budget (CI perf-regression gate, real-user monitoring) — measure event / sub / fx / render timing against a budget | #6 Performance API channel | Designed for this use case. Production-survivable via the independent `re-frame.performance/enabled?` flag; surfaces in DevTools Performance panel and the host APM's `PerformanceObserver`; zero overhead when not opted in. | Don't use #1 — it's elided in production. Don't use #3 — the `:elapsed-ms` field is event-level only; #6 brackets sub / fx / render too. |
+| Custom recorder (in-app debug overlay, story-runner-style replay capture) | #2 epoch listener | Each record is a fully-projected per-cascade slice (`:db-before`, `:db-after`, `:trace-events`); the recorder appends one record per cascade with no further shaping. `(rf/configure :epoch-history {:depth N :redact-fn fn})` controls retention. Dev-only is the right posture for a debug overlay. | Don't use #1 — raw trace stream requires per-cascade grouping logic the consumer would have to reimplement. |
+| Framework's own SSR error projection — turn runtime errors into the locked `:rf/public-error` HTTP-wire shape on the JVM/SSR tier | #4 error-emit listener (per [011 §Server error projection](011-SSR.md#server-error-projection)) | Production-required surface (an SSR error is by definition a production-survivable concern). Always-on substrate survives both `goog.DEBUG=false` (CLJS) and `-Dre-frame.debug=false` (JVM, when the operator opts out per [Security.md §Production gates](Security.md#production-gates)). | Don't route SSR error projection through #1 — it's gated by `interop/debug-enabled?`, which an SSR JVM facing untrusted input is explicitly directed to disable. Routing through #4 keeps the projector firing under both postures. |
+
+#### Combining surfaces
+
+The six surfaces are independent — registering a listener on one does NOT register on the others. Common compositions:
+
+- **Full dev observability**: #1 + #2 + #6. Raw stream feeds the dashboard, epoch listener feeds the recorder / pair tool, Performance API feeds DevTools timing.
+- **Full production observability**: #3 + #4 + #6. Event throughput + latency to APM (#3), error monitoring (#4 or #5), timing budget (#6). Add #5 inline for per-frame recovery policy.
+- **Hybrid**: app with both a dev-time dashboard AND a hosted production monitor uses #1 + #2 in dev (registered under `(when ^boolean re-frame.interop/debug-enabled? …)`) and #3 + #4 + #5 always. The dev-only registrations elide in production; the always-on registrations survive.
+
+#### Tuning knobs by posture
+
+Each posture row has a small set of runtime knobs (orthogonal to the elision gate itself):
+
+| Posture | Knob | Effect | Surface(s) affected |
+| --- | --- | --- | --- |
+| dev-only DCE | `(rf/configure :trace-buffer {:depth N})` | Retain-N ring buffer for `register-trace-listener!` late-attach (`N=0` opts out of the buffer entirely; default 50) | #1 |
+| dev-only DCE | `(rf/configure :epoch-history {:depth N :trace-events-keep N :redact-fn fn})` | Epoch ring depth, per-record trace-event budget, per-record redaction hook for sensitive payloads | #2 |
+| dev-only DCE | `(rf/configure :elision {:rf.size/threshold-bytes N})` | Per-payload size threshold for `:rf.size/large-elided` marker in trace records | #1, #2 (records ride post-elision) |
+| always-on | none — record shape is fixed by contract | Listeners receive identical record shapes in dev and prod | #3, #4, #5 |
+| always-on | `:on-error` policy fn return-map | Per-frame recovery decision (`:default` / `:swallow` / `:replacement`); does not alter the record shape delivered to #4 | #5 |
+| opt-in goog-define | `:closure-defines {re-frame.performance/enabled? true}` | Enables the four `performance.mark` / `performance.measure` bracket sites (`:event`, `:sub`, `:fx`, `:render`) | #6 |
+
+The `goog.DEBUG` flag (CLJS) and the `-Dre-frame.debug` system property / `RE_FRAME_DEBUG` env var (JVM) are not user knobs — they're the build-time/process-start gates that select the **posture**. Apps DO NOT toggle them per-request or per-session; once the bundle is compiled (or the JVM is started), the posture is fixed.
+
+#### Off-box egress contract
+
+Three of the six surfaces are designed to feed off-box (hosted) backends; the contract differs:
+
+| Surface | Off-box ready? | Record shape | Privacy guarantee |
+| --- | --- | --- | --- |
+| #1 raw trace listener | NO — dev-only; not present in production bundles. Apps SHOULD NOT ship trace records to a hosted backend in dev as a substitute for #3 / #4 (the record is much larger and carries dev-side fields irrelevant to APM) | Full structured trace event with `:tags` open bag, source-coord, `:dispatch-id` correlation | The dev-side `register-trace-listener!` runs after `:sensitive?` substrate-level scrubbing per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
+| #2 epoch listener | NO — dev-only; epoch records carry full `:db-before` / `:db-after` snapshots and are not sized for hosted ingestion | Assembled `:rf/epoch-record` per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) | `(rf/configure :epoch-history {:redact-fn fn})` runs at build-time before ring-append. |
+| #3 event-emit listener | YES — tight record shape, post-elision, exception-isolated. Designed for direct hosted-backend forwarding | `{:event :event-id :frame :time :outcome :elapsed-ms}` | `:event` vector passed through `re-frame.elision/elide-wire-value` once before fan-out (large → `:rf.size/large-elided`; sensitive → `:rf/redacted`). |
+| #4 error-emit listener | YES — same posture and shape contract as #3 | `{:error :event :event-id :frame :time :exception :elapsed-ms}` | Same elision pre-fan-out as #3; `:exception` object is the JS / JVM throwable, not a serialised string. |
+| #5 `:on-error` policy fn | INDIRECT — policy fn receives the same structured shape as #4 and can forward to a backend, but the policy fn's primary role is per-frame recovery, not off-box egress. Prefer #4 for pure forwarding | `{:operation :rf.error/handler-exception :op-type :error :tags {:event-id :frame :exception …}}` | Same elision contract as #4 (same substrate). |
+| #6 Performance API channel | INDIRECT — User-Timing measure entries are consumed by host APMs through `PerformanceObserver`; the framework does not emit to a hosted backend directly | Browser-native `PerformanceMeasure` entries with `name` / `startTime` / `duration` / `detail` | No payload — measures carry only timing, not user data. |
+
+The off-box egress contract above is the **only documented production wire**. Apps that need richer production observability than #3 / #4 / #6 provide must either (a) keep the dev-only trace surface in production via `:closure-defines {goog.DEBUG true}` (with the bundle-size cost — see [§Production-elision verification](#production-elision-verification)) or (b) implement custom emission from their own handlers / interceptors / fx handlers.
+
 ### Wiring an external error monitor (Sentry, Rollbar, Honeybadger, etc.)
 
 The dev-side integration documented at [§Composition with libraries](#composition-with-libraries-sentry-honeybadger-etc) routes structured trace events into the monitor:
