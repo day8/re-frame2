@@ -279,3 +279,54 @@
            ;; — the trailing element is the widget-spec map, ensuring the
            ;; dispatch carried our :widget tag through.
            (is (= w (:widget sub-spec))))))))
+
+;; ---- aria-label on every scalar widget (rf2-u01y5) ----------------------
+;;
+;; Every scalar widget MUST carry an :aria-label derived from its path tail
+;; — without this the visible <span> label sibling has no programmatic
+;; association with the input and screen readers announce 'edit, blank'.
+
+#?(:cljs
+   (deftest each-scalar-widget-carries-aria-label
+     (testing "rf2-u01y5: every scalar widget renders with an :aria-label
+               derived from its path tail so screen readers announce the
+               input by name rather than 'edit, blank'."
+       (doseq [[w expected-tag]
+               [[{:widget :text}                              :input]
+                [{:widget :textarea}                          :textarea]
+                [{:widget :number}                            :input]
+                [{:widget :boolean}                           :input]
+                [{:widget :select :options [:a :b]}           :select]
+                [{:widget :date}                              :input]
+                [{:widget :color}                             :input]]]
+         (let [tree (controls/scalar-widget
+                      :story.x/v [:username] "x" w)]
+           (is (= expected-tag (first tree))
+               (str (:widget w) " renders the right tag"))
+           (is (some? (-> tree second :aria-label))
+               (str (:widget w) " carries an :aria-label"))
+           (is (re-find #"username" (-> tree second :aria-label))
+               (str (:widget w) " :aria-label includes the path tail")))))))
+
+#?(:cljs
+   (deftest radio-widget-radiogroup-has-aria-label
+     (testing "rf2-u01y5: the :radio container is a role=radiogroup with
+               an aria-label — the inner inputs inherit a name from their
+               wrapping <label> so they don't need their own aria-label."
+       (let [tree (controls/scalar-widget
+                    :story.x/v [:variant] :primary
+                    {:widget :radio :options [:primary :secondary]})]
+         (is (= :div (first tree)))
+         (is (= "radiogroup" (-> tree second :role)))
+         (is (some? (-> tree second :aria-label)))
+         (is (re-find #"variant" (-> tree second :aria-label)))))))
+
+#?(:cljs
+   (deftest nested-path-aria-label-is-breadcrumb
+     (testing "rf2-u01y5: nested path produces a slash-joined breadcrumb
+               so a nested input is announced as 'address / street'
+               rather than just 'street'."
+       (let [tree (controls/scalar-widget
+                    :story.x/v [:address :street] "Main St" {:widget :text})]
+         (is (re-find #"address" (-> tree second :aria-label)))
+         (is (re-find #"street"  (-> tree second :aria-label)))))))

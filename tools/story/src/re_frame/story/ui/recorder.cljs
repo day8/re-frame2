@@ -67,6 +67,7 @@
             [re-frame.story.recorder                     :as recorder]
             [re-frame.story.recorder.dom-capture         :as recorder-dom]
             [re-frame.story.review-dialog                :as review-dialog]
+            [re-frame.story.ui.a11y-dialog               :as a11y-dialog]
             [re-frame.story.ui.recorder-export-dialog    :as export-dialog]
             [re-frame.story.ui.state                     :as state]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -427,19 +428,32 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-picker
-  (r/atom {:open?       false
-           :assertion   nil      ; the picked id, or nil while on phase 1
-           :field-text  {}       ; field-key → raw input string
-           :error       nil}))
+  (r/atom {:open?        false
+           :assertion    nil      ; the picked id, or nil while on phase 1
+           :field-text   {}       ; field-key → raw input string
+           :error        nil
+           :active-index 0}))     ; roving-focus cursor for phase-1 vocab list (rf2-07m13)
 
 (defn- open-picker! []
-  (reset! ui-picker {:open? true :assertion nil :field-text {} :error nil}))
+  (reset! ui-picker {:open? true :assertion nil :field-text {} :error nil :active-index 0}))
 
 (defn- close-picker! []
   (swap! ui-picker assoc :open? false))
 
 (defn- pick-assertion! [assertion-id]
   (swap! ui-picker assoc :assertion assertion-id :field-text {} :error nil))
+
+(defn- set-active-index!
+  "Clamp `idx` into `[0, n)` and stash on the picker state. The renderer
+  reads this to drive the roving-focus `tabindex` + `data-active`."
+  [idx]
+  (let [n (count recorder/assertion-vocabulary)]
+    (when (pos? n)
+      (let [clamped (cond
+                      (neg? idx) (dec n)         ; arrow-up wraps to last
+                      (>= idx n) 0               ; arrow-down wraps to first
+                      :else idx)]
+        (swap! ui-picker assoc :active-index clamped)))))
 
 (defn- set-field-text! [field-key s]
   (swap! ui-picker assoc-in [:field-text field-key] s))
@@ -495,88 +509,170 @@
         (close-picker!))
       (swap! ui-picker assoc :error detail))))
 
+(def ^:private picker-title-id
+  "Stable id stamped on the picker's visible title — referenced by
+  aria-labelledby so screen readers announce the dialog's name."
+  "story-recorder-picker-title")
+
+(defn- vocab-key-handler
+  "Phase-1 keyboard handler for the assertion-vocabulary list (rf2-07m13).
+
+  - ArrowDown / ArrowUp move the active cursor one row.
+  - Home / End jump to the first / last row.
+  - Enter / Space commit the active row (`pick-assertion!`).
+  - Escape closes the picker.
+
+  Focus is rolled via the `tabindex=0` / `tabindex=-1` pattern on the
+  row buttons; the renderer's `:ref` callback re-focuses the active
+  row when the cursor moves so screen-reader announcement follows.
+
+  `active-index` is the current cursor; `n` is the vocab length."
+  [active-index n]
+  (fn [^js evt]
+    (case (.-key evt)
+      "ArrowDown" (do (.preventDefault evt)
+                      (set-active-index! (inc active-index)))
+      "ArrowUp"   (do (.preventDefault evt)
+                      (set-active-index! (dec active-index)))
+      "Home"      (do (.preventDefault evt)
+                      (set-active-index! 0))
+      "End"       (do (.preventDefault evt)
+                      (set-active-index! (dec n)))
+      ("Enter" " ") (do
+                      (.preventDefault evt)
+                      (let [vocab (nth recorder/assertion-vocabulary active-index nil)]
+                        (when vocab
+                          (pick-assertion! (:id vocab)))))
+      nil)))
+
 (defn assertion-picker
   "Modal picker for mid-recording assertion insertion. Public so the
   shell can mount it alongside the recorder overlay (and so tests can
-  introspect the hiccup)."
+  introspect the hiccup).
+
+  rf2-p1ai7: ARIA role=dialog + aria-modal + aria-labelledby on the
+  picker panel; focus-trap wrapper handles Tab cycle, Escape, and
+  return-focus.
+
+  rf2-07m13: phase-1 vocabulary list implements the WAI-ARIA APG
+  menu pattern — role=menu on the container, role=menuitem on each
+  row, roving tabindex with ArrowUp/ArrowDown/Home/End/Enter handling."
   []
-  (let [{:keys [open? assertion field-text error] :as picker} @ui-picker]
+  (let [{:keys [open? assertion field-text error active-index] :as picker} @ui-picker
+        vocab recorder/assertion-vocabulary
+        n     (count vocab)
+        ;; Clamp the cursor against the live vocabulary length so the
+        ;; renderer never receives an out-of-range index (defensive
+        ;; against the open-picker! seed of 0 vs. an empty vocabulary).
+        idx   (cond
+                (zero? n)            0
+                (or (nil? active-index) (neg? active-index)) 0
+                (>= active-index n)  (dec n)
+                :else                active-index)
+        active-row-ref (atom nil)]
     (when open?
-      [:div
-       {:style    (:picker-back styles)
-        :data-test "story-recorder-picker"
-        :on-click (fn [e]
-                    (when (= (.-target e) (.-currentTarget e))
-                      (close-picker!)))}
-       [:div {:style (:picker styles)
-              :on-click (fn [e] (.stopPropagation e))}
-        [:div {:style (:picker-title styles)}
-         (if assertion
-           (str "Add assertion — " (pr-str assertion))
-           "Add assertion — pick from the canonical vocabulary")]
+      [a11y-dialog/focus-trap
+       {:on-close          close-picker!
+        ;; In phase 1, the menu's active row is the natural starting
+        ;; focus. In phase 2 we leave the helper to pick the first
+        ;; focusable (the back button or the first field input).
+        :initial-focus-ref (when (nil? assertion) active-row-ref)}
+       [:div
+        {:style    (:picker-back styles)
+         :data-test "story-recorder-picker"
+         :on-click (fn [e]
+                     (when (= (.-target e) (.-currentTarget e))
+                       (close-picker!)))}
+        [:div {:style          (:picker styles)
+               :role           "dialog"
+               :aria-modal     "true"
+               :aria-labelledby picker-title-id
+               :on-click       (fn [e] (.stopPropagation e))}
+         [:div {:id    picker-title-id
+                :style (:picker-title styles)}
+          (if assertion
+            (str "Add assertion — " (pr-str assertion))
+            "Add assertion — pick from the canonical vocabulary")]
 
-        (if (nil? assertion)
-          ;; Phase 1: vocabulary list.
-          [:div {:style (:picker-grid styles)
-                 :data-test "story-recorder-picker-vocab"}
-           (for [{:keys [id label hint]} recorder/assertion-vocabulary]
-             ^{:key id}
-             [:button
-              {:style      (:picker-row styles)
-               :data-test  (str "story-recorder-picker-id-"
-                                (namespace id) "-" (name id))
-               :on-click   (fn [_] (pick-assertion! id))}
-              [:span {:style (:picker-row-id styles)} (pr-str id)]
-              [:span {:style (:picker-row-hint styles)} hint]])]
+         (if (nil? assertion)
+           ;; Phase 1: vocabulary list — role=menu + roving tabindex.
+           [:div {:style       (:picker-grid styles)
+                  :data-test   "story-recorder-picker-vocab"
+                  :role        "menu"
+                  :aria-label  "Assertion vocabulary"
+                  :on-key-down (vocab-key-handler idx n)}
+            (doall
+              (map-indexed
+                (fn [i {:keys [id label hint]}]
+                  (let [active? (= i idx)]
+                    ^{:key id}
+                    [:button
+                     {:style      (:picker-row styles)
+                      :data-test  (str "story-recorder-picker-id-"
+                                       (namespace id) "-" (name id))
+                      :data-active (if active? "true" "false")
+                      :role       "menuitem"
+                      :tab-index  (if active? 0 -1)
+                      :aria-label (or label (pr-str id))
+                      :ref        (fn [el]
+                                    (when (and active? el)
+                                      (reset! active-row-ref el)))
+                      :on-click   (fn [_] (pick-assertion! id))
+                      :on-focus   (fn [_] (set-active-index! i))}
+                     [:span {:style (:picker-row-id styles)} (pr-str id)]
+                     [:span {:style (:picker-row-hint styles)} hint]]))
+                vocab))]
 
-          ;; Phase 2: field entry + preview.
-          (let [{:keys [fields hint]} (recorder/vocabulary-entry assertion)
-                preview (preview-event picker)]
-            [:div {:style {:display "flex" :flex-direction "column" :gap "10px"}
-                   :data-test "story-recorder-picker-fields"}
-             [:div {:style (:hint styles)} hint]
-             (for [{:keys [key prompt placeholder]} fields]
-               ^{:key key}
-               [:label {:style (:field-row styles)}
-                [:span {:style (:field-label styles)} prompt]
-                [:input
-                 {:type        "text"
-                  :style       (:field-input styles)
-                  :data-test   (str "story-recorder-picker-field-" (name key))
-                  :placeholder placeholder
-                  :value       (get field-text key "")
-                  :on-change   (fn [e] (set-field-text! key (.. e -target -value)))}]
-                (when (and error (= (:field error) key))
-                  [:span {:style (:field-error styles)
-                          :data-test "story-recorder-picker-error"}
-                   "EDN didn't parse — " (pr-str (:raw error))])])
-             (when (seq fields)
-               [:div {:style {:font-size (:micro typography/type-scale) :color (:text-tertiary colors/tokens)}}
-                "preview:"])
-             (when preview
-               [:pre {:style     (:preview styles)
-                      :data-test "story-recorder-picker-preview"}
-                (pr-str preview)])
-             [:div {:style (:btn-row styles)}
-              [:button
-               {:style    (:btn-muted styles)
-                :data-test "story-recorder-picker-back"
-                :on-click (fn [_] (swap! ui-picker assoc
-                                         :assertion nil
-                                         :field-text {}
-                                         :error nil))}
-               "← back"]
-              [:button
-               {:style    (:btn-muted styles)
-                :data-test "story-recorder-picker-cancel"
-                :on-click (fn [_] (close-picker!))}
-               "cancel"]
-              [:button
-               {:style     (:btn styles)
-                :data-test "story-recorder-picker-insert"
-                :disabled  (some? error)
-                :on-click  (fn [_] (insert!))}
-               "insert"]]]))]])))
+           ;; Phase 2: field entry + preview.
+           (let [{:keys [fields hint]} (recorder/vocabulary-entry assertion)
+                 preview (preview-event picker)]
+             [:div {:style {:display "flex" :flex-direction "column" :gap "10px"}
+                    :data-test "story-recorder-picker-fields"}
+              [:div {:style (:hint styles)} hint]
+              (for [{:keys [key prompt placeholder]} fields]
+                ^{:key key}
+                [:label {:style (:field-row styles)}
+                 [:span {:style (:field-label styles)} prompt]
+                 [:input
+                  {:type        "text"
+                   :style       (:field-input styles)
+                   :data-test   (str "story-recorder-picker-field-" (name key))
+                   :placeholder placeholder
+                   :aria-label  prompt
+                   :value       (get field-text key "")
+                   :on-change   (fn [e] (set-field-text! key (.. e -target -value)))}]
+                 (when (and error (= (:field error) key))
+                   [:span {:style (:field-error styles)
+                           :data-test "story-recorder-picker-error"}
+                    "EDN didn't parse — " (pr-str (:raw error))])])
+              (when (seq fields)
+                [:div {:style {:font-size (:micro typography/type-scale) :color (:text-tertiary colors/tokens)}}
+                 "preview:"])
+              (when preview
+                [:pre {:style     (:preview styles)
+                       :data-test "story-recorder-picker-preview"}
+                 (pr-str preview)])
+              [:div {:style (:btn-row styles)}
+               [:button
+                {:style    (:btn-muted styles)
+                 :data-test "story-recorder-picker-back"
+                 :on-click (fn [_] (swap! ui-picker assoc
+                                          :assertion nil
+                                          :field-text {}
+                                          :error nil
+                                          :active-index 0))}
+                "← back"]
+               [:button
+                {:style    (:btn-muted styles)
+                 :data-test "story-recorder-picker-cancel"
+                 :on-click (fn [_] (close-picker!))}
+                "cancel"]
+               [:button
+                {:style     (:btn styles)
+                 :data-test "story-recorder-picker-insert"
+                 :disabled  (some? error)
+                 :on-click  (fn [_] (insert!))}
+                "insert"]]]))]]])))
 
 ;; rf2-d5u89: Reagent-mirror of the DOM-capture enabled flag so the
 ;; overlay chip re-renders when the user toggles capture. The flag

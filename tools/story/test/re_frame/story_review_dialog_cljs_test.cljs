@@ -199,3 +199,41 @@
     (is (= (pred/indent-after "   :play [")
            (pred/indent-after "   :args {"))
         "both flows' prefixes collapse to the same indent")))
+
+;; ---- ARIA: modal a11y posture (rf2-p1ai7) -------------------------------
+
+(deftest renderer-stamps-role-dialog-and-aria-modal
+  (testing "rf2-p1ai7: the rendered modal carries role=dialog + aria-modal=true"
+    (let [flat (str (review-dialog/review-dialog
+                      (opened-state)
+                      {:title             "Save"
+                       :snippet           "(snippet)"
+                       :placeholder-id    :story.x/example
+                       :placeholder-input ":story.x/sample"
+                       :on-edit-id        (fn [_])
+                       :on-copy           (fn [])
+                       :on-close          (fn [])
+                       :data-test-prefix  "test"}))]
+      (is (str/includes? flat "dialog")
+          "role=dialog appears in the rendered tree")
+      (is (str/includes? flat "aria-modal")
+          "aria-modal flag is stamped on the modal panel")
+      (is (str/includes? flat "aria-labelledby")
+          "aria-labelledby threads the title id into the modal panel")
+      (is (str/includes? flat "test-dialog-title")
+          "the title's id matches the data-test-prefix derived id"))))
+
+(deftest renderer-id-input-carries-aria-label
+  (testing "rf2-u01y5: the variant-id input has an accessible name"
+    (let [flat (str (review-dialog/review-dialog
+                      (opened-state)
+                      {:title             "Save"
+                       :snippet           "(snippet)"
+                       :placeholder-id    :story.x/example
+                       :placeholder-input ":story.x/sample"
+                       :on-edit-id        (fn [_])
+                       :on-copy           (fn [])
+                       :on-close          (fn [])
+                       :data-test-prefix  "test"}))]
+      (is (str/includes? flat "aria-label")
+          "the input carries an aria-label so it's not announced as 'edit, blank'"))))

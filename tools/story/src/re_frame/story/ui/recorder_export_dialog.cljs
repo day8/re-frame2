@@ -52,6 +52,7 @@
             [re-frame.story.recorder.play-export          :as export]
             [re-frame.story.recorder.play-export-events   :as export-events]
             [re-frame.story.review-dialog                 :as review-dialog]
+            [re-frame.story.ui.a11y-dialog                :as a11y-dialog]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -282,6 +283,12 @@
 ;; The dialog itself
 ;; ---------------------------------------------------------------------------
 
+(def ^:private title-id
+  "Stable id stamped on the dialog's visible title so the modal's
+  aria-labelledby pointer resolves. Constant — only one export dialog
+  is mounted at a time."
+  "story-recorder-export-dialog-title")
+
 (defn export-dialog
   "Render the export dialog. Returns nil when `:open?` is false on
   `@ui-dialog` so the caller can mount it unconditionally next to the
@@ -292,81 +299,96 @@
       (let [{:keys [spec rendered]} (build-export-from-dialog state)
             {:keys [name source-id variant-id auto-assert?
                     replay-status replay-failure-msg]} state]
-        [:div
-         {:style     (:back styles)
-          :data-test "story-recorder-export-dialog"
-          :on-click  (fn [e]
-                       (when (= (.-target e) (.-currentTarget e))
-                         (close-dialog!)))}
-         [:div {:style    (:modal styles)
-                :on-click (fn [e] (.stopPropagation e))}
-          [:div {:style (:title styles)}
-           "Recorder → :play-script export"
-           (replay-pill replay-status replay-failure-msg)]
-          [:div {:style (:hint styles)}
-           (str "Generated from " (count (:events state))
-                " captured event" (when (not= 1 (count (:events state))) "s")
-                " against " (pr-str source-id)
-                ". Tweak the options, then copy + paste into your stories ns.")]
+        ;; rf2-p1ai7: focus-trap wrapper — Escape closes, Tab cycles,
+        ;; focus moves into the dialog on mount, focus returns to the
+        ;; trigger on close. The dialog hiccup is passed eagerly so
+        ;; tests can string-traverse the full tree without invoking
+        ;; the class component's render lifecycle.
+        [a11y-dialog/focus-trap
+         {:on-close close-dialog!}
+         [:div
+          {:style     (:back styles)
+           :data-test "story-recorder-export-dialog"
+           :on-click  (fn [e]
+                        (when (= (.-target e) (.-currentTarget e))
+                          (close-dialog!)))}
+          [:div {:style          (:modal styles)
+                 :role           "dialog"
+                 :aria-modal     "true"
+                 :aria-labelledby title-id
+                 :on-click       (fn [e] (.stopPropagation e))}
+           [:div {:id    title-id
+                  :style (:title styles)}
+            "Recorder → :play-script export"
+            (replay-pill replay-status replay-failure-msg)]
+           [:div {:style (:hint styles)}
+            (str "Generated from " (count (:events state))
+                 " captured event" (when (not= 1 (count (:events state))) "s")
+                 " against " (pr-str source-id)
+                 ". Tweak the options, then copy + paste into your stories ns.")]
 
-          ;; ---- Name ---------------------------------------------------------
-          [:div {:style (:row styles)}
-           [:label {:style (:label styles)} "Name"]
-           [:input
-            {:type        "text"
-             :style       (:input styles)
-             :data-test   "story-recorder-export-name-input"
-             :placeholder "happy path"
-             :value       name
-             :on-change   (fn [e] (set-name! (.. e -target -value)))}]]
+           ;; ---- Name ---------------------------------------------------------
+           [:div {:style (:row styles)}
+            [:label {:style (:label styles)
+                     :html-for "story-recorder-export-name-input-el"} "Name"]
+            [:input
+             {:type        "text"
+              :id          "story-recorder-export-name-input-el"
+              :style       (:input styles)
+              :data-test   "story-recorder-export-name-input"
+              :placeholder "happy path"
+              :value       name
+              :on-change   (fn [e] (set-name! (.. e -target -value)))}]]
 
-          ;; ---- Variant id ---------------------------------------------------
-          [:div {:style (:row styles)}
-           [:label {:style (:label styles)} "Variant id"]
-           [:input
-            {:type          "text"
-             :style         (:input styles)
-             :data-test     "story-recorder-export-variant-id-input"
-             :placeholder   ":story.your/recorded-flow"
-             :default-value (pr-str variant-id)
-             :on-change     (fn [e] (set-variant-id! (.. e -target -value)))}]]
+           ;; ---- Variant id ---------------------------------------------------
+           [:div {:style (:row styles)}
+            [:label {:style (:label styles)
+                     :html-for "story-recorder-export-variant-id-input-el"} "Variant id"]
+            [:input
+             {:type          "text"
+              :id            "story-recorder-export-variant-id-input-el"
+              :style         (:input styles)
+              :data-test     "story-recorder-export-variant-id-input"
+              :placeholder   ":story.your/recorded-flow"
+              :default-value (pr-str variant-id)
+              :on-change     (fn [e] (set-variant-id! (.. e -target -value)))}]]
 
-          ;; ---- Auto-assert toggle ------------------------------------------
-          [:label
-           {:style     (:checkbox-row styles)
-            :data-test "story-recorder-export-auto-assert"}
-           [:input
-            {:type      "checkbox"
-             :data-test "story-recorder-export-auto-assert-checkbox"
-             :checked   auto-assert?
-             :on-change (fn [_] (toggle-auto-assert!))}]
-           [:span {:style (:label styles)} "Auto-assert app-db at end"]
-           [:span {:style (:hint styles)}
-            (str "(top-" export/default-max-auto-assertions
-                 " changed paths; trim manually after pasting)")]]
+           ;; ---- Auto-assert toggle ------------------------------------------
+           [:label
+            {:style     (:checkbox-row styles)
+             :data-test "story-recorder-export-auto-assert"}
+            [:input
+             {:type      "checkbox"
+              :data-test "story-recorder-export-auto-assert-checkbox"
+              :checked   auto-assert?
+              :on-change (fn [_] (toggle-auto-assert!))}]
+            [:span {:style (:label styles)} "Auto-assert app-db at end"]
+            [:span {:style (:hint styles)}
+             (str "(top-" export/default-max-auto-assertions
+                  " changed paths; trim manually after pasting)")]]
 
-          ;; ---- Snippet preview ---------------------------------------------
-          [:pre {:style     (:snippet styles)
-                 :data-test "story-recorder-export-snippet"}
-           rendered]
+           ;; ---- Snippet preview ---------------------------------------------
+           [:pre {:style     (:snippet styles)
+                  :data-test "story-recorder-export-snippet"}
+            rendered]
 
-          ;; ---- Button row --------------------------------------------------
-          [:div {:style (:btn-row styles)}
-           [:button
-            {:style    (:btn-muted styles)
-             :data-test "story-recorder-export-replay"
-             :on-click (fn [_] (run-replay! state spec))}
-            "replay in this story"]
-           [:button
-            {:style    (:btn styles)
-             :data-test "story-recorder-export-copy"
-             :on-click (fn [_] (review-dialog/copy-to-clipboard! rendered))}
-            "copy to clipboard"]
-           [:button
-            {:style    (:btn-muted styles)
-             :data-test "story-recorder-export-close"
-             :on-click (fn [_] (close-dialog!))}
-            "close"]]]]))))
+           ;; ---- Button row --------------------------------------------------
+           [:div {:style (:btn-row styles)}
+            [:button
+             {:style    (:btn-muted styles)
+              :data-test "story-recorder-export-replay"
+              :on-click (fn [_] (run-replay! state spec))}
+             "replay in this story"]
+            [:button
+             {:style    (:btn styles)
+              :data-test "story-recorder-export-copy"
+              :on-click (fn [_] (review-dialog/copy-to-clipboard! rendered))}
+             "copy to clipboard"]
+            [:button
+             {:style    (:btn-muted styles)
+              :data-test "story-recorder-export-close"
+              :on-click (fn [_] (close-dialog!))}
+             "close"]]]]]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public open-from-recorder helper
