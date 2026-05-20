@@ -37,8 +37,7 @@
              :as sections]
             [day8.re-frame2-causa.panels.app-db-diff-subs :as subs]
             [day8.re-frame2-causa.theme.tokens
-             :as t
-             :refer [tokens sans-stack display-stack]]))
+             :refer [tokens sans-stack]]))
 
 (rf/reg-view Panel
   "The App-DB Diff panel's root view."
@@ -62,31 +61,10 @@
                              :color          (:text-primary tokens)
                              :font-family    sans-stack
                              :font-size      "14px"}}
-     [:header {:style {:padding "16px 16px 8px 16px"}}
-      ;; rf2-5kfxe.8 — domain-coloured 3px left border via the
-      ;; canonical `theme.tokens/accent-stripe-style` helper. App-db's
-      ;; domain colour is `:cyan` — see `panel-domain->token`.
-      ;; rf2-5kfxe.9 — the L4 title carries the display face
-      ;; (Fraunces). Body / chrome stays Inter — only this <h1>
-      ;; reaches for the serif so the visual hierarchy is
-      ;; unmistakeable.
-      [:h1 {:style (merge {:font-size   "20px"
-                           :font-family display-stack
-                           :font-weight 600
-                           :letter-spacing "-0.01em"
-                           :margin      0
-                           :color       (:text-primary tokens)
-                           :display     "flex"
-                           :align-items "center"
-                           :gap         "8px"}
-                          (t/accent-stripe-style :app-db))}
-       ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ◐ in
-       ;; :cyan (App-db's domain colour via panel-domain->token).
-       [:span {:data-testid "rf-causa-app-db-panel-icon"
-               :aria-hidden "true"
-               :style       (t/panel-icon-style :app-db)}
-        (:app-db t/panel-icon)]
-       "App-db diff"]]
+     ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "App-db diff"
+     ;; heading is scrubbed; the L4 tab strip is the panel-name source-
+     ;; of-truth. Content starts immediately under the tab bar (or
+     ;; under panel-specific filter / toolbar rows where applicable).
      [:div {:style {:flex 1 :overflow "auto"}}
       (cond
         focused-path

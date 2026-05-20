@@ -267,26 +267,10 @@
      [:div {:style {:display     "flex"
                     :align-items "baseline"
                     :gap         "12px"}}
-      ;; rf2-5kfxe.8 — domain-coloured accent stripe (:orange for Trace
-      ;; — events 'in flight'; orange is the firing/heat tone).
-      ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
-      [:h1 {:style (merge {:font-size   "20px"
-                           :font-family display-stack
-                           :font-weight 600
-                           :letter-spacing "-0.01em"
-                           :margin      0
-                           :color       (:text-primary tokens)
-                           :display     "flex"
-                           :align-items "center"
-                           :gap         "8px"}
-                          (t/accent-stripe-style :trace))}
-       ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ⬢ in
-       ;; :orange (Trace's domain colour via panel-domain->token).
-       [:span {:data-testid "rf-causa-trace-panel-icon"
-               :aria-hidden "true"
-               :style       (t/panel-icon-style :trace)}
-        (:trace t/panel-icon)]
-       "Trace"]
+      ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Trace"
+      ;; heading is scrubbed; the L4 tab strip is the panel-name
+      ;; source-of-truth. The counts / clear-filters / film-strip
+      ;; affordances stay in this row.
       [:span {:data-testid "rf-causa-trace-counts"
               :style {:font-size   "11px"
                       :color       (:text-tertiary tokens)

@@ -527,27 +527,11 @@
                        :align-items "center"
                        :justify-content "space-between"
                        :gap "12px"}}
-      [:div
-       ;; rf2-5kfxe.8 — domain-coloured accent stripe (:green for
-       ;; Machines — state lands in green for 'final' across the
-       ;; inspector).
-       ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
-       [:h1 {:style (merge {:font-size "20px"
-                            :font-family display-stack
-                            :font-weight 600
-                            :letter-spacing "-0.01em"
-                            :margin 0
-                            :color (:text-primary tokens)
-                            :display "flex" :align-items "center"
-                            :gap "8px"}
-                           (t/accent-stripe-style :machines))}
-        ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ◆ in
-        ;; :green (Machines' domain colour via panel-domain->token).
-        [:span {:data-testid "rf-causa-machine-inspector-panel-icon"
-                :aria-hidden "true"
-                :style       (t/panel-icon-style :machines)}
-         (:machines t/panel-icon)]
-        "Machine inspector"]]
+      ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Machine
+      ;; inspector" heading is scrubbed; the L4 tab strip is the
+      ;; panel-name source-of-truth. The header row keeps the nav +
+      ;; share affordances on the right.
+      [:div]
       (when (not= :no-machines empty-kind)
         [:div {:style {:display "flex"
                        :align-items "center"

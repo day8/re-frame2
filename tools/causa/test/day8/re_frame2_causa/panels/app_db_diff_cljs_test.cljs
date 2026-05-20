@@ -541,9 +541,11 @@
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-empty"))
             "empty-state container present")
         (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))
-        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
-        (is (some? (find-by-testid tree "rf-causa-app-db-panel-icon"))
-            "panel header icon (◐ in :cyan) present")))))
+        ;; rf2-6xezz · Mike-direction 2026-05-21 — the panel header
+        ;; icon lived inside the deleted h1 heading. The L4 tab is
+        ;; now the panel-name source of truth.
+        (is (nil? (find-by-testid tree "rf-causa-app-db-panel-icon"))
+            "panel header icon is gone (lived in the scrubbed h1)")))))
 
 (deftest sections-render-when-diff-present
   (testing "with history populated, the panel renders the sections-per-

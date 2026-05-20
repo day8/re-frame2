@@ -108,29 +108,10 @@
 
 (defn- header
   []
+  ;; rf2-6xezz — Mike-direction 2026-05-21: panel-name heading scrubbed.
+  ;; The L4 tab strip is the panel-name source-of-truth.
   [:div {:data-testid "rf-causa-static-flows-header"
-         :style       {:padding       "12px 16px 8px 16px"
-                       :border-bottom (str "1px solid " (:border-subtle tokens))
-                       :font-family   sans-stack}}
-   [:h1 {:style {:font-size      "13px"
-                 :margin         "0"
-                 :font-weight    600
-                 :text-transform "uppercase"
-                 :letter-spacing "0.5px"
-                 :color          (:text-primary tokens)
-                 :padding-left   "10px"
-                 :border-left    (str "3px solid " (:cyan tokens))}}
-    "Flows"]
-   [:p {:style {:margin    "4px 0 0 10px"
-                :color     (:text-tertiary tokens)
-                :font-size "11px"
-                :line-height 1.4}}
-    "Browse every registered flow. Each row carries its "
-    [:strong {:style {:color (:cyan tokens)}} "inputs"]
-    " (the app-db paths it depends on), its "
-    [:strong {:style {:color (:cyan tokens)}} "output path"]
-    " (where its computed value lands), and the owning frame. "
-    "Flows are frame-scoped per Spec 013."]])
+         :style       {:padding "4px 16px"}}])
 
 ;; ---- search box ----------------------------------------------------------
 

@@ -170,9 +170,10 @@
             "panel container present")
         (is (some? (find-by-testid tree "rf-causa-trace-counts"))
             "counts span present")
-        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
-        (is (some? (find-by-testid tree "rf-causa-trace-panel-icon"))
-            "panel header icon (⬢ in :orange) present")))))
+        ;; rf2-6xezz · Mike-direction 2026-05-21 — the panel-icon
+        ;; lived inside the deleted h1 heading.
+        (is (nil? (find-by-testid tree "rf-causa-trace-panel-icon"))
+            "panel header icon is gone (lived in the scrubbed h1)")))))
 
 (deftest feed-list-renders-when-events-present
   (testing "with events in the buffer the panel renders the <ul> feed
