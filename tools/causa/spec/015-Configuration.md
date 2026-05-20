@@ -502,8 +502,8 @@ MAY assign them semantics.
   per-localStorage paths.
 
 Note: `:theme` is **no longer reserved** — it now lives inside the
-`:settings` map (see above) and is reachable via the Settings popup's
-Theme tab or `(configure! {:settings {:theme :light}})`.
+`:rf.causa/settings` map (see above) and is reachable via the Settings
+popup's Theme tab or `(configure! {:rf.causa/settings {:theme :light}})`.
 
 ## Vision — full configure! key inventory (30+ keys)
 

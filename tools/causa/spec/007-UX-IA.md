@@ -1099,7 +1099,7 @@ panel may inline its own URI assembly.
 
 - The user picks the editor via the **Settings** popup (`,`) → View.
   Stored under the `:rf.causa/editor` config key.
-- The boot-time entry is `(causa-config/configure! {:editor …})` per
+- The boot-time entry is `(causa-config/configure! {:rf.causa/editor …})` per
   [`015-Configuration.md`](./015-Configuration.md) §`:rf.causa/editor`.
 - Default: `:vscode` — the most-installed editor in 2026.
 - The preference is **session-scoped**, persisted via the same Causa
