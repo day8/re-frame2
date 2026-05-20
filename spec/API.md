@@ -510,7 +510,7 @@ Per-Spec emit-sites: [002-Frames](002-Frames.md), [005-StateMachines](005-StateM
 
 ### Privacy (Spec 009 §Privacy / sensitive data in traces)
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the two composition sites (`with-redacted` + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md).
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture and the two composition sites (`with-redacted` + per-slot schema meta); the trust-boundary catalogue lives in [Security.md](Security.md). The **cross-artefact inventory + composition order** (every privacy surface in `re-frame.core`, `re-frame.http`, `re-frame.schemas`, `re-frame.epoch`, `tools/mcp-base`, with the data-flow from handler exit to off-box wire) lives in [Privacy.md](Privacy.md).
 
 Per [Spec 009 §Privacy](009-Instrumentation.md) the runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed per rf2-hjs2d; sensitive data marking is path-based per the upcoming data-classification mechanism — separate spec doc; in progress.) Framework-published trace consumers (Sentry/Honeybadger forwarders, re-frame2-pair server, Causa, Story, story-mcp, re-frame2-pair-mcp) MUST default-drop the stamped events at their egress boundary. `with-redacted` is the in-place payload scrub composed alongside the stamp.
 
