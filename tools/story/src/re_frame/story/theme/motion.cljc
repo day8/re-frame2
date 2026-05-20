@@ -245,7 +245,34 @@
   [data-rf-a11y-violation=\"serious\"]{outline-width:2px}
   [data-rf-a11y-violation=\"moderate\"]{outline-width:2px;outline-style:dashed}
   [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}
-}")
+}
+/* rf2-846h2 — operator-controlled \"Use system colors\" opt-in. The
+   Chrome A11y panel stamps `data-rf-force-colors=\"active\"` on the
+   chrome root (`[data-rf-story-root]`) + `<html>` when the toggle is
+   on (see `ui/chrome_a11y.cljs/apply-force-colors-attribute!`). The
+   rules below mirror the `@media (forced-colors: active)` block
+   above one-for-one so the operator can preview / live in the HCM
+   chrome on demand without flipping the OS-level switch. Additive
+   to the OS detection — both paths produce the same painted chrome.
+   The selectors carry the attribute predicate on the root so the
+   rules only fire under opt-in. */
+[data-rf-story-root][data-rf-force-colors=\"active\"] *:focus-visible{outline-color:Highlight}
+[data-rf-story-root][data-rf-force-colors=\"active\"] a{color:LinkText}
+[data-rf-story-root][data-rf-force-colors=\"active\"] button{border:1px solid ButtonText}
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-pressed=\"true\"],
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-current=\"true\"],
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-current=\"page\"],
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-current=\"step\"],
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-selected=\"true\"]{outline:2px solid Highlight;outline-offset:-2px}
+[data-rf-story-root][data-rf-force-colors=\"active\"] button[disabled],
+[data-rf-story-root][data-rf-force-colors=\"active\"] [aria-disabled=\"true\"]{color:GrayText;border-color:GrayText}
+[data-rf-story-root][data-rf-force-colors=\"active\"] [style*=\"gradient(\"]{background-image:none}
+[data-rf-story-root][data-rf-force-colors=\"active\"]::before{background-image:none;opacity:0}
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation]{outline-color:Mark}
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"critical\"]{outline-width:3px}
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"serious\"]{outline-width:2px}
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"moderate\"]{outline-width:2px;outline-style:dashed}
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}")
 
 #?(:cljs
    (defonce ^:private motion-css-injected? (atom false)))

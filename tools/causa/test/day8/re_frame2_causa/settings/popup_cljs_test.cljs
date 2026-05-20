@@ -132,7 +132,12 @@
     (let [rendered (popup/Modal)]
       (is (find-by-testid rendered "rf-causa-settings-section-theme"))
       (is (find-by-testid rendered "rf-causa-settings-theme-dark"))
-      (is (find-by-testid rendered "rf-causa-settings-theme-light")))))
+      (is (find-by-testid rendered "rf-causa-settings-theme-light"))
+      ;; rf2-846h2 — the Theme section also houses the operator-side
+      ;; "Use system colors" opt-in checkbox so HCM-style chrome is
+      ;; reachable without flipping the OS-level switch.
+      (is (find-by-testid rendered "rf-causa-settings-use-system-colors")
+          "Use system colors toggle renders in the Theme section"))))
 
 ;; ---- Tab switching ------------------------------------------------------
 

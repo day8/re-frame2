@@ -609,6 +609,79 @@
     "  [data-testid=\"rf-causa-static-shell\"] a {\n"
     "    color: LinkText !important;\n"
     "  }\n"
+    "}\n"
+    ;; rf2-846h2 — operator-controlled "Use system colors" opt-in.
+    ;; The Settings popup's Theme tab stamps `data-rf-force-colors=
+    ;; \"active\"` on the shell root + `<html>` when the toggle is
+    ;; on (see `settings/effects.cljs/apply-use-system-colors!`).
+    ;; This block re-asserts the same system-token chrome the sister
+    ;; `@media (forced-colors: active)` block paints under OS HCM —
+    ;; the rules are equivalent so the operator can preview / live
+    ;; in the HCM chrome on demand without flipping the OS switch.
+    ;;
+    ;; Token mapping mirrors the OS-HCM block one-for-one (Highlight
+    ;; for focus + selected + mode stripe + in-flight; CanvasText for
+    ;; primary text + success accent; Mark for error accent; GrayText
+    ;; for stale / paused; ButtonText for icon ink; LinkText for
+    ;; hyperlinks). Selectors carry the `[data-rf-force-colors=
+    ;; \"active\"]` ancestor predicate so the rules only fire under
+    ;; opt-in — the OS HCM path is owned by the sibling `@media`
+    ;; block landing under rf2-wxepo. Both paths produce the same
+    ;; painted chrome; this block does NOT need `!important` because
+    ;; the attribute selector adds specificity beyond the inline-
+    ;; style baseline (a `[attr=\"v\"]` ancestor + the per-element
+    ;; predicate compose stronger than the default rule shape).
+    ;;
+    ;; The sister `@media (forced-colors: active)` block above
+    ;; (landed under rf2-wxepo / #1700) and this attribute-selector
+    ;; block coexist by design — the OS path and the operator opt-in
+    ;; are independent activators of the same underlying chrome. A
+    ;; future consolidation can fold them via `:is(...)`.
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-shell\"] *:focus-visible,\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-static-shell\"] *:focus-visible,\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-palette-backdrop\"] *:focus-visible,\n"
+    "[data-testid=\"rf-causa-shell\"][data-rf-force-colors=\"active\"] *:focus-visible,\n"
+    "[data-testid=\"rf-causa-static-shell\"][data-rf-force-colors=\"active\"] *:focus-visible {\n"
+    "  outline-color: Highlight !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-ribbon\"] {\n"
+    "  border-left-color: Highlight !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-causa-event-row-\"][aria-pressed=\"true\"] {\n"
+    "  outline: 2px solid Highlight !important;\n"
+    "  outline-offset: -1px !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-rf-causa-status=\"settled-error\"] {\n"
+    "  box-shadow: inset -2px 0 0 0 Mark !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-rf-causa-status=\"in-flight\"] {\n"
+    "  box-shadow: inset -2px 0 0 0 Highlight !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-rf-causa-status=\"settled-success\"] {\n"
+    "  box-shadow: inset -2px 0 0 0 CanvasText !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-rf-causa-status=\"stale\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-rf-causa-status=\"paused-by-tool\"] {\n"
+    "  box-shadow: inset -2px 0 0 0 GrayText !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-causa-row-gutter-\"] {\n"
+    "  box-shadow: inset 1px 0 0 0 Highlight !important;\n"
+    "  color: Highlight !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-causa-detail-panel-\"] h1 {\n"
+    "  border-left-color: CanvasText !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-icon-settings\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-icon-close\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-nav-prev\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-nav-next\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-nav-head\"],\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-focus-chip-clear\"] {\n"
+    "  color: ButtonText !important;\n"
+    "}\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-shell\"] a,\n"
+    "[data-rf-force-colors=\"active\"] [data-testid=\"rf-causa-static-shell\"] a {\n"
+    "  color: LinkText !important;\n"
     "}\n"))
 
 (defn- inject-motion-style!

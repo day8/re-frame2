@@ -269,6 +269,79 @@
   (is (= 13 (effects/density->px nil))
       "nil density coerces to the cosy default"))
 
+;; ---- use-system-colors? (rf2-846h2) ------------------------------------
+
+(deftest apply-use-system-colors-stamps-and-clears-attribute
+  (testing "rf2-846h2 — apply-use-system-colors! stamps
+            `data-rf-force-colors=\"active\"` on the shell root +
+            `<html>` when truthy, removes it when falsey."
+    (ensure-stub-shell-root!)
+    (effects/apply-use-system-colors! true)
+    (when-let [el (shell-root)]
+      (is (= "active" (.getAttribute el effects/force-colors-attribute))
+          "shell root carries the active attribute when toggle on"))
+    (when-let [html (html-root)]
+      (is (= "active" (.getAttribute html effects/force-colors-attribute))
+          "<html> carries the active attribute when toggle on"))
+    (effects/apply-use-system-colors! false)
+    (when-let [el (shell-root)]
+      (is (nil? (.getAttribute el effects/force-colors-attribute))
+          "shell root attribute cleared when toggle off"))
+    (when-let [html (html-root)]
+      (is (nil? (.getAttribute html effects/force-colors-attribute))
+          "<html> attribute cleared when toggle off"))))
+
+(deftest apply-use-system-colors-handles-missing-shell-root
+  (testing "rf2-846h2 — no-op when shell root absent; <html> still gets
+            the attribute write so the cascade reaches descendants
+            before the shell mounts."
+    (remove-stub-shell-root!)
+    (is (nil? (effects/apply-use-system-colors! true)))
+    (when-let [html (html-root)]
+      (is (= "active" (.getAttribute html effects/force-colors-attribute))
+          "<html> attribute still landed even without the shell root"))
+    ;; Clean up so unrelated tests don't see the stamped <html>.
+    (effects/apply-use-system-colors! false)))
+
+(deftest update-event-applies-use-system-colors-effect
+  (testing "rf2-846h2 — dispatching `:rf.causa/settings-update :general
+            :use-system-colors? true` stamps the chrome attribute via
+            the matching effect."
+    (setup!)
+    (ensure-stub-shell-root!)
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-update
+                         :general :use-system-colors? true]))
+    (when-let [el (shell-root)]
+      (is (= "active" (.getAttribute el effects/force-colors-attribute))
+          "dispatching update stamps the attribute"))
+    (is (true? (config/get-setting :general :use-system-colors?))
+        "config slot carries the new value")
+    ;; Flip off and verify clear.
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/settings-update
+                         :general :use-system-colors? false]))
+    (when-let [el (shell-root)]
+      (is (nil? (.getAttribute el effects/force-colors-attribute))
+          "dispatching update with false clears the attribute"))))
+
+(deftest apply-all-restores-use-system-colors
+  (testing "rf2-846h2 — the boot path re-applies the persisted toggle
+            so the user's saved opt-in survives reload BEFORE first
+            paint."
+    (ensure-stub-shell-root!)
+    (config/update-setting! :general :use-system-colors? true)
+    (effects/apply-all!)
+    (when-let [el (shell-root)]
+      (is (= "active" (.getAttribute el effects/force-colors-attribute))
+          "shell root attribute restored from persistence"))
+    (when-let [html (html-root)]
+      (is (= "active" (.getAttribute html effects/force-colors-attribute))
+          "<html> attribute restored from persistence"))
+    ;; Clean up.
+    (config/update-setting! :general :use-system-colors? false)
+    (effects/apply-all!)))
+
 (deftest apply-density-font-size-writes-css-var
   (ensure-stub-shell-root!)
   (effects/apply-density-font-size! :compact)

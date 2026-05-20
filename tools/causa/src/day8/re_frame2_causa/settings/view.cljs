@@ -550,7 +550,9 @@
 ;; ---- section: Theme -----------------------------------------------------
 
 (defn- theme-section []
-  (let [theme @(rf/subscribe [:rf.causa/setting :theme nil])]
+  (let [theme            @(rf/subscribe [:rf.causa/setting :theme nil])
+        use-system?      @(rf/subscribe [:rf.causa/setting
+                                         :general :use-system-colors?])]
     [:div {:data-testid "rf-causa-settings-section-theme"}
      [:h2 {:style (section-heading-style)} "Theme"]
      [:div {:style (field-style)}
@@ -570,7 +572,50 @@
                                   [:rf.causa/settings-update
                                    :theme nil t]
                                   {:frame :rf/causa})}]
-         label])]]))
+         label])]
+
+     ;; ── Use system colors toggle (rf2-846h2) ───────────────────
+     ;;
+     ;; Opt-in surface for the same system-token chrome the
+     ;; `@media (forced-colors: active)` block paints under Windows
+     ;; HCM. Default OFF; flipping ON stamps `data-rf-force-colors=
+     ;; "active"` on the shell root + `<html>` so the sibling
+     ;; selectors in `theme/global-styles/motion-css` fire too —
+     ;; identical chrome to the OS HCM path, no OS-level switch
+     ;; required. Additive: the OS detection still works; this is a
+     ;; parallel activator the operator controls.
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-causa-settings-use-system-colors"
+                :type        "checkbox"
+                :checked     (boolean use-system?)
+                :on-change   #(rf/dispatch
+                                [:rf.causa/settings-update
+                                 :general :use-system-colors?
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/causa})}]
+       "Use system colors"]
+      [:p {:style (hint-style)}
+       "Render the Causa chrome using your OS' high-contrast palette "
+       "(CSS system colour keywords: "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Highlight"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "CanvasText"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Mark"] ", "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "GrayText"]
+       ") — the same chrome Windows High Contrast Mode paints, "
+       "available on demand without flipping the OS-level switch. "
+       "Default OFF; the OS HCM detection still works either way."]]]))
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
 

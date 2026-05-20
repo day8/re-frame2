@@ -402,6 +402,63 @@
       (is (re-find #"opacity:\s*0\.03[0-9]?" css)
           "opacity is around 0.035 — texture, not pattern"))))
 
+;; ---- rf2-846h2 — 'Use system colors' attribute selectors --------------
+;;
+;; The Settings popup's Theme tab stamps `data-rf-force-colors="active"`
+;; on the shell root + `<html>` when the operator opts in. The motion
+;; stylesheet pairs the OS-HCM `@media (forced-colors: active)` block
+;; (landing under rf2-wxepo / #1700) with a sibling block whose
+;; selectors carry the attribute predicate so the same system-token
+;; chrome paints under operator opt-in too.
+
+(deftest motion-css-declares-force-colors-attribute-block
+  (testing "rf2-846h2 — the motion stylesheet ships a sibling block
+            keyed on `[data-rf-force-colors=\"active\"]` so the
+            operator opt-in path activates the same system-token
+            chrome the OS HCM media query paints."
+    (let [css @#'gs/motion-css]
+      (is (re-find #"\[data-rf-force-colors=\"active\"\]" css)
+          "attribute selector is present"))))
+
+(deftest motion-css-force-colors-attribute-maps-focus-ring-to-highlight
+  (testing "rf2-846h2 — the focus-visible ring under operator opt-in
+            maps to `Highlight` (the system selection token) — mirrors
+            the OS-HCM rule shape."
+    (let [css @#'gs/motion-css]
+      ;; The attribute-selector arm includes the focus-visible rule
+      ;; pointing at outline-color: Highlight.
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*\*:focus-visible[^}]*outline-color:\s*Highlight"
+            css)
+          "focus ring outline-color is Highlight under attribute opt-in"))))
+
+(deftest motion-css-force-colors-attribute-maps-status-accents
+  (testing "rf2-846h2 — the four lifecycle-status accents (settled-
+            error / in-flight / settled-success / stale | paused-by-
+            tool) each have a system-token landing under the operator
+            opt-in path so the signal survives the inline-style remap."
+    (let [css @#'gs/motion-css]
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*data-rf-causa-status=\"settled-error\"[^}]*Mark"
+            css)
+          "error → Mark")
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*data-rf-causa-status=\"in-flight\"[^}]*Highlight"
+            css)
+          "in-flight → Highlight")
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*data-rf-causa-status=\"settled-success\"[^}]*CanvasText"
+            css)
+          "success → CanvasText")
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*data-rf-causa-status=\"stale\""
+            css)
+          "stale status carries a rule")
+      (is (re-find
+            #"data-rf-force-colors=\"active\"[^{]*data-rf-causa-status=\"paused-by-tool\""
+            css)
+          "paused-by-tool status carries a rule"))))
+
 ;; ---- install! idempotence ----------------------------------------------
 
 (deftest install-bang-is-safe-without-document
