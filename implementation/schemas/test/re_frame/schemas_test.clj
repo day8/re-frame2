@@ -52,14 +52,14 @@
 ;; ---- elision toggle -------------------------------------------------------
 
 (deftest app-db-validation-fires-when-debug-enabled
-  (testing "validate-app-db! emits :rf.error/schema-validation-failure when debug-enabled? is true"
+  (testing "validate-app-schema! emits :rf.error/schema-validation-failure when debug-enabled? is true"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::dev (fn [ev] (swap! traces conj ev)))
-      ;; Dev mode is the JVM default; validate-app-db! should walk the
+      ;; Dev mode is the JVM default; validate-app-schema! should walk the
       ;; registered schemas and emit on a malformed value.
       (with-redefs [interop/debug-enabled? true]
-        (schemas/validate-app-db! {:count "not-an-int"} :test/handler))
+        (schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
       (rf/unregister-trace-listener! ::dev)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
@@ -73,14 +73,14 @@
           (is (= :test/handler (-> v :tags :failing-id))))))))
 
 (deftest app-db-validation-elides-when-debug-disabled
-  (testing "validate-app-db! is a no-op when debug-enabled? is false (production)"
+  (testing "validate-app-schema! is a no-op when debug-enabled? is false (production)"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::prod (fn [ev] (swap! traces conj ev)))
       ;; Production mode — the validation site elides; even with a
       ;; malformed value, no trace fires.
       (with-redefs [interop/debug-enabled? false]
-        (schemas/validate-app-db! {:count "not-an-int"} :test/handler))
+        (schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
       (rf/unregister-trace-listener! ::prod)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
@@ -88,12 +88,12 @@
           "no schema-validation-failure trace when validation is elided"))))
 
 (deftest well-typed-value-passes-silently
-  (testing "validate-app-db! with a conforming value emits no trace"
+  (testing "validate-app-schema! with a conforming value emits no trace"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::ok (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/debug-enabled? true]
-        (schemas/validate-app-db! {:count 42} :test/handler))
+        (schemas/validate-app-schema! {:count 42} :test/handler))
       (rf/unregister-trace-listener! ::ok)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
@@ -192,22 +192,22 @@
              @events)
           "trace ordering: forward commit → schema-failure → rollback commit"))))
 
-(deftest validate-app-db-returns-boolean
-  (testing "Per rf2-wkxng / rf2-6m0se: validate-app-db! returns true on
+(deftest validate-app-schema-returns-boolean
+  (testing "Per rf2-wkxng / rf2-6m0se: validate-app-schema! returns true on
             conform (or no schemas / no validator), false on any
             failure. The router consumes this to decide rollback."
     (rf/reg-app-schema [:n] [:int])
     (with-redefs [interop/debug-enabled? true]
-      (is (true?  (schemas/validate-app-db! {:n 42}))
+      (is (true?  (schemas/validate-app-schema! {:n 42}))
           "conforming value returns true")
-      (is (false? (schemas/validate-app-db! {:n "boom"}))
+      (is (false? (schemas/validate-app-schema! {:n "boom"}))
           "non-conforming value returns false")
-      (is (true?  (schemas/validate-app-db! {:n 42} :some/handler))
+      (is (true?  (schemas/validate-app-schema! {:n 42} :some/handler))
           "conforming + event-id arity returns true")
-      (is (false? (schemas/validate-app-db! {:n "boom"} :some/handler))
+      (is (false? (schemas/validate-app-schema! {:n "boom"} :some/handler))
           "non-conforming + event-id arity returns false"))
     (with-redefs [interop/debug-enabled? false]
-      (is (true? (schemas/validate-app-db! {:n "boom"} :some/handler))
+      (is (true? (schemas/validate-app-schema! {:n "boom"} :some/handler))
           "production mode (debug-enabled? false) returns true unconditionally"))))
 
 ;; ---- rf2-jwm4 — event-payload validation ---------------------------------
@@ -663,7 +663,7 @@
     (is (= {[:user] [:map [:nick :string]]} (rf/app-schemas {:frame :test/story})))))
 
 (deftest sibling-frame-schemas-do-not-fire-on-each-others-dispatches
-  (testing "Per Spec 010 §Per-frame schemas — validate-app-db! only walks the
+  (testing "Per Spec 010 §Per-frame schemas — validate-app-schema! only walks the
             schemas registered against THIS dispatch's frame; a malformed
             commit on frame A must not fire a schema-validation-failure for
             a schema registered against frame B."
@@ -813,7 +813,7 @@
       (rf/register-trace-listener! ::default-malli (fn [ev] (swap! traces conj ev)))
       ;; Malformed value triggers the default Malli validate to return
       ;; falsey -> trace fires.
-      (schemas/validate-app-db! {:n "not-an-int"} :test/handler)
+      (schemas/validate-app-schema! {:n "not-an-int"} :test/handler)
       (rf/unregister-trace-listener! ::default-malli)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
@@ -835,8 +835,8 @@
       (rf/reg-app-schema [:label] :string)
       (let [traces (atom [])]
         (rf/register-trace-listener! ::custom (fn [ev] (swap! traces conj ev)))
-        (schemas/validate-app-db! {:label "hello"} :h/ok)        ;; passes
-        (schemas/validate-app-db! {:label "totally-bad"} :h/no)  ;; fails
+        (schemas/validate-app-schema! {:label "hello"} :h/ok)        ;; passes
+        (schemas/validate-app-schema! {:label "totally-bad"} :h/no)  ;; fails
         (rf/unregister-trace-listener! ::custom)
         (is (= 2 (count @calls))
             "custom validator was invoked for both validation calls")
@@ -856,7 +856,7 @@
       (rf/register-trace-listener! ::nilv (fn [ev] (swap! traces conj ev)))
       ;; Malformed value would normally fire a trace; with nil
       ;; validator the call site short-circuits.
-      (schemas/validate-app-db! {:n "definitely-not-an-int"} :test/h)
+      (schemas/validate-app-schema! {:n "definitely-not-an-int"} :test/h)
       (rf/unregister-trace-listener! ::nilv)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
@@ -896,8 +896,8 @@
       (rf/reg-app-schema [:k] :keyword)
       (let [traces (atom [])]
         (rf/register-trace-listener! ::map (fn [ev] (swap! traces conj ev)))
-        (schemas/validate-app-db! {:k :good}   :h/pass)
-        (schemas/validate-app-db! {:k :nope}   :h/fail)
+        (schemas/validate-app-schema! {:k :good}   :h/pass)
+        (schemas/validate-app-schema! {:k :nope}   :h/fail)
         (rf/unregister-trace-listener! ::map)
         (is (= 2 @validate-calls) "custom validate fn ran for both calls")
         (is (= 1 @explain-calls)  "custom explain fn ran only on the failure path")
@@ -919,7 +919,7 @@
       (rf/reg-app-schema [:n] [:int])
       (let [traces (atom [])]
         (rf/register-trace-listener! ::eonly (fn [ev] (swap! traces conj ev)))
-        (schemas/validate-app-db! {:n "broken"} :h/oops)
+        (schemas/validate-app-schema! {:n "broken"} :h/oops)
         (rf/unregister-trace-listener! ::eonly)
         (is (= "broken" @explained) "custom explainer ran with the bad value")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -938,7 +938,7 @@
     ;; First confirm the sabotage is in effect.
     (let [traces (atom [])]
       (rf/register-trace-listener! ::sab (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-app-db! {:n "bad"} :h/sabotage)
+      (schemas/validate-app-schema! {:n "bad"} :h/sabotage)
       (rf/unregister-trace-listener! ::sab)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
@@ -947,7 +947,7 @@
     (schemas/reset-schema-validator!)
     (let [traces (atom [])]
       (rf/register-trace-listener! ::rst (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-app-db! {:n "bad"} :h/back-to-default)
+      (schemas/validate-app-schema! {:n "bad"} :h/back-to-default)
       (rf/unregister-trace-listener! ::rst)
       (is (= 1 (count (filter #(= :rf.error/schema-validation-failure (:operation %))
                               @traces)))
@@ -1405,7 +1405,7 @@
       (let [traces (atom [])]
         (rf/register-trace-listener! ::rt (fn [ev] (swap! traces conj ev)))
         ;; A malformed value under [:n] on :rf/default — should fire.
-        (schemas/validate-app-db! {:n "not-an-int"} :test.6lka/handler)
+        (schemas/validate-app-schema! {:n "not-an-int"} :test.6lka/handler)
         (rf/unregister-trace-listener! ::rt)
         (let [violations (filter #(= :rf.error/schema-validation-failure
                                      (:operation %))

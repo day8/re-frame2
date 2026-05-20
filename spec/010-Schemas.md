@@ -292,7 +292,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
    ;; ⇒ [:auth :token] sensitive
    ```
 
-2. **Registration-meta `:sensitive?`** on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx`. The handler-meta consulted at validation time (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)) carries `:sensitive? true` for handlers that opted in. Per-step validation sites apply it as a coarse fallback: any failure in a sensitive handler's scope is redacted regardless of per-slot props. The `app-db` validation site reads the per-slot props only (no surrounding handler scope to consult — the `validate-app-db!` call is keyed by frame, not by a single handler's registration).
+2. **Registration-meta `:sensitive?`** on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx`. The handler-meta consulted at validation time (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)) carries `:sensitive? true` for handlers that opted in. Per-step validation sites apply it as a coarse fallback: any failure in a sensitive handler's scope is redacted regardless of per-slot props. The `app-db` validation site reads the per-slot props only (no surrounding handler scope to consult — the `validate-app-schema!` call is keyed by frame, not by a single handler's registration).
 
 **Redaction shape.** When either source declares the failing slot sensitive, the trace event MUST:
 

@@ -105,7 +105,7 @@
   The cache is invalidated on `set-fn!` / `chain-fn!` for the key, so
   dev-time hot-reload of an artefact re-resolves on the next dispatch.
   Use at hot-path call sites — every dispatch reads
-  `:schemas/validate-event!`, `:schemas/validate-app-db!`,
+  `:schemas/validate-event!`, `:schemas/validate-app-schema!`,
   `:flows/run-flows!`, `:epoch/settle!`, `:epoch/capture-event`,
   `:event-emit/dispatch-on-event`, `:router/dispatch!` — so a
   100-event cascade resolved each ~100 times before this cache."

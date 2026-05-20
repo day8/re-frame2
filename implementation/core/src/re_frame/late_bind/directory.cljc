@@ -124,7 +124,7 @@
    {:key         :schemas/validate-event!
     :producer-ns 're-frame.schemas
     :description "Validate an event vector against the registered event schema."}
-   {:key         :schemas/validate-app-db!
+   {:key         :schemas/validate-app-schema!
     :producer-ns 're-frame.schemas
     :description "Validate the app-db snapshot against the registered app-db schema."}
    {:key         :schemas/validate-cofx!
@@ -134,7 +134,7 @@
     :producer-ns 're-frame.schemas
     :design-bead "rf2-xp2o3"
     :description "Validate an fx-handler's args against the registered fx schema (Spec 010 step 5)."}
-   {:key         :schemas/validate-sub-return!
+   {:key         :schemas/validate-sub!
     :producer-ns 're-frame.schemas
     :description "Validate a subscription's return value against its schema."}
    {:key         :schemas/frame-schema-entries

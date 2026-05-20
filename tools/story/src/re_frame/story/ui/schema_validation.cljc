@@ -327,7 +327,7 @@
      published by `re-frame.schemas` on ns-load; the boundary surface
      it fronts is identical to the framework's dev-mode hot path, so
      a panel using these fns sees exactly the same conformance
-     decisions the framework's `validate-app-db!` / `validate-event!`
+     decisions the framework's `validate-app-schema!` / `validate-event!`
      emit."
      []
      {:validate (late-bind/get-fn :schemas/validate-with-registered-fn)

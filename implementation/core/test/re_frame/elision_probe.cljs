@@ -70,12 +70,12 @@
 
 (defn ^:export touch-schemas! []
   (rf/reg-app-schema [:user :name] :string)
-  (schemas/validate-app-db! {:user {:name "ok"}})
-  (schemas/validate-app-db! {:user {:name 42}}    :probe/event)
+  (schemas/validate-app-schema! {:user {:name "ok"}})
+  (schemas/validate-app-schema! {:user {:name 42}}    :probe/event)
   (schemas/validate-event!  :probe/event [:probe/event 1] {:schema :int})
   (schemas/validate-cofx!   :probe/cofx :probe/event {} {:schema :map})
   (schemas/validate-fx!     :probe/fx :probe/event {} {:schema :map})
-  (schemas/validate-sub-return! :probe/sub [:probe/sub] :foo {:schema :keyword}))
+  (schemas/validate-sub!    :probe/sub [:probe/sub] :foo {:schema :keyword}))
 
 ;; ---- registrar trace emit -------------------------------------------------
 

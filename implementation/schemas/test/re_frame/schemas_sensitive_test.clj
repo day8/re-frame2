@@ -32,8 +32,8 @@
        (slot-level props, container-level props, nested, dispatch-
        bearing combinators).
     2. **Redaction substitution** — direct invocation of
-       `validate-app-db!` / `validate-event!` / `validate-cofx!` /
-       `validate-sub-return!` against a `:sensitive?`-bearing schema
+       `validate-app-schema!` / `validate-event!` / `validate-cofx!` /
+       `validate-sub!` against a `:sensitive?`-bearing schema
        fires a trace with the redaction shape pinned.
     3. **Backward-compat** — non-sensitive validation failures emit
        unchanged (`:value`, `:explain` ride verbatim; no top-level
@@ -156,7 +156,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::redact (fn [ev] (swap! traces conj ev)))
       ;; The value at [:auth :token] is an int (42) — fails :string.
-      (schemas/validate-app-db! {:auth {:token 42}} :auth/init-bad)
+      (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
       (rf/unregister-trace-listener! ::redact)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
@@ -196,7 +196,7 @@
       ;; the failing path. Since reg-app-schema validates the whole
       ;; registered slot, we need the :sensitive? to flag the WHOLE
       ;; failure when ANY slot within is sensitive.
-      (schemas/validate-app-db! {:user {:name "alice" :password 99}}
+      (schemas/validate-app-schema! {:user {:name "alice" :password 99}}
                                 :user/bad)
       (rf/unregister-trace-listener! ::slot)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -213,7 +213,7 @@
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
       (rf/register-trace-listener! ::plain (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-app-db! {:count "not-an-int"} :count/bad)
+      (schemas/validate-app-schema! {:count "not-an-int"} :count/bad)
       (rf/unregister-trace-listener! ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
@@ -455,7 +455,7 @@
       ;; Value is a long string but is an int (42) here — actually let's
       ;; make it a wrong type to force a validation failure regardless
       ;; of how :large? would behave at runtime.
-      (schemas/validate-app-db! {:user {:secret-pdf 42}} :doc/bad)
+      (schemas/validate-app-schema! {:user {:secret-pdf 42}} :doc/bad)
       (rf/unregister-trace-listener! ::both)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
@@ -482,7 +482,7 @@
     (let [traces (atom [])]
       (rf/register-trace-listener! ::prod (fn [ev] (swap! traces conj ev)))
       (with-redefs [re-frame.interop/debug-enabled? false]
-        (schemas/validate-app-db! {:auth {:token 42}} :auth/init-bad))
+        (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad))
       (rf/unregister-trace-listener! ::prod)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))

@@ -184,7 +184,7 @@
 ;; The memo wrappers (`make-layer-1-memoised-body`,
 ;; `make-layer-n-1-memoised-body`, `make-layer-n-memoised-body`) and
 ;; the trace/perf/validate/recover bracket (`validate-and-trace`,
-;; `maybe-validate-sub-return!`) live in `re-frame.subs.memo` — extracted
+;; `maybe-validate-sub!`) live in `re-frame.subs.memo` — extracted
 ;; per rf2-0ytl4 Phase-2 seam S-B. Per-recompute hot path is the closure
 ;; body (in-process); only the per-miss constructor call from
 ;; `compute-and-cache!` below crosses the ns boundary.
@@ -450,7 +450,7 @@
 
                     :else
                     (body-fn (mapv #(compute-sub % db) inputs) query-v))]
-            (subs-memo/maybe-validate-sub-return! v query-v query-id meta))
+            (subs-memo/maybe-validate-sub! v query-v query-id meta))
           (catch #?(:clj Throwable :cljs :default) e
             (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
               (trace/emit-error!

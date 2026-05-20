@@ -234,8 +234,8 @@
   found. Per Spec 010 §`:sensitive?` — privacy in schema-validation
   error traces.
 
-  Used by the validation emit-sites (`validate-app-db!` and the
-  per-step `validate-event!` / `validate-cofx!` / `validate-sub-return!`
+  Used by the validation emit-sites (`validate-app-schema!` and the
+  per-step `validate-event!` / `validate-cofx!` / `validate-sub!`
   helpers) to decide whether the failing slot's value MUST be redacted
   before the trace event ships.
 
@@ -304,7 +304,7 @@
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
   traces; replaces the coarse whole-schema `schema-has-sensitive?`
-  check at the `validate-app-db!` emit-site when a leaf path is
+  check at the `validate-app-schema!` emit-site when a leaf path is
   extractable from the explainer output.
 
   When `in-path` is nil or empty the check is equivalent to

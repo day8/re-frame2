@@ -388,7 +388,7 @@
   failures route through the in-band false return."
   [db-after event-id frame]
   ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
-  (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-db!)]
+  (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
     (try
       ;; nil-coerce: pre-rf2-6m0se the fn returned nil on success.
       ;; Treat nil as true (don't roll back) so a hosted port that
@@ -436,7 +436,7 @@
           ;; Roll back: restore the pre-handler container value, then
           ;; emit a second :event/db-changed with :phase :rollback so
           ;; subs / listeners see the restored state on the trace
-          ;; stream. The error trace from validate-app-db! has
+          ;; stream. The error trace from validate-app-schema! has
           ;; already fired between the two commits — consumers see
           ;; (in order): forward commit, schema-failure error,
           ;; rollback commit.
