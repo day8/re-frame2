@@ -1274,7 +1274,7 @@ Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` d
 
 **Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
 
-**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-canned-stub-gate-rf2-cdmle).
+**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw).
 
 #### M-31b. `:rf.http/managed` `:retry :on` is a closed-set (rf2-apwkm)
 
@@ -2406,6 +2406,46 @@ The two arities of v2's `assert-state` (path form + full-db form) become two nam
 **Future extensions.** Additional predicate-fns mirroring the remaining `:rf.assert/*` events (`assert-path-matches`, `assert-sub-equals`, `assert-dispatched?`, `assert-state-is`, `assert-no-warnings`, `assert-effect-emitted`) are scope-deferred — those predicates require Story-side infrastructure (warning capture, dispatch capture, effect-emit listening) that doesn't live in `re-frame.test-support`. The `assert-*-equals` family is **open** under the same root, ready for those siblings to land alongside.
 
 **Cross-references.** [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace); [Spec 007 §Play functions](../../spec/007-Stories.md#play-functions) (the `:rf.assert/*` event-family the fn-family mirrors); [API.md §Testing](../../spec/API.md); [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the require-side namespace move.
+
+---
+
+### M-65. HTTP stubbing macros consolidated into `re-frame.http-test-support` (rf2-lwmgw)
+
+**Type A** (mechanical). Single-file rename per call site: change the `:require` of `re-frame.http-managed` to also pull in `re-frame.http-test-support` for any test that touches the stub-macros family. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
+
+Per rf2-lwmgw (audit-of-audits #15): the previous arrangement split the HTTP test surface across two namespaces — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` lived in `re-frame.http-managed` (alongside the production fxs), and `re-frame.http-test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + stub macros + matching late-bind hook publications) now lives in `re-frame.http-test-support`. One namespace, one require, name matches content.
+
+```clojure
+;; before (v2-pre-rename) — stub macros + canned-stub fxs each had a separate require
+(ns my-app.tests
+  (:require [re-frame.core :as rf]
+            [re-frame.http-managed]          ;; provided the stub macros AND the production fxs
+            [re-frame.http-test-support]))   ;; provided ONLY the canned-stub fx registrations
+
+;; after — single test-support require for every HTTP test surface
+(ns my-app.tests
+  (:require [re-frame.core :as rf]
+            [re-frame.http-managed]          ;; production fx surface (unchanged)
+            [re-frame.http-test-support]))   ;; canned-stub fxs + stub macros + late-bind hooks
+```
+
+The require pair looks identical to the pre-rename shape, but the role of `re-frame.http-test-support` widened — it now also publishes the `:http/install-managed-request-stubs!` / `:http/uninstall-managed-request-stubs!` / `:http/with-managed-request-stubs*` late-bind hooks that the `re-frame.core` re-exports resolve through. A test that previously required only `re-frame.http-managed` and called `rf/install-managed-request-stubs!` / `rf/with-managed-request-stubs` directly now surfaces `:rf.error/http-artefact-missing` until the test-support require is added.
+
+**Detect.** Test files that:
+- call `rf/install-managed-request-stubs!`, `rf/uninstall-managed-request-stubs!`, `rf/with-managed-request-stubs`, or `rf/with-managed-request-stubs*` (the user-facing surface through `re-frame.core`); OR
+- call `re-frame.http-managed/install-managed-request-stubs!` / `re-frame.http-managed/with-managed-request-stubs*` / `re-frame.http-managed/with-managed-request-stubs` directly,
+
+without `re-frame.http-test-support` in their require closure.
+
+**Mechanical sweep.**
+1. Add `[re-frame.http-test-support]` to the require list of any test ns that uses the stub-macros family.
+2. Rewrite any direct `re-frame.http-managed/{install-managed-request-stubs!,uninstall-managed-request-stubs!,with-managed-request-stubs*}` calls to use `re-frame.http-test-support/<fn>` (or the `re-frame.core` re-exports). The `with-managed-request-stubs` macro is unaffected at call sites that already use `rf/with-managed-request-stubs` (the `re-frame.core` re-export route stays valid; only the test-support require has to be added).
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the stub-macros family no longer publishes from `re-frame.http-managed` — stale `rf/install-managed-request-stubs!` call sites without the test-support require raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the late-bind hook is nil). Stale `re-frame.http-managed/install-managed-request-stubs!` direct calls raise `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ).
+
+**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http-test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per rf2-cdmle) and now also the stub-macros family (per rf2-lwmgw). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
+
+**Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace-rf2-lwmgw); [API.md row](../../spec/API.md#http-requests-spec-014).
 
 ---
 

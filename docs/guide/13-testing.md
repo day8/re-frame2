@@ -421,12 +421,12 @@ The override is a **redirect**, not a mock. The same dispatch shape the real fx 
 
 The generic `:fx-overrides` shape above redirects any fx to a test fn. For `:rf.http/managed` specifically, the framework ships two canonical stub fxs plus a higher-level helper, so tests get the canonical reply envelope without hand-rolling one.
 
-The two canned-stub fxs (`:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`) register from a sibling test-support namespace — opt in once per test ns by `:require`-ing it alongside `re-frame.http-managed`:
+Every HTTP test surface — the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) AND the `with-managed-request-stubs` family — ships in `re-frame.http-test-support`. Opt in once per test ns by `:require`-ing it alongside `re-frame.http-managed`:
 
 ```clojure
 (ns my-app.tests
   (:require [re-frame.http-managed]        ;; production fx surface
-            [re-frame.http-test-support])) ;; canned-stub fx registrations
+            [re-frame.http-test-support])) ;; canned-stub fxs + stub macros
 ```
 
 Per-request stub via `:fx-overrides` redirect — the stub fx synthesises a success or failure reply with the same shape the live fx would produce:
@@ -441,7 +441,7 @@ Per-request stub via `:fx-overrides` redirect — the stub fx synthesises a succ
 
 The args map is the same shape the call site already uses; the canned-success stub takes a `:value` key (the payload to put under `:rf/reply :value`); the canned-failure stub takes `:kind` and `:tags` for the failure shape.
 
-For test suites that exercise many requests against many endpoints, `with-managed-request-stubs` routes each `:rf.http/managed` invocation by `:request :method` + `:request :url` — and, unlike the canned-stub fxs, does NOT need the `re-frame.http-test-support` require (it registers its own per-call stub fx at user invocation time):
+For test suites that exercise many requests against many endpoints, `with-managed-request-stubs` routes each `:rf.http/managed` invocation by `:request :method` + `:request :url`:
 
 ```clojure
 (rf/with-managed-request-stubs
@@ -453,7 +453,7 @@ For test suites that exercise many requests against many endpoints, `with-manage
   (rf/dispatch-sync [:counter/save]))
 ```
 
-Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network. Production / SSR app code MUST NOT `:require` `re-frame.http-test-support` — under that constraint the canned-stub fx ids are unregistered on every host (classpath absence on JVM, DCE on CLJS `:advanced + goog.DEBUG=false`); tests pay no production cost.
+Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network. Production / SSR app code MUST NOT `:require` `re-frame.http-test-support` — under that constraint the canned-stub fx ids are unregistered on every host (classpath absence on JVM, DCE on CLJS `:advanced + goog.DEBUG=false`) AND the stub-family `re-frame.core` re-exports raise `:rf.error/http-artefact-missing`; tests pay no production cost.
 
 ### Recording dispatched events without firing them
 

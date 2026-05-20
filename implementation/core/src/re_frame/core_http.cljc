@@ -12,24 +12,42 @@
    :maven         "day8/re-frame2-http"
    :require-ns    "re-frame.http-managed"})
 
+;; rf2-lwmgw — the stub family's hooks publish from
+;; `re-frame.http-test-support` (single discoverable home for HTTP
+;; test surfaces). Tests requiring `re-frame.http-managed` alone (the
+;; production surface) will see these defwrappers raise
+;; `:rf.error/http-artefact-missing` because the hook is unpublished
+;; until `re-frame.http-test-support` is required too. The artefact
+;; record points at the prod namespace as the load anchor; the
+;; require-ns hint in the error message includes the test-support
+;; namespace below.
+
+(def ^:private http-test-support-artefact
+  {:error-keyword :rf.error/http-artefact-missing
+   :maven         "day8/re-frame2-http"
+   :require-ns    "re-frame.http-test-support"})
+
 (defwrapper install-managed-request-stubs!
   "Spec 014 §Testing — install per-call fx-overrides for `:rf.http/managed`
   that synthesise the configured replies. Late-bound via
-  `:http/install-managed-request-stubs!`."
-  {:hook :http/install-managed-request-stubs! :artefact http-artefact :on-absent :throw}
+  `:http/install-managed-request-stubs!` (published from
+  `re-frame.http-test-support` per rf2-lwmgw)."
+  {:hook :http/install-managed-request-stubs! :artefact http-test-support-artefact :on-absent :throw}
   ([stubs] :delegate))
 
 (defwrapper uninstall-managed-request-stubs!
   "Spec 014 §Testing — remove the per-call fx-override installed by
   `install-managed-request-stubs!`. Late-bound via
-  `:http/uninstall-managed-request-stubs!`."
-  {:hook :http/uninstall-managed-request-stubs! :artefact http-artefact :on-absent :throw}
+  `:http/uninstall-managed-request-stubs!` (published from
+  `re-frame.http-test-support` per rf2-lwmgw)."
+  {:hook :http/uninstall-managed-request-stubs! :artefact http-test-support-artefact :on-absent :throw}
   ([] :delegate))
 
 (defwrapper with-managed-request-stubs*
   "Function form: install stubs, run thunk, uninstall. Late-bound via
-  `:http/with-managed-request-stubs*`."
-  {:hook :http/with-managed-request-stubs* :artefact http-artefact :on-absent :throw}
+  `:http/with-managed-request-stubs*` (published from
+  `re-frame.http-test-support` per rf2-lwmgw)."
+  {:hook :http/with-managed-request-stubs* :artefact http-test-support-artefact :on-absent :throw}
   ([stubs thunk] :delegate))
 
 ;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
