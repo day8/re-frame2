@@ -236,12 +236,19 @@
                      ;; need wider lanes).
                      :labels  [{:text (layout/edge-label e)}]})]
      {:id            "root"
+      ;; rf2-gg7ws — `:edgeRouting` walked from "ORTHOGONAL" (90°
+      ;; dog-legs; below the 000-Vision visual-ergonomics floor per
+      ;; the 2026-05-20 audit) to "SPLINES" (smooth bezier curves)
+      ;; for a polished, organic edge style that reads as competitive
+      ;; with xstate-stately. The `path-from-points` `:case 4` branch
+      ;; in `chart/svg` already emits SVG cubic-bezier `d` strings, so
+      ;; the renderer handles the spline points transparently.
       :layoutOptions {"elk.algorithm"                              "layered"
                       "elk.direction"                              dir-str
                       "elk.spacing.nodeNode"                       "32"
                       "elk.layered.spacing.nodeNodeBetweenLayers"  "60"
                       "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
-                      "elk.edgeRouting"                            "ORTHOGONAL"}
+                      "elk.edgeRouting"                            "SPLINES"}
       :children      (mapv mk-child nodes)
       :edges         (vec (map-indexed mk-edge edges))})))
 

@@ -355,7 +355,8 @@ with `:state` only).**
 ### Why
 
 - **Visual continuity holds** — the recipient sees which state the
-  sharer was in; the pulse / highlight needs the state name only.
+  sharer was in; the static active-state affordance needs the
+  state name only.
   The chart's data display is operator-side chrome (Causa's
   inspector panel), not a `MachineChart` affordance.
 - **Privacy is structural, not prose** — the encoder cannot emit
@@ -680,10 +681,11 @@ from regressing into a full graph recompute?
   nesting, the chart's measured viewbox. Owned by
   `(rf/machine-meta machine-id)` + the user's expand/collapse state +
   the `:show-*` props that affect topology presence.
-- **Runtime-highlight plane** — pulse, edge glow, microstep flash,
-  `:after` ring progress, `:invoke-all` row state, spawn-tray
-  contents, timer state. Owned by `[:rf/machines <id>]` + the
-  `:rf.machine/*` trace bus.
+- **Runtime-highlight plane** — static active-state affordance
+  (tint + bolder stroke; the pulse was retired 2026-05-20 per
+  rf2-2sez0), edge glow, microstep flash, `:after` ring progress,
+  `:invoke-all` row state, spawn-tray contents, timer state. Owned
+  by `[:rf/machines <id>]` + the `:rf.machine/*` trace bus.
 
 The runtime-highlight plane MUST NOT participate in any computation
 whose output reaches the topology plane. The two planes share no

@@ -200,26 +200,66 @@ If a host needs to drive the runtime from a chart click (Causa's
 "jump to source", say), the host wires that through its own
 machinery — Machines-Viz fires the callback and stops there.
 
-## Charts pulse only the active state
+## No continuous animation — static affordance + event-driven glints
 
-The only continuous animation in a chart is the active state's
-1.2s heartbeat pulse (lifted from Causa 007-UX-IA §Animation —
-only the active machine's node pulses). Everything else is
-event-driven:
+Charts have **no continuous animation**. The active state is
+signalled **statically**: a cyan tint on the node fill plus a
+bolder stroke than its inactive siblings. The reader's eye lands
+on the current state at-rest, without a heartbeat loop pulling
+attention every two seconds.
 
-- Transition: one ~250ms edge-glow on the matching event.
+This is a deliberate change from the previous lock (rf2-2sez0,
+2026-05-20). The earlier "Charts pulse only the active state"
+principle locked a 1.2s heartbeat pulse as the sole continuous
+animation; Mike rejected it on inspection — the pulse competed
+with the transition-glow for attention, became "look at me I'm
+running" decoration after the chart had been on screen for >5s,
+and diverged from xstate-stately (the
+[`000-Vision.md`](./000-Vision.md) named floor), which uses no
+active-state pulse. The static affordance carries the same
+"currently here" signal without the cost.
+
+Every other animation in the chart is **event-driven** — fires
+once on a discrete event, resolves to a stable end-state, no
+looping:
+
+- Transition: one ~400ms edge-glow on the matching event (the
+  focused edge between FROM-highlight + TO-highlight).
 - Microstep: one 150ms intermediate node flash.
 - `:after` countdown: a fill ring that updates at 60Hz **only**
   when the chart is visible; backgrounded charts pause the fill.
+  This is a *fill-progressing* surface, not a looping animation —
+  the ring drains once per timer and then sits at its end-state.
 - `:invoke-all` join completes: one ~400ms row-collapse animation.
 
-No looping animations except the heartbeat. No "look at me I'm
-running" continuous strobes. Every animation respects
+No looping animations, full stop. No "look at me I'm running"
+continuous strobes. Every animation respects
 `prefers-reduced-motion`; reduced motion clamps durations to 0
 except a 1-frame opacity tween where layout needs to settle.
 
 This is the framework's animation-communicates-not-decorates
 principle, applied to charts.
+
+### How the static active-state affordance is implemented
+
+The chart's `render-node` paints the active state with two
+non-animated emphases:
+
+1. **Cyan fill tint** — via `node-fill` returning the
+   `:cyan @ 0.18` tint when `:highlight?` is true.
+2. **Bolder stroke** — the active node's stroke-width is
+   `:stroke-width-emphasis + 0.75px`; an inactive sibling sits at
+   the baseline `:stroke-width`. The visible delta (~1.75px) reads
+   as "this node is emphasised" without the eye having to track a
+   loop.
+
+Both are static — they shift when the highlight shifts, but they
+do not animate while the highlight is held. The state-node label
+also flips to `font-weight 600 + text-primary` while emphasised
+(it sits at `400 + text-secondary` for inactive siblings) so the
+typography reinforces the visual emphasis. The
+`data-active-affordance` attribute on the node `<g>` lets tests
+and hosts read the emphasis state without inspecting CSS.
 
 ## Colour is never alone
 

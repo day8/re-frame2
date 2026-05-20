@@ -26,15 +26,18 @@
 
   ## Motion seam
 
-  rf2-xfx6l — the chart's heartbeat pulse + transition glow
-  interpolate their `animation-duration` through the same
+  rf2-xfx6l / rf2-2sez0 — the chart's transition glow (the sole
+  remaining continuous animation surface, fired one beat on event-
+  fire) interpolates its `animation-duration` through the same
   `--rf-causa-motion-scale` CSS custom property Causa publishes at
   `:root`. The chart's host (Causa today) ensures the variable is
   set; when machines-viz ships standalone the chart's own SVG
   `<style>` block declares the variable + the
   `prefers-reduced-motion` override so the chart honours the user's
   setting without a host-side install. See `chart/svg`
-  `inline-stylesheet`.
+  `inline-stylesheet`. The heartbeat-pulse animation was retired
+  2026-05-20 (rf2-2sez0) — only `:glow-duration-ms` remains in the
+  motion catalogue.
 
   ## Visual constants
 
@@ -147,16 +150,16 @@
   - `:scale-var-name`        — CSS custom property name; consumers
                                interpolate it into their inline
                                `animation-duration: calc(...)`.
-  - `:pulse-duration-ms`     — heartbeat pulse cycle on the active
-                               state node (rf2-xfx6l).
   - `:glow-duration-ms`      — transition-edge glow flash duration
                                (rf2-xfx6l).
 
-  Both durations interpolate through `--rf-causa-motion-scale`
-  (collapsed to 0.001 under `prefers-reduced-motion: reduce`)."
-  {:scale-var-name    "--rf-causa-motion-scale"
-   :pulse-duration-ms 2000
-   :glow-duration-ms  400})
+  The duration interpolates through `--rf-causa-motion-scale`
+  (collapsed to 0.001 under `prefers-reduced-motion: reduce`).
+
+  rf2-2sez0 — `:pulse-duration-ms` retired 2026-05-20 with the
+  heartbeat-pulse animation. Active-state emphasis is now static."
+  {:scale-var-name   "--rf-causa-motion-scale"
+   :glow-duration-ms 400})
 
 (defn duration-css
   "Build the canonical `calc(<ms>ms * var(--rf-causa-motion-scale, 1))`

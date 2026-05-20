@@ -54,7 +54,10 @@
            (tokens/duration-css 2000)))))
 
 (deftest motion-publishes-canonical-durations
-  (testing "motion catalogues the pulse + glow ms so the chart can
-            read them without forking the numbers"
-    (is (pos? (:pulse-duration-ms tokens/motion)))
-    (is (pos? (:glow-duration-ms tokens/motion)))))
+  (testing "motion catalogues the glow ms so the chart can read it
+            without forking the numbers. The `:pulse-duration-ms`
+            entry was retired with rf2-2sez0 (heartbeat-pulse
+            animation removed 2026-05-20)."
+    (is (pos? (:glow-duration-ms tokens/motion)))
+    (is (nil? (:pulse-duration-ms tokens/motion))
+        "pulse-duration-ms removed (rf2-2sez0)")))

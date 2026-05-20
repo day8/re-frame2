@@ -13,13 +13,22 @@
   - **State-space dot-grid background** — rf2-m4nj4. Subtle violet
     dots on a 16px lattice behind every element. Reads as 'state-
     space', distinguishes from Stately/XState's flat canvas.
-  - **Heartbeat pulse + transition glow** — rf2-xfx6l. The active /
-    landing state breathes (2s sine on stroke-width + opacity); the
-    transition edge glows for one beat on event-fire. Both honour
-    `prefers-reduced-motion` via the `--rf-causa-motion-scale` seam.
-  - **Refused-floor typography** — rf2-cd053. State labels 11px,
-    edge labels 9px (spec/007-UX-IA's refused-floor). Node geometry
-    widens to fit.
+  - **Static active-state affordance + transition glow** —
+    rf2-2sez0 / rf2-xfx6l. The active / landing state carries a
+    cyan tint + emphasised stroke (static — no continuous loop);
+    the transition edge glows for one beat on event-fire. The glow
+    honours `prefers-reduced-motion` via the
+    `--rf-causa-motion-scale` seam. The heartbeat-pulse animation
+    was retired 2026-05-20 (rf2-2sez0) per Mike's UX inspection —
+    the static affordance carries the 'currently here' signal
+    without the continuous distraction.
+  - **Chart-appropriate typography (rf2-gg7ws lift)** — state
+    labels 13px, edge labels 11px (lifted from the previous 11/9
+    refused-floor per the 2026-05-20 visual-quality audit). Node
+    geometry widens to fit.
+  - **Edge-label backplates (rf2-gg7ws)** — a small white rect at
+    ~85% opacity sits behind each edge label so overlapping labels
+    on dense charts remain readable.
   - **Caption strip** — rf2-3zdzw. Opt-in `:show-caption?` paints a
     machine-id + current-state header above the chart so PNG/SVG
     exports self-identify.
@@ -61,6 +70,8 @@
 (def ^:private compound-pad-y          (:compound-pad-y vc/chart))
 (def ^:private state-label-px          (:state-label-px vc/chart))
 (def ^:private edge-label-px           (:edge-label-px vc/chart))
+(def ^:private edge-label-backplate-opacity
+  (:edge-label-backplate-opacity vc/chart))
 (def ^:private final-glyph-px          (:final-glyph-px vc/chart))
 (def ^:private compound-title-px       (:compound-title-px vc/chart))
 (def ^:private caption-strip-px        (:caption-strip-px vc/chart))
@@ -81,30 +92,30 @@
   hiccup-walker tests would have to evaluate."
   "ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace")
 
-;; ---- inline stylesheet (rf2-xfx6l, rf2-g6cig L3) -----------------------
+;; ---- inline stylesheet (rf2-xfx6l, rf2-2sez0, rf2-g6cig L3) -----------
 
-(def ^:private heartbeat-pulse-css
-  "@keyframes mv-chart-heartbeat-pulse for the active / landing state.
+(def ^:private transition-glow-css
+  "@keyframes mv-chart-transition-glow for the focused edge.
 
-  rf2-xfx6l — the active state breathes: stroke-width + opacity drift
-  from a resting baseline to an emphasised peak on a 2s sine cycle.
-  The seam variable `--rf-causa-motion-scale` (mirrored from Causa's
-  motion seam) drives the duration through `calc(...)`; the
-  `prefers-reduced-motion: reduce` media query below collapses it to
-  ~0 so the keyframes resolve to their `to` state in one frame
-  (matches Causa's 0.001 trick — see Causa theme/global-styles motion
-  docstring)."
+  rf2-xfx6l — the edge that just fired glows for one beat: opacity +
+  stroke-width drift from a resting baseline to an emphasised peak
+  on a short cycle. The seam variable `--rf-causa-motion-scale`
+  (mirrored from Causa's motion seam) drives the duration through
+  `calc(...)`; the `prefers-reduced-motion: reduce` media query
+  below collapses it to ~0 so the keyframes resolve to their `to`
+  state in one frame (matches Causa's 0.001 trick — see Causa
+  theme/global-styles motion docstring).
+
+  rf2-2sez0 — the previous `mv-chart-heartbeat-pulse` keyframes
+  block was retired 2026-05-20 with the heartbeat-pulse animation.
+  The active state's static emphasis (cyan tint + bolder stroke)
+  carries the 'currently here' signal without a continuous loop."
   (str
     ":root {\n"
     "  --rf-causa-motion-scale: 1;\n"
     "}\n"
     "@media (prefers-reduced-motion: reduce) {\n"
     "  :root { --rf-causa-motion-scale: 0.001; }\n"
-    "}\n"
-    "@keyframes mv-chart-heartbeat-pulse {\n"
-    "  0%   { opacity: 0.85; stroke-width: var(--mv-pulse-base, 2.5); }\n"
-    "  50%  { opacity: 1.00; stroke-width: var(--mv-pulse-peak, 3.5); }\n"
-    "  100% { opacity: 0.85; stroke-width: var(--mv-pulse-base, 2.5); }\n"
     "}\n"
     "@keyframes mv-chart-transition-glow {\n"
     "  0%   { opacity: 0.55; stroke-width: var(--mv-glow-base, 2.5); }\n"
@@ -113,15 +124,15 @@
     "}\n"))
 
 (defn- inline-stylesheet
-  "An SVG `<style>` element carrying the chart's `@keyframes` blocks +
+  "An SVG `<style>` element carrying the chart's `@keyframes` block +
   the `prefers-reduced-motion` override. Lives inside the SVG so the
   chart's motion is self-contained: a host that mounts the chart
-  without injecting any global CSS still gets the pulse / glow and
+  without injecting any global CSS still gets the transition glow and
   honours the user's reduced-motion preference.
 
   Pure data → hiccup; JVM-runnable."
   []
-  [:style {:data-testid "rf-mv-chart-stylesheet"} heartbeat-pulse-css])
+  [:style {:data-testid "rf-mv-chart-stylesheet"} transition-glow-css])
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -343,10 +354,13 @@
   (let [active?         (= node-id highlight-id)
         from-highlight? (= node-id from-highlight-id)
         to-highlight?   (= node-id to-highlight-id)
-        ;; rf2-xfx6l — the active / landing state pulses. The FROM
-        ;; node does NOT pulse (it's the just-left state); only the
-        ;; current state breathes.
-        pulse?          (or active? to-highlight?)
+        ;; rf2-2sez0 — the previous heartbeat-pulse animation was
+        ;; retired 2026-05-20. The active / landing state now carries
+        ;; a STATIC affordance: cyan tint (via node-fill) + emphasised
+        ;; stroke width (via the stroke-w branch below). The
+        ;; `data-active-affordance` attr lets tests / hosts read the
+        ;; node's emphasis state without inspecting CSS.
+        active-affordance? (or active? to-highlight?)
         emphasised?     (or active? from-highlight? to-highlight?)
         styled          (assoc n
                                :highlight?      active?
@@ -355,31 +369,20 @@
                                :sim?            (and active? sim?))
         fill            (node-fill styled)
         stroke          (node-stroke styled)
-        stroke-w        (if emphasised? highlight-stroke-width stroke-width)
-        pulse-base      stroke-w
-        pulse-peak      (+ stroke-w (:pulse-stroke-width-add vc/chart))
-        ;; The rect carries the animation via inline-style so the SVG
-        ;; remains self-contained (no global CSS dependency).
-        rect-style      (when pulse?
-                          {:animation
-                           (str "mv-chart-heartbeat-pulse "
-                                (tokens/duration-css (:pulse-duration-ms tokens/motion))
-                                " ease-in-out infinite")
-                           :transform-box "fill-box"
-                           :transform-origin "center"})
-        rect-extra      (when pulse?
-                          {;; expose pulse stroke-width endpoints via
-                           ;; CSS vars so the keyframes interpolate
-                           ;; them — each pulsing node carries its own
-                           ;; base/peak.
-                           :style (assoc rect-style
-                                    "--mv-pulse-base" (str pulse-base "px")
-                                    "--mv-pulse-peak" (str pulse-peak "px"))})]
+        ;; rf2-2sez0 — the active / landing state takes a slightly
+        ;; bolder stroke than the FROM-highlight so the user's eye
+        ;; reads it as "currently here" without animation. FROM gets
+        ;; emphasis (it just-exited) but stays at the standard
+        ;; emphasised stroke.
+        stroke-w        (cond
+                          active-affordance? (+ highlight-stroke-width 0.75)
+                          emphasised?        highlight-stroke-width
+                          :else              stroke-width)]
     [:g {:data-testid (str "rf-causa-chart-node-" node-id)
          :data-active (str active?)
          :data-from-highlight (str from-highlight?)
          :data-to-highlight (str to-highlight?)
-         :data-pulse (str pulse?)
+         :data-active-affordance (str active-affordance?)
          :data-state-path (pr-str path)
          :on-click (when on-state-click
                      (fn [_ev] (on-state-click path)))
@@ -401,19 +404,20 @@
                :fill "none"
                :stroke (:green tokens/tokens)
                :stroke-width 1}])
-     ;; Main node body — pulse animation applied here when emphasised.
-     [:rect (cond-> {:x x :y y :width width :height height
-                     :rx corner-radius
-                     :fill fill
-                     :stroke stroke
-                     :stroke-width stroke-w
-                     :stroke-dasharray (when (and from-highlight? (not to-highlight?))
-                                         "4 2")}
-              pulse? (merge rect-extra))]
+     ;; Main node body — static affordance for the active state
+     ;; (rf2-2sez0: bolder stroke + cyan tint via stroke-w/fill, no
+     ;; animation).
+     [:rect {:x x :y y :width width :height height
+             :rx corner-radius
+             :fill fill
+             :stroke stroke
+             :stroke-width stroke-w
+             :stroke-dasharray (when (and from-highlight? (not to-highlight?))
+                                 "4 2")}]
      ;; State-tag pills (rf2-m1b88)
      (render-tag-pills n)
-     ;; Label — rf2-cd053 restores typography to the refused-floor
-     ;; (state 11px). Vertical baseline tweak (+4) keeps glyphs
+     ;; Label — rf2-gg7ws lifts typography to a chart-appropriate
+     ;; 13px (was 11). Vertical baseline tweak (+4) keeps glyphs
      ;; visually centred at the larger size.
      [:text {:x (+ x (quot width 2))
              :y (+ y (quot height 2) 4)
@@ -425,7 +429,7 @@
                      (:text-primary tokens/tokens)
                      (:text-secondary tokens/tokens))}
       label]
-     ;; Final-state check glyph — rf2-cd053 final-glyph-px tracks
+     ;; Final-state check glyph — rf2-gg7ws final-glyph-px tracks
      ;; state-label-px so the corner check stays proportional.
      (when final?
        [:text {:x (+ x width -10)
@@ -439,9 +443,12 @@
   "Render an SVG path `d` attribute from a point list.
 
     - 2 points → straight line.
-    - 4 points → cubic bezier (self-loop / hand-routed S-curve).
+    - 4 points → cubic bezier (self-loop / hand-routed S-curve; ELK
+      SPLINES typically returns this 4-tuple per section — start +
+      two control points + end — per rf2-gg7ws).
     - 3 or 5+ points → polyline (ELK orthogonal routing returns
-      multi-segment edges via bend points)."
+      multi-segment edges via bend points; piecewise splines also
+      fall through here for now)."
   [points]
   (case (count points)
     0 ""
@@ -534,22 +541,36 @@
                                             "--mv-glow-base" (str base-w "px")
                                             "--mv-glow-peak" (str (+ base-w 1.5) "px"))))]
      (when (seq full-label)
-       [:g
-        ;; rf2-cd053 — edge-label restored to refused-floor 9px. Pill
-        ;; geometry scales with the larger glyph.
-        [:rect {:x (- lx (long (* 3.5 (count full-label))))
-                :y (- ly 8)
-                :width (long (* 7 (count full-label)))
-                :height 12
-                :rx 3
-                :fill (:bg-2 tokens/tokens)
-                :opacity 0.85}]
-        [:text {:x lx :y ly
-                :text-anchor "middle"
-                :font-family mono-font-stack
-                :font-size edge-label-px
-                :fill (:text-secondary tokens/tokens)}
-         full-label]])]))
+       (let [;; rf2-gg7ws — backplate geometry. Char-width estimate
+             ;; scales with the lifted 11px font; the white backplate
+             ;; with 85% fill-opacity decouples the label from the
+             ;; edges + dot-grid behind it so overlapping labels on
+             ;; dense charts remain readable (collision-avoidance v1).
+             label-len    (count full-label)
+             char-w-half  4
+             char-w-full  8
+             bp-w         (long (* char-w-full label-len))
+             bp-h         14
+             bp-x         (- lx (long (* char-w-half label-len)))
+             bp-y         (- ly 10)]
+         [:g {:data-testid (str "rf-mv-chart-edge-label-" from-id "-to-" to-id)}
+          ;; rf2-gg7ws — light backplate behind the edge label. White
+          ;; at ~85% fill-opacity reads as a small label "card" on
+          ;; both the dark canvas and over edges / dot-grid.
+          [:rect {:data-testid (str "rf-mv-chart-edge-label-backplate-"
+                                    from-id "-to-" to-id)
+                  :x bp-x :y bp-y
+                  :width bp-w :height bp-h
+                  :rx 3
+                  :fill (:white tokens/tokens)
+                  :fill-opacity edge-label-backplate-opacity
+                  :pointer-events "none"}]
+          [:text {:x lx :y ly
+                  :text-anchor "middle"
+                  :font-family mono-font-stack
+                  :font-size edge-label-px
+                  :fill (:bg-0 tokens/tokens)}
+           full-label]]))]))
 
 (defn- format-state-label
   "rf2-3zdzw / rf2-g6cig — render a path-like state-id with namespace
