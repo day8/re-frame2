@@ -1886,6 +1886,45 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 
 ---
 
+### M-53. Tear-down verb rename — `dispose-adapter!` → `destroy-adapter!`
+
+**Type A** (mechanical). Closed rename table; apply across all source files.
+
+Per rf2-cmabc (the tear-down verb axis discipline; see [Conventions §Tear-down verb axis — `clear-` vs `destroy-`](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-)) the public tear-down surface collapses onto two verbs:
+
+- `clear-` — registrar / cache / buffer decrement (in-process)
+- `destroy-` — lifecycle boundary
+
+One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface was already on the two-verb axis (`clear-event`, `clear-sub`, `clear-sub-cache!`, `destroy-frame!`, etc.).
+
+| v1 → v2 (pre-rename) | v2 (post-rename) | Verb-axis rationale |
+|---|---|---|
+| `rf/dispose-adapter!` | `rf/destroy-adapter!` | Adapter teardown is a lifecycle boundary, symmetric with `install-adapter!` and `destroy-frame!` → `destroy-` cluster. |
+
+**Detect.** v2-pre-rename codebases trip this; v1 codebases did not have an adapter concept and do not have a v1 surface that maps here.
+
+```clojure
+;; before
+(rf/dispose-adapter!)
+```
+
+**Rewrite.**
+
+```clojure
+;; after
+(rf/destroy-adapter!)
+```
+
+**Deprecation alias.** The old name ships as a deprecated alias pointing at the same Var for one deprecation cycle — code that does not migrate keeps working but tooling that reads `:deprecated` metadata (linters, refactor tools, `clojure.repl/doc`) flags the call sites. The alias is removed in the next breaking-change cycle.
+
+**Adapter-spec map key is unchanged.** The adapter contract still uses the `:dispose-adapter!` key inside the adapter spec map (the slot adapter implementations provide). That key is an internal contract surface — adapters keep implementing `{:dispose-adapter! (fn [] ...)}`. Only the public `re-frame.core` wrapper name moves.
+
+**`rf/unsubscribe` is unchanged — carve-out, not rename.** rf2-cmabc originally proposed `unsubscribe → clear-sub` alongside the adapter rename. The proposal collides with the existing `rf/clear-sub` (the symmetric inverse of `reg-sub` — the **registrar** decrement, distinct from the cache ref-count decrement that `unsubscribe` performs). The two operations are semantically distinct and cannot share a name, so `unsubscribe` is **carved out** from the verb axis as the singular `un-` surface. See [Conventions §Tear-down verb axis — Carve-out: `unsubscribe`](../../spec/Conventions.md#carve-out-unsubscribe) for the rationale. No rewrite is required for `unsubscribe` call sites.
+
+**Cross-references.** [Conventions §Tear-down verb axis](../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-) (the rule); [API.md](../../spec/API.md) row `destroy-adapter!` (the contract); rf2-cmabc (the decision) and its parent rf2-k6xyr Finding #1 (the audit that surfaced the 5-verb mess).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.

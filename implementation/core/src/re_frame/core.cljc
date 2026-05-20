@@ -558,7 +558,15 @@
 (def ^{:doc "Decrement the ref-count on the cached subscription for
   `query-v`; ref-count→0 schedules disposal after the configured
   `:sub-cache` grace-period. Returns nil. Per spec/API.md §Dispatch and
-  subscribe."}
+  subscribe.
+
+  Verb-axis carve-out (per Conventions §Tear-down verb axis,
+  rf2-cmabc): the `un-` prefix is reserved as the singular form for
+  the sub-cache ref-count decrement, because `clear-sub` is already
+  taken by the symmetric inverse of `reg-sub` (the registrar
+  decrement, above). The two operations are distinct: `clear-sub`
+  drops the registration; `unsubscribe` releases a live cache
+  ref-count. They cannot share the name."}
   unsubscribe     subs/unsubscribe)
 
 (def ^{:doc "Compute a subscription's value against a supplied `db`,
@@ -1233,7 +1241,7 @@
     nil))
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A
-  second call without an intervening `dispose-adapter!` raises
+  second call without an intervening `destroy-adapter!` raises
   `:rf.error/adapter-already-installed`. Most apps call `init!` rather
   than this directly. Per Spec 006 §Adapter selection at boot."}
   install-adapter!     adapter/install-adapter!)
@@ -1241,7 +1249,21 @@
 (def ^{:doc "Tear down the installed adapter. Calls the adapter's
   `:dispose-adapter!` fn (if present), clears the install slot so a
   new adapter can install, and marks the adapter as disposed. Per
-  Spec 006 §Adapter lifecycle."}
+  Spec 006 §Adapter lifecycle.
+
+  The `destroy-` verb places this fn on the lifecycle-boundary axis
+  of the tear-down verb taxonomy (per Conventions §Tear-down verb
+  axis) — adapter install/destroy is symmetric with frame
+  create/destroy (`destroy-frame!`)."}
+  destroy-adapter!     adapter/dispose-adapter!)
+
+(def ^{:deprecated "deprecated alias for `destroy-adapter!`. Per the
+  tear-down verb axis (Conventions §Tear-down verb axis, rf2-cmabc)
+  the `dispose-` prefix is collapsed onto the `destroy-` cluster —
+  adapter teardown is a lifecycle boundary, symmetric with
+  `destroy-frame!`. Retained for one deprecation cycle; switch to
+  `destroy-adapter!`."
+       :doc "Deprecated alias for `destroy-adapter!`. See `destroy-adapter!`."}
   dispose-adapter!     adapter/dispose-adapter!)
 
 (def ^{:doc "Return the discriminator keyword identifying the installed

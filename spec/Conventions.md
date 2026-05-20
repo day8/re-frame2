@@ -377,6 +377,56 @@ When adding a public surface, ask in order:
 
 The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-trace-cb!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
 
+## Tear-down verb axis — `clear-` vs `destroy-`
+
+The bang axis above answers *whether* a tear-down surface carries `!`. The **verb axis** answers *which verb the surface uses*. The taxonomy is two-valued: `clear-` for in-process registrar / cache / buffer decrements, `destroy-` for lifecycle-boundary teardown. Every framework tear-down surface in [API.md](API.md) picks exactly one — except for one carved-out singular case (`unsubscribe`) explained below. New surfaces pick their verb by mechanism, not by feel. Per rf2-cmabc (decided 2026-05-20; collapses the prior 5-verb mess `clear-` / `destroy-` / `reset-` / `dispose-` / `un-` into two-plus-carve-outs).
+
+### `clear-*` — registrar / cache / buffer decrement (in-process)
+
+Symmetric inverse of `reg-*`. Removes an id from a registry the process owns (event registrar, sub registrar, fx registrar, flow registrar, http-interceptor registrar) or drops a process-local cache / buffer outright.
+
+- Single-id decrement, registry-shaped: `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-http-interceptor` (bucket 1, no bang)
+- Drop-everything, process-level: `clear-sub-cache!`, `clear-trace-buffer!`, `clear-trace-cbs!` (bucket 3, bang)
+
+### `destroy-*` — lifecycle boundary
+
+Tears down something with **identity and a creation moment** — a frame, an adapter installation. The pair `(reg-frame …)` / `(destroy-frame! …)` and `(install-adapter! …)` / `(destroy-adapter!)` are lifecycle symmetries: the second call invalidates downstream subscribers, releases per-instance machinery, and (for the adapter) flips the `adapter-disposed?` breadcrumb.
+
+- `destroy-frame!`
+- `destroy-adapter!`
+
+### Renamed under this axis (one-cycle deprecation aliases)
+
+The prior surface had `dispose-adapter!` for the adapter teardown. It collapses onto `destroy-` because adapter installation is a lifecycle boundary, symmetric with `destroy-frame!`:
+
+- `dispose-adapter!` → `destroy-adapter!` (lifecycle boundary)
+
+The old name ships as a deprecated alias pointing at the same Var for one deprecation cycle; tooling that introspects `:deprecated` metadata will flag it. Per the [Migration corpus M-53](../migration/from-re-frame-v1/README.md#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) for the v1→v2 mapping.
+
+### Carve-out: `unsubscribe`
+
+`unsubscribe` is **retained** rather than renamed. The natural target name (`clear-sub`) is already taken by the symmetric inverse of `reg-sub` — the **registrar** decrement that removes a registration. The two operations are semantically distinct:
+
+| Surface | Decrements | Symmetric with |
+|---|---|---|
+| `clear-sub` | the sub **registrar** (the registered handler fn for an id) | `reg-sub` |
+| `unsubscribe` | the sub **cache** (a live ref-count for a `query-v` shape) | `subscribe` |
+
+Collapsing them would conflate registration with caching. The `un-` prefix is therefore carved out as the singular form for the cache ref-count decrement. Rule of thumb: if the framework grows another `un-*` surface, you have probably misread the axis — `un-` is a one-element set.
+
+(Originally rf2-cmabc proposed `unsubscribe → clear-sub`; the rename was abandoned mid-implementation when the collision surfaced. The carve-out is the corrected resolution, recorded here so the next reader doesn't repeat the analysis.)
+
+`reset-frame!` is **not** part of the tear-down axis — it is a compound `destroy-frame!` + `reg-frame` re-using the prior frame's id. The `reset-` prefix is reserved for this compound-recreation shape (the only current occurrence) and does not generalise.
+
+### How to slot a new tear-down surface
+
+When adding a new tear-down surface, ask:
+
+1. Does it release a registered id, or drop a process-local cache / buffer? → `clear-*`.
+2. Does it tear down something with identity and a paired creation moment? → `destroy-*`.
+
+If neither fits, the surface is evidence the axis is missing a bucket — file a bead against this section rather than reaching for `dispose-` / `reset-` / `un-` / `remove-`. (`un-` is reserved for `unsubscribe`'s carve-out and does not generalise.)
+
 ## Configuration surfaces: `configure` vs `set-!` vs per-frame metadata
 
 re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel.

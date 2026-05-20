@@ -7,6 +7,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 ## Contents
 
 - Framework keyword renames (M-20, M-35)
+- Tear-down verb renames (M-53)
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
@@ -43,6 +44,22 @@ Also rewrite the app-db slice key `[:route]` → `[:rf/route]` and the subscript
 [:spawn ...]              → [:rf.machine/spawn ...]
 [:destroy-machine ...]    → [:rf.machine/destroy ...]
 ```
+
+---
+
+## Tear-down verb renames (M-53)
+
+Closed mechanical rename table. Per the tear-down verb axis discipline (rf2-cmabc; see [Conventions §Tear-down verb axis](../../../spec/Conventions.md#tear-down-verb-axis--clear--vs-destroy-)) the public tear-down surface collapses onto two verbs — `clear-` (registrar / cache / buffer decrement) and `destroy-` (lifecycle boundary). One outlier name renames:
+
+```
+(rf/dispose-adapter!)       → (rf/destroy-adapter!)
+```
+
+The old name remains as a deprecated alias for one cycle (`{:deprecated "..."}` metadata on the Var). Linters / `clojure.repl/doc` will flag stale call sites. The adapter-spec **map key** `:dispose-adapter!` (the slot adapter implementations provide) is unchanged — adapters keep returning `{:dispose-adapter! (fn [] ...)}` in their spec map. Only the public `re-frame.core` wrapper name moves.
+
+`rf/unsubscribe` is **not** renamed: the natural target `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement). The `un-` prefix is carved out as the singular form for the sub-cache ref-count decrement. See the [Conventions §Tear-down verb axis — Carve-out](../../../spec/Conventions.md#carve-out-unsubscribe).
+
+The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!` / `clear-fx` / `clear-flow` / `clear-http-interceptor` / `clear-trace-cbs!`) is already on the two-verb axis and needs no rewrite.
 
 ---
 
