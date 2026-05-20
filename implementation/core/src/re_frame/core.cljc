@@ -848,6 +848,14 @@
   `:tags` set contains `tag`. Per Spec 005 §State tags (rf2-ee0d)."}
   machine-has-tag?               rf-machines/machine-has-tag?)
 
+(def ^{:doc "Wrap a 3-arity guard / action fn so the machine runtime
+  calls it with the introspection ctx `{:state :meta}`. Sugar over the
+  `^:rf.machine/wants-ctx` metadata flag for anonymous-fn / combinator
+  call sites where attaching metadata to the source form is awkward.
+  Per Spec 005 §3-arity escape hatch (rf2-2yupx) and rf2-b73dm
+  re-export."}
+  wants-ctx                      rf-machines/wants-ctx)
+
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 
 (def ^{:doc "Return all ids registered under `kind` with their metadata —
