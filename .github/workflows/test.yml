@@ -1125,6 +1125,18 @@ jobs:
       # `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs`.
       # The testbed surface itself stays in-tree as the canonical
       # Causa-displayable multi-frame demo.
+      #
+      # (rf2-pxb7t, Wave 3) The 3 SSR testbed Playwright spec.cjs files
+      # (`ssr_basic`, `ssr_hydration_mismatch`, `ssr_multi_frame`)
+      # retired — assertions migrated to JVM tests at
+      # `implementation/ssr/test/re_frame/ssr_{hydration,hydration_mismatch,
+      # multi_frame_isolation}_test.clj` using `rf/subscribe-once`.
+      # Their `testbeds/ssr-*` shadow-cljs build targets are retained
+      # (Causa observation targets) but no longer have spec.cjs files
+      # to run; the orchestrator's EXAMPLES list was trimmed to drop the
+      # three SSR entries (no surface staged that nothing tests). The
+      # `testbeds/` filter pattern below remains the residual after-Wave-2
+      # shape; the SSR entries simply no longer match any EXAMPLES row.
       - name: Compile framework + top-level testbeds, serve, and run Playwright specs
         env:
           EXAMPLES_FILTER: "testbeds/"
