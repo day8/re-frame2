@@ -59,7 +59,9 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
             [app.views]))                ;; ensure view ids exist
 
 (defn register-all! []
-  (story/install-canonical-vocabulary!)   ;; idempotent; registers :rf.assert/* + canonical tags
+  ;; No explicit boot step — the first `reg-*` below auto-installs the
+  ;; canonical vocabulary (seven tags, lifecycle machine, :rf.assert/*
+  ;; handlers, force-fx-stub decorator, v1 panel set) per rf2-p1ydc.
 
   (story/reg-story :story.counter
     {:doc        "The counter."
