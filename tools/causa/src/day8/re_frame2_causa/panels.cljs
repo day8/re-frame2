@@ -16,7 +16,7 @@
 
       (mount-event-detail!     mount-point opts) → unmount-fn
       (mount-app-db-diff!      mount-point opts) → unmount-fn
-      (mount-views!            mount-point opts) → unmount-fn
+      (mount-reactive-panel!   mount-point opts) → unmount-fn
       (mount-trace!            mount-point opts) → unmount-fn
       (mount-machine-inspector! mount-point opts) → unmount-fn
       (mount-machines-canvas!  mount-point opts) → unmount-fn
@@ -71,7 +71,7 @@
   |---|---|---|
   | **event-detail** | `:rf.causa/focus` · `:rf.causa/cascades` · `:rf.causa/target-frame-db` | `:rf.causa/focus-cascade` |
   | **app-db-diff** | `:rf.causa/app-db-diff` (composite over target-frame + epoch history + focused slice path) | `:rf.causa/focus-slice-path` · `:rf.causa/open-segment-inspector` |
-  | **views** | `:rf.causa/views-focused-cascade-pair` · `:rf.causa/views-sub-diff` | view-row toggles + sub-diff selection |
+  | **reactive-panel** | `:rf.causa/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.causa/reactive-toggle-unchanged` |
   | **trace** | `:rf.causa/trace-feed` (incremental projection over the buffer) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
   | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
   | **machines-canvas** | `:rf.causa/registered-machines` · `:rf.causa/machine-definitions` · `:rf.causa.machines-canvas/selected-id` · `:rf.causa.machine-canvas/viewport-for` | `:rf.causa.machines-canvas/select` · `:rf.causa.machine-canvas/apply-action` (via Chart) |
@@ -125,7 +125,7 @@
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
-            [day8.re-frame2-causa.panels.views :as views]
+            [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.shell :as shell]))
 
 ;; ---- internal scaffolding -----------------------------------------------
@@ -191,11 +191,12 @@
   ([mount-point]      (mount-app-db-diff! mount-point nil))
   ([mount-point opts] (render-panel! app-db-diff/Panel mount-point opts)))
 
-(defn mount-views!
-  "Mount Causa's Views tab in isolation at `mount-point`. Renders the
-  per-view sub-invalidation surface for the focused cascade."
-  ([mount-point]      (mount-views! mount-point nil))
-  ([mount-point opts] (render-panel! views/Panel mount-point opts)))
+(defn mount-reactive-panel!
+  "Mount Causa's Reactive tab in isolation at `mount-point` (rf2-wyvf2).
+  Renders the canonical sub-cascade + view-re-render visualisation
+  per spec/021 §3."
+  ([mount-point]      (mount-reactive-panel! mount-point nil))
+  ([mount-point opts] (render-panel! reactive-panel/Panel mount-point opts)))
 
 (defn mount-trace!
   "Mount Causa's Trace tab in isolation at `mount-point`. Renders the

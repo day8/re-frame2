@@ -43,7 +43,7 @@
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
-            [day8.re-frame2-causa.panels.views :as views]
+            [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.test-support :as causa-test-support]
             [day8.re-frame2-causa.trace-bus :as trace-bus]))
 
@@ -124,11 +124,11 @@
       (panels/mount-app-db-diff! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel)))))
 
-(deftest mount-views-wraps-in-frame-provider
+(deftest mount-reactive-panel-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [substrate-adapter/render render-stub]
-      (panels/mount-views! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) views/Panel)))))
+      (panels/mount-reactive-panel! :mount-point)
+      (is (frame-provider-wrap? (captured-tree capture) reactive-panel/Panel)))))
 
 (deftest mount-trace-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
@@ -260,7 +260,7 @@
             against accidental removal during refactor."
     (let [fns [["mount-event-detail!"                       panels/mount-event-detail!]
                ["mount-app-db-diff!"                        panels/mount-app-db-diff!]
-               ["mount-views!"                              panels/mount-views!]
+               ["mount-reactive-panel!"                     panels/mount-reactive-panel!]
                ["mount-trace!"                              panels/mount-trace!]
                ["mount-machine-inspector!"                  panels/mount-machine-inspector!]
                ["mount-routing!"                            panels/mount-routing!]

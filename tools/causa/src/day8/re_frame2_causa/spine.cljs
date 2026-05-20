@@ -574,8 +574,8 @@
 
   The Causa app-db carries a single `:epoch-history` slot keyed by the
   legacy `:target-frame`. Every per-frame composite (App-DB Diff's
-  selected-epoch-diff / sections / annotated-tree; Views' focused-
-  cascade-pair; the views-sub-diff records; the machine-inspector
+  selected-epoch-diff / sections / annotated-tree; Reactive panel's
+  focused-cascade trace projection (rf2-wyvf2); the machine-inspector
   scrubber) reads off that slot. Pre-fix the slot stayed on whatever
   `:target-frame` was at boot (`:rf/default`) even when the user picked
   a different frame in the ribbon picker — so:
@@ -585,13 +585,11 @@
       target had no epochs, `history-empty?` was true and the panel
       rendered the 'app-db for :cart-frame is at the boot value. No
       diffs yet.' empty-state EVEN WITH a focused cascade (rf2-ug1r6).
-    - Views' `:rf.causa/views-focused-cascade-pair` reads the same
-      wrong-frame history; `find-cascade-index` returns nil for the
-      focused `:epoch-id` (which was itself never resolved because
-      `epoch-id-for-cascade` walks the same wrong slot), the fallback
-      `(dec (count history))` returns nil for an empty boot-frame
-      history, `:has-cascade?` resolves to false, and the body renders
-      'No event focused.' EVEN WITH a focused cascade (rf2-thodq).
+    - The Reactive panel's `:rf.causa/reactive-data` composite reads
+      the same wrong-frame history; `focused-epoch-record` returns nil
+      for the focused `:epoch-id`, `:has-cascade?` resolves to false,
+      and the body renders 'No event focused.' EVEN WITH a focused
+      cascade (rf2-thodq · pre-fix).
 
   Both bugs share the same root: the picker writes only `[:focus :frame]`
   but every per-frame composite reads off a slot keyed on a DIFFERENT

@@ -261,7 +261,8 @@
         density         @(rf/subscribe [:rf.causa/density])
         long-kw-thresh  @(rf/subscribe [:rf.causa/long-keyword-threshold])
         show-tool?      @(rf/subscribe [:rf.causa/show-tool-frames?])
-        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])]
+        show-ungrouped? @(rf/subscribe [:rf.causa/show-ungrouped?])
+        show-unchanged-subs? @(rf/subscribe [:rf.causa/setting :general :show-unchanged-subs?])]
     [:div {:data-testid "rf-causa-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -512,7 +513,35 @@
         ":rf.ssr/*"]
        ", registry-time emits, REPL evals, frame lifecycle. "
        "Default OFF — Causa is silent-by-default. Useful when "
-       "debugging SSR / REPL flows."]]]))
+       "debugging SSR / REPL flows."]]
+
+     ;; ── Show unchanged subs (rf2-wyvf2 — spec/021 §3.4) ────────────
+     ;; Reactive panel disclosure pin. Default OFF: unchanged subs
+     ;; are coverage signal, not signal-of-the-moment, so the panel
+     ;; hides them behind a per-cascade footer disclosure. Flip ON
+     ;; to always inline-render the unchanged-subs list.
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-causa-settings-show-unchanged-subs"
+                :type        "checkbox"
+                :checked     (boolean show-unchanged-subs?)
+                :on-change   #(rf/dispatch
+                                [:rf.causa/settings-update
+                                 :general :show-unchanged-subs?
+                                 (boolean (.. % -target -checked))]
+                                {:frame :rf/causa})}]
+       "Always show unchanged subs in the Reactive panel"]
+      [:p {:style (hint-style)}
+       "When ON, the Reactive panel's unchanged-subs disclosure "
+       "(rows emitting "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        ":rf.sub/skipped"]
+       ") is always inline-expanded. Default OFF — unchanged subs "
+       "stay collapsed behind a footer disclosure (spec/021 §3.4)."]]]))
 
 ;; ---- section: Filters ---------------------------------------------------
 

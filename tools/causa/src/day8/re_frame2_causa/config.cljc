@@ -742,6 +742,13 @@
     above which a fully-qualified keyword is elided in compact list
     cells. Per spec/007-UX-IA.md §Long-keyword treatment; was
     previously a fixed constant.
+  - `:show-unchanged-subs?` (boolean, default `false`) — always-expand
+    pin for the Reactive panel's 'unchanged subs' disclosure (per
+    spec/021 §3.4 · rf2-wyvf2). OFF by default: unchanged subs are
+    coverage signal, not signal-of-the-moment, so the panel hides
+    them behind a footer disclosure that operator can flip per-
+    cascade. Flip ON to always expand the disclosure inline.
+
   - `:show-ungrouped?` (boolean, default `false`) — opt-in surface
     for the `:ungrouped` pseudo-cascade bucket (per rf2-r9lyy / Mike
     2026-05-19 closure of rf2-q60yf). OFF by default: the L2 event
@@ -770,6 +777,7 @@
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false
+               :show-unchanged-subs?   false           ; rf2-wyvf2 Reactive-panel disclosure pin
                :show-ungrouped?        false           ; rf2-r9lyy opt-in pseudo-cascade surface
                :long-keyword-threshold 24
                ;; rf2-ybjkx — user-side override of the OS-level

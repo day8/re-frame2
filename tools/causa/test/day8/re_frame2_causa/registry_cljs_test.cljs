@@ -309,20 +309,13 @@
    ;; expansion state shared by the Trace panel).
    :rf.causa/trace-feed-state
    :rf.causa/trace-filters
-   ;; Views panel (rf2-21ob3) replaces the legacy Subscriptions panel
-   ;; — subs nest under the views that consumed them. See
-   ;; `tools/causa/spec/012-Views.md`.
-   :rf.causa/views-cluster-threshold
-   :rf.causa/views-component-filter
-   :rf.causa/views-data
-   :rf.causa/views-expanded-clusters
-   :rf.causa/views-expanded-rows
-   :rf.causa/views-focused-cascade-pair
-   :rf.causa/views-group-by
-   ;; rf2-xjhhp Phase 2 — sub-output structural-diff composite for the
-   ;; Views row drilldown. Reuses the Phase 1 engine
-   ;; (`diff.annotated_tree` + `diff.section_grouping`).
-   :rf.causa/views-sub-diff-for-focused-event))
+   ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
+   ;; §11.5; tab key stays `:views`, display label rebases). Reads the
+   ;; focused cascade's `:trace-events` for the substrate ops landed in
+   ;; PRs #1728 + #1729 (`:rf.view/rendered`, `:rf.sub/skipped`,
+   ;; `:rf.cascade/captured`).
+   :rf.causa/reactive-data
+   :rf.causa/reactive-show-unchanged?))
 
 (def ^:private all-event-names
   "Every Causa-namespaced event registered by `register-causa-handlers!`.
@@ -550,14 +543,10 @@
    :rf.causa/timer-hover
    :rf.causa/timer-tick
    :rf.causa/toggle-live-pause
-   ;; Views panel events (rf2-21ob3) — replaces the legacy Subscriptions
-   ;; panel events. See `tools/causa/spec/012-Views.md`.
-   :rf.causa/views-collapse-all-rows
-   :rf.causa/views-set-cluster-threshold
-   :rf.causa/views-set-component-filter
-   :rf.causa/views-set-group-by
-   :rf.causa/views-toggle-cluster
-   :rf.causa/views-toggle-row))
+   ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
+   ;; Views per §11.5; tab key stays `:views`).
+   :rf.causa/reactive-set-unchanged
+   :rf.causa/reactive-toggle-unchanged))
 
 (def ^:private all-fx-names
   "Every Causa-namespaced fx registered by `register-causa-handlers!`.
@@ -1062,12 +1051,14 @@
     (rf/with-frame :rf/causa
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
-(deftest sub-views-group-by-defaults-component
-  (testing ":rf.causa/views-group-by defaults to :component (rf2-21ob3
-            — Views panel replaces the Subs panel's sub-filters slot)"
+(deftest sub-reactive-show-unchanged-defaults-false
+  (testing ":rf.causa/reactive-show-unchanged? defaults to false
+            (rf2-wyvf2 — Reactive panel disclosure slot per spec/021
+            §3.4; default OFF means the panel hides unchanged-subs
+            behind a footer disclosure)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (is (= :component @(rf/subscribe [:rf.causa/views-group-by]))))))
+      (is (false? @(rf/subscribe [:rf.causa/reactive-show-unchanged?]))))))
 
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
@@ -1133,19 +1124,17 @@
         (is (= 0 (:total data)))
         (is (= :no-machines (:empty-kind data)))))))
 
-(deftest sub-views-data-shape-empty
-  (testing ":rf.causa/views-data returns empty defaults when no cascade
-            is focused (rf2-21ob3; replaces the legacy
-            :rf.causa/subscriptions-data shape per spec/012-Views.md)"
+(deftest sub-reactive-data-shape-empty
+  (testing ":rf.causa/reactive-data returns empty defaults when no
+            cascade is focused (rf2-wyvf2 · spec/021 §3 · renamed from
+            :rf.causa/views-data per §11.5)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (let [data @(rf/subscribe [:rf.causa/views-data])]
-        (is (contains? data :groups))
-        (is (= 0 (:mounted   (:totals data))))
-        (is (= 0 (:rendered  (:totals data))))
-        (is (= 0 (:unmounted (:totals data))))
-        (is (false? (:has-cascade? data)))
-        (is (= :component (:group-by data)))))))
+      (let [data @(rf/subscribe [:rf.causa/reactive-data])]
+        (is (contains? data :subs-ran))
+        (is (contains? data :subs-skipped))
+        (is (contains? data :views-rendered))
+        (is (false? (:has-cascade? data)))))))
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
@@ -1224,28 +1213,26 @@
       (rf/dispatch-sync [:rf.causa/clear-trace-filters])
       (is (= {} @(rf/subscribe [:rf.causa/trace-filters]))))))
 
-(deftest event-views-toggle-row-adds-and-removes
-  (testing ":rf.causa/views-toggle-row toggles set membership
-            (rf2-21ob3 — Views panel inline-row expansion replaces
-            the Subs panel filter toggle)"
+(deftest event-reactive-toggle-unchanged-flips-slot
+  (testing ":rf.causa/reactive-toggle-unchanged toggles the panel's
+            disclosure slot (rf2-wyvf2 · spec/021 §3.4)"
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-a"])
-      (is (= #{"row-a"} @(rf/subscribe [:rf.causa/views-expanded-rows])))
-      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-b"])
-      (is (= #{"row-a" "row-b"} @(rf/subscribe [:rf.causa/views-expanded-rows])))
-      (rf/dispatch-sync [:rf.causa/views-toggle-row "row-a"])
-      (is (= #{"row-b"} @(rf/subscribe [:rf.causa/views-expanded-rows]))))))
+      (is (false? @(rf/subscribe [:rf.causa/reactive-show-unchanged?])))
+      (rf/dispatch-sync [:rf.causa/reactive-toggle-unchanged])
+      (is (true? @(rf/subscribe [:rf.causa/reactive-show-unchanged?])))
+      (rf/dispatch-sync [:rf.causa/reactive-toggle-unchanged])
+      (is (false? @(rf/subscribe [:rf.causa/reactive-show-unchanged?]))))))
 
-(deftest event-views-set-component-filter-round-trip
-  (testing ":rf.causa/views-set-component-filter writes and clears
-            the panel-local component filter slot (rf2-21ob3)."
+(deftest event-reactive-set-unchanged-writes-slot
+  (testing ":rf.causa/reactive-set-unchanged writes the slot directly
+            (rf2-wyvf2)."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/views-set-component-filter :my/view])
-      (is (= :my/view @(rf/subscribe [:rf.causa/views-component-filter])))
-      (rf/dispatch-sync [:rf.causa/views-set-component-filter nil])
-      (is (nil? @(rf/subscribe [:rf.causa/views-component-filter]))))))
+      (rf/dispatch-sync [:rf.causa/reactive-set-unchanged true])
+      (is (true? @(rf/subscribe [:rf.causa/reactive-show-unchanged?])))
+      (rf/dispatch-sync [:rf.causa/reactive-set-unchanged false])
+      (is (false? @(rf/subscribe [:rf.causa/reactive-show-unchanged?]))))))
 
 (deftest event-segment-inspector-open-and-close
   (testing "rf2-e9tb0 — :rf.causa/open-segment-inspector writes the
@@ -1422,11 +1409,12 @@
                       :rf.causa/issues-ribbon
                       :rf.causa/trace-feed
                       :rf.causa/machine-inspector-data
-                      :rf.causa/views-data
-                      ;; rf2-xjhhp Phase 2 — sub-output structural diff
-                      ;; composite. Empty-frame contract: returns
-                      ;; `{:dispatch-id nil :records []}`.
-                      :rf.causa/views-sub-diff-for-focused-event]]
+                      ;; rf2-wyvf2 — Reactive-panel composite (was
+                      ;; `:rf.causa/views-data`; renamed to `:rf.causa/
+                      ;; reactive-data` per spec/021 §11.5 / §3).
+                      ;; Empty-frame contract: returns map with
+                      ;; `:has-cascade? false`.
+                      :rf.causa/reactive-data]]
         (is (some? @(rf/subscribe [sub-id]))
             (str sub-id " must not throw on an empty frame"))))))
 

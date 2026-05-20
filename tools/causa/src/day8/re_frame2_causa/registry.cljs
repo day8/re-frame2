@@ -62,7 +62,7 @@
             [day8.re-frame2-causa.panels.machines-canvas.panel :as machines-canvas-panel]
             [day8.re-frame2-causa.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-causa.panels.routing :as routing]
-            [day8.re-frame2-causa.panels.views :as views]
+            [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
 
@@ -720,7 +720,7 @@
     ;; Spec 013 — the sub flattens the two-level shape into a single
     ;; row vector for the view.
     (static-flows-panel/install!)
-    (views/install!)
+    (reactive-panel/install!)
     (trace/install!)
     ;; Chrome A11y tab (rf2-5r2yj) — Runtime L4 tab that runs axe-core
     ;; scoped to `#rf-causa-root` (Causa's own chrome). Mirror of

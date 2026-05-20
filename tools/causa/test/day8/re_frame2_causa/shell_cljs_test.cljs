@@ -58,7 +58,7 @@
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-causa.panels.machines-canvas.panel :as machines-canvas-panel]
             [day8.re-frame2-causa.panels.routing :as routing]
-            [day8.re-frame2-causa.panels.views :as views]
+            [day8.re-frame2-causa.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-causa.panels.trace :as trace]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -400,13 +400,13 @@
 
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
-  `shell/detail-panel`. The Views tab routes to the full Views panel
-  per spec/012-Views.md (rf2-21ob3) — Subs panel is retired. The
-  Routing tab routes to the new lens panel per rf2-nrbs9 — promoted
-  from 'lives in App-db + Trace'."
+  `shell/detail-panel`. The `:views` tab key routes to the Reactive
+  panel (rf2-wyvf2 · display label rebased to 'Reactive' per spec/021
+  §11.5; tab key unchanged). The Routing tab routes to the lens panel
+  per rf2-nrbs9 — promoted from 'lives in App-db + Trace'."
   {:event           event-detail/Panel
    :app-db          app-db-diff/Panel
-   :views           views/Panel
+   :views           reactive-panel/Panel
    :trace           trace/Panel
    :machines        machine-inspector/Panel
    :machines-canvas machines-canvas-panel/Panel
