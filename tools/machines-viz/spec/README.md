@@ -42,6 +42,21 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
   composite states, parallel regions, transition labels, entry/exit
   actions, action/`do` labels, `invoke-all` row layout). JVM + CLJS
   test corpora cover the projection and the markdown-fence wrapping.
+- **SCXML import / export (v1.1)** — per
+  [rf2-6urjd](../../../.beads/) and
+  [`API.md`](API.md) §SCXML import/export. Implemented at
+  `src/day8/re_frame2_machines_viz/scxml.cljc`. Pure-data round-trip
+  `(= spec (-> spec spec->scxml scxml->spec))` for the supported
+  W3C SCXML subset (flat / compound / parallel, `:initial`, `:on`,
+  `:after`, `:always`, guards, `:final?`, namespaced ids). JVM +
+  CLJS test corpus pins the round-trip property + error modes.
+- **AI-generate-a-machine (v1.1)** — per
+  [rf2-1bncf](../../../.beads/) and
+  [`API.md`](API.md) §AI-generate-a-machine. Implemented at
+  `src/day8/re_frame2_machines_viz/ai_generate.cljc`. Pluggable
+  resolver seam (`:resolver`); the ns ships no default LLM bridge.
+  JVM + CLJS test corpus uses a stub resolver to pin the parse /
+  validate path; production callers wire their own LLM resolver in.
 
 ### Pending implementation
 

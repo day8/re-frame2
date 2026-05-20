@@ -611,6 +611,24 @@ does **not** include:
   generalises; D2 + xstate-json are different output grammars over
   the same input). Per [Spec 005 §Future §Diagram export](../../../spec/005-StateMachines.md#diagram-export-from-transition-tables).
 
+### v1.1 shipped (rf2-1bncf + rf2-6urjd, 2026-05-21)
+
+- **SCXML import / export** (rf2-6urjd) — `(scxml/spec->scxml spec)`
+  + `(scxml/scxml->spec xml)` pure-data round-trip for non-CLJS
+  sharing (Erlang `gen_statem`, external workflow systems, the
+  xstate-visualizer). Per [`API.md`](./API.md) §SCXML import/export.
+  Promoted from "Out of scope (any version)" — the W3C standard
+  for statecharts is the interop floor for sharing machines with
+  non-Clojure tooling, and the round-trip implementation is small
+  and pure-data (no XML parser dep — string-based for the SCXML
+  subset we emit).
+- **AI-generate-a-machine** (rf2-1bncf) — `(ai-generate/generate-machine
+  user-prompt opts)` library fn with a pluggable `:resolver` seam.
+  Production callers inject an LLM bridge (Anthropic / OpenAI /
+  local Ollama / Causa's chat / re-frame2-pair-mcp); tests inject a
+  stub. Mirrors Stately Studio 2026's AI-generation feature. Per
+  [`API.md`](./API.md) §AI-generate-a-machine.
+
 ### Out of scope (any version)
 
 - A canvas-driven machine editor.
@@ -619,7 +637,6 @@ does **not** include:
   affordance; long-term storage is the user's problem).
 - Statechart-from-non-machine-code visualisation (Stately Studio
   2026 visualises Redux without XState; not Machines-Viz's lane).
-- SCXML import / export.
 - A Day8-hosted SaaS shell.
 
 ## Peer-product comparison (where the v1 ship-list lands)
