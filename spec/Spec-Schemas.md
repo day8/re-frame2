@@ -1018,9 +1018,9 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; --- runtime: artefact-missing errors (per MIGRATION §M-31) ---
 
 (def ArtefactMissingTags
-  ;; Shared shape for the six artefact-missing categories: flows, ssr,
-  ;; routing, schemas, machines, http. Each surfaces as a thrown ex-info
-  ;; with this payload; not a trace event.
+  ;; Shared shape for the seven artefact-missing categories: flows, ssr,
+  ;; routing, schemas, machines, http, epoch. Each surfaces as a thrown
+  ;; ex-info with this payload; not a trace event.
   [:map
    [:category :keyword]
    [:where    [:or :symbol :string]]
