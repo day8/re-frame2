@@ -1,8 +1,8 @@
 (ns re-frame.views.source-coord-annotation
-  "Source-coord DOM annotation walk for the Reagent-side views ns. Per
-  rf2-lh7p — split out of `re-frame.views` so the views file stays
-  focused on registration orchestration. Re-frame.views re-exports the
-  `format-source-coord` helper so the existing test that references
+  "Source-coord + view-id DOM annotation walk for the Reagent-side views
+  ns. Per rf2-lh7p — split out of `re-frame.views` so the views file
+  stays focused on registration orchestration. Re-frame.views re-exports
+  the `format-source-coord` helper so the existing test that references
   `#'re-frame.views/format-source-coord` continues to resolve.
 
   Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) the
@@ -13,24 +13,35 @@
   jump-to-source) map a clicked DOM node back to the reg-view call
   site.
 
+  Per Spec 006 §View tagging contract (rf2-01il5) the same wrapper also
+  stamps `data-rf-view=\"<ns>/<sym>\"` on the same root element — the
+  fallback for the runtime view-hierarchy walker when the Fiber-reading
+  primary path (Spec View-Hierarchy-Capture, rf2-mxkq7) is unavailable.
+  Both attributes ride the same wrapper, the same hiccup walk, and the
+  same `interop/debug-enabled?` elision gate.
+
   Contract details:
 
     - The id is a registry keyword `<ns>/<sym>`. Combined with the
       captured `:line` / `:column` (from `(meta &form)` at reg-view
-      macro-expansion time), the attribute value is
+      macro-expansion time), the source-coord attribute value is
       `<ns>:<sym>:<line>:<col>`. `<col>` is `?` when the column was
-      not captured (the column-key is optional per Spec 001).
+      not captured (the column-key is optional per Spec 001). The
+      view-id attribute value is `(str id)` — i.e. `:rf.foo/bar` for a
+      namespaced keyword id; the walker reads it back via
+      `(keyword (subs s 1))`.
 
     - The wrapper inspects the user's render-fn output:
-        * `[:tag {...attrs} & children]` → merge :data-rf2-source-coord
-          into attrs.
-        * `[:tag & children]` (no attrs map)            → splice an attrs
-          map in.
+        * `[:tag {...attrs} & children]` → merge both attrs into the
+          existing map.
+        * `[:tag & children]` (no attrs map) → splice an attrs map in
+          carrying both attributes.
         * `[fn-or-component-or-fragment …]` (head is a fn / class / `:>`
           / React-fragment marker) → SKIP and emit a one-shot warning
           per id. Pair-tool consumers fall back to the registry's
-          `:rf/id` for these cases (per Spec 006 §Source-coord
-          annotation, documented Fragment exemption).
+          `:rf/id` for source-coord; the view-walker falls back to the
+          Fiber-walker primary path (or treats the view as invisible to
+          the hierarchy capture — documented edge case).
         * Form-2: when the render-fn returns a fn (`(fn [args] body)`),
           we recurse on the inner-fn's output the next time the wrapper
           is called — Reagent invokes the inner fn during the SAME
@@ -39,10 +50,20 @@
           is to wrap the returned fn so the inner output gets walked
           too.
 
+    - CRITICAL constraint (rf2-01il5 Comment 5): the wrapper MUST
+      mutate the existing first element's attribute map. NEVER wrap
+      with a synthetic `[:div]`. Wrapping breaks flexbox, CSS Grid,
+      table layouts, `:nth-child` selectors, positioning ancestors,
+      stacking contexts, and CSS containment. The wrap-with-div
+      approach is a non-starter.
+
     - Production elision: every annotation site sits inside
       `(when interop/debug-enabled? ...)` so the closure compiler
       constant-folds the entire branch under `:advanced` +
-      `goog.DEBUG=false`. Per Spec 009 §Production builds."
+      `goog.DEBUG=false`. Per Spec 009 §Production builds. Both
+      `data-rf2-source-coord` and `data-rf-view` literals are part of
+      the production-bundle elision sentinel set (see
+      `scripts/check-elision.cjs`)."
   (:require [re-frame.views.warn-once :as warn-once]))
 
 (defn format-source-coord
@@ -70,12 +91,27 @@
        (not= :<> head)
        (not= :> head)))
 
+(defn format-view-id
+  "Render the registry id keyword as the `:data-rf-view` attribute
+  value. Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The
+  walker reads it back via `(keyword (subs s 1))` when the leading `:`
+  is present. Per Spec 006 §View tagging contract (rf2-01il5)."
+  [id]
+  (str id))
+
 (defn inject-source-coord-attr
-  "Walk the user's render-fn output and merge :data-rf2-source-coord
-  into the root element's attrs map. Called from inside the wrapper
-  (gated on interop/debug-enabled?). Returns the (possibly rewritten)
+  "Walk the user's render-fn output and merge both
+  `:data-rf2-source-coord` (Spec 006 §Source-coord annotation, rf2-z7f7)
+  and `:data-rf-view` (Spec 006 §View tagging contract, rf2-01il5) into
+  the root element's attrs map. Called from inside the wrapper (gated
+  on `interop/debug-enabled?`). Returns the (possibly rewritten)
   hiccup. Non-DOM roots are returned unchanged after a one-shot
   warning per Spec 006 §Source-coord annotation.
+
+  CRITICAL: this fn MUST mutate the existing first element's attrs.
+  NEVER wrap with a synthetic `[:div]` — wrapping breaks flexbox /
+  CSS Grid / table layouts / `:nth-child` selectors / positioning
+  ancestors / stacking contexts / CSS containment.
 
   Form-2: when `out` is a fn, return a fn that recurses on the inner
   output — Reagent's renderer will call our returned fn just like
@@ -90,20 +126,25 @@
 
     ;; Hiccup vector with a DOM-tag keyword head. Annotate the root.
     (and (vector? out) (dom-tag? (first out)))
-    (let [head     (first out)
-          maybe-attrs (second out)]
+    (let [head        (first out)
+          maybe-attrs (second out)
+          view-attr   (format-view-id id)]
       (if (map? maybe-attrs)
         ;; Existing attrs map — merge in (don't overwrite if user
-        ;; already set it for some reason).
-        (let [merged (if (contains? maybe-attrs :data-rf2-source-coord)
-                       maybe-attrs
-                       (assoc maybe-attrs :data-rf2-source-coord coord-attr))]
+        ;; already set either attribute for some reason).
+        (let [merged (cond-> maybe-attrs
+                       (not (contains? maybe-attrs :data-rf2-source-coord))
+                       (assoc :data-rf2-source-coord coord-attr)
+                       (not (contains? maybe-attrs :data-rf-view))
+                       (assoc :data-rf-view view-attr))]
           (into [head merged] (drop 2 out)))
         ;; No attrs map — splice one in between head and children.
-        (into [head {:data-rf2-source-coord coord-attr}] (rest out))))
+        (into [head {:data-rf2-source-coord coord-attr
+                     :data-rf-view          view-attr}] (rest out))))
 
     ;; Non-DOM root (fn-component head, fragment, lazy-seq, nil). Skip
-    ;; with a one-shot warning. Pair tools fall back to :rf/id.
+    ;; with a one-shot warning. Pair tools fall back to :rf/id;
+    ;; view-walker falls back to the Fiber-walker primary path.
     :else
     (do
       (when (vector? out)

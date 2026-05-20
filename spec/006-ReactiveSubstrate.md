@@ -328,6 +328,78 @@ The view-side annotation above is one half of the tool-pair source-mapping contr
 
 Both surfaces share the production-elision contract: the stamping branch is gated on `interop/debug-enabled?`, so under `:advanced` + `goog.DEBUG=false` the closure compiler folds it away. The `rf.machine/source-coords` keyword is part of the standard `scripts/check-elision.cjs` sentinel set (verified ABSENT in the production bundle, PRESENT in the control bundle).
 
+## View tagging contract (fallback; rf2-01il5)
+
+> **Status: fallback safety-net only.** The primary path for runtime view-hierarchy capture is the **Fiber-walker** documented in [View-Hierarchy-Capture.md](View-Hierarchy-Capture.md) (rf2-mxkq7). This section pins the per-adapter fallback path that activates only if Fiber-reading breaks on a future React-version regression, or if a non-React substrate is ever wired in. Both paths can coexist; the fallback adds a single attribute per registered view and costs ~zero in production (elision-gated).
+
+The same per-render wrapper that injects `data-rf2-source-coord` (§Source-coord annotation above) also injects `data-rf-view="<id>"` on the rendered root DOM element when `interop/debug-enabled?` is true. The two attributes ride the same wrapper, the same walk, and the same production-elision gate — there is no separate code path or separate elision contract.
+
+### Attribute value format
+
+```
+data-rf-view="<id>"
+```
+
+`<id>` is the registry id keyword stringified verbatim — `(str id)`. For a namespaced keyword id `:rf.foo/bar` the attribute value is `":rf.foo/bar"` (leading colon preserved). The walker reads it back via `(keyword (subs s 1))` when the leading `:` is present, falling back to the raw string for non-keyword ids.
+
+The committed public contract is `:rf/view-id-attr` (see [Spec-Schemas](Spec-Schemas.md)); the on-attribute representation matches the registry handler-id, not the call-site symbol — symmetric to how `data-rf2-source-coord` carries the registry id portion.
+
+### Injection rules
+
+The wrapper inspects the user render-fn's output and mutates the **first concrete element's existing attribute map** (the SAME element that carries `data-rf2-source-coord`). The injection rules:
+
+- `[:tag {…attrs} & children]` — merge `:data-rf-view` into the existing attrs map (alongside `:data-rf2-source-coord`).
+- `[:tag & children]` (no attrs map) — splice an attrs map in between head and children carrying both attributes.
+- `[fragment / interop-head / fn-component …]` — SKIP (see §Documented edge cases below).
+- React-element output (UIx, Helix): `React.cloneElement` with `{"data-rf-view": <id>}` on the same call that adds `data-rf2-source-coord`.
+- Form-2: when the render-fn returns a fn, the wrapper recurses on the inner fn's output (same machinery as the source-coord walk).
+
+### CRITICAL constraint: mutate, do not wrap
+
+> Adapters MUST mutate the existing first element's attribute map. Adapters MUST NOT wrap the rendered tree with a synthetic host element (e.g. `[:div {:data-rf-view …} <user-tree>]`).
+
+Wrapping is a non-starter — it breaks every layout idiom that depends on the DOM tree shape:
+
+- **Flexbox + CSS Grid** — `display: flex` / `display: grid` parents lay out their *direct* children. A synthetic wrapper would make every reg-view'd component a single grid/flex item regardless of what its render-fn produced.
+- **Table layouts** — `<table>` / `<tr>` / `<td>` is a fixed DOM contract; an interposed `<div>` between `<table>` and `<tr>` is invalid HTML and breaks the browser's table-anonymous-box generation.
+- **`:nth-child` and sibling selectors** — `:nth-child(2n+1)`, `+ sibling`, `~ general-sibling` all count DOM positions. A wrapper would shift every child's index by one and break striping / first-row callouts / form-row separators.
+- **Positioning ancestors** — `position: absolute` looks for the nearest `position: !static` ancestor. A wrapper that inadvertently inherits the user's `position: relative` would silently capture every descendant's absolute positioning.
+- **Stacking contexts** — `z-index` resolves against the nearest stacking-context ancestor; a wrapper with `opacity < 1` or `transform` would create a new stacking context the user didn't author.
+- **CSS containment** — `contain: layout / paint` boundaries depend on element identity; an interposed wrapper would either shift the boundary or invalidate the optimisation.
+
+The mutate-existing-attrs strategy avoids every one of these failure modes — the rendered DOM tree is structurally identical to the un-instrumented version, modulo two extra attributes on the root element of each registered view.
+
+### Documented edge cases (fidelity gaps)
+
+The fallback is a **lossy approximation** of the Fiber-walker's hierarchy capture. These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a one-shot warning per id, same as the source-coord exemption):
+
+1. **React Fragment root (`:<>` / `<Fragment>`)** — a fragment has no DOM element to annotate. The fallback walker treats the component as invisible to hierarchy capture (its children become orphans of the next-up tagged ancestor). The Fiber-walker primary path handles fragments correctly via the `child` slot.
+
+2. **Nil / conditional root (`(when cond …)` returning nil)** — when the render-fn returns nil, no DOM element exists. Same fidelity gap as fragments: the view is invisible on the render that returned nil; subsequent re-renders that produce a DOM element are tagged correctly.
+
+3. **Component-returning-component head (`[other-view …]`)** — when a reg-view'd component's root is another reg-view'd component, the wrapper SKIPs (the head is a fn, not a DOM-tag keyword). The inner component will tag *its own* root; the outer view is invisible to the hierarchy capture and its children become orphans of the inner tagged element. Pair tools can chase the wrapping via `(rf/handler-meta :view id)`.
+
+4. **Portals (`React.createPortal`)** — portals teleport the rendered subtree to a different DOM location. The walker's DOM-containment inference will associate portal children with the portal target's ancestor chain, not with the portal-rendering component's ancestor chain. The Fiber-walker primary path handles portals correctly because Fiber `return` pointers follow the logical parent, not the DOM parent.
+
+5. **`display: none` subtrees** — elements with `display: none` are present in the DOM tree (and so are walkable by `querySelectorAll`) but are not laid out. The walker reports them; consumers (Causa Views panel) may choose to filter them out. This is a known fidelity gap, not a correctness bug.
+
+6. **Interop component head (`:>` in Reagent)** — `[:> Cmp {…props}]` hands the props map straight to React's component, which may not be a DOM-tag (and certainly should not have framework-derived strings inserted into its props). The wrapper SKIPs and emits the same warning as the source-coord exemption.
+
+### Production elision (mandatory)
+
+`data-rf-view` MUST elide under `:advanced` + `goog.DEBUG=false` via the SAME `(when interop/debug-enabled? …)` gate that elides `data-rf2-source-coord`. The literal `data-rf-view` string fragment is part of the standard `scripts/check-elision.cjs` sentinel set.
+
+### Walker contract (fallback path)
+
+When the fallback is consuming the tagged DOM, the walker:
+
+1. Calls `document.querySelectorAll('[data-rf-view]')` to enumerate every tagged element in document order.
+2. For each tagged element, reads `data-rf-view` and `data-rf2-source-coord` off the DOM node.
+3. Infers parent-child by DOM containment: element B is a child of element A iff A is the nearest tagged ancestor of B (via `.contains()` walks).
+4. Produces the same output shape as the Fiber-walker (per [View-Hierarchy-Capture.md §Output shape](View-Hierarchy-Capture.md#output-shape)) so consumer code is path-agnostic.
+
+The walker implementation lives at `tools/causa/src/day8/re_frame2_causa/views/view_walker.cljs` (alongside the Fiber-walker per the spec's Ownership table). Both walkers are bundle-isolated from production builds.
+
 ## Subscription cache — contract and operational semantics
 
 A subscription's value lives in the per-frame **sub-cache**. This section defines the contract: the cache shape, the lookup algorithm, the invalidation algorithm, the ref-counting and disposal rules, the layer-1/2/3 sub semantics, and the lifetime contract that ties them together. The contract is host-agnostic; the [Reagent reference adapter §Sub-cache wiring](#sub-cache-wiring-reagent-realisation) shows the CLJS realisation.

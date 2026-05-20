@@ -47,7 +47,7 @@ The walker is also dev-only by classpath: Causa's preload is `:devtools/preloads
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
 2. **Fall back to data-attribute tagging** — switch the consuming tool to the fallback in bead `rf2-01il5`. Each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
 
-The fallback is documented in `rf2-01il5` and in the findings doc §12.1 — it is the second-best option *only* (fragments invisible, portals teleport-broken, requires per-adapter cost). The default ship is the Fiber walker.
+The fallback is **shipped and dormant** — the tagging is wired into every adapter's render-time wrapper (Reagent via the inline hiccup walk, UIx + Helix via the spine's React.cloneElement wrapper); the contract pins the attribute format and the documented edge cases at [Spec 006 §View tagging contract](006-ReactiveSubstrate.md#view-tagging-contract-fallback-rf2-01il5). It is the second-best option (fragments invisible, portals teleport-broken, requires per-adapter wrap-view cost in dev builds) and consumers should default to the Fiber walker.
 
 ## View-id tagging convention
 
