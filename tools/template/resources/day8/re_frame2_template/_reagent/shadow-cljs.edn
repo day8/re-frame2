@@ -1,0 +1,29 @@
+;; {{name}} — shadow-cljs build config (Reagent substrate).
+;;
+;; Two builds:
+;;   :app  — watch / release. Compiles to resources/public/js/main.js.
+;;           Boot entry point: {{namespace}}.core/init.
+;;   :test — node-side test runner. Picks up any *_test.cljs file under
+;;           test/ and runs it via cljs.test.
+{:deps   {:aliases [:shadow]}
+ :source-paths ["src" "test" "dev"]
+
+ :dev-http {8280 "resources/public"}
+
+ :builds
+ {:app
+  {:target     :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules    {:main {:init-fn {{namespace}}.core/init}}
+   ;; :devtools/preloads loads Causa in dev watch/compile builds.
+   ;; Once rf/init! installs the adapter, Causa auto-mounts into
+   ;; resources/public/index.html's [data-rf-causa-host] left column.
+   ;; Cut from release builds automatically.
+   :devtools   {:after-load {{namespace}}.core/init
+                :preloads   [day8.re-frame2-causa.preload]}}
+
+  :test
+  {:target    :node-test
+   :output-to "out/node-test.js"
+   :ns-regexp "-test$"}}}

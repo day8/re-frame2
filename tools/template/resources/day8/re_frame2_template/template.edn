@@ -1,0 +1,49 @@
+;; deps-new template config for day8/re-frame2-template (rf2-dolpf §2.1).
+;;
+;; Spike scope: Reagent-only. The full three-substrate matrix lands in
+;; §2.2 (rf2-c2770). See tools/template/spec/003-DepsNew-Rebuild-Plan.md
+;; for the migration plan.
+;;
+;; deps-new resolution mechanics:
+;;
+;;   - Symbol-to-path:
+;;     deps-new (`org.corfield.new.impl/find-root`) translates the
+;;     `:template` symbol to a filesystem path: dots → slashes,
+;;     dashes → underscores. So `day8/re-frame2-template` →
+;;     `day8/re_frame2_template/template.edn`. This file lives at
+;;     that path under `tools/template/resources/`.
+;;
+;;   - §2.1 spike — local-dev / smoke:
+;;     `clojure -Sdeps '{:deps {day8/re-frame2-template
+;;                              {:local/root "./tools/template"}}}'
+;;       -Tnew create :template day8/re-frame2-template
+;;             :name acme/my-app`
+;;     The local-root coord exposes `tools/template/resources/` on
+;;     the classpath (via tools/template/deps.edn's `:paths`), so
+;;     `find-root`'s classpath lookup resolves to this file.
+;;     The non-`io.github.*` qualifier (`day8`) bypasses deps-new's
+;;     auto-git-clone behaviour — exactly what we want during
+;;     in-repo development.
+;;
+;;   - §3 steady-state — published / git-coord:
+;;     `clojure -Tnew create :template io.github.day8/re-frame2-template
+;;             :name acme/my-app`
+;;     deps-new sees the `io.github.*` prefix, auto-derives the URL
+;;     `https://github.com/day8/re-frame2-template.git`, clones via
+;;     `gitlibs/procure`, then runs `find-root` against the clone
+;;     using the resolved symbol (path
+;;     `io/github/day8/re_frame2_template/template.edn`). §3 moves
+;;     the resources to the `io/github/day8/...` path inside the
+;;     extracted `day8/re-frame2-template` repo so the steady-state
+;;     invocation works against the published artefact. §2.1 ships
+;;     the `day8/...` path only — switching to the published path
+;;     is mechanical (a directory rename) once the repo split lands.
+;;
+;; The static `:transform` is intentionally absent — `template-fn`
+;; (in `src/day8/re_frame2_template/hooks.clj`) builds the transform
+;; vector at run time from the chosen substrate + opt-in flags. The
+;; programmatic body owns the decisions.
+{:description     "Scaffold a new re-frame2 application (Reagent only in the §2.1 spike; UIx + Helix land in §2.2)."
+ :data-fn         day8.re-frame2-template.hooks/data-fn
+ :template-fn     day8.re-frame2-template.hooks/template-fn
+ :post-process-fn day8.re-frame2-template.hooks/post-process-fn}

@@ -1,0 +1,25 @@
+# Generated build outputs
+/.shadow-cljs/
+/resources/public/js/
+/out/
+/target/
+
+# Node
+/node_modules/
+npm-debug.log
+yarn-error.log
+
+# Editors
+/.idea/
+/.vscode/
+/.lsp/
+/.cpcache/
+*.iml
+
+# clj-kondo cache (the config file itself is committed)
+/.clj-kondo/.cache/
+/.clj-kondo/.cache-version
+
+# OS
+.DS_Store
+Thumbs.db
