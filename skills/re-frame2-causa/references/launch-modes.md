@@ -148,7 +148,7 @@ App dev pages should keep the default `true` posture and provide
 ```clojure
 ;; Either: remove the preload entry from :devtools/preloads
 ;; Or: closure-define the disable flag in the dev build
-:closure-defines {day8.re-frame2-causa.config/enabled? false}
+:closure-defines {re-frame.interop/debug-enabled? false}
 ```
 
 ## Programmatic init!

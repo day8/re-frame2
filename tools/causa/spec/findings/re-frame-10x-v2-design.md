@@ -432,7 +432,7 @@ The hard rule: **opening Causa must not change observable INP** on a typical app
 
 That's it. The preload registers under `register-trace-listener!` and `register-epoch-listener!`, mounts a hidden DOM root, listens for `Ctrl+Shift+X`. No code change in the app itself.
 
-Disabling: remove the `:preloads` entry, or set `:closure-defines {day8.re-frame2-causa.config/enabled? false}` to force-disable even in dev.
+Disabling: remove the `:preloads` entry, or set `:closure-defines {re-frame.interop/debug-enabled? false}` to force-disable even in dev.
 
 We follow v1's preload convention exactly — muscle memory transfer is free.
 

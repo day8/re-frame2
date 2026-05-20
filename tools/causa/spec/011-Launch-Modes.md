@@ -278,7 +278,7 @@ provide `[data-rf-causa-host]`.
 Remove the `:preloads` entry, or:
 
 ```clojure
-:closure-defines {day8.re-frame2-causa.config/enabled? false}
+:closure-defines {re-frame.interop/debug-enabled? false}
 ```
 
 …to force-disable in dev.

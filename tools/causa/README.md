@@ -163,7 +163,7 @@ top-strip control once it lands.
 ### Disable
 
 Remove the `:preloads` entry, or set
-`:closure-defines {day8.re-frame2-causa.config/enabled? false}` to
+`:closure-defines {re-frame.interop/debug-enabled? false}` to
 force-disable in dev.
 
 ### MCP (Causa as an agent surface)
