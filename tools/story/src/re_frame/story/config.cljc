@@ -136,6 +136,87 @@
   []
   @global-args)
 
+;; ---- *global-decorators* (rf2-835ey — preview.ts parity, F-1) -----------
+;;
+;; Per ai/findings/2026-05-20-story-tutorial-set.md Finding F-1 (P2) Story
+;; ships story-level + variant-level decorators only; Storybook's canonical
+;; "wrap every story in the design system's theme provider" recipe lives in
+;; `preview.ts` `decorators: [...]` and Story has no equivalent. Without
+;; one, the tutorial chapter on decorators cannot offer the canonical
+;; theme-wrapping recipe, and a large project ends up listing the decorator
+;; id on every `reg-story` manually.
+;;
+;; The global-decorators primitive plugs that gap. It is symmetric to
+;; `global-args` (Layer 1 of args-resolution): a project sets it once at
+;; boot, and every variant's resolved decorator stack is prefixed with
+;; this ordered list. Story-level and variant-level slots still compose
+;; on top — the full stack is `(concat globals story-decorators
+;; variant-decorators)`, with globals as the outermost wrap layer.
+;;
+;; The atom holds an ORDERED VECTOR of `[decorator-id & args]` refs (the
+;; same shape `:decorators` slots take), not just ids — so a global
+;; decorator can carry ref-args exactly like a story-level reference can.
+;; Earliest-registered first; re-registering the same id replaces in-place
+;; (idempotent at the side-table level; same as `reg-decorator`).
+;;
+;; The atom is plain data; production builds with `enabled?` false DCE
+;; the registration call sites so the vector stays empty in release
+;; bundles.
+
+(defonce
+  ^{:doc "Atom holding the ordered vector of global decorator references.
+         Per rf2-835ey — Storybook `preview.ts` `decorators: [...]`
+         parity. Defaults to `[]`; the host calls
+         `re-frame.story/reg-global-decorator` at boot to append.
+         Each entry is a `[decorator-id & args]` vector, same shape as
+         a story-level or variant-level `:decorators` reference. The
+         resolved decorator stack for every variant is prefixed with
+         this vector (earliest-registered = outermost wrap)."}
+  global-decorators
+  (atom []))
+
+(defn set-global-decorators!
+  "Replace the global-decorators ref vector. Accepts a vector of
+  `[decorator-id & args]` refs, or `nil` (clears). Story's
+  `reg-global-decorator` and test fixtures call this."
+  [v]
+  (reset! global-decorators (vec (or v [])))
+  nil)
+
+(defn get-global-decorators
+  "Return the current global-decorators ref vector."
+  []
+  @global-decorators)
+
+(defn add-global-decorator!
+  "Append `ref` to the global-decorators vector. If a ref with the same
+  decorator id already exists, REPLACE it in place (same position) so
+  hot-reloading the body does not reshuffle the global stack order.
+
+  `ref` is `[decorator-id & args]` — same shape as a story-level or
+  variant-level `:decorators` entry.
+
+  Returns the decorator id."
+  [ref]
+  (let [id (first ref)]
+    (swap! global-decorators
+           (fn [v]
+             (let [idx (->> v
+                            (keep-indexed (fn [i r] (when (= id (first r)) i)))
+                            first)]
+               (if idx
+                 (assoc v idx ref)
+                 (conj v ref)))))
+    id))
+
+(defn remove-global-decorator!
+  "Remove every entry whose decorator id is `id` from the
+  global-decorators vector. Idempotent."
+  [id]
+  (swap! global-decorators
+         (fn [v] (vec (remove (fn [r] (= id (first r))) v))))
+  nil)
+
 ;; ---- *editor* (rf2-evgf5 — 'Open in editor' affordance) ----------------
 ;;
 ;; Per Spec 005-SOTA-Features.md §'Open in editor' per variant, every

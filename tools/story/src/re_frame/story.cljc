@@ -509,6 +509,78 @@
   of the data."}
   reg-marks rf/reg-marks)
 
+;; ---- reg-global-decorator (rf2-835ey — preview.ts parity, F-1) ----------
+;;
+;; Per ai/findings/2026-05-20-story-tutorial-set.md Finding F-1: Storybook's
+;; canonical "wrap every story in the design system's theme provider"
+;; recipe lives in `preview.ts` as `decorators: [...]`. Story had only
+;; story-level + variant-level decorators; without a global equivalent the
+;; tutorial chapter on decorators cannot offer the canonical recipe, and
+;; large projects end up listing the decorator id on every `reg-story`
+;; manually.
+;;
+;; `reg-global-decorator` registers a decorator body (delegating to
+;; `reg-decorator*`) AND appends a `[<id> & args]` reference to the
+;; per-process global-decorators vector. The decorator resolution layer
+;; prepends that vector to every variant's resolved stack — globals are
+;; the outermost wrap layer, story decorators second, variant decorators
+;; innermost. Re-registering the same id REPLACES in place so hot-
+;; reloading the body does not reshuffle the global stack order.
+;;
+;; Symmetric to `global-args` (Layer 1 of args-resolution) — the host
+;; calls these from `configure!`-adjacent boot code.
+
+(defn reg-global-decorator
+  "Register a decorator AND opt it into the global stack — every
+  variant's resolved decorator chain is prefixed with this entry.
+  Per rf2-835ey + ai/findings/2026-05-20-story-tutorial-set.md Finding
+  F-1 (Storybook `preview.ts` `decorators: [...]` parity).
+
+  Two-arity registration form (the common case):
+
+      (story/reg-global-decorator :app/theme-provider
+        {:kind :hiccup
+         :wrap (fn [body _args] [theme-provider {:theme :light} body])})
+
+  Three-arity form when the decorator takes ref-args (rare):
+
+      (story/reg-global-decorator :app/theme-provider
+        {:kind :hiccup :wrap (fn [body args] ...)}
+        [:dark])              ; ref-args — landed at the :wrap fn under
+                              ; (:decorator/args args-map)
+
+  Order: earliest-registered first. The full per-variant decorator
+  chain is `(concat globals story variant)`; globals are the outermost
+  wrap (e.g. a theme provider at the very top of the rendered tree)
+  with story-level and variant-level decorators composing inside.
+
+  Hot-reload: re-registering the same id REPLACES the entry in place
+  (same position in the global vector) so the body change does not
+  reshuffle the stack order.
+
+  Returns the decorator id."
+  ([id body]
+   (reg-global-decorator id body []))
+  ([id body ref-args]
+   (registrar/reg-decorator* id body)
+   (config/add-global-decorator! (into [id] ref-args))
+   id))
+
+(defn unreg-global-decorator!
+  "Remove `id` from the global-decorators vector. The decorator's
+  registration body is NOT unregistered — call `unregister!` for that.
+  Idempotent."
+  [id]
+  (config/remove-global-decorator! id))
+
+(defn global-decorators
+  "Return the current ordered vector of global-decorator references
+  (`[[decorator-id & args] ...]`). Earliest-registered first; this is
+  the prefix applied to every variant's resolved decorator stack per
+  rf2-835ey."
+  []
+  (config/get-global-decorators))
+
 ;; ---- configure! ---------------------------------------------------------
 
 (defn configure!
@@ -573,9 +645,14 @@
 
 (defn clear-all!
   "Reset every Story registration. Used by test fixtures. Mirrors
-  `re-frame.registrar/clear-all!`."
+  `re-frame.registrar/clear-all!`.
+
+  Also clears the rf2-835ey global-decorators vector so stale ref-by-id
+  entries do not survive a registrar reset and bleed into the next
+  test."
   []
-  (registrar/clear-all!))
+  (registrar/clear-all!)
+  (config/set-global-decorators! []))
 
 (defn clear-kind!
   "Remove every id under `kind`. Used by test fixtures and hot-reload."
