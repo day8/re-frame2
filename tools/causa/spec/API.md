@@ -135,11 +135,18 @@ bytes after elision.
 
 ## Public CLJS API
 
-Causa exposes a small handful of programmatic entry points. Users
-typically interact via the panel; these are for embedding hosts,
-test harnesses, and Settings UIs.
+Causa's user-facing surface is split into a **canonical entry point**
+(the `day8.re-frame2-causa.core` facade — the surface most hosts ever
+touch) and a **wider public surface** of supporting namespaces (config
+setters, panel components, the keybinding lifecycle escape hatch, the
+preload-installed browser-global API, and the MCP read-and-mutate
+seam). The canonical entry point is the one to reach for by default;
+the wider surface is documented for embedding hosts, test harnesses,
+Settings UIs, and tool integrators that need finer-grained access. Per
+rf2-te1gu (reconcile the previous "small handful" framing with
+implementation reality — ~40 symbols across 6 namespaces).
 
-### `day8.re-frame2-causa.core`
+### Canonical: `day8.re-frame2-causa.core`
 
 ```clojure
 (causa/init!)
@@ -167,7 +174,64 @@ test harnesses, and Settings UIs.
 ;; Programmatically swap the theme (useful for editor-driven palette sync).
 ```
 
-### `day8.re-frame2-causa.panels.*`
+The facade also re-exports the four highest-traffic config setters
+(`configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`)
+so the common boot-time wiring lands in one require. The full setter
+inventory lives in `day8.re-frame2-causa.config` — see §Wider public
+surface below.
+
+### Wider public surface
+
+Beyond the canonical facade, Causa exposes additional public surfaces
+for embedding hosts, test harnesses, Settings UIs, and tool
+integrators. Each is in scope of the same versioning discipline as
+the facade (no breaking changes within a minor release; deprecations
+announced one minor ahead). The canonical entry point above carries
+the day-to-day surface; this section is the **complete** index so a
+reader scanning for "what's publicly callable?" has a single
+authoritative list.
+
+| Namespace | Source | Public surfaces |
+|---|---|---|
+| `day8.re-frame2-causa.core` | `core.cljs` | The 12 canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-show-sensitive!`). |
+| `day8.re-frame2-causa.panels.*` | `panels/*.cljs` | The 6 `Panel` reg-views — `event-detail/Panel`, `app-db-diff/Panel`, `views/Panel`, `trace/Panel`, `machine-inspector/Panel`, `issues-ribbon/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)). |
+| `day8.re-frame2-causa.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-static-mode-enabled!`, `set-show-sensitive!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md). |
+| `day8.re-frame2-causa.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — needed when an embed host's mount lifecycle runs after Causa's preload and wants to take the chord back. |
+| `day8.re-frame2-causa.runtime` | `runtime.cljs` | The Causa ↔ MCP read-and-mutate seam. The accessor surface this namespace exposes is enumerated normatively in §Runtime accessor surface below. Tool clients (`tools/re-frame2-pair-mcp/` today) evaluate forms addressed at this namespace via `eval-cljs`. |
+| `window.day8.re_frame2_causa.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_causa.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. Production builds elide the install entirely via the `interop/debug-enabled?` gate. |
+
+Three surfaces deliberately not re-exported through the canonical
+facade:
+
+- **The per-key setters in `config.cljc`** beyond the four
+  highest-traffic ones (`configure!`, `set-auto-open!`, `set-editor!`,
+  `set-show-sensitive!`). Hosts that want to flip an experimental knob
+  or a less-common setter (`set-project-root!`,
+  `set-keybinding-enabled!`, `set-static-mode-enabled!`,
+  `set-filter-seed!`, etc.) require `day8.re-frame2-causa.config`
+  directly. The split keeps the facade narrow without hiding the
+  setters; reads cleanly from boot code that's already going through
+  `configure!`.
+
+- **`keybinding/attach!` and `keybinding/detach!`.** The lifecycle
+  pair lives in its own namespace because the preload's keybinding
+  install is one of the six side-effects (per §Installation API
+  above) and `detach!` is the embed-host escape hatch — both surfaces
+  are tightly coupled to the preload's listener contract rather than
+  to the mount facade. Re-exporting through `core` would imply
+  symmetry with `open!`/`close!` (mount-side) that the surfaces
+  don't have.
+
+- **`runtime.cljs`.** The Causa ↔ MCP seam is a parallel public
+  surface — public-for-tools, not public-for-host-apps — and the
+  read/mutate accessors are documented under §Runtime accessor
+  surface below as their own contract surface (the same Tool-Pair
+  discipline that governs `:trace-bus` and `epoch-history` per
+  [`Principles.md`](./Principles.md) §Observation only). Re-exporting
+  through `core` would conflate the host-facing facade with the
+  tool-facing read seam.
+
+### Panel reg-views
 
 Each panel namespace exports a single public `Panel` component for
 embedding (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)).

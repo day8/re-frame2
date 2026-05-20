@@ -270,13 +270,76 @@
              :mode     mode})
     @mount-state))
 
+;; ---- first-mount hook table (rf2-y1saa) ---------------------------------
+;;
+;; `ensure-causa-frame!` accreted eight side-effects across eight beads
+;; (rf2-in6l2, rf2-boyc2, rf2-ak4ms, rf2-ikuwt, rf2-o5f5f.1, rf2-9poxq, ...),
+;; each chosen ad-hoc by the bead that added it (some dispatch-sync, some
+;; direct fn call, some conditional on a config flag). The lazy-
+;; registration pattern is correct — the substrate adapter isn't ready at
+;; preload time so each seeding step has to wait until the first
+;; Ctrl+Shift+C keypress — but the implementation density made adding a
+;; Nth side-effect a "modify ensure-causa-frame! the Nth time" task,
+;; which kept the function the hot zone for every first-mount tweak.
+;;
+;; The hook-table refactor introduces an internal `register-first-mount-
+;; hook!` registrar (sentinel-guarded by `:id` so each hook is idempotent
+;; on re-registration via shadow-cljs `:after-load`). `ensure-causa-
+;; frame!` becomes a thin walker: register the frame, then invoke each
+;; hook in insertion order.
+;;
+;; Today the hooks themselves are registered from this namespace's
+;; bottom (one-line `register-first-mount-hook!` per subsystem) so the
+;; refactor lands as a pure structural change without changing the
+;; require graph or touching the registering namespaces. The next
+;; iteration moves each registration into its owning ns (e.g.
+;; `filters/install!` would call `(register-first-mount-hook! ::filters
+;; hydrate!)`), at which point the "modify mount.cljs Nth time" coupling
+;; drops to "add a hook from sub-ns". The mechanism here is the prereq.
+;;
+;; Insertion order is load-bearing: the frame-seed hook MUST run before
+;; the hydrate hooks (the dispatch targets live on `:rf/causa`'s app-
+;; db), and the mode-hydrate hook MUST run before the auto-open watcher
+;; (the watcher's subscribe target depends on the mode-aware ribbon
+;; sub). The hook table preserves vector insertion order so registration
+;; order at this namespace's bottom is the runtime invocation order.
+
+(defonce ^:private first-mount-hooks
+  ;; Ordered vector of `{:id <kw> :handler <0-ary fn>}` entries. The
+  ;; vector shape is load-bearing: `ensure-causa-frame!` walks the
+  ;; hooks in insertion order so subsystems whose seeding depends on
+  ;; a prior hook (e.g. the auto-open watcher depends on the mode
+  ;; slot being present) register after the slot-seeding hook.
+  ;; Sentinel-guarded by `:id` so `register-first-mount-hook!` with
+  ;; an already-registered id replaces in place rather than appending
+  ;; a duplicate (the shadow-cljs `:after-load` cycle re-runs the
+  ;; registrations).
+  (atom []))
+
+(defn- register-first-mount-hook!
+  "Register a 0-ary fn to run on first `ensure-causa-frame!` after the
+  `:rf/causa` frame is registered. Hooks run in insertion order; an
+  already-registered `id` replaces in place (idempotent on `:after-
+  load`). Internal — not part of the public API."
+  [id handler]
+  (swap! first-mount-hooks
+         (fn [hooks]
+           (let [idx (some (fn [[i h]] (when (= id (:id h)) i))
+                           (map-indexed vector hooks))]
+             (if idx
+               (assoc hooks idx {:id id :handler handler})
+               (conj hooks {:id id :handler handler})))))
+  nil)
+
 ;; ---- public API ----------------------------------------------------------
 
 (defn- ensure-causa-frame!
-  "Register the `:rf/causa` frame if not already registered. Idempotent
-  via `reg-frame`'s surgical-update-on-re-register semantics (per Spec
-  002 §reg-frame). Called from `open!` on every keypress — first call
-  creates the frame, subsequent calls are surgical no-ops.
+  "Register the `:rf/causa` frame if not already registered, then run
+  each registered first-mount hook in insertion order. Idempotent via
+  `reg-frame`'s surgical-update-on-re-register semantics (per Spec
+  002 §reg-frame) — first call creates the frame and seeds, subsequent
+  calls are surgical no-ops on the frame side and (per each hook's own
+  idempotency contract) no-ops on the hook side.
 
   ## Why here, not at preload time
 
@@ -287,7 +350,16 @@
   Ctrl+Shift+C keypress fires from the user well after `rf/init!`, so
   `open!` is the canonical lazy-registration point.
 
-  ## App-db seeding
+  ## First-mount hook table (rf2-y1saa)
+
+  The seeding work that used to live inline here is now driven by the
+  `first-mount-hooks` registrar — each subsystem's seed/hydrate step
+  is registered as a `{:id :handler}` entry, and `ensure-causa-frame!`
+  walks the table in insertion order. See the §first-mount hook table
+  block above for the registrar's contract and the registrations at
+  this namespace's bottom for the concrete hooks shipped today.
+
+  ## App-db seeding semantics (preserved from the pre-rf2-y1saa shape)
 
   Two slots seed on first open so the panels render against history
   the user has already produced before opening Causa:
@@ -324,63 +396,93 @@
     `core/set-target-frame!` API."
   []
   (rf/reg-frame :rf/causa {})
+  (doseq [{:keys [handler]} @first-mount-hooks]
+    (handler)))
+
+;; ---- first-mount hook registrations -------------------------------------
+;;
+;; Each registration is a one-line bind from a hook id to a 0-ary fn.
+;; Insertion order is load-bearing: hooks that depend on a prior hook
+;; (e.g. `::auto-open-watcher` depends on the mode slot being present)
+;; appear after their dependencies. The id keywords are mount-internal
+;; (`::seed-trace-and-target-frame`, `::hydrate-filters`, ...) — not
+;; part of the public API.
+
+(register-first-mount-hook!
+  ::seed-trace-and-target-frame
   ;; Seed the frame's app-db with whatever the trace-bus atom + the
   ;; framework's epoch ring buffer have accumulated so far. The host
   ;; may have driven dispatches before the user opened Causa.
-  (let [buffer     (trace-bus/buffer)
-        ;; Project the pre-mount trace buffer through the same pipeline
-        ;; the `:rf.causa/cascades` sub uses — projection + Causa-
-        ;; internal hard-filter — so the seed-frame matches what
-        ;; `compose-focus` will resolve on first paint. Without the
-        ;; internal filter a tool-frame cascade could be chosen as
-        ;; the head, which the user never sees in the L2 list.
-        cascades   (into [] (remove trace-bus/causa-internal-cascade?)
-                         (projection/group-cascades buffer))
-        seed-frame (or (spine/focusable-head-frame-id cascades)
-                       defaults/default-target-frame)]
-    (rf/with-frame :rf/causa
-      (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer])
-      ;; rf2-boyc2 — seed via `:rf.causa/set-target-frame` so
-      ;; `:target-frame` + `:epoch-history` move in lockstep keyed on
-      ;; the frame the user will be observing on first paint (the
-      ;; head focusable cascade's frame). Mirrors the picker-driven
-      ;; `set-frame-reducer` path and `core/set-target-frame!`.
-      (rf/dispatch-sync [:rf.causa/set-target-frame seed-frame])))
+  ;; (rf2-in6l2 :trace-buffer + rf2-boyc2 :epoch-history + :target-frame.)
+  (fn []
+    (let [buffer     (trace-bus/buffer)
+          ;; Project the pre-mount trace buffer through the same
+          ;; pipeline the `:rf.causa/cascades` sub uses — projection +
+          ;; Causa-internal hard-filter — so the seed-frame matches
+          ;; what `compose-focus` will resolve on first paint. Without
+          ;; the internal filter a tool-frame cascade could be chosen
+          ;; as the head, which the user never sees in the L2 list.
+          cascades   (into [] (remove trace-bus/causa-internal-cascade?)
+                           (projection/group-cascades buffer))
+          seed-frame (or (spine/focusable-head-frame-id cascades)
+                         defaults/default-target-frame)]
+      (rf/with-frame :rf/causa
+        (rf/dispatch-sync [:rf.causa/sync-trace-buffer buffer])
+        ;; rf2-boyc2 — seed via `:rf.causa/set-target-frame` so
+        ;; `:target-frame` + `:epoch-history` move in lockstep keyed
+        ;; on the frame the user will be observing on first paint
+        ;; (the head focusable cascade's frame). Mirrors the picker-
+        ;; driven `set-frame-reducer` path and `core/set-target-
+        ;; frame!`.
+        (rf/dispatch-sync [:rf.causa/set-target-frame seed-frame])))))
+
+(register-first-mount-hook!
+  ::hydrate-filters
   ;; Hydrate the auto-filter pills (rf2-ak4ms). The preload-time
   ;; `filters/install!` call ran BEFORE the `:rf/causa` frame was
-  ;; registered, so its hydrate attempt no-op'd; re-running here
-  ;; under the now-registered frame lifts the localStorage / seed
-  ;; value into the slot. Idempotent — re-running with an unchanged
-  ;; source produces the same slot.
-  (filters/hydrate!)
+  ;; registered, so its hydrate attempt no-op'd; re-running here under
+  ;; the now-registered frame lifts the localStorage / seed value into
+  ;; the slot. Idempotent — re-running with an unchanged source
+  ;; produces the same slot.
+  filters/hydrate!)
+
+(register-first-mount-hook!
+  ::hydrate-spine-filters
   ;; Hydrate the muted-event-ids set (rf2-ikuwt). Same rationale as
   ;; `filters/hydrate!` above — the preload-time `spine-filters/
   ;; install!` ran before `:rf/causa` was registered, so re-running
   ;; here under the now-registered frame lifts the localStorage value
   ;; into the slot.
-  (spine-filters/hydrate!)
+  spine-filters/hydrate!)
+
+(register-first-mount-hook!
+  ::hydrate-static-mode
   ;; Hydrate the Runtime ↔ Static mode slot (rf2-o5f5f.1). Same
-  ;; rationale as the filter hydrate above — the persisted mode
-  ;; lives in localStorage under `causa.mode` and the frame must
-  ;; exist before the dispatch can land. `:rf.causa/set-mode`
-  ;; normalises unknown values back to `:runtime` so an absent or
-  ;; malformed slot is harmless. The dispatch carries the persist-
-  ;; mode fx which would re-write the slot; that's intentional —
-  ;; the round-trip canonicalises the stored value (e.g. an
-  ;; old "explorer" pre-rename value would land back as "runtime"
-  ;; without manual intervention).
-  (rf/with-frame :rf/causa
-    (rf/dispatch-sync [:rf.causa/set-mode (static-persistence/load)]))
+  ;; rationale as the filter hydrate above — the persisted mode lives
+  ;; in localStorage under `causa.mode` and the frame must exist
+  ;; before the dispatch can land. `:rf.causa/set-mode` normalises
+  ;; unknown values back to `:runtime` so an absent or malformed slot
+  ;; is harmless. The dispatch carries the persist-mode fx which
+  ;; would re-write the slot; that's intentional — the round-trip
+  ;; canonicalises the stored value (e.g. an old "explorer" pre-
+  ;; rename value would land back as "runtime" without manual
+  ;; intervention).
+  (fn []
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/set-mode (static-persistence/load)]))))
+
+(register-first-mount-hook!
+  ::auto-open-watcher
   ;; Auto-open-on-error watcher (rf2-9poxq) — install lazily here so
-  ;; the persisted-true case picks up as soon as the user opens
-  ;; Causa. The watcher subscribes to `:rf.causa/issues-ribbon`
-  ;; (which lives on `:rf/causa`'s app-db), so it CANNOT install
-  ;; until the frame exists. Install is idempotent + guards against
-  ;; the toggle being off — when the user has never enabled the
-  ;; setting (the default), this is a one-time no-op cost on first
-  ;; mount.
-  (when (config/get-setting :general :auto-open-on-error?)
-    (settings-effects/install-auto-open-watcher!)))
+  ;; the persisted-true case picks up as soon as the user opens Causa.
+  ;; The watcher subscribes to `:rf.causa/issues-ribbon` (which lives
+  ;; on `:rf/causa`'s app-db), so it CANNOT install until the frame
+  ;; exists. Install is idempotent + guards against the toggle being
+  ;; off — when the user has never enabled the setting (the default),
+  ;; this is a one-time no-op cost on first mount.
+  (fn []
+    (when (config/get-setting :general :auto-open-on-error?)
+      (settings-effects/install-auto-open-watcher!))))
 
 (defn open!
   "Mount + show the default Causa shell in the app-provided true-inline

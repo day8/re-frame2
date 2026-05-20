@@ -2,14 +2,24 @@
   "The canonical user-facing facade for Causa.
 
   Per `spec/API.md` §Public CLJS API + the README's `core.cljs` reference,
-  this namespace is the *one* import users reach for. It re-exports the
-  small handful of programmatic entry points enumerated by the spec —
+  this namespace is the *canonical* import users reach for — the day-to-day
+  surface that covers ~90% of host integration needs. It re-exports the
+  canonical entry points enumerated by the spec —
   `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
   `popout!` / `status` /
   `target-frame` + `set-target-frame!` / `active-panel` +
-  `set-active-panel!` / `load-theme` — plus the boot-time config knob
-  surface exposed by `config.cljc` (`configure!` / `set-editor!` /
-  `set-auto-open!` / `set-show-sensitive!`).
+  `set-active-panel!` / `load-theme` — plus the four highest-traffic
+  boot-time config knobs exposed by `config.cljc` (`configure!` /
+  `set-editor!` / `set-auto-open!` / `set-show-sensitive!`).
+
+  Per `spec/API.md` §Wider public surface, additional public surfaces
+  live in their own namespaces: the full per-key setter inventory in
+  `day8.re-frame2-causa.config`, the `attach!`/`detach!` lifecycle pair
+  in `day8.re-frame2-causa.keybinding` (the embed-host escape hatch),
+  the panel reg-views under `day8.re-frame2-causa.panels.*`, and the
+  Causa ↔ MCP read-and-mutate seam in `day8.re-frame2-causa.runtime`.
+  Hosts that need the wider surface require those namespaces directly;
+  the facade does not chain-re-export them.
 
   ## Why a thin facade
 
@@ -35,10 +45,14 @@
 
   Per `spec/API.md` §What this doesn't expose, the facade carries no
   plugin-registration API, no middleware injection, no global state
-  mutators beyond the seven listed above. Internal seams
+  mutators beyond the canonical surface above. Internal seams
   (`day8.re-frame2-causa.internal/*`, `day8.re-frame2-causa.shell`,
   `day8.re-frame2-causa.registry`) are not re-exported — callers must
-  not reach for them."
+  not reach for them. The wider public surfaces enumerated in §Wider
+  public surface (config setters beyond the four highest-traffic ones,
+  the keybinding lifecycle pair, the panel reg-views, the MCP runtime
+  seam) live in their own namespaces by design — see the per-namespace
+  documentation for the rationale on each."
   (:require [re-frame.core :as rf]
             [re-frame.trace :as trace]
             [day8.re-frame2-causa.config :as config]
