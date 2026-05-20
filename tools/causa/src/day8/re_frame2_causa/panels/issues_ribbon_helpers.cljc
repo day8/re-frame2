@@ -96,6 +96,7 @@
   empty (no cascades have settled yet)."
   (:require [clojure.string :as str]
             [day8.re-frame2-causa.panels.common-helpers :as common]
+            [day8.re-frame2-causa.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-causa.theme.tokens :as tokens]))
 
 ;; ---- defaults ------------------------------------------------------------
@@ -420,58 +421,17 @@
           (or (:trace-events epoch-record) []))))
 
 ;; ---- focus-status resolver ----------------------------------------------
+;;
+;; The focus + history resolver lives in `panels.shared.focus-resolver`
+;; (rf2-o9suo) — one source of truth across every L4 panel that reads
+;; `:rf.causa/focus` against `:rf.causa/epoch-history`. The aliases
+;; below keep `h/resolve-focus-status` / `h/find-epoch-record` working
+;; for this ns's existing callers + test suite without re-implementing
+;; the algebra. Semantics (including the rf2-h0120 head-fallback) live
+;; entirely in the shared ns.
 
-(defn resolve-focus-status
-  "Classify the focus + history pair into one of the three focus
-  statuses the projection consumes. Pure data → keyword; JVM-testable.
-
-      :no-focus       — focus carries no :epoch-id AND epoch-history
-                        is empty (cold start, no cascades yet)
-      :epoch-evicted  — focus has :epoch-id but no matching record
-                        survives in epoch-history
-      :focused        — focus has :epoch-id and matches a record, OR
-                        focus is nil but epoch-history has at least
-                        one record (head-fallback per rf2-h0120)
-
-  `focus-epoch-id` is `(:epoch-id focus)`. `epoch-history` is the
-  vector of `:rf/epoch-record` maps the framework keeps (oldest-first
-  per `re-frame.epoch/epoch-history`)."
-  [focus-epoch-id epoch-history]
-  (cond
-    ;; Head-fallback: focus unset but history exists. Per rf2-h0120
-    ;; this is the natural debugging UX — show the latest epoch
-    ;; rather than the empty 'no focus' line.
-    (and (nil? focus-epoch-id)
-         (seq epoch-history))                 :focused
-    (nil? focus-epoch-id)                     :no-focus
-    (some (fn [r] (= focus-epoch-id (:epoch-id r)))
-          epoch-history)                      :focused
-    :else                                     :epoch-evicted))
-
-(defn find-epoch-record
-  "Look up the `:rf/epoch-record` in `epoch-history` whose `:epoch-id`
-  matches `focus-epoch-id`. When `focus-epoch-id` is nil but
-  `epoch-history` is non-empty, returns the HEAD (most-recent) record
-  per the head-fallback contract (rf2-h0120) — `epoch-history` is
-  oldest-first, so the head is `(peek epoch-history)`. Returns nil
-  when no match (and no history). Pure data → record-or-nil; JVM-
-  testable."
-  [focus-epoch-id epoch-history]
-  (cond
-    (and (nil? focus-epoch-id) (seq epoch-history))
-    ;; `peek` on a vector is O(1); `last` is the safe fall-back when
-    ;; a caller hands in a seq. Production sub joins on the
-    ;; framework's vector-backed `:rf.causa/epoch-history`, so the
-    ;; vector branch is the hot path.
-    (if (vector? epoch-history)
-      (peek epoch-history)
-      (last epoch-history))
-
-    (some? focus-epoch-id)
-    (some (fn [r] (when (= focus-epoch-id (:epoch-id r)) r))
-          epoch-history)
-
-    :else nil))
+(def resolve-focus-status focus/resolve-focus-status)
+(def find-epoch-record    focus/find-epoch-record)
 
 ;; ---- selection ----------------------------------------------------------
 
