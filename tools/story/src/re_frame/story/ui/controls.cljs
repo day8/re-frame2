@@ -33,7 +33,8 @@
   disable-by-name routing through `resolve-decorators` is a future
   refinement when the decorator stack grows more complex; today the
   toggle is informational."
-  (:require [re-frame.story.registrar          :as registrar]
+  (:require [clojure.string                    :as str]
+            [re-frame.story.registrar          :as registrar]
             [re-frame.story.args               :as args]
             [re-frame.story.decorators         :as decorators]
             [re-frame.story.malli-schema-utils :as msu]
@@ -289,44 +290,69 @@
   [variant-id path]
   (fn [e] (on-change-at-path variant-id path (read-event-value e))))
 
+(defn- path-label
+  "Derive an accessible name for an input from its `path`. The path tail
+  is the user-visible label sibling (rendered in the `:label` span at
+  row level); we mirror it as `aria-label` so screen readers announce
+  the input by name. Per rf2-u01y5: the visible span is purely visual
+  — without this association screen readers announce 'edit, blank'.
+
+  Nested paths produce a slash-joined breadcrumb (`outer/inner`) so a
+  nested input under `:address.street` reads as 'address / street'."
+  [path]
+  (let [parts (mapv str path)]
+    (str/join " / " parts)))
+
 (defn- render-text [variant-id path value _]
-  [:input {:type      "text"
-           :style     (:input styles)
-           :value     (if (nil? value) "" (str value))
-           :on-change (on-string-change variant-id path)}])
+  [:input {:type       "text"
+           :style      (:input styles)
+           :aria-label (path-label path)
+           :value      (if (nil? value) "" (str value))
+           :on-change  (on-string-change variant-id path)}])
 
 (defn- render-textarea [variant-id path value _]
-  [:textarea {:style     (:textarea styles)
-              :value     (if (nil? value) "" (str value))
-              :on-change (on-string-change variant-id path)}])
+  [:textarea {:style      (:textarea styles)
+              :aria-label (path-label path)
+              :value      (if (nil? value) "" (str value))
+              :on-change  (on-string-change variant-id path)}])
 
 (defn- render-number [variant-id path value _]
-  [:input {:type      "number"
-           :style     (:input styles)
-           :value     (if (nil? value) "" value)
-           :on-change (fn [e]
-                        (let [s (read-event-value e)
-                              v (when (seq s) (js/parseFloat s))]
-                          (on-change-at-path variant-id path v)))}])
+  [:input {:type       "number"
+           :style      (:input styles)
+           :aria-label (path-label path)
+           :value      (if (nil? value) "" value)
+           :on-change  (fn [e]
+                         (let [s (read-event-value e)
+                               v (when (seq s) (js/parseFloat s))]
+                           (on-change-at-path variant-id path v)))}])
 
 (defn- render-boolean [variant-id path value _]
-  [:input {:type      "checkbox"
-           :checked   (boolean value)
-           :on-change (fn [e]
-                        (on-change-at-path variant-id path
-                                           (read-event-checked e)))}])
+  [:input {:type       "checkbox"
+           :aria-label (path-label path)
+           :checked    (boolean value)
+           :on-change  (fn [e]
+                         (on-change-at-path variant-id path
+                                            (read-event-checked e)))}])
 
 (defn- render-select [variant-id path value {:keys [options]}]
-  [:select {:value     (str value)
-            :style     (:input styles)
-            :on-change (on-string-change variant-id path)}
+  [:select {:value      (str value)
+            :style      (:input styles)
+            :aria-label (path-label path)
+            :on-change  (on-string-change variant-id path)}
    (for [opt options]
      ^{:key (str opt)}
      [:option {:value (str opt)} (str opt)])])
 
 (defn- render-radio [variant-id path value {:keys [options]}]
+  ;; rf2-u01y5: the radio-set wraps each input in a parent <label>, so
+  ;; the inner <input type="radio"> already inherits an accessible name
+  ;; from the wrapping label's text (the option's value). We add
+  ;; role="radiogroup" + aria-label on the container so screen readers
+  ;; announce the group's name (the path) before traversing options.
   (into [:div {:style (:radio-row styles)
-               :data-controls-radio-group (str (last path))}]
+               :data-controls-radio-group (str (last path))
+               :role       "radiogroup"
+               :aria-label (path-label path)}]
         (for [opt options]
           ^{:key (str opt)}
           [:label {:style (:radio-label styles)}
@@ -339,21 +365,23 @@
            (str opt)])))
 
 (defn- render-date [variant-id path value _]
-  [:input {:type      "date"
-           :style     (:input styles)
-           :value     (if (nil? value) "" (str value))
-           :on-change (fn [e]
-                        (let [s (read-event-value e)]
-                          (on-change-at-path variant-id path
-                                             (when (seq s) s))))}])
+  [:input {:type       "date"
+           :style      (:input styles)
+           :aria-label (path-label path)
+           :value      (if (nil? value) "" (str value))
+           :on-change  (fn [e]
+                         (let [s (read-event-value e)]
+                           (on-change-at-path variant-id path
+                                              (when (seq s) s))))}])
 
 (defn- render-color [variant-id path value _]
-  [:input {:type      "color"
-           :style     (:color-input styles)
-           :value     (if (and (string? value) (seq value))
-                        value
-                        "#000000")
-           :on-change (on-string-change variant-id path)}])
+  [:input {:type       "color"
+           :style      (:color-input styles)
+           :aria-label (path-label path)
+           :value      (if (and (string? value) (seq value))
+                         value
+                         "#000000")
+           :on-change  (on-string-change variant-id path)}])
 
 (def ^:private scalar-renderers
   "Closed scalar-widget vocabulary per spec/007-Stories.md §argtypes.

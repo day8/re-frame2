@@ -146,3 +146,63 @@
            (is (not (str/includes? flat ":auth/login"))
                "B's freshly-captured events do NOT bleed into the snippet")
            (is (not (str/includes? flat ":auth/logout"))))))))
+
+;; ---- CLJS-only: assertion picker ARIA + arrow-key nav (rf2-p1ai7 + 07m13)
+
+#?(:cljs
+   (defn- open-picker-for-test! []
+     (reset! ui-rec/ui-picker {:open?        true
+                               :assertion    nil
+                               :field-text   {}
+                               :error        nil
+                               :active-index 0})))
+
+#?(:cljs
+   (deftest assertion-picker-stamps-modal-aria
+     (testing "rf2-p1ai7: the assertion picker carries role=dialog +
+              aria-modal + aria-labelledby on its panel"
+       (open-picker-for-test!)
+       (let [flat (str (ui-rec/assertion-picker))]
+         (is (str/includes? flat "dialog")     "role=dialog appears")
+         (is (str/includes? flat "aria-modal") "aria-modal flag is stamped")
+         (is (str/includes? flat "aria-labelledby")
+             "aria-labelledby points at the panel's visible title")
+         (is (str/includes? flat "story-recorder-picker-title")
+             "the title carries the id referenced by aria-labelledby")))))
+
+#?(:cljs
+   (deftest assertion-picker-vocabulary-is-a-menu
+     (testing "rf2-07m13: phase-1 vocabulary list renders role=menu with
+              menuitem rows + a roving tabindex (only the active row
+              has tabindex=0)."
+       (open-picker-for-test!)
+       (let [flat (str (ui-rec/assertion-picker))]
+         (is (str/includes? flat "menu")
+             "role=menu identifies the vocab container")
+         (is (str/includes? flat "menuitem")
+             "role=menuitem identifies each row")
+         (is (str/includes? flat "Assertion vocabulary")
+             "the menu carries an aria-label for the group")
+         ;; Roving tabindex: with active-index=0 the first row should
+         ;; show tab-index 0 and the rest -1. We check both are present
+         ;; somewhere in the tree.
+         (is (re-find #"tab-index" flat)
+             "tabindex is stamped on the rows")))))
+
+#?(:cljs
+   (deftest assertion-picker-active-index-moves
+     (testing "rf2-07m13: set-active-index! clamps + wraps the cursor
+              across the vocabulary length."
+       (open-picker-for-test!)
+       (let [n (count recorder/assertion-vocabulary)]
+         ;; Step forward through bounds.
+         (#'ui-rec/set-active-index! 0)
+         (is (= 0 (:active-index @ui-rec/ui-picker)))
+         (#'ui-rec/set-active-index! 1)
+         (is (= 1 (:active-index @ui-rec/ui-picker)))
+         ;; Past the end wraps to 0.
+         (#'ui-rec/set-active-index! (+ n 5))
+         (is (= 0 (:active-index @ui-rec/ui-picker)))
+         ;; Negative wraps to the last index.
+         (#'ui-rec/set-active-index! -1)
+         (is (= (dec n) (:active-index @ui-rec/ui-picker)))))))

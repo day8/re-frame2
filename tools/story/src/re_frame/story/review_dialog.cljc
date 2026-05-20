@@ -79,6 +79,7 @@
                    to the renderer."
   (:require [clojure.string :as str]
             #?(:cljs [reagent.core :as r])
+            #?(:cljs [re-frame.story.ui.a11y-dialog :as a11y-dialog])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -418,48 +419,63 @@
      (when (:open? dialog-state)
        (let [draft-id     (:draft-id dialog-state)
              effective-id (or draft-id placeholder-id)
-             dtest        (fn [suffix] (str data-test-prefix "-" suffix))]
-         [:div {:style     (:modal-back styles)
-                :data-test (dtest "dialog")
-                :on-click  (fn [e]
-                             (when (= (.-target e) (.-currentTarget e))
-                               (on-close)))}
-          [:div {:style    (:modal styles)
-                 :on-click (fn [e] (.stopPropagation e))}
-           [:div {:style (:modal-title styles)} title]
-           (when hint
-             [:div {:style (:hint styles)} hint])
-           [:input
-            {:type          "text"
-             :style         (:id-input styles)
-             :data-test     (dtest "id-input")
-             :default-value (pr-str effective-id)
-             :on-change     (fn [e] (on-edit-id (.. e -target -value)))
-             :placeholder   placeholder-input}]
-           [:pre {:style     (:snippet styles)
-                  :data-test (dtest "snippet")}
-            snippet]
-           [:div {:style (:btn-row styles)}
-            (when on-discard
-              [:button
-               {:style     (:btn-muted styles)
-                :data-test (dtest "discard")
-                :on-click  (fn [_] (on-discard))}
-               "discard"])
-            (when on-export
-              [:button
-               {:style     (:btn-muted styles)
-                :data-test (dtest "export")
-                :title     "Export the recording as a :play-script (rich DSL)"
-                :on-click  (fn [_] (on-export))}
-               "export as :play-script"])
-            [:button
-             {:style     (:btn styles)
-              :data-test (dtest "copy")
-              :on-click  (fn [_] (on-copy))}
-             "copy to clipboard"]
-            [:button
-             {:style     (:btn-muted styles)
-              :data-test (dtest "close")
-              :on-click  (fn [_] (on-close))}
-             "close"]]]]))))
+             dtest        (fn [suffix] (str data-test-prefix "-" suffix))
+             title-id     (str data-test-prefix "-dialog-title")]
+         ;; rf2-p1ai7: wrap in a focus-trap so Escape closes, Tab cycles,
+         ;; focus moves in on mount, and focus returns to the trigger on
+         ;; close. The renderer is otherwise unchanged from the
+         ;; pre-fix shape — ARIA attrs (role / aria-modal / aria-labelledby)
+         ;; ride on the inner panel + the wrapper's on-click closes on
+         ;; backdrop tap as before. Hiccup is passed eagerly to the
+         ;; focus-trap so tests can string-traverse the full tree.
+         [a11y-dialog/focus-trap
+          {:on-close on-close}
+          [:div {:style     (:modal-back styles)
+                 :data-test (dtest "dialog")
+                 :on-click  (fn [e]
+                              (when (= (.-target e) (.-currentTarget e))
+                                (on-close)))}
+           [:div {:style          (:modal styles)
+                  :role           "dialog"
+                  :aria-modal     "true"
+                  :aria-labelledby title-id
+                  :on-click       (fn [e] (.stopPropagation e))}
+            [:div {:id    title-id
+                   :style (:modal-title styles)} title]
+            (when hint
+              [:div {:style (:hint styles)} hint])
+            [:input
+             {:type          "text"
+              :style         (:id-input styles)
+              :data-test     (dtest "id-input")
+              :aria-label    "New variant id"
+              :default-value (pr-str effective-id)
+              :on-change     (fn [e] (on-edit-id (.. e -target -value)))
+              :placeholder   placeholder-input}]
+            [:pre {:style     (:snippet styles)
+                   :data-test (dtest "snippet")}
+             snippet]
+            [:div {:style (:btn-row styles)}
+             (when on-discard
+               [:button
+                {:style     (:btn-muted styles)
+                 :data-test (dtest "discard")
+                 :on-click  (fn [_] (on-discard))}
+                "discard"])
+             (when on-export
+               [:button
+                {:style     (:btn-muted styles)
+                 :data-test (dtest "export")
+                 :title     "Export the recording as a :play-script (rich DSL)"
+                 :on-click  (fn [_] (on-export))}
+                "export as :play-script"])
+             [:button
+              {:style     (:btn styles)
+               :data-test (dtest "copy")
+               :on-click  (fn [_] (on-copy))}
+              "copy to clipboard"]
+             [:button
+              {:style     (:btn-muted styles)
+               :data-test (dtest "close")
+               :on-click  (fn [_] (on-close))}
+              "close"]]]]]))))
