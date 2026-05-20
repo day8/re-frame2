@@ -125,6 +125,17 @@ axe-core integration runs against the rendered DOM:
 
 Phase 1 §3.1 #3 names this "the cheapest win in the space."
 
+Two panels share the engine and the CDN opt-in, but scope differently:
+
+| Panel id                          | Scope (CSS selector)            | Concern                                                                                                    |
+|-----------------------------------|---------------------------------|------------------------------------------------------------------------------------------------------------|
+| `:rf.story.panel/a11y`            | `[data-rf-story-variant-root]`  | Variant-author concern. The default. Per rf2-qgms1 the canvas stamps the variant root so the scan excludes Story chrome (sidebar, toolbar, panels). |
+| `:rf.story.panel/chrome-a11y`     | `[data-rf-story-root]`          | Story-chrome concern (rf2-18t6p). Dogfoods axe-core against the Story shell itself — variant authors never need to see these violations; the Story project does. |
+
+The two panels share `a11y/ensure-axe-loaded!` + `a11y/cdn-opt-in?` so
+one consent decision approves both. State is independent: chrome
+violations don't pollute the per-variant panel and vice versa.
+
 ### Six-domino trace (via embedded Causa)
 
 Per [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane,
