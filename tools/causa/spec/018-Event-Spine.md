@@ -38,7 +38,7 @@ Every selection event passes through a single spine sub — `:rf.causa/focus` �
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 8 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -418,11 +418,11 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 8 tabs
+### The 9 tabs
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ○Canvas  ○Routing  ⚠Issues 1         │   L3
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 ○Chrome-A11y   │   L3
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -436,6 +436,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 | 6 | **Machines Canvas** | `c` | **Spine-INDEPENDENT canvas browser** (rf2-mkpnb). Master-detail — picker on the left (one row per registered machine, sorted by name), interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Promoted to its own L4 tab per the cohesive-sub-domain rule; sibling to the event-driven Machines Inspector at order 5. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Interactive Machines canvas (rf2-y3l8z) + [`007-UX-IA.md`](007-UX-IA.md) §Layout |
 | 7 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 8 | **Issues** | `i` | JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns | this doc §5.4 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Issues ribbon |
+| 9 | **Chrome A11y** | `y` | **Spine-INDEPENDENT dogfood** (rf2-5r2yj). Runs axe-core scoped to `#rf-causa-root` — Causa's own chrome — so a11y regressions in the tool's L1 ribbon, L2 event list, L3 tab bar, L4 detail panels, modals, and resize handle surface during dev. Mirrors Story's `chrome-a11y` panel (PR #1695). axe-core is loaded opt-in via CDN with an SRI hash pinned (no Settings toggle — pre-alpha posture: explicit consent click in the panel). | [`007-UX-IA.md`](../tools/causa/spec/007-UX-IA.md) §Layout |
 
 **Effects is folded into Event** — the "fx handlers that ran" block under Event tab covers it.
 
@@ -447,7 +448,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Event  ○App-db  ○Views 8  ○Trace 47  ○Machines 1  ○Canvas  ○Routing  ⚠Issues 1         │
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 ○Chrome-A11y   │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -458,7 +459,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 - **Dormant tab:** `text-disabled` + `○`; clickable → empty state.
 - **Count flash on LIVE update:** count flashes violet 200ms then settles. No continuous spinner.
 
-Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Can Rou Iss`); counts always full. Below 560px the strip scrolls horizontally.
+Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Can Rou Iss A11`); counts always full. Below 560px the strip scrolls horizontally.
 
 ### Tab strip ARIA
 

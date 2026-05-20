@@ -16,6 +16,7 @@ event**:
 | **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). |
 | **Machines Canvas** (`c`) | "What does this machine LOOK like?" — spine-INDEPENDENT canvas browser. Picker on the left, interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Earned its own tab per the cohesive-sub-domain rule (rf2-mkpnb). |
 | **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. |
+| **Chrome A11y** (`y`) | "Is Causa's OWN chrome accessible?" — spine-INDEPENDENT dogfood (rf2-5r2yj). Runs axe-core scoped to `#rf-causa-root` — the Causa mount node — so a11y regressions in the L1 ribbon, L2 event list, L3 tab bar, L4 detail panels, modals, and resize handle surface during dev. Mirrors Story's `chrome-a11y` panel (PR #1695). axe-core loads opt-in via CDN with an SRI hash pinned; consent click lives inline in the panel. |
 
 Plus popovers (`r` nav-token timeline · `f` wire-trace
 + `h` hydration bisector, future). Every popover is invokable from any
@@ -59,7 +60,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 8 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -80,7 +81,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 │   L3 — 8 tabs
+│ ◉Event ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Canvas ○Routing ⚠Issues 1 ○Chrome-A11y │   L3 — 9 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Event tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -99,12 +100,14 @@ The four layers, top to bottom:
    decorated by gutter glyph (`● ◉ x ▥ ↺`) + right-aligned badges (`⚠`
    `🌐` `🤖`) + trailing redaction marker (`[● REDACTED N]`). The
    spine sub `:rf.causa/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Eight tabs: Event / App-db / Views / Trace /
-   Machines / Machines Canvas / Routing / Issues. Letter mnemonics:
-   `e` `a` `v` `t` `m` `c` `r` `i`. Count badges (`Views 8`) update
-   with focused cascade. Routing was promoted to its own L3 tab in
-   rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb — both follow
-   the cohesive-sub-domain rule (sub-domains earn their own lens tab).
+3. **L3 — Tab bar (40px).** Nine tabs: Event / App-db / Views / Trace /
+   Machines / Machines Canvas / Routing / Issues / Chrome A11y. Letter
+   mnemonics: `e` `a` `v` `t` `m` `c` `r` `i` `y`. Count badges
+   (`Views 8`) update with focused cascade. Routing was promoted to its
+   own L3 tab in rf2-nrbs9; Machines Canvas was promoted in rf2-mkpnb —
+   both follow the cohesive-sub-domain rule (sub-domains earn their own
+   lens tab). Chrome A11y was added in rf2-5r2yj as the diagnostics-
+   group dogfood — mirror of Story's `chrome-a11y` panel (#1695).
 4. **L4 — Detail panel.** Fills remaining canvas (60% default;
    resizable via L2/L3 drag handle). Per-tab content; all values
    rendered via the cljs-devtools-shaped renderer (see §Detail panel
@@ -758,6 +761,7 @@ restructuring the header chrome. The mapping
 | `:machines` | green | `:green` (machine state lands green for "final") |
 | `:routing` | yellow | `:yellow` (side-channel attention tone) |
 | `:issues` | red | `:red` (errors; semantic red) |
+| `:chrome-a11y` | red | `:red` (diagnostics group sibling to `:issues`; both surface "what's wrong here?" content — rf2-5r2yj) |
 
 The helper `theme/tokens/accent-stripe-style` emits the inline-style
 map (`:border-left "3px solid <hex>"` + `:padding-left "10px"`); per-
