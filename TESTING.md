@@ -164,12 +164,13 @@ boolean GitHub-Actions outputs per surface:
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
-| `adapter_testbed_smokes` | Adapter surface changed (`implementation/adapters/*`) or the orchestrator scripts that drive the smokes (`examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs`). Per rf2-bxdk8 + rf2-cjp0i + rf2-8cevm: generic `examples/**` and `testbeds/**` paths no longer fire this gate (examples/ is test-free; testbed-only diffs are caught by `cljs_browser` and the nightly + post-merge full matrix). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs). |
+| `adapter_testbed_smokes` | Adapter surface changed (`implementation/adapters/*`) or the orchestrator scripts that drive the smokes (`examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs`). Per rf2-bxdk8 + rf2-cjp0i + rf2-8cevm + rf2-9grp6: generic `examples/**` and `testbeds/**` paths no longer fire this gate (examples/ is test-free; testbed-source diffs fire `framework_testbeds` instead — see below). Not set by `implementation/core/*`, per-feature artefacts, or build-config changes (rf2-8jz9t — adapter smokes only catch adapter-mount-specific bugs). |
+| `framework_testbeds` | Framework / top-level testbed source changed: `tools/causa/testbeds/**` (perf_counter, parallel_frames, feature_matrix, panel_gallery) or top-level `testbeds/**` (rf2-ik4io SSR + rf2-fe84r framework-behaviour). Fires only on runtime-extension changes (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`, `.html`, `.json`); Markdown / EDN-only diffs do not fire it. Per rf2-9grp6 this gate was split out of `adapter_testbed_smokes` after rf2-cjp0i narrowed the adapter gate to the 3 adapter smokes only — testbed-source diffs were silently uncovered at PR-time. |
 | `tools_jvm` | Story / Causa / Story-MCP / Causa-MCP / Pair2-MCP / MCP-base changed; gates the four per-tool JVM probes (`jvm-tools-{causa,story,story-mcp,mcp-base}`). Not set by `tools/template/*` or `tools/mcp-conformance/*` — those don't share runtime with the per-tool probes. |
 | `template_expensive` | `tools/template/*` changed; gates the template emitted-app smoke. |
 | `mcp_conformance` | Any MCP-server tool, `tools/mcp-base/*`, or `tools/mcp-conformance/*` changed. |
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
-| `story_causa_browser` | `tools/story/*` or `tools/causa/*` runtime changed. Not set by the `-mcp` wrappers (they don't run in a browser). |
+| `story_causa_browser` | Story / Causa runtime source changed under `tools/{story,causa}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,causa}/spec/**`, JVM unit tests under `tools/{story,causa}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
 
 A few "blast-radius" inputs force the full sweep:
@@ -180,14 +181,16 @@ A few "blast-radius" inputs force the full sweep:
   full matrix).
 - Changes under `implementation/core/*` fan out broadly (they touch
   almost every output) because core regressions can break every
-  downstream substrate, tool, and bundle invariant. Exception:
-  `adapter_testbed_smokes` is **not** fired by `implementation/core/*`
-  changes (rf2-8jz9t). The adapter smokes under adapter-testbed-smokes
-  only catch adapter-mount-specific bugs (createRoot lifecycle,
-  hydration, real concurrent scheduling); core renames are caught
-  by `node-test` (which exercises every public `re-frame.core`
-  fn), and the nightly cron + post-merge gate runs the full matrix
-  on main.
+  downstream substrate, tool, and bundle invariant. Exceptions: the
+  three Playwright gates (`adapter_testbed_smokes`,
+  `framework_testbeds`, `story_causa_browser`) are **not** fired by
+  `implementation/core/*` changes (rf2-8jz9t + rf2-k9ekz + rf2-9grp6).
+  The Playwright gates exist to catch surface-specific browser bugs
+  (adapter mount lifecycle, Story variant boot, Causa panel layout,
+  multi-frame isolation, framework-testbed contract) — none of which
+  are core regressions. Core renames are caught by `node-test`
+  (which exercises every public `re-frame.core` fn), and the nightly
+  cron + post-merge gate runs the full matrix on main.
 
 **Adding a new artefact directory**: a new artefact (e.g. a new tool,
 new substrate, new SSR runtime) needs **two** matching changes:
@@ -240,32 +243,37 @@ hand-maintained against [`.github/scripts/report-changed-surfaces.sh`](.github/s
 condition changes (per the **Adding a new artefact directory** rule above).
 
 **Surface → output** — read this to verify "did my PR fire the right
-classifier outputs?" Rows are surface groups; columns are the 13
+classifier outputs?" Rows are surface groups; columns are the 14
 classifier outputs (exact names from the script). A `✓` means a change
 under that surface sets that output to `true`. The **blast-trigger row
 (S1)** is bold: any change to those four files calls `mark_all` and
 lights every output (defensive — anything that re-tiers the matrix
 must re-run the matrix).
 
-| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
-| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |
-| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |
-| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
-| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
-| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   | ✓ |   |
-| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
-| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |
-| S9 | `testbeds/*` |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |
-| S10 | `tools/template/*` |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
-| S11 | `tools/story/*`, `tools/causa/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |
-| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
-| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
-| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
-| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
-| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+| # | Surface | `implementation_jvm` | `adapter_diagnostic` | `cljs_browser` | `cljs_prod` | `bundle_isolation` | `reagent_slim_bundle` | `adapter_testbed_smokes` | `framework_testbeds` | `tools_jvm` | `template_expensive` | `mcp_conformance` | `mcp_live` | `story_causa_browser` | `skills_structural` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **S1** | **`.github/workflows/test.yml`, `.github/workflows/expensive-tests.yml`, `report-changed-surfaces.sh`, `TESTING.md` (blast trigger — `mark_all`)** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   | ✓ | ✓ | ✓ | ✓ |   |   |
+| S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
+| S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
+| S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
+| S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
+| S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers}.cjs` (orchestrator + runner + helpers — rf2-bxdk8 + rf2-cjp0i) |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
+| S9 | `testbeds/*` (runtime-extension files — rf2-9grp6) |   |   | ✓ |   |   |   |   | ✓ |   |   |   |   |   |   |
+| S10 | `tools/template/*` |   |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |
+| S11 | `tools/story/{src,testbeds}/**`, `tools/causa/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz) |   |   |   |   |   |   |   | ✓† | ✓ |   | ✓ |   | ✓ |   |
+| S11a | `tools/story/{spec,test,bench}/**`, `tools/causa/{spec,test}/**`, `tools/{story,causa}/{deps.edn,README.md}` (non-runtime under story/causa) |   |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
+| S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |
+| S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |
+| S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |
+| S15 | `skills/re-frame2-pair/tests/fixture/*` |   |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   | ✓ |
+| S16 | `skills/re-frame2-pair/*` (other), `skills/shared/*` |   |   |   |   |   |   |   |   |   |   |   |   |   | ✓ |
+
+† Row S11 fires `framework_testbeds` only for paths under
+`tools/causa/testbeds/**` (Story's own testbeds drive
+`story_causa_browser`, not `framework_testbeds`).
 
 **Output → jobs** — read this to answer "if this output is `true`, what
 runs?" Job counts are grouped (the matrix expands to 30+ leaf jobs at
@@ -279,12 +287,13 @@ PR time; one row per output here so the table stays scannable).
 | `cljs_prod` | Release-mode probes ×3 (`browser-test-prod-elision`, schemas boundary prod, etc.) |
 | `bundle_isolation` | `bundle-isolation` |
 | `reagent_slim_bundle` | `reagent-slim-bundle-isolation` |
-| `adapter_testbed_smokes` | `adapter-testbed-smokes` (Playwright; 3 adapter smokes + the framework + top-level testbeds the orchestrator compiles) |
+| `adapter_testbed_smokes` | `adapter-testbed-smokes` (Playwright; the 3 adapter smokes only — rf2-9grp6 split out the framework + top-level testbeds into the `framework-testbeds` job below) |
+| `framework_testbeds` | `framework-testbeds` (Playwright; 2 Causa-owned framework testbeds at `tools/causa/testbeds/{perf_counter,parallel_frames}` + 9 top-level testbeds at `testbeds/{ssr_basic,ssr_hydration_mismatch,ssr_multi_frame,deliberate_throw,http_toggle,deep_machine,non_trivial_app_db,long_flow_w_failure,drain_depth_trigger}` + the panel-gallery smokes when `RF2_CAUSA_RUN_GALLERY_SMOKES=1`) |
 | `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-causa`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
 | `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
-| `story_causa_browser` | `story-causa-browser` (feature gates, Playwright) |
+| `story_causa_browser` | `story-causa-browser` (feature gates, Playwright — Causa feature-matrix + Story static + Story feature-load + Story play-scripts) |
 | `skills_structural` | `skills-structural` |
 
 

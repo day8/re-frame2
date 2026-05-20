@@ -35,17 +35,25 @@ const {
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 // rf2-h9ut9 — narrow filter. When set, only the EXAMPLES entries
-// whose `build` id includes the substring are compiled + staged, and
-// the value is propagated to the Playwright runner via the
-// `EXAMPLES_FILTER` env-var so the runner only executes matching
-// specs. Unset (or empty) = the full sweep. The filter is supplied
-// via either:
+// whose `build` id includes any one of the comma-separated substrings
+// are compiled + staged, and the value is propagated to the Playwright
+// runner via the `EXAMPLES_FILTER` env-var so the runner only executes
+// matching specs. Unset (or empty) = the full sweep. The filter is
+// supplied via either:
 //
 //   1. CLI flag (cross-platform; the recommended shape):
 //      node serve-and-run-examples-tests.cjs --filter realworld
 //
 //   2. Env var (for CI / scripted use):
 //      EXAMPLES_FILTER=realworld node serve-and-run-examples-tests.cjs
+//
+// rf2-9grp6 — multi-pattern filter. Comma separates alternatives, OR-
+// matched: `adapters/` matches only the 3 adapter smokes, while
+// `examples/counter-perf,examples/parallel-frames,testbeds/` matches
+// the 11 framework + top-level testbed builds. The CI split (rf2-9grp6)
+// drives this — `adapter-testbed-smokes` invokes the orchestrator with
+// the adapter pattern, `framework-testbeds` with the testbed patterns.
+// Single-pattern usage stays backwards-compatible.
 //
 // The packaged narrow shortcut lives in implementation/package.json
 // as `npm run test:examples:realworld`.
@@ -71,6 +79,14 @@ function parseFilterFromArgs(argv) {
 }
 const FILTER = parseFilterFromArgs(process.argv)
             || (process.env.EXAMPLES_FILTER || '').trim();
+// rf2-9grp6 — split a comma-separated filter into the list of
+// substrings. Empty filter returns an empty array (meaning
+// "pass-through everything" — see `selectedExample` below).
+function parseFilterPatterns(raw) {
+  if (!raw) return [];
+  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // rf2-043cm — `EXAMPLES_PORT` env-var override defaults to 8030. Lets
 // parallel workers / contended dev sessions (e.g. a long-running
 // `shadow-cljs watch` on the parallel-frames testbed at 8030)
@@ -247,8 +263,9 @@ function normalizeForFilter(s) {
   return s.replace(/_/g, '-').replace(/\\/g, '/');
 }
 function selectedExample(ex) {
-  if (FILTER === '') return true;
-  return normalizeForFilter(ex.build).includes(normalizeForFilter(FILTER));
+  if (FILTER_PATTERNS.length === 0) return true;
+  const normalized = normalizeForFilter(ex.build);
+  return FILTER_PATTERNS.some((p) => normalized.includes(normalizeForFilter(p)));
 }
 
 function selectedExamples() {
