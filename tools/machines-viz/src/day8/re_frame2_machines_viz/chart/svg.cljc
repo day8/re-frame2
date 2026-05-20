@@ -706,6 +706,18 @@
                            interactive controls wrap the chart with
                            wheel-zoom / click-drag-pan / keyboard
                            handlers without forking `render`.
+    :machine-id          — rf2-rhtjp a11y. Optional keyword (or
+                           string) naming the machine the chart
+                           depicts. When present the root `<svg>`
+                           emits `role=\"img\"` + an
+                           `aria-label` of the form
+                           `\"State machine: <id> with N states and
+                           M transitions\"` so screen-reader users
+                           hear a meaningful description instead of
+                           an unlabelled graphic. Callers can
+                           still override either attribute via
+                           `:svg-attrs` (e.g. a host using the
+                           wrapping `role=\"application\"` pattern).
     :density             — rf2-32gw5. One of `:compact / :regular /
                            :cosy` (or `nil` ≡ `:regular`). Picks the
                            geometry + typography variant from
@@ -724,7 +736,7 @@
   ([{:keys [nodes edges width height] :as positioned}
     {:keys [highlight-id from-highlight-id to-highlight-id
             sim? on-state-click testid show-caption? caption
-            viewport-transform svg-attrs density]}]
+            viewport-transform svg-attrs density machine-id]}]
    ;; rf2-32gw5 — every helper destructures `vc/*chart*`; binding it
    ;; here per `:density` is the one-knob switch that propagates
    ;; through the whole render pass. All hiccup is eagerly realised
@@ -732,9 +744,35 @@
    ;; constants are captured in the returned data structure, not
    ;; deferred to React-mount time.
    (binding [vc/*chart* (vc/chart-for-density density)]
+   (let [;; rf2-rhtjp — a11y. Compute a screen-reader description
+         ;; from the model the chart already receives. Reads as a
+         ;; complete sentence: "State machine: foo with 4 states and
+         ;; 5 transitions." When `:machine-id` is not supplied the
+         ;; identity slot is omitted ("State machine with N states
+         ;; and M transitions."). The label is stable + deterministic
+         ;; — pure fn of the positioned graph + the caller's id.
+         n-states      (count nodes)
+         n-transitions (count edges)
+         id-fragment   (when (some? machine-id)
+                         (str ": " (if (keyword? machine-id)
+                                     (str (symbol machine-id))
+                                     (str machine-id))))
+         aria-label    (str "State machine"
+                            id-fragment
+                            " with "
+                            n-states " "
+                            (if (= 1 n-states) "state" "states")
+                            " and "
+                            n-transitions " "
+                            (if (= 1 n-transitions) "transition" "transitions")
+                            ".")]
    (if (empty? nodes)
      [:div {:data-testid (or testid "rf-mv-chart-empty")
             :data-density (name (or density :regular))
+            :role        "img"
+            :aria-label  (str "State machine"
+                              id-fragment
+                              " has no states to render.")
             :style {:padding "16px"
                     ;; rf2-trorn — sans-stack token rather than the
                     ;; previous `'Inter, system-ui, ...'` literal.
@@ -784,6 +822,16 @@
                            :data-viewport-scale (str scale)
                            :data-viewport-tx (str tx)
                            :data-viewport-ty (str ty)
+                           ;; rf2-rhtjp — a11y. `role=\"img\"` so the
+                           ;; SVG is announced as a single image
+                           ;; (not its child <text> tokens) and
+                           ;; `aria-label` so the user hears the
+                           ;; machine identity + topology summary.
+                           ;; Both are overridable via `:svg-attrs`
+                           ;; (e.g. a host wrapping with
+                           ;; `role=\"application\"`).
+                           :role "img"
+                           :aria-label aria-label
                            :viewBox (str "0 0 " width " " total-h)
                            :width "100%"
                            :preserveAspectRatio "xMidYMin meet"
@@ -863,7 +911,7 @@
                                 :from-highlight-id from-highlight-id
                                 :to-highlight-id   to-highlight-id
                                 :sim?              sim?
-                                :on-state-click    on-state-click})))]]])))))
+                                :on-state-click    on-state-click})))]]]))))))
 
 (defn render-from-definition
   "Convenience: lay out + render in one call. Useful for the panel
@@ -969,9 +1017,18 @@
     :height  (default 16)
     :stroke              — line colour (default `:cyan` token)
     :testid              — overrides the root data-testid
-    :max-sample          — pin the y-axis ceiling"
+    :max-sample          — pin the y-axis ceiling
+    :label               — rf2-rhtjp a11y. Overrides the default
+                           `aria-label`. Hosts that render the
+                           sparkline next to a textual count (the
+                           cluster-row already shows the rate
+                           value in text) MAY pass `:aria-hidden`
+                           via `:label \"\"` to suppress the
+                           announcement; otherwise the default
+                           label reads as
+                           `\"Sparkline of N samples, peak P.\"`"
   ([samples] (sparkline samples {}))
-  ([samples {:keys [width height stroke testid max-sample]
+  ([samples {:keys [width height stroke testid max-sample label]
              :or   {width  60
                     height 16
                     stroke (:cyan tokens/tokens)
@@ -997,14 +1054,27 @@
                                              (* ratio inner-h)))]
                               [x y]))
                           (range n)
-                          samples))]
-     [:svg {:data-testid testid
-            :data-samples (pr-str samples)
-            :width  width
-            :height height
-            :viewBox (str "0 0 " width " " height)
-            :style {:display "inline-block"
-                    :vertical-align "middle"}}
+                          samples))
+         ;; rf2-rhtjp — a11y. Default screen-reader label describes
+         ;; the data the glyph encodes; empty string lets a host
+         ;; mark it `aria-hidden` (decorative next to text).
+         aria-label (cond
+                      (= "" label)  nil
+                      (some? label) label
+                      (zero? n)     "Sparkline (no samples)."
+                      :else         (str "Sparkline of " n " "
+                                         (if (= 1 n) "sample" "samples")
+                                         ", peak " max-v "."))]
+     [:svg (cond-> {:data-testid testid
+                    :data-samples (pr-str samples)
+                    :width  width
+                    :height height
+                    :viewBox (str "0 0 " width " " height)
+                    :style {:display "inline-block"
+                            :vertical-align "middle"}}
+             aria-label       (assoc :role "img"
+                                     :aria-label aria-label)
+             (nil? aria-label) (assoc :aria-hidden "true"))
       [:line {:x1 0 :y1 baseline :x2 width :y2 baseline
               :stroke (:border-subtle tokens/tokens)
               :stroke-width 0.5}]

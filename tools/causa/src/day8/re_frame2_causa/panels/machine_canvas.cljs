@@ -521,12 +521,19 @@
               :overflow    "hidden"
               :background  (:bg-1 tokens)}}
      ;; Chart SVG — viewport-transform passes the user's zoom + pan.
+     ;; rf2-rhtjp — `:machine-id` carries the identity slug down to
+     ;; `mv-svg/render` so its `aria-label` reads as e.g. "State
+     ;; machine: auth with 4 states and 3 transitions." The
+     ;; surrounding wrapper div still owns the interactive
+     ;; `role="application"` + keyboard-shortcut affordance; the
+     ;; inner `<svg>` gets the per-chart descriptive label.
      (mv-svg/render
        positioned
        (cond-> {:from-highlight-id  from-highlight-id
                 :to-highlight-id    to-highlight-id
                 :on-state-click     on-state-click
                 :viewport-transform viewport
+                :machine-id         machine-id
                 :svg-attrs          {:style {:width  "100%"
                                              :height "100%"
                                              :display "block"}}}

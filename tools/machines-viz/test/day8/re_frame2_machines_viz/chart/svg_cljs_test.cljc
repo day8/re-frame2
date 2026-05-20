@@ -100,6 +100,65 @@
     (is (some? (find-by-testid tree "rf-mv-chart-svg"))
         "root SVG present")))
 
+;; ---- a11y: role + aria-label on the root <svg> (rf2-rhtjp) -------------
+;;
+;; Audit rf2-w03x1 #9 — Screen-reader users encountering the chart heard
+;; nothing because the root `<svg>` carried no `role` + no accessible
+;; name. The renderer now emits `role="img"` plus an `aria-label`
+;; derived from the machine identity (when known) and the topology
+;; summary (state + transition counts) so the chart announces itself
+;; as a meaningful image instead of an unlabelled graphic.
+
+(deftest render-svg-root-has-role-img
+  (let [tree (chart-svg/render-from-definition small-machine)
+        [_ root-attrs] tree]
+    (is (= "img" (:role root-attrs))
+        "root SVG carries role=\"img\" for screen-reader announcement")))
+
+(deftest render-svg-root-aria-label-includes-counts
+  (testing "aria-label conveys topology summary without a machine-id"
+    (let [tree (chart-svg/render-from-definition small-machine)
+          [_ root-attrs] tree
+          label (:aria-label root-attrs)]
+      (is (string? label))
+      (is (not (str/blank? label)))
+      (is (str/includes? label "State machine"))
+      (is (str/includes? label "4 states")
+          "small-machine has 4 states (:idle :loading :success :failed)")
+      (is (str/includes? label "3 transitions")
+          "small-machine has 3 transitions (:start :ok :err)"))))
+
+(deftest render-svg-root-aria-label-names-the-machine
+  (testing "aria-label includes the machine identity when :machine-id is passed"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine
+                 {:machine-id :user-flow})
+          [_ root-attrs] tree
+          label (:aria-label root-attrs)]
+      (is (str/includes? label "user-flow")
+          "machine-id appears in the screen-reader label"))))
+
+(deftest render-empty-fallback-carries-role-img-and-aria-label
+  (testing "empty graph fallback is announced as a labelled image too"
+    (let [tree (chart-svg/render-from-definition nil {:machine-id :empty-m})
+          attrs (second tree)]
+      (is (= "img" (:role attrs))
+          "empty fallback carries role=\"img\"")
+      (is (string? (:aria-label attrs)))
+      (is (str/includes? (:aria-label attrs) "empty-m")
+          "aria-label names the machine even in the empty state"))))
+
+(deftest render-svg-attrs-can-override-role-and-aria-label
+  (testing "callers can override the a11y attrs via :svg-attrs (back-compat)"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine
+                 {:machine-id :m
+                  :svg-attrs  {:role       "application"
+                               :aria-label "custom"}})
+          [_ root-attrs] tree]
+      (is (= "application" (:role root-attrs)))
+      (is (= "custom" (:aria-label root-attrs))))))
+
 (deftest render-emits-one-node-per-state
   (let [tree    (chart-svg/render-from-definition small-machine)
         nodes   (find-all-by-testid-prefix tree "rf-mv-chart-node-")]
@@ -182,6 +241,32 @@
 (deftest sparkline-honours-custom-testid
   (let [svg (chart-svg/sparkline [1 2 3] {:testid "rf-cluster-rate-1"})]
     (is (= "rf-cluster-rate-1" (:data-testid (second svg))))))
+
+;; ---- a11y on the sparkline (rf2-rhtjp) ---------------------------------
+
+(deftest sparkline-default-emits-role-img-with-data-label
+  (testing "the sparkline announces itself as an image with a sample summary"
+    (let [svg   (chart-svg/sparkline [1 5 3])
+          attrs (second svg)]
+      (is (= "img" (:role attrs)))
+      (is (string? (:aria-label attrs)))
+      (is (str/includes? (:aria-label attrs) "3 samples"))
+      (is (str/includes? (:aria-label attrs) "peak 5")))))
+
+(deftest sparkline-empty-label-marks-decorative
+  (testing "passing :label \"\" suppresses the label for hosts that already announce the data textually"
+    (let [svg   (chart-svg/sparkline [1 2 3] {:label ""})
+          attrs (second svg)]
+      (is (nil? (:role attrs)))
+      (is (nil? (:aria-label attrs)))
+      (is (= "true" (:aria-hidden attrs))
+          "decorative sparklines next to text should be aria-hidden"))))
+
+(deftest sparkline-custom-label-overrides-default
+  (let [svg   (chart-svg/sparkline [1 2 3] {:label "Rate of state changes"})
+        attrs (second svg)]
+    (is (= "img" (:role attrs)))
+    (is (= "Rate of state changes" (:aria-label attrs)))))
 
 ;; ---- compound containers (rf2-m7co9 Phase 4) -------------------------
 
