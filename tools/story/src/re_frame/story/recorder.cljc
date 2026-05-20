@@ -836,12 +836,12 @@
   tests directly."
   []
   (when config/enabled?
-    (trace-tooling/register-trace-listener! listener-id trace-listener)
+    (trace-tooling/register-listener! listener-id trace-listener)
     nil))
 
 (defn remove-trace-listener!
   "Tear down the recorder's trace-bus listener. Idempotent."
   []
   (when config/enabled?
-    (trace-tooling/unregister-trace-listener! listener-id)
+    (trace-tooling/unregister-listener! listener-id)
     nil))

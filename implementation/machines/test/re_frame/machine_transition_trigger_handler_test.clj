@@ -35,9 +35,9 @@
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/unregister-trace-listener! ::rec)))
+         (finally (rf/unregister-listener! ::rec)))
     @seen))
 
 (defn- transitions-of [evs]

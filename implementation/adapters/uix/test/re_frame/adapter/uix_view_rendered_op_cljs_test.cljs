@@ -30,7 +30,7 @@
 
 (defn- record-traces! []
   (let [recorded (atom [])]
-    (trace-tooling/register-trace-listener! ::recorder
+    (trace-tooling/register-listener! ::recorder
       (fn [ev]
         (when (= :rf.view/rendered (:operation ev))
           (swap! recorded conj ev))))
@@ -49,7 +49,7 @@
         (is (= :rf2-25zo2.uix/sample (:view-id t)) ":view-id matches")
         (is (some? (:frame t)) ":frame present")
         (is (vector? (:render-key t)) ":render-key is a tuple"))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 (deftest uix-rf-view-rendered-attribution-in-cascade
   (testing ":rf.view/rendered emitted inside a UIx cascade carries
@@ -76,4 +76,4 @@
           (let [t (:tags ev)]
             (is (= :rf2-25zo2.uix/cascade (:cause-event-id t)))
             (is (some #{:rf2-25zo2.uix/n} (:cause-subs t))))))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))

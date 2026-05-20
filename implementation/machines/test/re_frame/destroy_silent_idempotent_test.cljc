@@ -53,7 +53,7 @@
 (defn- record-traces!
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-trace-listener! k (fn [ev] (swap! a conj ev)))
+    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- destroyed-traces

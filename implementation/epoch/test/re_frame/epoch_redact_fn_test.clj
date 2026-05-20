@@ -53,7 +53,7 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
@@ -80,7 +80,7 @@
   ;; Capture every `:warning` op-type emission so the failure-
   ;; isolation invariant can assert the documented op-id + tags fire.
   (let [warnings (atom [])]
-    (rf/register-trace-listener! ::warn-watcher
+    (rf/register-listener! ::warn-watcher
                            (fn [ev]
                              (when (= :warning (:op-type ev))
                                (swap! warnings conj ev))))

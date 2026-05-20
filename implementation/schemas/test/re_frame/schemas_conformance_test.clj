@@ -357,7 +357,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-listener! [fixture-id]
+    (trace/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -478,7 +478,7 @@
                    :actual   (rf/subscribe-once frame-id qv)})))
             trace-failures (check-trace-emissions @traces
                                                   (:trace-emissions expect))]
-        (trace/clear-trace-listeners!)
+        (trace/clear-listeners!)
         {:fixture-id     fid
          :passed?        (and (or (nil? expected-db) (submap? expected-db final-db))
                               (every? #(= (:expected %) (:actual %)) sub-checks)

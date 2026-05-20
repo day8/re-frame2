@@ -99,7 +99,7 @@ discipline as the rest of the registry.
 
 | Id | Surface | Behaviour |
 |---|---|---|
-| `:rf.causa/trace-collector` | `rf/register-trace-listener!` | Causa's trace-bus collector. Mirrors every emitted trace event into the process-global ring atom (`trace-bus/buffer`) and pumps `:rf.causa/note-trace-event` into the target frame's app-db. Idempotent per preload installation. |
+| `:rf.causa/trace-collector` | `rf/register-listener!` | Causa's trace-bus collector. Mirrors every emitted trace event into the process-global ring atom (`trace-bus/buffer`) and pumps `:rf.causa/note-trace-event` into the target frame's app-db. Idempotent per preload installation. |
 | `:rf.causa/epoch-collector` | `rf/register-epoch-listener!` | Causa's epoch-settle pump. Dispatches `:rf.causa/epoch-recorded` per settled epoch so the cached `:rf.causa/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Causa is not mounted. |
 
 ## Event-detail panel

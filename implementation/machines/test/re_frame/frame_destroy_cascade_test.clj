@@ -181,9 +181,9 @@
       (rf/reg-machine :lt/child child)
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
-      (rf/register-trace-listener! ::lt (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::lt (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame! :lt/auth)
-      (rf/unregister-trace-listener! ::lt)
+      (rf/unregister-listener! ::lt)
       (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                               @traces)]
         ;; Two spawned actors PLUS the singleton :lt/boot snapshot

@@ -162,10 +162,10 @@
                        :on    {:go :b}}
                    :b {}}}]
       (rf/reg-machine :rf2-dd3b/throws spec)
-      (rf/register-trace-listener! ::dd3b-1 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::dd3b-1 (fn [ev] (swap! traces conj ev)))
       ;; Drive the first dispatch — this is where bootstrap runs.
       (rf/dispatch-sync [:rf2-dd3b/throws [:noop]])
-      (rf/unregister-trace-listener! ::dd3b-1)
+      (rf/unregister-listener! ::dd3b-1)
 
       ;; The action body executed (so we know the cascade reached :a).
       (is (= [:throws-entered] @calls)
@@ -257,9 +257,9 @@
                            :states
                            {:inner {:entry :inner-bad}}}}}]
       (rf/reg-machine :rf2-dd3b/compound spec)
-      (rf/register-trace-listener! ::dd3b-3 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::dd3b-3 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf2-dd3b/compound [:noop]])
-      (rf/unregister-trace-listener! ::dd3b-3)
+      (rf/unregister-listener! ::dd3b-3)
       ;; Both actions executed (we want to verify outer ran before inner threw,
       ;; even though nothing committed). The cascade reached both nodes.
       (is (= [:outer :inner-throws] @calls)

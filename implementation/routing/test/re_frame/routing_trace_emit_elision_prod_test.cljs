@@ -62,14 +62,14 @@
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "elision-prod-" (gensym)))]
-    (trace-tooling/register-trace-listener!
+    (trace-tooling/register-listener!
       cb-key
       (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (trace-tooling/unregister-trace-listener! cb-key)
+        (trace-tooling/unregister-listener! cb-key)
         (reset! seen [])))))
 
 ;; ---- :rf.route.nav-token/allocated + lifecycle trio elide under prod -----

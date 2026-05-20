@@ -194,7 +194,7 @@
   [thunk]
   (let [captured (atom [])
         cb-key   (keyword (gensym "route-trace-"))]
-    (trace-tooling/register-trace-listener!
+    (trace-tooling/register-listener!
       cb-key
       (fn [ev]
         (when (= :rf.route.nav-token/allocated (:operation ev))
@@ -203,7 +203,7 @@
       (let [r (thunk)]
         [r @captured])
       (finally
-        (trace-tooling/unregister-trace-listener! cb-key)))))
+        (trace-tooling/unregister-listener! cb-key)))))
 
 ;; ---- routes used across the suite ---------------------------------------
 
@@ -399,7 +399,7 @@
       (let [fragment-changed (atom [])
             allocations      (atom [])
             cb-key           (keyword (gensym "hashchange-"))]
-        (trace-tooling/register-trace-listener!
+        (trace-tooling/register-listener!
           cb-key
           (fn [ev]
             (case (:operation ev)
@@ -411,7 +411,7 @@
         (try
           (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
           (finally
-            (trace-tooling/unregister-trace-listener! cb-key)))
+            (trace-tooling/unregister-listener! cb-key)))
 
         (is (= 1 (count @fragment-changed))
             "fragment-only nav emits :rf.route/fragment-changed exactly once")

@@ -1,7 +1,7 @@
 (ns re-frame.trace.tooling
   "Trace tooling sibling of `re-frame.trace` — carries the public
-  dev-tooling surface (`register-trace-listener!` / `unregister-trace-listener!` /
-  `clear-trace-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
+  dev-tooling surface (`register-listener!` / `unregister-listener!` /
+  `clear-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
   `configure-trace-buffer!` / `configure`) and the buffer / listener
   state they operate on.
 
@@ -13,6 +13,12 @@
   `goog.DEBUG=false` DCE this ns wholesale (it's only loaded when a
   test fixture, tool, or dev-preload `:require`s it).
 
+  Per rf2-ic1sv: registration fns dropped their `-trace-` infix —
+  the namespace already says `trace`. `re-frame.trace/register-listener!`
+  is the canonical app-facing surface (re-frame.core re-exports via
+  trace alias); CLJS production builds rely on user-side `goog.DEBUG`
+  gating around register calls so the entire registration site DCE's.
+
   Wiring: at ns load this ns publishes `:trace.tooling/deliver!`
   through `re-frame.late-bind` — `re-frame.trace/deliver!` looks the
   hook up at emit time and fans the event out to the buffer + every
@@ -20,7 +26,7 @@
   trace fast path skips the fan-out (production behaviour).
 
   Public surface for tools / tests:
-    - `register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!`
+    - `register-listener!` / `unregister-listener!` / `clear-listeners!`
     - `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!`
     - `configure` (generic config dispatch — currently `:trace-buffer`).
 
@@ -34,19 +40,19 @@
 
 (defonce ^:private listeners (atom {}))    ;; id → fn
 
-(defn register-trace-listener!
+(defn register-listener!
   "Register a listener that receives every trace event. The id can be any
   comparable value; passing the same id twice replaces. Returns the id."
   [id f]
   (swap! listeners assoc id f)
   id)
 
-(defn unregister-trace-listener!
+(defn unregister-listener!
   [id]
   (swap! listeners dissoc id)
   nil)
 
-(defn clear-trace-listeners!
+(defn clear-listeners!
   []
   (reset! listeners {})
   nil)
@@ -274,8 +280,8 @@
 ;; that never load this ns short-circuit the install (the lookup
 ;; returns nil and `fire-on-destroy-event!` skips the listener dance).
 
-(late-bind/set-fn! :trace.tooling/register-trace-listener! register-trace-listener!)
-(late-bind/set-fn! :trace.tooling/unregister-trace-listener!   unregister-trace-listener!)
+(late-bind/set-fn! :trace.tooling/register-listener! register-listener!)
+(late-bind/set-fn! :trace.tooling/unregister-listener!   unregister-listener!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;

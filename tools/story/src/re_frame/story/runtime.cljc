@@ -100,9 +100,9 @@
   [listener body-fn]
   (let [cb-id (keyword "re-frame.story.runtime"
                        (str "capture-" (swap! capture-counter inc)))]
-    (trace-tooling/register-trace-listener! cb-id listener)
+    (trace-tooling/register-listener! cb-id listener)
     (try (body-fn)
-      (finally (trace-tooling/unregister-trace-listener! cb-id)))))
+      (finally (trace-tooling/unregister-listener! cb-id)))))
 
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that

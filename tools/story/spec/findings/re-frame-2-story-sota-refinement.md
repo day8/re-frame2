@@ -231,7 +231,7 @@ These twelve items get an independent two-vote endorsement; treat them as decide
 4. **External visual-regression integration** via `snapshot-identity` hook; no first-party pixel service.
 5. **Three-level args + auto-derived controls** from Spec 010 schemas.
 6. **MSW-shaped effect mocking** via `force-fx-stub` decorator (re-frame-2's generalisation is strictly stronger than MSW because *any* fx is mockable, not only HTTP).
-7. **Six-domino trace panel** per variant via `register-trace-listener!` (Phase 1 missed how cheap this is; rf2-m6tu got it).
+7. **Six-domino trace panel** per variant via `register-listener!` (Phase 1 missed how cheap this is; rf2-m6tu got it).
 8. **re-frame-10x epoch panel embedded** as a `reg-story-panel` (rf2-m6tu's §6.7 recommendation is the right shape — no reimplementation needed).
 9. **Story portability** — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}`, runnable in cljs.test and JVM-CLJS contexts.
 10. **EDN-first variant artefact** — no `:render` fn-slot, round-trippable as data. This is *stronger* than CSF Factories.

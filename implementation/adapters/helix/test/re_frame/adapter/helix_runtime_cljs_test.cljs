@@ -159,11 +159,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (trace-tooling/register-trace-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (trace-tooling/unregister-trace-listener! ::sub-err)
+      (trace-tooling/unregister-listener! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)

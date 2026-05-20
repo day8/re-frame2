@@ -153,7 +153,7 @@
     (let [cb-seen    (atom [])
           trace-seen (atom [])]
       (rf/register-epoch-listener! ::watcher (fn [r] (swap! cb-seen conj r)))
-      (trace-tooling/register-trace-listener! ::recorder
+      (trace-tooling/register-listener! ::recorder
                              (fn [ev]
                                (when (= :rf.epoch/snapshotted (:operation ev))
                                  (swap! trace-seen conj ev))))
@@ -163,7 +163,7 @@
       (rf/dispatch-sync [:n/inc])
 
       (rf/unregister-epoch-listener! ::watcher)
-      (trace-tooling/unregister-trace-listener! ::recorder)
+      (trace-tooling/unregister-listener! ::recorder)
 
       (is (= 3 (count @cb-seen))
           "register-epoch-listener! fired once per dispatch")

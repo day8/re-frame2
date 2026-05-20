@@ -62,7 +62,7 @@
                                             play-stepper slot)."
   (:require [re-frame.core             :as rf]
             ;; rf2-qwm0a — the listener surface
-            ;; (`register-trace-listener!` / `unregister-trace-listener!`) lives in
+            ;; (`register-listener!` / `unregister-listener!`) lives in
             ;; `re-frame.trace.tooling` (production-DCE split).
             [re-frame.trace.tooling    :as trace-tooling]
             [re-frame.interop          :as interop]
@@ -196,14 +196,14 @@
   [frame-id]
   (when config/enabled?
     (let [id (listener-id frame-id)]
-      (trace-tooling/register-trace-listener! id (listener-for-frame frame-id))
+      (trace-tooling/register-listener! id (listener-for-frame frame-id))
       id)))
 
 (defn remove-trace-listener!
   "Tear down the per-frame trace listener for `frame-id`. Idempotent."
   [frame-id]
   (when config/enabled?
-    (trace-tooling/unregister-trace-listener! (listener-id frame-id))
+    (trace-tooling/unregister-listener! (listener-id frame-id))
     nil))
 
 ;; ---------------------------------------------------------------------------

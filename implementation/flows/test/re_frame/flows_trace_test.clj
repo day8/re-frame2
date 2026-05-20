@@ -36,13 +36,13 @@
   ;; Per rf2-bacs4: the error-emit listener registry is a `defonce`
   ;; atom that survives test re-runs. Clear before each test so a
   ;; listener registered by one test doesn't leak into the next.
-  (error-emit/clear-error-emit-listeners!)
+  (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (trace/register-trace-listener!
+      (trace/register-listener!
         ::flow-trace-recorder
         (fn [ev]
           ;; Filter to flow op-type only — keeps assertions tight.
@@ -51,7 +51,7 @@
       (try
         (test-fn)
         (finally
-          (trace/unregister-trace-listener! ::flow-trace-recorder))))))
+          (trace/unregister-listener! ::flow-trace-recorder))))))
 
 (use-fixtures :each reset-runtime)
 
@@ -381,7 +381,7 @@
 ;; `trace/emit-error!` ONLY. In CLJS production builds, that path is
 ;; DCE'd by `goog.DEBUG=false` — flow failures became silent to
 ;; corpus-wide error listeners (Sentry / Honeybadger / Rollbar
-;; shippers registered via `register-error-emit-listener!`) and to
+;; shippers registered via `register-error-listener!`) and to
 ;; the per-frame `:on-error` policy fn. The handler-exception path
 ;; (`emit-handler-exception!`) had ALREADY been routed through the
 ;; always-on substrate; flow-eval was asymmetric. This test pins the
@@ -396,7 +396,7 @@
             `error-emit/dispatch-on-error!`, mirroring the handler-
             exception path."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/flow-eval-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :init (fn [_ _] {:n 1}))
@@ -496,7 +496,7 @@
             `error-emit/dispatch-on-error!`, mirroring the
             handler-exception / flow-eval-exception paths."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/fx-reg-flow-cycle-recorder
         (fn [record] (swap! seen conj record)))
       ;; Register flow :a that depends on :b's path.
@@ -535,10 +535,10 @@
             are unaffected by the substrate addition."
     (let [trace-saw    (atom nil)
           listener-saw (atom nil)]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! listener-saw record)))
-      (trace/register-trace-listener!
+      (trace/register-listener!
         ::flow-eval-trace-recorder
         (fn [ev]
           (when (= :rf.error/flow-eval-exception (:operation ev))
@@ -556,7 +556,7 @@
             "corpus-wide listener saw the record — always-on substrate path fired")
         (is (= :rf.error/flow-eval-exception (:error @listener-saw)))
         (finally
-          (trace/unregister-trace-listener! ::flow-eval-trace-recorder))))))
+          (trace/unregister-listener! ::flow-eval-trace-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. End-to-end sample: all five events fire across a typical lifecycle
@@ -856,7 +856,7 @@
     ;; out — ops monitors still see the failure record even though :fx
     ;; was skipped.
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :test/fx-skip-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-fx :run-with-throwing-flow

@@ -928,7 +928,7 @@
                                    [on-error-ev])]]))))))
 
 (defn- on-match-error-listener
-  "Corpus-wide `register-error-emit-listener!` fn. Inspects every
+  "Corpus-wide `register-error-listener!` fn. Inspects every
   `:rf.error/handler-exception` record; when the failing event-id was
   dispatched as part of the active route's `:on-match` (per the
   discrimination logic in this ns's `:on-match error trap` block),
@@ -995,7 +995,7 @@
 ;; rejected by the corpus-wide substrate's id check. The substrate's
 ;; `defonce` over the listener atom guards against re-load wiping a
 ;; production-registered listener.
-(error-emit/register-error-emit-listener!
+(error-emit/register-error-listener!
   :rf.route/on-match-error-trap
   on-match-error-listener)
 

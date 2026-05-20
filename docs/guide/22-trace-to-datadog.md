@@ -10,8 +10,8 @@ re-frame2 ships two **always-on listener substrates** for exactly that, parallel
 
 | Substrate | What fires | Public API |
 |---|---|---|
-| `event_emit` | once per **dispatched event** (success or error outcome) | `register-event-emit-listener!` |
-| `error_emit` | once per **runtime error** (handler exception, machine fault, etc.) | `register-error-emit-listener!` |
+| `event_emit` | once per **dispatched event** (success or error outcome) | `register-event-listener!` |
+| `error_emit` | once per **runtime error** (handler exception, machine fault, etc.) | `register-error-listener!` |
 
 Both substrates are **production-survivable** — they survive `:advanced` compilation with `goog.DEBUG=false`. Both apply `rf/elide-wire-value` to every record before fan-out. Both have zero cost when no listener is registered.
 
@@ -68,7 +68,7 @@ Every time the runtime catches an error, the runtime invokes every registered er
 
 Same elision pass; same `:sensitive?` drop semantics; same `:large?` substitution. The `:exception` slot is `ex-data` from the thrown exception — no raw stack traces with PII embedded.
 
-`:on-error` per-frame policy ([ch.14](14-errors.md)) is the **in-app recovery** path — your frame says "if this fails, do X". `register-error-emit-listener!` is the **observability** path — every error gets logged to Datadog regardless of per-frame recovery. The two are orthogonal; both fire on the same exception.
+`:on-error` per-frame policy ([ch.14](14-errors.md)) is the **in-app recovery** path — your frame says "if this fails, do X". `register-error-listener!` is the **observability** path — every error gets logged to Datadog regardless of per-frame recovery. The two are orthogonal; both fire on the same exception.
 
 ## Registration
 
@@ -78,10 +78,10 @@ Datadog is production-only. Dev gets Causa + re-frame2-pair + story. Your regist
 (when (and (= "production" (:env config))
            (not ^boolean re-frame.interop/debug-enabled?)
            (:api-key config))
-  (rf/register-event-emit-listener!
+  (rf/register-event-listener!
     :my-app/datadog-events
     (fn [record] ...))
-  (rf/register-error-emit-listener!
+  (rf/register-error-listener!
     :my-app/datadog-errors
     (fn [record] ...)))
 ```
@@ -189,13 +189,13 @@ The full recipe:
              (not ^boolean re-frame.interop/debug-enabled?)
              (:api-key dd-config))
 
-    (rf/register-event-emit-listener!
+    (rf/register-event-listener!
       :my-app/datadog-events
       (fn [record]
         (rf/dispatch [:my-app.observability/ship
                       {:datadog-event (event-record->datadog record)}])))
 
-    (rf/register-error-emit-listener!
+    (rf/register-error-listener!
       :my-app/datadog-errors
       (fn [record]
         (rf/dispatch [:my-app.observability/ship
@@ -264,7 +264,7 @@ The point: the framework owns the production-observability shape and tools own t
 ## Next
 
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
-- [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-emit-listener!`.
+- [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-listener!`.
 - [Causa](../causa/index.md) — the dev-only trace bus and the devtool that paints it (sibling tools: [`re-frame2-pair`](../skills/re-frame2-pair.md) and [Story](../story/index.md) consume the same bus).
 - [23a — Privacy: keeping secrets out of traces](23a-privacy-secrets.md) — the `:sensitive?` half of the wire-elision machinery the framework applies to every record before your listener sees it.
 - [23b — Large blobs: keeping the wire small](23b-large-blobs.md) — the `:large?` half of the same machinery.

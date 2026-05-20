@@ -43,9 +43,9 @@
   "Capture every emitted trace event into `coll-atom` during `(body-fn)`."
   [coll-atom body-fn]
   (let [k (str (gensym "streaming-corner-cb"))]
-    (trace/register-trace-listener! k (fn [ev] (swap! coll-atom conj ev)))
+    (trace/register-listener! k (fn [ev] (swap! coll-atom conj ev)))
     (try (body-fn)
-         (finally (trace/unregister-trace-listener! k)))))
+         (finally (trace/unregister-listener! k)))))
 
 (defn- make-server-frame
   "Register a per-request server frame and seed its app-db via :on-create.

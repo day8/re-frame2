@@ -43,13 +43,13 @@
             retain in-heap traces of user input."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-trace-listener!
+        (rf/register-listener!
           :prod-gate/recorder
           (fn [event] (swap! seen conj event)))
         (rf/reg-event-db :prod-gate/silent
                          (fn [db _] (update db :n (fnil inc 0))))
         (rf/dispatch-sync [:prod-gate/silent])
-        (rf/unregister-trace-listener! :prod-gate/recorder)
+        (rf/unregister-listener! :prod-gate/recorder)
         (is (empty? @seen)
             "trace listener saw zero events under disabled gate")))))
 
@@ -62,7 +62,7 @@
             fallback for) the dev trace surface."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-event-emit-listener!
+        (rf/register-event-listener!
           :prod-gate/event-rec
           (fn [record] (swap! seen conj record)))
         (rf/reg-event-db :prod-gate/observable
@@ -84,7 +84,7 @@
             policy-saw   (atom nil)]
         (rf/reg-frame :rf/default
                       {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-        (rf/register-error-emit-listener!
+        (rf/register-error-listener!
           :prod-gate/err-rec
           (fn [record] (reset! listener-saw record)))
         (rf/reg-event-db :prod-gate/throws

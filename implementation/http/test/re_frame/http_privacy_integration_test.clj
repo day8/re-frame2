@@ -38,7 +38,7 @@
   (http-managed/clear-all-in-flight!)
   (privacy-headers/clear-sensitive-headers!)
   (http-url/clear-sensitive-query-params!)
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (t))
 
 (use-fixtures :each reset-runtime)
@@ -102,7 +102,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch
@@ -138,7 +138,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch
@@ -176,7 +176,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch
@@ -213,7 +213,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch
@@ -248,7 +248,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch
@@ -289,7 +289,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :auth/login
@@ -328,7 +328,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-trace-listener! :test/capture
+        (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event-fx :api/fetch

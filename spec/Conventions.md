@@ -340,12 +340,12 @@ The bang (`!`) suffix on a public surface marks **process-level state mutation t
 
 The caller hands a fn to a global hook the framework will invoke from arbitrary call sites. This is **not** a registrar-shaped operation — the listener table is a process-level mutable slot the surface mutates directly — so the bang earns its keep.
 
-- `register-trace-listener!`, `unregister-trace-listener!`, `clear-trace-listeners!`
+- `register-listener!`, `unregister-listener!`, `clear-listeners!`
 - `register-epoch-listener!`, `unregister-epoch-listener!`
 
 ```clojure
-(rf/register-trace-listener! ::audit  (fn [event] ...))           ;; bang — hooks a global
-(rf/unregister-trace-listener!   ::audit)
+(rf/register-listener! ::audit  (fn [event] ...))           ;; bang — hooks a global
+(rf/unregister-listener!   ::audit)
 ```
 
 ### 3. Adapter / platform installation — **bang**
@@ -382,7 +382,7 @@ When adding a public surface, ask in order:
 3. Does it mutate process-level state outside the registrar? → bucket 3 (bang).
 4. Is it a domino-shaped side-effect — dispatch, subscribe, drain? → bucket 4 (no bang).
 
-The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-trace-listener!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
+The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-listener!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
 
 ## Tear-down verb axis — `clear-` vs `destroy-`
 
@@ -393,7 +393,7 @@ The bang axis above answers *whether* a tear-down surface carries `!`. The **ver
 Symmetric inverse of `reg-*`. Removes an id from a registry the process owns (event registrar, sub registrar, fx registrar, flow registrar, http-interceptor registrar) or drops a process-local cache / buffer outright.
 
 - Single-id decrement, registry-shaped: `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-http-interceptor` (bucket 1, no bang)
-- Drop-everything, process-level: `clear-sub-cache!`, `clear-trace-buffer!`, `clear-trace-listeners!` (bucket 3, bang)
+- Drop-everything, process-level: `clear-sub-cache!`, `clear-trace-buffer!`, `clear-listeners!` (bucket 3, bang)
 
 ### `destroy-*` — lifecycle boundary
 

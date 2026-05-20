@@ -110,7 +110,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (trace/register-trace-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
+        (trace/register-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event-fx :reply/recorder
           (fn [_ [_ payload]]
             (swap! replies conj payload)
@@ -168,7 +168,7 @@
             "actor index is empty after the abort")
         (.countDown latch)
         (finally
-          (trace/unregister-trace-listener! ::wvkn-1)
+          (trace/unregister-listener! ::wvkn-1)
           (stop-server! srv))))))
 
 ;; ---- (2) multiple in-flight requests from one actor → all abort ----------
@@ -180,7 +180,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (trace/register-trace-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
+        (trace/register-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event-fx :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/multi
@@ -227,7 +227,7 @@
         (is (empty? (http-managed/actor-in-flight-snapshot)))
         (.countDown latch)
         (finally
-          (trace/unregister-trace-listener! ::wvkn-2)
+          (trace/unregister-listener! ::wvkn-2)
           (stop-server! srv))))))
 
 ;; ---- (3) sibling actors are NOT affected ----------------------------------

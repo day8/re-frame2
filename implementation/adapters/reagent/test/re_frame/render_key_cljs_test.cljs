@@ -33,7 +33,7 @@
 
 (defn- record-render-traces! []
   (let [recorded (atom [])]
-    (trace-tooling/register-trace-listener! ::recorder
+    (trace-tooling/register-listener! ::recorder
       (fn [ev]
         (when (= :view/render (:operation ev))
           (swap! recorded conj ev))))
@@ -110,7 +110,7 @@
           (is (= :rf.test/traced (first k1) (first k2)))
           (is (not= (second k1) (second k2))
               "tokens differ across instances")))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))
 
 ;; ---- monotonicity ---------------------------------------------------------
 
@@ -154,4 +154,4 @@
           (is (keyword? (first k)) "view-id slot is a keyword")
           (is (or (int? (second k)) (nil? (second k)))
               "instance-token slot is an int (or nil for anonymous)")))
-      (trace-tooling/unregister-trace-listener! ::recorder))))
+      (trace-tooling/unregister-listener! ::recorder))))

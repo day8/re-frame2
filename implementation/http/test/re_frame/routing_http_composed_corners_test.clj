@@ -43,7 +43,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
@@ -61,8 +61,8 @@
 (defn- record!
   [id]
   (let [a (atom [])]
-    (rf/register-trace-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(rf/unregister-trace-listener! id)]))
+    (rf/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(rf/unregister-listener! id)]))
 
 (defn- stale-suppressed-traces [recorded]
   (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)) @recorded))

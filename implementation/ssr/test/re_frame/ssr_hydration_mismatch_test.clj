@@ -66,8 +66,8 @@
   [f]
   (let [traces (atom [])
         cb-id  (gensym "::ssr-hydration-mismatch-capture-")]
-    (rf/register-trace-listener! cb-id (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (rf/unregister-trace-listener! cb-id)))
+    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (try (f) (finally (rf/unregister-listener! cb-id)))
     @traces))
 
 (def ^:private hex-8-pattern #"^[0-9a-f]{8}$")

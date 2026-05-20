@@ -15,7 +15,7 @@
   Then it wires Causa's trace-bus consumption to the host's dispatches
   exactly the way the production preload does — i.e. it registers
   `trace-bus/collect-trace!` under the framework's
-  `re-frame.trace.tooling/register-trace-listener!` surface. After that, any
+  `re-frame.trace.tooling/register-listener!` surface. After that, any
   REAL `(rf/dispatch-sync ev {:frame :host})` into the host fans out
   through the trace bus → Causa's `:trace-buffer` slot →
   `:rf.causa/cascades` / `:rf.causa/focus` / every panel sub.

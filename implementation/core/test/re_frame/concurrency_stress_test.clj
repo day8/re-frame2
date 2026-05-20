@@ -53,7 +53,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -208,7 +208,7 @@
           n-b         stress-iters
           latch       (CountDownLatch. 1)
           ;; Count cross-frame warnings to assert observability (≥ 1).
-          listener-id (rf/register-trace-listener!
+          listener-id (rf/register-listener!
                         ::rgj-cross-frame
                         (fn [ev]
                           (when (= :rf.warning/cross-frame-dispatch-sync-during-drain
@@ -239,7 +239,7 @@
         ;; anything still queued.
         (rf/dispatch-sync [:bump] {:frame :rgj.sync/a})
         (finally
-          (rf/unregister-trace-listener! listener-id)))
+          (rf/unregister-listener! listener-id)))
       ;; Validate:
       ;;   - Frame A processed exactly (n-a + 1) bumps (the +1 is the
       ;;     final settler dispatch).

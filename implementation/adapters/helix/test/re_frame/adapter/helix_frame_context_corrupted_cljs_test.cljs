@@ -41,7 +41,7 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (trace-tooling/register-trace-listener! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- corruption-traces [traces]
@@ -86,7 +86,7 @@
             (is (= 42 (-> errs first :tags :received))
                 ":tags :received echoes the offending value")))
         (finally
-          (trace-tooling/unregister-trace-listener! ::direct-helix)
+          (trace-tooling/unregister-listener! ::direct-helix)
           (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
 
 ;; ---- adapter-routed parity -------------------------------------------------
@@ -113,5 +113,5 @@
           (is (= :empty-string (-> errs first :tags :type))
               ":tags :type distinguishes empty-string from a populated string"))
         (finally
-          (trace-tooling/unregister-trace-listener! ::routed-helix)
+          (trace-tooling/unregister-listener! ::routed-helix)
           (set! (.-_currentValue ^js adapter-context/frame-context) original))))))

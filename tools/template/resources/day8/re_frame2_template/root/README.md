@@ -234,7 +234,7 @@ listener projects errors onto the UI**.
 The scaffold registers a default error sink at the top of `events.cljs`:
 
 ```clojure
-(trace-tooling/register-trace-listener!
+(trace-tooling/register-listener!
   ::error-sink
   (fn [trace-event]
     (when (= :error (:op-type trace-event))
@@ -255,7 +255,7 @@ etc.).
 
 The same-key registration form means hot-reload re-runs without
 leaking listeners; the listener registry elides in production builds
-(per [Spec 009 §`register-trace-listener!`](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#the-listener-api)).
+(per [Spec 009 §`register-listener!`](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#the-listener-api)).
 
 Note: re-frame2 also ships `reg-error-projector` for **server-side
 rendering** (SSR), where the projector maps internal trace events to

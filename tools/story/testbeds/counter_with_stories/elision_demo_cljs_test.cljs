@@ -56,7 +56,7 @@
     (clear!))
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)
-  (event-emit/clear-event-emit-listeners!)
+  (event-emit/clear-event-listeners!)
   ;; Re-register this demo's app-db schema. The demo namespace's
   ;; ns-load `reg-app-schema` call ran once at module load; the
   ;; preceding `(clear!)` step wiped it. Re-stamping it here keeps
@@ -78,7 +78,7 @@
     (test-support/restore-registrar! snap)
     (reset! registrar-snapshot nil))
   (reset! frame/frames {})
-  (event-emit/clear-event-emit-listeners!))
+  (event-emit/clear-event-listeners!))
 
 (use-fixtures :each {:before before! :after after!})
 
@@ -145,7 +145,7 @@
             through unchanged; authors declare large app-db slots in
             schemas instead."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         ::test-recorder
         (fn [record] (swap! seen conj record)))
 
@@ -174,7 +174,7 @@
             record. Per-path elision still applies inside the record's
             `:event` slot."
     (let [seen (atom [])]
-      (rf/register-event-emit-listener!
+      (rf/register-event-listener!
         ::test-recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:auth/sign-in

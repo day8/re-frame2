@@ -48,7 +48,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Read sub values** | `(rf/compute-sub query-v db-value)` runs a sub against an `app-db` value | [008](008-Testing.md) |
 | **Read registry** | `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
-| **Trace stream** | `(rf/register-trace-listener! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
+| **Trace stream** | `(rf/register-listener! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
 | **Source coordinates** | `:ns`/`:line`/`:column`/`:file` on every registration's metadata (shape: `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); mandatory `data-rf2-source-coord` DOM annotation (shape: `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr)) per Spec 006 | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference), [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) |
@@ -125,7 +125,7 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
       (:epoch-id (last before)))))
 
 ;; Listener: catch restore success / failure traces and fan out to UI.
-(rf/register-trace-listener!
+(rf/register-listener!
   :my-tool/restore-watcher
   (fn [ev]
     (case (:operation ev)
@@ -442,7 +442,7 @@ The full attachment surface, from the tool's point of view:
 
 | Need | Surface | Spec |
 |---|---|---|
-| Receive live trace events | `(rf/register-trace-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive live trace events | `(rf/register-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Receive per-drain assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
@@ -469,13 +469,13 @@ The consumption pattern is therefore:
 
 > **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
 
-Two listener shapes coexist by design: `register-trace-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
+Two listener shapes coexist by design: `register-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
 ### Subscribing to a slice of the trace stream
 
-`register-trace-listener!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
+`register-listener!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
 
 ```clojure
 ;; A tool (Causa's flow panel, a pair-tool flow inspector,
@@ -485,7 +485,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 ;; (:rf.flow/registered, :rf.flow/computed, :rf.flow/skip,
 ;; :rf.flow/cleared, :rf.flow/failed).
 
-(rf/register-trace-listener!
+(rf/register-listener!
   :my-tool/flow-panel
   (fn [ev]
     (when (= :flow (:op-type ev))
@@ -547,7 +547,7 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
 - **Causa** (the structural successor to re-frame-10x; Maven coord `day8/re-frame2-causa`) is built as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Causa and pair share the substrate; one does not depend on the other.
-- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-listener!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
+- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-listener!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.
 
@@ -591,7 +591,7 @@ Agents that learn the family see each new slot as one more case in the same patt
 
 ### Direct-read privacy posture for `sub-cache` and `get-path`
 
-Most Tool-Pair surfaces ride the trace bus (`register-trace-listener!` / `register-epoch-listener!`) or the event-emit substrate, where `:sensitive?` stamps and size markers are applied at the emit boundary. Two surfaces in the attachment table above do **not** ride that path: `(rf/sub-cache frame-id)` and the MCP-server `get-path` tool (a direct read-by-path against `(rf/get-frame-db frame-id)`). Both are **synchronous reads** of live runtime state — the sub-cache map, an arbitrary path into `app-db` — and the `:sensitive?` trace stamp protects only the *trace* surface. A direct read returns the live value untransformed unless the wire-egress boundary scrubs it.
+Most Tool-Pair surfaces ride the trace bus (`register-listener!` / `register-epoch-listener!`) or the event-emit substrate, where `:sensitive?` stamps and size markers are applied at the emit boundary. Two surfaces in the attachment table above do **not** ride that path: `(rf/sub-cache frame-id)` and the MCP-server `get-path` tool (a direct read-by-path against `(rf/get-frame-db frame-id)`). Both are **synchronous reads** of live runtime state — the sub-cache map, an arbitrary path into `app-db` — and the `:sensitive?` trace stamp protects only the *trace* surface. A direct read returns the live value untransformed unless the wire-egress boundary scrubs it.
 
 The framework's wire-egress walker is `rf/elide-wire-value` (per [API.md §Size-elision wire-boundary walker](API.md#elide-wire-value-the-wire-boundary-walker)) — the **single normative emission site** for `:rf/redacted` (sensitive) and `:rf.size/large-elided` (oversize) markers. This subsection pins the contract that every MCP-server (or other off-box forwarder) implementing `sub-cache` or `get-path` surfaces must honour — re-frame2-pair-mcp rides it today; story-mcp and any third-party server shipping the same tool names inherits the same posture.
 

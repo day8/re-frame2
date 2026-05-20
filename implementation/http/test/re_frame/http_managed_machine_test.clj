@@ -212,7 +212,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (trace/register-trace-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
+        (trace/register-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/cancel
           {:initial :idle
            :states
@@ -252,7 +252,7 @@
                 "trace identifies the destroyed wrapper actor")))
         (.countDown latch)
         (finally
-          (trace/unregister-trace-listener! ::ijm7-3)
+          (trace/unregister-listener! ::ijm7-3)
           (stop-server! srv))))))
 
 ;; ---- (4) composes with :after — whichever fires first wins ----------------
@@ -264,7 +264,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (trace/register-trace-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
+        (trace/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/after-test
           {:initial :idle
            :states
@@ -311,7 +311,7 @@
               "wall-clock timeout cancelled the wrapper child + fired the rf2-wvkn trace"))
         (.countDown latch)
         (finally
-          (trace/unregister-trace-listener! ::ijm7-4)
+          (trace/unregister-listener! ::ijm7-4)
           (stop-server! srv))))))
 
 ;; ---- (5) sibling fx-form continues to work alongside the machine wrapper -

@@ -32,7 +32,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             ;; rf2-qwm0a: the public-tooling surface
-            ;; (`register-trace-listener!` / `clear-trace-listeners!` / `trace-buffer`
+            ;; (`register-listener!` / `clear-listeners!` / `trace-buffer`
             ;; / …) lives in `re-frame.trace.tooling`. `re-frame.trace`
             ;; ships thin wrappers delegating via late-bind so production
             ;; bundles DCE the buffer/listener machinery — but the hooks
@@ -48,7 +48,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-listeners!)
+  (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
@@ -101,7 +101,7 @@
   (testing "a representative dispatch flow emits every documented op-type with the canonical envelope shape"
     (let [recorded (atom [])
           listener (fn [ev] (swap! recorded conj ev))]
-      (rf/register-trace-listener! ::recorder listener)
+      (rf/register-listener! ::recorder listener)
 
       ;; ---- Frame lifecycle: :frame/created, :frame/re-registered ----------
       (rf/reg-frame :test/main {:doc "comprehensive flow frame"})
@@ -264,7 +264,7 @@
       ;; ---- Frame destruction: :frame/destroyed ----------------------------
       (rf/destroy-frame! :test/main)
 
-      (rf/unregister-trace-listener! ::recorder)
+      (rf/unregister-listener! ::recorder)
 
       (let [events @recorded
             seen   (ops-of events)]
@@ -523,13 +523,13 @@
 ;; ---- listener API: lifecycle and isolation --------------------------------
 
 (deftest trace-listener-lifecycle
-  (testing "register-trace-listener! is keyed; same-id re-registration replaces; unregister-trace-listener! removes only that id"
+  (testing "register-listener! is keyed; same-id re-registration replaces; unregister-listener! removes only that id"
     (let [a-events (atom [])
           b-events (atom [])
           c-events (atom [])]
-      (rf/register-trace-listener! ::a (fn [ev] (swap! a-events conj ev)))
-      (rf/register-trace-listener! ::b (fn [ev] (swap! b-events conj ev)))
-      (rf/register-trace-listener! ::c (fn [ev] (swap! c-events conj ev)))
+      (rf/register-listener! ::a (fn [ev] (swap! a-events conj ev)))
+      (rf/register-listener! ::b (fn [ev] (swap! b-events conj ev)))
+      (rf/register-listener! ::c (fn [ev] (swap! c-events conj ev)))
 
       (rf/reg-event-db :ping (fn [db _] (assoc db :ping? true)))
       (rf/dispatch-sync [:ping])
@@ -541,7 +541,7 @@
         (is (= a1 c1)))
 
       ;; Remove ::b; ::a and ::c continue.
-      (rf/unregister-trace-listener! ::b)
+      (rf/unregister-listener! ::b)
       (rf/dispatch-sync [:ping])
       (is (> (count @a-events) (count @b-events))
           "after removal, ::b stops accumulating")
@@ -550,7 +550,7 @@
 
       ;; Replace ::a with a different fn under the same id.
       (let [a-events-2 (atom [])]
-        (rf/register-trace-listener! ::a (fn [ev] (swap! a-events-2 conj ev)))
+        (rf/register-listener! ::a (fn [ev] (swap! a-events-2 conj ev)))
         (let [a-pre (count @a-events)]
           (rf/dispatch-sync [:ping])
           (is (= a-pre (count @a-events))
@@ -558,18 +558,18 @@
         (is (pos? (count @a-events-2))
             "the replacement listener under ::a accumulates"))
 
-      (rf/unregister-trace-listener! ::a)
-      (rf/unregister-trace-listener! ::c))))
+      (rf/unregister-listener! ::a)
+      (rf/unregister-listener! ::c))))
 
 (deftest trace-listener-exception-isolation
   (testing "a listener that throws does not crash the dispatch flow and does not block other listeners"
     (let [survivor-events (atom [])
           throw-count     (atom 0)]
-      (rf/register-trace-listener! ::throwing
+      (rf/register-listener! ::throwing
         (fn [_ev]
           (swap! throw-count inc)
           (throw (ex-info "tool blew up" {:listener ::throwing}))))
-      (rf/register-trace-listener! ::survivor
+      (rf/register-listener! ::survivor
         (fn [ev] (swap! survivor-events conj ev)))
 
       (rf/reg-event-db :init (fn [_ _] {:n 0}))
@@ -593,8 +593,8 @@
                   @survivor-events)
           "every event the survivor saw conforms to the envelope shape")
 
-      (rf/unregister-trace-listener! ::throwing)
-      (rf/unregister-trace-listener! ::survivor))))
+      (rf/unregister-listener! ::throwing)
+      (rf/unregister-listener! ::survivor))))
 
 ;; ---- :rf.trace/no-emit? event-meta opt-out (rf2-qsjda) --------------------
 ;;
@@ -625,7 +625,7 @@
                      (fn [db _] (assoc db :bookkeeping/ran? true)))
 
     (let [recorded (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
 
       (rf/dispatch-sync [:rf2-qsjda/internal-bookkeeping])
 
@@ -653,7 +653,7 @@
                   handler's dispatch, got: "
                  (vec (map (juxt :op-type :operation) our-events)))))
 
-      (rf/unregister-trace-listener! ::rec))))
+      (rf/unregister-listener! ::rec))))
 
 (deftest no-emit-flag-absent-emits-normally
   (testing "Baseline sanity: the SAME dispatch shape WITHOUT
@@ -665,7 +665,7 @@
                      (fn [db _] (assoc db :normal/ran? true)))
 
     (let [recorded (atom [])]
-      (rf/register-trace-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
 
       (rf/dispatch-sync [:rf2-qsjda/normal])
 
@@ -686,4 +686,4 @@
         (is (contains? ops :event)
             ":event (run-start / run-end) fired for the un-flagged handler"))
 
-      (rf/unregister-trace-listener! ::rec))))
+      (rf/unregister-listener! ::rec))))

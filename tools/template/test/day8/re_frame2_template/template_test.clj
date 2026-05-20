@@ -207,11 +207,11 @@
         ;; -- Best-practice surface in events.cljs + schema.cljs (rf2-48mij) --
         (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
               schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))]
-          (is (.contains events-text "register-trace-listener!")
+          (is (.contains events-text "register-listener!")
               "events.cljs registers an error-sink trace listener
                (errors-are-events-too best-practice)")
           (is (.contains events-text "re-frame.trace.tooling")
-              "events.cljs uses the re-frame.trace.tooling/register-trace-listener!
+              "events.cljs uses the re-frame.trace.tooling/register-listener!
                surface — CLJS-only (the rf/... alias is JVM-only,
                per rf2-qwm0a)")
           (is (.contains events-text "re-frame.schemas")

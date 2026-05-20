@@ -3,7 +3,7 @@
   (rf2-n6x4q). The `push` fn (in trace_bus.cljc) is pure data — no
   atoms, no side effects — so its eviction algebra is testable from
   the JVM. The CLJS-only side-effecting bits (collect-trace!, the
-  set-buffer-depth! atom swap, the framework's register-trace-listener!
+  set-buffer-depth! atom swap, the framework's register-listener!
   delivery path) live in the CLJS smoke test
   (preload_cljs_test.cljs)."
   (:require [clojure.test :refer [deftest is testing]]

@@ -24,7 +24,7 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 **Risk**: "global" meant "every frame" in v1 because there was only one frame. In v2 the right scope depends on intent:
 
 - If the interceptor was meant to **apply to every frame** (genuinely cross-frame behaviour modification): replicate in each `reg-frame` `:interceptors` vector. Usually an architectural smell.
-- If the interceptor was **observer-shaped** (audit, telemetry, schema-validation-via-trace): wrong tool; convert to `register-trace-listener!`.
+- If the interceptor was **observer-shaped** (audit, telemetry, schema-validation-via-trace): wrong tool; convert to `register-listener!`.
 - If "global" really meant **"the default frame's events"** (a common single-frame habit that shouldn't apply to story/test/SSR frames): scope to `:rf/default` `:interceptors` only.
 
 `clear-global-interceptor` has no v2 replacement: re-register the frame with an updated `:interceptors` vector.
@@ -142,7 +142,7 @@ Read the body and propose; author confirms.
 
 **Decision shape**:
 
-1. **Observer-shaped callback**: convert to `(rf/register-trace-listener! key cb)`. Trace listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
+1. **Observer-shaped callback**: convert to `(rf/register-listener! key cb)`. Trace listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
 2. **Behaviour-modifying callback**: convert to a frame-level interceptor declared in `reg-frame` metadata.
 
 Read the callback body; categorise; propose; author confirms.

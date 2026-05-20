@@ -51,7 +51,7 @@ The preload runs four foundation side-effects (per
 [`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/causa/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)):
 
 1. Register `:rf.causa/*` handlers against the `:rf/causa` frame.
-2. Register the trace collector via `register-trace-listener!` under
+2. Register the trace collector via `register-listener!` under
    `:rf.causa/trace-collector`.
 3. Register the epoch collector via `register-epoch-listener!` under
    `:rf.causa/epoch-collector` (no-op when the

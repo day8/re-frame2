@@ -53,7 +53,7 @@ Causa is **dev-only by construction** — production builds elide every byte of 
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-The preload registers Causa's listeners under `register-trace-listener!` and `register-epoch-listener!`, attaches the `Ctrl+Shift+C` keybinding, and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload plus the host element are the full integration surface.
+The preload registers Causa's listeners under `register-listener!` and `register-epoch-listener!`, attaches the `Ctrl+Shift+C` keybinding, and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-causa.core])`. No `init!` call. The preload plus the host element are the full integration surface.
 
 ---
 

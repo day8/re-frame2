@@ -17,7 +17,7 @@
   Each test:
   1. registers a non-default frame (precondition; single-frame apps
      do not see the warning),
-  2. records every trace event via `register-trace-listener!`,
+  2. records every trace event via `register-listener!`,
   3. dispatches `[:game/tick]` (handler intentionally NOT registered)
      from inside the relevant JS callback,
   4. awaits the callback to fire via `cljs.test/async`,
@@ -56,7 +56,7 @@
   (reset! registrar-snapshot (test-support/snapshot-registrar))
   (reset! frame/frames {})
   (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-trace-listeners!)
+  (trace-tooling/clear-listeners!)
   (substrate-adapter/install-adapter! reagent-adapter/adapter)
   (frame/ensure-default-frame!))
 
@@ -65,7 +65,7 @@
     (test-support/restore-registrar! snap)
     (reset! registrar-snapshot nil))
   (reset! frame/frames {})
-  (trace-tooling/clear-trace-listeners!))
+  (trace-tooling/clear-listeners!))
 
 (use-fixtures :each {:before before! :after after!})
 
@@ -93,7 +93,7 @@
   "Install a recording listener; return the atom that accumulates events."
   [listener-id]
   (let [a (atom [])]
-    (trace-tooling/register-trace-listener!
+    (trace-tooling/register-listener!
       listener-id
       (fn [ev] (swap! a conj ev)))
     a))
@@ -167,7 +167,7 @@
                         the setTimeout callback, got " (count warns)))
               (when (seq warns)
                 (assert-canonical-warn! (first warns))))
-            (trace-tooling/unregister-trace-listener! ::set-timeout-fallthrough)
+            (trace-tooling/unregister-listener! ::set-timeout-fallthrough)
             (done))
           0)))))
 
@@ -202,7 +202,7 @@
                              (when (seq warns)
                                (assert-canonical-warn! (first warns))))
                            (.removeEventListener target "click" @handler-ref)
-                           (trace-tooling/unregister-trace-listener!
+                           (trace-tooling/unregister-listener!
                              ::add-event-listener-fallthrough)
                            (done))]
         (reset! handler-ref handler)
@@ -235,7 +235,7 @@
                          (count warns)))
                 (when (seq warns)
                   (assert-canonical-warn! (first warns))))
-              (trace-tooling/unregister-trace-listener! ::raf-fallthrough)
+              (trace-tooling/unregister-listener! ::raf-fallthrough)
               (done))))))))
 
 ;; ---- suppression: single-frame app does not fire the warn ----------------
@@ -257,7 +257,7 @@
               (catch :default _e nil))
             (is (empty? (fallthrough-warnings recorded))
                 "warning suppressed: single-frame apps cannot hit the footgun")
-            (trace-tooling/unregister-trace-listener! ::single-frame-async)
+            (trace-tooling/unregister-listener! ::single-frame-async)
             (done))
           0)))))
 
@@ -278,6 +278,6 @@
               (catch :default _e nil))
             (is (empty? (fallthrough-warnings recorded))
                 "explicit :frame opt is not a fallthrough — warning suppressed")
-            (trace-tooling/unregister-trace-listener! ::explicit-frame-async)
+            (trace-tooling/unregister-listener! ::explicit-frame-async)
             (done))
           0)))))

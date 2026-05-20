@@ -3,7 +3,7 @@
 
   Causa's primary integration is as a dev-tool inside a re-frame2 app:
   the host's `re-frame.trace/emit!` calls fan trace events out to
-  Causa's collector via `register-trace-listener!` (see
+  Causa's collector via `register-listener!` (see
   `tools/causa/spec/013-Trace-Bus.md`). Every panel reads from the
   ring buffer those events land in.
 
@@ -67,7 +67,7 @@
 
   ## What the drop-in does NOT do
 
-  - It does NOT register a `re-frame.trace/register-trace-listener!`
+  - It does NOT register a `re-frame.trace/register-listener!`
     callback. The host is by definition not using the framework's
     trace emit path; there is nothing to listen to.
   - It does NOT change Causa's ingest filters: the privacy gate

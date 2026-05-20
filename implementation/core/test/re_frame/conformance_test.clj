@@ -226,7 +226,7 @@
   ;; registry is a `defonce` atom inside `re-frame.error-emit`;
   ;; without an explicit clear, hot-reload semantics keep the prior
   ;; fixture's recorder alive.
-  (error-emit/clear-error-emit-listeners!)
+  (error-emit/clear-error-listeners!)
   ;; rf2-v0jwt — drop the per-frame epoch ring buffer (and the in-flight
   ;; capture buffer) between fixtures so `:epoch-records` assertions
   ;; observe THIS fixture's recorded epochs only.
@@ -552,7 +552,7 @@
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-listener! [fixture-id] (fn [ev] (swap! traces conj ev)))
+    (trace/register-listener! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- collect-error-emit-records!
@@ -564,13 +564,13 @@
   the captured records to assert the always-on substrate's
   `:sensitive?` redaction contract host-neutrally.
 
-  The matching `unregister-error-emit-listener!` call happens at the
+  The matching `unregister-error-listener!` call happens at the
   end of `run-fixture` so the listener does NOT leak into the next
   fixture's drains. `reset-runtime!` also calls
-  `clear-error-emit-listeners!` belt-and-braces for safety."
+  `clear-error-listeners!` belt-and-braces for safety."
   [fixture-id]
   (let [records (atom [])]
-    (error-emit/register-error-emit-listener!
+    (error-emit/register-error-listener!
       [fixture-id ::records]
       (fn [record] (swap! records conj record)))
     records))
@@ -1206,12 +1206,12 @@
                   {:expected expected-public-error
                    :actual   nil
                    :passed?  false})))]
-        (trace/clear-trace-listeners!)
+        (trace/clear-listeners!)
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder so
         ;; it does not leak into the next fixture's drains. The
         ;; reset-runtime! call at the top of the next fixture also
         ;; clears the registry; this is belt-and-braces.
-        (error-emit/unregister-error-emit-listener! [fid ::records])
+        (error-emit/unregister-error-listener! [fid ::records])
         {:fixture-id   fid
          :passed?      (and (or (nil? expected-db) (submap? expected-db final-db))
                             (or (nil? expected-dbs)

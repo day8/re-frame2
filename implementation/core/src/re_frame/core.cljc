@@ -1055,35 +1055,32 @@
   recorder, and registered listeners. Per Spec 009 §Trace emit."}
   emit-trace-event!         trace/emit!)
 
-;; Per rf2-qwm0a the public-tooling listener + buffer surface
-;; (`register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!` /
-;; `trace-buffer` / `clear-trace-buffer!` / `configure-trace-buffer!`)
-;; lives in `re-frame.trace.tooling`, not `re-frame.trace`. On the JVM
-;; we preserve the legacy `rf/<name>` shape via the convenience aliases
-;; below — the JVM has no Closure DCE bundle to protect, and re-frame.
-;; trace ships JVM-only `re-frame.trace/<name>` aliases that the
-;; aliases here mirror. CLJS deliberately omits the aliases so
-;; production counter bundles DCE the tooling sibling wholesale; CLJS
-;; consumers that need the listener / buffer surface (test fixtures,
-;; dev preloads, Causa / Story / re-frame2-pair-mcp / re-frame-10x, SSR error-
-;; projection) call `re-frame.trace.tooling/<name>` directly. Listener
-;; observability in a production CLJS build is meaningless anyway:
-;; `trace/emit!` is gated on `interop/debug-enabled?` and elides at
-;; `:advanced` + `goog.DEBUG=false`, so even a registered listener
-;; would observe nothing.
+;; Per rf2-ic1sv pick c: the listener-registration surface lives on
+;; `re-frame.trace` (the function names drop the `-trace-` infix since
+;; the namespace already says `trace`). Re-frame.core re-exports the
+;; same set on both JVM and CLJS — production CLJS DCE depends on user-
+;; side `goog.DEBUG` gating of registration call sites. The heavier
+;; trace-buffer machinery is still reached via `re-frame.trace.tooling/
+;; <name>` directly for the production-DCE story; the trace-buffer
+;; reader is re-exported here for the JVM-side tools / story / causa /
+;; re-frame-10x consumers.
+
+(def ^{:doc "Register a trace-event listener under `id`. The listener
+  receives every trace event. Same-id registration replaces. Returns
+  `id`. Dev-only — production CLJS bundles DCE the registration site
+  when wrapped in a `goog.DEBUG` gate. Per rf2-ic1sv pick c — drops
+  the `-trace-` infix; the canonical home is `re-frame.trace/register-
+  listener!` and the `rf/<name>` re-export mirrors that."}
+  register-listener!     trace/register-listener!)
+(def ^{:doc "Drop the trace-event listener registered under `id`.
+  Per rf2-ic1sv pick c."}
+  unregister-listener!   trace/unregister-listener!)
+(def ^{:doc "Drop every registered trace-event listener. Test-isolation
+  only. Per rf2-ic1sv pick c."}
+  clear-listeners!       trace/clear-listeners!)
 
 #?(:clj
    (do
-     (def ^{:doc "Register a listener under `id` that receives every trace
-       event. Same-id registration replaces. Returns `id`. JVM-only
-       alias (CLJS omits — production bundles DCE the tooling sibling
-       wholesale; CLJS callers use `re-frame.trace.tooling/register-trace-listener!`
-       directly). Per rf2-qwm0a."}
-       register-trace-listener!     trace/register-trace-listener!)
-     (def ^{:doc "Drop the listener registered under `id`. JVM-only alias —
-       CLJS callers use `re-frame.trace.tooling/unregister-trace-listener!`
-       directly. Per rf2-qwm0a."}
-       unregister-trace-listener!       trace/unregister-trace-listener!)
      (def ^{:doc "Return the trace ring buffer's current contents,
        oldest-first. Opts filter the result; the buffer is the substrate
        behind `re-frame-10x` and other dev tools. JVM-only alias —
@@ -1102,24 +1099,24 @@
   event-record per processed event (NOT subs / fxs); see
   `re-frame.event-emit` ns docstring for the record shape. Re-registering
   the same id replaces. Returns `id`. Per Spec 009 §Event-emit listener
-  (rf2-rirbq)."}
-  register-event-emit-listener!   event-emit/register-event-emit-listener!)
+  (rf2-rirbq + rf2-ic1sv pick c)."}
+  register-event-listener!   event-emit/register-event-listener!)
 
 (def ^{:doc "Drop the always-on event-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Event-emit listener (rf2-rirbq)."}
-  unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
+  Returns nil. Per Spec 009 §Event-emit listener (rf2-rirbq + rf2-ic1sv)."}
+  unregister-event-listener! event-emit/unregister-event-listener!)
 
 (def ^{:doc "Register an always-on error-emit listener `f` under `id`.
   Survives `:advanced` + `goog.DEBUG=false`. `f` receives a tight
   error-record per `:rf.error/*` event (see `re-frame.error-emit` ns
   docstring for the record shape). For off-box observability shippers
   (Sentry, Honeybadger, Rollbar). Re-registering the same id replaces.
-  Returns `id`. Per Spec 009 §Error-handler policy (rf2-bacs4)."}
-  register-error-emit-listener!   error-emit/register-error-emit-listener!)
+  Returns `id`. Per Spec 009 §Error-handler policy (rf2-bacs4 + rf2-ic1sv)."}
+  register-error-listener!   error-emit/register-error-listener!)
 
 (def ^{:doc "Drop the always-on error-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Error-handler policy (rf2-bacs4)."}
-  unregister-error-emit-listener! error-emit/unregister-error-emit-listener!)
+  Returns nil. Per Spec 009 §Error-handler policy (rf2-bacs4 + rf2-ic1sv)."}
+  unregister-error-listener! error-emit/unregister-error-listener!)
 
 (def ^{:doc "Walk `v` and substitute schema-declared sensitive or large
   paths for wire egress. Sensitive wins over large when both

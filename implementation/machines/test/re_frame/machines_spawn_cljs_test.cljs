@@ -73,7 +73,7 @@
       ;; Entering :authenticating: :rf.machine/spawn fx fires
       ;; (→ :rf.machine/spawned trace), :on-spawn callback records the
       ;; deterministic actor id into :data.:pending.
-      (trace-tooling/register-trace-listener! ::inv (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
@@ -94,7 +94,7 @@
       ;; fires targeting the recorded actor id.
       (reset! traces [])
       (rf/dispatch-sync [:auth3/flow [:auth/failed]])
-      (trace-tooling/unregister-trace-listener! ::inv)
+      (trace-tooling/unregister-listener! ::inv)
       (is (= :idle (:state (snapshot :auth3/flow))))
       (is (some (fn [ev]
                   (and (= :rf.machine/destroyed (:operation ev))
@@ -177,7 +177,7 @@
           traces (atom [])]
       (rf/reg-machine :child/auth-after child)
       (rf/reg-machine :sup/auth-after  parent)
-      (trace-tooling/register-trace-listener! ::ato (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-listener! ::ato (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:sup/auth-after [:go]])
       (is (= :authenticating (:state (snapshot :sup/auth-after)))
           "parent transitioned :idle → :authenticating")
@@ -200,7 +200,7 @@
         (is (nil? (get-in (rf/get-frame-db :rf/default)
                           [:rf/machines child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
-      (trace-tooling/unregister-trace-listener! ::ato))))
+      (trace-tooling/unregister-listener! ::ato))))
 
 ;; ---- :timeout-ms on :spawn / :spawn-all is rejected (rf2-3y3y) ---------
 

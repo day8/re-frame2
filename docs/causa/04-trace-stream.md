@@ -39,7 +39,7 @@ Filters compose. The *in-view* count in the header reflects the filtered total; 
 
 ## Why a buffer
 
-Tools that subscribe via `register-trace-listener!` see every event as it lands. But the buffer is for **late-attaching tools** — you press `Ctrl+Shift+C` after the cascade has already run, and you still want to read what happened. Without a buffer, "open the panel after the bug" would mean "rerun the bug first." With the buffer, you open the panel and the last N events are already there.
+Tools that subscribe via `register-listener!` see every event as it lands. But the buffer is for **late-attaching tools** — you press `Ctrl+Shift+C` after the cascade has already run, and you still want to read what happened. Without a buffer, "open the panel after the bug" would mean "rerun the bug first." With the buffer, you open the panel and the last N events are already there.
 
 The buffer is dev-only. Production builds DCE it at the source.
 
@@ -54,7 +54,7 @@ Causa is a 16-panel listener over the same surface. A bespoke one fits in fiftee
 
 (defonce recent-events (r/atom []))
 
-(rf/register-trace-listener!
+(rf/register-listener!
   :my-app/debug-panel
   (fn [ev]
     (when (= :event (:op-type ev))
@@ -77,7 +77,7 @@ That's the whole shape. The trace listener is a function. The epoch list is a qu
 
 A few notes:
 
-- The id `:my-app/debug-panel` is the listener's handle; pass it to `unregister-trace-listener!` to detach. Tools coexist on the bus by giving themselves a unique namespaced id.
+- The id `:my-app/debug-panel` is the listener's handle; pass it to `unregister-listener!` to detach. Tools coexist on the bus by giving themselves a unique namespaced id.
 - The filter `(= :event (:op-type ev))` keeps this listener cheap. New op-types are additive; tools that don't recognise an op-type ignore it without breaking.
 - `restore-epoch` rewinds the frame's `app-db` to the named epoch's `:db-after`. **Effects already fired** (HTTP sent, navigation pushed) are not reversed — restore is a state operation, not a universe operation.
 
@@ -102,7 +102,7 @@ The record carries the same shape the time-travel scrubber walks: `:db-before`, 
 
 Two listener shapes coexist by design:
 
-- **`register-trace-listener!`** is the raw stream — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). This is the bus the Trace panel renders.
+- **`register-listener!`** is the raw stream — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). This is the bus the Trace panel renders.
 - **`register-epoch-listener!`** is the assembled stream — one fully-shaped record per drain-settle, used by tools that route diagnostics off "what happened in this cascade" rather than re-folding the raw stream each time. This is what Causa's Event-detail panel reads.
 
 Most pair-shaped tools prefer the assembled stream and reach for the raw stream only when they need detail the projection drops.

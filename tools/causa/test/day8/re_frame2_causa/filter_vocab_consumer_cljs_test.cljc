@@ -14,7 +14,7 @@
   Causa is the new heaviest consumer of the trace stream:
     - Phase 1 (rf2-n6x4q) shipped Causa's own deeper ring buffer (1000
       events; framework default is 200), wired via
-      `register-trace-listener!`. The buffer is process-global, not
+      `register-listener!`. The buffer is process-global, not
       per-frame — `tools/causa/src/day8/re_frame2_causa/trace_bus.cljc`.
     - Phase 2 (rf2-op3bz) added the event-detail hero panel, which
       slices the buffer by selected `:dispatch-id` through the

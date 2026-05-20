@@ -2,7 +2,7 @@
 
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > re-frame2-pair-mcp is the canonical consumer of `get-frame-db`,
-> `epoch-history`, `register-trace-listener!`, `register-epoch-listener!`,
+> `epoch-history`, `register-listener!`, `register-epoch-listener!`,
 > `restore-epoch`, `reset-frame-db!`, `dispatch`, `dispatch-sync`,
 > plus the destroyed-frame and operating-frame rules.
 

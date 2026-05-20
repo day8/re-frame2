@@ -27,10 +27,10 @@
   Removes the listener on exit so test isolation holds."
   [coll-atom body-fn]
   (let [k (str (gensym "streaming-test-cb"))]
-    (trace/register-trace-listener! k (fn [ev] (swap! coll-atom conj ev)))
+    (trace/register-listener! k (fn [ev] (swap! coll-atom conj ev)))
     (try (body-fn)
          (finally
-           (trace/unregister-trace-listener! k)))))
+           (trace/unregister-listener! k)))))
 
 (rf/reg-event-db :rf.test/noop (fn [db _] db))
 (rf/reg-event-db :rf.test/seed-db (fn [_ [_ new-db]] new-db))

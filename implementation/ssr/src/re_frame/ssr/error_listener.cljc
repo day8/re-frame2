@@ -107,7 +107,7 @@
   carrying the exception and drives the projector via
   `apply-error-projection!` so the response accumulator's `:status`
   is stamped with the projector's output. Also emits the trace on the
-  trace bus so monitoring listeners (`register-trace-listener!`) see the
+  trace bus so monitoring listeners (`register-listener!`) see the
   rich internal detail (Spec 011 §Internal trace events are not
   leaked).
 
@@ -172,7 +172,7 @@
 
   NOTE (rf2-fb598): the production-survivable install site is
   `error-emit-projection-listener` (below) which rides the always-on
-  `register-error-emit-listener!` substrate. This trace-cb listener
+  `register-error-listener!` substrate. This trace-cb listener
   is preserved for the dev-only `:rf.error/*` categories that fire
   only through `trace/emit-error!` — `:rf.error/no-such-handler`,
   `:rf.error/no-such-route`, `:rf.error/schema-validation-failure`,
@@ -197,7 +197,7 @@
 (defn error-emit-projection-listener
   "Always-on error-emit-substrate listener (per rf2-fb598 / audit Finding
   #3) — captures `:rf.error/*` records delivered via
-  `register-error-emit-listener!` and buffers them onto the per-frame
+  `register-error-listener!` and buffers them onto the per-frame
   pending-error-traces buffer in the same trace-event shape the
   projector consumes.
 

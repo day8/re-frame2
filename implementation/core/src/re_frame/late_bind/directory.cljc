@@ -542,8 +542,8 @@
    ;; ---- re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
    ;; surface split off for production DCE; trace.cljc reaches the buffer
    ;; push + listener fan-out through this single hook). The public
-   ;; surface fns (`register-trace-listener!` / `unregister-trace-listener!` /
-   ;; `clear-trace-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
+   ;; surface fns (`register-listener!` / `unregister-listener!` /
+   ;; `clear-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
    ;; `configure-trace-buffer!` / `configure`) are exposed directly from
    ;; `re-frame.trace.tooling`; consumers (tests, tools, SSR's listener
    ;; registration) call them through `re-frame.trace.tooling/<name>`
@@ -559,14 +559,14 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
     :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure :trace-buffer` so a no-tooling production build silently no-ops."}
-   {:key         :trace.tooling/register-trace-listener!
+   {:key         :trace.tooling/register-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
     :description "Register a trace listener. Late-bound so `re-frame.frame/fire-on-destroy-event!` can install a one-shot listener around the `:on-destroy` dispatch (to re-emit `:rf.error/handler-exception` as `:rf.error/on-destroy-handler-exception`) without forcing the tooling sibling into production CLJS bundles."}
-   {:key         :trace.tooling/unregister-trace-listener!
+   {:key         :trace.tooling/unregister-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
-    :description "Drop a trace listener. Sibling of `:trace.tooling/register-trace-listener!` — same rf2-r1ciy seam."}
+    :description "Drop a trace listener. Sibling of `:trace.tooling/register-listener!` — same rf2-r1ciy seam."}
 
    ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
    ;;

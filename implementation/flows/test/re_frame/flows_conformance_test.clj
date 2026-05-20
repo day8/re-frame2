@@ -129,7 +129,7 @@
   ;; that survives test re-runs. Clear before each test so a listener
   ;; registered by one fixture (per rf2-gmrks `:error-emit-records`
   ;; matcher) doesn't leak into the next.
-  (error-emit/clear-error-emit-listeners!)
+  (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
@@ -317,7 +317,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-listener! [fixture-id]
+    (trace/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -338,7 +338,7 @@
   returns the captured-records atom."
   [fixture-id]
   (let [records (atom [])]
-    (error-emit/register-error-emit-listener!
+    (error-emit/register-error-listener!
       [::flows-conformance fixture-id]
       (fn [r] (swap! records conj r)))
     records))
@@ -609,8 +609,8 @@
             expected-err     (:error-emit-records expect)
             err-failures     (when expected-err
                                (check-trace-stream @err-records expected-err))]
-        (trace/clear-trace-listeners!)
-        (error-emit/clear-error-emit-listeners!)
+        (trace/clear-listeners!)
+        (error-emit/clear-error-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))
                                  (or (nil? expected-dbs) (every? (fn [[fid db]] (submap? db (get final-dbs fid)))

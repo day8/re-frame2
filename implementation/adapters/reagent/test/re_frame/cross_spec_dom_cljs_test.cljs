@@ -89,11 +89,11 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (trace-tooling/register-trace-listener! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- stop-traces [k]
-  (trace-tooling/unregister-trace-listener! k))
+  (trace-tooling/unregister-listener! k))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 1 — Frame disposal with active machine instances

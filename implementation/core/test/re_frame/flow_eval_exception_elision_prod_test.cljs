@@ -3,7 +3,7 @@
   **always-on production error-emit substrate**, not the dev-only
   trace surface. Under CLJS `:advanced` + `goog.DEBUG=false` the trace
   surface compile-time elides, but the per-frame `:on-error` policy
-  fn and corpus-wide `register-error-emit-listener!` callbacks MUST
+  fn and corpus-wide `register-error-listener!` callbacks MUST
   still fire when a flow's `:output` throws.
 
   Pre-rf2-hrt5c, the cascade-level `:rf.error/flow-eval-exception`
@@ -47,7 +47,7 @@
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
-                (error-emit/clear-error-emit-listeners!))}))
+                (error-emit/clear-error-listeners!))}))
 
 ;; ---- :on-error fires for flow-eval failures under prod -------------------
 
@@ -103,7 +103,7 @@
             (Sentry / Honeybadger / Rollbar) still see every flow
             failure in production."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/flow-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/flow-throw
@@ -141,7 +141,7 @@
           policy-saw   (atom nil)]
       (rf/reg-frame :rf/default
                     {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/dual-recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event-db :prod/dual-throw (fn [_db _] {:token "go"}))

@@ -154,10 +154,10 @@
     ;; (container-level :sensitive?).
     (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::redact (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::redact (fn [ev] (swap! traces conj ev)))
       ;; The value at [:auth :token] is an int (42) — fails :string.
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
-      (rf/unregister-trace-listener! ::redact)
+      (rf/unregister-listener! ::redact)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -188,7 +188,7 @@
                         [:name     :string]
                         [:password {:sensitive? true} :string]])
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::slot (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::slot (fn [ev] (swap! traces conj ev)))
       ;; password is an int — fails :string. Since validation is
       ;; per-registered-path, the whole [:user] value fails the schema.
       ;; But schema-sensitive-at? checks if [:user] is sensitive (no)
@@ -198,7 +198,7 @@
       ;; failure when ANY slot within is sensitive.
       (schemas/validate-app-schema! {:user {:name "alice" :password 99}}
                                 :user/bad)
-      (rf/unregister-trace-listener! ::slot)
+      (rf/unregister-listener! ::slot)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a trace fired")
@@ -212,9 +212,9 @@
             unchanged traces; :value and :explain ride verbatim"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::plain (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::plain (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:count "not-an-int"} :count/bad)
-      (rf/unregister-trace-listener! ::plain)
+      (rf/unregister-listener! ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -241,9 +241,9 @@
          :schema     [:cat [:= :auth/sign-in] :string :string]}
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
-        (rf/register-trace-listener! ::ev (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! ::ev (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/sign-in "ada" 42])
-        (rf/unregister-trace-listener! ::ev)
+        (rf/unregister-listener! ::ev)
         (is (= 0 @calls) "handler skipped — validation failed")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
@@ -267,9 +267,9 @@
                    [:map [:email :string] [:age :int]]]}
       (fn [db [_ payload]] (update db :users (fnil conj []) payload)))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::reg (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::reg (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
-      (rf/unregister-trace-listener! ::reg)
+      (rf/unregister-listener! ::reg)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -301,9 +301,9 @@
       [(rf/inject-cofx :auth/credentials)]
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::cf (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::cf (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth/use-creds])
-      (rf/unregister-trace-listener! ::cf)
+      (rf/unregister-listener! ::cf)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -326,9 +326,9 @@
       [(rf/inject-cofx :secret-blob)]
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::cb (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::cb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:use-secret])
-      (rf/unregister-trace-listener! ::cb)
+      (rf/unregister-listener! ::cb)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -349,14 +349,14 @@
       {:schema [:vector [:string {:sensitive? true}]]}
       (fn [db _] (:secrets db)))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::sr (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::sr (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:secrets/init])
       ;; First subscribe materialises; well-typed.
       (rf/subscribe-once [:secrets])
       (rf/dispatch-sync [:secrets/break])
       ;; Resubscribe; malformed return — fails.
       (rf/subscribe-once [:secrets])
-      (rf/unregister-trace-listener! ::sr)
+      (rf/unregister-listener! ::sr)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (pos? (count violations)))
@@ -389,14 +389,14 @@
       {:schema [:string {:sensitive? true}]}
       (fn [db [_ token]] (get-in db [:tokens token])))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::qv (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::qv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:tokens/init])
       ;; Well-typed return on the first call — no validation failure.
       (rf/subscribe-once [:token-for "user-42-token"])
       (rf/dispatch-sync [:tokens/break])
       ;; Malformed return on the second call — fires the sub-return failure.
       (rf/subscribe-once [:token-for "user-42-token"])
-      (rf/unregister-trace-listener! ::qv)
+      (rf/unregister-listener! ::qv)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)
             v (first violations)]
@@ -424,12 +424,12 @@
       {:schema :string}                                  ; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::plain (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::plain (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:widgets/init])
       (rf/subscribe-once [:widget :w1])
       (rf/dispatch-sync [:widgets/break])
       (rf/subscribe-once [:widget :w1])
-      (rf/unregister-trace-listener! ::plain)
+      (rf/unregister-listener! ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -451,12 +451,12 @@
     (rf/reg-app-schema [:user :secret-pdf]
                        [:string {:sensitive? true :large? true}])
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::both (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::both (fn [ev] (swap! traces conj ev)))
       ;; Value is a long string but is an int (42) here — actually let's
       ;; make it a wrong type to force a validation failure regardless
       ;; of how :large? would behave at runtime.
       (schemas/validate-app-schema! {:user {:secret-pdf 42}} :doc/bad)
-      (rf/unregister-trace-listener! ::both)
+      (rf/unregister-listener! ::both)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -480,10 +480,10 @@
             interop/debug-enabled? gate. Production builds DCE both."
     (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::prod (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::prod (fn [ev] (swap! traces conj ev)))
       (with-redefs [re-frame.interop/debug-enabled? false]
         (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad))
-      (rf/unregister-trace-listener! ::prod)
+      (rf/unregister-listener! ::prod)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "no validation trace fires when debug-enabled? is false — redaction is moot"))))

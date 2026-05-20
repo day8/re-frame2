@@ -4,7 +4,7 @@
    The handler is a pure function `(fn [db event] new-db)`. The runtime
    applies the returned db to the frame; views fan out from there."
   (:require [re-frame.core :as rf]
-            ;; The trace-listener surface (`register-trace-listener!`)
+            ;; The trace-listener surface (`register-listener!`)
             ;; lives in `re-frame.trace.tooling`, NOT `re-frame.core` —
             ;; CLJS production bundles DCE the tooling namespace
             ;; wholesale, so the `rf/...` alias for these fns is
@@ -46,7 +46,7 @@
 ;; Spec 009 §Re-registration semantics), so hot-reload re-runs this
 ;; form without leaking listeners.
 
-(trace-tooling/register-trace-listener!
+(trace-tooling/register-listener!
   ::error-sink
   (fn [trace-event]
     (when (= :error (:op-type trace-event))

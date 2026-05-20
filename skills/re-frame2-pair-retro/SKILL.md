@@ -59,7 +59,7 @@ Deliver:
 - **Live-runtime probes are opt-in.** The skill operates on a session transcript or a user-supplied recap — it does not probe the live re-frame2 runtime by default. `mcp__re-frame2-pair__discover-app` and other re-frame2-pair MCP tools are NOT in the default tool grant; reach for them only when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached and the user has confirmed a runtime probe is wanted. Recap-only and offline retros never probe.
 - **Stay focused on improving `re-frame2-pair`.** If the right fix is upstream in `re-frame2` (Tool-Pair surfaces, trace stream, epoch-history, schema reflection, source-coord annotation), say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame2-pair`.
 - **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. See the shell-safety pattern below.
-- **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
+- **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
 
 ## When NOT to use this skill
 

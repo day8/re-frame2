@@ -216,7 +216,7 @@
             coeffect unchanged"
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
-      (rf/register-trace-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/consume
                        [rf/unwrap-interceptor]
                        (fn [_cofx event-arg]
@@ -224,7 +224,7 @@
                          {}))
       ;; A malformed event: second slot is :not-a-map (a keyword, not a map).
       (rf/dispatch-sync [:unwrap-bad-test/consume :not-a-map])
-      (rf/unregister-trace-listener! ::unwrap-bad)
+      (rf/unregister-listener! ::unwrap-bad)
 
       ;; The handler still ran — unwrap's bad path is a trace-and-continue,
       ;; not a throw — but it saw the ORIGINAL event vector (ctx unchanged),
@@ -251,7 +251,7 @@
   (testing "[unwrap] with a 3-element vector (correct id, wrong arity) traces"
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
-      (rf/register-trace-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/arity
                        [rf/unwrap-interceptor]
                        (fn [_cofx event-arg]
@@ -259,7 +259,7 @@
                          {}))
       ;; Wrong arity — three elements instead of two.
       (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
-      (rf/unregister-trace-listener! ::unwrap-arity)
+      (rf/unregister-listener! ::unwrap-arity)
       (is (some #(= :rf.error/unwrap-bad-event-shape (:operation %)) @traces)
           ":rf.error/unwrap-bad-event-shape fires for arity mismatch too")
       (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
@@ -269,12 +269,12 @@
     ;; Sanity: confirm the trace is silent on a well-shaped event so the
     ;; coverage above is genuinely catching the negative branch.
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/ok
                        [rf/unwrap-interceptor]
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
-      (rf/unregister-trace-listener! ::unwrap-ok)
+      (rf/unregister-listener! ::unwrap-ok)
       (is (empty? (filter #(= :rf.error/unwrap-bad-event-shape (:operation %))
                           @traces))
           "no bad-shape trace on the canonical [id payload-map] event"))))
@@ -324,9 +324,9 @@
                      [(rf/inject-cofx :boom)]
                      (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-trace-listener! ::cofx-throw (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! ::cofx-throw (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:cofx-test/explode])
-      (rf/unregister-trace-listener! ::cofx-throw)
+      (rf/unregister-listener! ::cofx-throw)
       (is (some (fn [ev]
                   (and (= :rf.error/handler-exception (:operation ev))
                        (= :before (get-in ev [:tags :phase]))))

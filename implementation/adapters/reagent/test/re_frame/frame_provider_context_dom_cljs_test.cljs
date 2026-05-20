@@ -208,7 +208,7 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (trace-tooling/register-trace-listener! k (fn [ev] (swap! traces conj ev)))
+    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
     traces))
 
 (defn- corruption-traces [traces]
@@ -292,7 +292,7 @@
           (is (= :empty-string (-> errs first :tags :type))
               ":tags :type identifies empty-string distinctly from string")))
       (finally
-        (trace-tooling/unregister-trace-listener! ::scenario-3)
+        (trace-tooling/unregister-listener! ::scenario-3)
         (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------

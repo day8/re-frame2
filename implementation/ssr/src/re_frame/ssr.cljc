@@ -9,8 +9,8 @@
   Façade over eight flat sub-namespaces (`emit`, `hash`, `substrate`,
   `hydrate`, `response`, `error-projector`, `error-listener`,
   `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
-  `reg-error-projector` / `register-error-emit-listener!` /
-  `register-trace-listener!` side-effects fire HERE so
+  `reg-error-projector` / `register-error-listener!` /
+  `register-listener!` side-effects fire HERE so
   `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
   re-installs every registration. Sub-namespaces export pure handler
   fns only.
@@ -274,7 +274,7 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; flows through `re-frame.error-emit/dispatch-on-error!` —
 ;; `:rf.error/handler-exception` (router), `:rf.error/fx-handler-
 ;; exception` family (fx), `:rf.error/flow-eval-exception` (flows).
-(error-emit/register-error-emit-listener! ::error-projection
+(error-emit/register-error-listener! ::error-projection
                                           error-listener/error-emit-projection-listener)
 
 ;; rf2-fb598 — secondary install site: the dev-only trace surface,
@@ -288,7 +288,7 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; addressable as one logical projector — `apply-error-projection!`
 ;; 1-arity is last-write-wins, so the duplicate buffer entry under dev
 ;; is benign.
-(trace-tooling/register-trace-listener! ::error-projection
+(trace-tooling/register-listener! ::error-projection
                                   error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------

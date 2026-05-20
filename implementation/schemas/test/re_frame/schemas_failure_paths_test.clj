@@ -51,10 +51,10 @@
   [body-fn]
   (let [traces (atom [])
         cb-id  (keyword (gensym "capture"))]
-    (rf/register-trace-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
     (try
       (body-fn)
-      (finally (rf/unregister-trace-listener! cb-id)))
+      (finally (rf/unregister-listener! cb-id)))
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
 

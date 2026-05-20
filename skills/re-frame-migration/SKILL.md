@@ -69,7 +69,7 @@ If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools pan
 - [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
 - [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15).
 - [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
-- [`references/error-events.md`](references/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-trace-listener!` (M-13, M-17, M-26).
+- [`references/error-events.md`](references/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-listener!` (M-13, M-17, M-26).
 - [`references/breaking-changes.md`](references/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
 
 **Phase 4 — Verify.** The **author** recompiles, re-runs unit tests, and smoke-tests boot / dispatch / sub / hot-reload. The skill prints the exact compile / test commands for the author's project shape (e.g. `shadow-cljs compile app`, `clj -M:test`, the npm script), waits for the author to paste the output, and only then proceeds. If a step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
@@ -104,7 +104,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, view / hiccup, init, per-feature artefacts.
 - [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler walkthroughs.
 - [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
-- [`references/error-events.md`](references/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-trace-listener!` listeners.
+- [`references/error-events.md`](references/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-listener!` listeners.
 - [`references/output-format.md`](references/output-format.md) — migration-report shape with worked examples.
 
 ## Anti-patterns

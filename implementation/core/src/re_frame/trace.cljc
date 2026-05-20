@@ -9,42 +9,44 @@
   `re-frame.interop/debug-enabled?` — see `emit!` below. See Spec 009
   §Core fields, §Dispatch correlation, and §Handler-scope.
 
-  Topology (rf2-qwm0a): this ns carries the always-loaded hot fast
-  path — `emit!` / `emit-error!` / `*handler-scope*` and the bracket
-  macros. The public-tooling surface (`register-trace-listener!` /
-  `unregister-trace-listener!` / `clear-trace-listeners!` / `trace-buffer` /
+  Topology (rf2-qwm0a + rf2-ic1sv): this ns carries the always-loaded
+  hot fast path — `emit!` / `emit-error!` / `*handler-scope*` and the
+  bracket macros. The public-tooling surface (`register-listener!` /
+  `unregister-listener!` / `clear-listeners!` / `trace-buffer` /
   `clear-trace-buffer!` / `configure-trace-buffer!` / `configure`) and
   the buffer + listener state live in the sibling
   `re-frame.trace.tooling`, which is loaded only when a test fixture,
   tool, or dev preload requires it.
 
-  CLJS consumers call `re-frame.trace.tooling/<name>` directly so the
-  CLJS build of this ns intentionally holds NO references to the
-  tooling sibling — production counter bundles DCE the buffer +
-  listener machinery, including the per-fn late-bind keyword interns
-  that would otherwise survive as top-level allocations even when the
-  wrapper body is dead.
+  Per rf2-ic1sv pick c: the app-facing registration surface lives on
+  `re-frame.trace` (this ns) — the `register-listener!` / `unregister-
+  listener!` / `clear-listeners!` defs at the bottom of this file are
+  the canonical names. The `-trace-` infix dropped from the function
+  names because the namespace already says `trace`. JVM and CLJS both
+  see the same shape.
 
-  JVM consumers (the production-DCE benefit doesn't apply to the JVM
-  side; the tooling sibling has zero artefact-bundle cost there) keep
-  the legacy `re-frame.trace/<name>` call shape via the convenience
-  aliases at the bottom of this file (loaded only under `#?(:clj ...)`
-  so they don't leak into the CLJS bundle). 47 JVM test files and a
-  handful of `.cljc` sources reference the legacy shape; the JVM
-  aliases preserve their call sites unchanged.
+  CLJS production DCE: the listener registration fns are tiny (atom
+  swap), but the buffer machinery is heavier. Production builds rely
+  on user-side `goog.DEBUG` gating around registration call sites so
+  the entire `(when goog.DEBUG (rf/register-listener! …))` block is
+  dead-coded. The buffer + configure surface remains accessible only
+  via `re-frame.trace.tooling/<name>` directly so production counter
+  bundles can still DCE the heavier machinery.
 
   `deliver!` reaches the tooling fan-out through the single
   `:trace.tooling/deliver!` late-bind hook (mirroring the existing
   `:epoch/capture-event` shape)."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            ;; JVM autoload (see ns docstring): the JVM has no Closure
-            ;; DCE bundle to protect, and we keep the legacy
-            ;; `re-frame.trace/<name>` shape working for JVM test
-            ;; fixtures + SSR via the alias block at the bottom of the
-            ;; file. CLJS deliberately omits this require so the
-            ;; tooling sibling stays out of production bundles.
-            #?@(:clj [[re-frame.trace.tooling :as trace-tooling]]))
+            ;; Per rf2-ic1sv pick c: `re-frame.trace/register-listener!`
+            ;; et al. are the canonical app-facing names. Bringing the
+            ;; tooling sibling in on both CLJS and JVM allows the
+            ;; consolidated surface. Production CLJS DCE depends on
+            ;; user-side `goog.DEBUG` gating of registration call sites
+            ;; — the trivial registration fns survive otherwise, but
+            ;; the heavier buffer machinery only enters the bundle when
+            ;; explicitly used.
+            [re-frame.trace.tooling :as trace-tooling])
   #?(:cljs (:require-macros [re-frame.trace])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -169,7 +171,7 @@
   re-frame.epoch has registered its capture hook. The capture hook
   is published through `re-frame.late-bind` (key `:epoch/capture-event`);
   routing through there keeps this namespace free of a require on
-  re-frame.epoch and ensures `clear-trace-listeners!` (a user-facing API) does
+  re-frame.epoch and ensures `clear-listeners!` (a user-facing API) does
   NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
   Spec 009 §`register-epoch-listener!`."
   [event]
@@ -349,22 +351,19 @@
 (late-bind/set-fn! :trace/emit!       emit!)
 (late-bind/set-fn! :trace/emit-error! emit-error!)
 
-;; ---- JVM-side convenience aliases (rf2-qwm0a) ----------------------------
+;; ---- Public listener-registration surface (rf2-ic1sv pick c) -------------
 ;;
-;; Per the ns docstring: on the JVM we preserve the legacy
-;; `re-frame.trace/<name>` shape for the public-tooling surface so the
-;; cascade of `.clj` test fixtures + `.cljc` SSR / story / causa
-;; sources stays unchanged. The aliases are gated under `#?(:clj ...)`
-;; so they never appear in CLJS compilation — production counter
-;; bundles still DCE the tooling sibling wholesale because
-;; `re-frame.trace` on CLJS has no static reference to it.
+;; Per pick c: `re-frame.trace/register-listener!` etc. are the
+;; canonical app-facing names — the `-trace-` infix dropped because
+;; the namespace already says `trace`. Available on both JVM and CLJS;
+;; production CLJS bundles rely on user-side `goog.DEBUG` gating of
+;; registration call sites for DCE.
 
-#?(:clj
-   (do
-     (def register-trace-listener!     trace-tooling/register-trace-listener!)
-     (def unregister-trace-listener!       trace-tooling/unregister-trace-listener!)
-     (def clear-trace-listeners!       trace-tooling/clear-trace-listeners!)
-     (def trace-buffer           trace-tooling/trace-buffer)
-     (def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
-     (def configure-trace-buffer! trace-tooling/configure-trace-buffer!)
-     (def configure              trace-tooling/configure)))
+(def register-listener!     trace-tooling/register-listener!)
+(def unregister-listener!   trace-tooling/unregister-listener!)
+(def clear-listeners!       trace-tooling/clear-listeners!)
+
+(def trace-buffer           trace-tooling/trace-buffer)
+(def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
+(def configure-trace-buffer! trace-tooling/configure-trace-buffer!)
+(def configure              trace-tooling/configure)

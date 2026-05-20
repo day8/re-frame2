@@ -45,18 +45,18 @@
 (def ^:private registry
   (emit/make-listener-registry {:listeners listeners}))
 
-(def register-event-emit-listener!
+(def register-event-listener!
   "Register a listener `f` under `id`. Re-registering the same id
   replaces. `f` receives a single event-record map (see ns docstring
   §Record shape); its return value is ignored. Returns `id`. Per
   rf2-rirbq."
   (:register registry))
 
-(def unregister-event-emit-listener!
+(def unregister-event-listener!
   "Drop the listener registered under `id`. Returns nil."
   (:unregister registry))
 
-(def clear-event-emit-listeners!
+(def clear-event-listeners!
   "Drop every registered listener. Test-isolation only; production
   code should never call this. Returns nil."
   (:clear registry))

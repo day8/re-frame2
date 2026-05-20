@@ -11,7 +11,7 @@
   for. This file pins the fix.
 
   Per rf2-bacs4 — the corpus-wide
-  `register-error-emit-listener!` registry is the second always-on
+  `register-error-listener!` registry is the second always-on
   fan-out path from the same error-emit substrate; off-box
   observability shippers (Sentry / Honeybadger / Rollbar) wire through
   it. This file pins that the listener registry survives elision
@@ -39,7 +39,7 @@
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
-                (error-emit/clear-error-emit-listeners!))}))
+                (error-emit/clear-error-listeners!))}))
 
 ;; ---- :on-error survives goog.DEBUG=false ----------------------------------
 
@@ -117,7 +117,7 @@
             record so off-box observability shippers (Sentry /
             Honeybadger / Rollbar) still see every framework error."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/err-throw
@@ -144,10 +144,10 @@
             mode contract from `re-frame.on-error-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/throws
         (fn [_record] (throw (ex-info "listener went boom" {}))))
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event-db :prod/two-listeners
@@ -166,7 +166,7 @@
           policy-saw   (atom nil)]
       (rf/reg-frame :rf/default
                     {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :prod/recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event-db :prod/both
@@ -198,7 +198,7 @@
             trace surface is gone and registry-meta has been stripped
             of coord-keys."
     (let [listener-saw (atom nil)]
-      (rf/register-error-emit-listener!
+      (rf/register-error-listener!
         :rf2-3un2g/sentry-recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event-db :rf2-3un2g/prod-coord-throw

@@ -63,8 +63,8 @@
   []
   (let [a  (atom [])
         id ::shape-listener]
-    (trace/register-trace-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(trace/unregister-trace-listener! id)]))
+    (trace/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(trace/unregister-listener! id)]))
 
 (defn- assert-shape!
   [traces label]

@@ -101,8 +101,8 @@
   [f]
   (let [traces (atom [])
         cb-id  (gensym "::ssr-hydration-capture-")]
-    (rf/register-trace-listener! cb-id (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (rf/unregister-trace-listener! cb-id)))
+    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (try (f) (finally (rf/unregister-listener! cb-id)))
     @traces))
 
 ;; ===========================================================================
