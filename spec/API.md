@@ -9,7 +9,7 @@
   - Base values: `v1` (ships in v1), `v1 (preserved)` (exists in current re-frame; preserved unchanged), `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour), `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
   - Qualifier: `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
   - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
-  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exception: `re-frame.test-support`).
+  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support` and `re-frame.test-helpers`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
@@ -18,7 +18,8 @@
   | Namespace | Artefact | Surfaces |
   |---|---|---|
   | `re-frame.core` | core | the registration / dispatch / subscribe / interceptor / lifecycle / configure surfaces; **late-binds re-exports for `re-frame.epoch`** (`epoch-history`, `restore-epoch`, `reset-frame-db!`, `register-epoch-cb!`, `remove-epoch-cb!`) when the epoch artefact is on the classpath. |
-  | `re-frame.test-support` | core | `dispatch-sequence`, `assert-state`, fixture machinery (per [§Testing](#testing)). |
+  | `re-frame.test-support` | core | `dispatch-sequence`, `assert-state`, `poll-until`, fixture machinery (per [§Testing](#testing)). |
+  | `re-frame.test-helpers` | core | View-assertion helpers — hiccup-walk (`find-by-testid` / `find-by-attr` family, `text-content`, `extract-handler`, `invoke-handler`), the `testid` authoring helper, and the `expand-tree` walker (per [§Testing — View-assertion helpers](#testing--view-assertion-helpers)). |
   | `re-frame.ssr` | `day8/re-frame2-ssr` | `render-to-string`, `render-tree-hash`, `streaming-render-*`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`, `project-error` (per [§SSR](#ssr-spec-011)). |
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
   | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!, `at-boundary` (per [§Schemas](#schemas)). |
@@ -566,15 +567,36 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-`re-frame.test-support` ships the test-flavoured helpers below alongside re-exports of `make-frame`/`destroy-frame!`/`with-frame`/`dispatch-sync` for one-stop import. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+The testing surface lives across three namespaces. `re-frame.core` carries the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `get-frame-db`, `snapshot-of`, `compute-sub`, `machine-transition`, `sub-topology`). `re-frame.test-support` ships the test-only fixture machinery and test-flavoured helpers. `re-frame.test-helpers` ships the view-assertion helpers (hiccup-walk + `testid` authoring). `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both `[re-frame.core :as rf]` and `[re-frame.test-support :as ts]`, and additionally `[re-frame.test-helpers :as th]` for view-assertion tests. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|
 | `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
 | `assert-state` | Fn | `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` opts | v1 | 008 | Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. |
+| `poll-until` | Fn | `(poll-until pred)` / `(poll-until pred opts)` | v1 | 008 | Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` with `:rf.test/poll-timeout true` on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`. Lives in `re-frame.test-support`. |
 | `with-fx-overrides` | M | `(with-fx-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding (rf2-5uwl). Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. Renamed from `with-overrides` per [MIGRATION §M-50](../migration/from-re-frame-v1/README.md#m-50-with-overrides-macro-renamed-to-with-fx-overrides). |
 | `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
 | `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
+
+### Testing — view-assertion helpers
+
+`re-frame.test-helpers` ships the hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Pairs with `render-to-string` (the HTML-string view-test path per Spec 011): hiccup-walk for structure / handler assertions, `render-to-string` for HTML-markup assertions. Per [008-Testing §View-assertion helpers](008-Testing.md#view-assertion-helpers-re-frametest-helpers).
+
+| API | M/Fn | Signature | Status | Spec | Notes |
+|---|---|---|---|---|---|
+| `expand-tree` | Fn | `(expand-tree tree) → tree` | v1 | 008 | Recursively expand fn-components and Form-3 class components inside a hiccup tree. After expansion every vector's first element is a keyword tag or a non-component value. Lives in `re-frame.test-helpers`. |
+| `attrs` | Fn | `(attrs node) → map?` | v1 | 008 | Return the attrs map of a hiccup node, or `nil`. Lives in `re-frame.test-helpers`. |
+| `children` | Fn | `(children node) → vector` | v1 | 008 | Return the child elements — everything after the tag (and optional attrs map). Lives in `re-frame.test-helpers`. |
+| `text-content` | Fn | `(text-content node) → string` | v1 | 008 | Recursively collect string leaves under `node` and join. Numbers coerce to strings; nils are skipped. Lives in `re-frame.test-helpers`. |
+| `extract-handler` | Fn | `(extract-handler node event-key) → fn?` | v1 | 008 | Return the value of `event-key` from `node`'s attrs map, or `nil`. Lives in `re-frame.test-helpers`. |
+| `find-by-attr` | Fn | `(find-by-attr tree attr val) → node?` | v1 | 008 | First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword (`:data-testid`, `:data-test`, `:id`, custom). Lives in `re-frame.test-helpers`. |
+| `find-all-by-attr` | Fn | `(find-all-by-attr tree attr val) → vector` | v1 | 008 | Every matching node, in depth-first order. Lives in `re-frame.test-helpers`. |
+| `find-by-attr-prefix` | Fn | `(find-by-attr-prefix tree attr prefix) → vector` | v1 | 008 | Every node whose `attr` value (a string) STARTS with `prefix`. Non-string attr values do not match. Lives in `re-frame.test-helpers`. |
+| `find-by-testid` | Fn | `(find-by-testid tree test-id) → node?` | v1 | 008 | Convenience over `find-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `find-all-by-testid` | Fn | `(find-all-by-testid tree test-id) → vector` | v1 | 008 | Convenience over `find-all-by-attr` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix) → vector` | v1 | 008 | Convenience over `find-by-attr-prefix` keyed on `:data-testid`. Lives in `re-frame.test-helpers`. |
+| `invoke-handler` | Fn | `(invoke-handler node event-key & args) → any` | v1 | 008 | Find the handler under `event-key` on `node` and call it with `args`. Returns the handler's return value. THROWS when `node` is not a hiccup vector, the node has no attrs map, or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug). Lives in `re-frame.test-helpers`. |
+| `testid` | Fn | `(testid id)` / `(testid id extra) → map` | v1 | 008 | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Authoring helper at the view call site. Lives in `re-frame.test-helpers`. |
 
 ---
 
