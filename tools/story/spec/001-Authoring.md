@@ -681,19 +681,57 @@ actor's `:exit` action captures the cleanup, and the state-machine
 runtime owns the destroy walk. `:teardown` on `:frame-setup` is the
 lightweight option for resources that need exactly one cancel event.
 
+#### Global decorators — `configure! :rf.story/global-decorators` (rf2-9qpk3 · audit C-1 / F-1)
+
+The **global-decorators** slot on `configure!` is the project-wide
+defaults layer — symmetric to `:rf.story/global-args` for args. The
+host calls it once at boot:
+
+```clojure
+(story/reg-decorator :app/theme-provider
+  {:kind :hiccup
+   :wrap (fn [body _args] [theme-provider {:theme :light} body])})
+
+(story/configure!
+  {:rf.story/global-decorators [[:app/theme-provider]]})
+```
+
+Every variant's resolved decorator stack is then `(concat globals
+story-decorators variant-decorators)`. The global slot is the
+Storybook `preview.ts` `decorators: [...]` parity (Feature-Parity-
+Audit C-1 / F-1) — projects with a design-system theme provider
+write the wrap once at boot rather than listing the decorator id on
+every `reg-story`.
+
+`reg-global-decorator` is the ergonomic alternative that registers
+the body AND opts it in to the global stack in one call. The
+`configure!` slot is the canonical *batch* shape — a project that
+keeps its global stack in one place (`preview.cljs`-style) declares
+the vector once.
+
+Composition is additive, not override-style: a per-variant
+`:decorators` slot does NOT override globals — both layers compose
+in the order documented in the table below. This matches Storybook's
+actual `preview.ts` semantics (preview decorators wrap every story
+regardless of per-story declarations) and keeps the layer model
+symmetric with `:rf.story/global-args` (also additive — Layer 1 of
+the precedence chain, never overridden by a later layer).
+
 #### Composition order — the `:fx-override` asymmetry (rf2-a6l59)
 
-A variant's effective decorator stack is the **story-level**
-decorators followed by the **variant-level** decorators (declared
-order in both cases). The three decorator kinds compose differently
-under that stack, and the asymmetry is deliberate but easy to trip
-on if you arrive expecting a single rule:
+A variant's effective decorator stack is **global** decorators
+(from `configure! :rf.story/global-decorators`) followed by the
+**story-level** decorators followed by the **variant-level**
+decorators (declared order in each layer). The three decorator kinds
+compose differently under that stack, and the asymmetry is
+deliberate but easy to trip on if you arrive expecting a single
+rule:
 
 | Kind | Composition rule | Intuition |
 |---|---|---|
-| `:hiccup` | **Outermost wraps innermost.** Story decorators are outer; variant decorators are inner. Walked LIFO so the *last* decorator declared on the variant ends up *closest* to the rendered view. | "Wrap" is geometric — story-level theme provider sits outside the variant-level layout-debug overlay. |
-| `:frame-setup` | **Declared order** (story decorators then variant decorators). Each runs its `:init` events / `:app-db-patch` against the variant's frame in turn; later writes overlay earlier ones at the same path. | First in, last write. Variant-level setup overrides story-level setup at the path level. |
-| `:fx-override` | **Declared order, but collisions on `:fx-id` resolve LAST-WINS.** Story decorators register first; variant decorators register second; if both target the same `:fx-id` the variant-level override wins. | The innermost decorator is closest to the variant's intent and should override outer stubs. |
+| `:hiccup` | **Outermost wraps innermost.** Global decorators are outermost; story decorators sit inside globals; variant decorators are innermost. Walked LIFO so the *last* decorator declared on the variant ends up *closest* to the rendered view. | "Wrap" is geometric — a global theme provider sits outside the story-level decorators sits outside the variant-level layout-debug overlay. |
+| `:frame-setup` | **Declared order** (globals first, then story decorators, then variant decorators). Each runs its `:init` events / `:app-db-patch` against the variant's frame in turn; later writes overlay earlier ones at the same path. | First in, last write. Variant-level setup overrides story-level setup overrides global setup at the path level. |
+| `:fx-override` | **Declared order, but collisions on `:fx-id` resolve LAST-WINS.** Globals register first; story decorators second; variant decorators last; if multiple layers target the same `:fx-id` the innermost wins. | The innermost decorator is closest to the variant's intent and should override outer stubs. |
 
 The asymmetry: `:hiccup` reads as **"outermost wraps innermost"**
 (story first, geometrically outside), while `:fx-override` reads as
