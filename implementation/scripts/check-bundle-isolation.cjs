@@ -363,6 +363,45 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // xyflow / @xyflow/react (rf2-uwvyj — Machines panel render-engine
+  // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
+  // `devDependency` of `implementation/package.json` consumed only by
+  // tools/causa/src/day8/re_frame2_causa/panels/machines/
+  // xyflow_wrapper.cljs. Counter (and the UIx + Helix counter
+  // variants) MUST NOT pull xyflow into their production bundles —
+  // Causa is dev-only (gated by `:devtools/preloads` in shadow-cljs),
+  // and a host that doesn't install Causa should never pay for the
+  // ~50-80KB gzipped xyflow render engine.
+  //
+  // Sentinels are CSS class strings that survive `:advanced` because
+  // they appear as string literals in xyflow's source. The class
+  // `react-flow__pane` is xyflow's canvas-background DOM class —
+  // unique to the package; a global grep returns hits only when the
+  // xyflow module body is in the bundle. `@xyflow/react` is the npm
+  // package name as it appears in re-export keys; same posture.
+  //
+  // A non-zero hit means `@xyflow/react` got dragged into a
+  // production bundle (most likely a `:require` slipped from a
+  // tools/causa/* ns into an implementation/* ns, or the wrapper got
+  // moved out of the Causa preload-gated tree). Tools/causa MUST NOT
+  // be reachable from `implementation/` per the
+  // bundle-isolation contract in `tools/README.md`.
+  {
+    name: 'xyflow',
+    internalSentinels: [
+      // xyflow's canvas-pane CSS class. Distinctive substring;
+      // survives Closure :advanced (literal strings are not renamed).
+      { source: '@xyflow/react canvas pane CSS class (react-flow__pane)',
+        sentinel: 'react-flow__pane' },
+      // xyflow's node-renderer CSS class. Second sentinel guards
+      // against a future xyflow rename of one but not the other.
+      { source: '@xyflow/react node renderer CSS class (react-flow__node)',
+        sentinel: 'react-flow__node' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------

@@ -74,6 +74,7 @@
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-causa.panels.machine-inspector-helpers :as h]
+            [day8.re-frame2-causa.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-causa.theme.tokens
              :as t
              :refer [tokens sans-stack mono-stack display-stack type-scale]]))
@@ -295,21 +296,41 @@
         "Machine definition is not introspectable. The chart cannot render."]
 
        :else
-       [machine-canvas/Chart
-        {:positioned             positioned
-         :machine-id             machine-id
-         ;; No focused-event lens on this tab — this is a
-         ;; spine-INDEPENDENT canvas browser. No from/to highlight,
-         ;; no after-rings overlay, no view-mode toggle (the toggle
-         ;; is a Runtime concept that belongs in the event-driven
-         ;; Machines Inspector tab).
-         :show-after-rings?      false
-         :show-view-mode-toggle? false
-         :on-state-click
-         (fn [path]
-           (rf/dispatch [:rf.causa.machines-canvas/state-clicked
-                         {:machine-id machine-id :path path}]
-                        {:frame :rf/causa}))}])]))
+       [:<>
+        [machine-canvas/Chart
+         {:positioned             positioned
+          :machine-id             machine-id
+          ;; No focused-event lens on this tab — this is a
+          ;; spine-INDEPENDENT canvas browser. No from/to highlight,
+          ;; no after-rings overlay, no view-mode toggle (the toggle
+          ;; is a Runtime concept that belongs in the event-driven
+          ;; Machines Inspector tab).
+          :show-after-rings?      false
+          :show-view-mode-toggle? false
+          :on-state-click
+          (fn [path]
+            (rf/dispatch [:rf.causa.machines-canvas/state-clicked
+                          {:machine-id machine-id :path path}]
+                         {:frame :rf/causa}))}]
+        ;; rf2-uwvyj — xyflow render (spec/021 §6.0 Path B). Sits
+        ;; alongside the legacy ELK SVG chart while the xyflow path
+        ;; proves out. Future bead can flip the legacy chart off; for
+        ;; now both surfaces render so the operator can compare.
+        [:div {:data-testid "rf-causa-machines-canvas-xyflow-section"
+               :style {:padding "8px 16px"
+                       :border-top (str "1px solid " (:border-subtle tokens))}}
+         [:div {:style {:color (:text-tertiary tokens)
+                        :font-family sans-stack
+                        :font-size "10px"
+                        :text-transform "uppercase"
+                        :letter-spacing "0.5px"
+                        :margin "0 0 6px 0"}}
+          "xyflow (Path B)"]
+         [topology-view/Topology
+          {:machine-id machine-id
+           :definition definition
+           :height     "280px"
+           :testid     "rf-causa-machines-canvas-xyflow"}]]])]))
 
 ;; ---- public Panel view --------------------------------------------------
 
