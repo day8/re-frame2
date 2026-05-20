@@ -74,7 +74,7 @@
       (:recovery ev)       (assoc :recovery (str (:recovery ev))))))
 
 (defn install-trace-listener! []
-  (trace-tooling/register-trace-cb! ::ssr-hydration-mismatch-listener
+  (trace-tooling/register-trace-listener! ::ssr-hydration-mismatch-listener
     (fn [ev]
       (let [op (:operation ev)]
         (when (and op

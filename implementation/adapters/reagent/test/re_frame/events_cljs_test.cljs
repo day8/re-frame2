@@ -24,7 +24,7 @@
   events and return the recording atom."
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-trace-cb! k
+    (trace-tooling/register-trace-listener! k
       (fn [ev]
         (when (and (= :warning (:op-type ev))
                    (= :rf.warning/interceptors-in-metadata-map (:operation ev)))
@@ -40,7 +40,7 @@
       (rf/reg-event-db :test.bbea.cljs/db-bad
         {:doc "Wrongly-shaped." :interceptors [noop-icpt]}
         (fn [db _] db))
-      (trace-tooling/remove-trace-cb! ::db-warn)
+      (trace-tooling/unregister-trace-listener! ::db-warn)
       (is (= 1 (count @warns)))
       (let [t (:tags (first @warns))]
         (is (= "reg-event-db" (:reg-fn t)))
@@ -51,7 +51,7 @@
     (rf/reg-event-fx :test.bbea.cljs/fx-bad
       {:interceptors [noop-icpt]}
       (fn [_ _] {:db {}}))
-    (trace-tooling/remove-trace-cb! ::fx-warn)
+    (trace-tooling/unregister-trace-listener! ::fx-warn)
     (is (= 1 (count @warns)))
     (is (= "reg-event-fx" (:reg-fn (:tags (first @warns)))))))
 
@@ -60,7 +60,7 @@
     (rf/reg-event-ctx :test.bbea.cljs/ctx-bad
       {:interceptors [noop-icpt]}
       (fn [ctx] ctx))
-    (trace-tooling/remove-trace-cb! ::ctx-warn)
+    (trace-tooling/unregister-trace-listener! ::ctx-warn)
     (is (= 1 (count @warns)))
     (is (= "reg-event-ctx" (:reg-fn (:tags (first @warns)))))))
 
@@ -77,5 +77,5 @@
       (rf/reg-event-db :test.bbea.cljs/quiet-3
         {:doc "metadata only, no positional interceptors"}
         (fn [db _] db))
-      (trace-tooling/remove-trace-cb! ::quiet)
+      (trace-tooling/unregister-trace-listener! ::quiet)
       (is (zero? (count @warns))))))

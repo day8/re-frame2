@@ -33,7 +33,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -202,7 +202,7 @@
    :routing/reset-counters!         1
    :http/clear-all-in-flight!       1
    :epoch/clear-history!            1
-   :epoch/clear-epoch-cbs!          1
+   :epoch/clear-epoch-listeners!          1
    :adapter/clear-warn-once-caches! 1})
 
 (deftest reset-runtime-fixture-fires-every-hook-the-documented-number-of-times

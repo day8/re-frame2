@@ -99,11 +99,11 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/register-trace-cb!` / `rf/remove-trace-cb!` / `rf/emit-trace-event!` | trace plumbing |
+| `rf/register-trace-listener!` / `rf/unregister-trace-listener!` / `rf/emit-trace-event!` | trace plumbing |
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch` | `(frame-id epoch-id)` → bool |
-| `rf/register-epoch-cb!` / `rf/remove-epoch-cb!` | per-drain-settle listener |
+| `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
 | `rf/reset-frame-db!` | `(frame-id new-db)` → bool — dev/pair-tool write |
 
 ## Interceptors, boot, introspection

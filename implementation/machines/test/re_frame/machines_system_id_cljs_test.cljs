@@ -119,10 +119,10 @@
           {:fx [[:rf.machine/spawn {:machine-id :w/proc
                                     :id-prefix  :w/proc
                                     :system-id  :primary}]]}))
-      (trace-tooling/register-trace-cb! ::col (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-listener! ::col (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [::spawn1])
       (rf/dispatch-sync [::spawn2])
-      (trace-tooling/remove-trace-cb! ::col)
+      (trace-tooling/unregister-trace-listener! ::col)
       ;; Second spawn rebinds.
       (is (= :w/proc#2 (rf/machine-by-system-id :primary))
           "second spawn rebound :primary to the new actor")

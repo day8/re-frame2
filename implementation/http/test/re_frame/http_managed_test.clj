@@ -437,7 +437,7 @@
           traces       (atom [])
           listener-id  ::kdwnq-trace]
       (try
-        (trace/register-trace-cb! listener-id
+        (trace/register-trace-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         ;; If a reply ever dispatches the test will catch it (silently
         ;; ignored handler) — but the load-bearing assertion is that no
@@ -468,7 +468,7 @@
               (str "no :rf.error/* trace fired for the abort no-op; saw: "
                    (mapv :operation errors))))
         (finally
-          (trace/remove-trace-cb! listener-id))))))
+          (trace/unregister-trace-listener! listener-id))))))
 
 ;; ---- 9. abort by request-id -----------------------------------------------
 
@@ -862,7 +862,7 @@
 ;; is NOT dispatched (semantic = the new request replaces the old one,
 ;; debounce-search mental model). The supersede event still emits to
 ;; the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`);
-;; consumers wanting abort telemetry subscribe via `register-trace-cb!`.
+;; consumers wanting abort telemetry subscribe via `register-trace-listener!`.
 
 (deftest jvm-supersede-does-not-fire-on-failure
   (testing "rf2-lxd3 — superseding a request with the same :request-id MUST NOT
@@ -925,7 +925,7 @@
 
 (deftest jvm-supersede-still-emits-trace-event
   (testing "rf2-lxd3 — supersede still emits :rf.http/aborted trace event with
-            :reason :request-id-superseded so register-trace-cb! consumers
+            :reason :request-id-superseded so register-trace-listener! consumers
             keep visibility"
     (let [latch    (CountDownLatch. 1)
           events   (atom [])
@@ -936,7 +936,7 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (trace/register-trace-cb! cb-id
+        (trace/register-trace-listener! cb-id
                                   (fn [ev]
                                     (when (= :rf.http/aborted (:operation ev))
                                       (swap! events conj ev))))
@@ -971,7 +971,7 @@
 
         (.countDown latch)
         (finally
-          (trace/remove-trace-cb! cb-id)
+          (trace/unregister-trace-listener! cb-id)
           (stop-server! srv))))))
 
 (deftest jvm-non-superseded-abort-still-fires-reply

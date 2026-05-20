@@ -468,7 +468,7 @@ A subsequent `:rf.http/managed-abort` fx with the same id (compared by `=`) canc
 {:fx [[:rf.http/managed-abort [:articles :load "hello"]]]}
 ```
 
-When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersede event still emits to the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`); consumers wanting abort telemetry subscribe via `register-trace-cb!` at `:warning` or `:error` severity. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
+When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersede event still emits to the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`); consumers wanting abort telemetry subscribe via `register-trace-listener!` at `:warning` or `:error` severity. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
 
 ### `:abort-signal` (external)
 

@@ -9,7 +9,7 @@
 ;;;;
 ;;;;   `preload/re_frame2_pair/runtime.cljs` is a CLJS-only file loaded
 ;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It depends on the live re-frame2 frame
-;;;;   registry (`re-frame.core/frame-ids`, `register-epoch-cb!`, ...)
+;;;;   registry (`re-frame.core/frame-ids`, `register-epoch-listener!`, ...)
 ;;;;   so it can't run under bb directly. The real shadow-cljs test
 ;;;;   build (planned per `docs/TESTING.md` §1) will exercise the
 ;;;;   `.cljs` source in place under Node — that's the canonical home

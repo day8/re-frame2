@@ -32,12 +32,12 @@
 (defn- capture-error-traces []
   (let [captured (atom [])
         cb-id    (gensym "snapshot-compat-test")]
-    (trace/register-trace-cb! cb-id
+    (trace/register-trace-listener! cb-id
                               (fn [ev]
                                 (when (= :error (:op-type ev))
                                   (swap! captured conj ev))))
     {:captured captured
-     :stop!    #(trace/remove-trace-cb! cb-id)}))
+     :stop!    #(trace/unregister-trace-listener! cb-id)}))
 
 ;; ---- (3) state-not-in-definition -----------------------------------------
 

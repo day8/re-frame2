@@ -47,7 +47,7 @@
   (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
     (clear!))
   (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-trace-cbs!)
+  (trace-tooling/clear-trace-listeners!)
   (substrate-adapter/install-adapter! uix-adapter/adapter)
   (frame/ensure-default-frame!))
 

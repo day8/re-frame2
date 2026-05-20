@@ -4,7 +4,7 @@ Causa's **trace bus** is the data plane every panel reads from. It is a
 ring buffer of `:rf/trace-event` records that Causa maintains alongside
 the framework's own [retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only),
 fed by a collector registered against the framework's
-[`register-trace-cb!`](../../../spec/009-Instrumentation.md#user-side-listener-registration)
+[`register-trace-listener!`](../../../spec/009-Instrumentation.md#user-side-listener-registration)
 listener API.
 
 This doc defines the bus's substrate normatively: what it collects,
@@ -42,7 +42,7 @@ collector registered as the trace-bus key `:rf.causa/trace-collector`.
 ## Inputs
 
 The collector subscribes to **every** `:rf/trace-event` the framework
-emits via `register-trace-cb!` (per
+emits via `register-trace-listener!` (per
 [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)).
 No filter is applied at the listener boundary; filtering is consumer-side
 (see [§Consumer contract](#consumer-contract) below).
@@ -235,7 +235,7 @@ the same UX without the layering hazards.
 
 - **Eventually-receiving every emitted event.** The buffer is
   lossy-on-overflow; a panel that mounts mid-storm sees only the
-  most-recent N. The framework's `register-trace-cb!` is the
+  most-recent N. The framework's `register-trace-listener!` is the
   zero-loss alternative; the trace bus is the late-attach affordance.
 - **Causa-side filtering of `:sensitive?` events being reversible
   from the buffer.** Once dropped, the event is gone; flipping
@@ -345,7 +345,7 @@ enumerates only the keys that affect the bus's collector path.
 
 The collector is registered at preload time (per
 [`API.md`](./API.md) §Installation API), *before* any frame mounts. The
-framework's `register-trace-cb!` listener API delivers every event
+framework's `register-trace-listener!` listener API delivers every event
 emitted after registration; events emitted between framework boot
 and Causa preload (registration-time emits inside the
 implementation's own boot path) MAY be missed. Panels MUST tolerate
@@ -459,7 +459,7 @@ Trace → "Show wall-clock axis."
 ## Cross-references
 
 - [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)
-  — the upstream `register-trace-cb!` API the collector consumes.
+  — the upstream `register-trace-listener!` API the collector consumes.
 - [Spec 009 §Retain-N trace ring buffer](../../../spec/009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)
   — the framework's own ring buffer the Causa bus runs alongside.
 - [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary)

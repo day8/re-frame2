@@ -42,7 +42,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -54,9 +54,9 @@
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/remove-trace-cb! ::rec)))
+         (finally (rf/unregister-trace-listener! ::rec)))
     @seen))
 
 (defn- events-of [evs op]
@@ -186,7 +186,7 @@
   (testing "trace events emitted OUTSIDE any handler's scope (registration
    time, frame creation) carry no :rf.trace/trigger-handler"
     (let [seen (atom [])]
-      (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event-db :rf2-lf84g/reg-time-event (fn [db _] db))
         (let [reg-traces (filter #(= :rf.registry/handler-registered (:operation %))
@@ -197,7 +197,7 @@
                 (str "out-of-band " (:operation ev)
                      " must omit :rf.trace/trigger-handler"))))
         (finally
-          (rf/remove-trace-cb! ::rec))))))
+          (rf/unregister-trace-listener! ::rec))))))
 
 ;; ---- :sub/run carries the sub's registration coord (rf2-npm2p) ------------
 ;;

@@ -15,7 +15,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (elision/clear-warning-cache!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.elision :reload)
@@ -26,7 +26,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (rf/register-trace-cb! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (deftest walker-noop-on-small-values
@@ -78,7 +78,7 @@
       (is (pos-int? (get-in (first warnings) [:tags :bytes])))
       (is (= "Add `{:large? true}` to the schema slot for this path."
              (get-in (first warnings) [:tags :hint]))))
-    (rf/remove-trace-cb! :elision-test/unschema'd)))
+    (rf/unregister-trace-listener! :elision-test/unschema'd)))
 
 (deftest unschema'd-large-warning-is-once-per-path
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
@@ -89,7 +89,7 @@
     (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
                                 (:operation %))
                             @traces))))
-    (rf/remove-trace-cb! :elision-test/once)))
+    (rf/unregister-trace-listener! :elision-test/once)))
 
 (deftest schema-sensitive-path-redacts
   (rf/reg-app-schema [:auth]

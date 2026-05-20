@@ -39,7 +39,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
@@ -53,12 +53,12 @@
   events."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (rf/remove-trace-cb! ::rec)))))
+        (rf/unregister-trace-listener! ::rec)))))
 
 (defn- events-of [evs predicate]
   (filter predicate evs))
@@ -149,7 +149,7 @@
     ;; dispatch fires — `*current-dispatch-id*` is unbound here, so the
     ;; trace event has no :dispatch-id stamped.
     (let [seen (atom [])]
-      (rf/register-trace-cb! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-trace-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-frame :test/outside {})
         ;; reg-event-db / reg-fx emit :rf.registry/handler-registered traces
@@ -164,7 +164,7 @@
                 (str "out-of-band event " (:operation ev)
                      " must NOT carry a :dispatch-id"))))
         (finally
-          (rf/remove-trace-cb! ::rec))))))
+          (rf/unregister-trace-listener! ::rec))))))
 
 (deftest dispatch-id-is-fresh-across-cascade-boundaries
   (testing "two sequential dispatches get distinct :dispatch-ids on every event in their respective cascades"

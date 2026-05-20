@@ -24,7 +24,7 @@
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
             ;; `:epoch/epoch-history`, `:epoch/restore-epoch`,
-            ;; `:epoch/register-epoch-cb!`, `:epoch/remove-epoch-cb!`)
+            ;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`)
             ;; fire before the epoch-history-cljs / restore-* tests
             ;; below reach into the late-bind table at call time.
             [re-frame.epoch]
@@ -289,11 +289,11 @@
         (count (.something items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (trace-tooling/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v)
             "the sub returns nil under :replaced-with-default recovery"))
-      (trace-tooling/remove-trace-cb! ::sub-err)
+      (trace-tooling/unregister-trace-listener! ::sub-err)
       (is (some (fn [ev]
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
@@ -451,14 +451,14 @@
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (trace-tooling/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
+      (trace-tooling/register-trace-listener! ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
       (rf/reg-event-fx :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (trace-tooling/remove-trace-cb! ::dsih)
+      (trace-tooling/unregister-trace-listener! ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))))
@@ -504,22 +504,22 @@
 ;; verifies the same machinery loads + records under the Reagent substrate.
 
 (deftest epoch-history-cljs
-  (testing "drain-settle commits a record; register-epoch-cb! fires per-cascade"
+  (testing "drain-settle commits a record; register-epoch-listener! fires per-cascade"
     (rf/reg-frame :epoch/cljs {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
     (let [seen (atom [])]
-      (rf/register-epoch-cb! ::w (fn [r] (swap! seen conj r)))
+      (rf/register-epoch-listener! ::w (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :epoch/cljs})
       (rf/dispatch-sync [:inc]  {:frame :epoch/cljs})
-      (rf/remove-epoch-cb! ::w)
+      (rf/unregister-epoch-listener! ::w)
 
       (let [history (rf/epoch-history :epoch/cljs)]
         (is (= 2 (count history)) "two cascades, two records")
         (is (= [:seed :inc] (mapv :event-id history)))
         (is (= {:n 1} (:db-after (last history))))
-        (is (= 2 (count @seen)) "register-epoch-cb! fired per-cascade")))))
+        (is (= 2 (count @seen)) "register-epoch-listener! fired per-cascade")))))
 
 ;; ---- frame-provider (rf2-sixo) -------------------------------------------
 ;;

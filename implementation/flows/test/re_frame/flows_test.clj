@@ -991,7 +991,7 @@
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
   (testing "Per rf2-v5ttb: :rf.registry/handler-replaced :different-fn? is true on a real :output swap, false on identity reload"
     (let [captured (atom [])]
-      (re-frame.trace/register-trace-cb!
+      (re-frame.trace/register-trace-listener!
         ::handler-replaced-recorder
         (fn [ev]
           (when (= :rf.registry/handler-replaced (:operation ev))
@@ -1022,7 +1022,7 @@
           (is (true? (-> @captured first :tags :different-fn?))
               ":different-fn? true on real body change (rf2-v5ttb fix)"))
         (finally
-          (re-frame.trace/remove-trace-cb! ::handler-replaced-recorder))))))
+          (re-frame.trace/unregister-trace-listener! ::handler-replaced-recorder))))))
 
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"

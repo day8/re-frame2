@@ -54,9 +54,9 @@
 (defn- with-trace-capture
   [coll-atom body-fn]
   (let [k (str (gensym "ssr-writer-trace-cb"))]
-    (trace/register-trace-cb! k (fn [ev] (swap! coll-atom conj ev)))
+    (trace/register-trace-listener! k (fn [ev] (swap! coll-atom conj ev)))
     (try (body-fn)
-         (finally (trace/remove-trace-cb! k)))))
+         (finally (trace/unregister-trace-listener! k)))))
 
 ;; ===========================================================================
 ;; The trace emit itself — the gap streaming_robustness_test left open.

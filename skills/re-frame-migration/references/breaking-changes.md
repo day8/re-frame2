@@ -30,7 +30,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | User registrations under `:rf/*`, `:rf.machine/*`, `:rf.route/*`, `:rf.nav/*` ... | **M-10** | B | Reserved namespace collision. Rename to the project's own feature prefix unless deliberately overriding a documented extension point. |
 | Plain Reagent fns referenced inside `(rf/frame-provider {:frame <non-default>} ...)` | **M-11** | B | Plain fns silently route subscribe/dispatch to `:rf/default`. Convert to `reg-view` *or* use `(rf/dispatcher)` / `(rf/subscriber)` *or* accept the default-frame routing. |
 | Tests asserting on exact render counts | **M-12** | B | The new sub-cache changes counts (usually fewer renders). Re-baseline test expectations. |
-| `(rf/reg-event-error-handler ...)` | **M-13** | B | Moved to frame-level `:on-error` (per-frame policy) or `register-trace-cb!` (cross-frame observer). Cross-references M-26. |
+| `(rf/reg-event-error-handler ...)` | **M-13** | B | Moved to frame-level `:on-error` (per-frame policy) or `register-trace-listener!` (cross-frame observer). Cross-references M-26. |
 | Adopting Spec 012 routing without `:rf.route/not-found` registered | **M-14** | B | Add `(rf/reg-route :rf.route/not-found ...)` + a not-found view. N/A if keeping a third-party router. |
 | `(reset! re-frame.db/app-db {...})` at top level (seeding) | **M-15** | B | Seed via `(rf/reg-frame :rf/default {:on-create [[:app/seed initial]]})`. Pairs with M-1's private-ns rewrite. |
 | `^:flush-dom` event-vector metadata | **M-16** | A | Replace with `:dispatch-later {:ms 0 :dispatch <event-vec>}`. |

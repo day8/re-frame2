@@ -109,13 +109,13 @@
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
-        (trace-tooling/register-trace-cb! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
+        (trace-tooling/register-trace-listener! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:api/strict "not-an-int"])
-        (trace-tooling/remove-trace-cb! ::prod-no-trace)
+        (trace-tooling/unregister-trace-listener! ::prod-no-trace)
         (is (= 0 @calls)
             "handler skipped (boundary did its job)")
         ;; Under `:advanced` + `goog.DEBUG=false` the trace surface is
-        ;; entirely elided — register-trace-cb! / emit-* bodies all
+        ;; entirely elided — register-trace-listener! / emit-* bodies all
         ;; live inside `(when interop/debug-enabled? ...)`. No traces
         ;; reach the callback by design.
         (is (empty? @traces)

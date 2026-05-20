@@ -1,6 +1,6 @@
 # O-18. Security + operational logging sweep on the observability interceptor surface
 
-> **Type B** (semantic flag — every hit needs operator judgement). The agent sweeps the codebase for hand-rolled observability interceptors (audit logging, telemetry forwarders, error projectors, post-event recorders) registered against the v1 surfaces ([M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) `reg-event-error-handler`, [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) `reg-global-interceptor`, [M-19](README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) `add-post-event-callback`, bespoke `reg-event-fx` wrappers that emit telemetry from inside handler bodies, ajax-cljs response-side `:interceptors`), classifies each by **whether the payload it ships off-box may carry sensitive data** and **whether the slot it walks may carry oversize values**, and produces a per-site rewrite proposal that lands the interceptor on the canonical v2 surface ([`register-trace-cb!`](../../spec/009-Instrumentation.md#the-listener-api), `register-epoch-cb!`, or per-frame `:interceptors`) with the framework's sensitive / large defense composed by default.
+> **Type B** (semantic flag — every hit needs operator judgement). The agent sweeps the codebase for hand-rolled observability interceptors (audit logging, telemetry forwarders, error projectors, post-event recorders) registered against the v1 surfaces ([M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) `reg-event-error-handler`, [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) `reg-global-interceptor`, [M-19](README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) `add-post-event-callback`, bespoke `reg-event-fx` wrappers that emit telemetry from inside handler bodies, ajax-cljs response-side `:interceptors`), classifies each by **whether the payload it ships off-box may carry sensitive data** and **whether the slot it walks may carry oversize values**, and produces a per-site rewrite proposal that lands the interceptor on the canonical v2 surface ([`register-trace-listener!`](../../spec/009-Instrumentation.md#the-listener-api), `register-epoch-listener!`, or per-frame `:interceptors`) with the framework's sensitive / large defense composed by default.
 
 > **Cross-references.** Required-rule [M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) drops `reg-event-error-handler`; this rule covers the broader sweep that catches observers M-13 misses. Required-rule [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) drops `reg-global-interceptor`; this rule sweeps the audit-shaped subset of M-17 hits to the trace surface rather than the per-frame `:interceptors` vector. The [API.md §wire-elision walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) is the framework primitive every off-box forwarder this rule produces routes through; [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) is the threat-model context.
 
@@ -8,13 +8,13 @@
 
 ## Why this is its own rule
 
-[M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision — "this `reg-event-error-handler` was an observer; convert to `register-trace-cb!`." That's the right shape for the *mechanical* part. What M-13 / M-17 leave on the floor is the **security and operational consequence** of the conversion: an audit-logger that worked in v1 by hooking the dispatch envelope sees the whole event vector, which may carry passwords / tokens / PII; the v2-canonical `register-trace-cb!` listener receives the same event under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, an external SIEM, a local log file). Per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling), the framework defends with `:sensitive?` declarations + the wire-elision walker, but the defense is **declarative** — if the v1 site never declared its observability surface, the v2 port silently leaks the same payloads to a wider audience.
+[M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision — "this `reg-event-error-handler` was an observer; convert to `register-trace-listener!`." That's the right shape for the *mechanical* part. What M-13 / M-17 leave on the floor is the **security and operational consequence** of the conversion: an audit-logger that worked in v1 by hooking the dispatch envelope sees the whole event vector, which may carry passwords / tokens / PII; the v2-canonical `register-trace-listener!` listener receives the same event under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, an external SIEM, a local log file). Per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling), the framework defends with `:sensitive?` declarations + the wire-elision walker, but the defense is **declarative** — if the v1 site never declared its observability surface, the v2 port silently leaks the same payloads to a wider audience.
 
 This rule is the **dedicated sweep** that turns the post-M-13 / post-M-17 observer set into a v2-canonical set with privacy + oversize defenses composed at every egress. It has four sections:
 
 1. [§Discovery](#1-discovery) — how to find every observability site that needs review.
 2. [§Sensitive-key checklist](#2-sensitive-key-checklist) — the closed set of payload-key substrings that signal sensitive content, plus the recursive-walk discipline.
-3. [§Size-cap pattern + register-trace-cb! for dropped count](#3-size-cap-pattern--register-trace-cb-for-dropped-count) — how to bound listener egress and surface a dropped-count signal so the operator sees what was filtered.
+3. [§Size-cap pattern + register-trace-listener! for dropped count](#3-size-cap-pattern--register-trace-listener-for-dropped-count) — how to bound listener egress and surface a dropped-count signal so the operator sees what was filtered.
 4. [§Reference mediation interceptor](#4-reference-mediation-interceptor) — the canonical "redact + size-cap + forward" interceptor body that every site is rewritten to.
 
 ## 1. Discovery
@@ -42,8 +42,8 @@ The agent presents every hit to the operator with a one-line classification:
 
 - **observer (off-box egress)** — body forwards a payload over an HTTP / SDK boundary (Sentry, Honeybadger, Rollbar, Datadog, custom telemetry endpoint). **High-risk for sensitive data.** Apply the full pattern: sensitive redaction + size cap + dropped-count signal.
 - **observer (local log)** — body writes to console / local log file / dev panel. **Lower-risk** (local trust boundary) but still benefits from the size cap to avoid log bloat; sensitive redaction recommended for dev environments shared with other operators.
-- **behaviour-modifying interceptor** — body mutates `app-db` / dispatches an event / changes the effect map. **Not an observability site** — port to per-frame `:interceptors` per [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors), not to `register-trace-cb!`. The two patterns are structurally different: observers must not change runtime behaviour; behaviour-modifying interceptors must.
-- **misclassified telemetry-from-handler-body** — the v1 author inlined telemetry inside a `reg-event-fx` body because the v1 surface didn't have a cross-cutting trace listener. **Lift to the trace surface.** The handler body returns the domain effect map; a `register-trace-cb!` listener picks up the trace event and forwards from there. Removing the inline telemetry shrinks every handler that has it.
+- **behaviour-modifying interceptor** — body mutates `app-db` / dispatches an event / changes the effect map. **Not an observability site** — port to per-frame `:interceptors` per [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors), not to `register-trace-listener!`. The two patterns are structurally different: observers must not change runtime behaviour; behaviour-modifying interceptors must.
+- **misclassified telemetry-from-handler-body** — the v1 author inlined telemetry inside a `reg-event-fx` body because the v1 surface didn't have a cross-cutting trace listener. **Lift to the trace surface.** The handler body returns the domain effect map; a `register-trace-listener!` listener picks up the trace event and forwards from there. Removing the inline telemetry shrinks every handler that has it.
 
 The classification drives the rewrite path. Sites flagged "observer (off-box egress)" or "observer (local log)" are the substantive payload of this rule.
 
@@ -116,7 +116,7 @@ For every sensitive key the agent finds in an observability payload that **does*
 
 The schema-declaration path is **strictly better** than per-listener explicit drops: the declaration covers every consumer (trace listeners, error monitors, MCP servers, hosted dashboards) uniformly, and the framework's always-on error / event substrates honour it before fan-out (per [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The agent flags every schema-eligible key in the report and surfaces "consider adding `{:sensitive? true}` on `<schema-id>` slot `<path>`" as a separate operator decision per slot — the rewrite of the observability site is independent of the schema annotation, but the schema annotation eliminates the need for the explicit drop on every future consumer.
 
-## 3. Size-cap pattern + `register-trace-cb!` for dropped count
+## 3. Size-cap pattern + `register-trace-listener!` for dropped count
 
 Observability payloads can be unboundedly large — a `:db/state-loaded` event carrying the full `app-db` slice, an HTTP failure carrying a 5 MB response body, a `:render/completed` event carrying every rendered view's props. Listener bodies that forward such payloads to off-box destinations (Sentry / log shippers / hosted dashboards) cause memory pressure, network bloat, and rate-limited destinations rejecting batches. The framework defends with the `:large?` schema declaration + the wire-elision walker (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces)); this rule's rewrite composes the defense at every listener body produced.
 
@@ -147,12 +147,12 @@ Every listener body that walks a payload bounded by user input or by app-db size
 
 `16384` bytes is the framework default per [API.md §wire-elision walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) configure key; the operator picks a per-listener cap that matches the destination's payload budget (Sentry's 100KB event-payload soft cap suggests ~32-64KB per listener; a self-hosted log file can be larger). The default is the right floor for production telemetry; specialised listeners (a dev-only `console.log` panel reading the trace buffer) can opt for a higher cap.
 
-### Surfacing the dropped count via `register-trace-cb!`
+### Surfacing the dropped count via `register-trace-listener!`
 
 The cap silently elides — but silent elision is the wrong default for operational observability. Operators need to see that the listener filtered SOMETHING — otherwise a misconfigured schema (forgot `{:sensitive? true}` on a new field) leads to "the dashboard shows nothing" with no diagnostic signal. The pattern is to **emit a counter trace event** every time the listener drops slots:
 
 ```clojure
-(rf/register-trace-cb! :my-app/audit-forwarder
+(rf/register-trace-listener! :my-app/audit-forwarder
   (fn [trace-event]
     (when (and (#{:event/dispatched :event/handler-completed} (:operation trace-event))
                (not (:sensitive? trace-event)))                      ;; default-drop sensitive cascades
@@ -187,7 +187,7 @@ The framework already drops `:sensitive? true` events on the off-box-forwarder d
 
 The canonical "redact + size-cap + forward + drop-count" body — the agent ports every classified-as-observer hit to one of these two shapes depending on what the v1 site did:
 
-### Shape A — `register-trace-cb!` for cross-frame observers (the M-13 / M-17 cross-frame-observer replacement)
+### Shape A — `register-trace-listener!` for cross-frame observers (the M-13 / M-17 cross-frame-observer replacement)
 
 ```clojure
 (ns my-app.observability
@@ -233,7 +233,7 @@ The canonical "redact + size-cap + forward + drop-count" body — the agent port
 
 ;; --- The trace listener registration (the M-13 / M-17 replacement) ---
 
-(rf/register-trace-cb! :my-app/audit-forwarder
+(rf/register-trace-listener! :my-app/audit-forwarder
   (fn audit-forwarder [trace-event]
     (when (and (= :event/dispatched (:operation trace-event))         ;; one event per dispatch
                (not (:sensitive? trace-event)))                       ;; honour framework default-drop
@@ -268,12 +268,12 @@ The canonical "redact + size-cap + forward + drop-count" body — the agent port
 
 This is the **structural rewrite target** for every "observer-shaped `reg-event-error-handler` / `reg-global-interceptor` / `add-post-event-callback` / handler-body telemetry" hit from §1. The framework defaults compose (the `:sensitive?` guard, the off-box-include defaults on the walker); the floor checklist composes (`redact-sensitive-floor`); the size cap composes (`cap-or-elide`); the dropped-count signal composes (the `[:audit/dropped-counter-inc ...]` dispatch). The body is the **minimum baseline** — every observability site lands here or better; the agent surfaces the diff between the v1 site's body and this shape and asks the operator to confirm any deviations (a destination-specific SDK call, a custom batching layer, an alternative redaction policy).
 
-### Shape B — `register-epoch-cb!` for assembled-epoch observers
+### Shape B — `register-epoch-listener!` for assembled-epoch observers
 
-When the v1 observer assembled a per-cascade summary (an audit-log entry per drain, an error-projection per failed cascade, a post-mortem record per top-level event), the v2-canonical surface is `register-epoch-cb!` rather than `register-trace-cb!` — the framework hands the listener one assembled `:rf/epoch-record` per drain-settle with the structured `:sub-runs` / `:renders` / `:effects` projections (per [009 §`register-epoch-cb!` — assembled-epoch listener](../../spec/009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). The mediation body is **structurally similar** to Shape A but operates on the epoch record:
+When the v1 observer assembled a per-cascade summary (an audit-log entry per drain, an error-projection per failed cascade, a post-mortem record per top-level event), the v2-canonical surface is `register-epoch-listener!` rather than `register-trace-listener!` — the framework hands the listener one assembled `:rf/epoch-record` per drain-settle with the structured `:sub-runs` / `:renders` / `:effects` projections (per [009 §`register-epoch-listener!` — assembled-epoch listener](../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The mediation body is **structurally similar** to Shape A but operates on the epoch record:
 
 ```clojure
-(rf/register-epoch-cb! :my-app/post-mortem-shipper
+(rf/register-epoch-listener! :my-app/post-mortem-shipper
   (fn epoch-shipper [epoch-record]
     (when-not (:rf.epoch/sensitive? epoch-record)                  ;; honour epoch-level rollup
       (let [[bounded dropped] (cap-or-elide epoch-record
@@ -314,4 +314,4 @@ When the agent applies this rule:
 - The "schema-annotation follow-ons" section lists every sensitive-key + schema-slot pair the agent found, with a per-slot proposal of `{:sensitive? true}` and the rationale (which observability site walked it).
 - The "size-cap configuration" section lists each listener's chosen `threshold-bytes` and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener.
 - Any hit the agent could not classify ("the body does too much / does both observer and behaviour-modifying work") is listed as an escalation, with the recommended path (split the body, port halves to different surfaces).
-- The "framework defaults" section reminds the operator that the always-on substrate (`:on-error`, event-emit listener, error-emit listener — per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production)) survives production builds; observability sites that need a production-survivable path go through those substrates, not through `register-trace-cb!` (which elides on `:advanced + goog.DEBUG=false`).
+- The "framework defaults" section reminds the operator that the always-on substrate (`:on-error`, event-emit listener, error-emit listener — per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production)) survives production builds; observability sites that need a production-survivable path go through those substrates, not through `register-trace-listener!` (which elides on `:advanced + goog.DEBUG=false`).

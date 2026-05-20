@@ -325,7 +325,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (trace/register-trace-cb! [fixture-id]
+    (trace/register-trace-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -635,7 +635,7 @@
                 {:misses misses
                  :html   html
                  :passed? (empty? misses)}))]
-        (trace/clear-trace-cbs!)
+        (trace/clear-trace-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db) (submap? expected-db final-db))
                                  (every? #(= (:expected %) (:actual %)) sub-checks)

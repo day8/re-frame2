@@ -21,7 +21,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             ;; rf2-qwm0a — load the tooling sibling so the late-bind
-            ;; hooks behind `trace/clear-trace-cbs!` / `rf/trace-buffer`
+            ;; hooks behind `trace/clear-trace-listeners!` / `rf/trace-buffer`
             ;; / `rf/configure :trace-buffer` / etc. are registered.
             [re-frame.trace.tooling]))
 
@@ -32,7 +32,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/clear-trace-buffer!)
   ;; Restore default depth between tests so a depth-tweaking test does
   ;; not bleed configuration into the next.

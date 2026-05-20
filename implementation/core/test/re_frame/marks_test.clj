@@ -25,7 +25,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace-tooling/clear-trace-cbs!)
+  (trace-tooling/clear-trace-listeners!)
   (marks/clear-marks!)
   (marks/clear-sub-output-marks!)
   (elision/clear-warning-cache!)
@@ -36,7 +36,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (trace-tooling/register-trace-cb! id (fn [ev] (swap! acc conj ev)))
+    (trace-tooling/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- reg-marks API ------------------------------------------------------
@@ -148,7 +148,7 @@
       (let [ev (-> dispatched first :tags :event)]
         (is (= :rf/redacted (get-in ev [1 :password])))
         (is (= "a@b.c" (get-in ev [1 :email])))))
-    (trace-tooling/remove-trace-cb! :evt-redact)))
+    (trace-tooling/unregister-trace-listener! :evt-redact)))
 
 (deftest fx-args-sensitive-path-redacts-in-trace
   (rf/reg-fx :myfx
@@ -164,7 +164,7 @@
       (let [args (-> handled first :tags :fx-args)]
         (is (= :rf/redacted (get-in args [:headers :authorization])))
         (is (= "ok" (get-in args [:headers :other])))))
-    (trace-tooling/remove-trace-cb! :fx-redact)))
+    (trace-tooling/unregister-trace-listener! :fx-redact)))
 
 (deftest large-path-emits-marker
   (rf/reg-event-fx :evt
@@ -180,7 +180,7 @@
       (is (= "small" (get-in ev [1 :other])))
       (is (= [:blob] (get-in slot [:rf.size/large-elided :path])))
       (is (pos-int? (get-in slot [:rf.size/large-elided :bytes]))))
-    (trace-tooling/remove-trace-cb! :large-marker)))
+    (trace-tooling/unregister-trace-listener! :large-marker)))
 
 (deftest empty-path-redacts-whole-arg
   (rf/reg-event-fx :evt
@@ -191,7 +191,7 @@
     (let [ev (-> (filter #(= :event/dispatched (:operation %)) @traces)
                  first :tags :event)]
       (is (= :rf/redacted (nth ev 1))))
-    (trace-tooling/remove-trace-cb! :whole)))
+    (trace-tooling/unregister-trace-listener! :whole)))
 
 ;; ---- redact-with-paths primitive ---------------------------------------
 

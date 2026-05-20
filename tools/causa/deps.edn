@@ -39,7 +39,7 @@
          ;; not an optional add-on. The Causa preload `:require`s
          ;; `re-frame.epoch` (see preload.cljs §rf2-1barg) so the Time
          ;; Travel scrubber has an epoch-history seed table to read from
-         ;; `rf/epoch-history` / `rf/register-epoch-cb!`.
+         ;; `rf/epoch-history` / `rf/register-epoch-listener!`.
          ;; Without the artefact on the classpath the preload fails to
          ;; compile in any downstream consumer build that doesn't
          ;; coincidentally already declare `day8/re-frame2-epoch` — a

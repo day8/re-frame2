@@ -105,7 +105,7 @@ The framework grew capabilities since v1 that fundamentally change what's debugg
 | **Epoch history + `:rf/epoch-record` projections** ([Tool-Pair](../spec/Tool-Pair.md)) | First-class time-travel; per-frame epoch scrubber; pre-folded `:sub-runs` / `:renders` / `:effects` so the tool doesn't refold the raw trace. |
 | **`reset-frame-db!`** ([Tool-Pair §Pair-tool writes](../spec/Tool-Pair.md#pair-tool-writes--state-injection)) | "Edit app-db live" affordance — type a JSON value into the panel, the runtime takes it. Records a synthetic epoch so the change is undoable. |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
-| **`register-epoch-cb!`** | The assembled-per-cascade listener is what Causa routes off; cheaper than raw-stream re-folding. |
+| **`register-epoch-listener!`** | The assembled-per-cascade listener is what Causa routes off; cheaper than raw-stream re-folding. |
 | **Tool-Pair surface** | Causa *and* re-frame-pair *and* Story consume the same primitives. No 10x dependency from the agent tools. Causa is a peer, not a parent. |
 | **Schemas (Malli)** ([010](../spec/010-Schemas.md)) | Real-time schema-violation feed with five named recovery modes; "the schema for this path is X" tooltip on every app-db key; live `app-schemas-digest` shown so devs notice schema drift between dev and SSR. |
 | **SSR + hydration** ([011](../spec/011-SSR.md)) | Hydration-mismatch debugger — server render tree vs client render tree, structural diff, click-to-source on the divergent node. The `:rf.ssr/hydration-mismatch` trace is the entry point. |
@@ -290,7 +290,7 @@ The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public regis
 
 | Panel | What it does | Data source | Key affordances |
 |---|---|---|---|
-| **Causality graph** | The hero view (§4.1). Visualises dispatch cascades as a directed graph. | `register-epoch-cb!` for new edges; `(rf/trace-buffer {:op-type :event})` for backfill. | Click-node-to-detail; drag-time-window; find-root-cause; filter-by-`:origin`. |
+| **Causality graph** | The hero view (§4.1). Visualises dispatch cascades as a directed graph. | `register-epoch-listener!` for new edges; `(rf/trace-buffer {:op-type :event})` for backfill. | Click-node-to-detail; drag-time-window; find-root-cause; filter-by-`:origin`. |
 | **Causality strip** | The horizontal flat version of the causality graph, pinned at the top of every panel. | Same as above. | Click an event pill → jump to the full causality graph at that node. |
 | **Event log** | The canonical 10x v1 panel. Per-frame list of dispatched events, oldest-first or newest-first. | `(rf/trace-buffer {:op-type :event :frame current-frame})`. | Click → expand to show cofx, fx, db-diff. Group-by-cascade. Right-click → "re-dispatch." |
 | **App-db inspector** | The current value of `app-db`, with diff highlight (§4.5). Read-only. | `(rf/get-frame-db frame-id)` + epoch's `:db-before`. | Collapse-to-changed; bookmark a path. |
@@ -430,7 +430,7 @@ The hard rule: **opening Causa must not change observable INP** on a typical app
 {:builds {:app {:devtools {:preloads [day8.re-frame2-causa.preload]}}}}
 ```
 
-That's it. The preload registers under `register-trace-cb!` and `register-epoch-cb!`, mounts a hidden DOM root, listens for `Ctrl+Shift+X`. No code change in the app itself.
+That's it. The preload registers under `register-trace-listener!` and `register-epoch-listener!`, mounts a hidden DOM root, listens for `Ctrl+Shift+X`. No code change in the app itself.
 
 Disabling: remove the `:preloads` entry, or set `:closure-defines {day8.re-frame2-causa.config/enabled? false}` to force-disable even in dev.
 
@@ -468,7 +468,7 @@ The contract: `machines-viz` exports a `MachineChart` component that accepts a m
 re-frame2-pair is AI-driven (an LLM integration via nREPL). Causa is human-driven with an embedded AI co-pilot. **Where they meet:**
 
 - Both consume the same Spec 009 / Tool-Pair surfaces. Neither depends on the other.
-- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/registrations ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-cb!`. The difference is the user surface: Causa lives in the browser; re-frame2-pair lives in the editor / REPL.
+- The **AI co-pilot panel in Causa** (§4.3) uses the same primitives as the pair tool — `(rf/registrations ...)`, `(rf/epoch-history ...)`, `(rf/get-frame-db ...)`, `register-trace-listener!`. The difference is the user surface: Causa lives in the browser; re-frame2-pair lives in the editor / REPL.
 - A future enhancement: Causa's co-pilot delegates to a running re-frame2-pair nREPL session if one is detected. The co-pilot becomes a thin chat shell over the pair tool's full capability. v2 commitment (per §10.8, still open), not v1.
 
 ### MCP surface

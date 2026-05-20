@@ -4,7 +4,7 @@
 ;; Per Tool-Pair §Time-travel and Spec-Schemas §`:rf/epoch-record` the
 ;; epoch surface — the per-frame `:rf/epoch-record` ring buffer
 ;; (`epoch-history`), the `(rf/configure :epoch-history {:depth N})`
-;; knob, the `register-epoch-cb!` / `remove-epoch-cb!` listener API, the
+;; knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the
 ;; `restore-epoch` rewind with its six documented failure modes
 ;; (`:rf.epoch/restore-unknown-epoch`,
 ;; `:rf.epoch/restore-schema-mismatch`,
@@ -38,21 +38,21 @@
 ;;           day8/re-frame2-epoch {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.epoch` in any namespace that calls
-;; `rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-cb!`,
-;; `rf/remove-epoch-cb!`, or `(rf/configure :epoch-history ...)` —
+;; `rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-listener!`,
+;; `rf/unregister-epoch-listener!`, or `(rf/configure :epoch-history ...)` —
 ;; loading the namespace publishes the three late-bind hooks
 ;; (`:epoch/settle!`, `:epoch/discard-buffer!`,
 ;; `:epoch/capture-event`) that the router and the trace surface look up
 ;; at drain-settle and per-trace emit time, plus the four query / control hooks
 ;; (`:epoch/epoch-history`, `:epoch/restore-epoch`,
-;; `:epoch/register-epoch-cb!`, `:epoch/remove-epoch-cb!`,
+;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`,
 ;; `:epoch/configure!`) that core's re-exports late-bind to.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to epoch (`re-frame.core`'s `epoch-history` /
-;; `restore-epoch` / `register-epoch-cb!` / `remove-epoch-cb!` re-exports
+;; `restore-epoch` / `register-epoch-listener!` / `unregister-epoch-listener!` re-exports
 ;; and the `(rf/configure :epoch-history ...)` knob) flow through
 ;; `re-frame.late-bind` exactly as the schemas / machines / routing /
 ;; flows / http / ssr hooks already do.

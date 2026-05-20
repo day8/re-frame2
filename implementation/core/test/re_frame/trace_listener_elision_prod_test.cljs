@@ -11,7 +11,7 @@
   `goog.DEBUG=false` + `:advanced`) so the gate is constant-folded by the
   closure compiler. Under that compile:
 
-    - `(trace-tooling/register-trace-cb! ...)` returns a key; the callback registry
+    - `(trace-tooling/register-trace-listener! ...)` returns a key; the callback registry
       atom still exists at the value layer, but
     - `(rf/dispatch-sync [...])` runs handlers normally yet
       `trace/emit!` becomes a no-op (its body sits inside the gate);
@@ -30,7 +30,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
-            ;; rf2-qwm0a — listener surface (`register-trace-cb!`
+            ;; rf2-qwm0a — listener surface (`register-trace-listener!`
             ;; etc.) lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))
 
@@ -46,7 +46,7 @@
             listener observes NO events when dispatch runs, because the
             emit call sites have been elided."
     (let [seen (atom [])]
-      (trace-tooling/register-trace-cb! ::prod-no-trace
+      (trace-tooling/register-trace-listener! ::prod-no-trace
         (fn [ev] (swap! seen conj ev)))
       (rf/reg-event-db :prod/ping
                        (fn [db _] (assoc db :pinged? true)))
@@ -57,26 +57,26 @@
           "the handler ran — only the trace surface is gated, not dispatch")
       (is (empty? @seen)
           "no events observed — Spec 009 §Production builds elision contract holds")
-      (trace-tooling/remove-trace-cb! ::prod-no-trace))))
+      (trace-tooling/unregister-trace-listener! ::prod-no-trace))))
 
 (deftest emit-direct-call-is-noop-under-prod
   (testing "Direct invocation of trace/emit! is a no-op under prod-mode.
             The gate sits inside the fn body, so even bypassing the
             runtime's normal dispatch path doesn't escape elision."
     (let [seen (atom [])]
-      (trace-tooling/register-trace-cb! ::direct-emit (fn [ev] (swap! seen conj ev)))
+      (trace-tooling/register-trace-listener! ::direct-emit (fn [ev] (swap! seen conj ev)))
       ;; Direct emit — would deliver under dev-mode.
       (trace/emit! :info :rf.prod-test/direct-emit {:should "never appear"})
       (is (empty? @seen)
           "trace/emit! is a no-op under :advanced + goog.DEBUG=false")
-      (trace-tooling/remove-trace-cb! ::direct-emit))))
+      (trace-tooling/unregister-trace-listener! ::direct-emit))))
 
-(deftest clear-trace-cbs-returns-nil-under-prod
-  (testing "clear-trace-cbs! still returns nil under prod-mode — the
+(deftest clear-trace-listeners-returns-nil-under-prod
+  (testing "clear-trace-listeners! still returns nil under prod-mode — the
             listener registry side of the surface is not gated; only
-            the emit/deliver path is. clear-trace-cbs! must work the
+            the emit/deliver path is. clear-trace-listeners! must work the
             same way as it does under dev so test fixtures that call
             it in prod-mode CI runs don't error."
-    (trace-tooling/register-trace-cb! ::prod-clear (fn [_ev] nil))
-    (is (nil? (trace-tooling/clear-trace-cbs!))
-        "clear-trace-cbs! returns nil consistently across dev and prod")))
+    (trace-tooling/register-trace-listener! ::prod-clear (fn [_ev] nil))
+    (is (nil? (trace-tooling/clear-trace-listeners!))
+        "clear-trace-listeners! returns nil consistently across dev and prod")))

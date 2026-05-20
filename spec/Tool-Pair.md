@@ -7,7 +7,7 @@
 
 **This Spec is** the *runtime contract* — the set of public capabilities re-frame2 exposes that pair-shaped tools rely on. It tells an implementer "ship these capabilities and a pair tool can be built against you."
 
-> **Audit lineage.** Several surfaces below (`register-epoch-cb!`, the structured `:sub-runs` / `:renders` / `:effects` slots on `:rf/epoch-record`, `:dispatch-id` / `:parent-dispatch-id` correlation, the `:origin` dispatch opt, `app-schemas` introspection, and the §Source-mapping helper enumeration) were added to this Spec following a cross-reference audit against [day8/re-frame-pair](https://github.com/day8/re-frame-pair)'s actual source — the upstream tool consumed surfaces this contract had not yet committed to. The audit is single-sourced here; downstream Specs (009 / 010 / 002 / Spec-Schemas) carry the additive normative text without re-citing the audit.
+> **Audit lineage.** Several surfaces below (`register-epoch-listener!`, the structured `:sub-runs` / `:renders` / `:effects` slots on `:rf/epoch-record`, `:dispatch-id` / `:parent-dispatch-id` correlation, the `:origin` dispatch opt, `app-schemas` introspection, and the §Source-mapping helper enumeration) were added to this Spec following a cross-reference audit against [day8/re-frame-pair](https://github.com/day8/re-frame-pair)'s actual source — the upstream tool consumed surfaces this contract had not yet committed to. The audit is single-sourced here; downstream Specs (009 / 010 / 002 / Spec-Schemas) carry the additive normative text without re-citing the audit.
 
 > **Source-of-truth note:** Tool-Pair.md is the **canonical surface contract** for the time-travel / epoch-history capabilities and the trace-stream consumption shape. [API.md](API.md) reproduces these signatures (under §Epoch history) for fast lookup, but the *normative* descriptions live here; if the two drift, this Spec wins. The `epoch-history`, `restore-epoch`, and `(rf/configure :epoch-history {:depth N})` surface, plus the `:rf.epoch/snapshotted` / `:rf.epoch/restored` / `:rf.registry/handler-replaced` trace events, are pinned here and referenced from API.md.
 
@@ -48,7 +48,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Read sub values** | `(rf/compute-sub query-v db-value)` runs a sub against an `app-db` value | [008](008-Testing.md) |
 | **Read registry** | `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
-| **Trace stream** | `(rf/register-trace-cb! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
+| **Trace stream** | `(rf/register-trace-listener! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
 | **Source coordinates** | `:ns`/`:line`/`:column`/`:file` on every registration's metadata (shape: `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); mandatory `data-rf2-source-coord` DOM annotation (shape: `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr)) per Spec 006 | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference), [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) |
@@ -62,7 +62,7 @@ The capability that requires *new* commitments is **time-travel**, addressed bel
 <a name="time-travel"></a>
 ## Time-travel: epoch snapshots and undo
 
-> **Artefact home.** Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vjj](#) Strategy B), the time-travel surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-cb!` / `remove-epoch-cb!` listener API, the `restore-epoch` rewind with its six documented failure modes, the per-cascade trace-capture buffer, the `:rf.epoch/snapshotted` / `:rf.epoch/restored` trace events, and the `:sub-runs` / `:renders` / `:effects` projections — ships in `day8/re-frame2-epoch`. Apps that consume the pair-tool / time-travel surface add the artefact alongside core and require `re-frame.epoch` at boot so the namespace's late-bind hook publications fire before the public re-exports in `re-frame.core` (`rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-cb!`, `rf/remove-epoch-cb!`, `(rf/configure :epoch-history ...)`) reach into the hook table at call time. When the artefact is not on the classpath the re-exports degrade silently (empty vector / false / no-op) — the surface is dev-tier and gated on `interop/debug-enabled?`, so a release build that omits the artefact must not raise. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) and [MIGRATION §M-33](../migration/from-re-frame-v1/README.md#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch).
+> **Artefact home.** Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vjj](#) Strategy B), the time-travel surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the `restore-epoch` rewind with its six documented failure modes, the per-cascade trace-capture buffer, the `:rf.epoch/snapshotted` / `:rf.epoch/restored` trace events, and the `:sub-runs` / `:renders` / `:effects` projections — ships in `day8/re-frame2-epoch`. Apps that consume the pair-tool / time-travel surface add the artefact alongside core and require `re-frame.epoch` at boot so the namespace's late-bind hook publications fire before the public re-exports in `re-frame.core` (`rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`, `(rf/configure :epoch-history ...)`) reach into the hook table at call time. When the artefact is not on the classpath the re-exports degrade silently (empty vector / false / no-op) — the surface is dev-tier and gated on `interop/debug-enabled?`, so a release build that omits the artefact must not raise. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) and [MIGRATION §M-33](../migration/from-re-frame-v1/README.md#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch).
 
 The runtime contract for time-travel:
 
@@ -72,7 +72,7 @@ The runtime contract for time-travel:
 
 **Bounded history.** The runtime keeps the last *N* epochs per frame (default 50, configurable via `(rf/configure :epoch-history {:depth N})`). Older epochs are discarded.
 
-**Redaction hook.** Apps that record sensitive material into `app-db` (auth tokens, PII, partner secrets) can install a `:redact-fn` on the `:epoch-history` configure key — `(rf/configure :epoch-history {:redact-fn (fn [record] …)})`. The fn takes an assembled `:rf/epoch-record` and returns a (possibly-redacted) record that takes its place across **every consumer** of that record — the per-frame ring buffer, the `register-epoch-cb!` listener fan-out, and any off-box egress through the projected-record helper (per [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The contract:
+**Redaction hook.** Apps that record sensitive material into `app-db` (auth tokens, PII, partner secrets) can install a `:redact-fn` on the `:epoch-history` configure key — `(rf/configure :epoch-history {:redact-fn (fn [record] …)})`. The fn takes an assembled `:rf/epoch-record` and returns a (possibly-redacted) record that takes its place across **every consumer** of that record — the per-frame ring buffer, the `register-epoch-listener!` listener fan-out, and any off-box egress through the projected-record helper (per [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The contract:
 - **Build-time placement, one pass per record.** The runtime invokes `:redact-fn` once per assembled record, between `build-record` and ring-append / listener fan-out. The ring and every listener see the same redacted shape — no later projection re-derives slots the fn erased.
 - **Rollup runs first.** The `:rf.epoch/sensitive?` top-level rollup (per [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)) is computed from the raw record's schema-declared `:sensitive?` leaves *before* `:redact-fn` runs — the rollup reflects the raw signal even when the fn erases the leaves it keyed on. Consumers can branch on `:rf.epoch/sensitive?` and trust it; they cannot rely on the redacted record carrying the original sensitive values.
 - **Failure isolation.** A throwing `:redact-fn` does not break the drain: the framework catches the throw, emits `:rf.warning/epoch-redact-fn-exception` (with `:tags {:frame <id>, :epoch-id <id>}`), and falls back to the raw record for that drain only. The registration stays in place; the next drain re-attempts.
@@ -125,7 +125,7 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
       (:epoch-id (last before)))))
 
 ;; Listener: catch restore success / failure traces and fan out to UI.
-(rf/register-trace-cb!
+(rf/register-trace-listener!
   :my-tool/restore-watcher
   (fn [ev]
     (case (:operation ev)
@@ -166,7 +166,7 @@ The committed surface is `(rf/reset-frame-db! frame-id new-db)`. It bypasses the
 - **Replaces the container.** `(rf/reset-frame-db! frame-id new-db)` calls `replace-container!` on the frame's `app-db` substrate container. Subscribers route off the post-reset value the same way they do after a `restore-epoch` happy path or a normal cascade settle.
 - **Records a synthetic epoch.** A fresh `:rf/epoch-record` lands in `(rf/epoch-history frame-id)` carrying `:event-id :rf.epoch/db-replaced`, `:trigger-event [:rf.epoch/db-replaced]`, `:db-before` (the pre-reset value), and `:db-after` (`new-db`). The `:sub-runs` / `:renders` / `:effects` projections are empty — no cascade ran. `restore-epoch` of a *prior* epoch rewinds past the injection; `restore-epoch` of the synthetic record itself rewinds *to* `new-db` (i.e. a round-trip to where the reset already left things).
 - **Emits `:rf.epoch/db-replaced`** on success with `:tags {:frame <id> :epoch-id <id>}`, `:op-type :rf.epoch`. Pair-tool dashboards filter on the operation to route pair-tool injections distinctly from cascade-driven epochs.
-- **Fires `register-epoch-cb!` listeners.** The assembled record is delivered to every registered epoch listener after it lands in the ring buffer — same shape as a cascade-settle delivery.
+- **Fires `register-epoch-listener!` listeners.** The assembled record is delivered to every registered epoch listener after it lands in the ring buffer — same shape as a cascade-settle delivery.
 - **Returns `true`** on success, `false` on any failure.
 
 **Failure modes** (each is a no-op on `app-db` and emits a structured error trace):
@@ -181,7 +181,7 @@ All three failures have `:op-type :error` and `:recovery :no-recovery`. The clos
 
 **Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) `reset-frame-db!` shares the universal compile-time gate (`re-frame.interop/debug-enabled?`, alias of `goog.DEBUG`); production builds (`:advanced` + `goog.DEBUG=false`) elide the body via Closure DCE. The surface is **dev-only** — pair-tool writes do not ship in production binaries. CI's `npm run test:elision` job asserts the contract holds for the success op (`:rf.epoch/db-replaced`) and both failure ops.
 
-**Artefact home.** `reset-frame-db!` lives in `re-frame.epoch` (it records a synthetic `:rf/epoch-record`, so the surface is epoch-adjacent and naturally co-located with `restore-epoch` / `register-epoch-cb!`). The core re-export late-binds through the hook table (`:epoch/reset-frame-db!`); unlike the four read-shaped re-exports (which degrade silently when the artefact is absent), `reset-frame-db!` raises `:rf.error/epoch-artefact-missing` — the caller's invariant is "undo works after this call", and a silent no-op would lie about that invariant.
+**Artefact home.** `reset-frame-db!` lives in `re-frame.epoch` (it records a synthetic `:rf/epoch-record`, so the surface is epoch-adjacent and naturally co-located with `restore-epoch` / `register-epoch-listener!`). The core re-export late-binds through the hook table (`:epoch/reset-frame-db!`); unlike the four read-shaped re-exports (which degrade silently when the artefact is absent), `reset-frame-db!` raises `:rf.error/epoch-artefact-missing` — the caller's invariant is "undo works after this call", and a silent no-op would lie about that invariant.
 
 **Worked example.**
 
@@ -209,7 +209,7 @@ All three failures have `:op-type :error` and `:recovery :no-recovery`. The clos
 
 ## Surface behaviour against destroyed frames
 
-The Tool-Pair surfaces above (`epoch-history`, `get-frame-db`, `restore-epoch`, `reset-frame-db!`, `register-epoch-cb!`) all take a `frame-id`. A pair tool can call any of them after the frame has been destroyed (per [002 §Destroy](002-Frames.md#destroy)) — most often because the tool kept a reference to a frame whose owning component unmounted, or because a teardown sequence interleaved with an in-flight tool gesture. The runtime commits to a **closed contract** for these races so a tool can route them deterministically without inspecting registrar internals.
+The Tool-Pair surfaces above (`epoch-history`, `get-frame-db`, `restore-epoch`, `reset-frame-db!`, `register-epoch-listener!`) all take a `frame-id`. A pair tool can call any of them after the frame has been destroyed (per [002 §Destroy](002-Frames.md#destroy)) — most often because the tool kept a reference to a frame whose owning component unmounted, or because a teardown sequence interleaved with an in-flight tool gesture. The runtime commits to a **closed contract** for these races so a tool can route them deterministically without inspecting registrar internals.
 
 Pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when ...)` is sufficient); **mutating-shaped surfaces raise structurally** (so a tool that intended a write learns the write did not happen); **listener fan-out emits a one-shot trace** when a previously-registered callback is silenced because its observed frame was destroyed.
 
@@ -219,12 +219,12 @@ Pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when .
 | `(rf/get-frame-db frame-id)` | read | Returns `nil`. Consumers that want a destroyed-vs-unknown distinction consult `(rf/frame-meta frame-id)`. |
 | `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`, tags `{:kind :frame, :frame <id>}`) and returns `false`. Same trace shape as any other registry-lookup miss — already enumerated as the **Unknown frame** row of [§Time-travel](#time-travel-epoch-snapshots-and-undo)'s restore-failure table. |
 | `(rf/reset-frame-db! frame-id new-db)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. Identical wording to `restore-epoch`'s frame-miss row — pair-tool writers can match on a single category for both surfaces. |
-| `(rf/register-epoch-cb! id callback)` (process-global) | register | The current API is process-global and does not bind a callback to a specific frame; this row therefore does not apply to the existing signature. A future opts-form (`{:frame frame-id}`) would raise `:rf.error/no-such-handler` (kind `:frame`) at registration time when its target is absent — the same shape registration-against-an-absent-target uses elsewhere. The framework reserves the spelling. |
-| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | The runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` (`:op-type :rf.epoch.cb`) **once per `(frame, cb-id)` pair**, with `:tags {:frame <id>, :cb-id <id>}`, on the destroy-cascade boundary. Subsequent destroys of the same frame do not re-emit. The callback registration remains in place — eviction is the consumer's call (per [009 §`register-epoch-cb!` invocation rules](009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). |
+| `(rf/register-epoch-listener! id callback)` (process-global) | register | The current API is process-global and does not bind a callback to a specific frame; this row therefore does not apply to the existing signature. A future opts-form (`{:frame frame-id}`) would raise `:rf.error/no-such-handler` (kind `:frame`) at registration time when its target is absent — the same shape registration-against-an-absent-target uses elsewhere. The framework reserves the spelling. |
+| Pre-registered `register-epoch-listener!` callback whose observed frame is later destroyed | listener silencing | The runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` (`:op-type :rf.epoch.cb`) **once per `(frame, cb-id)` pair**, with `:tags {:frame <id>, :cb-id <id>}`, on the destroy-cascade boundary. Subsequent destroys of the same frame do not re-emit. The callback registration remains in place — eviction is the consumer's call (per [009 §`register-epoch-listener!` invocation rules](009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). |
 
 The trace event is enumerated in [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary); its `:tags` schema is canonicalised in [Spec-Schemas](Spec-Schemas.md#per-category-tags-schemas).
 
-**Why "silencing" is a trace and not a return value.** The `register-epoch-cb!` callback never sees a record from a destroyed frame — the runtime stops producing records for the frame the moment its destroy walks. A tool that doesn't know its observed frame was destroyed therefore sees a callback that simply *stopped firing*, with no signal it can route off. The silencing trace closes that gap: pair-tool dashboards, REPL companions, and conformance harnesses all subscribe to the trace stream already (per [§How AI tools attach](#how-ai-tools-attach)), so the existing channel carries the disambiguation. One-shot semantics keep the stream from accumulating noise on rapid frame churn (test fixtures, story tools).
+**Why "silencing" is a trace and not a return value.** The `register-epoch-listener!` callback never sees a record from a destroyed frame — the runtime stops producing records for the frame the moment its destroy walks. A tool that doesn't know its observed frame was destroyed therefore sees a callback that simply *stopped firing*, with no signal it can route off. The silencing trace closes that gap: pair-tool dashboards, REPL companions, and conformance harnesses all subscribe to the trace stream already (per [§How AI tools attach](#how-ai-tools-attach)), so the existing channel carries the disambiguation. One-shot semantics keep the stream from accumulating noise on rapid frame churn (test fixtures, story tools).
 
 **Listener-silencing trace: implementation note.** The runtime tracks, per cb-id, the set of frame-ids that cb has been delivered records for. When a frame is destroyed (per [002 §Destroy](002-Frames.md#destroy)), every cb whose observed-frame set contains that frame receives one silencing trace; the cb's entry for that frame-id is then dropped so a re-registration of a same-keyed frame (e.g. `reset-frame! :app/main`) can re-arm. A cb that was never delivered any record (e.g. registered immediately before destroy) does not see a silencing trace — there is nothing to silence.
 
@@ -442,8 +442,8 @@ The full attachment surface, from the tool's point of view:
 
 | Need | Surface | Spec |
 |---|---|---|
-| Receive live trace events | `(rf/register-trace-cb! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
-| Receive per-drain assembled epoch records | `(rf/register-epoch-cb! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive live trace events | `(rf/register-trace-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive per-drain assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
@@ -469,13 +469,13 @@ The consumption pattern is therefore:
 
 > **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
 
-Two listener shapes coexist by design: `register-trace-cb!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-cb!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
+Two listener shapes coexist by design: `register-trace-listener!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
 ### Subscribing to a slice of the trace stream
 
-`register-trace-cb!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
+`register-trace-listener!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
 
 ```clojure
 ;; A tool (Causa's flow panel, a pair-tool flow inspector,
@@ -485,7 +485,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 ;; (:rf.flow/registered, :rf.flow/computed, :rf.flow/skip,
 ;; :rf.flow/cleared, :rf.flow/failed).
 
-(rf/register-trace-cb!
+(rf/register-trace-listener!
   :my-tool/flow-panel
   (fn [ev]
     (when (= :flow (:op-type ev))
@@ -500,11 +500,11 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 
 The same pattern works for any subsystem with a dedicated op-type — `:machine` for state-machine activity, `:event` for the dispatch / drain stream, `:sub/run` and `:sub/create` for subscription work, `:fx` for effect handlers. New op-types are additive (per [009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)); tools ignore op-types they don't understand.
 
-For per-cascade structured projections (sub-cache hit/miss, render attribution, effect outcome), tools route off `register-epoch-cb!`'s assembled `:rf/epoch-record` instead — the §[Time-travel](#time-travel-epoch-snapshots-and-undo) projection slots already pre-fold the per-cascade trace into the `:sub-runs` / `:renders` / `:effects` shape. The raw-stream filter pattern above is the right shape for fine-grained per-event consumption.
+For per-cascade structured projections (sub-cache hit/miss, render attribution, effect outcome), tools route off `register-epoch-listener!`'s assembled `:rf/epoch-record` instead — the §[Time-travel](#time-travel-epoch-snapshots-and-undo) projection slots already pre-fold the per-cascade trace into the `:sub-runs` / `:renders` / `:effects` shape. The raw-stream filter pattern above is the right shape for fine-grained per-event consumption.
 
 ### Subscribing to assembled epoch records
 
-`register-epoch-cb!` callbacks fire **once per drain-settle**, with the cascade's `:sub-runs` / `:renders` / `:effects` projections already computed. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
+`register-epoch-listener!` callbacks fire **once per drain-settle**, with the cascade's `:sub-runs` / `:renders` / `:effects` projections already computed. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
 
 ```clojure
 ;; A pair-tool dashboard routing diagnostics off the assembled per-cascade record.
@@ -512,7 +512,7 @@ For per-cascade structured projections (sub-cache hit/miss, render attribution, 
 ;; - The record is fully shaped: :db-before, :db-after, :sub-runs, :renders, :effects.
 ;; - The record has already been appended to (rf/epoch-history (:frame ev)).
 
-(rf/register-epoch-cb!
+(rf/register-epoch-listener!
   :my-tool/dashboard
   (fn [{:keys [frame event-id epoch-id sub-runs renders effects] :as record}]
     ;; Cache-hit-vs-rerun: every entry in :sub-runs is a recompute (rf2-7e2y);
@@ -538,16 +538,16 @@ For per-cascade structured projections (sub-cache hit/miss, render attribution, 
 
 Edge-case behaviour the example does not exercise but consumers should know about:
 
-- **Listener exceptions are caught.** A throw inside the callback does not propagate to the framework or other listeners (per [009 §register-epoch-cb! invocation rules](009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). The framework does **not** auto-evict the throwing listener — repeated throws keep the registration in place; eviction is the consumer's call.
+- **Listener exceptions are caught.** A throw inside the callback does not propagate to the framework or other listeners (per [009 §register-epoch-listener! invocation rules](009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The framework does **not** auto-evict the throwing listener — repeated throws keep the registration in place; eviction is the consumer's call.
 - **Re-entrant dispatch from a callback.** A callback that calls `(rf/dispatch …)` enqueues the new event; the new dispatch's drain begins on stack-unwind from the current callback fan-out, not before. Other registered epoch listeners still receive the *current* record before the re-entrant dispatch begins.
-- **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-cb!` callbacks continue to receive the assembled record on every drain-settle. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-cb!` only.
+- **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-listener!` callbacks continue to receive the assembled record on every drain-settle. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-listener!` only.
 - **Frame-destroyed mid-observation.** Tool-Pair surface behaviour against destroyed frames (epoch-history reads, in-flight epoch-cb deliveries, restore against a now-destroyed frame, listener silencing) is closed in [§Surface behaviour against destroyed frames](#surface-behaviour-against-destroyed-frames). Read-shaped surfaces return empty shapes; mutating-shaped surfaces raise `:rf.error/no-such-handler` (kind `:frame`); a previously-firing callback whose observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
 
 ### Implications for downstream tools
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
 - **Causa** (the structural successor to re-frame-10x; Maven coord `day8/re-frame2-causa`) is built as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Causa and pair share the substrate; one does not depend on the other.
-- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-cb!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
+- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-listener!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.
 
@@ -591,7 +591,7 @@ Agents that learn the family see each new slot as one more case in the same patt
 
 ### Direct-read privacy posture for `sub-cache` and `get-path`
 
-Most Tool-Pair surfaces ride the trace bus (`register-trace-cb!` / `register-epoch-cb!`) or the event-emit substrate, where `:sensitive?` stamps and size markers are applied at the emit boundary. Two surfaces in the attachment table above do **not** ride that path: `(rf/sub-cache frame-id)` and the MCP-server `get-path` tool (a direct read-by-path against `(rf/get-frame-db frame-id)`). Both are **synchronous reads** of live runtime state — the sub-cache map, an arbitrary path into `app-db` — and the `:sensitive?` trace stamp protects only the *trace* surface. A direct read returns the live value untransformed unless the wire-egress boundary scrubs it.
+Most Tool-Pair surfaces ride the trace bus (`register-trace-listener!` / `register-epoch-listener!`) or the event-emit substrate, where `:sensitive?` stamps and size markers are applied at the emit boundary. Two surfaces in the attachment table above do **not** ride that path: `(rf/sub-cache frame-id)` and the MCP-server `get-path` tool (a direct read-by-path against `(rf/get-frame-db frame-id)`). Both are **synchronous reads** of live runtime state — the sub-cache map, an arbitrary path into `app-db` — and the `:sensitive?` trace stamp protects only the *trace* surface. A direct read returns the live value untransformed unless the wire-egress boundary scrubs it.
 
 The framework's wire-egress walker is `rf/elide-wire-value` (per [API.md §Size-elision wire-boundary walker](API.md#elide-wire-value-the-wire-boundary-walker)) — the **single normative emission site** for `:rf/redacted` (sensitive) and `:rf.size/large-elided` (oversize) markers. This subsection pins the contract that every MCP-server (or other off-box forwarder) implementing `sub-cache` or `get-path` surfaces must honour — re-frame2-pair-mcp rides it today; story-mcp and any third-party server shipping the same tool names inherits the same posture.
 

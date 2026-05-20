@@ -9,7 +9,7 @@
   calls a re-exported surface whose artefact is absent. For the
   epoch artefact, the load-bearing surface is `reset-frame-db!`
   (Tool-Pair §Pair-tool writes, rf2-zq55): unlike `restore-epoch`,
-  `register-epoch-cb!`, `epoch-history`, and `remove-epoch-cb!`
+  `register-epoch-listener!`, `epoch-history`, and `unregister-epoch-listener!`
   (which degrade silently — empty vector / `false` / no-op when the
   artefact is absent), `reset-frame-db!` MUST raise. The caller's
   invariant — 'undo works after this call' — cannot be honoured

@@ -48,9 +48,9 @@
   (reset! flows/flows {})
   (reset! flows/last-inputs {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Per the established pattern in frame_lifecycle_test / epoch_test —
   ;; the framework's fxs / events / late-bind hooks are registered at
@@ -99,13 +99,13 @@
     (let [throw-calls (atom 0)
           survivor    (atom [])]
       ;; Throwing listener — fires for every emit in the cascade.
-      (rf/register-trace-cb! ::thrower
+      (rf/register-trace-listener! ::thrower
                              (fn [_ev]
                                (swap! throw-calls inc)
                                (throw (ex-info "tool blew during destroy" {}))))
       ;; Surviving listener — must still receive every event the
       ;; throwing listener intercepted.
-      (rf/register-trace-cb! ::survivor (fn [ev] (swap! survivor conj ev)))
+      (rf/register-trace-listener! ::survivor (fn [ev] (swap! survivor conj ev)))
 
       ;; Destroy. Must NOT throw despite the listener exception storm.
       (is (nil? (rf/destroy-frame! :composed/scoped))
@@ -138,8 +138,8 @@
       (is (nil? (registrar/lookup :frame :composed/scoped))
           "frame is unregistered from the registrar")
 
-      (rf/remove-trace-cb! ::thrower)
-      (rf/remove-trace-cb! ::survivor))))
+      (rf/unregister-trace-listener! ::thrower)
+      (rf/unregister-trace-listener! ::survivor))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Throwing late-bound cleanup hook during the destroy cascade
@@ -286,9 +286,9 @@
                    :on-destroy [:composed/teardown]})
 
     (let [recorded (atom [])]
-      (rf/register-trace-cb! ::xfx (fn [ev] (swap! recorded conj ev)))
+      (rf/register-trace-listener! ::xfx (fn [ev] (swap! recorded conj ev)))
       (rf/destroy-frame! :composed/child)
-      (rf/remove-trace-cb! ::xfx)
+      (rf/unregister-trace-listener! ::xfx)
 
       ;; Sibling parent received the notification.
       (is (= :child-gone
@@ -349,7 +349,7 @@
 
     ;; --- epoch: register a listener BEFORE the cascade so the cb's
     ;;     observed-frames-by-cb entry gets populated by the drain --------
-    (rf/register-epoch-cb! ::composed-observer (fn [_r] nil))
+    (rf/register-epoch-listener! ::composed-observer (fn [_r] nil))
 
     (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
     ;; Seed the flow's last-inputs directly — under some inter-test
@@ -408,4 +408,4 @@
     ;; Listener registries (trace, epoch) outlive frames by design — they
     ;; are global and re-arm against the next same-keyed frame
     ;; registration. Pin that to lock the contract.
-    (rf/remove-epoch-cb! ::composed-observer)))
+    (rf/unregister-epoch-listener! ::composed-observer)))

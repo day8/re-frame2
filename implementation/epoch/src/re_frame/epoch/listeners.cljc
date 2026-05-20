@@ -4,7 +4,7 @@
   Two responsibilities live here:
 
     1. `notify-listeners!` — fan a built record out to every registered
-       `register-epoch-cb!` callback. Each invocation is wrapped in a
+       `register-epoch-listener!` callback. Each invocation is wrapped in a
        try/catch so one broken listener cannot break the runtime or
        block other listeners (Spec 009 §Listener invocation rules); a
        failing cb emits `:rf.epoch.cb/listener-exception` so devtools
@@ -30,8 +30,8 @@
   cross-cutting calls are now explicit cross-namespace requires
   rather than forward-declares within a single 1500-LoC file.
 
-  Public re-frame.epoch facade fns (register-epoch-cb!,
-  remove-epoch-cb!, clear-epoch-cbs!, on-frame-destroyed!) delegate
+  Public re-frame.epoch facade fns (register-epoch-listener!,
+  unregister-epoch-listener!, clear-epoch-listeners!, on-frame-destroyed!) delegate
   here; the listener-registry atom + record-observation bookkeeping
   live in `re-frame.epoch.state` (seam A)."
   (:require [re-frame.epoch.assembly :as assembly]

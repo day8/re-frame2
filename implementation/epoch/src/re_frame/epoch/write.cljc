@@ -373,7 +373,7 @@
 ;;
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck: the framework's
 ;; single normative projection emission site for off-box epoch egress.
-;; The in-process ring buffer (`epoch-history`) and `register-epoch-cb!`
+;; The in-process ring buffer (`epoch-history`) and `register-epoch-listener!`
 ;; listener fan-out deliver RAW records — restore-epoch and on-box
 ;; devtools (Causa diff, REPL inspection) need them. Tools that
 ;; egress an epoch record across a process boundary (Causa-MCP
@@ -427,14 +427,14 @@
   that forward epoch records across a process boundary (Causa-MCP
   `watch-epochs`, story / pair recorders, hosted post-mortem
   forwarders) MUST route through this fn at the wire boundary; the
-  on-box ring buffer and `register-epoch-cb!` listener fan-out
+  on-box ring buffer and `register-epoch-listener!` listener fan-out
   continue to deliver the RAW record so on-box devtools (Causa diff,
   REPL, `restore-epoch`) can reason about exact state.
 
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection
   returns `nil` in that case, no elision called. Production builds
   elide the entire epoch surface; consumers gate any
-  `register-epoch-cb!` registration under `interop/debug-enabled?`
+  `register-epoch-listener!` registration under `interop/debug-enabled?`
   per Spec 009 §User-side listener registration."
   [record]
   (when (map? record)

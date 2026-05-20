@@ -153,7 +153,7 @@ const DEV_ONLY_SENTINELS = [
   // Together these subsume what the two removed sentinels here used to
   // assert.
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
-  // travel, Spec 009 §register-epoch-cb). Emitted by settle! after a
+  // travel, Spec 009 §register-epoch-listener). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside
   // `(when interop/debug-enabled? ...)`; the string fragment must elide.
   { source: 're-frame.epoch/settle! (rf.epoch/snapshotted)',

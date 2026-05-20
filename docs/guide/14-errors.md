@@ -8,7 +8,7 @@ When something goes wrong — a handler throws, a schema rejects, a dispatched e
 You'll know:
 
 - The `:rf.error/*` taxonomy — what categories the framework emits and what triggers each.
-- How to listen for errors at runtime (`register-trace-cb!`).
+- How to listen for errors at runtime (`register-trace-listener!`).
 - How to map raw errors to user-facing UX (error projectors).
 - The recovery semantics — what re-frame2 does *after* an error.
 - Common scenarios end to end.
@@ -94,7 +94,7 @@ The trace stream is the canonical surface. To attach a listener:
 ```clojure
 (require '[re-frame.core :as rf])
 
-(rf/register-trace-cb! ::my-error-listener
+(rf/register-trace-listener! ::my-error-listener
   (fn [ev]
     (when (= :error (:op-type ev))
       (println "re-frame2 error:"
@@ -103,12 +103,12 @@ The trace stream is the canonical surface. To attach a listener:
                (get-in ev [:tags :reason])))))
 ```
 
-`register-trace-cb!` registers a function that's called with every trace event the runtime emits — events, sub-runs, fx invocations, machine transitions, errors, warnings. You filter for what you care about. The callback runs **synchronously** as part of the emit; keep it cheap, hand off to whatever async sink you want.
+`register-trace-listener!` registers a function that's called with every trace event the runtime emits — events, sub-runs, fx invocations, machine transitions, errors, warnings. You filter for what you care about. The callback runs **synchronously** as part of the emit; keep it cheap, hand off to whatever async sink you want.
 
 To remove the listener:
 
 ```clojure
-(rf/remove-trace-cb! ::my-error-listener)
+(rf/unregister-trace-listener! ::my-error-listener)
 ```
 
 Two patterns that show up often:
@@ -116,7 +116,7 @@ Two patterns that show up often:
 ### Pattern 1 — route errors to a monitoring service
 
 ```clojure
-(rf/register-trace-cb! ::sentry-bridge
+(rf/register-trace-listener! ::sentry-bridge
   (fn [ev]
     (case (:op-type ev)
       :error
@@ -137,7 +137,7 @@ Two patterns that show up often:
 ```clojure
 (defonce errors (atom []))
 
-(rf/register-trace-cb! ::dev-panel
+(rf/register-trace-listener! ::dev-panel
   (fn [ev]
     (when (#{:error :warning} (:op-type ev))
       (swap! errors conj ev))))
@@ -150,7 +150,7 @@ This is exactly how Causa and re-frame2-pair build their "errors" panel — same
 
 ## Frame-scoped error policy: `:on-error`
 
-`register-trace-cb!` is *observation*. It doesn't change what the runtime does after the error. To change the runtime's behaviour — handle a specific category differently, log to monitoring and substitute a default value, halt versus continue — register an `:on-error` policy on the frame:
+`register-trace-listener!` is *observation*. It doesn't change what the runtime does after the error. To change the runtime's behaviour — handle a specific category differently, log to monitoring and substitute a default value, halt versus continue — register an `:on-error` policy on the frame:
 
 ```clojure
 (rf/reg-frame :rf/default
@@ -235,7 +235,7 @@ The projector is the **canonical surface** for mapping raw errors to user-facing
 
 [Chapter 11 §Server errors are sanitised](11-server-side.md) walks the chapter-side story end-to-end.
 
-Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-trace-cb!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
+Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-trace-listener!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
 
 ---
 
@@ -419,10 +419,10 @@ The pattern: register a trace listener that collects events, run the operation t
 
 (defn- collect-traces!
   "Register a listener under `id`; return the atom that accumulates events.
-   Caller must `(rf/remove-trace-cb! id)` to detach."
+   Caller must `(rf/unregister-trace-listener! id)` to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-trace-cb! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (deftest unknown-cofx-emits-structured-trace
@@ -436,7 +436,7 @@ The pattern: register a trace listener that collects events, run the operation t
           (reset! fired? true)
           {}))
       (rf/dispatch-sync [:test/run-no-cofx])
-      (rf/remove-trace-cb! ::no-cofx)
+      (rf/unregister-trace-listener! ::no-cofx)
 
       (is (true? @fired?)
           "the event handler still fired — the unknown cofx did not halt the chain")
@@ -453,7 +453,7 @@ The pattern: register a trace listener that collects events, run the operation t
 
 Three things to notice about the shape:
 
-1. **The listener is scoped to the test.** `::no-cofx` is the listener id; `remove-trace-cb!` detaches it on the way out. (Use `try`/`finally` or `with-frame`'s teardown if you want to guarantee detach on exception.)
+1. **The listener is scoped to the test.** `::no-cofx` is the listener id; `unregister-trace-listener!` detaches it on the way out. (Use `try`/`finally` or `with-frame`'s teardown if you want to guarantee detach on exception.)
 
 2. **The assertions are structural, not message-shaped.** The test pins `(:operation t)`, `(:op-type t)`, `(get-in t [:tags :cofx-id])` — the *contract*. The `:reason` string is human-facing and may change wording; the structured fields are the API.
 
@@ -465,7 +465,7 @@ For a test fixture that resets per-frame error listeners across tests, see the `
 
 ## What you'll see in Causa and re-frame2-pair
 
-The dev tools — [Causa](../causa/index.md) and [re-frame2-pair](../skills/re-frame2-pair.md) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — [Causa](../causa/index.md) and [re-frame2-pair](../skills/re-frame2-pair.md) — consume the same trace stream you'd consume with `register-trace-listener!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
 Causa's epoch buffer groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 

@@ -75,7 +75,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx (routing.cljc) are registered at ns-load;
   ;; clear-all! wiped them. Reload to resurrect.

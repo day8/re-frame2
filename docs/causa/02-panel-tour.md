@@ -52,7 +52,7 @@ Every fx the app has issued in the current session, keyed by `fx-id`, with `:out
 
 ## Trace — the raw stream
 
-Every emitted trace event, in order. Filterable by `:op-type`, by tag, by free-text. The Trace panel is what you'd write yourself with `register-trace-cb!` if Causa didn't exist — it's the bus's most direct rendering.
+Every emitted trace event, in order. Filterable by `:op-type`, by tag, by free-text. The Trace panel is what you'd write yourself with `register-trace-listener!` if Causa didn't exist — it's the bus's most direct rendering.
 
 See [chapter 4](04-trace-stream.md).
 

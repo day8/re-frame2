@@ -37,20 +37,20 @@
   {:hook :epoch/restore-epoch :artefact epoch-artefact :on-absent :false}
   ([frame-id epoch-id] :delegate))
 
-(defwrapper register-epoch-cb!
+(defwrapper register-epoch-listener!
   "Register a callback fired once per drain-settle with the assembled
-  `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb!`. Same-id
+  `:rf/epoch-record`. Per Spec 009 §`register-epoch-listener!`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
   id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
-  not on the classpath. Late-bound via `:epoch/register-epoch-cb!`."
-  {:hook :epoch/register-epoch-cb! :artefact epoch-artefact :on-absent :nil}
+  not on the classpath. Late-bound via `:epoch/register-epoch-listener!`."
+  {:hook :epoch/register-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id f] :delegate))
 
-(defwrapper remove-epoch-cb!
+(defwrapper unregister-epoch-listener!
   "Remove the listener registered under id. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
-  via `:epoch/remove-epoch-cb!`."
-  {:hook :epoch/remove-epoch-cb! :artefact epoch-artefact :on-absent :nil}
+  via `:epoch/unregister-epoch-listener!`."
+  {:hook :epoch/unregister-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
 (defwrapper reset-frame-db!
@@ -99,7 +99,7 @@
   Tools that egress epoch records over a process boundary (Causa-MCP
   `watch-epochs`, story / pair recorders, hosted forwarders) MUST
   route through this fn. The on-box ring buffer and
-  `register-epoch-cb!` listener fan-out continue to deliver the RAW
+  `register-epoch-listener!` listener fan-out continue to deliver the RAW
   record so on-box devtools (Causa diff, REPL, `restore-epoch`) can
   reason about exact state. Returns `nil` for non-map input. No-op
   (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on

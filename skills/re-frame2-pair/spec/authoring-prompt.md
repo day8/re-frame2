@@ -46,12 +46,12 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 >
 > *Every reference is ≤250 lines. SKILL.md is ~130 lines (well under Anthropic's 500-line ceiling). All references one level deep — no SKILL → A → B chains.*
 >
-> *Frontmatter — `allowed-tools` lists every MCP tool the skill uses (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `inject-runtime`, `dispatch`, `trace-window`, `watch-epochs`, `tail-build`) plus every bash shim (`Bash(scripts/discover-app.sh *)` etc.) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-trace-cb`, `register-epoch-cb!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
+> *Frontmatter — `allowed-tools` lists every MCP tool the skill uses (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `inject-runtime`, `dispatch`, `trace-window`, `watch-epochs`, `tail-build`) plus every bash shim (`Bash(scripts/discover-app.sh *)` etc.) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-trace-listener`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
 >
 > *Cardinal rules to bake in (SKILL.md):*
 >
 > *1. **Three primitives, no more** — REPL, trace stream, epoch history. All in re-frame2's Tool-Pair contract.*
-> *2. **No re-frame-10x dependency** — time-travel and trace consumption ride on `register-trace-cb` / `register-epoch-cb!` / `epoch-history` / `restore-epoch`.*
+> *2. **No re-frame-10x dependency** — time-travel and trace consumption ride on `register-trace-listener` / `register-epoch-listener!` / `epoch-history` / `restore-epoch`.*
 > *3. **Connect first, every session** — `discover-app` before any op. Failures return structured edn; report verbatim, don't improvise workarounds.*
 > *4. **Two modes of changing the app** — REPL changes ephemeral; source edits permanent (must `hot-reload/wait` after).*
 > *5. **Multi-frame model** — mutating ops refuse with `:ambiguous-frame` if more than one frame is registered and none selected. Read ops fall back to `:rf/default` after warning.*
@@ -69,7 +69,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *- **L11 — Resolve UI references to source first.** Style-guidance rule in SKILL.md.*
 > *- **L12 — Surface restore limits.** Style-guidance rule in SKILL.md.*
 >
-> *Voice: tight, declarative, op-shaped. Use tables for op catalogues and routing. Use code blocks for canonical forms. Cite Tool-Pair surfaces (`(rf/register-trace-cb ...)`, `(rf/epoch-history :rf/default)`) verbatim — these are the contract.*
+> *Voice: tight, declarative, op-shaped. Use tables for op catalogues and routing. Use code blocks for canonical forms. Cite Tool-Pair surfaces (`(rf/register-trace-listener ...)`, `(rf/epoch-history :rf/default)`) verbatim — these are the contract.*
 >
 > *Don't:*
 >

@@ -189,7 +189,7 @@ For everything in tiers 1-3 the right answer is "write the schema flag". For thi
                     (update :db-after  dissoc :imports/staging)))})
 ```
 
-The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-cb!` listener you've installed, and every off-box egressor (Causa-MCP, re-frame2-pair-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
+The framework invokes your `:redact-fn` **once per epoch record**, between the time the record is assembled and the time it is appended to the ring or fanned out to listeners. The per-frame ring buffer that backs time-travel debugging, every `register-epoch-listener!` listener you've installed, and every off-box egressor (Causa-MCP, re-frame2-pair-mcp, hosted post-mortem dashboards) all see the same record shape. There is no later listener that re-derives the raw slot you stripped.
 
 Three things worth knowing before you reach for this:
 

@@ -20,7 +20,7 @@
     1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
        records, halted-destroy records, the empty case).
     2. Run the ring through `projected-record` (per-record forwarder shape,
-       e.g. `register-epoch-cb!` ship!) AND `projected-history` (bulk-egress
+       e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
        shape, e.g. `watch-epochs` initial snapshot).
     3. Assert the off-box egress contract:
          - No raw sensitive bytes anywhere in the projected output (the
@@ -77,9 +77,9 @@
   (reset! schemas/schemas-by-frame {})
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (trace/clear-trace-cbs!)
+  (trace/clear-trace-listeners!)
   (epoch/clear-history!)
-  (epoch/clear-epoch-cbs!)
+  (epoch/clear-epoch-listeners!)
   (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -166,7 +166,7 @@
 ;; ============================================================================
 
 (deftest forwarder-projected-record-leaks-no-raw-secret-bytes
-  (testing "MCP `register-epoch-cb!` forwarder pattern: ship! body runs
+  (testing "MCP `register-epoch-listener!` forwarder pattern: ship! body runs
             `projected-record` on each record before egress. The projected
             shape MUST NOT carry the raw secret string anywhere — the
             promise the MCP wire boundary makes to Security.md §Epoch
@@ -177,7 +177,7 @@
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project at egress.
                     (swap! shipped conj (epoch/projected-record record)))]
-      (rf/register-epoch-cb! ::forwarder ship!)
+      (rf/register-epoch-listener! ::forwarder ship!)
       (drive-mixed-ring! :test/mcp)
       (is (pos? (count @shipped))
           "the forwarder saw at least one cascade")
@@ -187,7 +187,7 @@
            :rf/redacted scalar sentinel"))))
 
 (deftest forwarder-projected-record-bounds-large-leaf-bytes
-  (testing "MCP `register-epoch-cb!` forwarder pattern: the projected
+  (testing "MCP `register-epoch-listener!` forwarder pattern: the projected
             record MUST NOT egress the full large payload as a leaf
             string — the wire-elision walker substitutes a
             :rf.size/large-elided marker (a map containing :path, :bytes,
@@ -196,7 +196,7 @@
     (rf/reg-frame :test/mcp {})
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])]
-      (rf/register-epoch-cb! ::forwarder
+      (rf/register-epoch-listener! ::forwarder
                              (fn [record]
                                (swap! shipped conj (epoch/projected-record record))))
       (drive-mixed-ring! :test/mcp)

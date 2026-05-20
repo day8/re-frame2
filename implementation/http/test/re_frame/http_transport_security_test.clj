@@ -24,10 +24,10 @@
   (let [captured (atom [])
         cb-id    ::transport-security-cap]
     (try
-      (trace/register-trace-cb! cb-id (fn [ev] (swap! captured conj ev)))
+      (trace/register-trace-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (trace/remove-trace-cb! cb-id)))))
+        (trace/unregister-trace-listener! cb-id)))))
 
 ;; ---- rf2-9lun0 — header validation surfaces a trace ----------------------
 

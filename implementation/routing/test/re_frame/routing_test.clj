@@ -236,7 +236,7 @@
                        (assoc db :article {:id id :payload payload})))
 
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::nav-token (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::nav-token (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
       (rf/dispatch-sync [:rf/url-changed "/articles/A"])
@@ -261,7 +261,7 @@
                          {:on-success-event   [:article/loaded "B" "B-payload"]
                           :carried-nav-token  "nav-2"}])
 
-      (rf/remove-trace-cb! ::nav-token)
+      (rf/unregister-trace-listener! ::nav-token)
 
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/get-frame-db :rf/default)))
@@ -309,7 +309,7 @@
                                :nav-token carried-token}]]}))
 
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::with-nav-token-fx
+      (rf/register-trace-listener! ::with-nav-token-fx
                              (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
@@ -339,7 +339,7 @@
                           :id            "B"
                           :payload       "B-payload"}])
 
-      (rf/remove-trace-cb! ::with-nav-token-fx)
+      (rf/unregister-trace-listener! ::with-nav-token-fx)
 
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/get-frame-db :rf/default)))
@@ -1160,9 +1160,9 @@
     (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::blocked (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::blocked (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (rf/remove-trace-cb! ::blocked)
+      (rf/unregister-trace-listener! ::blocked)
       (is (some (fn [ev]
                   (and (= :rf.route/navigation-blocked (:operation ev))
                        (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
@@ -1320,9 +1320,9 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf/url-changed "/"])
-      (rf/register-trace-cb! ::external-url (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::external-url (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}])
-      (rf/remove-trace-cb! ::external-url)
+      (rf/unregister-trace-listener! ::external-url)
       (is (empty? @pushed)
           "external URL is classified before :rf.nav/push-url")
       (is (= :route/home (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
@@ -1344,12 +1344,12 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::nav-token (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::nav-token (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate
                          :route/docs
                          {:page "routing"}
                          {:fragment "scroll-restoration"}])
-      (rf/remove-trace-cb! ::nav-token)
+      (rf/unregister-trace-listener! ::nav-token)
       (let [slice (:rf/route (rf/get-frame-db :rf/default))]
         (is (= "scroll-restoration" (:fragment slice))
             ":fragment is assoc'd into the slice (pre-fix: missing)")
@@ -1412,10 +1412,10 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::handle-url-token
+      (rf/register-trace-listener! ::handle-url-token
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-      (rf/remove-trace-cb! ::handle-url-token)
+      (rf/unregister-trace-listener! ::handle-url-token)
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/allocated (:operation ev))
                        (= :route/home (-> ev :tags :route-id))
@@ -1463,10 +1463,10 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::no-not-found
+      (rf/register-trace-listener! ::no-not-found
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-changed "/somewhere/unknown"])
-      (rf/remove-trace-cb! ::no-not-found)
+      (rf/unregister-trace-listener! ::no-not-found)
       (let [slice (:rf/route (rf/get-frame-db :rf/default))]
         (is (= :rf.route/not-found (:id slice))
             "slice still rewrites to :rf.route/not-found"))
@@ -1528,10 +1528,10 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::malformed-trace
+      (rf/register-trace-listener! ::malformed-trace
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-changed "/articles/%"])
-      (rf/remove-trace-cb! ::malformed-trace)
+      (rf/unregister-trace-listener! ::malformed-trace)
       (is (some (fn [ev]
                   (and (= :rf.warning/malformed-url (:operation ev))
                        (= "/articles/%" (-> ev :tags :url))))
@@ -1552,10 +1552,10 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::no-malformed-trace
+      (rf/register-trace-listener! ::no-malformed-trace
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-changed "/search?q=clojure"])
-      (rf/remove-trace-cb! ::no-malformed-trace)
+      (rf/unregister-trace-listener! ::no-malformed-trace)
       (is (not-any? (fn [ev] (= :rf.warning/malformed-url (:operation ev)))
                     @traces)
           "well-formed URL → no malformed-URL trace"))))
@@ -1728,10 +1728,10 @@
     ;; (reg-index tiebreak) keeps matching deterministic, but the
     ;; warning surfaces the conflict for tooling.
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::shadow (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::shadow (fn [ev] (swap! traces conj ev)))
       (rf/reg-route :route/a {:path "/x/:id"})
       (rf/reg-route :route/b {:path "/y/:slug"})
-      (rf/remove-trace-cb! ::shadow)
+      (rf/unregister-trace-listener! ::shadow)
       (is (some (fn [ev]
                   (and (= :rf.warning/route-shadowed-by-equal-score
                           (:operation ev))
@@ -2056,12 +2056,12 @@
     ;; Land on /docs/routing first (no fragment).
     (rf/dispatch-sync [:rf/url-changed "/docs/routing"])
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::frag-only (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::frag-only (fn [ev] (swap! traces conj ev)))
       ;; Same path/query, different fragment → fragment-only nav.
       (rf/dispatch-sync [:rf/url-changed "/docs/routing#scroll-restoration"])
       ;; And again — prev→next this time.
       (rf/dispatch-sync [:rf/url-changed "/docs/routing#fragments"])
-      (rf/remove-trace-cb! ::frag-only)
+      (rf/unregister-trace-listener! ::frag-only)
       (let [frag-events (filter #(= :rf.route/url-changed (:operation %)) @traces)]
         (is (= 2 (count frag-events))
             "two fragment-only changes emit two :rf.route/url-changed traces")
@@ -2198,11 +2198,11 @@
             owns the URL emits :rf.error/duplicate-url-binding
             (Spec 012 §Multi-frame routing)"
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::dup-bind (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::dup-bind (fn [ev] (swap! traces conj ev)))
       ;; :rf/default is implicitly :url-bound? true. A second frame
       ;; opting in collides.
       (rf/reg-frame :my-frame {:url-bound? true})
-      (rf/remove-trace-cb! ::dup-bind)
+      (rf/unregister-trace-listener! ::dup-bind)
       (is (some (fn [ev]
                   (and (= :rf.error/duplicate-url-binding (:operation ev))
                        (= :rf/default (-> ev :tags :existing-frame))
@@ -2215,10 +2215,10 @@
             the documented default for story / devcard / test fixtures
             and emits no duplicate-binding trace"
     (let [traces (atom [])]
-      (rf/register-trace-cb! ::no-dup (fn [ev] (swap! traces conj ev)))
+      (rf/register-trace-listener! ::no-dup (fn [ev] (swap! traces conj ev)))
       (rf/reg-frame :story/variant-A {})              ;; no :url-bound?
       (rf/reg-frame :test/fixture    {:url-bound? false}) ;; explicit off
-      (rf/remove-trace-cb! ::no-dup)
+      (rf/unregister-trace-listener! ::no-dup)
       (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
                           @traces))
           "no duplicate-url-binding trace fires for non-URL-bound frames"))))

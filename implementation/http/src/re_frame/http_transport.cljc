@@ -503,7 +503,7 @@
   outcome and corrupt debounce-search patterns). The supersede event
   still emits to the trace bus (`:rf.http/aborted` with
   `:reason :request-id-superseded`); consumers wanting abort telemetry
-  subscribe via `register-trace-cb!`.
+  subscribe via `register-trace-listener!`.
 
   Per rf2-on7sj: guarded by the once-only `:finalised?` CAS so the
   abort path and a later natural-completion path can't both dispatch

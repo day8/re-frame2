@@ -29,7 +29,7 @@ Also notice:
 These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watch for them in addition to the generic list above.
 
 - ambiguity about which **frame** an inspection or dispatch targeted (multi-frame is first-class in re-frame2)
-- confusion between the **raw trace stream** (`register-trace-cb!`) and the **assembled epoch stream** (`register-epoch-cb!`) — wrong listener choice for the question being asked
+- confusion between the **raw trace stream** (`register-trace-listener!`) and the **assembled epoch stream** (`register-epoch-listener!`) — wrong listener choice for the question being asked
 - manual reconstruction of `:sub-runs`, `:renders`, or `:effects` from raw traces when the structured projections on `:rf/epoch-record` already carry them
 - `restore-epoch` calls that fail with one of the six named failure modes (`:rf.epoch/restore-unknown-epoch`, `restore-schema-mismatch`, `restore-missing-handler`, `restore-version-mismatch`, `restore-during-drain`, or `:rf.error/no-such-handler`) without a clear next-best-action
 - silent loss of history because `:epoch-history :depth` is too low for the user's workflow, with no warning when the target epoch ages out
