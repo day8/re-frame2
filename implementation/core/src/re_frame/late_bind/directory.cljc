@@ -485,6 +485,10 @@
    {:key         :epoch/capture-event
     :producer-ns 're-frame.epoch
     :description "Capture an event into the in-flight epoch buffer."}
+   {:key         :epoch/cascade-cause
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-25zo2"
+    :description "Walk a frame's in-flight cascade buffer and return {:cause-event-id :cause-subs :rendered-so-far} for :rf.view/rendered attribution. Consumed by re-frame.views at view-render emit time so the Causa Reactive panel can graph cause→effect for re-renders. Returns nil when the epoch artefact is absent."}
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
     :description "Return the committed-epoch ring buffer (introspection)."}
