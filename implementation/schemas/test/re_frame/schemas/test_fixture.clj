@@ -25,9 +25,6 @@
   - `(schemas/reset-schema-validator!)` — restores Malli defaults
     per rf2-froe so a test that mutates the pluggable validator
     surface doesn't poison sibling tests.
-  - `(spec/clear-boundary-warned-handler-ids!)` — clears the
-    rf2-r2uh boundary-interceptor warn-once cache so each test
-    sees a clean suppression slate.
   - `(schemas/clear-validator-unavailable-warned!)` — clears the
     rf2-fq7d2 `:rf.warning/schema-validator-unavailable` one-shot
     so test cases that exercise the unbound-validator path each
@@ -46,7 +43,6 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.spec :as spec]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime
@@ -57,7 +53,6 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (schemas/reset-schema-validator!)
-  (spec/clear-boundary-warned-handler-ids!)
   (schemas/clear-validator-unavailable-warned!)
   (schemas/clear-walker-opaque-warned!)
   (registrar/clear-warning-caches!)

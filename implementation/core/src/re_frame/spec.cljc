@@ -40,10 +40,13 @@
     `false` and step-1 validation is elided. The boundary interceptor
     runs the same `:schema` check inline, so handlers carrying it
     still validate at the boundary.
-  - In **production builds with no `:schema`** on the handler, the
-    boundary interceptor is a no-op (nothing to validate against) and
-    emits `:rf.warning/boundary-without-spec` once per `(handler-id)`
-    to flag the misconfiguration.
+  - **Registration without `:schema`** is rejected at registration
+    time with `:rf.error/at-boundary-missing-schema` (per
+    [Spec 010 §Production builds] and rf2-iftj4). The boundary
+    interceptor is structurally meaningless without a schema, so
+    `re-frame.events` raises an ex-info from `reg-event-*` rather
+    than waiting for the first dispatch to surface the
+    misconfiguration. There is no warn-and-accept fallback.
 
   Validation routes through the same registered validator the dev-time
   hot path uses (the `set-schema-validator!` seam) — a substituted
@@ -65,24 +68,6 @@
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
-
-;; ---- warn-once cache (Spec 010 L147) -------------------------------------
-;;
-;; `:rf.warning/boundary-without-spec` fires at most once per handler-id —
-;; the misconfiguration (boundary interceptor attached to a handler with
-;; no `:schema`) is a steady-state condition. Without suppression every
-;; dispatch of the offending event would emit the warning. Mirrors the
-;; warn-once cache pattern from re-frame.views (rf2-d3k3).
-
-(defonce ^:private boundary-warned-handler-ids
-  (atom #{}))
-
-(defn clear-boundary-warned-handler-ids!
-  "Reset the warn-once cache. Tests use this between cases so each case
-  starts from a clean slate."
-  []
-  (reset! boundary-warned-handler-ids #{})
-  nil)
 
 ;; ---- dev / prod gate ------------------------------------------------------
 ;;
@@ -138,9 +123,13 @@
   Re-uses the handler's existing `:schema` metadata; does not introduce
   a parallel schema. No-op in dev builds (step-1 validation already
   fires); no-op when no validator is registered (`set-schema-validator!`
-  was called with `nil`); no-op when the handler carries no `:schema`
-  (and emits `:rf.warning/boundary-without-spec` once to flag the
-  misconfiguration)."
+  was called with `nil`).
+
+  Per rf2-iftj4, registering a handler that attaches `at-boundary` but
+  carries no `:schema` is rejected at registration time with
+  `:rf.error/at-boundary-missing-schema`; the runtime can therefore
+  assume `:schema` is present whenever this interceptor's `:before`
+  slot fires."
   (interceptor/->interceptor
     :id :rf.schema/at-boundary
     :before
@@ -170,30 +159,16 @@
               (cond
                 ;; No handler-id / no metadata — defensive; the runtime
                 ;; should never call an interceptor without an event.
-                ;; Treat as a no-op rather than emit a misleading warning.
                 (nil? handler-meta)
                 ctx
 
-                ;; Per Spec 010 L147 — boundary attached to a handler with
-                ;; no :schema. Warn once and no-op.
+                ;; Per rf2-iftj4, registration would have rejected an
+                ;; at-boundary attachment without `:schema`. A nil
+                ;; schema here can only happen if a caller mutated the
+                ;; registry metadata after registration; fall through
+                ;; as a no-op (defensive — never expected in practice).
                 (nil? schema)
-                (do
-                  (when-not (contains? @boundary-warned-handler-ids event-id)
-                    (swap! boundary-warned-handler-ids conj event-id)
-                    (trace/emit! :warning :rf.warning/boundary-without-spec
-                                 {:event-id event-id
-                                  :event    event
-                                  :reason
-                                  (str ":rf.schema/at-boundary is attached "
-                                       "to event handler `" event-id "` but the "
-                                       "handler carries no `:schema` metadata. The "
-                                       "boundary interceptor cannot validate "
-                                       "without a schema; this dispatch passes "
-                                       "through unchecked. Either attach a `:schema` "
-                                       "to the handler's metadata-map (recommended) "
-                                       "or remove the boundary interceptor.")
-                                  :recovery :no-recovery}))
-                  ctx)
+                ctx
 
                 :else
                 (let [ok? (try (validate-fn schema event)
