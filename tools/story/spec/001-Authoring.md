@@ -54,15 +54,21 @@ branch and don't recurse. Subsequent `reg-*` calls (after the gate
 has flipped) are a single `deref` + `nil` check — negligible on the
 hot path.
 
-### Explicit call still works (no-op overlap)
+### Explicit call is legacy (rf2-y8gag — audit D-2)
 
-Authors who DO call `(story/install-canonical-vocabulary!)` at boot
-(the v1 documented path, still supported for clarity-of-intent in
-host `app.core`) hit the same idempotent installer chain. Whether
-the chain runs from auto-install or from an explicit call, the
-side-table ends up in the same shape. Calling it BOTH ways — the
-explicit boot call AND letting auto-install fire — also lands on
-identical state.
+`re-frame.story/install-canonical-vocabulary!` is still public and
+idempotent — calling it explicitly hits the same installer chain —
+but **no authoring or example code calls it any more**. Per the
+audit-D-2 cleanup (rf2-y8gag) the explicit call has been removed
+from every canonical example testbed (`tools/story/testbeds/...`),
+the `tools/template/` scaffold emissions, the `docs/story/` tutorial
+set, and the `skills/re-frame2/references/` reference doc. New code
+should rely on the auto-install path; the explicit entry stays
+available only as a literal-boot affordance for hosts that want one
+and as a JVM-test diagnostic that asserts a known starting state
+without running a `reg-*` call. Calling it BOTH ways — explicit
+boot AND letting auto-install fire — still lands on identical
+state.
 
 ### Test fixtures — `clear-all!` resets the gate
 
@@ -84,8 +90,8 @@ namespaces (`:dev` / `:docs` / etc. — un-namespaced; `:rf.story/*`
 for the framework-owned bodies); authors cannot legitimately "want a
 different `:dev`" so there's no surprise factor from auto-installing
 a vocabulary the author chose to omit. The implicit boot is the
-right default; the explicit call remains available for hosts that
-prefer the literal boot step.
+right default; the explicit call remains available only for hosts
+that want a literal boot step.
 
 The auto-install hook is wired via the `re-frame.story.late-bind`
 shim (`:ensure-canonical-installed` key) to avoid a circular require
