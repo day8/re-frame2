@@ -493,8 +493,10 @@
              without consuming layout width")
         (is (re-find #"1px 0 0 0" shadow)
             "1px wide, left edge — a vertical line")
-        (is (re-find #"#7C5CFF" shadow)
-            "violet accent — Causa's spine colour")))))
+        (is (re-find #"var\(--rf-causa-accent-violet\)" shadow)
+            "violet accent — Causa's spine colour, resolved through the
+             theme's CSS variable so the light theme picks up the
+             corresponding light-palette hex (rf2-on4cm)")))))
 
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
   (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`

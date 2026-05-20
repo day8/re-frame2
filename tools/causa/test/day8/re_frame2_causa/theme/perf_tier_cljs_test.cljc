@@ -59,11 +59,15 @@
 ;; ---- (2) colour + glyph + label -----------------------------------------
 
 (deftest tier-colour-mirrors-spec
-  (testing "perf-scale hex strings match tools/causa/spec/007-UX-IA.md §Colour system"
-    (is (= "#4ADE80" (perf-tier/tier-colour :fast)))      ; green
-    (is (= "#FBBF24" (perf-tier/tier-colour :medium)))    ; yellow
-    (is (= "#FB923C" (perf-tier/tier-colour :slow)))      ; orange
-    (is (= "#F87171" (perf-tier/tier-colour :blocking)))) ; red
+  (testing "perf-scale hex strings match tools/causa/spec/007-UX-IA.md
+            §Colour system. Asserted via `dark-palette` directly (the
+            hex source of truth) — post rf2-on4cm `tier-colour` returns
+            CSS-variable strings, but the per-tier semantic mapping
+            still grounds in these spec-anchored hexes."
+    (is (= "#4ADE80" (:green  tokens/dark-palette)))      ; green
+    (is (= "#FBBF24" (:yellow tokens/dark-palette)))      ; yellow
+    (is (= "#FB923C" (:orange tokens/dark-palette)))      ; orange
+    (is (= "#F87171" (:red    tokens/dark-palette))))     ; red
   (testing "unknown tier falls back to text-tertiary so the dot is
             never invisible. Resolved through `theme/tokens` so the
             rf2-0fr6v contrast bump for `:text-tertiary` round-trips

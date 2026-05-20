@@ -26,20 +26,40 @@
 
 ;; ---- palette consistency -----------------------------------------------
 
-(deftest every-token-resolves-to-hex
-  (testing "every value in `tokens` is a 7-character #RRGGBB or 4-char
-            #RGB hex string (no nil drop-outs, no rgba() drift)"
+(deftest every-palette-value-resolves-to-hex
+  (testing "every value in `dark-palette` AND `light-palette` is a hex
+            string (no nil drop-outs, no rgba() drift). Asserted on the
+            palettes directly post rf2-on4cm — `tokens` exposes the
+            CSS-variable surface (`var(--rf-causa-…)`); the palettes
+            remain the hex source of truth registered against the
+            `:root` / `.rf-causa-theme-*` class scopes by
+            `theme/global-styles/themes-css`."
+    (doseq [palette-name [:dark :light]
+            :let [palette (get t/themes palette-name)]
+            [k v] palette]
+      (is (string? v) (str palette-name " " k " resolves to a string"))
+      (is (re-find #"^#[0-9A-Fa-f]{3,8}$" v)
+          (str palette-name " " k " value " v " is a # hex string")))))
+
+(deftest every-tokens-value-is-a-css-variable-reference
+  (testing "rf2-on4cm — `tokens` is the CSS-variable map. Every entry
+            resolves to `var(--rf-causa-<key>)` so inline `:style` reads
+            of `(:bg-1 tokens)` route through the active theme's class
+            scope rather than hardcoding the dark palette."
     (doseq [[k v] t/tokens]
       (is (string? v) (str "token " k " resolves to a string"))
-      (is (re-find #"^#[0-9A-Fa-f]{3,8}$" v)
-          (str "token " k " value " v " is a # hex string")))))
+      (is (re-find #"^var\(--rf-causa-" v)
+          (str "token " k " value " v " is a var(--rf-causa-…) reference"))
+      (is (re-find (re-pattern (str "--rf-causa-" (name k) "\\)")) v)
+          (str "token " k " references --rf-causa-" (name k))))))
 
-(deftest rf2-5kfxe4-deep-variants-and-white-present
+(deftest rf2-5kfxe4-deep-variants-and-white-present-in-palette
   (testing "rf2-5kfxe.4 — `:red-deep` and `:white` were added to
             consolidate the danger-button / primary-button fills
-            through tokens. Both must be reachable from every consumer."
-    (is (= "#a83a3a" (:red-deep t/tokens)))
-    (is (= "#ffffff" (:white t/tokens)))))
+            through tokens. Both must be reachable from every consumer.
+            Asserted on `dark-palette` (the hex source of truth)."
+    (is (= "#a83a3a" (:red-deep t/dark-palette)))
+    (is (= "#ffffff" (:white t/dark-palette)))))
 
 ;; ---- motion seam (rf2-5kfxe.5) -----------------------------------------
 
@@ -113,13 +133,47 @@
                 (get t/light-palette k))
           (str k " differs between the two palettes")))))
 
-(deftest tokens-alias-points-at-dark-palette
-  (testing "`tokens` stays a backward-compatible alias for the dark
-            palette — the 357 inline-style call sites that read
-            `(:bg-1 tokens)` continue to resolve to the dark hex. The
-            light-theme surface is the CSS-variable layer until the
-            v1.0 sweep migrates inline styles through to it."
-    (is (= t/dark-palette t/tokens))))
+(deftest tokens-is-the-css-variable-surface
+  (testing "rf2-on4cm — `tokens` is the CSS-variable map (post v1.0
+            sweep). The 357+ inline-style call sites that read
+            `(:bg-1 tokens)` now resolve to `\"var(--rf-causa-bg-1)\"`;
+            the active theme's class scope decides whether the dark or
+            light palette's hex paints at runtime."
+    (is (= (set (keys t/dark-palette))
+           (set (keys t/tokens))))
+    (doseq [k (keys t/dark-palette)]
+      (is (= (str "var(--rf-causa-" (name k) ")")
+             (get t/tokens k))
+          (str k " resolves to its var() reference")))))
+
+(deftest css-var-helper-matches-tokens-map-shape
+  (testing "rf2-on4cm — `css-var` is the canonical pure-data helper
+            that builds the `var(--rf-causa-<key>)` string. The
+            `tokens` map is `{k (css-var k)}` over every key in
+            `dark-palette`."
+    (is (= "var(--rf-causa-bg-1)" (t/css-var :bg-1)))
+    (is (= "var(--rf-causa-accent-violet)" (t/css-var :accent-violet)))
+    (doseq [k (keys t/dark-palette)]
+      (is (= (t/css-var k) (get t/tokens k))
+          (str k " resolves through css-var")))))
+
+(deftest with-alpha-builds-color-mix-string
+  (testing "rf2-on4cm — `with-alpha` is the canonical helper for the
+            alpha-tail-suffix idiom (`(str (:accent-violet tokens)
+            \"55\")`). Returns a `color-mix(in srgb, var(--rf-causa-<key>)
+            <pct>%, transparent)` string. CSS-Color-4 is the cross-
+            browser path that composes alpha against an arbitrary
+            CSS-variable colour."
+    (let [out (t/with-alpha :accent-violet 33)]
+      (is (string? out))
+      (is (re-find #"^color-mix\(in srgb" out)
+          "starts with color-mix(in srgb")
+      (is (re-find #"var\(--rf-causa-accent-violet\)" out)
+          "references the canonical CSS variable")
+      (is (re-find #"33%" out)
+          "carries the requested percentage")
+      (is (re-find #"transparent\)$" out)
+          "ends with the transparent partner so the result is a tint"))))
 
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
@@ -152,11 +206,14 @@
 
 (deftest accent-stripe-style-emits-3px-left-border
   (testing "`accent-stripe-style` returns a merge-able style map
-            carrying the 3px left border + matching padding."
+            carrying the 3px left border + matching padding. Post
+            rf2-on4cm the border resolves through the active theme's
+            CSS variable (`var(--rf-causa-…)`) rather than a hardcoded
+            hex."
     (let [s (t/accent-stripe-style :issues)]
       (is (re-find #"3px solid" (:border-left s)))
-      (is (re-find #"#" (:border-left s))
-          "the border ends with a hex colour")
+      (is (re-find #"var\(--rf-causa-" (:border-left s))
+          "the border ends with a CSS-variable reference, not a hardcoded hex")
       (is (string? (:padding-left s))
           "padding-left compensates for the border so text doesn't shift"))))
 
@@ -331,12 +388,14 @@
   (testing "rf2-0fr6v + audit finding #7 — `:text-tertiary` on `:bg-1`
             must clear WCAG 2.1 AA's 4.5:1 floor for small body text.
             The pre-rf2-0fr6v hex `#6B7080` landed at ~3.5:1 — below
-            the floor. The bumped hex `#8990A0` lands ~4.7:1."
-    (let [ratio (contrast-ratio (:text-tertiary t/tokens)
-                                (:bg-1 t/tokens))]
+            the floor. The bumped hex `#8990A0` lands ~4.7:1. Reads
+            `dark-palette` directly (the hex source of truth) — `tokens`
+            exposes CSS-variable strings post rf2-on4cm."
+    (let [ratio (contrast-ratio (:text-tertiary t/dark-palette)
+                                (:bg-1 t/dark-palette))]
       (is (>= ratio 4.5)
-          (str ":text-tertiary " (:text-tertiary t/tokens)
-               " on :bg-1 " (:bg-1 t/tokens)
+          (str ":text-tertiary " (:text-tertiary t/dark-palette)
+               " on :bg-1 " (:bg-1 t/dark-palette)
                " contrast ratio " ratio
                " must clear WCAG 2.1 AA 4.5:1")))))
 
@@ -347,33 +406,33 @@
             to bg-2 in luminance). Pre-fix hex landed ~3.2:1 — even
             further below the floor — so the bumped hex must clear AA
             on this surface too."
-    (let [ratio (contrast-ratio (:text-tertiary t/tokens)
-                                (:bg-2 t/tokens))]
+    (let [ratio (contrast-ratio (:text-tertiary t/dark-palette)
+                                (:bg-2 t/dark-palette))]
       (is (>= ratio 4.5)
-          (str ":text-tertiary " (:text-tertiary t/tokens)
-               " on :bg-2 " (:bg-2 t/tokens)
+          (str ":text-tertiary " (:text-tertiary t/dark-palette)
+               " on :bg-2 " (:bg-2 t/dark-palette)
                " contrast ratio " ratio
                " must clear WCAG 2.1 AA 4.5:1")))))
 
 (deftest text-tertiary-is-bumped-from-pre-fix-hex
   (testing "rf2-0fr6v — guard against silent revert. The pre-fix
             value `#6B7080` was below AA; the new value differs."
-    (is (not= "#6B7080" (:text-tertiary t/tokens))
+    (is (not= "#6B7080" (:text-tertiary t/dark-palette))
         "the audit-flagged pre-fix hex must not regress")))
 
 (deftest text-secondary-still-passes-wcag-aaa
   (testing "Sanity guard — bumping `:text-tertiary` must not have
             collateral effect on `:text-secondary`. Per the audit
             inventory `:text-secondary` lands at ~9:1 on bg-1 (AAA)."
-    (let [ratio (contrast-ratio (:text-secondary t/tokens)
-                                (:bg-1 t/tokens))]
+    (let [ratio (contrast-ratio (:text-secondary t/dark-palette)
+                                (:bg-1 t/dark-palette))]
       (is (>= ratio 7.0)
           (str ":text-secondary must remain >= 7:1 (AAA), got " ratio)))))
 
 (deftest text-primary-still-passes-wcag-aaa
   (testing "Sanity guard — `:text-primary` at AAA."
-    (let [ratio (contrast-ratio (:text-primary t/tokens)
-                                (:bg-1 t/tokens))]
+    (let [ratio (contrast-ratio (:text-primary t/dark-palette)
+                                (:bg-1 t/dark-palette))]
       (is (>= ratio 7.0)
           (str ":text-primary must remain >= 7:1 (AAA), got " ratio)))))
 

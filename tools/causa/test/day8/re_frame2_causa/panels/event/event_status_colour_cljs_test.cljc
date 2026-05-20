@@ -58,10 +58,12 @@
 (deftest every-status-resolves-to-a-non-nil-hex
   (testing "the indirection chain (status → token-kw → hex) lands on
             a real hex for every status. No magenta-tinted gap, no
-            missing key in `theme/tokens`."
+            missing key in `theme/tokens`. Drives off `dark-palette`
+            directly (the hex source of truth) — `tokens` exposes
+            CSS-variable strings post rf2-on4cm."
     (doseq [status esc/statuses]
       (let [token-kw (esc/status->token status)
-            hex      (get tokens/tokens token-kw)]
+            hex      (get tokens/dark-palette token-kw)]
         (is (string? hex) (str status " → " token-kw " resolves to a hex"))
         (is (re-find #"^#[0-9A-Fa-f]+$" hex)
             (str status " hex " hex " starts with #"))))))
@@ -155,9 +157,11 @@
 ;; ---- hex resolver --------------------------------------------------------
 
 (deftest event-status-colour-resolves-through-tokens
-  (testing "every state-input → hex matches the indirection
-            (state → status → token → tokens hex). No inline hexes
-            in the resolver path."
+  (testing "every state-input → colour matches the indirection
+            (state → status → token → tokens value). No inline hexes
+            in the resolver path. Post rf2-on4cm `tokens` exposes
+            CSS-variable strings; both sides of the comparison go
+            through the same map so the indirection is what's pinned."
     (doseq [[state expected-status]
             [[{:outcome :ok}              :settled-success]
              [{:outcome :error}           :settled-error]
@@ -167,10 +171,10 @@
              [{:in-flight? true}          :in-flight]
              [{:paused? true}             :paused-by-tool]
              [{}                          :in-flight]]]
-      (let [expected-hex (get tokens/tokens
-                              (get esc/status->token expected-status))]
-        (is (= expected-hex (esc/event-status-colour state))
-            (str "state " state " resolves to " expected-status " hex"))))))
+      (let [expected-colour (get tokens/tokens
+                                 (get esc/status->token expected-status))]
+        (is (= expected-colour (esc/event-status-colour state))
+            (str "state " state " resolves to " expected-status " colour"))))))
 
 (deftest event-status-token-resolves-to-keyword
   (testing "`event-status-token` is the keyword-side of the resolver
@@ -248,9 +252,13 @@
 (deftest visual-smoke-per-state-colour-mapping
   (testing "Visual smoke for the bead's acceptance criterion — each
             lifecycle state surfaces in its expected anchor colour
-            across the dark palette. Failures here flag a palette
-            drift (token renamed) or a classifier regression."
-    (let [palette tokens/dark-palette]
+            across the palette. Failures here flag a palette drift
+            (token renamed) or a classifier regression. Post rf2-on4cm
+            `event-status-colour` returns CSS-variable strings (the
+            class toggle on the shell root decides whether the dark or
+            light hex resolves at paint time); we compare against the
+            same var-map (`tokens/tokens`)."
+    (let [palette tokens/tokens]
       (is (= (:accent-violet palette)
              (esc/event-status-colour {:in-flight? true}))
           "in-flight rides violet — the project's causal-chain accent")

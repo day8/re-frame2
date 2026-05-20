@@ -31,6 +31,7 @@
   Same approach as the surrounding panel suites — we walk the
   rendered tree by `data-testid` rather than mounting to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -125,8 +126,8 @@
         (is (= "settled-success" status)
             "settled-success vocabulary lands on the row")
         (is (string? shadow))
-        (is (re-find (re-pattern (:green tokens/tokens)) shadow)
-            "row's box-shadow accent uses the canonical :green hex")))))
+        (is (string/includes? shadow (:green tokens/tokens))
+            "row's box-shadow accent uses the canonical :green token")))))
 
 (deftest l2-row-errored-cascade-rides-red
   (testing "rf2-b76v4 — an errored cascade carries
@@ -142,8 +143,8 @@
             status (:data-rf-causa-status attrs)
             shadow (get-in attrs [:style :box-shadow])]
         (is (= "settled-error" status))
-        (is (re-find (re-pattern (:red tokens/tokens)) shadow)
-            "row's box-shadow accent uses the canonical :red hex")))))
+        (is (string/includes? shadow (:red tokens/tokens))
+            "row's box-shadow accent uses the canonical :red token")))))
 
 (deftest l2-row-warning-cascade-rides-green-not-yellow
   (testing "rf2-b76v4 — :warning outcomes resolve to :settled-success
@@ -160,7 +161,7 @@
             status (:data-rf-causa-status attrs)
             shadow (get-in attrs [:style :box-shadow])]
         (is (= "settled-success" status))
-        (is (re-find (re-pattern (:green tokens/tokens)) shadow))))))
+        (is (string/includes? shadow (:green tokens/tokens)))))))
 
 (deftest l2-row-status-comes-from-the-canonical-helper
   (testing "rf2-b76v4 — the row's data-rf-causa-status MATCHES the

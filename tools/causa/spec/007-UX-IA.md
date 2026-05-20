@@ -717,6 +717,40 @@ Perf:      fast     #4ADE80  (<16ms)
 Light theme inverts lightness (`bg-0 #FAFBFC`, `bg-1 #F1F3F6`, `bg-2
 #FFFFFF`); accents darken slightly to maintain contrast.
 
+### CSS custom-property surface (rf2-on4cm)
+
+Every palette token is published as a `--rf-causa-<key>` CSS custom
+property on `:root` (default = dark palette), `.rf-causa-theme-dark`,
+and `.rf-causa-theme-light`. The shell-root class toggle written by
+`settings/effects/apply-theme!` flips which block is in scope, so a
+descendant reading `var(--rf-causa-bg-1)` resolves to the active
+theme's hex without any per-component branching.
+
+The 357+ inline-style call sites that read `(:bg-1 tokens)` consume
+the canonical `theme.tokens/tokens` map — post the v1.0 sweep
+(rf2-on4cm) every entry is a `"var(--rf-causa-<key>)"` string rather
+than a literal hex, so every paint flows through the active class
+scope automatically. The dark- and light-palette maps remain the
+hex source of truth that `theme.global-styles/themes-css` reads to
+emit the custom-property registrations.
+
+Two consumer paths stay on the hex maps directly:
+
+- `mount.cljs`'s popout opener-gone overlay (built imperatively in
+  the popout window's document, which does not carry the Causa
+  `<style>` injection) reads `theme.tokens/dark-palette` for its
+  literal hexes.
+- `config.cljc`'s `default-accent` publishes a literal hex INTO the
+  `--rf-causa-accent` host-readable variable as its default value
+  (`API.md` §CSS variables), so it must remain a hex string rather
+  than a recursive var reference.
+
+Where an alpha tint is needed, `theme.tokens/with-alpha` builds the
+canonical `color-mix(in srgb, var(--rf-causa-<key>) <pct>%,
+transparent)` string — CSS-Color-4 composition that picks up the
+active-theme variable rather than concatenating an `#xxxxxx55` hex
+tail.
+
 ### Colour is never alone
 
 Every coloured marker pairs with a shape or icon:
