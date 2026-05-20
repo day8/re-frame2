@@ -16,18 +16,19 @@
   a card that sets a fixed-ish height so the variants-grid layout
   stays visually uniform.
 
-  ## The 7 L4 tabs
+  ## The 8 L4 tabs
 
-  Per spec/018-Event-Spine.md §5 the chrome surfaces seven tabs whose
+  Per spec/018-Event-Spine.md §5 the chrome surfaces eight tabs whose
   bodies are existing per-panel Panel views:
 
-    - **Event**    → `event-detail/Panel`
-    - **App-db**   → `app-db-diff/Panel`
-    - **Views**    → `views/Panel`
-    - **Trace**    → `trace/Panel`
-    - **Machines** → `machine-inspector/Panel`
-    - **Routing**  → `routing/Panel` (rf2-nrbs9 — 7th tab)
-    - **Issues**   → `issues-ribbon/Panel`
+    - **Event**           → `event-detail/Panel`
+    - **App-db**          → `app-db-diff/Panel`
+    - **Views**           → `views/Panel`
+    - **Trace**           → `trace/Panel`
+    - **Machines**        → `machine-inspector/Panel`
+    - **Machines Canvas** → `machines-canvas-panel/Panel` (rf2-mkpnb — 6th tab)
+    - **Routing**         → `routing/Panel` (rf2-nrbs9 — 7th tab)
+    - **Issues**          → `issues-ribbon/Panel`
 
   ## The chrome (rf2-xy4yb / spec/018)
 
