@@ -49,9 +49,9 @@ The agent has been asked to add a "user clicks delete then confirms" variant for
 agent → register-variant
   {:variant-id :story.todos/delete-confirmed
    :body {:extends :story.todos/list-with-items
-          :play [[:todo/delete-pressed 3]
-                 [:todo/confirm-pressed]
-                 [:rf.assert/path-equals [:todos :items] []]]}}
+          :play-script [[:dispatch-sync [:todo/delete-pressed 3]]
+                        [:dispatch-sync [:todo/confirm-pressed]]
+                        [:dispatch-sync [:rf.assert/path-equals [:todos :items] []]]]}}
 
 agent → run-variant {:variant-id :story.todos/delete-confirmed}
   ← {:passing? false :lifecycle :ok :elapsed-ms 18 ...}
@@ -71,10 +71,10 @@ The agent reads the failure: two items still remain because the parent variant s
 agent → register-variant   ; overwrites
   {:variant-id :story.todos/delete-confirmed
    :body {:extends :story.todos/list-with-items
-          :play [[:todo/delete-pressed 3]
-                 [:todo/confirm-pressed]
-                 [:rf.assert/path-equals [:todos :items] [{:id 1} {:id 2}]]
-                 [:rf.assert/dispatched? [:todo/deleted 3]]]}}
+          :play-script [[:dispatch-sync [:todo/delete-pressed 3]]
+                        [:dispatch-sync [:todo/confirm-pressed]]
+                        [:dispatch-sync [:rf.assert/path-equals [:todos :items] [{:id 1} {:id 2}]]]
+                        [:dispatch-sync [:rf.assert/dispatched? [:todo/deleted 3]]]]}}
 
 agent → run-variant {:variant-id :story.todos/delete-confirmed}
   ← {:passing? true ...}
@@ -90,7 +90,7 @@ Loop terminates. The agent reports the final variant body back to the user.
 
 ## Common gotchas — loop-specific
 
-- **`:rf.assert/*` events record, they do not throw.** A failing assertion does not abort the play sequence. `read-failures` returns the full failure list per iteration — the agent sees every mismatch at once, not just the first.
+- **`:rf.assert/*` events record, they do not throw.** A failing assertion does not abort the play-script. `read-failures` returns the full failure list per iteration — the agent sees every mismatch at once, not just the first. Assertion events ride the `:dispatch-sync` rail in `:play-script` (per rf2-0wrud — `:play-script` is the canonical AND ONLY phase-4 surface as of 2026-05-20).
 - **`:passing?` is the loop terminator.** Truthy when every assertion in the play sequence passed. Equivalent to `(every? :passed? (:assertions result))` but pre-computed by `run-variant`.
 - **Snapshot-identity for skip-when-unchanged.** `snapshot-identity` returns a content hash of `(variant × args × decorators × loaders × substrate × modes)`. Agents that iterate across N variants skip cells whose identity matches a previous run.
 - **Source-coord stamping survives MCP registration.** `register-variant` stamps `{:file <agent-supplied> :line <n>}` if provided in the body; without it, `:source` is omitted and failure records carry no jump-to-line affordance. Agents that want clickable failures supply `:source` from the file they'll write the variant back into.

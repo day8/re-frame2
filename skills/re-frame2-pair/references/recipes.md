@@ -221,7 +221,7 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
    Subsequent reads/writes/watches inherit this frame.
 4. Operate normally — `app-db/snapshot`, `dispatch`, `trace/last-epoch`, etc. The variant's isolated state is what you see.
 
-**Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `app-db/snapshot` returns whatever the variant's loaders + events seeded; `trace/last-epoch` returns the last dispatch (often the last `:play` event if the variant just mounted).
+**Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `app-db/snapshot` returns whatever the variant's loaders + events seeded; `trace/last-epoch` returns the last dispatch (often the last `:play-script` step if the variant just mounted).
 
 **Gotcha.** If you forget the `frames/select` (or `--frame` per call), dispatches land in `:rf/default` and you'll see nothing in the variant's history. See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
 
@@ -260,7 +260,7 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
 
 **Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. Pair2 sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
 
-**Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play` body to make an assertion pass.
+**Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play-script` body to make an assertion pass.
 
 **Procedure:**
 
@@ -277,17 +277,17 @@ Optional filters: pass `topic` (`trace` / `epoch` / `fx` / `error`) to narrow, o
    ```
    mcp__re-frame2-story-mcp__register-variant
      {variant-id: ":story.counter/loaded"
-      body: {:extends :story.counter
-             :events [[:counter/initialise 7]]
-             :play   [[:counter/inc]
-                      [:rf.assert/path-equals [:count] 8]]}}
+      body: {:extends     :story.counter
+             :events      [[:counter/initialise 7]]
+             :play-script [[:dispatch-sync [:counter/inc]]
+                           [:dispatch-sync [:rf.assert/path-equals [:count] 8]]]}}
    ```
    `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
 4. Run it:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
    ```
-   As the play-runner dispatches each `:play` event, the re-frame2-pair subscription emits its epoch. Narrate them in order.
+   As the play-runner drives each `:play-script` step, the re-frame2-pair subscription emits its epoch. Narrate them in order.
 5. Read failures:
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
