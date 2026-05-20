@@ -218,7 +218,7 @@
             handler runs; the handler is NOT invoked"
     (let [calls (atom 0)]
       (rf/reg-event-db :user/register
-        {:spec [:cat [:= :user/register]
+        {:schema [:cat [:= :user/register]
                      [:map [:email :string] [:age :int]]]}
         (fn [db [_ payload]]
           (swap! calls inc)
@@ -245,7 +245,7 @@
   (testing "validate-event! is a no-op when debug-enabled? is false (production)"
     (let [calls (atom 0)]
       (rf/reg-event-db :user/strict
-        {:spec [:cat [:= :user/strict] :int]}
+        {:schema [:cat [:= :user/strict] :int]}
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::ev2 (fn [ev] (swap! traces conj ev)))
@@ -268,7 +268,7 @@
     (rf/reg-event-db :items/init (fn [_ _] {:items ["a" "b" "c"]}))
     (rf/reg-event-db :items/break (fn [db _] (assoc db :items [1 2 3])))
     (rf/reg-sub :items
-      {:spec [:vector :string]}
+      {:schema [:vector :string]}
       (fn [db _] (:items db)))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
@@ -294,7 +294,7 @@
   (testing "compute-sub validates the return against :spec — the pure
             test-time path mirrors the live reactive path"
     (rf/reg-sub :nums
-      {:spec [:vector :int]}
+      {:schema [:vector :int]}
       (fn [db _] (:nums db)))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::cs (fn [ev] (swap! traces conj ev)))
@@ -315,7 +315,7 @@
             fails its :spec emits :rf.error/schema-validation-failure
             :where :cofx and the handler is NOT invoked"
     (rf/reg-cofx :app-version/bad
-      {:spec :string}
+      {:schema :string}
       (fn [ctx]
         (assoc-in ctx [:coeffects :app-version/bad] 42)))
     (let [calls (atom 0)]
@@ -344,7 +344,7 @@
 (deftest cofx-validation-passes-when-conforming
   (testing "well-typed cofx values flow through to the handler — no trace, handler runs"
     (rf/reg-cofx :app-version/well
-      {:spec :string}
+      {:schema :string}
       (fn [ctx]
         (assoc-in ctx [:coeffects :app-version/well] "1.4.5")))
     (let [seen-version (atom nil)]
@@ -374,7 +374,7 @@
     (let [bad-fx-calls  (atom 0)
           good-fx-calls (atom 0)]
       (rf/reg-fx :my/notify
-        {:spec [:map [:level :keyword] [:message :string]]}
+        {:schema [:map [:level :keyword] [:message :string]]}
         (fn [_ctx _args] (swap! bad-fx-calls inc)))
       (rf/reg-fx :my/log
         (fn [_ctx _args] (swap! good-fx-calls inc)))
@@ -413,7 +413,7 @@
     (let [calls (atom 0)
           seen (atom nil)]
       (rf/reg-fx :my/email
-        {:spec [:map [:to :string]]}
+        {:schema [:map [:to :string]]}
         (fn [_ctx args]
           (swap! calls inc)
           (reset! seen args)))
@@ -435,7 +435,7 @@
   (testing "validate-fx! is a no-op when debug-enabled? is false (production)"
     (let [calls (atom 0)]
       (rf/reg-fx :strict/fx
-        {:spec [:map [:x :int]]}
+        {:schema [:map [:x :int]]}
         (fn [_ctx _args] (swap! calls inc)))
       (rf/reg-event-fx :strict/trigger
         (fn [_ _]
@@ -458,9 +458,9 @@
     (let [traces (atom [])]
       (rf/register-trace-cb! ::fxv4 (fn [ev] (swap! traces conj ev)))
       ;; Direct call — exercises the validate-fx! fn itself, not the integration.
-      (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {:spec [:map [:x :int]]}))
+      (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {:schema [:map [:x :int]]}))
           "well-typed args pass")
-      (is (false? (schemas/validate-fx! :my/fx :ev/origin {:x "bad"} {:spec [:map [:x :int]]}))
+      (is (false? (schemas/validate-fx! :my/fx :ev/origin {:x "bad"} {:schema [:map [:x :int]]}))
           "malformed args fail")
       (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {}))
           "no :spec → soft pass")
@@ -494,7 +494,7 @@
       (is (false? (schemas/validate-fx! :my/secret
                                         :ev/origin
                                         {:token 42}
-                                        {:spec [:map [:token {:sensitive? true} :string]]})))
+                                        {:schema [:map [:token {:sensitive? true} :string]]})))
       (rf/remove-trace-cb! ::fxv5)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
@@ -869,7 +869,7 @@
     (rf/set-schema-validator! nil)
     (let [calls (atom 0)]
       (rf/reg-event-db :user/strict
-        {:spec [:cat [:= :user/strict] :int]}
+        {:schema [:cat [:= :user/strict] :int]}
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::nile (fn [ev] (swap! traces conj ev)))
@@ -1076,7 +1076,7 @@
             against the handler's :spec passes through, the handler runs."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/response
-        {:spec [:cat [:= :api/response]
+        {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]}
         [rf/at-boundary]
         (fn [_ [_ payload]]
@@ -1110,7 +1110,7 @@
             promises in either path."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/response
-        {:spec [:cat [:= :api/response]
+        {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]}
         [rf/at-boundary]
         (fn [_ [_ payload]]
@@ -1135,7 +1135,7 @@
             invocation isolates the boundary's emission for shape
             assertion."
     (rf/reg-event-fx :api/strict
-      {:spec [:cat [:= :api/strict] :int]}
+      {:schema [:cat [:= :api/strict] :int]}
       [rf/at-boundary]
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -1182,7 +1182,7 @@
             skip mechanism carries the boundary failure through without
             additional plumbing."
     (rf/reg-event-fx :api/strict
-      {:spec [:cat [:= :api/strict] :int]}
+      {:schema [:cat [:= :api/strict] :int]}
       [rf/at-boundary]
       (fn [_ _] {}))
     ;; Direct invocation of the interceptor's :before fn — gives us a
@@ -1216,7 +1216,7 @@
           handler-calls (atom 0)]
       (rf/set-schema-validator! custom)
       (rf/reg-event-fx :api/custom
-        {:spec :rf/any}                    ;; opaque to the custom validator
+        {:schema :rf/any}                    ;; opaque to the custom validator
         [rf/at-boundary]
         (fn [_ _] (swap! handler-calls inc) {}))
       (with-redefs [spec/dev-mode? (constantly false)]
@@ -1241,7 +1241,7 @@
     (rf/set-schema-validator! nil)
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/disabled
-        {:spec [:cat [:= :api/disabled] :int]}
+        {:schema [:cat [:= :api/disabled] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
@@ -1263,7 +1263,7 @@
             interceptor doesn't validate a second time."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/dev
-        {:spec [:cat [:= :api/dev] :int]}
+        {:schema [:cat [:= :api/dev] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
@@ -1446,100 +1446,16 @@
       (is (= {} (rf/app-schemas))
           "no schemas registered on the active frame"))))
 
-;; ---- rf2-ieu0i — :schema canonical / :spec deprecated alias --------------
+;; ---- rf2-ieu0i — :schema canonical ---------------------------------------
 ;;
 ;; Per Mike's decision at rf2-ieu0i the framework collapses the dual
 ;; vocabulary (`:spec` / `schema` / `validation` / `violation`) under a
-;; single name — `:schema`. The v1 `:spec` metadata key is accepted as
-;; a deprecated alias for one cycle:
-;;
-;;   1. Both `:schema` and `:spec` resolve at the validate-*! lookup
-;;      site (`(or (:schema meta) (:spec meta))`); the chosen schema
-;;      validates identically.
-;;   2. The registrar emits `:rf.warning/deprecated-schema-alias` once
-;;      per (kind, id) when `:spec` appears on a `reg-*` — surfacing
-;;      the migration call sites for the M-54 mechanical rewrite.
-;;
-;; These tests pin both contract surfaces.
-
-(deftest schema-canonical-key-validates-the-same-as-spec-alias
-  (testing "rf2-ieu0i — `:schema` and `:spec` on `reg-event-*` metadata
-            both route through the same validate-event! path; a
-            malformed event vector fails both surfaces identically."
-    (registrar/clear-warning-caches!)
-    ;; Canonical name — :schema.
-    (rf/reg-event-fx :user/canonical
-      {:schema [:cat [:= :user/canonical] [:map [:email :string]]]}
-      (fn [_ _] {}))
-    ;; Deprecated alias — :spec.
-    (rf/reg-event-fx :user/alias
-      {:spec [:cat [:= :user/alias] [:map [:email :string]]]}
-      (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-trace-cb! ::dual (fn [ev] (swap! traces conj ev)))
-      (with-redefs [interop/debug-enabled? true]
-        (rf/dispatch-sync [:user/canonical {:email 42}])
-        (rf/dispatch-sync [:user/alias {:email 42}]))
-      (rf/remove-trace-cb! ::dual)
-      (let [violations (filter #(= :rf.error/schema-validation-failure
-                                   (:operation %))
-                               @traces)]
-        (is (= 2 (count violations))
-            "both the :schema-keyed and :spec-keyed handlers emit one validation failure each")
-        (is (= #{:user/canonical :user/alias}
-               (set (map #(-> % :tags :failing-id) violations)))
-            "the failing-id tag identifies each handler — same emit shape on both paths")))))
-
-(deftest deprecated-spec-alias-emits-warning-once-per-handler-id
-  (testing "rf2-ieu0i — a `reg-*` carrying the deprecated `:spec` key
-            triggers `:rf.warning/deprecated-schema-alias` at most once
-            per (kind, id) so the migration scaffolding can find the
-            call sites. Subsequent re-registrations on the same id stay
-            silent until `clear-warning-caches!` flips the suppression."
-    (registrar/clear-warning-caches!)
-    (let [warnings (atom [])]
-      (rf/register-trace-cb! ::dep (fn [ev]
-                                     (when (= :rf.warning/deprecated-schema-alias
-                                              (:operation ev))
-                                       (swap! warnings conj ev))))
-      ;; First registration — warning fires once.
-      (rf/reg-event-fx :user/legacy
-        {:spec [:cat [:= :user/legacy] :int]}
-        (fn [_ _] {}))
-      ;; Re-registration of the same id — suppressed by the warn-once cache.
-      (rf/reg-event-fx :user/legacy
-        {:spec [:cat [:= :user/legacy] :int]}
-        (fn [_ _] {}))
-      (rf/remove-trace-cb! ::dep)
-      (is (= 1 (count @warnings))
-          "exactly one deprecation warning across two registrations of the same id")
-      (let [w (first @warnings)]
-        (is (= :event (-> w :tags :kind)))
-        (is (= :user/legacy (-> w :tags :id)))
-        (is (string? (-> w :tags :reason)))
-        (is (str/includes? (-> w :tags :reason) ":spec"))
-        (is (str/includes? (-> w :tags :reason) ":schema"))))))
-
-(deftest canonical-schema-key-does-not-emit-deprecation-warning
-  (testing "rf2-ieu0i — `:schema` on a `reg-*` is the canonical name; no
-            deprecation warning fires."
-    (registrar/clear-warning-caches!)
-    (let [warnings (atom [])]
-      (rf/register-trace-cb! ::can (fn [ev]
-                                     (when (= :rf.warning/deprecated-schema-alias
-                                              (:operation ev))
-                                       (swap! warnings conj ev))))
-      (rf/reg-event-fx :user/modern
-        {:schema [:cat [:= :user/modern] :int]}
-        (fn [_ _] {}))
-      (rf/remove-trace-cb! ::can)
-      (is (empty? @warnings)
-          "no deprecation warning when the canonical :schema key is used"))))
+;; single name — `:schema`. Alpha posture: no back-compat shims, no
+;; deprecation aliases. v1→v2 rename is recorded in MIGRATION §M-54.
 
 (deftest boundary-interceptor-reads-schema-key
   (testing "rf2-ieu0i — `:rf.schema/at-boundary` interceptor reads the
-            canonical `:schema` key (and falls back to `:spec` per the
-            one-cycle alias contract)."
+            canonical `:schema` key."
     ;; Verify the interceptor id was renamed.
     (is (= :rf.schema/at-boundary (:id rf/at-boundary))
         ":id of the boundary interceptor is :rf.schema/at-boundary (rf2-ieu0i)")

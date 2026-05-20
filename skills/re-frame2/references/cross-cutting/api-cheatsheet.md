@@ -115,7 +115,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/inject-cofx` | `(id & args)` — cofx injector |
 | `rf/path` / `rf/unwrap` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
-| `rf/install-adapter!` / `rf/dispose-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
+| `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
 | `rf/configure` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |

@@ -387,7 +387,7 @@
              (reduce-kv (fn [acc k pairs]
                           (assoc acc k (mapv first pairs)))
                         {}))]
-    ;; cofx registrations — bodies + :spec metadata. Per rf2-7leq the
+    ;; cofx registrations — bodies + :schema metadata. Per rf2-7leq the
     ;; schema validation runs in inject-cofx; here we register the
     ;; handler-fn so inject-cofx can resolve it.
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]

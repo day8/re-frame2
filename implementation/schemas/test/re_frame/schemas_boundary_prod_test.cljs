@@ -69,7 +69,7 @@
             the schema at this dispatch."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:spec [:cat [:= :api/strict] :int]}
+        {:schema [:cat [:= :api/strict] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       ;; Malformed payload: handler MUST be skipped.
@@ -84,7 +84,7 @@
             The handler runs exactly once."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:spec [:cat [:= :api/strict] :int]}
+        {:schema [:cat [:= :api/strict] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:api/strict 42])
@@ -105,7 +105,7 @@
             the entire emit body has DCE'd."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:spec [:cat [:= :api/strict] :int]}
+        {:schema [:cat [:= :api/strict] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
@@ -129,7 +129,7 @@
             `:before` slot's prod branch validates the event and sets
             `:rf/skip-handler?` on the context when the schema fails."
     (rf/reg-event-fx :api/strict
-      {:spec [:cat [:= :api/strict] :int]}
+      {:schema [:cat [:= :api/strict] :int]}
       [rf/at-boundary]
       (fn [_ _] {}))
     (let [before    (:before rf/at-boundary)
@@ -150,7 +150,7 @@
     (try
       (let [calls (atom 0)]
         (rf/reg-event-fx :api/disabled
-          {:spec [:cat [:= :api/disabled] :int]}
+          {:schema [:cat [:= :api/disabled] :int]}
           [rf/at-boundary]
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:api/disabled "wildly-malformed"])

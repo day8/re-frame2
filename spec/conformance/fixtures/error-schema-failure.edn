@@ -1,5 +1,5 @@
 ;; Conformance fixture: error/schema-failure
-;; A registered :spec on a sub's return value (or an event vector, or app-db
+;; A registered :schema on a sub's return value (or an event vector, or app-db
 ;; at a path) fails Malli validation. Runtime emits :rf.error/schema-validation-failure.
 ;; Per [009 §Error contract].
 ;;

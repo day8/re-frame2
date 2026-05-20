@@ -71,7 +71,7 @@
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
-  injects, validate its value against the cofx's :spec metadata.
+  injects, validate its value against the cofx's :schema metadata.
 
   We look up schemas/validate-cofx! through the late-bind registry so
   this namespace stays decoupled from re-frame.schemas (avoids a

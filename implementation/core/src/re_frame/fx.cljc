@@ -58,8 +58,7 @@
       :doc        one-sentence what-and-why; surfaces via
                   `(rf/handler-meta :fx id)`.
       :schema     Malli schema for `args` (per Spec 010 §:schema on fx
-                  registrations; rf2-ieu0i). `:spec` is accepted as a
-                  deprecated alias for one release cycle.
+                  registrations; rf2-ieu0i).
       :platforms  set of `#{:client :server}`; default
                   `#{:client :server}`. The fx is skipped on platforms
                   not in the set (`:rf.fx/skipped-on-platform` warning
@@ -476,12 +475,10 @@
       (if (fx-runs-on-platform? meta active-platform)
         ;; Per Spec 010 §Validation order step 5 (rf2-xp2o3): before the
         ;; fx handler runs, validate its args against any `:schema` on
-        ;; the fx's registration meta (with `:spec` accepted as a
-        ;; deprecated alias per rf2-ieu0i / MIGRATION §M-54). The
-        ;; schemas artefact is optional — when absent or when no
-        ;; `:schema` is registered, the late-bind hook resolves nil or
-        ;; the guard short-circuits and the call is a no-op (true /
-        ;; pass).
+        ;; the fx's registration meta. The schemas artefact is optional
+        ;; — when absent or when no `:schema` is registered, the
+        ;; late-bind hook resolves nil or the guard short-circuits and
+        ;; the call is a no-op (true / pass).
         ;; On failure (returns false) the offending fx is skipped (per
         ;; Spec 010 §Per-step recovery row 5: `:recovery :skipped`) and
         ;; the walk continues with the next entry in the `:fx` vector —
@@ -492,7 +489,7 @@
         ;; Sticky hook (rf2-f72pd) — fires per-fx invocation.
         (let [validate-fx! (late-bind/get-fn-cached :schemas/validate-fx!)
               fx-ok?       (if (and validate-fx!
-                                    (or (:schema meta) (:spec meta)))
+                                    (:schema meta))
                              (try
                                (validate-fx! fx-id origin-event-id args meta)
                                (catch #?(:clj Throwable :cljs :default) _ true))

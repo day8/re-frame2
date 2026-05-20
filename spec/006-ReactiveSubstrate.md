@@ -1089,9 +1089,9 @@ The keyword is informational. Behaviour-affecting decisions should be based on `
 Runtime delegation calls (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`, `subscribe-container`, `register-context-provider`) raise a structured ex-info when no adapter is installed. The throw shape distinguishes two states:
 
 - **`:rf.error/no-adapter-installed`** — fresh process, no `(rf/init! …)` has fired yet. Recovery: install an adapter.
-- **`:rf.error/adapter-disposed`** — an adapter was previously installed and torn down by `(rf/dispose-adapter!)` without a subsequent install. Recovery: install a fresh adapter. Common in test fixtures and hot-reload flows.
+- **`:rf.error/adapter-disposed`** — an adapter was previously installed and torn down by `(rf/destroy-adapter!)` without a subsequent install. Recovery: install a fresh adapter. Common in test fixtures and hot-reload flows.
 
-A disposed-breadcrumb (boolean) is set by `dispose-adapter!` and cleared by the next successful `install-adapter!`. Both states leave the install slot empty so a fresh adapter can install without a slot collision.
+A disposed-breadcrumb (boolean) is set by `destroy-adapter!` and cleared by the next successful `install-adapter!`. Both states leave the install slot empty so a fresh adapter can install without a slot collision.
 
 `(rf/adapter-disposed?)` returns the breadcrumb's value as a read-only predicate for tools and test harnesses that want to assert the lifecycle state without provoking a throw.
 

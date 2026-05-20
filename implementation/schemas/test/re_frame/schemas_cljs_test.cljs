@@ -174,8 +174,8 @@
   (testing "a malformed event payload skips the handler and emits :where :event"
     (let [calls (atom 0)]
       (rf/reg-event-db :user/register
-        {:spec [:cat [:= :user/register]
-                     [:map [:email :string] [:age :int]]]}
+        {:schema [:cat [:= :user/register]
+                       [:map [:email :string] [:age :int]]]}
         (fn [db _]
           (swap! calls inc)
           db))
@@ -292,7 +292,7 @@
             Step-1 validation in the router is what enforces the schema
             in dev; the boundary interceptor's prod-mode body never runs."
     (rf/reg-event-fx :api/strict
-      {:spec [:cat [:= :api/strict] :int]}
+      {:schema [:cat [:= :api/strict] :int]}
       [rf/at-boundary]
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -324,7 +324,7 @@
             trace tag (boundary itself stayed quiet)."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:spec [:cat [:= :api/strict] :int]}
+        {:schema [:cat [:= :api/strict] :int]}
         [rf/at-boundary]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]

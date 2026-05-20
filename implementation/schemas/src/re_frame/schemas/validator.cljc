@@ -2,12 +2,12 @@
   "Pluggable validator / explainer / printer fns (rf2-froe + rf2-wla45).
 
   Per Spec 010 §Non-Malli validators — the validator-fn extension point.
-  The framework never inspects the value stored in `:spec` directly;
+  The framework never inspects the value stored in `:schema` directly;
   every validation site routes through the registered validator fn.
   This is the seam Malli plugs into by default; apps that want to drop
   the ~24 KB gzipped Malli surface (rf2-qnxf) call
   `(rf/set-schema-validator! some-other-fn)` (or `nil` for no-op) at
-  boot before any reg-app-schema / :spec metadata lands.
+  boot before any reg-app-schema / :schema metadata lands.
 
   Three fns are registered separately so the validate hot path stays
   cheap (validate returns truthy/falsey; explain is only invoked on

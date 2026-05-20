@@ -477,5 +477,5 @@
                 (str where-sym " ex-data :where echoes the offending public surface symbol"))
             (is (= :no-recovery (:recovery data))
                 (str where-sym " ex-data :recovery is :no-recovery"))
-            (is (re-find #"dispose-adapter!" (str (:reason data)))
-                (str where-sym " ex-data :reason mentions the prior dispose-adapter!"))))))))
+            (is (re-find #"destroy-adapter!" (str (:reason data)))
+                (str where-sym " ex-data :reason mentions the prior destroy-adapter!"))))))))

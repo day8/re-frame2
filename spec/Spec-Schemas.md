@@ -139,7 +139,6 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
   [:map
    [:doc        {:optional true} :string]                                  ;; SHOULD per [001 §:doc is dev-warned when absent]; structurally optional so re-registrations and programmatic paths still validate
    [:schema     {:optional true} :any]                                     ;; Malli schema (or implementation equivalent) — canonical key per rf2-ieu0i
-   [:spec       {:optional true} :any]                                     ;; deprecated v1 alias of :schema — accepted for one cycle, emits :rf.warning/deprecated-schema-alias once per handler-id; see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i)
    [:ns         {:optional true} :symbol]                                  ;; auto-supplied by macros — flat per [§`:rf/source-coord-meta`](#rfsource-coord-meta)
    [:line       {:optional true} :int]
    [:column     {:optional true} :int]
@@ -249,7 +248,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 
 `:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
-**Note — `:schema` is now canonical (rf2-ieu0i).** Story's earlier reading of `:schema` (as a legacy alias to the framework's `:spec`) is now in line with the canonical name — both Story and the framework speak `:schema` from rf2-ieu0i onward. The v1 `:spec` key is accepted as a deprecated alias for one cycle; see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
+**Note — `:schema` is canonical (rf2-ieu0i).** Story's earlier reading of `:schema` (as a legacy alias to the framework's `:spec`) is now in line with the canonical name — both Story and the framework speak `:schema`. See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) for the v1→v2 rename.
 
 #### `:rf/machine-meta`
 

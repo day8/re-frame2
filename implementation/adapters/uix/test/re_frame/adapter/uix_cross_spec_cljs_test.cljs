@@ -357,7 +357,7 @@
                        (ex-message e))))]
     (is thrown?
         "second install-adapter! raises :rf.error/adapter-already-installed"))
-  (rf/dispose-adapter!)
+  (rf/destroy-adapter!)
   (rf/install-adapter! uix-adapter/adapter)
   (is (some? (adapter/current-adapter))
-      "after dispose, install succeeds again — clean swap path"))
+      "after destroy, install succeeds again — clean swap path"))

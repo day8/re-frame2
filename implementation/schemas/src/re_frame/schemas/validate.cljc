@@ -10,9 +10,7 @@
     - validate-app-db!      — post-handler-commit (frame's app-schemas)
     - validate-sub-return!  — post-sub-recompute (return value vs sub :schema)
 
-  The metadata key is `:schema` (canonical per rf2-ieu0i); the v1
-  `:spec` key is accepted as a deprecated alias for one cycle — every
-  lookup-site here reads `:schema` first and falls back to `:spec`.
+  The metadata key is `:schema` (canonical per rf2-ieu0i).
 
   Also owns the production-side boundary-validation seam
   (`validate-with-registered-fn` / `explain-with-registered-fn`) that
@@ -198,15 +196,13 @@
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
   fx / sub-return). Performs the registered-validator deref, the
-  `:schema`-on-meta lookup (with `:spec` accepted as a deprecated
-  alias per rf2-ieu0i), the validate / explain calls, the
+  `:schema`-on-meta lookup, the validate / explain calls, the
   sensitivity decision, and the trace emit. Returns true on pass / no
   schema / no validator; false on a logged failure.
 
   Parameters:
     - `meta`         the registration metadata (handler / cofx / sub /
-                     fx) — its `:schema` slot (or `:spec` alias), if
-                     any, is the schema.
+                     fx) — its `:schema` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return, fx args).
     - `meta-sensitive?` boolean — historical handler-meta sensitivity
@@ -245,9 +241,7 @@
   slot), so a single redactor covers every meta-bearing emit site."
   [meta value meta-sensitive? walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
-    ;; Accept :schema (canonical, rf2-ieu0i) or :spec (deprecated alias
-    ;; kept for one cycle).
-    (if-let [schema (or (:schema meta) (:spec meta))]
+    (if-let [schema (:schema meta)]
       (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
@@ -403,11 +397,10 @@
 
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,
-  validate the event vector against any :schema on the handler's metadata
-  (with `:spec` accepted as a deprecated alias per rf2-ieu0i).
-  Failures emit `:rf.error/schema-validation-failure :where :event`; the
-  caller skips the handler (recovery: `:no-recovery`). Returns
-  true/false per the `run-validation` contract."
+  validate the event vector against any :schema on the handler's
+  metadata. Failures emit `:rf.error/schema-validation-failure :where
+  :event`; the caller skips the handler (recovery: `:no-recovery`).
+  Returns true/false per the `run-validation` contract."
   [event-id event handler-meta]
   (if interop/debug-enabled?
     (run-validation
@@ -431,8 +424,7 @@
 
 (defn validate-sub-return!
   "Per Spec 010 §Validation order step 6 — after a sub recomputes,
-  validate its return value against any :schema on the sub's metadata
-  (with `:spec` accepted as a deprecated alias per rf2-ieu0i).
+  validate its return value against any :schema on the sub's metadata.
   Failures emit `:rf.error/schema-validation-failure :where
   :sub-return`; the caller replaces the value with the default (nil)
   per the `:replaced-with-default` recovery. Returns true/false per
@@ -462,8 +454,7 @@
 (defn validate-cofx!
   "Per Spec 010 §Validation order step 2 — after a cofx injects its
   value into the merged context, validate that value against any
-  :schema on the cofx's metadata (with `:spec` accepted as a
-  deprecated alias per rf2-ieu0i). Failures emit
+  :schema on the cofx's metadata. Failures emit
   `:rf.error/schema-validation-failure :where :cofx`; the caller
   skips the handler (recovery: `:no-recovery`). Returns true/false
   per the `run-validation` contract."
@@ -491,8 +482,7 @@
 
 (defn validate-fx!
   "Per Spec 010 §Validation order step 5 — before an fx handler runs,
-  validate its args against any :schema on the fx's metadata (with
-  `:spec` accepted as a deprecated alias per rf2-ieu0i). Failures
+  validate its args against any :schema on the fx's metadata. Failures
   emit `:rf.error/schema-validation-failure :where :fx-args`; per
   Spec 010 §Per-step recovery row 5 the caller skips the offending fx
   only (recovery: `:skipped`) — sibling fx in the same `:fx` vector

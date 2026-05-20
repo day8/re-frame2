@@ -1257,15 +1257,6 @@
   create/destroy (`destroy-frame!`)."}
   destroy-adapter!     adapter/dispose-adapter!)
 
-(def ^{:deprecated "deprecated alias for `destroy-adapter!`. Per the
-  tear-down verb axis (Conventions §Tear-down verb axis, rf2-cmabc)
-  the `dispose-` prefix is collapsed onto the `destroy-` cluster —
-  adapter teardown is a lifecycle boundary, symmetric with
-  `destroy-frame!`. Retained for one deprecation cycle; switch to
-  `destroy-adapter!`."
-       :doc "Deprecated alias for `destroy-adapter!`. See `destroy-adapter!`."}
-  dispose-adapter!     adapter/dispose-adapter!)
-
 (def ^{:doc "Return the discriminator keyword identifying the installed
   adapter, or `nil` if none. One of `:reagent` / `:plain-atom` /
   `:uix` / `:helix` per Spec 006 §Adapter introspection."}
