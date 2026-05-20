@@ -44,16 +44,18 @@
 
 (defn maybe-validate-sub-return!
   "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
-  recomputes, validate its return value against any :spec on the sub
-  meta. On failure, emit :rf.error/schema-validation-failure and
-  return nil per :replaced-with-default recovery; otherwise return
-  the value unchanged.
+  recomputes, validate its return value against any :schema on the sub
+  meta (with `:spec` accepted as a deprecated alias per rf2-ieu0i /
+  MIGRATION §M-54). On failure, emit
+  :rf.error/schema-validation-failure and return nil per
+  :replaced-with-default recovery; otherwise return the value
+  unchanged.
 
   Looked up lazily through the late-bind registry so this namespace
   stays free of a hard re-frame.schemas dep (avoids load-order
   surprises)."
   [value query-v sub-id sub-meta]
-  (if (and sub-meta (:spec sub-meta))
+  (if (and sub-meta (or (:schema sub-meta) (:spec sub-meta)))
     ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
     (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub-return!)]
       (if (try (validate sub-id query-v value sub-meta)
