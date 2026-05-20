@@ -65,7 +65,7 @@
     - tier-dot (reused in cascade-outcome + per-fx duration)"
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
-            [day8.re-frame2-causa.data-display.render :as data-display]
+            [day8.re-frame2-causa.views.edn-widget.widget :as edn]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
@@ -362,7 +362,7 @@
   (✓ / ✗ / ⚠) so colour-blind users have a shape signal; the dot
   reinforces the same lifecycle state with the canonical colour."
   [cascade]
-  (let [{:keys [event-id glyph outcome duration-ms dispatch-id ssr?]}
+  (let [{:keys [event-id glyph outcome duration-ms ssr?]}
         (cascade-outcome cascade)
         ;; rf2-b76v4 — read the spine focus so the status fn can pick
         ;; up :stale (RETRO mode) + :paused-by-tool. `:rf.causa/focus`
@@ -432,11 +432,11 @@
                          :font-family mono-stack
                          :font-size "11px"}}
           "—"])
-     [:span {:style {:color (:text-tertiary tokens)}} "·"]
-     [:span {:style {:color (:text-tertiary tokens)
-                     :font-family mono-stack
-                     :font-size "11px"}}
-      (str "cascade #" dispatch-id)]
+     ;; rf2-n4ad0 — cascade #NNN removed from the outcome line (was
+     ;; internal-only info, not human-relevant). The dispatch-id is
+     ;; available on the `data-dispatch-id` attribute of the lens root
+     ;; for tests/agents that still need it. The hide is intentional
+     ;; per Mike-direction 2026-05-21.
      (when ssr?
        [:span {:data-testid "rf-causa-event-detail-outcome-ssr-badge"
                :style {:color (:cyan tokens)
@@ -640,32 +640,34 @@
 
 (defn- handler-source-line
   "Renders the `↳ source` block under the handler flavour+coord row.
-  Per spec/021 §2.2 the source string is the inline body of step 3 —
-  one-glance proof of the handler's intent. When the substrate meta
-  hasn't yet been captured (e.g. before rf2-xgfuy lands, or in a
-  production goog.DEBUG=false build) the row renders the
-  `<source not yet captured>` placeholder per the task brief."
+  Per Mike-direction 2026-05-21 (rf2-n4ad0) the handler source now
+  routes through the canonical EDN widget's `code-block` for
+  syntax-highlighted rendering (keywords violet, strings green,
+  numbers cyan, builtins violet). When the substrate meta hasn't
+  yet been captured (e.g. before rf2-xgfuy lands, or in a production
+  goog.DEBUG=false build) the row renders the `<source not yet
+  captured>` placeholder per the task brief."
   [meta]
   (let [src (handler-source-string meta)]
     [:div {:data-testid "rf-causa-event-detail-handler-source"
            :style {:margin-top "4px"
-                   :padding-left "16px"
-                   :font-family mono-stack
-                   :font-size   "12px"
-                   :white-space "pre"
-                   :overflow-x  "auto"
-                   :color       (if src
-                                  (:text-primary tokens)
-                                  (:text-tertiary tokens))}}
-     [:span {:data-testid "rf-causa-event-detail-handler-source-arrow"
-             :style {:color       (:text-tertiary tokens)
-                     :margin-right "6px"
-                     :font-size   "11px"}}
+                   :padding-left "16px"}}
+     [:div {:data-testid "rf-causa-event-detail-handler-source-arrow"
+            :style {:color        (:text-tertiary tokens)
+                    :font-family  sans-stack
+                    :font-size    "11px"
+                    :margin-bottom "4px"}}
       "↳ source"]
      (if src
-       [:span {:data-testid "rf-causa-event-detail-handler-source-body"} src]
+       (edn/code-block
+         {:source src
+          :lang   :clojure
+          :testid "rf-causa-event-detail-handler-source-body"})
        [:span {:data-testid "rf-causa-event-detail-handler-source-placeholder"
-               :style {:font-style "italic"}}
+               :style {:font-style "italic"
+                       :font-family mono-stack
+                       :font-size   "11px"
+                       :color       (:text-tertiary tokens)}}
         "<source not yet captured>"])]))
 
 (defn- handler-section
@@ -1123,51 +1125,65 @@
    [:span {:style {:color (:red tokens) :font-weight 600}} "⚠"]
    " for the exception detail."])
 
-;; ---- §2 canonical step-pipeline chrome --------------------------------
+;; ---- vertical-flow pipeline chrome (rf2-n4ad0) ------------------------
 ;;
-;; Per spec/021-Dynamic-Panel-Designs.md §2 the Event panel renders the
-;; handling perspective as a 6-step ONE-WAY PIPELINE with explicit
-;; `▼` arrows between steps. Each step's body remains an existing
-;; section (carrying its established testid + helpers); the chrome added
-;; here gives the visual rhythm the spec mandates — `[N] TITLE` headers
-;; + arrows. Stripe color is `:accent-violet` per §17.1.3.
+;; Per Mike-direction 2026-05-21 the Event panel renders the handling
+;; perspective as a top-to-bottom ONE-WAY PIPELINE expressed visually as
+;; a thin vertical line down the panel's left edge with a small
+;; downward chevron `⋁` at each section boundary. Both the line and
+;; the chevron are muted (`:border-subtle` / `:text-tertiary`) so the
+;; pipeline reads as rhythm and the section content is the foreground.
+;;
+;; Replaces the prior `[N] TITLE` headers + `▼` arrows — the chevrons
+;; now do the ordering work. Section labels are bare body-text (sans-
+;; stack 11px, weight 600, letter-spacing 0.6px, uppercase) per the
+;; shared `section-row` primitive. Section bodies render in mono.
 
-(defn- step-header
-  "Per spec/021 §2.2 — `[N] TITLE` label that precedes each step's body.
-  Renders the step number in `:accent-violet` 600-weight followed by the
-  uppercase title (12px, sans-stack, weight 500, letter-spacing 0.6px).
-  testid: `rf-causa-event-detail-step-<n>-header`."
-  [n title]
-  [:div {:data-testid (str "rf-causa-event-detail-step-" n "-header")
-         :style {:display       "flex"
-                 :align-items   "baseline"
-                 :gap           "8px"
-                 :padding       "8px 12px 4px 12px"
+(defn- section-label
+  "Bare label that precedes each pipeline section's body. No `[N]`
+  numbering — chevrons + the left rail carry the rhythm. testid:
+  `rf-causa-event-detail-section-<id>-label`."
+  [id title]
+  [:div {:data-testid (str "rf-causa-event-detail-section-" id "-label")
+         :style {:padding       "8px 12px 4px 12px"
                  :font-family   sans-stack
-                 :font-size     "12px"
+                 :font-size     "11px"
                  :font-weight   600
                  :letter-spacing "0.6px"
-                 :text-transform "uppercase"}}
-   [:span {:style {:color (:accent-violet tokens)
-                   :font-family mono-stack
-                   :font-weight 700}}
-    (str "[" n "]")]
-   [:span {:style {:color (:text-secondary tokens)}}
-    title]])
+                 :text-transform "uppercase"
+                 :color         (:text-secondary tokens)}}
+   title])
 
-(defn- step-arrow
-  "Per spec/021 §2.2 — the `▼` arrow between adjacent pipeline steps.
-  Visually anchors the one-way flow; mirrors the ASCII mockup. testid:
-  `rf-causa-event-detail-step-arrow-<n>` where `n` is the FROM step."
-  [from-n]
-  [:div {:data-testid (str "rf-causa-event-detail-step-arrow-" from-n)
+(defn- pipeline-chevron
+  "Per Mike-direction 2026-05-21 — small downward chevron `⋁`
+  separating adjacent pipeline sections. Muted (`:text-tertiary`) so
+  the chevron is rhythm not foreground; sits centred above the left
+  rail. testid: `rf-causa-event-detail-chevron-<from-id>`."
+  [from-id]
+  [:div {:data-testid (str "rf-causa-event-detail-chevron-" from-id)
          :aria-hidden "true"
-         :style {:padding-left "20px"
+         :style {:padding-left "4px"
                  :color        (:text-tertiary tokens)
                  :font-family  mono-stack
-                 :font-size    "11px"
-                 :line-height  1}}
-   "▼"])
+                 :font-size    "10px"
+                 :line-height  1
+                 :user-select  "none"
+                 :opacity      "0.6"}}
+   "⋁"])
+
+(defn- pipeline-empty-row
+  "Render a muted `(none ...)` placeholder for an empty section. Per
+  Mike-direction 2026-05-21 empty states are ALWAYS visible so the
+  pipeline rhythm holds — operators see the slot even when nothing
+  flowed through it."
+  [testid label]
+  [:div {:data-testid testid
+         :style {:padding     "2px 12px 6px 12px"
+                 :color       (:text-tertiary tokens)
+                 :font-style  "italic"
+                 :font-family sans-stack
+                 :font-size   "11px"}}
+   label])
 
 ;; ---- §2 Step 6 — :db + :fx (app-db diff via data-display) ------------
 
@@ -1218,10 +1234,13 @@
          [:div {:data-testid "rf-causa-event-detail-db-diff"
                 :style {:padding "4px 0"}}
           (if (and (some? record) (or (some? db-before) (some? db-after)))
-            (data-display/render-tree
-              {:value         db-after
-               :before        db-before
-               :diff?         true
+            ;; rf2-9wsdy / rf2-n4ad0 — embedded App-DB diff via the
+            ;; canonical EDN widget's diff variant. Same engine under
+            ;; the hood; the widget facade makes the call-site read as
+            ;; "this is THE app-db diff renderer".
+            (edn/diff
+              {:before        db-before
+               :after         db-after
                :panel-id      :event-db-fx
                :render-id     (str "epoch-" (or epoch-id dispatch-id "x"))
                :default-depth 3})
@@ -1296,119 +1315,101 @@
            :data-dispatch-id (str dispatch-id)
            :data-frame (str frame)
            ;; §17.1.3 — Event panel domain stripe is :accent-violet.
-           :style {:border-left  (str "3px solid " (:accent-violet tokens))}}
+           :style {:border-left (str "3px solid " (:accent-violet tokens))}}
      (cascade-outcome-line cascade)
 
-     ;; [1] DISPATCH — event vector + origin + call-site. Two existing
-     ;; sub-sections (event-section + dispatch-site-section) compose
-     ;; into one §2 step; their testids stay so finer-grained tests
-     ;; continue to resolve.
-     (step-header 1 "DISPATCH")
-     (event-section event)
-     (dispatch-site-section cascade)
+     ;; rf2-n4ad0 — vertical-flow pipeline body. Wraps every section in
+     ;; a left-rail container; the rail's thin vertical line + the
+     ;; chevrons between sections express the top-to-bottom one-way
+     ;; pipeline visually. Section labels are bare body-text — chevrons
+     ;; carry the ordering rhythm, no `[N]` numbering.
+     [:div {:data-testid "rf-causa-event-detail-pipeline"
+            :style {:border-left   (str "1px solid " (:border-subtle tokens))
+                    :margin-left   "16px"
+                    :padding-left  "12px"
+                    :padding-top   "8px"
+                    :padding-bottom "8px"}}
 
-     (step-arrow 1)
+      ;; — DISPATCH ORIGIN — bare-label · `[code]` chip · event vector.
+      ;; Per Mike-direction 2026-05-21 dispatch origin now leads the
+      ;; pipeline so the operator reads "where did this come from"
+      ;; before "what was dispatched".
+      (section-label "dispatch" "DISPATCH ORIGIN")
+      (dispatch-site-section cascade)
+      (event-section event)
 
-     ;; [2] COEFFECTS — silent-by-default; renders the step header
-     ;; regardless so the pipeline rhythm holds even when the body
-     ;; collapses to an "(empty)" line.
-     (step-header 2 "COEFFECTS")
-     (or (coeffects-section cascade)
-         [:div {:data-testid "rf-causa-event-detail-step-2-empty"
-                :style {:padding "2px 12px 6px 12px"
-                        :color (:text-tertiary tokens)
-                        :font-style "italic"
-                        :font-family sans-stack
-                        :font-size "11px"}}
-          "no user-injected coeffects"])
+      (pipeline-chevron "dispatch")
 
-     (step-arrow 2)
+      ;; — COEFFECTS — empty state always visible per design constraint.
+      (section-label "coeffects" "COEFFECTS")
+      (or (coeffects-section cascade)
+          (pipeline-empty-row
+            "rf-causa-event-detail-coeffects-empty"
+            "(none injected)"))
 
-     ;; [3] HANDLER — flavour + coord + source (rf2-xgfuy placeholder
-     ;; until the substrate stamp lands). INTERCEPTORS peer sits
-     ;; underneath as silent-by-default diagnostic (kept off the
-     ;; canonical step count per spec/021 §2).
-     (step-header 3 "HANDLER")
-     (handler-section event-id meta)
-     (interceptors-section user-icpts)
+      (pipeline-chevron "coeffects")
 
-     (step-arrow 3)
+      ;; — HANDLER — flavour + coord + zprint/highlight.js-rendered
+      ;; handler source (delegated to the canonical source rendering
+      ;; inside handler-section). INTERCEPTORS sits underneath as
+      ;; silent-by-default diagnostic.
+      (section-label "handler" "HANDLER")
+      (handler-section event-id meta)
+      (interceptors-section user-icpts)
 
-     ;; [4] EFFECTS RETURNED — suppressed when the handler threw
-     ;; (no map ever returned).
-     (step-header 4 "EFFECTS RETURNED")
-     (cond
-       threw?
-       [:div {:data-testid "rf-causa-event-detail-step-4-suppressed"
-              :style {:padding "2px 12px 6px 12px"
-                      :color (:text-tertiary tokens)
-                      :font-style "italic"
-                      :font-family sans-stack
-                      :font-size "11px"}}
-        "handler threw — no effects returned"]
+      (pipeline-chevron "handler")
 
-       :else
-       (or (effects-returned-section cascade)
-           [:div {:data-testid "rf-causa-event-detail-step-4-empty"
-                  :style {:padding "2px 12px 6px 12px"
-                          :color (:text-tertiary tokens)
-                          :font-style "italic"
-                          :font-family sans-stack
-                          :font-size "11px"}}
-            "no :db or :fx returned"]))
+      ;; — EFFECTS — `:db` slot embeds the App-DB diff via the canonical
+      ;; EDN widget; `:fx` list renders alongside.
+      (section-label "effects" "EFFECTS")
+      (cond
+        threw?
+        (pipeline-empty-row
+          "rf-causa-event-detail-effects-suppressed"
+          "handler threw — no effects returned")
 
-     ;; EFFECTS HANDLERS RAN — diagnostic peer under [4] (the §2
-     ;; pipeline collapses 'returned' + 'applied' into one step; this
-     ;; renders the per-fx-handler detail below the returned map for
-     ;; operators who want the row breakdown).
-     (when-not threw?
-       (effects-handlers-ran-section cascade))
+        :else
+        (or (effects-returned-section cascade)
+            (pipeline-empty-row
+              "rf-causa-event-detail-effects-empty"
+              "(no effects returned)")))
 
-     (step-arrow 4)
+      (when-not threw?
+        (db-fx-section cascade))
 
-     ;; [5] FLOWS — Spec 013 step 4 (after fx handlers). Silent when
-     ;; the cascade fired no flows; renders the empty-state caption
-     ;; so the pipeline rhythm holds.
-     (step-header 5 "FLOWS")
-     (cond
-       threw?
-       [:div {:data-testid "rf-causa-event-detail-step-5-suppressed"
-              :style {:padding "2px 12px 6px 12px"
-                      :color (:text-tertiary tokens)
-                      :font-style "italic"
-                      :font-family sans-stack
-                      :font-size "11px"}}
-        "handler threw — no flows fired"]
+      (pipeline-chevron "effects")
 
-       :else
-       (or (flows-section cascade)
-           [:div {:data-testid "rf-causa-event-detail-step-5-empty"
-                  :style {:padding "2px 12px 6px 12px"
-                          :color (:text-tertiary tokens)
-                          :font-style "italic"
-                          :font-family sans-stack
-                          :font-size "11px"}}
-            "no flow inputs changed"]))
+      ;; — FLOWS — empty state always visible per design constraint.
+      (section-label "flows" "FLOWS")
+      (cond
+        threw?
+        (pipeline-empty-row
+          "rf-causa-event-detail-flows-suppressed"
+          "handler threw — no flows fired")
 
-     (step-arrow 5)
+        :else
+        (or (flows-section cascade)
+            (pipeline-empty-row
+              "rf-causa-event-detail-flows-empty"
+              "(no flows triggered)")))
 
-     ;; [6] :db + :fx — the final pipeline step. Inline app-db diff
-     ;; via the shared data-display renderer + `db now committed`
-     ;; close rule. Suppressed on the handler-threw branch (nothing
-     ;; was committed).
-     (step-header 6 ":db + :fx")
-     (cond
-       threw?
-       [:div {:data-testid "rf-causa-event-detail-step-6-suppressed"
-              :style {:padding "2px 12px 6px 12px"
-                      :color (:text-tertiary tokens)
-                      :font-style "italic"
-                      :font-family sans-stack
-                      :font-size "11px"}}
-        "handler threw — nothing committed to app-db"]
+      (pipeline-chevron "flows")
 
-       :else
-       (db-fx-section cascade))
+      ;; — FX HANDLERS RUN — the per-fx-handler row detail (was the
+      ;; diagnostic peer under [4] in the prior chrome). Now a peer
+      ;; section in its own right at the end of the pipeline.
+      (section-label "fx-handlers" "FX HANDLERS RUN")
+      (cond
+        threw?
+        (pipeline-empty-row
+          "rf-causa-event-detail-fx-handlers-suppressed"
+          "handler threw — no fx handlers ran")
+
+        :else
+        (or (effects-handlers-ran-section cascade)
+            (pipeline-empty-row
+              "rf-causa-event-detail-fx-handlers-empty"
+              "(no fx handlers ran)")))]
 
      (when threw?
        (handler-threw-footer))]))

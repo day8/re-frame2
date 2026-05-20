@@ -286,21 +286,23 @@
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree  (event-detail/Panel)
             order (section-testids-in-order tree)]
-        ;; Per spec/021 §2.2: EVENT row appears first inside step 1
-        ;; (the dispatched event vector + payload); DISPATCH SITE (call-
-        ;; site coord + origin) sits underneath. Step 6 (:db + :fx)
-        ;; closes the pipeline. INTERCEPTORS sits under HANDLER as the
-        ;; silent-by-default diagnostic peer (not a numbered step).
-        (is (= ["rf-causa-event-detail-section-event"
-                "rf-causa-event-detail-section-dispatch"
+        ;; rf2-n4ad0 (Mike-direction 2026-05-21) — section order:
+        ;;   DISPATCH ORIGIN (call-site + origin) appears first so the
+        ;;     operator reads "where did this come from" before "what
+        ;;     was dispatched"; EVENT vector sits right under it.
+        ;;   COEFFECTS · HANDLER (+INTERCEPTORS silent peer) ·
+        ;;     EFFECTS (returned · :db+:fx diff) · FLOWS · FX HANDLERS
+        ;;     RUN — top-to-bottom one-way pipeline.
+        (is (= ["rf-causa-event-detail-section-dispatch"
+                "rf-causa-event-detail-section-event"
                 "rf-causa-event-detail-section-coeffects"
                 "rf-causa-event-detail-section-handler"
                 "rf-causa-event-detail-section-interceptors"
                 "rf-causa-event-detail-section-effects-returned"
-                "rf-causa-event-detail-section-effects-ran"
-                "rf-causa-event-detail-section-db-fx"]
+                "rf-causa-event-detail-section-db-fx"
+                "rf-causa-event-detail-section-effects-ran"]
                order)
-            "section testids appear in spec/021 §2's canonical order")))))
+            "section testids appear in rf2-n4ad0's canonical pipeline order")))))
 
 (deftest cascade-outcome-line-replaces-literal-event-detail-h1
   (testing "the literal 'Event detail' h1 is gone; the cascade-outcome
@@ -756,9 +758,13 @@
             "flow rows appear in cascade firing order")))))
 
 (deftest flows-section-sits-between-effects-handlers-ran-and-handler-threw-footer
-  (testing "rf2-lo37i — FLOWS is a peer section that sits AFTER §7
-            EFFECTS HANDLERS RAN. Asserts section order via the
-            section-root testids walker"
+  (testing "rf2-n4ad0 — Mike-direction 2026-05-21: FLOWS now sits
+            BEFORE FX HANDLERS RUN in the pipeline (the prior ordering
+            had FLOWS after EFFECTS HANDLERS RAN; the new ordering puts
+            EFFECTS RETURNED → FLOWS → FX HANDLERS RUN so the operator
+            reads the cascade chronologically: handler returns effects ·
+            framework auto-fires dependent flows · fx handlers execute
+            the effect map)"
     (rf/with-frame :rf/default
       (rf/reg-flow {:id     :a-flow
                     :inputs [[:in]] :output identity :path [:a]}))
@@ -779,10 +785,10 @@
                                       tid)))))
                         (distinct)
                         (vec))]
-        (is (= ["rf-causa-event-detail-section-effects-ran"
-                "rf-causa-event-detail-section-flows"]
+        (is (= ["rf-causa-event-detail-section-flows"
+                "rf-causa-event-detail-section-effects-ran"]
                tids)
-            "FLOWS appears AFTER EFFECTS HANDLERS RAN in document order")))))
+            "FLOWS appears BEFORE FX HANDLERS RUN in document order")))))
 
 (deftest flows-section-absent-when-handler-threw
   (testing "rf2-lo37i — when the handler threw, the effects walk never
@@ -1020,35 +1026,72 @@
           (is (every? #(some? (:key (meta %))) row-elts)
               "every fx row vector carries a :key in its meta"))))))
 
-;; ---- (12) spec/021 §2 canonical 6-step pipeline chrome -----------------
+;; ---- (12) rf2-n4ad0 vertical-flow pipeline chrome ----------------------
 
-(deftest event-lens-renders-six-step-headers-in-canonical-order
-  (testing "rf2-zv9r9 — the §2 6-step pipeline renders six numbered step
-            headers ([1]–[6]) in canonical order"
+(deftest event-lens-renders-six-pipeline-section-labels-in-canonical-order
+  (testing "rf2-n4ad0 — the Event panel renders six bare-label pipeline
+            sections (DISPATCH ORIGIN, COEFFECTS, HANDLER, EFFECTS, FLOWS,
+            FX HANDLERS RUN) in top-to-bottom order. No [N] numbering —
+            chevrons + the left rail carry the rhythm."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (doseq [n (range 1 7)]
+        (doseq [id ["dispatch" "coeffects" "handler" "effects" "flows" "fx-handlers"]]
           (is (some? (find-by-testid tree
-                                      (str "rf-causa-event-detail-step-" n "-header")))
-              (str "step [" n "] header present")))))))
+                                      (str "rf-causa-event-detail-section-"
+                                           id "-label")))
+              (str "section label '" id "' present")))))))
 
-(deftest event-lens-renders-five-pipeline-arrows-between-steps
-  (testing "rf2-zv9r9 — per §2.2 explicit ▼ arrows separate steps 1→2,
-            2→3, 3→4, 4→5, 5→6 (five arrows in total)"
+(deftest event-lens-renders-pipeline-chevrons-between-sections
+  (testing "rf2-n4ad0 — small downward chevrons separate adjacent
+            pipeline sections (one chevron after each section EXCEPT the
+            last; five chevrons in total). The chevrons live under the
+            left rail and carry the ordering rhythm."
     (rf/with-frame :rf/default
       (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
     (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (doseq [from-n (range 1 6)]
+        (doseq [from-id ["dispatch" "coeffects" "handler" "effects" "flows"]]
           (is (some? (find-by-testid tree
-                                      (str "rf-causa-event-detail-step-arrow-" from-n)))
-              (str "arrow from step [" from-n "] to step [" (inc from-n) "] present")))))))
+                                      (str "rf-causa-event-detail-chevron-" from-id)))
+              (str "chevron after section '" from-id "' present")))))))
+
+(deftest event-lens-pipeline-has-left-rail-container
+  (testing "rf2-n4ad0 — the pipeline body sits inside a left-rail
+            container that draws the thin vertical line per Mike-direction
+            2026-05-21. The rail is `1px solid var(:border-subtle)`."
+    (rf/with-frame :rf/default
+      (rf/reg-event-fx :widget/poke {:rf.handler/source nil} (fn [_ _] {})))
+    (seed-buffer! (cascade-evs 100 [:widget/poke {:id 1}] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree     (event-detail/Panel)
+            pipeline (find-by-testid tree "rf-causa-event-detail-pipeline")
+            rail     (get-in pipeline [1 :style :border-left])]
+        (is (some? pipeline) "pipeline container rendered")
+        (is (and (string? rail) (str/includes? rail "1px") (str/includes? rail "solid"))
+            "left rail is a 1px solid border")))))
+
+(deftest event-lens-omits-cascade-id-label
+  (testing "rf2-n4ad0 — Mike-direction 2026-05-21: the `cascade #NNN`
+            label is REMOVED from the top-left outcome line. It was
+            internal-only info, not human-relevant. The dispatch-id is
+            still available on the lens root via `data-dispatch-id`."
+    (seed-buffer! (cascade-evs 100 [:counter/inc] 0))
+    (rf/with-frame :rf/causa
+      (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
+      (let [tree   (event-detail/Panel)
+            walked (hiccup-seq tree)
+            label-strings (filter #(and (string? %)
+                                        (str/includes? % "cascade #"))
+                                  walked)]
+        (is (empty? label-strings)
+            "no 'cascade #NNN' label appears anywhere in the rendered lens")))))
 
 (deftest cascade-container-carries-violet-stripe-per-section-17
   (testing "rf2-zv9r9 — per spec/021 §17.1.3 the Event panel stripe is
@@ -1176,8 +1219,9 @@
             "exactly one of [committed | evicted | empty] sub-branches renders")))))
 
 (deftest db-fx-section-suppressed-when-handler-threw
-  (testing "rf2-zv9r9 — when the handler threw, step [6] renders the
-            'nothing committed to app-db' notice rather than the diff"
+  (testing "rf2-n4ad0 — when the handler threw, the EFFECTS section
+            renders the 'no effects returned' suppression notice and
+            the `:db + :fx` diff is NOT mounted at all."
     (seed-buffer!
       (conj (cascade-evs 100 [:foo] 0)
             {:id 99 :op-type :error :operation :rf.error/handler-exception
@@ -1185,8 +1229,9 @@
     (rf/with-frame :rf/causa
       (rf/dispatch-sync [:rf.causa/select-dispatch-id 100])
       (let [tree (event-detail/Panel)]
-        (is (some? (find-by-testid tree "rf-causa-event-detail-step-6-suppressed"))
-            "step [6] renders the handler-threw notice")
+        (is (some? (find-by-testid tree
+                                    "rf-causa-event-detail-effects-suppressed"))
+            "EFFECTS section renders the handler-threw notice")
         (is (nil? (find-by-testid tree "rf-causa-event-detail-section-db-fx"))
             "the inline data-display section is NOT rendered on the threw branch")))))
 
