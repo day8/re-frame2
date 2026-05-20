@@ -123,13 +123,14 @@
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
 (deftest panel-domain-map-covers-every-l4-tab
-  (testing "rf2-5kfxe.8 — the 8 L4 tabs each get a domain colour, so
+  (testing "rf2-5kfxe.8 — the 9 L4 tabs each get a domain colour, so
             panels are distinguishable at a glance via the 3px left
             border on their header. Machines Canvas (rf2-mkpnb)
             shares :green with Machines (the two are sibling
-            sub-domain tabs)."
+            sub-domain tabs); Chrome A11y (rf2-5r2yj) shares :red
+            with Issues (the diagnostics group sibling)."
     (let [tabs #{:event :app-db :views :trace :machines :machines-canvas
-                 :routing :issues}]
+                 :routing :issues :chrome-a11y}]
       (is (= tabs (set (keys t/panel-domain->token)))))))
 
 (deftest panel-accent-resolves-through-tokens

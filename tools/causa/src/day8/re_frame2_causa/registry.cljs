@@ -55,6 +55,7 @@
             [day8.re-frame2-causa.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
             [day8.re-frame2-causa.panels.cancellation-cascade :as cancellation-cascade]
+            [day8.re-frame2-causa.panels.chrome-a11y.panel :as chrome-a11y-panel]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
@@ -721,6 +722,14 @@
     (static-flows-panel/install!)
     (views/install!)
     (trace/install!)
+    ;; Chrome A11y tab (rf2-5r2yj) — Runtime L4 tab that runs axe-core
+    ;; scoped to `#rf-causa-root` (Causa's own chrome). Mirror of
+    ;; Story's chrome-a11y panel (PR #1695). No app-db registrations —
+    ;; the panel's state lives in module-level `r/atom`s because the
+    ;; data has no other consumer; the install! only adds the L4 tab
+    ;; entry. Sits at order 8 (after Issues at 7) — both tabs occupy
+    ;; the diagnostics group at the right end of the tab strip.
+    (chrome-a11y-panel/install!)
     ;; rf2-2moh1 — register the Static :events placeholder tab. The
     ;; other Static tabs (machines / routes / schemas / views / flows)
     ;; each register their entry from their own panel's `install!`

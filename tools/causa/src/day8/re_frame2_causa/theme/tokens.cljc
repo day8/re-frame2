@@ -413,6 +413,12 @@
                                   attention tone — distinguishes
                                   from app-db's main colour)
     :issues    → :red            (issues = errors; semantic red)
+    :chrome-a11y → :red          (rf2-5r2yj — diagnostics-group
+                                  sibling to :issues; both surface
+                                  \"what's wrong here?\" content, so
+                                  the red accent reads them as one
+                                  family at the right edge of the
+                                  tab strip)
 
   JVM-portable pure data → keyword. Call sites do
   `(get tokens (panel-domain->token tab))` to materialise the hex."
@@ -423,7 +429,8 @@
    :machines        :green
    :machines-canvas :green
    :routing         :yellow
-   :issues          :red})
+   :issues          :red
+   :chrome-a11y     :red})
 
 (defn panel-accent
   "Resolve the L4 panel's accent hex from the canonical
