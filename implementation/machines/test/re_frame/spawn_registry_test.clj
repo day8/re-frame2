@@ -55,12 +55,17 @@
 
 (deftest spawn-writes-runtime-registry-slot
   (testing "entering a :spawn-bearing state binds [:rf/spawned <parent> <invoke-id>] to the spawned-id"
-    (let [child  {:initial :running
+    (let [;; Per rf2-grw4i / rf2-v0rrr the :on-spawn callback is purely
+          ;; advisory — its return value is ignored. We capture the id
+          ;; via a side-effect atom to verify the callback fires; the
+          ;; runtime tracks the id at [:rf/spawned ...] regardless.
+          observed (atom nil)
+          child  {:initial :running
                   :data    {}
                   :states  {:running {}}}
           parent {:initial :idle
                   :on-spawn-actions
-                  {:record (fn [data id] (assoc data :child id))}
+                  {:record (fn [{:keys [id]}] (reset! observed id))}
                   :states
                   {:idle      {:on {:start :working}}
                    :working   {:spawn {:machine-id :worker/proc
@@ -76,8 +81,8 @@
             "the spawn registry slot is bound to the deterministic actor id")
         (is (some? (get-in db [:rf/machines spawned-id]))
             "the spawned actor's snapshot lives at [:rf/machines <spawned-id>]")
-        (is (= :worker/proc#1 (get-in (snapshot :sup/flow) [:data :child]))
-            ":on-spawn callback still fires (advisory) and recorded the id user-side")))))
+        (is (= :worker/proc#1 @observed)
+            ":on-spawn callback still fires (advisory) and observed the id via side-effect")))))
 
 ;; ---- (2) destroy clears the slot AND prunes lazy-allocation roots ---------
 
@@ -88,7 +93,7 @@
                   :states  {:running {}}}
           parent {:initial :idle
                   :on-spawn-actions
-                  {:record (fn [data id] (assoc data :child id))}
+                  {:record (fn [{:keys [id]}] (tap> [::recorded id]))}
                   :states
                   {:idle      {:on {:start :working}}
                    :working   {:spawn {:machine-id :worker/proc
@@ -202,14 +207,21 @@
 (deftest legacy-keyword-form-destroy-machine-still-works
   (testing "[:rf.machine/destroy actor-id] (keyword arg) preserves pre-rf2-t07u semantics"
     (let [child  {:initial :running :data {} :states {:running {}}}
+          ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only —
+          ;; user code that needs the id at action time uses an atom
+          ;; sidechannel or reads `[:rf/spawned <parent> <invoke-id>]`
+          ;; from the runtime-tracked slot. This test stashes the id in
+          ;; an atom so the `:tear-down` action can emit the legacy
+          ;; keyword-form destroy.
+          recorded (atom nil)
           parent {:initial :idle
                   :actions
                   ;; User-written exit action emits the keyword form
                   ;; directly — same shape user code has always used.
-                  {:tear-down (fn [data _]
-                                {:fx [[:rf.machine/destroy (:child data)]]})}
+                  {:tear-down (fn [_ctx]
+                                {:fx [[:rf.machine/destroy @recorded]]})}
                   :on-spawn-actions
-                  {:record (fn [data id] (assoc data :child id))}
+                  {:record (fn [{:keys [id]}] (reset! recorded id))}
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :worker/proc

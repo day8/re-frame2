@@ -48,6 +48,7 @@
             ;; `rf/make-machine-handler`, the `:rf.machine/spawn` /
             ;; `:rf.machine/destroy` fx, and the `:rf/machine` /
             ;; `:rf/machine-has-tag?` framework subs.
+            [re-frame.late-bind]
             [re-frame.machines :as machines]
             [re-frame.fx]
             [websocket.schema]))
@@ -83,11 +84,11 @@
 
      :guards
      {:max-retries-exceeded?
-      (fn guard-max-retries-exceeded? [data _event]
+      (fn guard-max-retries-exceeded? [{data :data}]
         (>= (:retries data) (:max-retries data)))
 
       :has-queued-messages?
-      (fn guard-has-queued-messages? [data _event]
+      (fn guard-has-queued-messages? [{data :data}]
         (seq (:queue data)))
 
       :current-socket?
@@ -95,13 +96,13 @@
       ;; **connection-epoch** check. The incoming event carries
       ;; `:source-socket-id` (the spawned actor's `:rf/self-id`);
       ;; we drop the event unless that id matches the live socket.
-      (fn guard-current-socket? [data [_ {:keys [source-socket-id]}]]
+      (fn guard-current-socket? [{data :data [_ {:keys [source-socket-id]}] :event}]
         (and (some? (:socket-id data))
              (= source-socket-id (:socket-id data))))}
 
      :actions
      {:record-connection-opts
-      (fn action-record-connection-opts [data [_ {:keys [url auth-token]}]]
+      (fn action-record-connection-opts [{data :data [_ {:keys [url auth-token]}] :event}]
         {:data (-> data
                    (assoc :url url)
                    (assoc :auth-token auth-token)
@@ -110,7 +111,7 @@
       :record-and-reset
       ;; Compound action — record fresh opts AND zero the retry counter.
       ;; Used on manual `:ws/connect` from `:reconnecting` / `:failed`.
-      (fn action-record-and-reset [data [_ {:keys [url auth-token]}]]
+      (fn action-record-and-reset [{data :data [_ {:keys [url auth-token]}] :event}]
         {:data (-> data
                    (assoc :url url)
                    (assoc :auth-token auth-token)
@@ -118,25 +119,34 @@
                    (assoc :error nil))})
 
       :refresh-token
-      (fn action-refresh-token [data [_ token]]
+      (fn action-refresh-token [{data :data [_ token] :event}]
         {:data (assoc data :auth-token token)})
 
       :bump-retry
-      (fn action-bump-retry [data _]
+      (fn action-bump-retry [{data :data}]
         {:data (update data :retries inc)})
 
       :reset-retries
-      (fn action-reset-retries [data _]
+      (fn action-reset-retries [{data :data}]
         {:data (assoc data :retries 0)})
 
       :record-error
-      (fn action-record-error [data [_ {:keys [error]}]]
+      (fn action-record-error [{data :data [_ {:keys [error]}] :event}]
         {:data (assoc data :error error)})
+
+      :record-socket-id
+      ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only — it
+      ;; cannot mutate :data. The :active state's :entry dispatches
+      ;; `[:ws/connection [:ws/-socket-spawned <actor-id>]]` via the
+      ;; `:on-spawn` advisory callback's side-effect; this action
+      ;; captures the id user-side.
+      (fn action-record-socket-id [{data :data [_ id] :event}]
+        {:data (assoc data :socket-id id)})
 
       :send-auth
       ;; Entry action for `:authenticating` — route an `:auth` message
       ;; into the live socket actor.
-      (fn action-send-auth [data _]
+      (fn action-send-auth [{data :data}]
         {:fx [[:dispatch [(:socket-id data)
                           [:send {:type  :auth
                                   :token (:auth-token data)}]]]]})
@@ -151,7 +161,7 @@
       ;; reads the post-action `:queue`, so this action only handles
       ;; the resubscribe + retry-reset side; the queue-flush side
       ;; rides on the `:always` cascade below.
-      (fn action-on-connected [data _]
+      (fn action-on-connected [{data :data}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [topic]
                        [:dispatch [(:socket-id data)
@@ -162,7 +172,7 @@
       ;; Per the spec's `:always` cascade on `:connected`: when the
       ;; entry leaves the queue non-empty, walk it onto the wire and
       ;; clear it.
-      (fn action-flush-queue [data _]
+      (fn action-flush-queue [{data :data}]
         (let [q (:queue data)]
           {:data (assoc data :queue [])
            :fx   (mapv (fn [msg]
@@ -170,17 +180,17 @@
                        q)}))
 
       :enqueue-message
-      (fn action-enqueue-message [data [_ msg]]
+      (fn action-enqueue-message [{data :data [_ msg] :event}]
         {:data (update data :queue conj msg)})
 
       :send-now
       ;; `:connected`-leaf override of the parent's `:ws/send`: the
       ;; message goes straight to the wire instead of queueing.
-      (fn action-send-now [data [_ msg]]
+      (fn action-send-now [{data :data [_ msg] :event}]
         {:fx [[:dispatch [(:socket-id data) [:send msg]]]]})
 
       :register-subscription
-      (fn action-register-subscription [data [_ topic]]
+      (fn action-register-subscription [{data :data [_ topic] :event}]
         {:data (update data :subscriptions conj topic)
          :fx   [[:dispatch [(:socket-id data)
                             [:send {:type :subscribe :topic topic}]]]]})
@@ -190,8 +200,8 @@
       ;;                                       :reply ... :timeout-ms ...}]]`
       ;; Record the in-flight entry, forward to the socket, schedule
       ;; a timeout.
-      (fn action-register-request [data [_ {:keys [request-id body reply timeout-ms]
-                                            :or   {timeout-ms 30000}}]]
+      (fn action-register-request [{data :data [_ {:keys [request-id body reply timeout-ms]
+                                            :or   {timeout-ms 30000}}] :event}]
         {:data (assoc-in data [:in-flight request-id]
                          {:reply-event reply :timeout-ms timeout-ms})
          :fx   [[:dispatch [(:socket-id data)
@@ -207,7 +217,7 @@
                                :source-socket-id (:socket-id data)}]]}]]})
 
       :clear-request
-      (fn action-clear-request [data [_ {:keys [request-id]}]]
+      (fn action-clear-request [{data :data [_ {:keys [request-id]}] :event}]
         {:data (update data :in-flight dissoc request-id)})
 
       :receive-message
@@ -215,7 +225,7 @@
       ;; cleared us. Branch on `:request-id` in the body: correlated
       ;; reply → dispatch the registered reply event + clear the slot;
       ;; server push → dispatch `[:ws/handle-message body]`.
-      (fn action-receive-message [data [_ {:keys [body]}]]
+      (fn action-receive-message [{data :data [_ {:keys [body]}] :event}]
         (if-let [rid (:request-id body)]
           (let [{:keys [reply-event]} (get-in data [:in-flight rid])]
             {:data (update data :in-flight dissoc rid)
@@ -239,19 +249,28 @@
                 ;; passing — the child reads URL + auth-token from
                 ;; the parent's :data at spawn time. Every re-entry
                 ;; to :active picks up whatever is current.
-                :data       (fn [snap _]
+                :data       (fn [{snap :snapshot}]
                               {:url        (-> snap :data :url)
                                :auth-token (-> snap :data :auth-token)})
-                ;; Record the spawned actor id so subsequent dispatches
-                ;; and :current-socket? checks have a value to compare.
-                :on-spawn   (fn [data id]
-                              (assoc data :socket-id id))}
+                ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only
+                ;; — its return is dropped, so the callback CANNOT
+                ;; mutate the parent's `:data`. We use the late-bind
+                ;; `:router/dispatch!` hook from inside the callback to
+                ;; fire a self-event back into this machine; the
+                ;; matching `:on :ws/-socket-spawned` transition runs
+                ;; `:record-socket-id` which writes :socket-id into the
+                ;; parent's `:data` via the standard action contract.
+                :on-spawn (fn [{id :id}]
+                            (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
+                              (dispatch!
+                                [:ws/connection [:ws/-socket-spawned id]]
+                                {:rf/dispatch-origin :internal})))}
 
        ;; Exit cascade — clear the stale :socket-id from :data. The
        ;; runtime destroys the actor automatically (declarative :spawn's
        ;; desugar emits :rf.machine/destroy on exit); this keeps :data
        ;; tidy so :current-socket? compares against nil correctly.
-       :exit (fn action-clear-socket-id [data _]
+       :exit (fn action-clear-socket-id [{data :data}]
                {:data (assoc data :socket-id nil)})
 
        ;; Parent-level transitions inherited by every leaf, per Spec 005
@@ -266,8 +285,15 @@
                :ws/disconnect {:target :disconnected}
                ;; Subscribe-while-connecting just records the intent;
                ;; the next :connected entry will re-issue.
-               :ws/subscribe {:action (fn [data [_ topic]]
-                                        {:data (update data :subscriptions conj topic)})}}
+               :ws/subscribe {:action (fn [{data :data [_ topic] :event}]
+                                        {:data (update data :subscriptions conj topic)})}
+               ;; Framework-internal: the `:on-spawn` advisory callback
+               ;; dispatches this so the machine can record the spawned
+               ;; socket id into its `:data` via a regular action. Per
+               ;; rf2-grw4i / rf2-v0rrr `:on-spawn`'s return is dropped;
+               ;; this self-event is the supported mechanism for
+               ;; observing the freshly-allocated actor id user-side.
+               :ws/-socket-spawned {:action :record-socket-id}}
 
        :initial :connecting
 
@@ -304,7 +330,7 @@
        ;; retry count. Spec 005 §Value shape — fn-form delay called
        ;; once at entry. The :after epoch invariant guarantees a
        ;; transition out makes the in-flight backoff stale.
-       :after  {(fn delay-backoff-ms [snap]
+       :after  {(fn delay-backoff-ms [{snap :snapshot}]
                   (let [{:keys [retries base-ms max-backoff-ms]} (:data snap)]
                     (min (* base-ms (Math/pow 2 retries))
                          max-backoff-ms)))

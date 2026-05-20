@@ -162,7 +162,7 @@
     (let [m {:id     :auth
              :initial :checking
              :data    {:authed? true}
-             :guards  {:authed? (fn [data _] (:authed? data))}
+             :guards  {:authed? (fn [{data :data}] (:authed? data))}
              :states
              {:checking {:always [{:guard :authed? :target :authed}]}
               :authed   {}
@@ -178,9 +178,9 @@
           m {:id      :counter
              :initial :idle
              :data    {:n 0}
-             :actions {:start (fn [_ _]
+             :actions {:start (fn [_]
                                 {:fx [[:raise [:bump]] [:raise [:bump]]]})
-                       :bump  (fn [data _]
+                       :bump  (fn [{data :data}]
                                 {:data {:n (inc (:n data))}})}
              :states
              {:idle {:on {:start {:target :busy :action :start}

@@ -119,7 +119,7 @@
       (rf/make-machine-handler
         {:initial :configuring
          :data    {:config nil}
-         :actions {:record-config (fn [data [_ c]]
+         :actions {:record-config (fn [{data :data [_ c] :event}]
                                     {:data (assoc data :config c)})}
          :states
          {:configuring {:on {:configured {:target :loading
@@ -214,11 +214,11 @@
         {:initial :disconnected
          :data    {:retries 0 :max-retries 2}
          :guards  {:max-retries-exceeded?
-                   (fn [data _]
+                   (fn [{data :data}]
                      (>= (:retries data) (:max-retries data)))}
-         :actions {:bump-retry  (fn [data _]
+         :actions {:bump-retry  (fn [{data :data}]
                                   {:data (update data :retries inc)})
-                   :reset-retry (fn [data _]
+                   :reset-retry (fn [{data :data}]
                                   {:data (assoc data :retries 0)})}
          :states
          {:disconnected   {:on {:ws/connect {:target :connecting}}}
@@ -325,16 +325,16 @@
   (let [machine
         {:initial :idle
          :data    {:total 0 :processed 0 :chunk-size 2 :input nil :result []}
-         :guards  {:done?      (fn [data _]
+         :guards  {:done?      (fn [{data :data}]
                                  (>= (:processed data) (:total data)))
-                   :more-work? (fn [data _]
+                   :more-work? (fn [{data :data}]
                                  (< (:processed data) (:total data)))}
          :actions {:start-job
-                   (fn [_ [_ input]]
+                   (fn [{[_ input] :event}]
                      {:data {:total (count input) :input input
                              :chunk-size 2 :processed 0 :result []}})
                    :process-chunk
-                   (fn [data _]
+                   (fn [{data :data}]
                      (let [{:keys [input chunk-size processed result]} data
                            chunk (subvec input processed
                                          (min (+ processed chunk-size)

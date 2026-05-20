@@ -318,8 +318,8 @@
   (testing "Sanity: a parallel machine whose region-internal keyword refs ARE
             resolvable registers cleanly (control case for the negative tests)"
     (let [m {:type    :parallel
-             :guards  {:always-true (fn [_ _] true)}
-             :actions {:noop-action (fn [data _] {:data data})}
+             :guards  {:always-true (fn [_] true)}
+             :actions {:noop-action (fn [{data :data}] {:data data})}
              :regions
              {:region-a
               {:initial :a

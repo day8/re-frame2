@@ -1468,11 +1468,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                            [:target {:optional true} TransitionTarget]      ;; keyword (sibling of declaring state) or vector (absolute path); same-state same-guard self-loops rejected at registration
                            [:action {:optional true} ActionRef]
                            [:meta   {:optional true} :map]]]]
-                        [:after   {:optional true}                          ;; delayed transitions; <delay> → transition spec where <delay> is pos-int? OR a subscription vector ([sub-id & args] resolved through subscribe; re-resolves on subscription change) OR (fn [snapshot] ms) computed at state entry; epoch-based stale detection; SSR no-ops scheduling; see [005 §Delayed :after transitions](005-StateMachines.md#delayed-after-transitions) and [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution). Per rf2-3y3y.
+                        [:after   {:optional true}                          ;; delayed transitions; <delay> → transition spec where <delay> is pos-int? OR a subscription vector ([sub-id & args] resolved through subscribe; re-resolves on subscription change) OR (fn [{:keys [snapshot]}] ms) computed at state entry (per rf2-grw4i / rf2-v0rrr — unified context-map); epoch-based stale detection; SSR no-ops scheduling; see [005 §Delayed :after transitions](005-StateMachines.md#delayed-after-transitions) and [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution). Per rf2-3y3y.
                          [:map-of
                           [:or pos-int?                                     ;; literal milliseconds (default form)
                                [:vector :any]                               ;; subscription vector — [sub-id & args]; re-resolves on sub change
-                               fn?]                                          ;; (fn [snapshot] ms) — local-data-derived delay; computed once at entry
+                               fn?]                                          ;; (fn [{:keys [snapshot]}] ms) — local-data-derived delay; computed once at entry. Per rf2-grw4i / rf2-v0rrr.
                           [:or :keyword                                     ;; keyword-target sugar — desugars to {:target <kw>} at registration
                                [:map                                        ;; full transition spec — same shape as an :on slot
                                 [:guard  {:optional true} GuardRef]
@@ -1496,10 +1496,10 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
   [:map
    [:machine-id {:optional true} :keyword]                                  ;; registered machine id
    [:definition {:optional true} [:ref ::state-node]]                       ;; inline transition table (root state-node)
-   [:data       {:optional true} [:or :map fn?]]                            ;; literal initial data, OR (fn [snap event] data) computed at entry time
+   [:data       {:optional true} [:or :map fn?]]                            ;; literal initial data, OR (fn [{:keys [snapshot event]}] data) computed at entry time (per rf2-grw4i / rf2-v0rrr — unified context-map)
    [:id-prefix  {:optional true} :keyword]                                  ;; defaults to :machine-id; base for the gensym'd actor id
-   [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
-   [:on-done    {:optional true} fn?]                                       ;; (fn [data result] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
+   [:on-spawn   {:optional true} fn?]                                       ;; (fn [{:keys [data id]}] _) — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at [:rf/spawned <parent> <invoke-id>]). Per rf2-grw4i / rf2-v0rrr.
+   [:on-done    {:optional true} fn?]                                       ;; (fn [{:keys [data result]}] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Returns the parent's new `:data` map. Per rf2-gn80, rf2-grw4i / rf2-v0rrr, and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:spawn-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
@@ -2156,7 +2156,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:definition    {:optional true} :any]                                   ;; an inline TransitionTable
    [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
    [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
-   [:on-spawn      {:optional true} fn?]                                    ;; (fn [data id] new-data) — advisory user-side bookkeeping per rf2-t07u
+   [:on-spawn      {:optional true} fn?]                                    ;; (fn [{:keys [data id]}] _) — advisory callback; return is ignored. Per rf2-t07u, rf2-grw4i / rf2-v0rrr.
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
    [:system-id     {:optional true} :keyword]                               ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
    ;; Runtime-stamped on declarative-:spawn spawns (per rf2-t07u; not user-supplied).

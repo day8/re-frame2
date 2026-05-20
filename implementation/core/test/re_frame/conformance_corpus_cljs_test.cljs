@@ -722,8 +722,10 @@
         actions-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
-                ;; Per Spec 005 §Actions canonical 2-arity: (fn [data event]).
-                [id (fn [data event]
+                ;; Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr): single
+                ;; context-map argument `(fn [{:keys [data event ...]}]
+                ;; effects)`.
+                [id (fn [{:keys [data event]}]
                       (let [final (reduce
                                     (fn [{:keys [data] :as ctx} step]
                                       (case (first step)
@@ -745,7 +747,7 @@
         guards-by-id
         (into {}
               (for [[id steps] (:machine-guard handlers-map)]
-                [id (fn [data event]
+                [id (fn [{:keys [data event]}]
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean

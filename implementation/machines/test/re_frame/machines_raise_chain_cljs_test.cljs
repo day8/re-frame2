@@ -35,12 +35,12 @@
           {:initial :idle
            :data    {}
            :actions {:bump-then-raise
-                     (fn [_data _ev]
+                     (fn [_]
                        (swap! log conj :bump-action)
                        ;; Pre-commit raise — should chain into the :go-2 transition.
                        {:fx [[:raise [:go-2]]]})
                      :landed
-                     (fn [_data _ev]
+                     (fn [_]
                        (swap! log conj :landed-action)
                        {})}
            :states

@@ -128,7 +128,7 @@
   [^AtomicLong global-counter per-thread-counter]
   {:initial :running
    :data    {}
-   :actions {:bump (fn [data _ev]
+   :actions {:bump (fn [{data :data}]
                      (.incrementAndGet global-counter)
                      (swap! per-thread-counter inc)
                      data)}

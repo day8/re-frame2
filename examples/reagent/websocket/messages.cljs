@@ -229,7 +229,7 @@
      {:open-socket
       ;; Entry action — instantiate the host-side mock socket and
       ;; report `:opened` back to the parent.
-      (fn action-open-socket [data _]
+      (fn action-open-socket [{data :data}]
         (let [self-id   (:rf/self-id data)
               parent-id (:rf/parent-id data)
               socket    (mock-socket-for-actor self-id
@@ -247,7 +247,7 @@
       :send-via-socket
       ;; The parent dispatches `[<actor-id> [:send body]]` for every
       ;; outbound message; we route through the host-side `:send`.
-      (fn action-send-via-socket [data [_ body]]
+      (fn action-send-via-socket [{data :data [_ body] :event}]
         (let [self-id (:rf/self-id data)]
           (when-let [socket (get-socket self-id)]
             ((:send socket) body)))
@@ -257,7 +257,7 @@
       ;; The mock server's reply arrives via `[<actor-id> [:received body]]`.
       ;; Forward into the parent with the connection-epoch stamp so
       ;; `:current-socket?` can drop messages from a torn-down socket.
-      (fn action-forward-received [data [_ body]]
+      (fn action-forward-received [{data :data [_ body] :event}]
         (let [self-id   (:rf/self-id data)
               parent-id (:rf/parent-id data)
               ;; Branch on body's :type. :auth-ok / :auth-failed land
@@ -273,7 +273,7 @@
           {:fx [[:dispatch [parent-id ev]]]}))
 
       :forward-closed
-      (fn action-forward-closed [data [_ {:keys [code reason]}]]
+      (fn action-forward-closed [{data :data [_ {:keys [code reason]}] :event}]
         (let [self-id   (:rf/self-id data)
               parent-id (:rf/parent-id data)]
           (clear-socket! self-id)

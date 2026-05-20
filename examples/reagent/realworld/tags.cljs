@@ -75,25 +75,25 @@
 
    :actions
    {:bump-attempt
-    (fn action-bump-attempt [data _event]
+    (fn action-bump-attempt [{data :data}]
       {:data (-> data
                  (update :attempt (fnil inc 0))
                  (assoc  :error nil))})
 
     :set-tags
     ;; :fetch-succeeded carries the resolved tags vector under :tags.
-    (fn action-set-tags [data [_ {:keys [tags now]}]]
+    (fn action-set-tags [{data :data [_ {:keys [tags now]}] :event}]
       {:data (-> data
                  (assoc :tags (vec tags))
                  (assoc :error nil)
                  (assoc :loaded-at now))})
 
     :set-error
-    (fn action-set-error [data [_ {:keys [failure]}]]
+    (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
       {:data (assoc data :error failure)})
 
     :reset-data
-    (fn action-reset-data [_data _event]
+    (fn action-reset-data [_]
       {:data {:tags [] :error nil :loaded-at nil :attempt 0}})}
 
    :states

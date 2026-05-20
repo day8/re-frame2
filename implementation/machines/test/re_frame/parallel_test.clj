@@ -149,7 +149,7 @@
   (testing "actions across regions write to the same :data map in declaration order"
     (let [m {:type    :parallel
              :data    {:count 0}
-             :actions {:bump (fn [d _] {:data (update d :count inc)})}
+             :actions {:bump (fn [{d :data}] {:data (update d :count inc)})}
              :regions {:left  {:initial :a
                                :states  {:a {:on {:bump {:target :a :action :bump}}}}}
                        :right {:initial :x
@@ -167,8 +167,8 @@
   (testing ":always microsteps fire scoped to the region that transitioned"
     (let [m {:type    :parallel
              :data    {:left-ready? false}
-             :guards  {:ready? (fn [d _] (true? (:left-ready? d)))}
-             :actions {:mark-ready (fn [d _] {:data (assoc d :left-ready? true)})}
+             :guards  {:ready? (fn [{d :data}] (true? (:left-ready? d)))}
+             :actions {:mark-ready (fn [{d :data}] {:data (assoc d :left-ready? true)})}
              :regions {:left  {:initial :idle
                                :states  {:idle
                                          {:always [{:guard :ready? :target :resolved}]

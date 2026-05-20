@@ -118,7 +118,7 @@
   (rf/make-machine-handler
     {:initial :idle
      :actions {:throw
-               (fn [_data _event]
+               (fn [_]
                  ;; HOT PATH — the throw site for :rf.error/machine-action-exception.
                  (throw (ex-info "deliberate-throw / machine action"
                                  {:where :machine})))}

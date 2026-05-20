@@ -103,8 +103,8 @@
   (testing ":tags reflects the post-:always-microstep state, not the intermediate"
     (let [m {:initial :asking
              :data    {:n 0}
-             :guards  {:enough? (fn [d _] (>= (:n d) 1))}
-             :actions {:bump   (fn [d _] {:data (update d :n inc)})}
+             :guards  {:enough? (fn [{d :data}] (>= (:n d) 1))}
+             :actions {:bump   (fn [{d :data}] {:data (update d :n inc)})}
              :states  {:asking
                        {:tags   #{:active}
                         :always [{:guard :enough? :target :winner}]

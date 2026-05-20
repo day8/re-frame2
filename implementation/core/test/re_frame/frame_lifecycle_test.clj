@@ -185,15 +185,14 @@
     (let [exit-log (atom [])
           child    {:initial :running
                     :data    {}
-                    :states  {:running {:exit (fn [data _]
+                    :states  {:running {:exit (fn [{data :data}]
                                                  (swap! exit-log
                                                         conj (:rf/self-id data))
                                                  {})}}}
           boot     {:initial :idle
                     :data    {}
                     :states
-                    {:idle {:on {:go {:action
-                                      (fn [_ _]
+                    {:idle {:on {:go {:action (fn [_]
                                         {:fx [[:rf.machine/spawn
                                                {:machine-id :rf2-vsigt/child
                                                 :id-prefix  :rf2-vsigt/child}]

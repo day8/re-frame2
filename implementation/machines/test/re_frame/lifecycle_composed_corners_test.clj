@@ -116,15 +116,13 @@
                   :data    {}
                   :states
                   {:idle {:on {:spawn-bound
-                               {:action
-                                (fn [_ _]
+                               {:action (fn [_]
                                   {:fx [[:rf.machine/spawn
                                          {:machine-id :corner.sid/child
                                           :id-prefix  :corner.sid/child
                                           :system-id  :corner/primary}]]})}
                                :replace
-                               {:action
-                                (fn [_ _]
+                               {:action (fn [_]
                                   {:fx [[:rf.machine/destroy :corner.sid/child#1]
                                         [:rf.machine/spawn
                                          {:machine-id :corner.sid/child
@@ -186,7 +184,7 @@
     (rf/reg-frame :corner.ia/scoped {:doc "scoped"})
     (let [child  {:initial :running
                   :data    {:id nil}
-                  :actions {:set-id (fn [data ev]
+                  :actions {:set-id (fn [{data :data ev :event}]
                                       {:data (assoc data :id (second ev))})}
                   :states  {:running {:on {:set-id {:action :set-id}
                                            :go     :done}}
@@ -330,8 +328,7 @@
           boot  {:initial :idle
                  :data    {}
                  :states
-                 {:idle {:on {:go {:action
-                                   (fn [_ _]
+                 {:idle {:on {:go {:action (fn [_]
                                      {:fx [[:rf.machine/spawn
                                             {:machine-id :corner.leak/child
                                              :id-prefix  :corner.leak/child
@@ -343,7 +340,7 @@
     ;; --- (c) :spawn-all parent + join slot -------------------------------
     (let [ia-child  {:initial :running
                      :data    {:id nil}
-                     :actions {:set-id (fn [d ev] {:data (assoc d :id (second ev))})}
+                     :actions {:set-id (fn [{d :data ev :event}] {:data (assoc d :id (second ev))})}
                      :states  {:running {:on {:set-id {:action :set-id}
                                               :go     :done}}
                                :done    {}}}

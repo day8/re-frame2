@@ -48,15 +48,15 @@
 
    :guards
    {:under-retry-limit
-    ;; 2-arity is canonical: (fn [data event] ...). `data` is the
+    ;; 2-arity is canonical: (fn [{data :data event :event}] ...). `data` is the
     ;; snapshot's :data slot directly — pulling it from a snapshot
     ;; wrapper is the runtime's job.
-    (fn [data _event]
+    (fn [{data :data}]
       (< (:attempts data) 3))}
 
    :actions
    {:clear-error
-    (fn [_data _event] {:data {:error nil}})
+    (fn [_] {:data {:error nil}})
 
     :issue-request
     ;; Returns effects, not side-effects. The `:rf.http/managed` fx
@@ -64,7 +64,7 @@
     ;; explicit `:on-success` / `:on-failure` events with the reply
     ;; payload appended as the last arg, so the inner sub-event lands
     ;; back in this machine via :auth.login/flow's machine-id routing.
-    (fn [_data [_ creds]]
+    (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
              {:request    {:method :post
                            :url    "/api/login"
@@ -75,18 +75,18 @@
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    (fn [data [_ {:keys [failure]}]]
+    (fn [{data :data [_ {:keys [failure]}] :event}]
       {:data (-> data
                  (update :attempts inc)
                  (assoc :error (or (:message failure) "Login failed.")))})
 
     :lock-account
-    (fn [_data _event]
+    (fn [_]
       {:fx [[:rf.http/managed
              {:request {:method :post :url "/api/auth/lock"}}]]})
 
     :store-session
-    (fn [_data [_ {:keys [value]}]]
+    (fn [{[_ {:keys [value]}] :event}]
       {:fx [[:auth.session/store {:token (:token value)}]]})}
 
    :states

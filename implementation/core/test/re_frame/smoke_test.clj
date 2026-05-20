@@ -562,7 +562,7 @@
                                :on    {:done :idle}}}
            ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
-           :on-spawn-actions {:record (fn [data _id] data)}}
+           :on-spawn-actions {:record (fn [{data :data}] data)}}
           handler (rf/make-machine-handler machine)]
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
@@ -652,21 +652,21 @@
            :data    {:attempts 0 :error nil}
            :guards
            {:under-retry-limit
-            (fn [data _] (< (:attempts data) 3))}
+            (fn [{data :data}] (< (:attempts data) 3))}
            :actions
-           {:clear-error    (fn [_ _] {:data {:error nil}})
-            :issue-request  (fn [_ [_ creds]]
+           {:clear-error    (fn [_] {:data {:error nil}})
+            :issue-request  (fn [{[_ creds] :event}]
                               {:fx [[:http {:method     :post
                                             :url        "/api/login"
                                             :body       creds
                                             :on-success [:auth.login/flow [:auth.login/success]]
                                             :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
-            :record-error   (fn [data [_ err]]
+            :record-error   (fn [{data :data [_ err] :event}]
                               {:data (-> data
                                          (update :attempts inc)
                                          (assoc :error (or (:message err) "Login failed.")))})
-            :lock-account   (fn [_ _] {:fx []})
-            :store-session  (fn [_ [_ {:keys [token]}]]
+            :lock-account   (fn [_] {:fx []})
+            :store-session  (fn [{[_ {:keys [token]}] :event}]
                               {:fx [[:auth.session/store {:token token}]]})}
            :states
            {:idle        {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
@@ -715,7 +715,7 @@
     (rf/reg-machine :test/tiny
       {:initial :idle
        :data    {:n 0}
-       :actions {:bump (fn [data _] {:data (update data :n inc)})}
+       :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
        :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
@@ -736,7 +736,7 @@
     (let [tiny-spec   {:initial :idle
                        :data    {:n 0}
                        :doc     "A tiny test machine."
-                       :actions {:bump (fn [data _]
+                       :actions {:bump (fn [{data :data}]
                                          {:data (update data :n inc)})}
                        :states  {:idle {:on {:tick {:target :idle
                                                     :action :bump}}}}}

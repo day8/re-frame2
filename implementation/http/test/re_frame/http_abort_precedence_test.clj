@@ -257,7 +257,7 @@
         (rf/reg-machine :worker/race
           {:initial :idle
            :data    {:port (:port srv)}
-           :actions {:fire (fn [data _]
+           :actions {:fire (fn [{data :data}]
                              {:fx [[:rf.http/managed
                                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
                                      :decode     (fn [_text _headers]

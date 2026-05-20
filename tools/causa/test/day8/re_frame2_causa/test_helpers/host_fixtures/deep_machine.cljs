@@ -41,7 +41,7 @@
   {:initial :idle
    :actions
    {:bump-tick
-    (fn action-bump-tick [data _ev]
+    (fn action-bump-tick [{data :data}]
       {:data (update data :tick-count (fnil inc 0))})}
    :states
    {:idle

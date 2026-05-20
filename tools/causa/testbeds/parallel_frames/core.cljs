@@ -242,11 +242,11 @@
 
    :actions
    {:record-reply-success
-    (fn record-reply-success [_data [_ payload]]
+    (fn record-reply-success [{[_ payload] :event}]
       {:data {:value payload :error nil}})
 
     :record-reply-failure
-    (fn record-reply-failure [_data [_ message]]
+    (fn record-reply-failure [{[_ message] :event}]
       {:data {:value nil :error message}})}
 
    :states

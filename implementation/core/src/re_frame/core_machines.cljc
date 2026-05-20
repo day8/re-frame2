@@ -147,25 +147,3 @@
   [machine-id tag]
   (subs/subscribe [:rf/machine-has-tag? machine-id tag]))
 
-(defn wants-ctx
-  "Wrap a 3-arity guard or action fn so the machine runtime calls it
-  with the introspection ctx `{:state :meta}`. Sugar over the
-  `^:rf.machine/wants-ctx` metadata flag for cases where attaching
-  metadata to the source form is awkward (anonymous fns inside a
-  reduce, fns built by combinators, etc.).
-
-      :guard (rf/wants-ctx (fn [data event ctx] ...))
-
-  Equivalent to:
-
-      :guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
-
-  Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection
-  (rf2-2yupx). Re-exported here for the core-facade single-import
-  contract (rf2-b73dm); the underlying impl is a pure metadata-attach
-  with no machines-artefact dependency, so this surface is callable
-  even when `day8/re-frame2-machines` is absent (the attached metadata
-  becomes load-bearing only when the fn is referenced by a registered
-  machine spec, at which point the artefact is necessarily present)."
-  [f]
-  (vary-meta f assoc :rf.machine/wants-ctx true))

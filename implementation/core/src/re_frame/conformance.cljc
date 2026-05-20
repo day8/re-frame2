@@ -430,20 +430,21 @@
       (when tree (walk-hiccup tree ctx)))))
 
 (defn realise-on-spawn-handler
-  "DSL → an on-spawn callback fn. Signature: (data, spawned-id) → new-data.
+  "DSL → an on-spawn callback fn. Signature `(fn [{:keys [data id]}] _)`
+  per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr — single
+  context-map arg, advisory return).
 
-  Per Spec 005 §Declarative :spawn (sugar over spawn): the on-spawn
-  callback receives the parent machine's :data and the just-allocated
-  actor id; it returns an updated :data map. The runtime patches the
-  result back into the snapshot at :data.
-
-  The body's `:set` paths are DATA-relative — uniform with regular
-  machine actions, whose canonical contract is (fn [data event] effects)
-  and whose `:set` paths `assoc-in` into `:data`. So
-  `[:set [:pending] x]` writes `data.:pending = x`."
+  The on-spawn callback receives the parent machine's `:data` and the
+  just-allocated actor id; the return value is advisory only — the
+  runtime tracks the spawned id at `[:rf/spawned <parent> <invoke-id>]`
+  regardless. The DSL body's `:set` ops are realised here for body
+  inspection / trace symmetry with regular actions; the resulting map is
+  RETURNED for compatibility with corpus authors who want to observe
+  `:set`-effects via the conformance harness's structural diff, but the
+  RUNTIME ignores the return value entirely."
   [steps]
-  (fn [data spawned-id]
-    (let [synthetic-event [::on-spawn spawned-id]]
+  (fn [{:keys [data id]}]
+    (let [synthetic-event [::on-spawn id]]
       (reduce
         (fn [d step]
           (case (first step)

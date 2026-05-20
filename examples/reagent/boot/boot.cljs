@@ -111,7 +111,7 @@
     ;; The reply lands at the FSM's `:asset/replied` inner event so
     ;; the FSM branches on success vs failure before forwarding to
     ;; the parent.
-    (fn [data _]
+    (fn [{data :data}]
       (let [self-id (:rf/self-id data)]
         {:fx [[:rf.http/managed
                {:request    {:method :get :url (:url data)}
@@ -125,7 +125,7 @@
     ;; `:spawn-all` child-completion event back to the parent's
     ;; :on-child-done slot. The runtime intercepts the second
     ;; dispatch for join bookkeeping.
-    (fn [data _]
+    (fn [{data :data}]
       {:fx [[:dispatch [:boot/stage-payload (:staging-key data) (:payload data)]]
             [:dispatch [(:parent-id data)
                         [:boot/asset-loaded (:child-id data)]]]]})
@@ -134,7 +134,7 @@
     ;; Terminal failure-state entry. Forwards the failure to the
     ;; parent's :on-child-error slot; the parent's :on-any-failed
     ;; routes it onward to `:failed`.
-    (fn [data _]
+    (fn [{data :data}]
       {:fx [[:dispatch [(:parent-id data)
                         [:boot/asset-failed (:child-id data) (:error data)]]]]})}
 
@@ -154,12 +154,12 @@
              ;; vector, so the event arrives as
              ;; [:asset/replied :success {:kind :success :value ...}]
              ;; — we pick the value out from the 3rd-position arg.
-             [{:guard  (fn [_ ev] (= :success (nth ev 1 nil)))
+             [{:guard (fn [{ev :event}] (= :success (nth ev 1 nil)))
                :target :done
-               :action (fn [data [_ _ reply]]
+               :action (fn [{data :data [_ _ reply] :event}]
                          {:data (assoc data :payload (:value reply))})}
               {:target :failed
-               :action (fn [data [_ _ reply]]
+               :action (fn [{data :data [_ _ reply] :event}]
                          {:data (assoc data :error (:failure reply))})}]}}
 
     :done   {:entry :dispatch-done   :meta {:terminal? true}}
@@ -180,7 +180,7 @@
 
    :actions
    {:record-failure
-    (fn [data [_ _child-id failure]]
+    (fn [{data :data [_ _child-id failure] :event}]
       {:data (assoc data :error failure)})
 
     :enter-hydrating
@@ -188,7 +188,7 @@
     ;; write them into the canonical top-level slices the running
     ;; app's subs read. Self-transitions to `:ready` once the
     ;; hydration write lands.
-    (fn [data _]
+    (fn [{data :data}]
       {:data (assoc data :phase :hydrating)
        :fx   [[:dispatch [:boot/apply-hydration]]]})}
 
@@ -285,7 +285,7 @@
              ;; explicit re-boot, not the default end of the flow.
              :meta {:terminal? true}
              :on   {:rf/start {:target :configuring
-                               :action (fn [data _]
+                               :action (fn [{data :data}]
                                          {:data (assoc data :error nil)})}}}}})
 
 ;; ============================================================================

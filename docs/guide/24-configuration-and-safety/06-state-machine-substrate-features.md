@@ -39,8 +39,8 @@ The key property: **the externally-observable transition is the fixed point of t
 ```clojure
 (rf/reg-machine :form-flow
   {:initial :editing
-   :guards  {:form-valid?   (fn [data _] (every? string? (vals (:fields data))))
-             :form-invalid? (fn [data _] (some empty? (vals (:fields data))))}
+   :guards  {:form-valid?   (fn [{data :data}] (every? string? (vals (:fields data))))
+             :form-invalid? (fn [{data :data}] (some empty? (vals (:fields data))))}
    :states
    {:editing       {:on {:check :checking-form}}
     :checking-form {:always [{:guard :form-valid?   :target :submitting}
@@ -103,7 +103,7 @@ This is the canonical primitive for splash screens, polling, slow-connection nud
 ```clojure
 (rf/reg-machine :load-flow
   {:initial :loading
-   :guards  {:still-loading? (fn [data _] (not (:result data)))}
+   :guards  {:still-loading? (fn [{data :data}] (not (:result data)))}
    :states
    {:loading {:after {30000 {:guard :still-loading? :target :hard-error}}
               :on    {:loaded :ready
@@ -135,7 +135,7 @@ For the full grammar see [005 §Delayed `:after` transitions](../../../spec/005-
 {:fetching
  {:spawn {:machine-id :http/protocol
            :data       {:url "/api/profile"}
-           :on-spawn   (fn [data id] (assoc data :pending id))
+           :on-spawn   (fn [{data :data id :id}] (assoc data :pending id))
            :start      [:begin]}
   :on     {:succeeded :loaded
            :failed    :error}}}
@@ -146,14 +146,14 @@ Entering `:fetching` spawns a `:http/protocol` actor; leaving `:fetching` destro
 ```clojure
 ;; what make-machine-handler desugars the :spawn into:
 {:fetching
- {:entry (fn [data _]
+ {:entry (fn [{data :data}]
            {:fx [[:rf.machine/spawn {:machine-id :http/protocol
                                      :data       {:url "/api/profile"}
-                                     :on-spawn   (fn [d id] (assoc d :pending id))
+                                     :on-spawn   (fn [{d :data id :id}] (assoc d :pending id))
                                      :start      [:begin]
                                      :rf/parent-id <this-machine>
                                      :rf/spawn-id [:fetching]}]]})
-  :exit  (fn [_ _]
+  :exit  (fn [_]
            {:fx [[:rf.machine/destroy {:rf/parent-id <this-machine>
                                        :rf/spawn-id [:fetching]}]]})
   :on    {:succeeded :loaded
@@ -247,7 +247,7 @@ For the full description see [005 §Spawn-and-join via `:spawn-all`](../../../sp
    :data    {}
    :states
    {:running {:on {:server-ok {:target :done
-                               :action (fn [data ev]
+                               :action (fn [{data :data ev :event}]
                                          {:data (assoc data :token (second ev))})}}}
     :done    {:final?     true
               :output-key :token}}})
@@ -259,7 +259,7 @@ For the full description see [005 §Spawn-and-join via `:spawn-all`](../../../sp
    {:idle {:on {:submit :authenticating}}
     :authenticating
     {:spawn {:machine-id :auth-flow
-              :on-done    (fn [data result] (assoc data :token result))}
+              :on-done    (fn [{data :data result :result}] (assoc data :token result))}
      :on    {:auth/cancelled :idle}}}})
 ```
 

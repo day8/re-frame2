@@ -82,15 +82,15 @@
      :data    {:error nil}
      :guards
      {:has-token?
-      (fn [_data [_ token]]
+      (fn [{[_ token] :event}]
         (not (str/blank? token)))}
      :actions
      {:clear-error
-      (fn [_ _]
+      (fn [_]
         {:data {:error nil}})
 
       :begin-login
-      (fn [_ [_ {:keys [email password]}]]
+      (fn [{[_ {:keys [email password]}] :event}]
         {:data {:error nil}
          :fx [[:rf.http/managed
                (rh/request {:method     :post
@@ -102,7 +102,7 @@
                             :on-failure [:auth/flow [:auth/failure]]})]]})
 
       :begin-register
-      (fn [_ [_ {:keys [username email password]}]]
+      (fn [{[_ {:keys [username email password]}] :event}]
         {:data {:error nil}
          :fx [[:rf.http/managed
                (rh/request {:method     :post
@@ -116,7 +116,7 @@
                             :on-failure [:auth/flow [:auth/failure]]})]]})
 
       :begin-restore
-      (fn [_ _]
+      (fn [_]
         {:data {:error nil}
          :fx [[:rf.http/managed
                (rh/request {:method     :get
@@ -126,7 +126,7 @@
                             :on-failure [:auth/flow [:auth/restore-failed]]})]]})
 
       :store-session
-      (fn [_ [_ {:keys [value]}]]
+      (fn [{[_ {:keys [value]}] :event}]
         (let [user (:user value)]
           {:data {:error nil}
            :fx [[:dispatch [:auth/store-session user]]
@@ -134,11 +134,11 @@
                 [:dispatch [:rf.route/navigate :route/home]]]}))
 
       :record-error
-      (fn [_ [_ {:keys [failure]}]]
+      (fn [{[_ {:keys [failure]}] :event}]
         {:data {:error (rh/failure->message failure)}})
 
       :clear-session
-      (fn [_ _]
+      (fn [_]
         {:data {:error nil}
          :fx [[:dispatch [:auth/clear-session]]
               [:auth.session/persist {:token nil}]

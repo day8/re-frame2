@@ -121,7 +121,11 @@
     ;; the fn itself blew up. Now we emit `:rf.error/machine-after-fn-
     ;; threw` on the exception path; the fn still falls through to no-
     ;; clock-configured for recovery, but the exception is observable.
-    (let [v (try (delay-key snapshot)
+    ;;
+    ;; Per rf2-grw4i / rf2-v0rrr: the `:after` delay-fn receives the
+    ;; unified context-map `{:snapshot ...}` and returns a positive-int
+    ;; ms delay.
+    (let [v (try (delay-key {:snapshot snapshot})
                  (catch #?(:clj Throwable :cljs :default) e
                    (trace/emit-error! :rf.error/machine-after-fn-threw
                                       {:exception e

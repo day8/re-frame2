@@ -751,7 +751,7 @@
            :data    {:port port}
            :actions
            {:fire-two
-            (fn [data _]
+            (fn [{data :data}]
               {:fx [[:rf.http/managed
                      {:request    {:url (str "http://127.0.0.1:" (:port data) "/a")}
                       :request-id :kyl7/a

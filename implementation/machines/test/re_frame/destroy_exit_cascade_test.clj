@@ -46,12 +46,12 @@
           _ (rf/reg-machine :ne/standalone
               {:initial :running
                :data    {}
-               :states  {:running {:exit (fn [_ _] (swap! exit-fired inc) {})}}})
+               :states  {:running {:exit (fn [_] (swap! exit-fired inc) {})}}})
           _ (rf/reg-machine :ne/destroyer
               {:initial :armed
                :data    {}
                :states
-               {:armed {:on {:fire {:action (fn [_ _] {:fx [[:rf.machine/destroy :ne/standalone]]})}}}}})]
+               {:armed {:on {:fire {:action (fn [_] {:fx [[:rf.machine/destroy :ne/standalone]]})}}}}})]
       ;; Bring the standalone machine to life by dispatching ANY event
       ;; (the first dispatch fires the bootstrap cascade per rf2-pexjc).
       (rf/dispatch-sync [:ne/standalone [:rf.machine/noop]])
@@ -69,7 +69,7 @@
           _ (rf/reg-machine :ne/invoke-child
               {:initial :working
                :data    {:counter 0}
-               :states  {:working {:exit (fn [data _]
+               :states  {:working {:exit (fn [{data :data}]
                                             (swap! exit-fired inc)
                                             (reset! last-data data)
                                             {})}}})
@@ -101,7 +101,7 @@
               {:initial :working
                :data    {}
                :states  {:working {:on   {:done :final}
-                                   :exit (fn [_ _]
+                                   :exit (fn [_]
                                            (swap! exits conj :working-exit)
                                            {})}
                          :final   {:final? true}}})
@@ -139,11 +139,11 @@
                :data    {:counter 7}
                :states
                {:running {:on {:finish {:target :done
-                                        :action (fn [data _]
+                                        :action (fn [{data :data}]
                                                   {:data (update data :counter inc)})}}}
                 :done    {:final?     true
                           :output-key :counter
-                          :exit       (fn [data _]
+                          :exit (fn [{data :data}]
                                         (swap! exit-fired inc)
                                         (reset! seen-data data)
                                         {})}}})
@@ -152,7 +152,7 @@
                :data    {}
                :states
                {:working {:spawn {:machine-id :ne/final-child
-                                   :on-done    (fn [data result]
+                                   :on-done (fn [{data :data result :result}]
                                                  (assoc data :received result))}}}})]
       (rf/dispatch-sync [:ne/final-parent [:rf.machine/spawned]])
       (is (zero? @exit-fired) "no :exit yet — child still running")
@@ -183,12 +183,12 @@
           _ (rf/reg-machine :ne/fx-emitter
               {:initial :running
                :data    {}
-               :states  {:running {:exit (fn [_ _] {:fx [[:ne/test-fx nil]]})}}})
+               :states  {:running {:exit (fn [_] {:fx [[:ne/test-fx nil]]})}}})
           _ (rf/reg-machine :ne/fx-killer
               {:initial :armed
                :data    {}
                :states
-               {:armed {:on {:fire {:action (fn [_ _] {:fx [[:rf.machine/destroy :ne/fx-emitter]]})}}}}})]
+               {:armed {:on {:fire {:action (fn [_] {:fx [[:rf.machine/destroy :ne/fx-emitter]]})}}}}})]
       (rf/dispatch-sync [:ne/fx-emitter [:rf.machine/noop]])
       (rf/dispatch-sync [:ne/fx-killer [:fire]])
       (is (= 1 @fx-fired)

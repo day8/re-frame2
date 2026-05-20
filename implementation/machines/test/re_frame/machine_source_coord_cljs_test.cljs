@@ -36,9 +36,9 @@
   stamped at their definition coords"
     (rf/reg-machine :rf2-8bp3/defs
       {:initial :idle
-       :guards  {:ok? (fn [_ _] true)}
-       :actions {:do  (fn [_ _] {})}
-       :on-spawn-actions {:cap (fn [data id] (assoc data :pending id))}
+       :guards  {:ok? (fn [_] true)}
+       :actions {:do  (fn [_] {})}
+       :on-spawn-actions {:cap (fn [{data :data id :id}] (assoc data :pending id))}
        :states  {:idle {}}})
     (let [idx (per-element-coords :rf2-8bp3/defs)]
       (is (some? (get idx [:guards :ok?])))
@@ -52,10 +52,10 @@
   inline-fn references inside also get distinct stamps"
     (rf/reg-machine :rf2-8bp3/refs
       {:initial :idle
-       :guards  {:ok? (fn [_ _] true)}
+       :guards  {:ok? (fn [_] true)}
        :states
        {:idle {:on {:submit {:target :done :guard :ok?}
-                    :cancel {:target :idle :action (fn [_ _] {})}}}
+                    :cancel {:target :idle :action (fn [_] {})}}}
         :done {}}})
     (let [idx (per-element-coords :rf2-8bp3/refs)]
       (is (some? (get idx [:states :idle :on :submit]))
@@ -87,8 +87,8 @@
   (testing "vector :on transitions stamp per index"
     (rf/reg-machine :rf2-8bp3/vec
       {:initial :idle
-       :guards  {:a? (fn [_ _] true)
-                 :b? (fn [_ _] false)}
+       :guards  {:a? (fn [_] true)
+                 :b? (fn [_] false)}
        :states
        {:idle
         {:on
@@ -107,7 +107,7 @@
   (testing ":always vector — each transition map stamps per index"
     (rf/reg-machine :rf2-8bp3/always
       {:initial :a
-       :guards  {:enough? (fn [_ _] true)}
+       :guards  {:enough? (fn [_] true)}
        :states
        {:a {:always [{:guard :enough? :target :b}]}
         :b {}}})
@@ -121,10 +121,10 @@
   rule), but inline-fn slots ARE"
     (rf/reg-machine :rf2-8bp3/ee
       {:initial :a
-       :actions {:enter-a (fn [_ _] {})}
+       :actions {:enter-a (fn [_] {})}
        :states
        {:a {:entry :enter-a
-            :exit  (fn [_ _] {})
+            :exit (fn [_] {})
             :on    {:go :b}}
         :b {}}})
     (let [idx (per-element-coords :rf2-8bp3/ee)]

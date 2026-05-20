@@ -332,8 +332,8 @@
   ;; in the production bundle.
   (rf/reg-machine :rf.probe/machine
     {:initial :idle
-     :guards  {:never? (fn [_ _] false)}
-     :actions {:noop   (fn [_ _] {})}
+     :guards  {:never? (fn [_] false)}
+     :actions {:noop   (fn [_] {})}
      :states  {:idle {:on {:tick {:target :idle :guard :never? :action :noop}}}}}))
 
 ;; ---- rf2-ts1a: call-site source-coord macros ------------------------------

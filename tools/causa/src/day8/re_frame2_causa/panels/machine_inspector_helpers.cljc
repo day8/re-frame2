@@ -391,7 +391,7 @@
 ;; The `:guard-id` / `:action-id` slot is the user-declared ref AS-IS
 ;; (per spec/Spec-Schemas: "keyword OR inline fn"). When a transition
 ;; declares `:guard :user-has-credentials?` the slot is a keyword;
-;; when it inlines `:guard (fn [data ev] ...)` OR the state-node's
+;; when it inlines `:guard (fn [{data :data ev :event}] ...)` OR the state-node's
 ;; `:entry` slot points at a raw fn, the slot is the fn itself. The
 ;; view renders the id via `(name ...)` to build a `data-testid`
 ;; suffix — and `cljs.core/name` blows up on fn values (`Doesn't

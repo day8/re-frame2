@@ -110,14 +110,14 @@
 
      :guards
      {:under-retry-limit
-      (fn [data _event] (< (:attempts data) 3))}
+      (fn [{data :data}] (< (:attempts data) 3))}
 
      :actions
      {:clear-error
-      (fn [_data _event] {:data {:error nil}})
+      (fn [_] {:data {:error nil}})
 
       :issue-request
-      (fn [_data [_ creds]]
+      (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
                {:request    {:method :post
                              :url    "/api/login"
@@ -128,18 +128,18 @@
                 :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
       :record-error
-      (fn [data [_ {:keys [failure]}]]
+      (fn [{data :data [_ {:keys [failure]}] :event}]
         {:data (-> data
                    (update :attempts inc)
                    (assoc :error (or (:message failure) "Login failed.")))})
 
       :lock-account
-      (fn [_data _event]
+      (fn [_]
         {:fx [[:rf.http/managed
                {:request {:method :post :url "/api/auth/lock"}}]]})
 
       :store-session
-      (fn [_data [_ {:keys [value]}]]
+      (fn [{[_ {:keys [value]}] :event}]
         {:fx [[:auth.session/store {:token (:token value)}]]})}
 
      :states

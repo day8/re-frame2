@@ -814,11 +814,12 @@
         actions-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
-                ;; Per Spec 005 §Guards / §Actions canonical 2-arity:
-                ;; the user-facing fn receives (data event), not the
-                ;; snapshot. The fixture-step interpreter still threads
-                ;; a local `ctx` map for its own reduction state.
-                [id (fn [data event]
+                ;; Per Spec 005 §Guards / §Actions (rf2-grw4i / rf2-v0rrr):
+                ;; the user-facing fn receives one context-map arg
+                ;; `{:keys [data event state meta]}`. The fixture-step
+                ;; interpreter still threads a local `ctx` map for its
+                ;; own reduction state.
+                [id (fn [{:keys [data event]}]
                       (let [final (reduce
                                     (fn [{:keys [data] :as ctx} step]
                                       (case (first step)
@@ -854,16 +855,17 @@
         guards-by-id
         (into {}
               (for [[id steps] (:machine-guard handlers-map)]
-                ;; Per Spec 005 §Guards canonical 2-arity: (fn [data event]).
-                [id (fn [data event]
+                ;; Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr): single
+                ;; context-map arg `(fn [{:keys [data event state meta]}]
+                ;; boolean)`.
+                [id (fn [{:keys [data event]}]
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
                             (eval-value step {:data data :event event})))))]))
         ;; Same machine-action steps, but realised as on-spawn callbacks.
-        ;; Per rf2-een2 / rf2-smba: :set paths are data-relative — uniform
-        ;; with regular machine actions; the callback signature is
-        ;; (fn [data spawned-id] new-data).
+        ;; Per rf2-grw4i / rf2-v0rrr the on-spawn callback signature is
+        ;; `(fn [{:keys [data id]}] _)` and the return is advisory only.
         on-spawn-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]

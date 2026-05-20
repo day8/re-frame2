@@ -45,8 +45,7 @@
                   :data    {}
                   :states
                   {:running
-                   {:on {:spawn-it {:action
-                                    (fn [_ _]
+                   {:on {:spawn-it {:action (fn [_]
                                       {:fx [[:rf.machine/spawn
                                              {:machine-id :spo/child
                                               :id-prefix  :spo/child}]
@@ -58,8 +57,7 @@
                          ;; `[:rf.machine/destroy :spo/child#1]` fx,
                          ;; which routes through `destroy-machine-fx`
                          ;; → `destroy-single!`.
-                         :drop-first {:action
-                                      (fn [_ _]
+                         :drop-first {:action (fn [_]
                                         {:fx [[:rf.machine/destroy :spo/child#1]]})}}}}}]
       (rf/reg-machine :spo/child child)
       (rf/reg-machine :spo/parent parent)
@@ -82,7 +80,7 @@
     (let [exit-log (atom [])
           child    {:initial :running
                     :data    {}
-                    :states  {:running {:exit (fn [data _]
+                    :states  {:running {:exit (fn [{data :data}]
                                                  (swap! exit-log
                                                         conj (:rf/self-id data))
                                                  {})}}}
@@ -94,8 +92,7 @@
                     :data    {}
                     :states
                     {:idle {:on {:spawn-three
-                                 {:action
-                                  (fn [_ _]
+                                 {:action (fn [_]
                                     {:fx [[:rf.machine/spawn
                                            {:machine-id :fc/child
                                             :id-prefix  :fc/child}]
@@ -144,8 +141,7 @@
           parent  {:initial :idle
                    :data    {}
                    :states
-                   {:idle {:on {:bind {:action
-                                       (fn [_ _]
+                   {:idle {:on {:bind {:action (fn [_]
                                          {:fx [[:rf.machine/spawn
                                                 {:machine-id :si/child
                                                  :id-prefix  :si/child
@@ -175,8 +171,7 @@
           boot   {:initial :idle
                   :data    {}
                   :states
-                  {:idle {:on {:start {:action
-                                       (fn [_ _]
+                  {:idle {:on {:start {:action (fn [_]
                                          {:fx [[:rf.machine/spawn
                                                 {:machine-id :lt/child
                                                  :id-prefix  :lt/child}]
@@ -219,8 +214,7 @@
           boot   {:initial :idle
                   :data    {}
                   :states
-                  {:idle {:on {:go {:action
-                                    (fn [_ _]
+                  {:idle {:on {:go {:action (fn [_]
                                       {:fx [[:rf.machine/spawn
                                              {:machine-id :ha/child
                                               :id-prefix  :ha/child}]
@@ -251,7 +245,7 @@
           mk-child (fn [_label]
                      {:initial :running
                       :data    {}
-                      :states  {:running {:exit (fn [data _]
+                      :states  {:running {:exit (fn [{data :data}]
                                                    (swap! exit-log
                                                           conj (:rf/self-id data))
                                                    {})}}})
@@ -259,8 +253,7 @@
                      {:initial :idle
                       :data    {}
                       :states
-                      {:idle {:on {:go {:action
-                                        (fn [_ _]
+                      {:idle {:on {:go {:action (fn [_]
                                           {:fx [[:rf.machine/spawn
                                                  {:machine-id child-machine-id
                                                   :id-prefix  child-machine-id}]]})}}}}})]

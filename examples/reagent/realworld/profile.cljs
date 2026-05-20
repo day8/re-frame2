@@ -75,11 +75,11 @@
 
    :actions
    {:set-error
-    (fn action-set-error [data [_ {:keys [failure]}]]
+    (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
       {:data (assoc data :error failure)})
 
     :clear-error
-    (fn action-clear-error [data _event]
+    (fn action-clear-error [{data :data}]
       {:data (assoc data :error nil)})}
 
    :regions

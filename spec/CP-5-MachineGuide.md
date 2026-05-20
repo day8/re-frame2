@@ -195,14 +195,15 @@ xstate needs history states because its runtime lacks first-class snapshot-as-va
   {:actions
    {:capture-browsing-position
     ;; Stash the current browsing-state into :data so we can restore it later.
-    ;; This is an opt-in 3-arity body — the third arg unlocks the :state slot;
-    ;; the canonical 2-arity form (fn [data event] ...) only sees :data.
-    (fn [_data _event {:keys [state]}]
+    ;; Per rf2-grw4i / rf2-v0rrr every machine callback receives a single
+    ;; context-map with :data / :event / :state / :meta — destructure the
+    ;; keys you need.
+    (fn [{:keys [state]}]
       {:data {:last-browsing-state state}})                 ;; the FSM keyword
 
     :restore-browsing-position
     ;; Re-enter at the previously-captured state.
-    (fn [data _]
+    (fn [{:keys [data]}]
       {:fx [[:raise [:flow/jump-to (:last-browsing-state data)]]]})}
    :states
    {:browsing

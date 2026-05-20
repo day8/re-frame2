@@ -58,7 +58,7 @@
     ;; down. The :tick action mutates :data so a consumer can see
     ;; the child's snapshot diverge from the parent's.
     {:tags  #{:helper/ticking}
-     :entry (fn [data _ev] {:data (assoc data :ticked? true)})}}})
+     :entry (fn [{data :data}] {:data (assoc data :ticked? true)})}}})
 
 (rf/reg-machine :helper/tick helper-tick-machine)
 
@@ -75,7 +75,7 @@
     ;; reads them out for the dispatch-back. The parent's
     ;; make-machine-handler intercepts the event and updates the
     ;; join state at [:rf/spawned :deep/main [:work :phase-b]].
-    (fn action-dispatch-child-done [data _event]
+    (fn action-dispatch-child-done [{data :data}]
       {:fx [[:dispatch [(:rf/parent-id data)
                         [:helper/child-done (:rf/spawn-all-child-id data)]]]]})}
 
@@ -117,16 +117,16 @@
 
    :guards
    {:phase-a-ran?
-    (fn guard-phase-a-ran? [data _ev]
+    (fn guard-phase-a-ran? [{data :data}]
       (true? (:phase-a-ran? data)))}
 
    :actions
    {:bump-tick
-    (fn action-bump-tick [data _ev]
+    (fn action-bump-tick [{data :data}]
       {:data (update data :tick-count (fnil inc 0))})
 
     :mark-phase-a-ran
-    (fn action-mark-phase-a-ran [data _ev]
+    (fn action-mark-phase-a-ran [{data :data}]
       {:data (assoc data :phase-a-ran? true)})
 
     :record-all-finished
@@ -135,7 +135,7 @@
     ;; by the runtime. The transition target settles into :done-b;
     ;; this action stamps a :data flag so the view's mirror shows
     ;; the join resolved.
-    (fn action-record-all-finished [data _event]
+    (fn action-record-all-finished [{data :data}]
       {:data (assoc data :phase-b-all-finished? true)})}
 
    :regions

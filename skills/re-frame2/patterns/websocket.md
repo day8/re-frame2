@@ -47,31 +47,31 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                :queue [] :in-flight {} :error nil}
 
      :guards
-     {:max-retries-exceeded? (fn [data _] (>= (:retries data) (:max-retries data)))
-      :has-queued-messages?  (fn [data _] (seq (:queue data)))
+     {:max-retries-exceeded? (fn [{data :data}] (>= (:retries data) (:max-retries data)))
+      :has-queued-messages?  (fn [{data :data}] (seq (:queue data)))
       :current-socket?
       ;; Connection-epoch check: reject events from a prior socket actor
       ;; that may dispatch in flight while the cascade tears it down.
-      (fn [data [_ {:keys [source-socket-id]}]]
+      (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
         (= source-socket-id (:socket-id data)))}
 
      :actions
-     {:record-connection-opts (fn [data [_ {:keys [url cred-ref]}]]
+     {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
                                 {:data (assoc data :url url :cred-ref cred-ref)})
-      :rotate-cred     (fn [data [_ new-cred-ref]]
+      :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
                          {:data (assoc data :cred-ref new-cred-ref)})
-      :bump-retry      (fn [data _] {:data (update data :retries inc)})
-      :clear-socket-id (fn [data _] {:data (assoc data :socket-id nil)})
+      :bump-retry      (fn [{data :data}] {:data (update data :retries inc)})
+      :clear-socket-id (fn [{data :data}] {:data (assoc data :socket-id nil)})
       :on-connected
       ;; :entry takes one fn / id, never a vector — consolidate.
-      (fn [data _]
+      (fn [{data :data}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [t] [:dispatch [(:socket-id data) [:send {:type :subscribe :topic t}]]])
                      (:subscriptions data))})
-      :flush-queue (fn [data _] {:data (assoc data :queue [])
+      :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
                                  :fx (mapv (fn [m] [:dispatch [(:socket-id data) [:send m]]])
                                            (:queue data))})
-      :enqueue-message (fn [data [_ m]] {:data (update data :queue conj m)})}
+      :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})}
 
      :states
      {:disconnected
@@ -86,7 +86,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
        :spawn  {:machine-id :websocket/socket
                  :data       (fn [snap _] {:url      (-> snap :data :url)
                                            :cred-ref (-> snap :data :cred-ref)})
-                 :on-spawn   (fn [data id] (assoc data :socket-id id))}
+                 :on-spawn   (fn [{data :data id :id}] (assoc data :socket-id id))}
        :exit    :clear-socket-id
        :on      {:ws/closed        {:target :reconnecting :action :bump-retry}
                  :ws/fatal         {:target :failed}

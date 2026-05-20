@@ -102,7 +102,7 @@
    :actions
    {:seed-from-user
     ;; :load carries the current authenticated user under :user.
-    (fn action-seed-from-user [_data [_ {:keys [user now]}]]
+    (fn action-seed-from-user [{[_ {:keys [user now]}] :event}]
       {:data (-> initial-data
                  (assoc :draft (draft-from-user user))
                  (assoc :loaded-at now))})
@@ -112,7 +112,7 @@
     ;; prior submit-error so a fresh edit doesn't keep the old error
     ;; banner visible, and drops the per-field error entry for the
     ;; edited field so the inline error disappears as the user types.
-    (fn action-edit-field [data [_ {:keys [field value]}]]
+    (fn action-edit-field [{data :data [_ {:keys [field value]}] :event}]
       {:data (-> data
                  (assoc-in [:draft field] value)
                  (update :touched (fnil conj #{}) field)
@@ -124,7 +124,7 @@
     ;; every error field so the inline error shows even on fields the
     ;; user hasn't yet interacted with (per Pattern-Forms §Error
     ;; visibility — submit-attempted reveals all errors).
-    (fn action-set-errors [data [_ {:keys [errors]}]]
+    (fn action-set-errors [{data :data [_ {:keys [errors]}] :event}]
       {:data (-> data
                  (assoc :errors errors)
                  (update :touched (fnil into #{}) (keys errors))
@@ -134,7 +134,7 @@
     ;; :submit-valid carries the draft snapshot we just dispatched to
     ;; the server. Clear :errors and :submit-error so they don't
     ;; linger from a prior failed attempt.
-    (fn action-begin-submit [data [_ {:keys [submitted]}]]
+    (fn action-begin-submit [{data :data [_ {:keys [submitted]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
                  (assoc :errors {})
@@ -144,7 +144,7 @@
     ;; :submit-succeeded carries the server's returned user. Re-seed
     ;; the draft from the new user so a subsequent edit starts from
     ;; the freshly-saved state.
-    (fn action-store-user [data [_ {:keys [user]}]]
+    (fn action-store-user [{data :data [_ {:keys [user]}] :event}]
       {:data (-> data
                  (assoc :draft (draft-from-user user))
                  (assoc :errors {})
@@ -153,12 +153,12 @@
     :set-submit-error
     ;; :submit-failed carries a projected human-readable failure
     ;; message under :submit-error.
-    (fn action-set-submit-error [data [_ {:keys [submit-error]}]]
+    (fn action-set-submit-error [{data :data [_ {:keys [submit-error]}] :event}]
       {:data (-> data
                  (assoc :submit-error submit-error))})
 
     :reset-data
-    (fn action-reset-data [_data _event]
+    (fn action-reset-data [_]
       {:data initial-data})}
 
    :states

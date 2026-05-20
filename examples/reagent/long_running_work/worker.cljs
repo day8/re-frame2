@@ -110,11 +110,11 @@
    :guards
    {:done?
     ;; Have we processed every item in this shard?
-    (fn guard-done? [data _event]
+    (fn guard-done? [{:keys [data]}]
       (>= (:processed data) (:total data)))
 
     :more-work?
-    (fn guard-more-work? [data _event]
+    (fn guard-more-work? [{:keys [data]}]
       (< (:processed data) (:total data)))}
 
    :actions
@@ -129,7 +129,7 @@
     ;; parent so the UI's progress bar updates between chunks. The
     ;; parent's :on map handles :progress as a self-transition with
     ;; an action that updates :data :progress.
-    (fn action-process-one [data _event]
+    (fn action-process-one [{:keys [data]}]
       (let [shard         (:shard data)
             new-processed (inc (:processed data))]
         {:data (assoc data :processed new-processed)
@@ -142,7 +142,7 @@
     ;;   [:rf/spawned :work/flow [:working] :done]
     ;; The second-position arg is the user-supplied shard id (e.g.
     ;; :s1) so the parent can address which child completed.
-    (fn action-dispatch-done [data _event]
+    (fn action-dispatch-done [{:keys [data]}]
       (let [shard (:shard data)]
         {:fx [[:dispatch [parent-id [:work/child-done shard]]]]}))}
 
@@ -176,11 +176,12 @@
     ;; child-destroy, so a worker cancelled mid-yield does NOT
     ;; resume after the delay elapses.
     ;;
-    ;; The :after key is a (fn [snap] ms) form per Spec 005
-    ;; §Value shape — reads the per-child :tick-ms out of :data so
-    ;; tests / callers can stagger or zero-out the delay.
+    ;; The :after key is a (fn [{:keys [snapshot]}] ms) form per Spec
+    ;; 005 §Value shape (rf2-grw4i / rf2-v0rrr — unified context-map) —
+    ;; reads the per-child :tick-ms out of :data so tests / callers can
+    ;; stagger or zero-out the delay.
     {:tags  #{:work/running :work/cancellable :work/yielding}
-     :after {(fn after-tick-ms [snap]
+     :after {(fn after-tick-ms [{snap :snapshot}]
                (or (-> snap :data :tick-ms) default-tick-ms))
              :processing}}
 
@@ -238,7 +239,7 @@
 
    :actions
    {:reset-progress
-    (fn action-reset-progress [data _event]
+    (fn action-reset-progress [{:keys [data]}]
       {:data (assoc data
                     :progress (zipmap (:shards data) (repeat 0))
                     :outcome  nil)})
@@ -248,7 +249,7 @@
     ;;   [:work/flow [:progress :s1 5 100]]
     ;; and the parent records the per-shard progress so the view's
     ;; aggregate-progress sub recomputes.
-    (fn action-record-progress [data [_ shard-id processed _total]]
+    (fn action-record-progress [{data :data [_ shard-id processed _total] :event}]
       {:data (assoc-in data [:progress shard-id] processed)})
 
     :stamp-outcome
@@ -257,7 +258,7 @@
     ;; action's event payload's first element is the matching
     ;; transition event keyword (`:work/all-done` / `:cancel`
     ;; / `:work/any-failed`); we just record it as the outcome.
-    (fn action-stamp-outcome [data [event-kw & _]]
+    (fn action-stamp-outcome [{data :data [event-kw & _] :event}]
       {:data (assoc data :outcome
                     (case event-kw
                       :work/all-done    :complete

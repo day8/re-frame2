@@ -62,7 +62,7 @@
      {:credentials-look-valid
       ;; Both fields non-blank and email looks email-ish. Keeps the
       ;; guard surface honest — production would Malli-validate.
-      (fn [_data [_ {:keys [email password]}]]
+      (fn [{[_ {:keys [email password]}] :event}]
         (and (some? email) (some? password)
              (re-find #".+@.+\..+" (str email))
              (>= (count (str password)) 1)))}
@@ -71,7 +71,7 @@
      {:remember-credentials
       ;; Capture the email so the success banner can greet the user
       ;; by handle. Production might capture the full claims set.
-      (fn [data [_ {:keys [email]}]]
+      (fn [{data :data [_ {:keys [email]}] :event}]
         {:data (assoc data :email email :error nil)})
 
       :issue-request
@@ -79,7 +79,7 @@
       ;; is the override seam: in Story variants `force-fx-stub`
       ;; intercepts this id at the frame level; in the live app the
       ;; production fx body fires the real network call.
-      (fn [_data [_ creds]]
+      (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
                {:request    {:method :post
                              :url    "/api/login"
@@ -95,7 +95,7 @@
       ;; credentials" to "Invalid credentials (attempt 2)" — the
       ;; visible difference between :error and :submitting-retry
       ;; once the retry lands.
-      (fn [data [_ {:keys [failure]}]]
+      (fn [{data :data [_ {:keys [failure]}] :event}]
         {:data (-> data
                    (update :attempts (fnil inc 0))
                    (assoc :error (or (:message failure)
@@ -104,7 +104,7 @@
       :clear-error
       ;; Reset the error message at retry-time so the form doesn't
       ;; display stale text while the second request is in flight.
-      (fn [data _event]
+      (fn [{data :data}]
         {:data (assoc data :error nil)})}
 
      :states
