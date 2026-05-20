@@ -138,8 +138,10 @@
 
 (deftest blank-state-renders-when-focused-event-has-no-machine-activity
   (testing "when machines are registered but the focused event triggered
-            no transitions, the panel renders the BLANK state (silent-
-            by-default per rf2-g3ghh)"
+            no transitions, the panel renders the BLANK state — Case B
+            per spec/021 §6.2 + §17.4.1 (rf2-dbi87 / rf2-t5wp9). The
+            blank container is present; the focused-event surface is
+            suppressed."
     (setup-causa-frame!)
     (rf/with-frame :rf/causa
       (override-machines! [:auth/login])
@@ -151,6 +153,104 @@
             "blank-state container present")
         (is (nil? (find-by-testid tree "rf-causa-machine-focused-event"))
             "no focused-event surface when cascade has no transitions")))))
+
+(deftest blank-state-renders-one-section-per-registered-machine
+  (testing "Case B (rf2-t5wp9): blank state renders one per-machine
+            section so the topology stays visible even when the focused
+            epoch fired no transitions"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
+      (let [tree     (machine-inspector/Panel)
+            blank    (find-by-testid tree "rf-causa-machine-inspector-blank")
+            sections (find-all-by-testid-prefix
+                       tree "rf-causa-machine-inspector-blank-section-")]
+        (is (some? blank) "blank container present")
+        (is (= "2" (:data-section-count (second blank)))
+            "data-section-count tracks the rendered row count")
+        (is (= 2 (count sections))
+            "one section per registered machine")
+        (is (= [":auth/login" ":checkout/flow"]
+               (mapv #(:data-machine-id (second %)) sections))
+            "sections appear in deterministic alphabetical order")))))
+
+(deftest blank-state-passes-snapshot-state-into-topology-view
+  (testing "Case B (rf2-t5wp9): the live machine snapshot's :state is
+            piped through to the Topology view so its 4-source
+            precedence resolves the current ● annotation from the
+            snapshot when neither traces nor epoch-history carry a
+            transition"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-snapshots!   {:auth/login {:state :authing :data {}}})
+      (let [tree     (machine-inspector/Panel)
+            topology (find-by-testid
+                       tree "rf-causa-machine-inspector-blank-topology-auth/login")]
+        (is (some? topology)
+            "the per-machine topology mount lands inside the blank state")
+        (is (= "snapshot" (:data-current-state-source (second topology)))
+            "current-state-source falls back to the live snapshot when
+             no traces / no epoch-history carry a transition for this
+             machine")
+        (is (= "[:authing]" (:data-current-state (second topology)))
+            "the snapshot's :state keyword resolves to a [:authing] path
+             via Topology's :snapshot-state arg")
+        (is (= "true" (:data-no-transition-this-epoch (second topology)))
+            "Case B flag — no transition this epoch")))))
+
+(deftest blank-state-passes-epoch-history-into-topology-view
+  (testing "Case B (rf2-t5wp9): the panel's :rf.causa/epoch-history is
+            piped through to Topology so the 4-source precedence walks
+            back to the prior epoch that touched this machine when the
+            focused epoch has no transition for it"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      ;; epoch 1 carries an :auth/login transition. epoch 2 is the
+      ;; focused epoch — no machine activity. The blank state should
+      ;; walk epoch-history back to epoch 1 and surface :authing.
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :dispatch-id "d-1"}}]}
+         {:epoch-id 2 :trace-events []}])
+      (focus-epoch! 2)
+      (let [tree     (machine-inspector/Panel)
+            topology (find-by-testid
+                       tree "rf-causa-machine-inspector-blank-topology-auth/login")]
+        (is (some? topology)
+            "the per-machine topology mounts in the blank state when the
+             focused epoch carries no machine activity")
+        (is (= "epoch-history" (:data-current-state-source (second topology)))
+            "current-state-source resolves from the epoch-history walk-
+             back when the focused epoch is event-less")
+        (is (= "[:authing]" (:data-current-state (second topology)))
+            "Topology projected :authing as the most-recent-known state
+             for :auth/login from the epoch-history walk-back")))))
+
+(deftest blank-state-degrades-when-definition-is-not-introspectable
+  (testing "Case B (rf2-t5wp9): blank state renders even when the
+            registered machine has no introspectable definition —
+            Topology falls back to its no-definition surface"
+    (setup-causa-frame!)
+    (rf/with-frame :rf/causa
+      (override-machines! [:auth/login])
+      ;; No definition override → :rf.causa/machine-definitions yields
+      ;; nil for this id. Topology emits its `*-no-definition` testid.
+      (let [tree (machine-inspector/Panel)]
+        (is (some? (find-by-testid
+                     tree "rf-causa-machine-inspector-blank-topology-auth/login-no-definition"))
+            "Topology's no-definition fallback surface renders inside the
+             blank section when the machine spec is not introspectable")))))
 
 ;; ---- (4) focused-event lens (one section per transition) --------------
 
