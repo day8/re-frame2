@@ -95,10 +95,16 @@
         ;; didn't fire at all". Outer `debug-enabled?` gate elides the
         ;; tag-map construction in prod.
         (when interop/debug-enabled?
+          ;; `:input-paths-unchanged` (rf2-931pm) names every input db-path
+          ;; whose value was `=` to the previous run — the cascade DAG
+          ;; consumer reads this to render the "considered, no recompute"
+          ;; branch dimmed. For a value-equal skip every input is by
+          ;; definition unchanged; we ship the full input-path vector.
           (trace/emit! :flow :rf.flow/skip
-                       {:flow-id flow-id
-                        :reason  :inputs-value-equal
-                        :frame   frame-id}))
+                       {:flow-id                flow-id
+                        :reason                 :inputs-value-equal
+                        :input-paths-unchanged  (:inputs flow)
+                        :frame                  frame-id}))
         [db false])
       (try
         (let [new-output (apply (:output flow) new-inputs)

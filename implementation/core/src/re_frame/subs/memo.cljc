@@ -34,7 +34,8 @@
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
   `re-frame.subs/compute-and-cache!`) crosses the ns boundary once."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.trace :as trace
@@ -145,7 +146,24 @@
     (fn [db]
       (when body-fn
         (if (= @last-db db)
-          @last-result
+          ;; Memo hit — input value-equal to last-seen, the user body
+          ;; does NOT re-run (rf2-719e). Emit `:rf.sub/skip` so tools
+          ;; can show the "considered, no recompute" branch of the
+          ;; reactive cascade DAG (rf2-931pm). Outer
+          ;; `interop/debug-enabled?` gate elides the tag-map
+          ;; construction + emit in CLJS production (Closure DCE under
+          ;; `:advanced` + `goog.DEBUG=false`).
+          (do
+            (when interop/debug-enabled?
+              (trace/with-handler-scope
+                (trace/handler-scope-from-meta :sub query-id sub-meta)
+                (trace/emit! :sub/skip :rf.sub/skip
+                             {:frame                  frame-id
+                              :sub-id                 query-id
+                              :query-v                query-v
+                              :reason                 :input-value-equal
+                              :input-paths-unchanged  []})))
+            @last-result)
           (let [computed (validate-and-trace
                            body-fn (list db) query-id query-v
                            frame-id [] sub-meta)]
@@ -178,7 +196,22 @@
     (fn [v0]
       (when body-fn
         (if (= @last-v0 v0)
-          @last-result
+          ;; Memo hit — see `make-layer-1-memoised-body` for the
+          ;; `:rf.sub/skip` rationale (rf2-931pm). `:input-paths-unchanged`
+          ;; carries the upstream sub query-vector(s) whose values were
+          ;; stable; layer-2+ subs name their inputs by `[query-id args]`
+          ;; rather than db-paths.
+          (do
+            (when interop/debug-enabled?
+              (trace/with-handler-scope
+                (trace/handler-scope-from-meta :sub query-id sub-meta)
+                (trace/emit! :sub/skip :rf.sub/skip
+                             {:frame                  frame-id
+                              :sub-id                 query-id
+                              :query-v                query-v
+                              :reason                 :input-value-equal
+                              :input-paths-unchanged  (vec input-signals)})))
+            @last-result)
           (let [computed (validate-and-trace
                            body-fn (list v0) query-id query-v
                            frame-id input-signals sub-meta)]
@@ -204,7 +237,22 @@
     (fn [& in-vals]
       (when body-fn
         (if (= @last-in-vals in-vals)
-          @last-result
+          ;; Memo hit — see `make-layer-1-memoised-body` for the
+          ;; `:rf.sub/skip` rationale (rf2-931pm). `:input-paths-unchanged`
+          ;; carries every upstream `:<-` query-vector whose value was
+          ;; stable (the varargs path has ≥2 inputs and the memo
+          ;; compare is whole-seq `=`, so every input was stable).
+          (do
+            (when interop/debug-enabled?
+              (trace/with-handler-scope
+                (trace/handler-scope-from-meta :sub query-id sub-meta)
+                (trace/emit! :sub/skip :rf.sub/skip
+                             {:frame                  frame-id
+                              :sub-id                 query-id
+                              :query-v                query-v
+                              :reason                 :input-value-equal
+                              :input-paths-unchanged  (vec input-signals)})))
+            @last-result)
           (let [computed (validate-and-trace
                            body-fn in-vals query-id query-v
                            frame-id input-signals sub-meta)]

@@ -9,9 +9,9 @@ Co-drafted by Mike + mayor; this doc is the implementer's reference
 for the **per-panel content layout**, **shared data-display renderer**,
 **locked decisions**, and **substrate gaps** that the redesign implies.
 
-Canonical foundation: [`ai/prompts/causa-interface-adjustments.md`](../../../ai/prompts/causa-interface-adjustments.md)
-(local-only working doc). The framing in §1 below is a synthesis — the
-super-prompt remains the authoritative statement of intent.
+Canonical foundation: `ai/prompts/causa-interface-adjustments.md`
+(local-only working doc; not in repo). The framing in §1 below is a
+synthesis — the super-prompt remains the authoritative statement of intent.
 
 Cross-refs:
 - [`000-Vision.md`](000-Vision.md) — the five canonical questions

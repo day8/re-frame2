@@ -93,6 +93,91 @@
       (when (and frame-id (not (contains? skip-ops op)))
         (state/buffer-event! frame-id event)))))
 
+;; ---- cascade-cause (for :rf.view/rendered attribution, rf2-25zo2) --------
+;;
+;; The Causa Reactive panel needs to attribute each view re-render to the
+;; cascade that drove it: which event kicked off this cascade, and which
+;; subs ran during it. The data is captured at trace-bus emission time
+;; (the in-flight cascade buffer is walked at view-render-emit time), NOT
+;; derived post-hoc on inspection — same dataset the rest of the epoch
+;; record's projections share.
+;;
+;; The walk visits the in-flight buffer for the frame at the moment the
+;; substrate fires its render. Returns `{:cause-event-id <eid>
+;; :cause-subs <sub-ids vector>}`. The first `:event/run-start` we see
+;; supplies `:cause-event-id`; every `:sub/run` contributes to
+;; `:cause-subs` (deduped, preserving first-seen order). Empty buffer
+;; (render outside any cascade — e.g. fixture-driven direct invocations,
+;; or React's post-settle async batch) yields `{}` so consumers see the
+;; slots simply absent.
+
+(defn cascade-cause
+  "Walk the frame's in-flight cascade buffer and return a small map
+  attributing the current render to the dispatching cascade. Used by
+  `:rf.view/rendered` emission (per [Spec 009 §`:rf.view/rendered`]
+  (009-Instrumentation.md#rfviewrendered) and rf2-25zo2). One pass
+  over the buffer; bounded `sub-cap` distinct sub-ids (default 100,
+  matching the per-cascade view-render cap).
+
+  Return-map slots:
+
+    :cause-event-id — the event-id of the first :event/run-start seen
+                      in the cascade (i.e. the dispatching cascade's
+                      trigger event).
+    :cause-subs     — distinct sub-ids that ran in the cascade so far,
+                      in first-seen order, capped at sub-cap.
+    :rendered-so-far — count of :rf.view/rendered already emitted into
+                      this cascade. Used by the views.cljs emit site to
+                      enforce the per-cascade view-render cap.
+
+  Empty buffer (render outside any cascade — e.g. headless direct
+  invocations, or React's post-settle async batch) yields a map with
+  `:rendered-so-far 0` and the other slots omitted."
+  ([frame-id]
+   (cascade-cause frame-id 100))
+  ([frame-id sub-cap]
+   (when interop/debug-enabled?
+     (let [events  (state/buffer-for frame-id)
+           ;; Single reduce: capture first :event/run-start, accumulate
+           ;; distinct sub-ids in first-seen order up to `sub-cap`, and
+           ;; count the existing :rf.view/rendered emits so the views.cljs
+           ;; emit site can enforce the per-cascade view-render cap.
+           result  (reduce
+                     (fn [acc ev]
+                       (let [op   (:operation ev)
+                             tags (:tags ev)]
+                         (cond-> acc
+                           (and (nil? (:cause-event-id acc))
+                                (= :event (:op-type ev))
+                                (= :event op)
+                                (= :run-start (:phase tags)))
+                           (assoc :cause-event-id (:event-id tags))
+
+                           (and (= :sub/run op)
+                                (some? (:sub-id tags))
+                                (not (contains? (:seen acc) (:sub-id tags)))
+                                (< (count (:subs acc)) sub-cap))
+                           (-> (update :subs conj (:sub-id tags))
+                               (update :seen conj (:sub-id tags)))
+
+                           ;; Count both :rf.view/rendered AND the one-shot
+                           ;; :rf.view/rendered-cap-reached marker: once
+                           ;; the marker fires for a cascade, n-so-far
+                           ;; remains > cap so the emit site's `:else nil`
+                           ;; branch suppresses subsequent emits (the
+                           ;; marker is one-shot per cascade).
+                           (or (= :rf.view/rendered op)
+                               (= :rf.view/rendered-cap-reached op))
+                           (update :rendered-so-far inc))))
+                     {:cause-event-id  nil
+                      :subs            []
+                      :seen            #{}
+                      :rendered-so-far 0}
+                     events)]
+       (cond-> {:rendered-so-far (:rendered-so-far result)}
+         (:cause-event-id result) (assoc :cause-event-id (:cause-event-id result))
+         (seq (:subs result))     (assoc :cause-subs (:subs result)))))))
+
 ;; ---- record projection ----------------------------------------------------
 
 (defn project-all

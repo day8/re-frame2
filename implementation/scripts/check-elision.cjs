@@ -236,6 +236,15 @@ const DEV_ONLY_SENTINELS = [
   // and the late-bind lookup.
   { source: 're-frame.views/reg-view* frame-aware-view (view/render)',
     sentinel: 'view/render' },
+  // re-frame.views — :rf.view/rendered cascade-attribution op (rf2-25zo2).
+  // Emitted alongside :view/render from the same `(when interop/debug-
+  // enabled? ...)`-gated emit-render-trace! body; carries :view-id,
+  // :frame, :render-key, and (when available) :cause-event-id +
+  // :cause-subs for Causa's Reactive panel cascade graphing. The
+  // operation keyword's string fragment must elide under :advanced +
+  // goog.DEBUG=false alongside the existing view/render sentinel.
+  { source: 're-frame.views/reg-view* frame-aware-view (rf.view/rendered)',
+    sentinel: 'rf.view/rendered' },
   // re-frame.views — source-coord DOM annotation (Spec 006 §Source-coord
   // annotation, rf2-z7f7 / rf2-z9n1). The reg-view* wrapper merges
   // `:data-rf2-source-coord` onto the rendered root DOM element when
