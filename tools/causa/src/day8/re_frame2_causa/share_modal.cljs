@@ -21,6 +21,7 @@
   Every subscribe / dispatch resolves against `:rf/causa` via the
   enclosing frame-provider in `shell.cljs`."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -64,7 +65,8 @@
   [:div {:style {:display "flex"
                  :align-items "center"
                  :justify-content "space-between"}}
-   [:h2 {:style {:margin 0
+   [:h2 {:id "rf-causa-share-modal-title"
+         :style {:margin 0
                  :font-size "14px"
                  :font-weight 600
                  :color (:text-primary tokens)
@@ -73,6 +75,7 @@
     "Share Causa state"]
    [:button
     {:data-testid "rf-causa-share-modal-close"
+     :aria-label  "Close share dialog"
      :on-click    #(rf/dispatch [:rf.causa/share-modal-close] {:frame :rf/causa})
      :style       {:background "transparent"
                    :border "none"
@@ -231,13 +234,20 @@
   (let [share-state @(rf/subscribe [:rf.causa/share-state])
         share-url   @(rf/subscribe [:rf.causa/share-url])
         copy-status @(rf/subscribe [:rf.causa/share-copy-status])]
-    [:div {:data-testid "rf-causa-share-modal-dialog"
-           :on-click    (fn [e] (.stopPropagation e))
-           :on-key-down (fn [^js e]
-                          (when (= "Escape" (.-key e))
-                            (rf/dispatch [:rf.causa/share-modal-close]
-                                         {:frame :rf/causa})))
-           :style       (dialog-style)}
+    [:div (merge
+            ;; rf2-7389r — WAI-ARIA dialog contract + focus capture on
+            ;; mount so keyboard users land inside the modal (audit
+            ;; finding #3).
+            (a11y/dialog-attrs {:labelled-by "rf-causa-share-modal-title"})
+            {:data-testid "rf-causa-share-modal-dialog"
+             :ref         (a11y/focus-on-mount-ref)
+             :tab-index   "-1"
+             :on-click    (fn [e] (.stopPropagation e))
+             :on-key-down (fn [^js e]
+                            (when (= "Escape" (.-key e))
+                              (rf/dispatch [:rf.causa/share-modal-close]
+                                           {:frame :rf/causa})))
+             :style       (dialog-style)})
      (header)
      (description)
      (state-summary share-state)

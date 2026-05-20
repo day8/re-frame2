@@ -65,9 +65,11 @@
     (is (= "#FB923C" (perf-tier/tier-colour :slow)))      ; orange
     (is (= "#F87171" (perf-tier/tier-colour :blocking)))) ; red
   (testing "unknown tier falls back to text-tertiary so the dot is
-            never invisible"
-    (is (= "#6B7080" (perf-tier/tier-colour :unknown)))
-    (is (= "#6B7080" (perf-tier/tier-colour nil)))))
+            never invisible. Resolved through `theme/tokens` so the
+            rf2-0fr6v contrast bump for `:text-tertiary` round-trips
+            automatically."
+    (is (= (:text-tertiary tokens/tokens) (perf-tier/tier-colour :unknown)))
+    (is (= (:text-tertiary tokens/tokens) (perf-tier/tier-colour nil)))))
 
 (deftest tier-colour-resolves-through-theme-tokens
   (testing "rf2-5kfxe.4 — `tier-colour` is now a thin wrapper over

@@ -65,6 +65,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -372,7 +373,8 @@
   [:div {:style {:display "flex"
                  :align-items "center"
                  :justify-content "space-between"}}
-   [:h2 {:style {:margin 0
+   [:h2 {:id "rf-causa-mute-manager-title"
+         :style {:margin 0
                  :font-size "14px"
                  :font-weight 600
                  :color (:text-primary tokens)
@@ -381,6 +383,7 @@
     "Muted events"]
    [:button
     {:data-testid "rf-causa-mute-manager-close"
+     :aria-label  "Close muted-events manager"
      :on-click    #(rf/dispatch [:rf.causa/close-mute-manager] {:frame :rf/causa})
      :style       {:background "transparent"
                    :border "none"
@@ -469,13 +472,19 @@
   "The mute manager dialog body. Pure hiccup."
   []
   (let [muted @(rf/subscribe [:rf.causa/muted-event-ids])]
-    [:div {:data-testid "rf-causa-mute-manager-dialog"
-           :on-click    (fn [^js e] (.stopPropagation e))
-           :on-key-down (fn [^js e]
-                          (when (= "Escape" (.-key e))
-                            (rf/dispatch [:rf.causa/close-mute-manager]
-                                         {:frame :rf/causa})))
-           :style       (dialog-style)}
+    [:div (merge
+            ;; rf2-7389r — WAI-ARIA dialog contract + focus capture on
+            ;; mount (audit finding #3).
+            (a11y/dialog-attrs {:labelled-by "rf-causa-mute-manager-title"})
+            {:data-testid "rf-causa-mute-manager-dialog"
+             :ref         (a11y/focus-on-mount-ref)
+             :tab-index   "-1"
+             :on-click    (fn [^js e] (.stopPropagation e))
+             :on-key-down (fn [^js e]
+                            (when (= "Escape" (.-key e))
+                              (rf/dispatch [:rf.causa/close-mute-manager]
+                                           {:frame :rf/causa})))
+             :style       (dialog-style)})
      (header)
      (if (empty? muted)
        (empty-state)

@@ -49,6 +49,7 @@
   Causa's frame regardless of click-time React context."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.app-db-diff-format :as f]
+            [day8.re-frame2-causa.theme.a11y :as a11y]
             [day8.re-frame2-causa.theme.data-inspector :as inspector]
             [day8.re-frame2-causa.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
@@ -178,7 +179,8 @@
   inspects the root db; the title says 'app-db (root)' so the user
   isn't left wondering what they're looking at."
   [path]
-  [:span {:data-testid "rf-causa-segment-inspector-title"
+  [:span {:id          "rf-causa-segment-inspector-title"
+          :data-testid "rf-causa-segment-inspector-title"
           :style {:color       (:text-primary tokens)
                   :font-weight 600
                   :font-size   (:body type-scale)
@@ -208,16 +210,25 @@
            :on-key-down handle-keydown
            :tab-index   -1
            :style       (backdrop-style positioning)}
-     [:div {:data-testid "rf-causa-segment-inspector-dialog"
-            :data-rf-causa-mode "segment-inspector"
-            :on-click    #(.stopPropagation %)
-            :on-key-down handle-keydown
-            :tab-index   0
-            :style       (dialog-style)}
+     [:div (merge
+             ;; rf2-7389r — WAI-ARIA dialog contract on the inspector
+             ;; popover. The previous tab-index 0 marker hinted at
+             ;; focus-trap intent but lacked role/aria-modal; this
+             ;; finishes the contract + adds focus-on-mount so keyboard
+             ;; users start inside the dialog (audit findings #3 + #19).
+             (a11y/dialog-attrs {:labelled-by "rf-causa-segment-inspector-title"})
+             {:data-testid "rf-causa-segment-inspector-dialog"
+              :data-rf-causa-mode "segment-inspector"
+              :ref         (a11y/focus-on-mount-ref)
+              :on-click    #(.stopPropagation %)
+              :on-key-down handle-keydown
+              :tab-index   0
+              :style       (dialog-style)})
       ;; Header
       [:div {:style (header-style)}
        (header-title path)
        [:button {:data-testid "rf-causa-segment-inspector-close"
+                 :aria-label  "Close segment inspector"
                  :title       "Close (Esc)"
                  :on-click    (fn [^js e]
                                 (.stopPropagation e)
