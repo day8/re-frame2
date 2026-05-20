@@ -106,12 +106,17 @@
 (defn- skeleton-view [_args] [:div {:data-test "skeleton-test-user-view"} "user view"])
 
 (defn- register-skeleton-variants! []
-  (rf/reg-view :story.skeleton/view skeleton-view)
-  (story/reg-story :story.skeleton {:doc "skeleton-e2e parent story"})
-  (story/reg-variant :story.skeleton/v
-    {:doc       "Variant with loaders so the lifecycle visits :loading."
+  (rf/reg-view* :story.skeleton/view skeleton-view)
+  (story/reg-story* :story.skeleton {:doc "skeleton-e2e parent story"})
+  ;; The test drives the lifecycle machine directly via `loaders/mount!`
+  ;; / `start-loaders!` / `finish-loaders!` — `:loaders` doesn't need a
+  ;; real event since we never go through `run-variant`. The slot is
+  ;; declared so `events-only-variant?` returns false (which is the
+  ;; only condition that matters for the `loading-phase?` gate).
+  (story/reg-variant* :story.skeleton/v
+    {:doc       "Variant declared with :loaders so events-only? is false."
      :component :story.skeleton/view
-     :loaders   [[:counter/initialise 7]]}))
+     :loaders   [[:noop/loader]]}))
 
 ;; ---- helper: read the canvas-inner hiccup tree --------------------------
 

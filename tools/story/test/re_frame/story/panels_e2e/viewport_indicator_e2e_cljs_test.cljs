@@ -85,10 +85,11 @@
 
 (defn- indicator-text
   "Extract the text content of a rendered indicator hiccup tree, or
-  nil if the indicator is absent."
+  nil if the indicator is absent. Walks the vector and returns the
+  first string child (the chip emits `[:div attrs text]`)."
   [hiccup]
   (when (vector? hiccup)
-    (some string? hiccup)))
+    (first (filter string? hiccup))))
 
 ;; ---- pipeline (1): default :full → indicator absent ---------------------
 
