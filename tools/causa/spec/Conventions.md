@@ -206,6 +206,88 @@ Per `registry.cljs` the panels' `install!` calls run in alphabetical
 panel-id order. When you add a new panel facade, slot its `install!` into
 the alphabetical list and keep the comment in lockstep.
 
+## Setter-naming axis
+
+Causa's `config.cljc` exposes ~12 writer fns that mutate the
+process-global atoms backing `configure!` (and the persisted Settings
+map). Without a published rule, the verbs drift — `set-` is the
+catch-all, `update-` reads as a synonym, `reset-` overlaps with
+`clear-`, and shape discipline (how many args, what does `nil` mean)
+varies per-author. This § pins the rule so the next writer lands in
+the right vocabulary without rereading the audit
+(`ai/findings/2026-05-20-tools-causa-api-review.md` §Finding 8).
+
+The rule mirrors the framework's own tear-down vocabulary fix
+(rf2-k6xyr Finding #1 — the framework's `clear-` / `destroy-` /
+`dispose-` mess) one level up: same axis (writers), same need to
+pick the right verb per action.
+
+### Verb axis — pick one of four
+
+| Verb prefix | Semantics | When to use |
+|---|---|---|
+| `set-` | **Replace** the slot's value with the new value. | The default writer. Single-slot, single-value writes. Examples: `set-editor!`, `set-project-root!`, `set-show-sensitive!`, `set-auto-open!`. |
+| `update-` | **Compose** a partial update into a nested slot. | Use when the writer takes a path-and-value pair (or section / key / value triple) and merges into an existing map. Example: `update-setting!` (`[section key value]` triple — writes one knob without replacing the whole `:settings` map). |
+| `reset-` | **Back to the documented default.** | Use when the writer takes no value arg and restores the slot to its hard-coded default. Examples: `reset-settings!` (whole map back to `default-settings`), `reset-suppressed-count!` (counter back to `0`). |
+| `clear-` | **To `nil` / empty.** | Use when the writer wipes the slot. Distinct from `reset-` — `clear-` leaves no value (which the consumer reads as "absent"); `reset-` writes the documented default value back. v1 has no `clear-` setters; reserve the verb for slots where "absent" is semantically different from "default". |
+
+The four verbs are **disjoint** — picking the wrong one is a
+review-flag-able mistake. A reader scanning `config.cljc` should be
+able to predict each writer's behaviour from its name alone.
+
+### Shape discipline
+
+Every setter SHOULD honour these constraints:
+
+1. **One or two args max** at the public boundary. `set-foo!` takes a
+   single value; `update-setting!`'s triple is the upper bound (path +
+   value). Writers that need more state get factored into a map arg
+   or a pure builder.
+
+2. **`nil` resets to default.** Passing `nil` to any `set-*` writer
+   MUST restore the slot's documented default — `set-editor! nil`
+   restores `:vscode`, `set-project-root! nil` restores `nil`, etc.
+   This makes `(set-foo! nil)` a documented equivalent to
+   `(reset-foo!)` for the common case and lets `configure!`'s
+   absent-key contract compose with the per-key setters trivially.
+
+3. **Return value is unspecified.** Setters write atoms (side-effecting
+   reset!) and may return the new value, the old value, or `nil`.
+   Callers MUST NOT depend on the return shape — the contract is the
+   side-effect on the atom, not the value handed back. Side-effect
+   orchestration (e.g. `set-show-sensitive!`'s retroactive-scrub
+   callbacks per rf2-lqmje) lives inside the setter body and is not
+   visible from the signature.
+
+4. **Idempotency.** Calling a setter twice with the same value is
+   structurally a no-op (the second `reset!` writes the same value).
+   No setter installs a one-shot listener or arms a one-time effect;
+   listener installation is the orchestrator's job, not a writer's.
+
+### Length discipline
+
+Setter names track the underlying `configure!` key, which carries the
+namespacing convention (see [`015-Configuration.md`](./015-Configuration.md)
+§Configuration keys). The longer-key setters
+(`set-layout-host-selector!` at 23 chars, `set-filters-storage-key!` at
+22) are the necessary cost of clarity; abbreviation is forbidden —
+`set-lhs!` reads as line-noise. The compact spelling already lives at
+the `configure!` key (`:layout/host-selector` is the user-facing
+surface; the setter is internal-host helper).
+
+### Cross-references
+
+- [`API.md`](./API.md) §Public CLJS API — the canonical list of
+  user-facing setters; `configure!` is the preferred host entry
+  point, per-key setters are documented escape hatches.
+- [`015-Configuration.md`](./015-Configuration.md) §Configuration
+  keys — the host-facing keys each setter writes (one-to-one
+  mapping).
+- Framework `spec/Conventions.md` §Tear-down verbs (rf2-k6xyr) —
+  the parent rule that governs `clear-` / `destroy-` / `dispose-`
+  at the framework level. Causa's setter axis is the same shape
+  one level up.
+
 ## UI text
 
 Causa is an information-dense devtool. Every pixel of chrome competes
