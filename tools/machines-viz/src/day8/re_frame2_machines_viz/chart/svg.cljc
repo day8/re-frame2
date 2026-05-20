@@ -61,29 +61,21 @@
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
-;; ---- visual constants (delegated to vc/chart) ---------------------------
-
-(def ^:private corner-radius           (:corner-radius vc/chart))
-(def ^:private stroke-width            (:stroke-width vc/chart))
-(def ^:private highlight-stroke-width  (:stroke-width-emphasis vc/chart))
-(def ^:private compound-pad-x          (:compound-pad-x vc/chart))
-(def ^:private compound-pad-y          (:compound-pad-y vc/chart))
-(def ^:private state-label-px          (:state-label-px vc/chart))
-(def ^:private edge-label-px           (:edge-label-px vc/chart))
-(def ^:private edge-label-backplate-opacity
-  (:edge-label-backplate-opacity vc/chart))
-(def ^:private final-glyph-px          (:final-glyph-px vc/chart))
-(def ^:private compound-title-px       (:compound-title-px vc/chart))
-(def ^:private caption-strip-px        (:caption-strip-px vc/chart))
-(def ^:private caption-text-px         (:caption-text-px vc/chart))
-(def ^:private tag-pill-height         (:tag-pill-height vc/chart))
-(def ^:private tag-pill-pad-x          (:tag-pill-pad-x vc/chart))
-(def ^:private tag-pill-px             (:tag-pill-px vc/chart))
-(def ^:private tag-pill-gap            (:tag-pill-gap vc/chart))
-(def ^:private tag-pill-row-gap        (:tag-pill-row-gap vc/chart))
-(def ^:private dot-grid-spacing-px     (:dot-grid-spacing-px vc/chart))
-(def ^:private dot-grid-radius-px      (:dot-grid-radius-px vc/chart))
-(def ^:private dot-grid-alpha          (:dot-grid-alpha vc/chart))
+;; ---- visual constants (read from vc/*chart* per render) ----------------
+;;
+;; rf2-32gw5 — the chart's geometry + typography are no longer
+;; namespace-level `def ^:private` aliases of `vc/chart`. Instead each
+;; helper destructures from the dynamic Var `vc/*chart*`, which the
+;; render entry-point rebinds per call from `:density` ∈
+;; #{:compact :regular :cosy}. The default value of `vc/*chart*` is
+;; `vc/chart-regular`, so helpers called outside `render` (the
+;; `compound-containers` public fn, tests that invoke a helper
+;; directly) see the same constants they always have. A density-
+;; aware render path nests its hiccup construction inside
+;; `(binding [vc/*chart* (vc/chart-for-density density)] ...)`; all
+;; hiccup is eagerly realised (`into` over `for`) before the binding
+;; unwinds, so the values are captured in the returned data
+;; structure, not deferred to lookup at React-mount time.
 
 (def ^:private mono-font-stack
   "Mono stack used for chart node + edge labels — payload surface.
@@ -175,7 +167,8 @@
   When the compound parent itself has no children in the projected
   graph (e.g. an empty `:states {}`) the container is dropped."
   [nodes]
-  (let [compound-parents (filter :compound? nodes)
+  (let [{:keys [compound-pad-x compound-pad-y]} vc/*chart*
+        compound-parents (filter :compound? nodes)
         ;; Group every node by the prefix-paths of its ancestors so we
         ;; can do a single pass instead of scanning per-parent.
         by-parent-path
@@ -226,26 +219,27 @@
   grouping CHROME, not data; sans reads as 'section heading' where
   mono would read as 'identifier value'."
   [{:keys [x y width height label node-id]}]
-  [:g {:data-testid (str "rf-mv-chart-compound-" node-id)
-       :data-node-id node-id}
-   [:rect {:x x :y y :width width :height height
-           :rx 10
-           :fill (tokens/with-alpha :accent-violet 0.06)
-           :stroke (:accent-violet tokens/tokens)
-           :stroke-width 1
-           :stroke-dasharray (:compound-stroke-dash vc/chart)
-           :pointer-events "none"}]
-   ;; Title strip — small label flushed top-left so the parent state's
-   ;; name reads as a "section heading" above its children.
-   (when label
-     [:text {:x (+ x 10)
-             :y (+ y 14)
-             :font-family tokens/sans-stack
-             :font-size compound-title-px
-             :font-weight 600
-             :fill (:accent-violet tokens/tokens)
-             :pointer-events "none"}
-      label])])
+  (let [{:keys [compound-stroke-dash compound-title-px]} vc/*chart*]
+    [:g {:data-testid (str "rf-mv-chart-compound-" node-id)
+         :data-node-id node-id}
+     [:rect {:x x :y y :width width :height height
+             :rx 10
+             :fill (tokens/with-alpha :accent-violet 0.06)
+             :stroke (:accent-violet tokens/tokens)
+             :stroke-width 1
+             :stroke-dasharray compound-stroke-dash
+             :pointer-events "none"}]
+     ;; Title strip — small label flushed top-left so the parent state's
+     ;; name reads as a "section heading" above its children.
+     (when label
+       [:text {:x (+ x 10)
+               :y (+ y 14)
+               :font-family tokens/sans-stack
+               :font-size compound-title-px
+               :font-weight 600
+               :fill (:accent-violet tokens/tokens)
+               :pointer-events "none"}
+        label])]))
 
 (defn- dot-grid-pattern
   "rf2-m4nj4 — define an SVG `<pattern>` painting a single tinted dot
@@ -260,21 +254,24 @@
   painted FIRST in the render order so every chart element sits
   above it."
   []
-  [:pattern {:id "rf-mv-chart-dot-grid"
-             :data-testid "rf-mv-chart-dot-grid"
-             :x 0 :y 0
-             :width dot-grid-spacing-px
-             :height dot-grid-spacing-px
-             :patternUnits "userSpaceOnUse"}
-   [:circle {:cx (/ dot-grid-spacing-px 2)
-             :cy (/ dot-grid-spacing-px 2)
-             :r dot-grid-radius-px
-             :fill (tokens/with-alpha :accent-violet dot-grid-alpha)}]])
+  (let [{:keys [dot-grid-spacing-px dot-grid-radius-px dot-grid-alpha]}
+        vc/*chart*]
+    [:pattern {:id "rf-mv-chart-dot-grid"
+               :data-testid "rf-mv-chart-dot-grid"
+               :x 0 :y 0
+               :width dot-grid-spacing-px
+               :height dot-grid-spacing-px
+               :patternUnits "userSpaceOnUse"}
+     [:circle {:cx (/ dot-grid-spacing-px 2)
+               :cy (/ dot-grid-spacing-px 2)
+               :r dot-grid-radius-px
+               :fill (tokens/with-alpha :accent-violet dot-grid-alpha)}]]))
 
 (defn- render-initial-marker
   [initial-node]
   (when initial-node
-    (let [cx (- (:x initial-node) 16)
+    (let [{:keys [stroke-width]} vc/*chart*
+          cx (- (:x initial-node) 16)
           cy (+ (:y initial-node) (quot (:height initial-node) 2))
           nx (:x initial-node)
           ny cy]
@@ -300,7 +297,9 @@
   it transforms with the node (no separate positioning logic).
   Empty / nil `tags` produces nil so the renderer can `(when ...)` it."
   [{:keys [x y width tags]}]
-  (let [pills (sort (vec tags))]
+  (let [{:keys [tag-pill-height tag-pill-pad-x tag-pill-px
+                tag-pill-gap tag-pill-row-gap]} vc/*chart*
+        pills (sort (vec tags))]
     (when (seq pills)
       (let [pill-w (fn [t]
                      (let [s (if (keyword? t) (name t) (str t))]
@@ -351,7 +350,10 @@
   [{:keys [x y width height label final? compound? node-id path]
     :as n}
    {:keys [highlight-id from-highlight-id to-highlight-id sim? on-state-click]}]
-  (let [active?         (= node-id highlight-id)
+  (let [{:keys [corner-radius stroke-width compound-stroke-dash
+                state-label-px final-glyph-px]
+         highlight-stroke-width :stroke-width-emphasis} vc/*chart*
+        active?         (= node-id highlight-id)
         from-highlight? (= node-id from-highlight-id)
         to-highlight?   (= node-id to-highlight-id)
         ;; rf2-2sez0 — the previous heartbeat-pulse animation was
@@ -395,7 +397,7 @@
                :fill "none"
                :stroke (:border-subtle tokens/tokens)
                :stroke-width 1
-               :stroke-dasharray (:compound-stroke-dash vc/chart)}])
+               :stroke-dasharray compound-stroke-dash}])
      ;; Final states get a double-ring
      (when final?
        [:rect {:x (- x 3) :y (- y 3)
@@ -494,7 +496,9 @@
   [{:keys [event-label points guard action from-id to-id]
     :as _edge}
    {:keys [highlight-id from-highlight-id to-highlight-id]}]
-  (let [active?         (or (= from-id highlight-id)
+  (let [{:keys [stroke-width edge-label-px edge-label-backplate-opacity]
+         highlight-stroke-width :stroke-width-emphasis} vc/*chart*
+        active?         (or (= from-id highlight-id)
                             (= to-id   highlight-id))
         focused-edge?   (and (some? from-highlight-id)
                              (some? to-highlight-id)
@@ -605,56 +609,57 @@
   down by `caption-strip-px` when this is rendered."
   [{:keys [machine-id current-state reached-count total-count chart-width]}]
   (when (or machine-id current-state)
-    [:g {:data-testid "rf-mv-chart-caption-strip"
-         :data-machine-id (str machine-id)
-         :data-current-state (str current-state)}
-     [:rect {:x 0 :y 0
-             :width chart-width
-             :height caption-strip-px
-             :fill (tokens/with-alpha :bg-2 0.6)
-             :stroke (:border-subtle tokens/tokens)
-             :stroke-width 0.5}]
-     ;; machine-id (mono, primary)
-     (when machine-id
-       [:text {:x 12 :y (- caption-strip-px 10)
-               :font-family mono-font-stack
-               :font-size caption-text-px
-               :font-weight 600
-               :fill (:accent-violet tokens/tokens)}
-        (format-state-label machine-id)])
-     ;; separator + current-state (mono, italic, cyan)
-     (when (and machine-id current-state)
-       [:text {:x (+ 12
-                     ;; rough mono char-width estimate so the cursor
-                     ;; lands past the machine-id without measuring
-                     ;; the DOM. The strip uses sans-stack for chrome
-                     ;; punctuation between the two payload mono
-                     ;; slugs.
-                     (long (* 7 (count (format-state-label machine-id)))))
-               :y (- caption-strip-px 10)
-               :font-family tokens/sans-stack
-               :font-size caption-text-px
-               :fill (:text-tertiary tokens/tokens)}
-        " · current "])
-     (when current-state
-       [:text {:x (+ 12
-                     (long (* 7 (count (format-state-label machine-id))))
-                     ;; sans " · current " ~64px at 11px
-                     64)
-               :y (- caption-strip-px 10)
-               :font-family mono-font-stack
-               :font-size caption-text-px
-               :font-style "italic"
-               :fill (:cyan tokens/tokens)}
-        (format-state-label current-state)])
-     ;; reached/total — right-aligned (sans micro)
-     (when (and (integer? reached-count) (integer? total-count))
-       [:text {:x (- chart-width 12) :y (- caption-strip-px 10)
-               :font-family tokens/sans-stack
-               :font-size caption-text-px
-               :text-anchor "end"
-               :fill (:text-tertiary tokens/tokens)}
-        (str reached-count "/" total-count " states reached")])]))
+    (let [{:keys [caption-strip-px caption-text-px]} vc/*chart*]
+      [:g {:data-testid "rf-mv-chart-caption-strip"
+           :data-machine-id (str machine-id)
+           :data-current-state (str current-state)}
+       [:rect {:x 0 :y 0
+               :width chart-width
+               :height caption-strip-px
+               :fill (tokens/with-alpha :bg-2 0.6)
+               :stroke (:border-subtle tokens/tokens)
+               :stroke-width 0.5}]
+       ;; machine-id (mono, primary)
+       (when machine-id
+         [:text {:x 12 :y (- caption-strip-px 10)
+                 :font-family mono-font-stack
+                 :font-size caption-text-px
+                 :font-weight 600
+                 :fill (:accent-violet tokens/tokens)}
+          (format-state-label machine-id)])
+       ;; separator + current-state (mono, italic, cyan)
+       (when (and machine-id current-state)
+         [:text {:x (+ 12
+                       ;; rough mono char-width estimate so the cursor
+                       ;; lands past the machine-id without measuring
+                       ;; the DOM. The strip uses sans-stack for chrome
+                       ;; punctuation between the two payload mono
+                       ;; slugs.
+                       (long (* 7 (count (format-state-label machine-id)))))
+                 :y (- caption-strip-px 10)
+                 :font-family tokens/sans-stack
+                 :font-size caption-text-px
+                 :fill (:text-tertiary tokens/tokens)}
+          " · current "])
+       (when current-state
+         [:text {:x (+ 12
+                       (long (* 7 (count (format-state-label machine-id))))
+                       ;; sans " · current " ~64px at 11px
+                       64)
+                 :y (- caption-strip-px 10)
+                 :font-family mono-font-stack
+                 :font-size caption-text-px
+                 :font-style "italic"
+                 :fill (:cyan tokens/tokens)}
+          (format-state-label current-state)])
+       ;; reached/total — right-aligned (sans micro)
+       (when (and (integer? reached-count) (integer? total-count))
+         [:text {:x (- chart-width 12) :y (- caption-strip-px 10)
+                 :font-family tokens/sans-stack
+                 :font-size caption-text-px
+                 :text-anchor "end"
+                 :fill (:text-tertiary tokens/tokens)}
+          (str reached-count "/" total-count " states reached")])])))
 
 ;; ---- public entry -------------------------------------------------------
 
@@ -701,6 +706,17 @@
                            interactive controls wrap the chart with
                            wheel-zoom / click-drag-pan / keyboard
                            handlers without forking `render`.
+    :density             — rf2-32gw5. One of `:compact / :regular /
+                           :cosy` (or `nil` ≡ `:regular`). Picks the
+                           geometry + typography variant from
+                           `visual-constants/chart-for-density` and
+                           binds it on `vc/*chart*` for the duration
+                           of this render. Hosts pick `:compact` for
+                           thumbnail-grid displays (Story's 50-chart
+                           panel), `:regular` for the chart-floor
+                           default (Causa's machines tab), `:cosy`
+                           for single-chart presentation displays.
+                           An unknown keyword throws.
 
   Returns a stable hiccup form. Empty graphs (no nodes) render an
   inline note so the panel never sees an empty SVG container."
@@ -708,9 +724,17 @@
   ([{:keys [nodes edges width height] :as positioned}
     {:keys [highlight-id from-highlight-id to-highlight-id
             sim? on-state-click testid show-caption? caption
-            viewport-transform svg-attrs]}]
+            viewport-transform svg-attrs density]}]
+   ;; rf2-32gw5 — every helper destructures `vc/*chart*`; binding it
+   ;; here per `:density` is the one-knob switch that propagates
+   ;; through the whole render pass. All hiccup is eagerly realised
+   ;; (every `into` over `for` walks its seq before returning) so the
+   ;; constants are captured in the returned data structure, not
+   ;; deferred to React-mount time.
+   (binding [vc/*chart* (vc/chart-for-density density)]
    (if (empty? nodes)
      [:div {:data-testid (or testid "rf-mv-chart-empty")
+            :data-density (name (or density :regular))
             :style {:padding "16px"
                     ;; rf2-trorn — sans-stack token rather than the
                     ;; previous `'Inter, system-ui, ...'` literal.
@@ -718,7 +742,8 @@
                     :font-size "12px"
                     :color (:text-tertiary tokens/tokens)}}
       "Machine has no states to render."]
-     (let [initial-node (some (fn [n]
+     (let [{:keys [caption-strip-px]} vc/*chart*
+           initial-node (some (fn [n]
                                 (when (and (:initial? n)
                                            (= 0 (:depth n))) n))
                               nodes)
@@ -752,6 +777,10 @@
                            :data-from-highlight-id (or from-highlight-id "")
                            :data-to-highlight-id (or to-highlight-id "")
                            :data-has-caption (str (boolean show-caption?))
+                           ;; rf2-32gw5 — surface the resolved density
+                           ;; so tests + hosts can inspect it without
+                           ;; re-reading the bound prop.
+                           :data-density (name (or density :regular))
                            :data-viewport-scale (str scale)
                            :data-viewport-tx (str tx)
                            :data-viewport-ty (str ty)
@@ -834,7 +863,7 @@
                                 :from-highlight-id from-highlight-id
                                 :to-highlight-id   to-highlight-id
                                 :sim?              sim?
-                                :on-state-click    on-state-click})))]]]))))
+                                :on-state-click    on-state-click})))]]])))))
 
 (defn render-from-definition
   "Convenience: lay out + render in one call. Useful for the panel

@@ -15,6 +15,12 @@
   value (that's `visual_constants.cljc` itself, deliberately literal
   so a code review can spot drift).
 
+  rf2-32gw5 — pins extended to the three density variants
+  (`chart-compact / chart-regular / chart-cosy`): each density has
+  the SAME key set as the others, the corner-radius lock (rf2-g6cig)
+  holds across every density, and `chart-for-density` resolves the
+  closed catalogue + throws on unknown densities.
+
   Cites audit Gap-4."
   (:require
     #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -126,3 +132,106 @@
     (let [a (:dot-grid-alpha vc/chart)]
       (is (pos? a))
       (is (< a 1.0)))))
+
+;; ---- density variants (rf2-32gw5) --------------------------------------
+;;
+;; The three density variants share the SAME key set as the regular map;
+;; a typo / accidental dissoc in one variant would surface as a runtime
+;; nil through the renderer's destructure. Pin the equality directly.
+
+(deftest chart-default-is-regular
+  (testing "rf2-32gw5 — `vc/chart` is the regular-density alias. A
+            consumer reaching for `vc/chart` gets exactly the
+            regular map; the chart-floor (rf2-gg7ws) lift was set at
+            the regular density and that's the default identity."
+    (is (= vc/chart vc/chart-regular))))
+
+(deftest density-variants-share-key-set
+  (testing "rf2-32gw5 — every density carries the same key set as
+            `chart-regular`. A key in one is a key in all; a density
+            that diverged would surface as a runtime nil from a
+            helper destructure that's perfectly correct for the
+            regular density."
+    (is (= expected-chart-keys (set (keys vc/chart-compact))))
+    (is (= expected-chart-keys (set (keys vc/chart-regular))))
+    (is (= expected-chart-keys (set (keys vc/chart-cosy))))))
+
+(deftest density-variants-have-no-nil-values
+  (testing "rf2-32gw5 — no entry in any density resolves to nil"
+    (is (every? some? (vals vc/chart-compact)))
+    (is (every? some? (vals vc/chart-regular)))
+    (is (every? some? (vals vc/chart-cosy)))))
+
+(deftest density-variants-respect-corner-radius-lock
+  (testing "rf2-g6cig — corner-radius is locked at 6 across every
+            density. Density scales QUANTITY (type size, padding,
+            stroke); it must not alter the chart's visual IDENTITY.
+            The rounded-rect 'data, not product' character holds."
+    (is (= 6 (:corner-radius vc/chart-compact)))
+    (is (= 6 (:corner-radius vc/chart-regular)))
+    (is (= 6 (:corner-radius vc/chart-cosy)))))
+
+(deftest density-typography-monotonic
+  (testing "rf2-32gw5 — `state-label-px` is monotonic across the
+            density axis: compact < regular < cosy. If a density's
+            type walks back or up unexpectedly the picker UI would
+            ship a 'cosy' value that's actually tighter than
+            'regular' — a labelling bug. Same monotonicity holds for
+            edge labels."
+    (is (< (:state-label-px vc/chart-compact)
+           (:state-label-px vc/chart-regular)
+           (:state-label-px vc/chart-cosy)))
+    (is (< (:edge-label-px vc/chart-compact)
+           (:edge-label-px vc/chart-regular)
+           (:edge-label-px vc/chart-cosy)))))
+
+(deftest density-geometry-monotonic
+  (testing "rf2-32gw5 — compound padding + dot-grid spacing are also
+            monotonic. Compact tightens; cosy loosens. Density is
+            ONE knob — every quantity that should track it does."
+    (is (< (:compound-pad-x vc/chart-compact)
+           (:compound-pad-x vc/chart-regular)
+           (:compound-pad-x vc/chart-cosy)))
+    (is (< (:dot-grid-spacing-px vc/chart-compact)
+           (:dot-grid-spacing-px vc/chart-regular)
+           (:dot-grid-spacing-px vc/chart-cosy)))))
+
+(deftest densities-catalogue-is-closed
+  (testing "rf2-32gw5 — the `densities` Var enumerates the closed
+            choice set hosts pick from. Three entries, no more, no
+            less. New densities require a deliberate spec amendment."
+    (is (= [:compact :regular :cosy] vc/densities))))
+
+(deftest chart-for-density-resolves-named-densities
+  (testing "rf2-32gw5 — every named density resolves to its map"
+    (is (= vc/chart-compact (vc/chart-for-density :compact)))
+    (is (= vc/chart-regular (vc/chart-for-density :regular)))
+    (is (= vc/chart-cosy    (vc/chart-for-density :cosy)))))
+
+(deftest chart-for-density-nil-is-regular
+  (testing "rf2-32gw5 — nil (the implicit default; `:density` prop
+            omitted) resolves to `chart-regular`. Hosts that never
+            pass `:density` get exactly the pre-rf2-32gw5 chart."
+    (is (= vc/chart-regular (vc/chart-for-density nil)))))
+
+(deftest chart-for-density-unknown-throws
+  (testing "rf2-32gw5 — an unrecognised density is a programmer
+            error, not a silent fallback. The host either picks
+            from the closed set or the chart refuses to render."
+    (is (thrown? #?(:clj  Exception
+                    :cljs js/Error)
+                 (vc/chart-for-density :spacious)))
+    (is (thrown? #?(:clj  Exception
+                    :cljs js/Error)
+                 (vc/chart-for-density :super-compact)))
+    (is (thrown? #?(:clj  Exception
+                    :cljs js/Error)
+                 (vc/chart-for-density "regular"))))) ;; string, not kw
+
+(deftest dynamic-chart-default-is-regular
+  (testing "rf2-32gw5 — `vc/*chart*` defaults to `chart-regular`
+            outside any `binding`. Helpers that destructure off
+            `vc/*chart*` outside the renderer's binding scope see
+            the same constants the namespace-level alias provided
+            before rf2-32gw5."
+    (is (= vc/chart-regular vc/*chart*))))
