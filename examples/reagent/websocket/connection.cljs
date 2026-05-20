@@ -234,7 +234,7 @@
       {;; The socket actor is invoked at the parent level — its
        ;; lifetime spans :connecting → :authenticating → :connected.
        ;; Any transition that leaves :active destroys it.
-       :invoke {:machine-id :websocket/socket
+       :spawn {:machine-id :websocket/socket
                 ;; Mechanism 2 from Pattern-AsyncEffect §Parameter
                 ;; passing — the child reads URL + auth-token from
                 ;; the parent's :data at spawn time. Every re-entry
@@ -248,7 +248,7 @@
                               (assoc data :socket-id id))}
 
        ;; Exit cascade — clear the stale :socket-id from :data. The
-       ;; runtime destroys the actor automatically (declarative :invoke's
+       ;; runtime destroys the actor automatically (declarative :spawn's
        ;; desugar emits :rf.machine/destroy on exit); this keeps :data
        ;; tidy so :current-socket? compares against nil correctly.
        :exit (fn action-clear-socket-id [data _]
@@ -340,7 +340,7 @@
   []
   ;; Use `rf/reg-machine` (not `reg-event-fx` + `create-machine-handler`)
   ;; so the registration metadata carries `:rf/machine? true` —
-  ;; declarative `:invoke` resolves the spawn target via this
+  ;; declarative `:spawn` resolves the spawn target via this
   ;; metadata, and without it the spawn-fx silently no-ops (the
   ;; spawned actor's handler never registers, and its snapshot is
   ;; never written).

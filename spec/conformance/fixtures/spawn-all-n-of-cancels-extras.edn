@@ -1,21 +1,21 @@
-;; Conformance fixture: machine/invoke-all-n-of-cancels-extras
+;; Conformance fixture: machine/spawn-all-n-of-cancels-extras
 ;;
-;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw). Verify the
+;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify the
 ;; entry-side fx emission for the `:join {:n N}` shape — fires
 ;; :on-some-complete after the Nth :on-child-done; remaining children
 ;; are cancelled by the exit cascade.
 ;;
-;; This fixture exercises the entry-cascade for a 5-child :invoke-all
+;; This fixture exercises the entry-cascade for a 5-child :spawn-all
 ;; with :join {:n 3}, plus a separate exit-cascade call to verify the
 ;; corresponding teardown fx. (Live join-resolution + selective
 ;; cancellation requires the runtime's app-db join-state and event
 ;; intercept; pure machine-transition validates the desugared shape
 ;; directly.)
 
-{:fixture/id           :machine/invoke-all-n-of-cancels-extras
+{:fixture/id           :machine/spawn-all-n-of-cancels-extras
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
- :fixture/doc          "An :invoke-all with :join {:n 3} and 5 children desugars to one invoke-all-init fx + 5 spawn fxs on entry; the exit cascade emits ONE :rf.machine/destroy fx with :rf/invoke-all true (the runtime's destroy handler tears down all live :children). Verifies entry- and exit-side fx emission for the {:n N} join shape."
+ :fixture/doc          "A :spawn-all with :join {:n 3} and 5 children desugars to one spawn-all-init fx + 5 spawn fxs on entry; the exit cascade emits ONE :rf.machine/destroy fx with :rf/spawn-all true (the runtime's destroy handler tears down all live :children). Verifies entry- and exit-side fx emission for the {:n N} join shape."
 
  :fixture/registry
  {:machine
@@ -30,7 +30,7 @@
     :states
     {:idle    {:on {:start :working}}
      :working
-     {:invoke-all
+     {:spawn-all
       {:children         [{:id :a :machine-id :worker}
                           {:id :b :machine-id :worker}
                           {:id :c :machine-id :worker}
@@ -51,9 +51,9 @@
                           :data             {}
                           :rf/spawn-counter {:worker 5}}
    :expect-effects
-   [[:rf.machine/invoke-all-init
+   [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
-      :rf/invoke-id [:working]
+      :rf/spawn-id [:working]
       :join-state   {:children  {:a :worker#1
                                  :b :worker#2
                                  :c :worker#3
@@ -71,38 +71,38 @@
                                  :on-child-done    :done
                                  :on-child-error   :failed
                                  :on-some-complete [:phase/three-done]}
-                     :invoke-id [:working]}}]
+                     :spawn-id [:working]}}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
-    ;; on :rf/invoke-all-child-id instead.
+    ;; on :rf/spawn-all-child-id instead.
     [:rf.machine/spawn
      {:machine-id :worker :id-prefix :worker
       :rf/spawned-id :worker#1
       :rf/parent-id  :rf/transition-pure
-      :rf/invoke-all-id [:working] :rf/invoke-all-child-id :a}]
+      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :a}]
     [:rf.machine/spawn
      {:machine-id :worker :id-prefix :worker
       :rf/spawned-id :worker#2
       :rf/parent-id  :rf/transition-pure
-      :rf/invoke-all-id [:working] :rf/invoke-all-child-id :b}]
+      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :b}]
     [:rf.machine/spawn
      {:machine-id :worker :id-prefix :worker
       :rf/spawned-id :worker#3
       :rf/parent-id  :rf/transition-pure
-      :rf/invoke-all-id [:working] :rf/invoke-all-child-id :c}]
+      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :c}]
     [:rf.machine/spawn
      {:machine-id :worker :id-prefix :worker
       :rf/spawned-id :worker#4
       :rf/parent-id  :rf/transition-pure
-      :rf/invoke-all-id [:working] :rf/invoke-all-child-id :d}]
+      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :d}]
     [:rf.machine/spawn
      {:machine-id :worker :id-prefix :worker
       :rf/spawned-id :worker#5
       :rf/parent-id  :rf/transition-pure
-      :rf/invoke-all-id [:working] :rf/invoke-all-child-id :e}]]}
+      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :e}]]}
 
   ;; (2) Exit on :phase/three-done — single :rf.machine/destroy fx with
-  ;;     :rf/invoke-all true. The destroy-fx handler reads the join state
+  ;;     :rf/spawn-all true. The destroy-fx handler reads the join state
   ;;     from app-db and tears each :children entry down.
   {:call         :machine-transition
    :definition
@@ -111,7 +111,7 @@
     :states
     {:idle    {:on {:start :working}}
      :working
-     {:invoke-all
+     {:spawn-all
       {:children         [{:id :a :machine-id :worker}
                           {:id :b :machine-id :worker}
                           {:id :c :machine-id :worker}
@@ -128,5 +128,5 @@
    :expect-next-snapshot {:state :ready :data {}}
    :expect-effects
    [[:rf.machine/destroy {:rf/parent-id  :rf/transition-pure
-                          :rf/invoke-id  [:working]
-                          :rf/invoke-all true}]]}]}
+                          :rf/spawn-id  [:working]
+                          :rf/spawn-all true}]]}]}

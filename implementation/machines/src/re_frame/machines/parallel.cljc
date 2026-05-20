@@ -5,7 +5,7 @@
   A machine declaring `:type :parallel` carries a `:regions` map of
   region-name → state-tree (each region a full state-node body with its
   own `:initial` + `:states` and optional `:on` / `:tags` / `:after` /
-  `:invoke` / `:always` on each state node). All regions are active
+  `:spawn` / `:always` on each state node). All regions are active
   simultaneously when the machine is active; the snapshot's `:state`
   is a map of region-name → that region's keyword-or-vector-path;
   transitions are broadcast across regions; the macrostep drain settles
@@ -19,7 +19,7 @@
   `re-frame.machines.transition`) is invoked against each region's
   slice; results are merged. Spawn / destroy / after-schedule /
   after-cancel fxs emitted by a region are post-processed to prefix
-  the region name onto their `:rf/invoke-id` so per-region :invoke /
+  the region name onto their `:rf/spawn-id` so per-region :spawn /
   :after slots scope correctly — one region's timer doesn't fire
   transitions in sibling regions.
 
@@ -65,7 +65,7 @@
   without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
   `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
   fxs the region emits carry the parent's identity (the region name is
-  prepended onto the `:rf/invoke-id` separately).
+  prepended onto the `:rf/spawn-id` separately).
 
   Per round-2 P-r2-1 (rf2-s83iu): region-specs are registration-time
   data, not transition-time data. The result is memoised in metadata
@@ -138,7 +138,7 @@
    2. Seed `:data` — `(:data machine)` or `{}`.
    3. Seed `:rf/spawn-counter {}` — per rf2-gr8q the in-snapshot
       allocator MUST be present on live snapshots so
-      `:entry`-declared `:invoke`s allocate ids through the contract path
+      `:entry`-declared `:spawn`s allocate ids through the contract path
       (not `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop).
    4. Propagate `:meta` when the spec declares it — per Spec 005 §Snapshot
       shape, so the 3-arity ctx and downstream version checks see the
@@ -171,17 +171,17 @@
       bootstrap-pending? (assoc :rf/bootstrap-pending? true))))
 
 (defn- prefix-region-invoke-id
-  "Per Spec 005 §Per-region `:invoke` / `:after` / `:always` scoping:
+  "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
-  carry an `:rf/invoke-id` that's the in-region prefix-path. To keep the
+  carry an `:rf/spawn-id` that's the in-region prefix-path. To keep the
   runtime-owned `[:rf/spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
   regions), prepend the region name onto the invoke-id."
   [region-name fx]
   (let [[fx-id args] fx]
     (cond
-      (and (map? args) (contains? args :rf/invoke-id))
-      [fx-id (update args :rf/invoke-id #(vec (cons region-name %)))]
+      (and (map? args) (contains? args :rf/spawn-id))
+      [fx-id (update args :rf/spawn-id #(vec (cons region-name %)))]
 
       :else fx)))
 
@@ -226,7 +226,7 @@
 ;;   - thread shared `:data` sequentially through regions so a later
 ;;     region's step sees earlier regions' writes,
 ;;   - thread the in-snapshot `:rf/spawn-counter` (rf2-gr8q) so any
-;;     declarative `:invoke` fired in a region bumps the SAME shared
+;;     declarative `:spawn` fired in a region bumps the SAME shared
 ;;     counter,
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
@@ -374,7 +374,7 @@
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;
 ;; Per Spec 005 §Final states §Composition with `:entry` / `:exit` and
-;; §Declarative `:invoke` §Composition: the active configuration's
+;; §Declarative `:spawn` §Composition: the active configuration's
 ;; `:exit` actions run BEFORE the destroy cascade tears the snapshot
 ;; down. The single-machine helper lives in `re-frame.machines.transition`
 ;; (`run-active-exit-cascade`); for parallel-region machines every

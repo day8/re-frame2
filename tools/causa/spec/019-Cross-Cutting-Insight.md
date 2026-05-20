@@ -225,7 +225,7 @@ visible.
 
 #### M.3 — "The cancellation cascade fired and I don't know what happened."
 
-**Bug class:** Parent state exits; child's `:invoke` destroyed; child had
+**Bug class:** Parent state exits; child's `:spawn` destroyed; child had
 N in-flight HTTP requests; each aborts. The author sees a flurry of
 `:rf.http/aborted-on-actor-destroy` traces in the firehose and one
 `:rf.machine.lifecycle/destroyed`. They cannot reconstruct the cascade.
@@ -260,14 +260,14 @@ request times out, the same cascade-waterfall idiom shows what cleanup
 ran (response slot dropped, request slot dropped, machine snapshots
 discarded).
 
-#### M.4 — "I'm in `:invoke-all` and it never joins."
+#### M.4 — "I'm in `:spawn-all` and it never joins."
 
 **Bug class:** Four children spawned; join condition is `:all`. Two
 completed; two never did. The user wants per-child status, what each is
 doing right now, what the join-state map looks like (`:done #{:cfg :flag}
 :failed #{} :resolved? false`), and whether `:on-any-failed` is wired.
 
-**Example bug:** You entered `:hydrating` which declares `:invoke-all
+**Example bug:** You entered `:hydrating` which declares `:spawn-all
 {:children {:cfg ... :flag ... :user ... :dash ...} :join :all}`. Two
 children completed in <200ms; two are still "running" 2 seconds in. The
 machine hasn't advanced. The `[:rf/spawned <parent-id> <invoke-id>]` slot
@@ -276,7 +276,7 @@ in app-db carries the structured state but you don't read it directly.
 **Insight Causa provides:** A dedicated **join card** in the metadata rail:
 
 ```
-┌─ :invoke-all  ·  invoke-id [:hydrating :invoke-all] ─────────────┐
+┌─ :spawn-all  ·  invoke-id [:hydrating :spawn-all] ─────────────┐
 │ Join condition: :all                                              │
 │ Resolved: ✗   (waiting for 2 of 4)                                │
 │  ✓ :cfg     :load-config#1         done @ +124ms                  │
@@ -292,7 +292,7 @@ in app-db carries the structured state but you don't read it directly.
 Click any running child → pivots to that child's machine. Click any
 done/failed → opens the per-child completion event.
 
-**Affordance:** Machines tab — `:invoke-all` join inspector (M-C4).
+**Affordance:** Machines tab — `:spawn-all` join inspector (M-C4).
 
 #### M.5 — "Instance #c-047 stuck in `:authing` for 30s; what guard is blocking it?"
 
@@ -511,7 +511,7 @@ S-C10).
 ### §2.4 Managed Effects
 
 (`spec/Managed-Effects.md` names the eight-property contract that HTTP,
-WebSocket, machine `:invoke`, SSR `:rf.server/*`, and flows all satisfy.
+WebSocket, machine `:spawn`, SSR `:rf.server/*`, and flows all satisfy.
 This section catalogues the bug classes Causa addresses uniformly across
 all five surfaces.)
 
@@ -563,7 +563,7 @@ app-db. **Privacy markers are visible at every layer.**
 
 For WebSocket: same shape but for a frame's send/recv, plus connection
 state at issue time.
-For machine `:invoke`: same shape but the "wire" is the spawn → run → reply.
+For machine `:spawn`: same shape but the "wire" is the spawn → run → reply.
 For SSR `:rf.server/*`: same shape but the "wire" is the server response
 accumulator's evolution.
 For flows: same shape but inputs/outputs.
@@ -662,7 +662,7 @@ subtle data-corruption bug class.
 - **F.9** Per-fx args + handler source-coord chip — every fx-row carries
   the registered fx's source coord (F-C6).
 - **F.10** Expanded badge taxonomy — `🌐 🔌 📄 🌊 🤖` for HTTP /
-  WebSocket / SSR / Flow / Machine `:invoke` (F-C1).
+  WebSocket / SSR / Flow / Machine `:spawn` (F-C1).
 - **F.11** Cross-surface stale-suppression badge — unified `STALE`
   rendering across all four surfaces (F-C5).
 
@@ -750,7 +750,7 @@ sequenced so authors see compounding improvement week over week.
    🧭` to L2 event-list row badges; add SSR indicator to ribbon.
 2. **`:rf/route` slice always-visible + per-event route-chain + match-rank
    tooltip** (R-C2, R-C5, R-C9) — App-db tab and Event tab inline content.
-3. **Machine quick wins** (M-C1 guard-verdict overlay + M-C4 `:invoke-all`
+3. **Machine quick wins** (M-C1 guard-verdict overlay + M-C4 `:spawn-all`
    join card + M-C5 per-instance trace + M-C8 path-walked + M-C9 spawn-ancestry).
 4. **Effect surface quick wins** (F-C3 retry timeline + F-C5 stale badge
    + F-C6 source-coord chip + F-C8 flow-cascade-halt alarm + F-C9
@@ -911,7 +911,7 @@ clause), the findings carry the discussion that locked the opinion.
   `:theme`, `:keybinding/bindings`.
 - [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) — the
   eight-property contract uniformly satisfied across HTTP, WebSocket,
-  `:invoke`, `:rf.server/*`, flows. This doc's wire-boundary diff (F-C2)
+  `:spawn`, `:rf.server/*`, flows. This doc's wire-boundary diff (F-C2)
   is its visible UI.
 - [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md)
   — the cross-cutting stale-detection pattern. Causa's

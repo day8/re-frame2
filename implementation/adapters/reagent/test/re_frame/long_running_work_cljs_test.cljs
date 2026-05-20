@@ -36,7 +36,7 @@
     {:adapter reagent-adapter/adapter}))
 
 (deftest long-running-work-spawn-cascade
-  (testing ":start spawns 3 children via :invoke-all and seeds the join-state"
+  (testing ":start spawns 3 children via :spawn-all and seeds the join-state"
     (wt/test-spawn-cascade)))
 
 (deftest long-running-work-happy-path-join
@@ -44,7 +44,7 @@
     (wt/test-happy-path-join)))
 
 (deftest long-running-work-cancel-cascade
-  (testing "mid-flight :cancel tears down every surviving child via the :invoke-all exit"
+  (testing "mid-flight :cancel tears down every surviving child via the :spawn-all exit"
     (wt/test-cancel-cascade)))
 
 (deftest long-running-work-parent-unmount-cascade

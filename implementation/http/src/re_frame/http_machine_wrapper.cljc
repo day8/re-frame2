@@ -6,7 +6,7 @@
   §Machine-shape wrapper: `:rf.http/managed` ALSO registers as a child-
   invokable state machine, so a parent machine can write
 
-    {:invoke {:machine-id :rf.http/managed
+    {:spawn {:machine-id :rf.http/managed
               :data       {:request {:method :get :url \"/api/me\"}}}
      :on     {:succeeded :authenticated
               :failed    :login}}
@@ -32,7 +32,7 @@
   The fx (kind `:fx`) and the machine (kind `:event`) coexist under
   the same id `:rf.http/managed` — re-frame.registrar segregates by
   kind, so `:fx [[:rf.http/managed args]]` continues to fire the fx
-  AND `{:invoke {:machine-id :rf.http/managed ...}}` resolves to the
+  AND `{:spawn {:machine-id :rf.http/managed ...}}` resolves to the
   machine.
 
   ## Stub helpers
@@ -205,13 +205,13 @@
    - `:succeeded` / `:failed` are terminal leaf states; their
      `:entry` dispatches the parent's `[:succeeded value]` or
      `[:failed failure]`. When `:rf/parent-id` is nil (direct dispatch
-     of `[:rf.http/managed ...]` to the wrapper rather than `:invoke`
+     of `[:rf.http/managed ...]` to the wrapper rather tha `:spawn`
      spawning), the parent-dispatch is a benign no-op."
   []
   {:doc "Spec 014 — :rf.http/managed as a child-invokable state machine.
 
          Wraps the :rf.http/managed fx in a machine envelope. Use via
-         `:invoke {:machine-id :rf.http/managed :data {:request {...}}}`
+         `:spawn {:machine-id :rf.http/managed :data {:request {...}}}`
          on a parent machine's state node. The wrapper runs the request
          on entry, transitions to :succeeded / :failed on the reply,
          and dispatches `[<parent-id> [:succeeded value]]` (or :failed)
@@ -238,13 +238,13 @@
    {:fire-request
     (fn [data _]
       ;; Build the args map for the underlying fx from whatever the
-      ;; user passed through the parent's :invoke :data. Strip the
+      ;; user passed through the parent's :spawn :data. Strip the
       ;; framework-reserved `:rf/*` keys; pass through every other
       ;; documented arg (Spec 014 §The args map) so the wrapper is a
       ;; transparent envelope around the fx surface.
       (let [self-id   (:rf/self-id data)
             fx-args   (-> data
-                          (dissoc :rf/self-id :rf/parent-id :rf/invoke-id)
+                          (dissoc :rf/self-id :rf/parent-id :rf/spawn-id)
                           (assoc :on-success [self-id [:rf.http/succeeded]]
                                  :on-failure [self-id [:rf.http/failed]]))]
         {:fx [[:rf.http/managed fx-args]]}))

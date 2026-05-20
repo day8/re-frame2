@@ -334,7 +334,7 @@ The retry-ownership rule, stated as a single test: **does the retry decision dep
 
 **Why the split.** Transport retry is mechanical — every category's retry policy is the same shape, and the runtime can express it as a config map at the call site. Semantic retry is a **state transition with side-effecting prerequisites** — refreshing a token, checking app state, joining outcomes across requests. Encoding that into `:retry` would either bloat the slot's vocabulary (predicates over response body, dispatched-effect callbacks per attempt, nested conditions) or hide the control flow inside an opaque blob that doesn't show up in traces. Spec 005's machines already give the substrate for "transition on outcome with guards and entry actions"; semantic retry is just a state-machine transition, and the trace stream sees every decision.
 
-**The escape hatch.** When you reach for "retry-on body matches X", "retry-after refresh", or "retry-when app-state says go" — stop, lift the call site into a state machine state, give that state an `:invoke` of `:rf.http/managed` (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)), and write the semantic retry as a transition on the failure reply. The machine handles the conditional logic; `:rf.http/managed` keeps doing transport retry inside each attempt the machine launches. Both halves compose — a state machine that drives `:rf.http/managed` requests can still configure transport-level `:retry` on each of those requests; the machine's semantic retry sits *outside* the per-request retry loop.
+**The escape hatch.** When you reach for "retry-on body matches X", "retry-after refresh", or "retry-when app-state says go" — stop, lift the call site into a state machine state, give that state a `:spawn` of `:rf.http/managed` (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)), and write the semantic retry as a transition on the failure reply. The machine handles the conditional logic; `:rf.http/managed` keeps doing transport retry inside each attempt the machine launches. Both halves compose — a state machine that drives `:rf.http/managed` requests can still configure transport-level `:retry` on each of those requests; the machine's semantic retry sits *outside* the per-request retry loop.
 
 See [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) for a concrete demonstration of both halves working together (the auth flow that motivated the boundary in the first place — 5xx-retry-with-backoff at the transport layer, 401-vs-refresh at the semantic layer).
 
@@ -534,9 +534,9 @@ A spawned actor may issue multiple `:rf.http/managed` requests in its lifetime. 
 
 #### Sibling actors are not affected
 
-When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — including under the same `:invoke-all` if `:cancel-on-decision? false` and B has not yet been told to stop — are unaffected.
+When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — including under the same `:spawn-all` if `:cancel-on-decision? false` and B has not yet been told to stop — are unaffected.
 
-`:invoke-all`'s cancel-on-decision (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
+`:spawn-all`'s cancel-on-decision (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
 
 #### Direct dispatches from event handlers — NOT covered
 
@@ -544,7 +544,7 @@ Per the spec 005 cross-feature contract, `:rf.http/managed` requests dispatched 
 
 This is **deliberate.** Cancellation tied to actor lifetime is the right scope: the child actor exists to run until the parent says "we no longer care"; the parent destroying the actor kills its outstanding work. Ordinary event handlers have no analogous lifecycle peg — their work is launched as a side effect and outlives the handler.
 
-Apps that want HTTP requests tied to the lifetime of a state-machine state should issue them from inside a spawned child machine, using `:invoke` or `:invoke-all` to bind the child's lifetime to the state's. The `:rf.http/managed-abort` fx and the user-supplied `:request-id` remain available for app-level cancellation of direct-dispatched requests (per [§`:request-id` (internal)](#request-id-internal)).
+Apps that want HTTP requests tied to the lifetime of a state-machine state should issue them from inside a spawned child machine, using `:spawn` or `:spawn-all` to bind the child's lifetime to the state's. The `:rf.http/managed-abort` fx and the user-supplied `:request-id` remain available for app-level cancellation of direct-dispatched requests (per [§`:request-id` (internal)](#request-id-internal)).
 
 #### Trace event
 
@@ -914,7 +914,7 @@ These are **test-only** surfaces — not part of the user-facing API for product
 
 ## Machine-shape wrapper
 
-Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine can `:invoke` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:invoke`, `:after`, and the cancellation cascade.
+Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine ca `:spawn` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:spawn`, `:after`, and the cancellation cascade.
 
 ### The pattern
 
@@ -925,7 +925,7 @@ Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invok
    {:idle           {:on {:login :authenticating}}
 
     :authenticating
-    {:invoke {:machine-id :rf.http/managed
+    {:spawn {:machine-id :rf.http/managed
               :data       {:request {:method :get :url "/api/me"}
                            :decode  :json}}
      :after  {30000 :timed-out}                ;; wall-clock guard
@@ -958,10 +958,10 @@ The terminal states' `:entry` dispatches `[<parent-id> [:succeeded value]]` or `
 
 ### Args carrier
 
-Every key the [§The args map](#the-args-map) surface accepts may be passed through the parent's `:invoke :data`:
+Every key the [§The args map](#the-args-map) surface accepts may be passed through the parent's `:spawn :data`:
 
 ```clojure
-{:invoke {:machine-id :rf.http/managed
+{:spawn {:machine-id :rf.http/managed
           :data {:request    {:method :post :url "/api/sessions" :body {...}}
                  :request-content-type :json
                  :decode     SessionResponse
@@ -975,15 +975,15 @@ Every key the [§The args map](#the-args-map) surface accepts may be passed thro
           :failed    :login-failed}}
 ```
 
-The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
+The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
 
-`:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:invoke`-orchestrated case.
+`:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
 
 ### Cancellation cascade
 
 Per [§Abort on actor destroy](#abort-on-actor-destroy) (rf2-wvkn), the wrapper actor's in-flight request is automatically aborted when the wrapper is destroyed. The wrapper is destroyed:
 
-- On any transition out of the parent's `:invoke`-bearing state (per [Spec 005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn)) — including the parent's `:after` firing (per [Spec 005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after)).
+- On any transition out of the parent's `:spawn`-bearing state (per [Spec 005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — including the parent's `:after` firing (per [Spec 005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after)).
 - On parent-frame destroy.
 - On imperative `:rf.machine/destroy` against the wrapper's actor id.
 
@@ -991,11 +991,11 @@ In every case, the standard `:http/abort-on-actor-destroy` late-bind hook fires,
 
 ### Multiple wrappers per parent
 
-A parent that needs two parallel HTTP requests uses [Spec 005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) with `:rf.http/managed` named as the `:machine-id` for each child:
+A parent that needs two parallel HTTP requests uses [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) with `:rf.http/managed` named as the `:machine-id` for each child:
 
 ```clojure
 {:hydrating
- {:invoke-all
+ {:spawn-all
   {:children       [{:id :user  :machine-id :rf.http/managed
                      :data {:request {:url "/api/me"}}}
                     {:id :prefs :machine-id :rf.http/managed
@@ -1014,8 +1014,8 @@ Each child gets its own wrapper actor; cancel-on-decision (default `true`) tears
 | use case | use |
 |---|---|
 | Event handler issues a one-off request; reply lands at the handler or a sibling | **fx form**: `:fx [[:rf.http/managed args]]` |
-| Parent state-machine wants the request tied to a specific state's lifetime, with abort-on-state-exit and `:after` timeout composition | **machine form**: `:invoke {:machine-id :rf.http/managed :data {...}}` |
-| Parent state-machine wants multiple concurrent requests with a join condition | **machine form** under `:invoke-all` (per above) |
+| Parent state-machine wants the request tied to a specific state's lifetime, with abort-on-state-exit and `:after` timeout composition | **machine form**: `:spawn {:machine-id :rf.http/managed :data {...}}` |
+| Parent state-machine wants multiple concurrent requests with a join condition | **machine form** under `:spawn-all` (per above) |
 
 Apps may mix both freely. The two registrations coexist under `:rf.http/managed` in the registrar (`:fx` kind for the fx, `:event` kind for the machine).
 
@@ -1231,8 +1231,8 @@ Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing]
 - [Pattern-RemoteData](Pattern-RemoteData.md) — the 5-key request-lifecycle slice; `:rf.http/managed` writes through this slice.
 - [Pattern-StaleDetection](Pattern-StaleDetection.md) — epoch carry; managed requests inherit it.
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
-- [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:invoke`.
-- [Spec 005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
+- [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:spawn`.
+- [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
 - [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, and the `:rf.http/*` failure-category traces follow it.
 - [Spec 010 §Schemas](010-Schemas.md) — the schema language `:decode <schema>` consumes. Spec 010 standardises the schema-attachment surface (`:spec` metadata, `reg-app-schema`, `app-schemas-digest`) and the pluggable validator seam (Malli is the CLJS reference's default); the `:rf.http/managed` decode step parses the response body and applies the registered schema language's decode-or-validate primitive (on CLJS reference: `malli.core/decode` + `malli.transform/json-transformer`). There is no separate "Spec 010 decode pipeline" — the decode contract belongs to this Spec; Spec 010 provides the schema language.
 - [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).

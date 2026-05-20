@@ -160,7 +160,7 @@
 ;;
 ;; Per Spec 014 §Abort on actor destroy: when a spawned state-machine
 ;; actor is destroyed (parent state exit, parent's :after firing,
-;; :invoke-all cancel-on-decision, frame destroy, imperative destroy),
+;; :spawn-all cancel-on-decision, frame destroy, imperative destroy),
 ;; the runtime invokes this fn with the destroyed actor's address. We
 ;; walk the actor-in-flight index, abort each in-flight request (which
 ;; cascades into the natural-failure-dispatch path with :reason
@@ -219,21 +219,21 @@
 ;; spawned actor `<spawned-id>` iff its originating event vector's first
 ;; element is `<spawned-id>` AND that id appears as a value somewhere
 ;; under [:rf/spawned ...] in the frame's app-db (the runtime-owned
-;; spawn registry per Spec 005 §Declarative :invoke (sugar over spawn)).
+;; spawn registry per Spec 005 §Declarative :spawn (sugar over spawn)).
 ;; Detection is structural: walk the registry, look for the originating
-;; id as either a leaf value (declarative :invoke) or as a value under
-;; :children (declarative :invoke-all).
+;; id as either a leaf value (declarative :spawn) or as a value under
+;; :children (declarative :spawn-all).
 
 (defn- spawned-actor-id?
   "Return true if `event-id` is currently bound somewhere under
   `[:rf/spawned <parent> <invoke-id>]` in `spawned` — either as the
-  leaf value (declarative `:invoke`) or as a value in the `:children`
-  map of the join-state record (declarative `:invoke-all`)."
+  leaf value (declarative `:spawn`) or as a value in the `:children`
+  map of the join-state record (declarative `:spawn-all`)."
   [spawned event-id]
   (some (fn [[_parent inner]]
           (some (fn [[_invoke-id v]]
-                  (or (= v event-id)                      ;; :invoke leaf
-                      (and (map? v)                       ;; :invoke-all join state
+                  (or (= v event-id)                      ;; :spawn leaf
+                      (and (map? v)                       ;; :spawn-all join state
                            (some (fn [[_cid cid-val]]
                                    (= cid-val event-id))
                                  (:children v)))))

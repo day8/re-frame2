@@ -208,7 +208,7 @@
   "Pattern-WebSocket §The connection state machine / §Standard transitions.
   Drives the connection state machine through :disconnected → :connecting
   → :authenticating → :connected → :reconnecting → :failed via dispatched
-  lifecycle events. The actual WebSocket actor is stubbed (no :invoke);
+  lifecycle events. The actual WebSocket actor is stubbed (no :spawn);
   this pins the documented six-state lifecycle."
   (let [machine
         {:initial :disconnected

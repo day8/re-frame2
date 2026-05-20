@@ -92,7 +92,7 @@ The grammar this foundation interprets (per [005 §Capability matrix](005-StateM
 
 The snapshot location is fixed at `[:rf/machines <id>]` — no `:path` key in the spec.
 
-Hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:invoke`, state tags (`:fsm/tags`), parallel regions (`:fsm/parallel-regions`), spawn-and-join (`:actor/spawn-and-join`), and `:system-id` named-machine addressing are all claimed in the v1 capability list — see the matrix for the full set and per-capability fixture coverage.
+Hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:spawn`, state tags (`:fsm/tags`), parallel regions (`:fsm/parallel-regions`), spawn-and-join (`:actor/spawn-and-join`), and `:system-id` named-machine addressing are all claimed in the v1 capability list — see the matrix for the full set and per-capability fixture coverage.
 
 ## Substitutes for skipped features
 
@@ -247,6 +247,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | Action-vector `[a1 a2 a3]` per slot | One fn or one named registered compound | Same reason as guards |
 | `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `create-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
 | `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event-fx`'s `{:db :fx}`; one fewer DSL to parse |
+| `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence (rf2-5r4q2). Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke-rf2-5r4q2). |
 
 Convergences: machines-as-actors, run-to-completion, encapsulated state, snapshots, definition/implementation split, transition tables as data.
 

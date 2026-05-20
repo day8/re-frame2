@@ -390,7 +390,7 @@ jobs:
 
       # The machines artefact ships JVM-runnable test namespaces under
       # implementation/machines/test/ — pure machine-transition tests
-      # (machine_transition_purity_test, after_test, invoke_all_test,
+      # (machine_transition_purity_test, after_test, spawn_all_test,
       # spawn_registry_test, parallel_test, tags_test, initial_entry_test,
       # …) plus the Mode B conformance corpus runner
       # (machines_conformance_test) added per rf2-d0wem. The cognitect

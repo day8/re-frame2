@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-[Chapter 09](../09-state-machines.md) names four state-node keys in passing: `:always`, `:after`, `:invoke`, `:invoke-all`. Plus `:final?` / `:on-done` / `:output-key` for terminal states. Plus parallel regions. This page is the worked-example tour. Each section answers one question: "what does this key let me write, and what does the framework do for me?"
+[Chapter 09](../09-state-machines.md) names four state-node keys in passing: `:always`, `:after`, `:spawn`, `:spawn-all`. Plus `:final?` / `:on-done` / `:output-key` for terminal states. Plus parallel regions. This page is the worked-example tour. Each section answers one question: "what does this key let me write, and what does the framework do for me?"
 
 Read this when you've outgrown a flat-FSM machine and your dynamic model wants to express something xstate-shaped. The substrate has the capability; the guide should have the worked example. None of these keys is exotic — they're all sugar for things you could express by hand. The sugar earns its keep because the desugared shape is verbose, the patterns are mechanical, and stamping them by name lets tooling reason about your machine the way a flat FSM is reasoned about.
 
@@ -12,8 +12,8 @@ Read this when you've outgrown a flat-FSM machine and your dynamic model wants t
 |---|---|---|
 | `:always` | Eventless transition — fires when its guard becomes true | A `:raise` of a synthetic event from every action that could enable the condition |
 | `:after` | Delayed transition — fires after a wall-clock delay | `:dispatch-later` + epoch-stamped synthetic event + stale check |
-| `:invoke` | Declarative actor — spawn-on-entry, destroy-on-exit | `:rf.machine/spawn` in `:entry`, `:rf.machine/destroy` in `:exit` |
-| `:invoke-all` | Spawn N actors in parallel, join on a condition | N `:invoke`s + join-state bookkeeping + per-condition resolution |
+| `:spawn` | Declarative actor — spawn-on-entry, destroy-on-exit | `:rf.machine/spawn` in `:entry`, `:rf.machine/destroy` in `:exit` |
+| `:spawn-all` | Spawn N actors in parallel, join on a condition | N `:spawn`s + join-state bookkeeping + per-condition resolution |
 
 Each key is *declarative* — the runtime walks the spec at registration time and rewrites it into the underlying primitive. The runtime sees the desugared form; tooling sees the original spec; you write whichever is more readable.
 
@@ -127,13 +127,13 @@ The pattern is general: any async-shaped feature that re-enters a state can use 
 
 For the full grammar see [005 §Delayed `:after` transitions](../../../spec/005-StateMachines.md).
 
-## `:invoke` — declarative child actors
+## `:spawn` — declarative child actors
 
 > "While in this state, run a child machine. When we leave the state, destroy it."
 
 ```clojure
 {:fetching
- {:invoke {:machine-id :http/protocol
+ {:spawn {:machine-id :http/protocol
            :data       {:url "/api/profile"}
            :on-spawn   (fn [data id] (assoc data :pending id))
            :start      [:begin]}
@@ -144,7 +144,7 @@ For the full grammar see [005 §Delayed `:after` transitions](../../../spec/005-
 Entering `:fetching` spawns a `:http/protocol` actor; leaving `:fetching` destroys it. The child's lifetime is bound to the parent state's occupancy. If you write the spawn-and-destroy by hand, it looks like:
 
 ```clojure
-;; what create-machine-handler desugars the :invoke into:
+;; what create-machine-handler desugars the :spawn into:
 {:fetching
  {:entry (fn [data _]
            {:fx [[:rf.machine/spawn {:machine-id :http/protocol
@@ -152,10 +152,10 @@ Entering `:fetching` spawns a `:http/protocol` actor; leaving `:fetching` destro
                                      :on-spawn   (fn [d id] (assoc d :pending id))
                                      :start      [:begin]
                                      :rf/parent-id <this-machine>
-                                     :rf/invoke-id [:fetching]}]]})
+                                     :rf/spawn-id [:fetching]}]]})
   :exit  (fn [_ _]
            {:fx [[:rf.machine/destroy {:rf/parent-id <this-machine>
-                                       :rf/invoke-id [:fetching]}]]})
+                                       :rf/spawn-id [:fetching]}]]})
   :on    {:succeeded :loaded
           :failed    :error}}}
 ```
@@ -171,31 +171,31 @@ The runtime sees the second form; you wrote the first. Same machine.
 | `:on-spawn` | `(fn [data spawned-id] new-data)` — how the parent records the child id |
 | `:on-done` | `(fn [data result] new-data)` — fires when child enters `:final?` (see below) |
 | `:start` | Event vector dispatched to the newborn after spawn |
-| `:invoke-id` | Explicit id instead of gensym — useful for tests / per-state singletons |
+| `:spawn-id` | Explicit id instead of gensym — useful for tests / per-state singletons |
 | `:id-prefix` | Base for the gensym'd id (defaults to `:machine-id`) |
 
 ### What about timeouts?
 
-`:invoke` doesn't take a `:timeout-ms` slot. Wall-clock timeouts on the spawned actor live on the *parent state's* `:after` map. One primitive, not two:
+`:spawn` doesn't take a `:timeout-ms` slot. Wall-clock timeouts on the spawned actor live on the *parent state's* `:after` map. One primitive, not two:
 
 ```clojure
 {:authenticating
- {:invoke {:machine-id :auth-flow}
+ {:spawn {:machine-id :auth-flow}
   :after  {30000 :auth-failed}                ;; 30 s wall-clock guard
   :on     {:auth/succeeded :authenticated}}}
 ```
 
 When the 30 s `:after` fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts — see [Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). The timer is anchored to the parent state's entry, not to any HTTP attempt; the child's internal retries can't outlive the parent's deadline.
 
-For the full description of `:invoke`'s desugaring, composition with `:entry` / `:exit`, hierarchical composition, error categories, see [005 §Declarative `:invoke`](../../../spec/005-StateMachines.md).
+For the full description of `:spawn`'s desugaring, composition with `:entry` / `:exit`, hierarchical composition, error categories, see [005 §Declarative `:spawn`](../../../spec/005-StateMachines.md).
 
-## `:invoke-all` — spawn-and-join
+## `:spawn-all` — spawn-and-join
 
 > "Spawn N children in parallel. When the join condition resolves, fire a parent event."
 
 ```clojure
 {:hydrating
- {:invoke-all
+ {:spawn-all
   {:children         [{:id :cfg  :machine-id :load-config}
                       {:id :flag :machine-id :load-feature-flags}
                       {:id :user :machine-id :load-user-profile}
@@ -226,15 +226,15 @@ Each option fires `:on-some-complete` (for `:any` / `{:n N}` / `{:fn}`) or `:on-
 
 ### Cancel-on-decision (default `true`)
 
-When the join resolves, siblings still in flight are cancelled. Each cancelled sibling has its `:rf.machine/destroy` fired (with the in-flight `:rf.http/managed` aborts cascading), and the runtime emits `:rf.machine.invoke/cancelled-on-join-resolution` for each.
+When the join resolves, siblings still in flight are cancelled. Each cancelled sibling has its `:rf.machine/destroy` fired (with the in-flight `:rf.http/managed` aborts cascading), and the runtime emits `:rf.machine.spawn/cancelled-on-join-resolution` for each.
 
 Apps that want non-cancelling joins (analytics fan-out where each child is independently valuable) declare `:cancel-on-decision? false` — siblings run to completion; their results land in the join-state but trigger no further parent event because `:resolved?` already flipped.
 
-### What `:invoke-all` *isn't*
+### What `:spawn-all` *isn't*
 
 It isn't an "everything happens at once" primitive — children spawn in source order, but each child runs as its own actor with its own drain. The "parallelism" is logical-actor-parallelism, not OS-thread-parallelism. (CLJS is single-threaded; JVM SSR may execute multiple actors on multiple threads, but the contract is "the runtime coordinates the join.")
 
-For the full description see [005 §Spawn-and-join via `:invoke-all`](../../../spec/005-StateMachines.md).
+For the full description see [005 §Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md).
 
 ## `:final?` / `:on-done` / `:output-key` — terminal states
 
@@ -258,7 +258,7 @@ For the full description see [005 §Spawn-and-join via `:invoke-all`](../../../s
    :states
    {:idle {:on {:submit :authenticating}}
     :authenticating
-    {:invoke {:machine-id :auth-flow
+    {:spawn {:machine-id :auth-flow
               :on-done    (fn [data result] (assoc data :token result))}
      :on    {:auth/cancelled :idle}}}})
 ```
@@ -266,18 +266,18 @@ For the full description see [005 §Spawn-and-join via `:invoke-all`](../../../s
 When `:auth-flow` enters `:done`, the runtime:
 
 1. Reads the child's `:data` at `:output-key :token` — call it `result`.
-2. Looks up the parent's `:invoke` and runs `:on-done` against the parent's `:data` with that `result` — the returned map replaces the parent's `:data`.
+2. Looks up the parent's `:spawn` and runs `:on-done` against the parent's `:data` with that `result` — the returned map replaces the parent's `:data`.
 3. Emits a `:rf.machine/done` trace event with `:machine-id`, `:output`, `:parent-id`.
 4. Tears down the child via the standard destroy path (with `:reason :rf.machine/finished`).
 
 ### Singletons too
 
-A *singleton* machine (registered top-level, no parent `:invoke`) reaching `:final?` **also auto-destroys**. "Final means final." If you want a persistent terminal state, **omit `:final?`** and use an ordinary leaf state. This is the most common gotcha for users meeting `:final?` for the first time, so it's worth saying out loud.
+A *singleton* machine (registered top-level, no parent `:spawn`) reaching `:final?` **also auto-destroys**. "Final means final." If you want a persistent terminal state, **omit `:final?`** and use an ordinary leaf state. This is the most common gotcha for users meeting `:final?` for the first time, so it's worth saying out loud.
 
 ### Constraints
 
 - **Leaf-only.** A compound state can't itself be `:final?`. Express finality with a leaf inside the compound.
-- **No `:on`, `:always`, `:after`, `:invoke`, `:invoke-all` on a `:final?` state.** Final means final — no further transitions.
+- **No `:on`, `:always`, `:after`, `:spawn`, `:spawn-all` on a `:final?` state.** Final means final — no further transitions.
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error.
 
 ### Parallel regions
@@ -321,7 +321,7 @@ If your regions are conceptually **independent features that don't share data**,
 
 ### Per-region scoping
 
-`:after` timers and `:invoke` lifetimes are per-region. A `:after` on the `:data` region doesn't get cancelled when the `:form` region transitions. The runtime maintains a per-region epoch counter (`:rf/after-epoch-by-region` inside `:data`) so a sibling region's transition doesn't invalidate this region's in-flight timers.
+`:after` timers and `:spawn` lifetimes are per-region. A `:after` on the `:data` region doesn't get cancelled when the `:form` region transitions. The runtime maintains a per-region epoch counter (`:rf/after-epoch-by-region` inside `:data`) so a sibling region's transition doesn't invalidate this region's in-flight timers.
 
 `:always` cascades similarly fire per region; tags compose by union across active states.
 
@@ -336,9 +336,9 @@ A few `:rf/*` keys appear inside a machine's `:data` slot. These are runtime-own
 | `:rf/after-epoch` | Per-machine epoch counter for `:after`-timer stale detection (flat / compound) |
 | `:rf/after-epoch-by-region` | Per-region counter for `:after`-timer stale detection (parallel regions) |
 | `:rf/self-id` | The machine's own gensym'd id (set by spawn-fx for spawned actors) |
-| `:rf/parent-id` | The parent machine's id (set on `:invoke` / `:invoke-all` children) |
-| `:rf/invoke-id` | The `:invoke`-bearing state's prefix-path (used to address the spawn-registry slot) |
-| `:rf/invoke-all-id` / `:rf/invoke-all-child-id` | `:invoke-all` analogues |
+| `:rf/parent-id` | The parent machine's id (set on `:spawn` / `:spawn-all` children) |
+| `:rf/spawn-id` | The `:spawn`-bearing state's prefix-path (used to address the spawn-registry slot) |
+| `:rf/spawn-all-id` / `:rf/spawn-all-child-id` | `:spawn-all` analogues |
 
 These slots are documented at [Conventions.md §Reserved snapshot-internal keys](../../../spec/Conventions.md#reserved-snapshot-internal-keys-machine-runtime). Their persistence behaviour is also documented there (some survive `pr-str` / SSR hydration; some are transient).
 

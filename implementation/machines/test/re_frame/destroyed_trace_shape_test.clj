@@ -5,13 +5,13 @@
   for a different destroy class:
 
     1. `destroy-invoke-all-children!` (lifecycle_fx/destroy.cljc):
-       per-child fire when an `:invoke-all` parent tears down its
+       per-child fire when a `:spawn-all` parent tears down its
        children. The trace carries an extra `:child-id` slot keying
        the join-state map but does NOT include `:system-id`.
 
     2. `destroy-single!` (lifecycle_fx/destroy.cljc): the keyword /
        tracked-map fire for an explicit `:rf.machine/destroy` fx or
-       the standard declarative-`:invoke` exit cascade. The trace
+       the standard declarative-`:spawn` exit cascade. The trace
        carries `:system-id` (resolved from the reverse-index BEFORE
        teardown).
 
@@ -27,7 +27,7 @@
   SAME tap and asserts:
 
     - every fire's argument map is a subset of the canonical union
-      `{:frame :actor-id :system-id :parent-id :invoke-id :child-id
+      `{:frame :actor-id :system-id :parent-id :spawn-id :child-id
         :reason}`,
     - `:reason` is always present (the discriminator),
     - `:frame` and `:actor-id` are always present (the common id pair),
@@ -48,7 +48,7 @@
 ;; Spec 009 §Cascade-id stamping; those keys are not part of the
 ;; per-site contract.
 (def ^:private canonical-site-keys
-  #{:frame :actor-id :system-id :parent-id :invoke-id :child-id :reason})
+  #{:frame :actor-id :system-id :parent-id :spawn-id :child-id :reason})
 
 (def ^:private framework-stamped-keys
   #{:dispatch-id})
@@ -101,7 +101,7 @@
                            :final   {:final? true}}}
           parent {:initial :hydrating
                   :states
-                  {:hydrating {:invoke-all
+                  {:hydrating {:spawn-all
                                {:children
                                 [{:id :a :machine-id :ia/child}
                                  {:id :b :machine-id :ia/child}]
@@ -118,7 +118,7 @@
         (rf/reg-machine :ia/child child)
         (rf/reg-machine :ia/parent parent)
         (rf/dispatch-sync [:ia/parent [:rf.machine/spawned]])
-        ;; Force an :invoke-all teardown via re-entering :idle through
+        ;; Force a :spawn-all teardown via re-entering :idle through
         ;; an explicit destroy of the parent. Easier: drive the parent
         ;; via :ia/cancel into :idle (the invoke-all exit cascade tears
         ;; the children down through destroy-invoke-all-children!).
@@ -137,7 +137,7 @@
 ;; ---- Site 2: destroy-single! ----------------------------------------------
 
 (deftest destroy-single-trace-shape
-  (testing "destroy-single! (declarative :invoke exit cascade) carries :system-id slot key"
+  (testing "destroy-single! (declarative :spawn exit cascade) carries :system-id slot key"
     (let [[cap unreg] (record!)
           child {:initial :running
                  :data    {}
@@ -145,13 +145,13 @@
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:invoke {:machine-id :ds/child}
+                   :working {:spawn {:machine-id :ds/child}
                              :on     {:stop :idle}}}}]
       (try
         (rf/reg-machine :ds/child child)
         (rf/reg-machine :ds/parent parent)
         (rf/dispatch-sync [:ds/parent [:start]])
-        ;; Exit the :invoke-bearing state — destroy-single! fires.
+        ;; Exit the :spawn-bearing state — destroy-single! fires.
         (rf/dispatch-sync [:ds/parent [:stop]])
         (let [traces (destroyed-traces cap)]
           (assert-shape! traces "destroy-single")
@@ -171,7 +171,7 @@
                  :states  {:running {:on {:end :done}}
                            :done    {:final? true}}}
           parent {:initial :working
-                  :states  {:working {:invoke {:machine-id :fz/child}}}}]
+                  :states  {:working {:spawn {:machine-id :fz/child}}}}]
       (try
         (rf/reg-machine :fz/child child)
         (rf/reg-machine :fz/parent parent)
@@ -213,7 +213,7 @@
         (rf/reg-machine :nd/child child)
         (rf/reg-machine :nd/parent
                         {:initial :working
-                         :states  {:working {:invoke {:machine-id :nd/child}}}})
+                         :states  {:working {:spawn {:machine-id :nd/child}}}})
         (rf/dispatch-sync [:nd/parent [:rf.machine/spawned]])
         (let [spawned-id (get-in (rf/get-frame-db :rf/default)
                                  [:rf/spawned :nd/parent [:working]])]

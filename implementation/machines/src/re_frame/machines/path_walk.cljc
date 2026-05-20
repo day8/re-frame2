@@ -11,7 +11,7 @@
   see the event.
 
   Spec 005 spells this rule out for `:on`, for `:always`, for `:after`,
-  and for `:invoke-all` join-event interception — four surfaces, one
+  and for `:spawn-all` join-event interception — four surfaces, one
   rule. Before this namespace existed, the rule was implemented four
   times across two files as the same `(loop [i (dec (count path))] ...
   (recur (dec i)))` shape, each picker re-deriving the boundary
@@ -117,7 +117,7 @@
   old shape called `node-at*` at every level, re-descending from the
   root each time, giving O(depth²) per picker call. The single-pass
   shape is O(depth). Four pickers (`:on`, `:always`, `:after`,
-  `:invoke-all` join) all run this primitive on the same active path
+  `:spawn-all` join) all run this primitive on the same active path
   per macrostep, so the depth² → depth win compounds on every event.
   The `path` argument is coerced to a vector once at the top so
   callers may pass any seqable; downstream callers receiving the

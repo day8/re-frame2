@@ -5,7 +5,7 @@
   the singleton-registration path stamped:
 
     - `:rf/spawn-counter {}` — the in-snapshot id allocator (rf2-gr8q).
-      A spawned actor whose `:entry` declares an `:invoke` would fall
+      A spawned actor whose `:entry` declares a `:spawn` would fall
       onto `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop
       instead of the contract path of reading from a present slot.
 
@@ -98,7 +98,7 @@
                   :states  {:running {}}}
           parent {:initial :idle
                   :states  {:idle    {:on {:start :working}}
-                            :working {:invoke {:machine-id :worker/proc}}}}]
+                            :working {:spawn {:machine-id :worker/proc}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
@@ -113,7 +113,7 @@
 ;; ---- (3) End-to-end spawn integration: :rf/spawn-counter slot present ------
 ;;
 ;; A spawned actor's initial snapshot MUST carry `:rf/spawn-counter` so
-;; an `:entry`-declared `:invoke` on the actor's initial state goes
+;; an `:entry`-declared `:spawn` on the actor's initial state goes
 ;; through the contract path of `allocate-spawned-id` (reading from a
 ;; present slot) rather than the defensive `(fnil inc 0)` backstop.
 ;; Pre-rf2-fgqs4 the spawn-path snapshot lacked the slot entirely.
@@ -125,7 +125,7 @@
                   :states  {:running {}}}
           parent {:initial :idle
                   :states  {:idle    {:on {:start :working}}
-                            :working {:invoke {:machine-id :worker/proc}}}}]
+                            :working {:spawn {:machine-id :worker/proc}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])

@@ -5,7 +5,7 @@
 
    D1 — `:final?` is a first-class key on the state node (NOT under
         `:meta`).
-   D2 — `:on-done` on the parent's `:invoke` map is the parent-
+   D2 — `:on-done` on the parent's `:spawn` map is the parent-
         notification hook; signature `(fn [data result] new-data)`.
    D3 — `:output-key` on the child's `:final?` state designates which
         `:data` slot is reported back.
@@ -79,7 +79,7 @@
         {:on {:start :working}}
 
         :working
-        {:invoke {:machine-id :rf2-gn80/child
+        {:spawn {:machine-id :rf2-gn80/child
                   :on-done    (fn [data result] (assoc data :token-from-child result))}}}})
     (rf/dispatch-sync [:rf2-gn80/parent [:start]])
     ;; Now the child is spawned. Drive its :finish to enter :final?.
@@ -131,7 +131,7 @@
         {:initial :working
          :states
          {:working
-          {:invoke {:machine-id :rf2-gn80/child2
+          {:spawn {:machine-id :rf2-gn80/child2
                     :on-done    (fn [d r] (assoc d :reported r))}}}})
       (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine/spawned]])
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
@@ -160,7 +160,7 @@
         {:initial :working
          :states
          {:working
-          {:invoke {:machine-id :rf2-gn80/child3}}}})
+          {:spawn {:machine-id :rf2-gn80/child3}}}})
       (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine/spawned]])
       (let [spawned-id (get-in (rf/get-frame-db :rf/default)
                                [:rf/spawned :rf2-gn80/parent3 [:working]])]
@@ -174,7 +174,7 @@
 ;; ---- (e) singleton symmetry: standalone reaches :final? auto-destroys -----
 
 (deftest singleton-reaches-final-auto-destroys
-  (testing "D7: a singleton machine (no :invoke parent) reaching :final? auto-destroys"
+  (testing "D7: a singleton machine (no :spawn parent) reaching :final? auto-destroys"
     (let [traces (record-traces! ::sym-trace)]
       (rf/reg-machine :rf2-gn80/sing
         {:initial :running
@@ -209,7 +209,7 @@
         {:initial :working
          :states
          {:working
-          {:invoke {:machine-id :rf2-gn80/sid-child
+          {:spawn {:machine-id :rf2-gn80/sid-child
                     :system-id  :auth-actor
                     :on-done    (fn [d r]
                                   ;; D8: during :on-done, the system-id
@@ -263,7 +263,7 @@
         {:initial :working
          :states
          {:working
-          {:invoke {:machine-id :rf2-gn80/no-output
+          {:spawn {:machine-id :rf2-gn80/no-output
                     :on-done    (fn [d r]
                                   (reset! seen-result r)
                                   d)}}}})
@@ -277,7 +277,7 @@
 ;; ---- :on-done is OPTIONAL — destroy still fires --------------------------
 
 (deftest on-done-optional-destroy-still-fires
-  (testing "an :invoke without :on-done still auto-destroys the child on :final?"
+  (testing "a :spawn without :on-done still auto-destroys the child on :final?"
     (rf/reg-machine :rf2-gn80/just-final
       {:initial :running
        :states
@@ -287,7 +287,7 @@
       {:initial :working
        :states
        {:working
-        {:invoke {:machine-id :rf2-gn80/just-final}}}})
+        {:spawn {:machine-id :rf2-gn80/just-final}}}})
     (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine/spawned]])
     (let [spawned-id (get-in (rf/get-frame-db :rf/default)
                              [:rf/spawned :rf2-gn80/silent-parent [:working]])]
@@ -343,7 +343,7 @@
              :states  {:a {:final? true
                            :states  {:b {}}
                            :initial :b}}}))))
-  (testing ":on / :always / :after / :invoke / :invoke-all on a :final? state is rejected"
+  (testing ":on / :always / :after / :spawn / :spawn-all on a :final? state is rejected"
     (is (thrown-with-msg?
           #?(:clj Exception :cljs js/Error) #":rf.error/machine-final-state-has-transitions"
           (rf/reg-machine :rf2-gn80/bad2

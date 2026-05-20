@@ -1,24 +1,24 @@
-(ns re-frame.machines-invoke-cljs-test
-  "CLJS-side coverage for declarative `:invoke` (child-machine spawning)
+(ns re-frame.machines-spawn-cljs-test
+  "CLJS-side coverage for declarative `:spawn` (child-machine spawning)
   under the Reagent reactive substrate.
 
   Mirrors the conformance fixture
-  ../spec/conformance/fixtures/invoke-spawn-on-entry-destroy-on-exit.edn —
-  entering a state with `:invoke` emits a `:rf.machine/spawn` fx (observable
+  ../spec/conformance/fixtures/spawn-on-entry-destroy-on-exit.edn —
+  entering a state with `:spawn` emits a `:rf.machine/spawn` fx (observable
   as `:rf.machine/spawned` trace); exiting emits `:rf.machine/destroy`
   (observable as `:rf.machine/destroyed` trace).
 
   Concerns covered:
-    - `:invoke` spawns child on entry and destroys it on exit; on-spawn
+    - `:spawn` spawns child on entry and destroys it on exit; on-spawn
       callback records the deterministic actor id into parent's `:data`.
-    - `:invoke :data` fn-form materialised at spawn (rf2-h131): the spawned
+    - `:spawn :data` fn-form materialised at spawn (rf2-h131): the spawned
       child receives the result map, not the fn; fn sees the post-action
       snapshot.
-    - State-level `:after` on an `:invoke`-bearing state (rf2-3y3y):
+    - State-level `:after` on a `:spawn`-bearing state (rf2-3y3y):
       synthetic timer-elapsed cancels the child via the standard exit
       cascade and transitions the parent.
-    - `:timeout-ms` on `:invoke` / `:invoke-all` is rejected at registration
-      with `:rf.error/invoke-timeout-ms-removed` (rf2-3y3y).
+    - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
+      with `:rf.error/spawn-timeout-ms-removed` (rf2-3y3y).
 
   The on-spawn callback fires inline during `apply-transition-once` so the
   child id can be recorded into the parent machine's `:data` — we assert via
@@ -41,13 +41,13 @@
   [machine-id]
   (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
 
-(deftest machine-invoke-cljs
-  (testing ":invoke spawns child on entry and destroys it on exit"
+(deftest machine-spawn-cljs
+  (testing ":spawn spawns child on entry and destroys it on exit"
     (let [machine
           {:initial :idle
            :data    {:credentials {:user "alice" :pass "secret"}}
            :on-spawn-actions
-           ;; Per Spec 005 §Declarative :invoke (rf2-een2 / rf2-smba):
+           ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            ;; The runtime patches the returned data back into the snapshot.
            {:auth/record-actor (fn [data actor-id]
@@ -57,7 +57,7 @@
             {:on {:submit :authenticating}}
 
             :authenticating
-            {:invoke {:machine-id :http/post
+            {:spawn {:machine-id :http/post
                       :data       {:url "/api/login"
                                    :body {:user "alice" :pass "secret"}}
                       :on-spawn   :auth/record-actor
@@ -96,21 +96,21 @@
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
-;; ---- :invoke :data fn-form materialised at spawn (rf2-h131) --------------
+;; ---- :spawn :data fn-form materialised at spawn (rf2-h131) --------------
 ;; Per Spec 005 §Spec-spec keys (line 1503/1511): `:data` admits a function
 ;; form `(fn [snap ev] data)` so the spawned child's initial data can be
 ;; derived from the parent's post-action snapshot + the triggering event.
 ;; The runtime materialises the fn before passing the value to the
 ;; spawn-fx (which expects a literal map).
 
-(deftest machine-invoke-data-fn-form-cljs
+(deftest machine-spawn-data-fn-form-cljs
   (testing "fn-form `:data` is materialised — spawned child receives the result map, NOT the fn"
     (let [child   {:initial :running :data {} :states {:running {}}}
           parent  {:initial :idle
                    :data    {:endpoint "/api/login"}
                    :states
                    {:idle    {:on {:start :working}}
-                    :working {:invoke {:machine-id :h131/worker
+                    :working {:spawn {:machine-id :h131/worker
                                        :data       (fn [snap _]
                                                      {:url    (-> snap :data :endpoint)
                                                       :method :post})}}}}]
@@ -133,7 +133,7 @@
                                                        (str (:base data) "/v1/me"))})}
                    :states
                    {:idle    {:on {:go {:target :working :action :assemble}}}
-                    :working {:invoke {:machine-id :h131b/worker
+                    :working {:spawn {:machine-id :h131b/worker
                                        :data       (fn [snap _]
                                                      {:url (-> snap :data :endpoint)})}}}}]
       (rf/reg-machine :h131b/worker child)
@@ -143,15 +143,15 @@
              (:url (:data (snapshot :h131b/worker#1))))
           "fn-form saw the :data writes the transition's :action made"))))
 
-;; ---- state-level :after on :invoke-bearing state (rf2-3y3y) --------------
-;; Per Spec 005 §Wall-clock timeouts on :invoke — use parent state's :after.
-;; The pre-rf2-3y3y :timeout-ms slot on :invoke / :invoke-all is dropped;
-;; wall-clock guards are expressed via :after on the :invoke-bearing state
+;; ---- state-level :after on :spawn-bearing state (rf2-3y3y) --------------
+;; Per Spec 005 §Wall-clock timeouts on :spawn — use parent state's :after.
+;; The pre-rf2-3y3y :timeout-ms slot on :spawn / :spawn-all is dropped;
+;; wall-clock guards are expressed via :after on the :spawn-bearing state
 ;; itself. When :after fires, the standard exit cascade tears down the
 ;; spawned child via :rf.machine/destroy.
 
 (deftest machine-after-on-invoke-cljs
-  (testing ":after on an :invoke-bearing state — synthetic timer-elapsed cancels child + transitions"
+  (testing ":after on a :spawn-bearing state — synthetic timer-elapsed cancels child + transitions"
     (let [child  {:initial :running
                   :states  {:running {:on {:never-fires :done}}
                             :done    {}}}
@@ -162,7 +162,7 @@
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
-                   {:invoke {:machine-id :child/auth-after
+                   {:spawn {:machine-id :child/auth-after
                              :on-spawn   :record}
                     :after  {30000 :timed-out}
                     :on    {:auth/succeeded :authenticated}}
@@ -196,30 +196,30 @@
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-trace-listener! ::ato))))
 
-;; ---- :timeout-ms on :invoke / :invoke-all is rejected (rf2-3y3y) ---------
+;; ---- :timeout-ms on :spawn / :spawn-all is rejected (rf2-3y3y) ---------
 
-(deftest machine-invoke-timeout-ms-removed-cljs
-  (testing ":timeout-ms on :invoke is rejected with :rf.error/invoke-timeout-ms-removed"
+(deftest machine-spawn-timeout-ms-removed-cljs
+  (testing ":timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :running}}
-                         :running {:invoke {:machine-id :stub
+                         :running {:spawn {:machine-id :stub
                                             :timeout-ms 1000
                                             :on-timeout [:never]}}}}]
       (is (thrown-with-msg? js/Error
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-invoke bad)))))
-  (testing ":on-timeout alone on :invoke is also rejected"
+  (testing ":on-timeout alone on :spawn is also rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :running}}
-                         :running {:invoke {:machine-id :stub
+                         :running {:spawn {:machine-id :stub
                                             :on-timeout [:never]}}}}]
       (is (thrown-with-msg? js/Error
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-on-to bad)))))
-  (testing ":timeout-ms on :invoke-all is rejected"
+  (testing ":timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
-                         :h    {:invoke-all
+                         :h    {:spawn-all
                                 {:children
                                  [{:id :a :machine-id :stub}]
                                  :join             :all
@@ -229,5 +229,5 @@
                                  :timeout-ms       5000
                                  :on-timeout       [:to]}}}}]
       (is (thrown-with-msg? js/Error
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-invoke-all bad))))))

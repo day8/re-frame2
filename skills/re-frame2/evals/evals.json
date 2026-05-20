@@ -29,14 +29,14 @@
       "name": "discovery-state-machine-websocket-lifecycle",
       "dimension": "discovery",
       "prompt": "We've got a real-time dashboard where the browser keeps a persistent connection open to push updates. It needs to handle reconnects with backoff, re-subscribe to topics after reconnect, and queue outgoing messages while disconnected. What's the cleanest way to model this?",
-      "expected_output": "The agent recognises this as a connection-lifecycle prompt (persistent connection, reconnect, backoff, queue) and routes to skills/re-frame2/patterns/websocket.md plus reference/state-machines/reg-machine.md. The produced code uses reg-machine with hierarchical compound state and :invoke for the socket actor.",
+      "expected_output": "The agent recognises this as a connection-lifecycle prompt (persistent connection, reconnect, backoff, queue) and routes to skills/re-frame2/patterns/websocket.md plus reference/state-machines/reg-machine.md. The produced code uses reg-machine with hierarchical compound state and :spawn for the socket actor.",
       "files": [],
       "expectations": [
         "Skill skills/re-frame2/ is invoked.",
         "The agent reads patterns/websocket.md (or the equivalent canonical pattern leaf), not just SKILL.md.",
         "The output uses reg-machine (or create-machine-handler) — not a plain reg-event-db slice — to model the connection lifecycle.",
         "The output declares an :active parent compound state with leaf states (:connecting, :authenticating or similar, :connected) so the socket actor's lifetime spans the parent.",
-        "The output uses :invoke to anchor the socket actor on the parent state, not on a single leaf.",
+        "The output uses :spawn to anchor the socket actor on the parent state, not on a single leaf.",
         "The output models :reconnecting with backoff via :after (delay) and bumps a retry counter in :data.",
         "The output does NOT use core.async, manifolds, or any non-re-frame2 reactive primitive."
       ]
@@ -88,7 +88,7 @@
         "The agent does NOT produce a wall of new re-frame2 source code as the primary response.",
         "The agent points the user at SKILL-REDIRECT.md (or the migration guide URL it carries) for the v1→v2 deltas.",
         "The agent does NOT re-derive the v1 surface from training memory — it acknowledges that v1→v2 drift makes confident recall unreliable.",
-        "If the agent surfaces specific v2 equivalents for re-frame-http-fx and re-frame-async-flow-fx, it cites them from the redirect target or the relevant pattern leaf (:rf.http/managed, Pattern-AsyncEffect, machines+:invoke) — not from invented memory.",
+        "If the agent surfaces specific v2 equivalents for re-frame-http-fx and re-frame-async-flow-fx, it cites them from the redirect target or the relevant pattern leaf (:rf.http/managed, Pattern-AsyncEffect, machines+:spawn) — not from invented memory.",
         "The agent does NOT load the re-frame2-setup skill (this is a migration, not a greenfield scaffold)."
       ]
     },

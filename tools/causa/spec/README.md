@@ -36,7 +36,7 @@ main read**.
   event has no machine activity; per-machine section when it did
   (topology + transition highlight + guards + actions + cancellation
   cascade + `:after` rings). Cross-cutting Causa surfaces:
-  `:after`-timer countdown rings, `:invoke-all` join inspector,
+  `:after`-timer countdown rings, `:spawn-all` join inspector,
   cancellation-cascade visualiser, per-instance "why am I stuck" trace.
   UC1 Sim + UC2 Mode A/B/C dynamic-instance UI preserved as Static
   re-host reference below the §STATIC RE-HOST REFERENCE divider

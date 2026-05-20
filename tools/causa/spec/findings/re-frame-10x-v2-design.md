@@ -98,7 +98,7 @@ The framework grew capabilities since v1 that fundamentally change what's debugg
 | re-frame2 capability | New tooling story |
 |---|---|
 | **Multi-frame** ([002](../spec/002-Frames.md)) | Per-frame panels with a frame picker; cross-frame causality graph; the same sub-id can have different values in different frames and the tool must show this. |
-| **Machines** ([005](../spec/005-StateMachines.md)) | Stately-quality state-chart per machine, live-highlighted; transition log keyed by machine; `:invoke-all` parallel-child viz; `:after` timer countdown indicators; microstep replay. |
+| **Machines** ([005](../spec/005-StateMachines.md)) | Stately-quality state-chart per machine, live-highlighted; transition log keyed by machine; `:spawn-all` parallel-child viz; `:after` timer countdown indicators; microstep replay. |
 | **Flows** ([013](../spec/013-Flows.md)) | Flow dependency graph; per-flow recompute count; "this flow ran *N* times this session" heatmap; the `:rf.flow/skip` (rf2-719e value-equal recompute suppression) badge so devs can see when flows are correctly *not* running. |
 | **Source-coord stamping** ([001](../spec/001-Registration.md), [006](../spec/006-ReactiveSubstrate.md)) | **Click-to-source everywhere.** Every registered id, every DOM node (via `data-rf2-source-coord`), every machine guard/action/transition (via `:rf.machine/source-coords`). Source location surfaced as copyable `file:line` chips — the user opens the file in their editor of choice. No protocol-handler dependency. |
 | **Trace bus** ([009](../spec/009-Instrumentation.md)) | The substrate of everything. Open shape, stable vocabulary, `:op-type` discriminator. Causa does not invent its own trace shape — it consumes Spec 009. |
@@ -173,7 +173,7 @@ What you see:
 - A directional state-chart of the active machine. Nodes are states (compound states nested visually). Edges are transitions, labelled with their event id.
 - The **current state pulses softly**. Compound states' active child is highlighted recursively.
 - **Hover an edge** → see the guard and action functions; click to jump to source.
-- **`:invoke` / `:invoke-all` spawned children appear as smaller machines next to their parent**, each with their own state.
+- **`:spawn` / `:spawn-all` spawned children appear as smaller machines next to their parent**, each with their own state.
 - **`:after` timers show a countdown ring** on the source state.
 - **Transition history** ribbon below the chart: a scrubbable list of the last *N* `:rf.machine/transition` events; clicking one rewinds the chart to that microstep.
 - **Source-coord stamping** ([rf2-8bp3](../spec/Tool-Pair.md#state-machine-source-coord-stamping-rf2-8bp3)) means every clickable element jumps to source.

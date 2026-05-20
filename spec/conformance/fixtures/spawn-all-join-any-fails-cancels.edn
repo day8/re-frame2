@@ -1,26 +1,26 @@
-;; Conformance fixture: machine/invoke-all-join-any-fails-cancels
+;; Conformance fixture: machine/spawn-all-join-any-fails-cancels
 ;;
-;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw). Verify that
-;; exiting an :invoke-all-bearing state emits a single
-;;   [:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ... :rf/invoke-all true}]
+;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
+;; exiting a :spawn-all-bearing state emits a single
+;;   [:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ... :rf/spawn-all true}]
 ;; fx that the destroy-fx handler resolves by reading the join-state map
 ;; at [:rf/spawned <parent> <invoke-id>] and tearing down each child.
 ;;
 ;; This is the cancel-on-decision = true (default) shape: when a child
 ;; failure fires :on-any-failed, the parent transitions out of the
-;; :invoke-all-bearing state. The exit cascade emits ONE destroy-fx
-;; carrying :rf/invoke-all true; the runtime iterates :children and
+;; :spawn-all-bearing state. The exit cascade emits ONE destroy-fx
+;; carrying :rf/spawn-all true; the runtime iterates :children and
 ;; tears each down.
 ;;
 ;; The fixture exercises the EXIT-side fx emission. The driving snapshot
-;; carries a state of :hydrating (i.e., the :invoke-all is active) and
+;; carries a state of :hydrating (i.e., the :spawn-all is active) and
 ;; the event triggers a transition out (in this case the
 ;; :hydrate/failed event the runtime would dispatch on join-resolution).
 
-{:fixture/id           :machine/invoke-all-join-any-fails-cancels
+{:fixture/id           :machine/spawn-all-join-any-fails-cancels
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/spawn-and-join}
- :fixture/doc          "Exiting an :invoke-all-bearing state emits one :rf.machine/destroy fx whose args carry :rf/invoke-all true. The destroy-fx handler reads the join-state map at [:rf/spawned <parent> <invoke-id>] and tears each child down. Verifies the exit-side fx emission for the cancel-on-decision = true (default) path."
+ :fixture/doc          "Exiting a :spawn-all-bearing state emits one :rf.machine/destroy fx whose args carry :rf/spawn-all true. The destroy-fx handler reads the join-state map at [:rf/spawned <parent> <invoke-id>] and tears each child down. Verifies the exit-side fx emission for the cancel-on-decision = true (default) path."
 
  :fixture/registry
  {:machine
@@ -37,7 +37,7 @@
     {:idle  {:on {:start :hydrating}}
 
      :hydrating
-     {:invoke-all
+     {:spawn-all
       {:children         [{:id :cfg  :machine-id :load-config}
                           {:id :flag :machine-id :load-feature-flags}
                           {:id :user :machine-id :load-user-profile}]
@@ -55,10 +55,10 @@
    :event        [:hydrate/failed]
    :expect-next-snapshot {:state :error :data {}}
    :expect-effects
-   ;; Exit emits ONE destroy fx with :rf/invoke-all true so the destroy-fx
+   ;; Exit emits ONE destroy fx with :rf/spawn-all true so the destroy-fx
    ;; handler can iterate the join-state map's :children and tear each
-   ;; down. The fx-arg shape disambiguates :invoke vs :invoke-all by the
-   ;; presence of :rf/invoke-all true.
+   ;; down. The fx-arg shape disambiguates :spawn vs :spawn-all by the
+   ;; presence of :rf/spawn-all true.
    [[:rf.machine/destroy {:rf/parent-id  :rf/transition-pure
-                          :rf/invoke-id  [:hydrating]
-                          :rf/invoke-all true}]]}]}
+                          :rf/spawn-id  [:hydrating]
+                          :rf/spawn-all true}]]}]}

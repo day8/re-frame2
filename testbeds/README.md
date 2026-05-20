@@ -17,7 +17,7 @@ testbeds/
   schema_violation/        <-- four schema-validation trigger sites (app-db / event / cofx / fx)
   http_toggle/             <-- single button + outcome dropdown for the eight :rf.http/* categories
   multi_frame/             <-- three frames coexisting; cross-frame :dispatch fan-out from one click
-  deep_machine/            <-- one machine: parallel regions + 5-deep compound + :always/:after/:invoke/:invoke-all
+  deep_machine/            <-- one machine: parallel regions + 5-deep compound + :always/:after/:spawn/:spawn-all
   long_flow_w_failure/     <-- 5-second cascade driving 3 flows in topo order with configurable mid-flow throw
   drain_depth_trigger/     <-- handler that recursively dispatches itself; configurable depth ceiling
   non_trivial_app_db/      <-- 55-leaf app-db nested 5 deep; six diff shapes one per button
@@ -91,7 +91,7 @@ Tier 4 — a11y (retired rf2-9jfo1.1):
 ## Cross-references
 
 - [`spec/002-Frames.md` §What lives in a frame](../spec/002-Frames.md) — the per-frame partitioning + cross-frame dispatch contract the `multi_frame/` surface exercises.
-- [`spec/005-StateMachines.md` §Hierarchical compound states / §Parallel regions / §Declarative `:invoke` / §Spawn-and-join via `:invoke-all` / §Delayed `:after` / §Eventless `:always`](../spec/005-StateMachines.md) — the six machine-grammar capabilities the `deep_machine/` surface exercises in one declaration.
+- [`spec/005-StateMachines.md` §Hierarchical compound states / §Parallel regions / §Declarative `:spawn` / §Spawn-and-join via `:spawn-all` / §Delayed `:after` / §Eventless `:always`](../spec/005-StateMachines.md) — the six machine-grammar capabilities the `deep_machine/` surface exercises in one declaration.
 - [`spec/009-Instrumentation.md` §Error contract](../spec/009-Instrumentation.md) — the `:rf.error/*` taxonomy the `deliberate_throw/` surface fires every member of.
 - [`spec/010-Schemas.md` §Per-step recovery](../spec/010-Schemas.md) — the five validation points the `schema_violation/` surface walks one button per.
 - [`spec/013-Flows.md` §Failure semantics](../spec/013-Flows.md) — the four-rule flow-failure contract the `long_flow_w_failure/` surface exercises over a multi-second cascade.

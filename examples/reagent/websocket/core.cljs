@@ -5,7 +5,7 @@
    Every key piece of the pattern is exercised:
 
    - **Hierarchical compound `:active`** parenting `:connecting`,
-     `:authenticating`, `:connected` — the socket-actor `:invoke` is
+     `:authenticating`, `:connected` — the socket-actor `:spawn` is
      anchored on the parent so it survives the success-path leaf
      transitions.
 
@@ -74,7 +74,7 @@
    call `re-frame.registrar/clear-all!` without restoring, which
    wipes the ns-load-time registrations in `re-frame.machines`.
    Without these in place:
-   - declarative `:invoke` silently no-ops (the spawn fx isn't found);
+   - declarative `:spawn` silently no-ops (the spawn fx isn't found);
    - `rf/machine-has-tag?` returns false even when the tag is in the snapshot
      (the framework sub isn't registered)."
   []
@@ -82,8 +82,8 @@
     (fx/reg-fx :rf.machine/spawn spawn-fx))
   (when-let [destroy-fx (late-bind/get-fn :machines/destroy-machine-fx)]
     (fx/reg-fx :rf.machine/destroy destroy-fx))
-  (when-let [invoke-all-init-fx (late-bind/get-fn :machines/invoke-all-init-fx)]
-    (fx/reg-fx :rf.machine/invoke-all-init invoke-all-init-fx))
+  (when-let [spawn-all-init-fx (late-bind/get-fn :machines/spawn-all-init-fx)]
+    (fx/reg-fx :rf.machine/spawn-all-init spawn-all-init-fx))
   (when-let [after-schedule-fx (late-bind/get-fn :machines/after-schedule-fx)]
     (fx/reg-fx :rf.machine/after-schedule after-schedule-fx))
   (when-let [after-cancel-fx (late-bind/get-fn :machines/after-cancel-fx)]

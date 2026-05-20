@@ -20,7 +20,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/test_support.cljc` — `reset-runtime-fixture-factory`, `dispatch-sequence`, `assert-state`, `compute-sub`, `subscribe-once`.
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
 - `implementation/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
-- `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:invoke`, parallel regions, tags.
+- `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.
 - `implementation/http/src/re_frame/http.cljc` — `:rf.http/managed`, failure categories, request stubs.
 
 ## 2. Secondary input — `examples/reagent/**`
@@ -44,7 +44,7 @@ Used for *why*, not *what*. The leaves cite EPs by name for design rationale (fr
 - `spec/000-Vision.md` — the AI-first design principles; SKILL.md's cardinal-rules framing.
 - `spec/001-Registration.md` — registry kind taxonomy; reserved-namespace rule (cardinal rule L6 / L7).
 - `spec/002-Frames.md` — `:fx-overrides` value shapes, frame-resolution chain, preset expansion.
-- `spec/005-StateMachines.md` — `:invoke`, parallel regions, tags, cancellation cascade.
+- `spec/005-StateMachines.md` — `:spawn`, parallel regions, tags, cancellation cascade.
 - `spec/008-Testing.md` — the `reset-runtime-fixture-factory` contract, test-frame conventions.
 - `spec/009-Instrumentation.md` — `:rf/op` vocabulary, `:rf.error/*` shape, error-handler policy.
 - `spec/010-Schemas.md` — `reg-app-schema`, boundary validation, Malli integration.

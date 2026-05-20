@@ -1,5 +1,5 @@
-(ns re-frame.invoke-data-fn-form-test
-  "Per rf2-h131 and Spec 005 §Declarative `:invoke` (sugar over spawn)
+(ns re-frame.spawn-data-fn-form-test
+  "Per rf2-h131 and Spec 005 §Declarative `:spawn`
   §Spec-spec keys: `:data` admits a function form `(fn [snap ev] data)`
   so the spawned child's initial data can be derived from the parent's
   post-action snapshot + the triggering event.
@@ -22,7 +22,7 @@
       Per Spec 005 §Errors line 1597 — same category as any
       user-supplied fn that throws during a machine action.
 
-  Also covers `:invoke-all` symmetrically — each child's `:data` admits
+  Also covers `:spawn-all` symmetrically — each child's `:data` admits
   the same fn-form per Spec 005 §Spec-spec keys (line 1818)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -48,7 +48,7 @@
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:invoke {:machine-id :worker/proc
+                   :working {:spawn {:machine-id :worker/proc
                                       :data       {:url "/api/foo" :method :get}}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/literal parent)
@@ -68,7 +68,7 @@
                   :data    {:endpoint "/api/login"}
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:invoke {:machine-id :worker/proc
+                   :working {:spawn {:machine-id :worker/proc
                                       :data       (fn [snap _]
                                                     {:url    (-> snap :data :endpoint)
                                                      :method :post})}}}}]
@@ -97,13 +97,13 @@
                   :actions {:assemble-endpoint
                             (fn [data _]
                               ;; The action writes :endpoint into :data;
-                              ;; the :invoke :data fn must see it.
+                              ;; the :spawn :data fn must see it.
                               {:data (assoc data :endpoint
                                             (str (:base-url data) "/v1/me"))})}
                   :states
                   {:idle    {:on {:start {:target :working
                                           :action :assemble-endpoint}}}
-                   :working {:invoke {:machine-id :worker/proc
+                   :working {:spawn {:machine-id :worker/proc
                                       :data       (fn [snap _]
                                                     {:url (-> snap :data :endpoint)})}}}}]
       (rf/reg-machine :worker/proc child)
@@ -121,7 +121,7 @@
           parent {:initial :idle
                   :states
                   {:idle    {:on {:fetch :working}}
-                   :working {:invoke {:machine-id :worker/proc
+                   :working {:spawn {:machine-id :worker/proc
                                       :data       (fn [_ ev]
                                                     {:from-event ev})}}}}]
       (rf/reg-machine :worker/proc child)
@@ -140,7 +140,7 @@
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:invoke {:machine-id :worker/proc
+                   :working {:spawn {:machine-id :worker/proc
                                       :data       (fn [_ _]
                                                     (throw (ex-info "boom" {:why :test})))}}}}]
       (rf/reg-machine :worker/proc child)
@@ -166,16 +166,16 @@
             "an :rf.error/machine-action-exception trace was emitted")
         (finally (trace/unregister-trace-listener! ::h131-error))))))
 
-;; ---- (5) :invoke-all child :data fn-form is materialised ------------------
+;; ---- (5) :spawn-all child :data fn-form is materialised ------------------
 
 (deftest invoke-all-child-data-fn-form-is-materialised
-  (testing "each :invoke-all child's `:data` admits the same fn-form per Spec 005:1818"
+  (testing "each :spawn-all child's `:data` admits the same fn-form per Spec 005:1818"
     (let [child  {:initial :running :data {} :states {:running {}}}
           parent {:initial :idle
                   :data    {:base "/api"}
                   :states
                   {:idle      {:on {:fan-out :hydrating}}
-                   :hydrating {:invoke-all
+                   :hydrating {:spawn-all
                                {:children
                                 [{:id         :one
                                   :machine-id :hydra/leaf

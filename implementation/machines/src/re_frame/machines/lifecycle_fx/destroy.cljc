@@ -3,7 +3,7 @@
   helpers.
 
   `apply-transition-once` emits `[:rf.machine/destroy actor-id]` into
-  the fx vector whenever exit cascades cross an `:invoke`-bearing state.
+  the fx vector whenever exit cascades cross a `:spawn`-bearing state.
   Per Spec 005 §Spawning, destroy unregisters the spawned actor's event
   handler, clears its snapshot at `[:rf/machines <id>]` in the spawning
   frame's app-db, and (if the actor was system-id-bound) clears the
@@ -12,13 +12,13 @@
   Per rf2-t07u (Option A revised), `args` can be either:
     - a keyword `actor-id` — the legacy / imperative form (action emits
       `[:rf.machine/destroy actor-id]` directly with the recorded id), OR
-    - a map `{:rf/parent-id ... :rf/invoke-id ...}` — the declarative-
-      `:invoke` exit-cascade form, where the runtime resolves the actor
+    - a map `{:rf/parent-id ... :rf/spawn-id ...}` — the declarative-
+      `:spawn` exit-cascade form, where the runtime resolves the actor
       id from `[:rf/spawned <parent-id> <invoke-id>]` in the frame's
       app-db.
 
-  Per rf2-6vmw, the map form may also carry `:rf/invoke-all true` —
-  the declarative-`:invoke-all` exit-cascade form. The slot at
+  Per rf2-6vmw, the map form may also carry `:rf/spawn-all true` —
+  the declarative-`:spawn-all` exit-cascade form. The slot at
   `[:rf/spawned <parent-id> <invoke-id>]` holds a join-state map whose
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
@@ -46,10 +46,10 @@
   forget the actor from the per-frame spawn-order channel (rf2-vsigt).
 
   Used by `destroy-machine-fx` for the keyword-form legacy/imperative
-  destroy AND iterated for each child in an `:invoke-all` teardown, AND
+  destroy AND iterated for each child in a `:spawn-all` teardown, AND
   by the frame-destroy cascade walker (`frame-destroy.cljc`).
 
-  Per Spec 005 §Declarative `:invoke` §Composition with explicit
+  Per Spec 005 §Declarative `:spawn` §Composition with explicit
   `:entry` / `:exit`: the actor's `:exit` action runs BEFORE the
   teardown clears the snapshot, so `:exit`-time side effects (HTTP
   requests, logs, dispatches) execute against the live snapshot."
@@ -82,7 +82,7 @@
         @sid))))
 
 (defn- destroy-invoke-all-children!
-  "Per rf2-6vmw — the declarative-`:invoke-all` exit-cascade form.
+  "Per rf2-6vmw — the declarative-`:spawn-all` exit-cascade form.
   Resolves the children map from `[:rf/spawned parent-id invoke-id]`,
   tears each child down via `destroy-single-actor!`, then clears the
   join-state slot via the unified teardown projection (slot-prune only:
@@ -99,7 +99,7 @@
       (traces/emit-destroyed! {:frame     frame-id
                                :actor-id  spawned-id
                                :parent-id parent-id
-                               :invoke-id invoke-id
+                               :spawn-id invoke-id
                                :child-id  child-id})
       (destroy-single-actor! frame-id spawned-id))
     ;; Clear the join-state slot via the unified projection (slot-only).
@@ -107,12 +107,12 @@
                           (fn [db]
                             (first (teardown/teardown-actor
                                      db {:parent-id parent-id
-                                         :invoke-id invoke-id}))))
+                                         :spawn-id invoke-id}))))
     nil))
 
 (defn- destroy-single!
   "Per rf2-t07u — the keyword (legacy/imperative) form and the single-
-  `:invoke` (tracked map) form of `:rf.machine/destroy`. Resolves the
+  `:spawn` (tracked map) form of `:rf.machine/destroy`. Resolves the
   actor-id (keyword direct OR via the `[:rf/spawned ...]` slot), emits
   the `:rf.machine/destroyed` trace, then applies the unified teardown
   projection.
@@ -153,7 +153,7 @@
       entry's presence/absence is the most reliable
       \"alive-or-gone\" bit for this category.
     - **Tracked-form slot present** at `[:rf/spawned parent-id
-      invoke-id]`. Belt-and-braces for the declarative-`:invoke`
+      invoke-id]`. Belt-and-braces for the declarative-`:spawn`
       tracked-map form — covers the spec-less spawn case under the
       tracked codepath even when the actor-id resolution above
       went via the slot lookup.
@@ -167,7 +167,7 @@
   [frame-id args]
   (let [tracked?  (map? args)
         parent-id (when tracked? (:rf/parent-id args))
-        invoke-id (when tracked? (:rf/invoke-id args))
+        invoke-id (when tracked? (:rf/spawn-id args))
         old-db    (frame/frame-app-db-value frame-id)
         slot-id   (when (and tracked? old-db)
                     (get-in old-db [:rf/spawned parent-id invoke-id]))
@@ -193,7 +193,7 @@
                                  :actor-id  actor-id
                                  :system-id released-sid
                                  :parent-id parent-id
-                                 :invoke-id invoke-id})
+                                 :spawn-id invoke-id})
         ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
         ;; BEFORE the teardown projection clears the snapshot.
         (exit-cascade/run-child-exit! frame-id actor-id)
@@ -203,7 +203,7 @@
                                 (first (teardown/teardown-actor
                                          db {:actor-id  actor-id
                                              :parent-id parent-id
-                                             :invoke-id invoke-id}))))
+                                             :spawn-id invoke-id}))))
         (traces/emit-system-id-released! frame-id released-sid actor-id)
         ;; Unregister the live handler. Last so any in-flight trace emit
         ;; against the actor still resolves before the slot disappears.
@@ -216,14 +216,14 @@
 
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Dispatches to the keyword-form
-  / single-`:invoke` teardown (`destroy-single!`) or the
-  `:invoke-all` children-iteration teardown
+  / single-`:spawn` teardown (`destroy-single!`) or the
+  `:spawn-all` children-iteration teardown
   (`destroy-invoke-all-children!`) per the `args` shape. See the ns
   docstring for the form semantics."
   [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [invoke-all? (and (map? args) (true? (:rf/invoke-all args)))]
+  (let [invoke-all? (and (map? args) (true? (:rf/spawn-all args)))]
     (if invoke-all?
       (destroy-invoke-all-children! frame-id
                                     (:rf/parent-id args)
-                                    (:rf/invoke-id args))
+                                    (:rf/spawn-id args))
       (destroy-single! frame-id args))))

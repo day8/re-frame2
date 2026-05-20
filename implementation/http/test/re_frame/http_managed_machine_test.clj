@@ -1,12 +1,12 @@
 (ns re-frame.http-managed-machine-test
   "Per rf2-ijm7 and Spec 014 §Machine-shape wrapper. Verifies that
   `:rf.http/managed` is also registered as a child-invokable state
-  machine — so a parent machine can `:invoke` it and observe success /
+  machine — so a parent machine ca `:spawn` it and observe success /
   failure via ordinary `:succeeded` / `:failed` events back from the
   child.
 
   The wrapper machine's contract:
-   - `:invoke {:machine-id :rf.http/managed :data {:request {...}}}`
+   - `:spawn {:machine-id :rf.http/managed :data {:request {...}}}`
      on a parent's state spawns the wrapper actor, which fires the
      underlying `:rf.http/managed` fx on its `:requesting` entry and
      transitions to `:succeeded` / `:failed` on the reply.
@@ -20,8 +20,8 @@
      `:rf.http/aborted-on-actor-destroy`.
 
   Coverage:
-   1. Parent :invoke + success → parent transitions via :succeeded.
-   2. Parent :invoke + failure → parent transitions via :failed.
+   1. Parent :spawn + success → parent transitions via :succeeded.
+   2. Parent :spawn + failure → parent transitions via :failed.
    3. Parent destroys child mid-flight → request aborts (rf2-wvkn).
    4. Composes with :after — wall-clock timeout cancels in-flight.
 
@@ -123,10 +123,10 @@
 (defn- snapshot [machine-id]
   (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id]))
 
-;; ---- (1) :invoke + success → parent transitions via :succeeded ------------
+;; ---- (1) :spawn + success → parent transitions via :succeeded ------------
 
 (deftest invoke-success-parent-transitions-via-succeeded
-  (testing "parent :invoke {:machine-id :rf.http/managed ...} + 2xx + 2xx body → parent's :on :succeeded fires"
+  (testing "parent :spawn {:machine-id :rf.http/managed ...} + 2xx + 2xx body → parent's :on :succeeded fires"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -145,7 +145,7 @@
            {:idle {:on {:login :authenticating}}
 
             :authenticating
-            {:invoke {:machine-id :rf.http/managed
+            {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/api/me")
                                               :method :get}
                                    :decode  :json}}
@@ -165,10 +165,10 @@
             "the success value was propagated through the wrapper's :succeeded event")
         (finally (stop-server! srv))))))
 
-;; ---- (2) :invoke + failure → parent transitions via :failed ---------------
+;; ---- (2) :spawn + failure → parent transitions via :failed ---------------
 
 (deftest invoke-failure-parent-transitions-via-failed
-  (testing "parent :invoke + 4xx → wrapper :failed → parent's :on :failed fires"
+  (testing "parent :spawn + 4xx → wrapper :failed → parent's :on :failed fires"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -184,7 +184,7 @@
            {:idle {:on {:login :authenticating}}
 
             :authenticating
-            {:invoke {:machine-id :rf.http/managed
+            {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/api/me")
                                               :method :get}
                                    :decode  :json}}
@@ -219,7 +219,7 @@
            {:idle {:on {:login :authenticating}}
 
             :authenticating
-            {:invoke {:machine-id :rf.http/managed
+            {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/slow")
                                               :method :get}
                                    :decode  :json}}
@@ -258,7 +258,7 @@
 ;; ---- (4) composes with :after — whichever fires first wins ----------------
 
 (deftest invoke-composes-with-after-timeout
-  (testing "parent state with both :invoke {:machine-id :rf.http/managed} AND :after {ms target} — :after firing cancels the wrapper"
+  (testing "parent state with both :spawn {:machine-id :rf.http/managed} AND :after {ms target} — :after firing cancels the wrapper"
     (let [latch (CountDownLatch. 1)
           srv   (start-blocking-server! latch 200 "application/json" "{}")
           {:keys [port]} srv
@@ -273,11 +273,11 @@
             :authenticating
             ;; :after acts as a wall-clock timeout that spans the
             ;; wrapper's behaviour (Spec 005 §Wall-clock timeouts on
-            ;; :invoke — use parent state's :after). When the :after
+            ;; :spawn — use parent state's :after). When the :after
             ;; fires before the HTTP response, the parent transitions
             ;; to :timed-out and the standard exit cascade tears down
             ;; the :rf.http/managed wrapper child.
-            {:invoke {:machine-id :rf.http/managed
+            {:spawn {:machine-id :rf.http/managed
                       :data       {:request {:url    (str "http://127.0.0.1:" port "/slow")
                                               :method :get}
                                    :decode  :json}}

@@ -2,12 +2,12 @@
   "Entry point for the long-running-work example.
 
    What this example demonstrates (per Pattern-LongRunningWork's
-   :invoke-all shape — the spec/Pattern-LongRunningWork.md guidance
+   :spawn-all shape — the spec/Pattern-LongRunningWork.md guidance
    when the work decomposes into parallel sub-tasks rather than a
    single chunked machine):
 
    - **Declarative spawn-and-join** — one parent coordinator spawns N
-     parallel workers via `:invoke-all` and joins on `:all`. No
+     parallel workers via `:spawn-all` and joins on `:all`. No
      per-child bookkeeping in the parent's `:data` — the runtime
      owns the join state at `[:rf/spawned :work/flow [:working]]`.
    - **Cooperative cancellation cascade** — exiting the `:working`
@@ -29,7 +29,7 @@
 
      core.cljs    mount + boot (this file)
      worker.cljs  the :work/processor child machine and the
-                  :work/flow parent coordinator (the :invoke-all
+                  :work/flow parent coordinator (the :spawn-all
                   declaration is here)
      views.cljs   UI components — controls, progress bar, shard
                   breakdown, root, plus the work-bench wrapper whose
@@ -52,7 +52,7 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; re-frame.machines ships in day8/re-frame2-machines.
-            ;; Loading the ns registers the :invoke-all init / spawn /
+            ;; Loading the ns registers the :spawn-all init / spawn /
             ;; destroy fx handlers and the framework `:rf/machine` sub.
             ;; Both worker.cljs (the :work/flow + :work/processor
             ;; registrations) and views.cljs (the work-bench wrapper)

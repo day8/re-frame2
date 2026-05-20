@@ -245,9 +245,9 @@
    {:key         :machines/destroy-machine-fx
     :producer-ns 're-frame.machines
     :description "Effect handler for :rf.machine/destroy."}
-   {:key         :machines/invoke-all-init-fx
+   {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
-    :description "Effect handler invoking machine :init transitions during spawn."}
+    :description "Effect handler seeding the :spawn-all join state during spawn."}
    {:key         :machines/after-schedule-fx
     :producer-ns 're-frame.machines
     :description "Effect handler scheduling a delayed machine transition."}
@@ -306,7 +306,7 @@
    {:key         :http/abort-on-actor-destroy
     :producer-ns 're-frame.http-managed
     :design-bead "rf2-wvkn"
-    :description ":invoke cancellation cascade tied to actor destruction."}
+    :description ":spawn cancellation cascade tied to actor destruction."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http-managed
     :design-bead "rf2-ijm7"

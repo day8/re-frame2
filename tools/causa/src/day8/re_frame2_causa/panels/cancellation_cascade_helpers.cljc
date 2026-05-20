@@ -5,8 +5,8 @@
   ## What this is
 
   Per `tools/causa/spec/019-Cross-Cutting-Insight.md` §M.3 — when a
-  parent machine destroys a child (`:invoke` exit, `:after` fire,
-  `:invoke-all` cancel-on-decision, explicit `[:rf.machine/destroy <id>]`,
+  parent machine destroys a child (`:spawn` exit, `:after` fire,
+  `:spawn-all` cancel-on-decision, explicit `[:rf.machine/destroy <id>]`,
   or parent-frame teardown), every in-flight `:rf.http/managed` request
   the child held aborts. Each abort emits a
   `:rf.http/aborted-on-actor-destroy` trace event (per Spec 014 §Abort
@@ -105,13 +105,13 @@
       not all installs ship this)
     - `:rf.machine.timer/cancelled-on-resolution` (per Spec 005 §after
       timer lifecycle)
-    - `:rf.machine.invoke/cancelled-on-join-resolution` (per Spec 005
+    - `:rf.machine.spawn/cancelled-on-join-resolution` (per Spec 005
       §Cancel-on-decision)"
   #{:rf.http/aborted-on-actor-destroy
     :rf.http/aborted
     :rf.ws/aborted-on-actor-destroy
     :rf.machine.timer/cancelled-on-resolution
-    :rf.machine.invoke/cancelled-on-join-resolution})
+    :rf.machine.spawn/cancelled-on-join-resolution})
 
 (def ^:private cancellation-reasons
   "Reasons that classify a destroy as part of a cancellation cascade
@@ -177,7 +177,7 @@
     :rf.http/aborted                         :http
     :rf.ws/aborted-on-actor-destroy          :ws
     :rf.machine.timer/cancelled-on-resolution :after
-    :rf.machine.invoke/cancelled-on-join-resolution :machine-invoke
+    :rf.machine.spawn/cancelled-on-join-resolution :machine-invoke
     :unknown))
 
 ;; ---- cancel-cause projection --------------------------------------------
@@ -191,7 +191,7 @@
     - `:rf.http/aborted-on-actor-destroy` → `:actor-destroyed`
     - `:rf.ws/aborted-on-actor-destroy`   → `:actor-destroyed`
     - `:rf.machine.timer/cancelled-*`     → `:join-resolved`
-    - `:rf.machine.invoke/cancelled-*`    → `:join-resolved`
+    - `:rf.machine.spawn/cancelled-*`    → `:join-resolved`
     - any other abort with `:reason` tag  → that reason
     - otherwise                           → `:unknown`"
   [ev]
@@ -201,7 +201,7 @@
         :rf.http/aborted-on-actor-destroy        :actor-destroyed
         :rf.ws/aborted-on-actor-destroy          :actor-destroyed
         :rf.machine.timer/cancelled-on-resolution :join-resolved
-        :rf.machine.invoke/cancelled-on-join-resolution :join-resolved
+        :rf.machine.spawn/cancelled-on-join-resolution :join-resolved
         :unknown)))
 
 ;; ---- row projection -----------------------------------------------------
@@ -213,7 +213,7 @@
     {:fx             (classify-fx ev)
      :req            (select-keys tags [:request-id :url :method
                                         :timer-id :child-id :spawned-id
-                                        :invoke-id])
+                                        :spawn-id])
      :t              (:time ev)
      :cancel-cause   (cancel-cause ev)
      :request-id     (:request-id tags)
@@ -230,7 +230,7 @@
     {:child-id       (or (:machine-id tags) (:spawned-id tags))
      :spawned-id     (:spawned-id tags)
      :parent-id      (:parent-id tags)
-     :invoke-id      (:invoke-id tags)
+     :spawn-id      (:spawn-id tags)
      :t              (:time ev)
      :reason         (destroy-reason ev)
      :last-state     (:last-state tags)

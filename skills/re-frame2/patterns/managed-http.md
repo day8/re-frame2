@@ -1,8 +1,8 @@
 # Pattern — ManagedHTTP
 
-`:rf.http/managed` — the canonical HTTP fx for re-frame2. Two affordances on one registrar id: the **fx form** for direct use from event handlers, and the **machine-form wrapper** for `:invoke` from a parent state machine. The contract — args map, failure categories, retry, abort, reply addressing — is identical across both.
+`:rf.http/managed` — the canonical HTTP fx for re-frame2. Two affordances on one registrar id: the **fx form** for direct use from event handlers, and the **machine-form wrapper** for `:spawn` from a parent state machine. The contract — args map, failure categories, retry, abort, reply addressing — is identical across both.
 
-`:rf.http/managed` is one instance of the **managed external effect** umbrella — alongside `:rf.ws/*`, state-machine `:invoke`, `:rf.server/*`, and `:rf.flow/*`. All five inherit the same eight-property contract (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, reply addressing, pair-tool override seam). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the rest of this leaf is HTTP-specific.
+`:rf.http/managed` is one instance of the **managed external effect** umbrella — alongside `:rf.ws/*`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. All five inherit the same eight-property contract (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, reply addressing, pair-tool override seam). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the rest of this leaf is HTTP-specific.
 
 > Managed-HTTP is **v1-optional** but shipped in the CLJS reference. It lives in `day8/re-frame2-http`; requiring `re-frame.http-managed` at app boot triggers its load-time registrations.
 
@@ -13,8 +13,8 @@ Reach for it for any single-request / single-reply HTTP call. The fx bakes in tr
 | Decision | Form |
 |---|---|
 | Event handler issues a one-off request | **fx form**: `:fx [[:rf.http/managed args]]` |
-| Parent state machine wants the request tied to a state's lifetime, with auto-abort on exit and `:after` timeout composition | **machine form**: `:invoke {:machine-id :rf.http/managed :data args}` |
-| Parent state machine needs multiple concurrent requests with a join condition | **machine form** under `:invoke-all` |
+| Parent state machine wants the request tied to a state's lifetime, with auto-abort on exit and `:after` timeout composition | **machine form**: `:spawn {:machine-id :rf.http/managed :data args}` |
+| Parent state machine needs multiple concurrent requests with a join condition | **machine form** under `:spawn-all` |
 
 Mix freely. Both surfaces coexist under one `:rf.http/managed` id.
 
@@ -31,7 +31,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 | `:retry` — transport-level only | Function of failure category + attempt count; nothing else. Semantic retry belongs in a state machine — see *§The retry-ownership boundary*. |
 | `:request-id` abort | Stable `=`-comparable id; `[:rf.http/managed-abort id]` cancels in-flight, dispatching `:rf.http/aborted` via the reply path. |
 | Eight-category failure taxonomy | `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/payload`. Closed set. |
-| Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:invoke` it like any other; on reply it transitions to `:succeeded` / `:failed` and dispatches `[<parent-id> [:succeeded value]]` / `[<parent-id> [:failed failure]]` back. Destroying the wrapper aborts in-flight. |
+| Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:spawn` it like any other; on reply it transitions to `:succeeded` / `:failed` and dispatches `[<parent-id> [:succeeded value]]` / `[<parent-id> [:failed failure]]` back. Destroying the wrapper aborts in-flight. |
 
 ## Canonical declaration — fx form
 
@@ -69,7 +69,7 @@ Defaults to **reply-to-origin**: reply lands at `:article/load` with `:rf/reply`
     :authenticating
     {;; Wrapper alive at [:rf/machines :rf.http/managed#N] while this state is active.
      ;; Exiting destroys the wrapper, which aborts the in-flight request.
-     :invoke {:machine-id :rf.http/managed
+     :spawn {:machine-id :rf.http/managed
               :data       {:request {:method :get :url "/api/me"}
                            :decode  :json
                            :retry   {:on #{:rf.http/transport :rf.http/http-5xx}
@@ -85,11 +85,11 @@ The wrapper handles its own internal events and dispatches `[parent-id [:succeed
 
 **Args carrier.** Every fx-form key passes through (`:request`, `:decode`, `:accept`, `:retry`, `:timeout-ms`, etc). **Not passed through**: `:on-success` / `:on-failure` — the wrapper overrides these to self-route.
 
-**Multiple concurrent requests under one parent.** Use `:invoke-all`:
+**Multiple concurrent requests under one parent.** Use `:spawn-all`:
 
 ```clojure
 {:hydrating
- {:invoke-all
+ {:spawn-all
   {:children [{:id :user  :machine-id :rf.http/managed :data {:request {:url "/api/me"}}}
               {:id :prefs :machine-id :rf.http/managed :data {:request {:url "/api/prefs"}}}]
    :join :all
@@ -111,7 +111,7 @@ A single test: **does the retry decision depend on anything other than failure c
 | "Body says `:rate-limited`, wait the hinted delay." | State machine — semantic. |
 | "Retry only if user is still on the page." | State machine — semantic. |
 
-Both layers compose. A machine's `:invoke` spawns a managed request that itself retries 5xx; once that loop terminates the machine sees one `:succeeded` / `:failed` and transitions. The full auth-machine worked example combining 5xx-retry-at-transport AND 401-refresh-at-semantic lives in `patterns/boot.md`.
+Both layers compose. A machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates the machine sees one `:succeeded` / `:failed` and transitions. The full auth-machine worked example combining 5xx-retry-at-transport AND 401-refresh-at-semantic lives in `patterns/boot.md`.
 
 ## Variations
 
@@ -130,7 +130,7 @@ Both layers compose. A machine's `:invoke` spawns a managed request that itself 
 - **Encoding semantic retry into `:retry :on`.** `:retry` is category + attempt count only. Lift to a state machine the moment retry needs to inspect body, refresh a token, or check app state.
 - **Reaching for the raw `:http` fx when `:rf.http/managed` would do.** `:http` is for wire-level control (custom transport, raw bytes). Common case is `:rf.http/managed` — what pair tools, `:fx-overrides`, and conformance fixtures key off.
 - **Decoding before status check.** Runtime classifies status BEFORE decode; `:decode` only runs on 2xx. Don't write decoders that throw on 4xx.
-- **Passing `:on-success` / `:on-failure` through the wrapper's `:invoke :data`.** They get overridden. Use the fx form directly when you want explicit reply addressing.
+- **Passing `:on-success` / `:on-failure` through the wrapper's `:spawn :data`.** They get overridden. Use the fx form directly when you want explicit reply addressing.
 - **Storing the abort handle in `app-db`.** Not a value. Use `:request-id`; the runtime holds the handle.
 - **Re-implementing exponential backoff with `:dispatch-later`.** That's what `:retry :backoff` is for — including epoch carry, traces, and per-attempt timeout composition.
 
@@ -145,7 +145,7 @@ For the machine-form wrapper in production, see the auth-flow in `patterns/boot.
 - Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 - Schema-driven decode → SKILL-REDIRECT.md → *EP — Schemas (010)*.
 - Retry-ownership worked example → `patterns/boot.md`.
-- `:invoke` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.
+- `:spawn` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.
 
 ---
 

@@ -10,7 +10,7 @@
     2. Read the child's `:data` slot designated by the final state's
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil.
     3. Look up the parent's spec at `[:rf/machines <parent-id>]` and find
-       the `:invoke` map at `:rf/invoke-id` (the prefix-path the runtime
+       the `:spawn` map at `:rf/spawn-id` (the prefix-path the runtime
        stamped on the child's `:data` at spawn time). Extract `:on-done`.
     4. Run `:on-done` against the parent's `:data` with `result`.
     5. Emit `:rf.machine/done` trace (D6).
@@ -86,10 +86,10 @@
 (defn- find-invoke-spec-at
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
   absolute prefix-path stamped at spawn time) and return that node's
-  `:invoke` map. For a parallel-region parent, the first element of
+  `:spawn` map. For a parallel-region parent, the first element of
   `invoke-id` is the region name (per rf2-l67o); strip and descend
   into that region's body. Returns nil if the path doesn't resolve
-  or the node doesn't declare `:invoke`."
+  or the node doesn't declare `:spawn`."
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))
     (let [[head & tail] invoke-id
@@ -98,7 +98,7 @@
                           [(get-in parent-spec [:regions head]) (vec tail)]
                           [parent-spec invoke-id])
           node          (transition/node-at tree path)]
-      (:invoke node))))
+      (:spawn node))))
 
 ;; ---- the orchestrator ------------------------------------------------------
 
@@ -171,9 +171,9 @@
         output-key  (:output-key final-node)
         result      (when output-key (get child-data output-key))
         parent-id   (:rf/parent-id child-data)
-        invoke-id   (:rf/invoke-id child-data)
-        ;; (1) Find parent's `:on-done`, if this is an `:invoke`-spawned
-        ;; actor. The parent's spec carries the `:invoke` map at
+        invoke-id   (:rf/spawn-id child-data)
+        ;; (1) Find parent's `:on-done`, if this is a `:spawn`-spawned
+        ;; actor. The parent's spec carries the `:spawn` map at
         ;; `invoke-id`.
         parent-meta (when parent-id
                       (let [m (registrar/lookup :event parent-id)]
@@ -204,9 +204,9 @@
                                   (catch #?(:clj Throwable :cljs :default) e
                                     (trace/emit-error! :rf.error/machine-action-exception
                                                        {:machine-id machine-id
-                                                        :action-id  :rf.invoke/on-done
+                                                        :action-id  :rf.spawn/on-done
                                                         :parent-id  parent-id
-                                                        :invoke-id  invoke-id
+                                                        :spawn-id  invoke-id
                                                         :frame      frame-id
                                                         :exception  e
                                                         :reason     ":on-done callback threw."
@@ -227,7 +227,7 @@
         (teardown/teardown-actor db-after-on-done
                                  {:actor-id  machine-id
                                   :parent-id parent-id
-                                  :invoke-id invoke-id})
+                                  :spawn-id invoke-id})
         ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
         ;; (D6 enrichment) BEFORE the registrar unregister so any in-flight
         ;; trace consumers see the destroy signal while the handler still
@@ -236,7 +236,7 @@
                                    :actor-id  machine-id
                                    :system-id released-sid
                                    :parent-id parent-id
-                                   :invoke-id invoke-id
+                                   :spawn-id invoke-id
                                    :reason    :rf.machine/finished})]
     ;; (6) Synchronous side effects: abort in-flight HTTP, emit
     ;; system-id-released trace (when applicable), unregister handler.

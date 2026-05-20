@@ -323,9 +323,9 @@ The routing substrate has more to it than fits in this chapter — deterministic
 
 The example `:rf/server-init` above issues one managed-HTTP request and lets the drain settle. Real pages need *several* independent fetches before render — the product, the related items, the most-recent reviews — and serialising three back-to-back `:rf.http/managed` calls from a single setup event adds their wall-clock costs together. The drain runs to fixed point but it runs in a single thread; the JVM transport blocks the drain on each call.
 
-**Pattern-SSR-Loaders** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:invoke-all` (per [chapter 09](09-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
+**Pattern-SSR-Loaders** is the canonical fan-out shape: a state-machine spawned at `:on-create` time uses `:spawn-all` (per [chapter 09](09-state-machines.md)) to spawn N HTTP-fetching children in parallel, joins on all-complete, and writes the results into `app-db` from the join's `:entry`. Total wall-clock cost falls to `max(fetch-i) + overhead`. A phase-level `:after` deadline guards against a single fetch hanging the request. The same machine drives client-side navigation-fetch — only the spawn site changes (`:on-create` server-side, the route's `:on-match` client-side); the rest of the handler tree is identical.
 
-This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." The primitives — `:invoke-all`, `:rf.http/managed`, the `:rf.server/request` cofx — are all framework-locked; the Pattern names the composition.
+This is the SSR-side answer to "how do I write the Next.js `Promise.all([...])` shape in re-frame2." The primitives — `:spawn-all`, `:rf.http/managed`, the `:rf.server/request` cofx — are all framework-locked; the Pattern names the composition.
 
 ## Form POST handling — Pattern-FormAction
 

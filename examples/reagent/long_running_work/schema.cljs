@@ -1,10 +1,10 @@
 (ns long-running-work.schema
   "Malli schemas for the long-running-work example.
 
-   The example shows Pattern-LongRunningWork's `:invoke-all` shape:
+   The example shows Pattern-LongRunningWork's `:spawn-all` shape:
    a parent coordinator machine spawns N child workers in parallel,
    each child reports progress back to the parent via dispatch, and
-   the parent's :invoke-all-bearing state is exited (by `:complete`,
+   the parent's :spawn-all-bearing state is exited (by `:complete`,
    `:cancel`, or unmount) which cascades a teardown to every surviving
    child.
 

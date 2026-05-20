@@ -64,6 +64,6 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
 
 ## Edge cases — when manual is fine
 
-- **Domain-level retry** (e.g. "poll the job every 5s until it reports `:complete`") is semantic, not transport — model it in a state machine (`:invoke` with `:after`) rather than in `:retry`. The presence of `setTimeout` + `dispatch` is only an anti-pattern when it's compensating for transport failure.
+- **Domain-level retry** (e.g. "poll the job every 5s until it reports `:complete`") is semantic, not transport — model it in a state machine (`:spawn` with `:after`) rather than in `:retry`. The presence of `setTimeout` + `dispatch` is only an anti-pattern when it's compensating for transport failure.
 - **One-shot pages** that explicitly want no retry — `:retry` simply omitted from the Managed HTTP args. The anti-pattern is the manual loop, not the absence of retry.
 - **Non-HTTP transports** (a custom WebSocket protocol, IndexedDB, postMessage) — Managed HTTP doesn't apply; manual scheduling is the correct shape until a dedicated managed fx exists.

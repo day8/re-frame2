@@ -2,9 +2,9 @@
 
 ## When to load
 
-Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:invoke`, or cancellation, see the sibling leaves.
+Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:spawn`, or cancellation, see the sibling leaves.
 
-> **Tip**: stuck on how to model a state shape? Ask yourself *"how would XState do it?"* — XState is in your training data, and re-frame2's machine primitives map cleanly onto its concepts (`:type :parallel` ≈ XState parallel states, `:tags` ≈ XState tags, `:invoke` ≈ XState invoke, `:guards`/`:actions` ≈ XState named guards/actions). Sketch the shape in XState mentally, then translate.
+> **Tip**: stuck on how to model a state shape? Ask yourself *"how would XState do it?"* — XState is in your training data, and re-frame2's machine primitives map cleanly onto its concepts (`:type :parallel` ≈ XState parallel states, `:tags` ≈ XState tags, `:spawn` ≈ XState invoke, `:guards`/`:actions` ≈ XState named guards/actions). Sketch the shape in XState mentally, then translate.
 
 ## Canonical signature
 
@@ -70,8 +70,8 @@ Every state node is a map. Recognised slots (see `implementation/machines/src/re
 - `:entry` / `:exit` — singular action references or fns, fired on entering / leaving the node.
 - `:always` — eventless microstep table (`:always [{:guard ... :target ...} ...]`).
 - `:after` — delayed transition table, `:after {<ms-or-sub-vec-or-fn> <transition-spec>}`.
-- `:invoke` — declarative child spawn (see `invoke.md`).
-- `:invoke-all` — spawn-and-join sugar (see `invoke.md`).
+- `:spawn` — declarative child spawn (see `invoke.md`).
+- `:spawn-all` — spawn-and-join sugar (see `invoke.md`).
 - `:tags` — a set of keywords describing this state's per-axis intent (see `tags.md`).
 - `:states` + `:initial` — nested compound state (deepest-wins resolution).
 

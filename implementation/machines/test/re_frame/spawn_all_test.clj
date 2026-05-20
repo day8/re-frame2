@@ -1,6 +1,6 @@
-(ns re-frame.invoke-all-test
-  "Per rf2-6vmw and Spec 005 §Spawn-and-join via :invoke-all. Verifies
-  the first-class `:invoke-all` spawn-and-join surface that gives
+(ns re-frame.spawn-all-test
+  "Per rf2-6vmw and Spec 005 §Spawn-and-join via :spawn-all. Verifies
+  the first-class `:spawn-all` spawn-and-join surface that gives
   parallel-region state-machines a single declarative shape.
 
   The test scenarios cover the four join-condition shapes
@@ -37,7 +37,7 @@
 ;; dispatches :on-child-done back to the parent). On :fail, transitions
 ;; to :failed (which dispatches :on-child-error back). The parent-id
 ;; the child dispatches into is supplied via :data — we pre-populate
-;; it via :start [:set-id <id>] from the parent's :invoke-all entry.
+;; it via :start [:set-id <id>] from the parent's :spawn-all entry.
 
 (defn- mk-child
   "Return a child spec that dispatches `done-event-kw` /
@@ -70,7 +70,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children         [{:id :a :machine-id :child/a :start [:set-id :a]}
                                         {:id :b :machine-id :child/b :start [:set-id :b]}
                                         {:id :c :machine-id :child/c :start [:set-id :c]}]
@@ -115,7 +115,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children         [{:id :a :machine-id :child/fa :start [:set-id :a]}
                                         {:id :b :machine-id :child/fb :start [:set-id :b]}
                                         {:id :c :machine-id :child/fc :start [:set-id :c]}]
@@ -156,7 +156,7 @@
                   :states
                   {:idle    {:on {:start :working}}
                    :working
-                   {:invoke-all
+                   {:spawn-all
                     {:children         [{:id :a :machine-id :child/na :start [:set-id :a]}
                                         {:id :b :machine-id :child/nb :start [:set-id :b]}
                                         {:id :c :machine-id :child/nc :start [:set-id :c]}
@@ -197,7 +197,7 @@
                   :states
                   {:idle   {:on {:start :racing}}
                    :racing
-                   {:invoke-all
+                   {:spawn-all
                     {:children         [{:id :a :machine-id :child/aa :start [:set-id :a]}
                                         {:id :b :machine-id :child/ab :start [:set-id :b]}
                                         {:id :c :machine-id :child/ac :start [:set-id :c]}]
@@ -227,7 +227,7 @@
                   :states
                   {:idle    {:on {:start :working}}
                    :working
-                   {:invoke-all
+                   {:spawn-all
                     {:children         [{:id :a :machine-id :child/fna :start [:set-id :a]}
                                         {:id :b :machine-id :child/fnb :start [:set-id :b]}
                                         {:id :c :machine-id :child/fnc :start [:set-id :c]}]
@@ -254,59 +254,59 @@
 ;; ---- registration-time validation ----------------------------------------
 
 (deftest registration-time-rejects-bad-shape
-  (testing ":invoke-all with no :id on a child — rejected"
+  (testing ":spawn-all with no :id on a child — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"machine-invoke-all-bad-shape"
+          #"machine-spawn-all-bad-shape"
           (rf/reg-machine :bad/no-id
                           {:initial :s
                            :states
-                           {:s {:invoke-all {:children        [{:machine-id :foo}]
+                           {:s {:spawn-all {:children        [{:machine-id :foo}]
                                              :on-child-done   :done
                                              :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
-  (testing ":invoke-all with duplicate child ids — rejected"
+  (testing ":spawn-all with duplicate child ids — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"machine-invoke-all-duplicate-id"
+          #"machine-spawn-all-duplicate-id"
           (rf/reg-machine :bad/dup-id
                           {:initial :s
                            :states
-                           {:s {:invoke-all {:children        [{:id :x :machine-id :foo}
+                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}
                                                                 {:id :x :machine-id :bar}]
                                              :on-child-done   :done
                                              :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
-  (testing ":invoke + :invoke-all on same state — rejected"
+  (testing ":spawn + :spawn-all on same state — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"machine-invoke-all-with-invoke"
+          #"machine-spawn-all-with-spawn"
           (rf/reg-machine :bad/both
                           {:initial :s
                            :states
-                           {:s {:invoke     {:machine-id :foo}
-                                :invoke-all {:children        [{:id :x :machine-id :bar}]
+                           {:s {:spawn     {:machine-id :foo}
+                                :spawn-all {:children        [{:id :x :machine-id :bar}]
                                              :on-child-done   :done
                                              :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
-  (testing ":invoke-all with :join :all but no :on-all-complete — rejected"
+  (testing ":spawn-all with :join :all but no :on-all-complete — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"machine-invoke-all-bad-shape"
+          #"machine-spawn-all-bad-shape"
           (rf/reg-machine :bad/no-on-all
                           {:initial :s
                            :states
-                           {:s {:invoke-all {:children        [{:id :x :machine-id :foo}]
+                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]
                                              :on-child-done   :done
                                              :on-child-error  :failed}}}}))))
-  (testing ":invoke-all with :join {:n 3} but no :on-some-complete — rejected"
+  (testing ":spawn-all with :join {:n 3} but no :on-some-complete — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #"machine-invoke-all-bad-shape"
+          #"machine-spawn-all-bad-shape"
           (rf/reg-machine :bad/no-on-some
                           {:initial :s
                            :states
-                           {:s {:invoke-all {:children       [{:id :x :machine-id :foo}]
+                           {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
                                              :join           {:n 3}
                                              :on-child-done  :done
                                              :on-child-error :failed}}}})))))
@@ -349,7 +349,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children        [{:id :a :machine-id :child/pa :start [:set-id :a]}]
                      :join            :all
                      :on-child-done   :asset/loaded
@@ -375,7 +375,7 @@
 ;;
 ;; intercept-invoke-all-event has a post-resolution branch (join.cljc:134-141)
 ;; that fires when a child-done event arrives AFTER the join already
-;; resolved. The contract surface is the :rf.machine.invoke-all/late-completion
+;; resolved. The contract surface is the :rf.machine.spawn-all/late-completion
 ;; trace — the return-value is a no-op {:db db :fx []}.
 ;;
 ;; To exercise the branch we use :cancel-on-decision? false so siblings
@@ -394,7 +394,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children            [{:id :a :machine-id :child/la :start [:set-id :a]}
                                            {:id :b :machine-id :child/lb :start [:set-id :b]}
                                            {:id :c :machine-id :child/lc :start [:set-id :c]}]
@@ -424,7 +424,7 @@
                 "late-completion does NOT mutate :done")
             (is (true? (:resolved? j)) ":resolved? stays true")))
         (let [late-traces (->> @traces
-                               (filter #(= :rf.machine.invoke-all/late-completion
+                               (filter #(= :rf.machine.spawn-all/late-completion
                                            (:operation %))))]
           (is (= 1 (count late-traces))
               "exactly one late-completion trace fired")
@@ -440,10 +440,10 @@
 ;; intercept-invoke-all-event must verify the inbound `child-id` is one
 ;; of the parent's spawned children before mutating the join state.
 ;; Otherwise a hand-crafted dispatch (typo, copy-paste from a sibling
-;; :invoke-all, cascaded event from another parent) silently folds an
+;; :spawn-all, cascaded event from another parent) silently folds an
 ;; unknown id into `:done` / `:failed` and can collapse the join early
 ;; (silent state-machine corruption). The runtime gates this with
-;; `:rf.error/machine-invoke-all-bad-child-id` and a no-op fx — the
+;; `:rf.error/machine-spawn-all-bad-child-id` and a no-op fx — the
 ;; join state is NOT mutated and the join does not resolve on the
 ;; forged event.
 ;;
@@ -479,18 +479,18 @@
 (defn- bad-child-id-error-traces
   [traces]
   (->> traces
-       (filter #(= :rf.error/machine-invoke-all-bad-child-id
+       (filter #(= :rf.error/machine-spawn-all-bad-child-id
                    (:operation %)))))
 
 (deftest forged-child-id-with-no-live-children-is-rejected
   (testing "an :on-child-done dispatch carrying a child-id NOT in the
-  parent's spawned set emits :rf.error/machine-invoke-all-bad-child-id
+  parent's spawned set emits :rf.error/machine-spawn-all-bad-child-id
   and is a no-op (join state untouched, no resolution)"
     (let [parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children        [{:id :a :machine-id :child/forge-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/forge-b :start [:set-id :b]}]
                      :join            :all
@@ -516,11 +516,11 @@
             post-jstate (get-in (frame-db) [:rf/spawned :sup/forge-none [:hydrating]])
             errs (bad-child-id-error-traces traces)]
         (is (= 1 (count errs))
-            "exactly one :rf.error/machine-invoke-all-bad-child-id trace fired")
+            "exactly one :rf.error/machine-spawn-all-bad-child-id trace fired")
         (let [err  (first errs)
               tags (:tags err)]
           (is (= :sup/forge-none (:machine-id tags)))
-          (is (= [:hydrating] (:invoke-id tags)))
+          (is (= [:hydrating] (:spawn-id tags)))
           (is (= :totally-fake-id (:child-id tags)))
           (is (= #{:a :b} (:children tags))
               ":children carries the legitimate seed set")
@@ -540,7 +540,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children        [{:id :a :machine-id :child/forge-r :start [:set-id :a]}]
                      :join            :all
                      :on-child-done   :asset/loaded
@@ -575,13 +575,13 @@
         (is (= :hydrating (:state (snapshot :sup/forge-repeated))))))))
 
 (deftest sibling-invoke-all-child-id-is-not-counted-into-other-join
-  (testing "a child-id legitimate to one parent's :invoke-all is forged
-  for ANOTHER parent's :invoke-all and is rejected by the other"
+  (testing "a child-id legitimate to one parent's :spawn-all is forged
+  for ANOTHER parent's :spawn-all and is rejected by the other"
     (let [parent-1 {:initial :idle
                     :states
                     {:idle      {:on {:start :working}}
                      :working
-                     {:invoke-all
+                     {:spawn-all
                       {:children        [{:id :p1-a :machine-id :child/p1a :start [:set-id :p1-a]}]
                        :join            :all
                        :on-child-done   :asset/loaded
@@ -591,7 +591,7 @@
                     :states
                     {:idle      {:on {:start :working}}
                      :working
-                     {:invoke-all
+                     {:spawn-all
                       {:children        [{:id :p2-x :machine-id :child/p2x :start [:set-id :p2-x]}]
                        :join            :all
                        :on-child-done   :asset/loaded
@@ -627,7 +627,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children        [{:id :a :machine-id :child/gate-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/gate-b :start [:set-id :b]}]
                      :join            :all
@@ -649,12 +649,12 @@
                         (rf/dispatch-sync [(:b ids) [:go]]))))
             errs (bad-child-id-error-traces traces)]
         (is (= [] (vec errs))
-            "no :rf.error/machine-invoke-all-bad-child-id for legitimate flow")
+            "no :rf.error/machine-spawn-all-bad-child-id for legitimate flow")
         (is (= :ready (:state (snapshot :sup/gate-ok)))
-            "legitimate :invoke-all resolution still fires :on-all-complete")))))
+            "legitimate :spawn-all resolution still fires :on-all-complete")))))
 
 (deftest any-failed-trace-carries-reason-payload
-  (testing ":rf.machine.invoke-all/any-failed trace carries :reason from decisive failure"
+  (testing ":rf.machine.spawn-all/any-failed trace carries :reason from decisive failure"
     (let [traces (atom [])
           child  (mk-child-with-payload :sup/fail-payload
                                         :asset/loaded :asset/failed
@@ -663,7 +663,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children       [{:id :a :machine-id :child/fpa :start [:set-id :a]}
                                       {:id :b :machine-id :child/fpb :start [:set-id :b]}]
                      :join            :all
@@ -684,10 +684,10 @@
         (let [ids (get-in (frame-db) [:rf/spawned :sup/fail-payload [:hydrating] :children])]
           (rf/dispatch-sync [(:a ids) [:fail]]))
         (let [any-failed (->> @traces
-                              (filter #(= :rf.machine.invoke-all/any-failed
+                              (filter #(= :rf.machine.spawn-all/any-failed
                                           (:operation %)))
                               first)]
-          (is (some? any-failed) ":rf.machine.invoke-all/any-failed trace fired")
+          (is (some? any-failed) ":rf.machine.spawn-all/any-failed trace fired")
           (is (= [{:reason :boom :http-status 503}]
                  (:reason (:tags any-failed)))
               ":reason key on trace carries decisive child's forwarded payload"))

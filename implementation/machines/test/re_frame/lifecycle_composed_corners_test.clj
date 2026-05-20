@@ -3,7 +3,7 @@
   interleavings.
 
   Existing per-edge regression coverage (`timer_frame_scope_test`,
-  `after_test`, `invoke_all_test`, `final_state_cljs_test`,
+  `after_test`, `spawn_all_test`, `final_state_cljs_test`,
   `spawn_registry_test`, `frame_destroy_cascade_test`,
   `destroyed_trace_shape_test`) is strong. This file pins the
   combinations the audit body called out:
@@ -11,7 +11,7 @@
     - stale `:after` firing AFTER the frame was destroyed,
     - stale `:after` firing AFTER the system-id was rebound to a new
       actor,
-    - `:invoke-all` child completion AFTER the parent frame was destroyed,
+    - `:spawn-all` child completion AFTER the parent frame was destroyed,
     - dynamic delay re-resolution after state exit (the timer-table
       entry is gone; the stale synthetic event is a no-op),
     - composed leak audit across timer table + system-id reverse index
@@ -169,9 +169,9 @@
           (finally (unreg)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. :invoke-all child completion AFTER parent frame destroy
+;; 3. :spawn-all child completion AFTER parent frame destroy
 ;;
-;; The parent's :invoke-all join state lives at [:rf/spawned <parent>
+;; The parent's :spawn-all join state lives at [:rf/spawned <parent>
 ;; <invoke-id>] in the parent FRAME's app-db. When the frame is
 ;; destroyed, the machine teardown cascade runs each spawned actor's
 ;; :exit, but if a child dispatches its :on-child-done AFTER the frame
@@ -195,7 +195,7 @@
                   :states
                   {:idle      {:on {:start :hydrating}}
                    :hydrating
-                   {:invoke-all
+                   {:spawn-all
                     {:children        [{:id :a :machine-id :corner.ia/child :start [:set-id :a]}
                                        {:id :b :machine-id :corner.ia/child :start [:set-id :b]}
                                        {:id :c :machine-id :corner.ia/child :start [:set-id :c]}]
@@ -304,7 +304,7 @@
 ;; 5. Composed leak audit after frame destroy
 ;;
 ;; Build a frame holding: (a) an :after timer; (b) a spawned actor
-;; bound under :system-id; (c) an :invoke-all parent with a join slot.
+;; bound under :system-id; (c) a :spawn-all parent with a join slot.
 ;; Destroy. Pin that EVERY per-frame bookkeeping slot in the machines
 ;; artefact is cleared in a single composed assertion — guards against
 ;; a future regression that fixes each leak in isolation while breaking
@@ -340,7 +340,7 @@
       (rf/reg-machine :corner.leak/boot  boot)
       (rf/dispatch-sync [:corner.leak/boot [:go]] {:frame :corner.leak/scoped}))
 
-    ;; --- (c) :invoke-all parent + join slot -------------------------------
+    ;; --- (c) :spawn-all parent + join slot -------------------------------
     (let [ia-child  {:initial :running
                      :data    {:id nil}
                      :actions {:set-id (fn [d ev] {:data (assoc d :id (second ev))})}
@@ -350,7 +350,7 @@
           ia-parent {:initial :idle
                      :states
                      {:idle      {:on {:start :hydrating}}
-                      :hydrating {:invoke-all
+                      :hydrating {:spawn-all
                                   {:children        [{:id :a :machine-id :corner.leak/ia-child
                                                       :start [:set-id :a]}
                                                      {:id :b :machine-id :corner.leak/ia-child

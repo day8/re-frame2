@@ -209,13 +209,13 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | 000-Vision | ✓ | Names the goal; explains rationale, what-this-implies, connection-to-other-goals, and failure mode. Capability matrix entries (FSM-richness + actor-model rows) added to the host-profile matrix. |
 | 001-Registration | ◐ | Metadata-map shape is well-specced; the *exact* set of metadata keys per `reg-*` kind needs a single canonical table. |
 | 002-Frames | ◐ | Drain semantics, envelope shape, view ergonomics all specced; error contract is gestured at but not enumerated (G-A in §Cross-cutting gaps). |
-| 005-StateMachines | ◐ | Foundation specced in detail; capability matrix in place; hierarchical / eventless / delayed / declarative-`:invoke` capabilities are claimed but drain-rule extensions for compound entry/exit are still being elaborated. |
+| 005-StateMachines | ◐ | Foundation specced in detail; capability matrix in place; hierarchical / eventless / delayed / declarative-`:spawn` capabilities are claimed but drain-rule extensions for compound entry/exit are still being elaborated. |
 | 008-Testing | ✓ | Three test levels, fixture lifecycle, framework adapters all specced. |
 | 009-Instrumentation | ◐ | Trace event shape stable; error event shape not formally enumerated. Closes alongside G-A. |
 | 010-Schemas | ✓ | Self-referential — schemas are specced via examples in re-frame2's own conventions. |
 | 011-SSR | ◐ | Hydration payload schema missing (existing gap). |
 | 012-Routing | ✓ | URL ↔ params grammar, route metadata shape, fx ids all specced. |
-| Spec-Schemas | ◐ | Most shapes covered; declarative-`:invoke` schema additions remain to be written; hydration payload schema and trace-event schema (G-A) are tracked elsewhere. |
+| Spec-Schemas | ◐ | Most shapes covered; declarative-`:spawn` schema additions remain to be written; hydration payload schema and trace-event schema (G-A) are tracked elsewhere. |
 | conformance/README | ✓ | Cross-references the goal; capability-tagging convention added to fixture metadata. |
 
 **Gaps:** G-A (error envelope), G-B (CP depth), and schema-on-the-spec's-own-shapes coverage.
@@ -228,7 +228,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
 | 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions and tags are now first-class capabilities (rf2-l67o / rf2-ee0d); substitute for history specced. |
-| Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:invoke` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
+| Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:spawn` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
 | Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the history-state snapshot-capture substitute. |
 | conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
 | Other Specs (002, 008, 009, 011, 012) | n/a | Capability-list scoping is FSM-and-actor-specific; other Specs aren't capability-graded in the same way (they are pattern-required as a whole). |

@@ -10,7 +10,7 @@
   invariants are the same as rf2-35rgj's: **no event dropped** and **no
   double-action**.
 
-  The shape — per Spec 005 §Declarative `:invoke` + Spec 002 §Rules
+  The shape — per Spec 005 §Declarative `:spawn` + Spec 002 §Rules
   rule 1 (frames are independent state machines, their drain-locks don't
   share):
 
@@ -22,7 +22,7 @@
     - **Per iter**, the thread runs the spawn → dispatch → destroy
       cycle against a per-thread `driver-mid` parent machine
       (`:gpx8.stress/driver-fN`) whose `:working` state declaratively
-      `:invoke`s the per-thread `worker-mid` child
+      `:spawn`s the per-thread `worker-mid` child
       (`:gpx8.stress/worker-fN`). Per-thread namespacing of the
       machine-ids lets each worker's `:bump` action close over THIS
       thread's per-thread counter atom — `reg-machine` is GLOBAL, so
@@ -135,15 +135,15 @@
    :states  {:running {:on {:tick {:action :bump}}}}})
 
 (defn- driver-spec
-  "Build a driver parent that declaratively `:invoke`s `worker-mid` on
+  "Build a driver parent that declaratively `:spawn`s `worker-mid` on
   entry to `:working` and destroys it on exit. Per Spec 005
-  §Declarative `:invoke` the runtime tracks the spawned id at
+  §Declarative `:spawn` the runtime tracks the spawned id at
   `[:rf/spawned <driver-mid> [:working]]`; on exit back to `:idle` the
   matched destroy fx fires automatically (rf2-t07u Option A revised)."
   [worker-mid]
   {:initial :idle
    :states  {:idle    {:on {:go :working}}
-             :working {:invoke {:machine-id worker-mid}
+             :working {:spawn {:machine-id worker-mid}
                        :on     {:done :idle}}}})
 
 ;; ---- the stress test ------------------------------------------------------
@@ -202,7 +202,7 @@
                             ;; Resolve the spawned actor id from the
                             ;; runtime-owned registry (rf2-t07u Option A
                             ;; revised — the framework writes the slot
-                            ;; on every declarative-:invoke spawn).
+                            ;; on every declarative-:spawn spawn).
                             ;; Reading the frame's app-db is safe: frame
                             ;; state is independent (Spec 002 §Rules
                             ;; rule 1) and this thread holds the only
@@ -286,7 +286,7 @@
                      "lazy-allocation pruned (every spawn was matched "
                      "by a destroy); got "
                      (pr-str (:rf/spawned db))))
-            ;; Per rf2-gr8q the declarative-:invoke allocator lives in
+            ;; Per rf2-gr8q the declarative-:spawn allocator lives in
             ;; the parent's snapshot at
             ;; `[:rf/machines <driver-mid> :rf/spawn-counter <worker-mid>]`
             ;; — the spawn-counter bumps inside the transition reducer

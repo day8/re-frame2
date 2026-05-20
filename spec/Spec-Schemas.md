@@ -518,7 +518,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:op-type` | Used for | Spec |
 |---|---|---|
 | `:frame` | Frame-lifecycle family — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
-| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.invoke-all/*` operation, `:rf.machine.invoke/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade` (the non-frame-exit causes; `:parent-frame-destroyed` rides on the `:rf.machine.lifecycle/destroyed` family below). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
+| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade` (the non-frame-exit causes; `:parent-frame-destroyed` rides on the `:rf.machine.lifecycle/destroyed` family below). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :machine-id <id> :last-state <state> :reason <:parent-frame-destroyed | :rf.machine/finished | :explicit | :parent-unmount-cascade>}`. Frame-exit cascade emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)) | 005 / 009 |
 | `:registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
@@ -1403,9 +1403,9 @@ State-machine transition-table guards and actions are referenced by **inline fn 
 > **Owner:** [005-StateMachines §Transition tables](005-StateMachines.md)
 > **Status:** v1-required
 
-Grammar for state-machine transition tables (per [005](005-StateMachines.md)). Public because the user supplies the transition table to `create-machine-handler` as registration data; tools introspect it via `(machine-meta id)`. The v1 foundation (`machine-transition` / `create-machine-handler` and the rest of the machine-as-event-handler surface — see [005 §Disposition](005-StateMachines.md#disposition)) interprets the grammar that maps to the v1 reference's claimed [capability list](005-StateMachines.md#capability-matrix). The CLJS reference claims flat FSM, hierarchical compound states, eventless `:always`, delayed `:after`, and declarative `:invoke`; it does **not** claim parallel regions or history states (substitutes per [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features)).
+Grammar for state-machine transition tables (per [005](005-StateMachines.md)). Public because the user supplies the transition table to `create-machine-handler` as registration data; tools introspect it via `(machine-meta id)`. The v1 foundation (`machine-transition` / `create-machine-handler` and the rest of the machine-as-event-handler surface — see [005 §Disposition](005-StateMachines.md#disposition)) interprets the grammar that maps to the v1 reference's claimed [capability list](005-StateMachines.md#capability-matrix). The CLJS reference claims flat FSM, hierarchical compound states, eventless `:always`, delayed `:after`, and declarative `:spawn`; it does **not** claim parallel regions or history states (substitutes per [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features)).
 
-The schema below covers the flat FSM grammar, the **hierarchical compound** extension (per [005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)), the eventless **`:always`** extension (per [005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)), the delayed **`:after`** extension (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)), and the declarative **`:invoke`** extension (per [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn)). All extensions are additive (open-map invariant) without breaking the `Transition` schema.
+The schema below covers the flat FSM grammar, the **hierarchical compound** extension (per [005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)), the eventless **`:always`** extension (per [005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)), the delayed **`:after`** extension (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)), and the declarative **`:spawn`** extension (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)). All extensions are additive (open-map invariant) without breaking the `Transition` schema.
 
 ```clojure
 (def TransitionTable
@@ -1436,8 +1436,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                         [:on-spawn-actions {:optional true} [:map-of :keyword fn?]] ;; root-only — optional map of named spawn-callbacks; consulted before :actions when an :on-spawn slot uses a keyword reference. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
                         [:entry   {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:exit    {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
-                        [:invoke  {:optional true} InvokeSpec]              ;; declarative spawn-on-entry / destroy-on-exit; at most one per state; see :rf/state-node §:invoke and [005 §Declarative :invoke](005-StateMachines.md#declarative-invoke-sugar-over-spawn)
-                        [:invoke-all {:optional true} InvokeAllSpec]        ;; spawn-N-children-and-join sugar; mutually exclusive with :invoke; see :rf/state-node §:invoke-all and [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
+                        [:spawn  {:optional true} InvokeSpec]              ;; declarative spawn-on-entry / destroy-on-exit; at most one per state; see :rf/state-node §:spawn and [005 §Declarative :spawn](005-StateMachines.md#declarative-spawn)
+                        [:spawn-all {:optional true} InvokeAllSpec]        ;; spawn-N-children-and-join sugar; mutually exclusive with :spawn; see :rf/state-node §:spawn-all and [005 §Spawn-and-join via :spawn-all](005-StateMachines.md#spawn-and-join-via-spawn-all)
                         [:always  {:optional true}                          ;; eventless transitions checked after entry (or after any transition landing here); first-match-wins; see [005 §Eventless :always transitions](005-StateMachines.md#eventless-always-transitions)
                          [:vector
                           [:map
@@ -1458,13 +1458,13 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                                 [:meta   {:optional true} :map]]]]]
                         [:on      {:optional true} EventMap]                ;; event → transition
                         [:tags    {:optional true} [:set :keyword]]         ;; runtime-projected onto snapshot's :tags — see [005 §State tags](005-StateMachines.md#state-tags); union of active-configuration tag sets is stamped at [:rf/machines <id> :tags] on every transition commit. Reserved framework namespace (`:rf/*`, `:rf.*/*`) per Conventions.md §Reserved namespaces. Per rf2-ee0d.
-                        [:final?  {:optional true} :boolean]                ;; leaf-only — entering this state terminates the machine. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). A `:final?` state MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:invoke`, or `:invoke-all` (`:entry` / `:exit` are permitted). For an `:invoke`d child: the runtime invokes the parent's `:invoke :on-done` with the child's `:data` slot named by `:output-key` (or `nil`), then auto-destroys synchronously. For a singleton: auto-destroys synchronously (singleton symmetry, D7).
+                        [:final?  {:optional true} :boolean]                ;; leaf-only — entering this state terminates the machine. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). A `:final?` state MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:spawn`, or `:spawn-all` (`:entry` / `:exit` are permitted). For a `:spawn`d child: the runtime invokes the parent's `:spawn :on-done` with the child's `:data` slot named by `:output-key` (or `nil`), then auto-destroys synchronously. For a singleton: auto-destroys synchronously (singleton symmetry, D7).
                         [:output-key {:optional true} :keyword]             ;; designates which `:data` key is reported back via the parent's `:on-done`. Requires `:final? true` (registration rejects `:output-key` on non-final states with `:rf.error/machine-output-key-without-final`). Per rf2-gn80.
                         [:meta    {:optional true} :map]]}}
    [:ref ::state-node]])
 
-;; The :invoke spec on a state node. Per [005 §Declarative :invoke (sugar over spawn)]
-;; (005-StateMachines.md#declarative-invoke-sugar-over-spawn), `create-machine-handler`
+;; The :spawn spec on a state node. Per [005 §Declarative :spawn (sugar over spawn)]
+;; (005-StateMachines.md#declarative-spawn), `create-machine-handler`
 ;; rewrites this slot into entry/exit actions emitting :rf.machine/spawn / :rf.machine/destroy fx
 ;; at registration time; the runtime sees only the desugared form. Constraint:
 ;; **exactly one of :machine-id or :definition** must be supplied — `create-machine-handler`
@@ -1478,15 +1478,15 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
    [:on-done    {:optional true} fn?]                                       ;; (fn [data result] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
-   [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
+   [:spawn-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
 ;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
-;; an :invoke-bearing state are expressed via the parent state's :after slot. See
-;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
+;; a :spawn-bearing state are expressed via the parent state's :after slot. See
+;; [005 §Wall-clock timeouts on :spawn — use parent state's :after] and
 ;; [MIGRATION §M-44].
 
-;; The :invoke-all spec on a state node — spawn-N-children-and-join. Per
-;; [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
+;; The :spawn-all spec on a state node — spawn-N-children-and-join. Per
+;; [005 §Spawn-and-join via :spawn-all](005-StateMachines.md#spawn-and-join-via-spawn-all)
 ;; and rf2-6vmw. `create-machine-handler` walks the spec at construction time
 ;; and rewrites the slot into entry/exit actions emitting N parallel
 ;; :rf.machine/spawn fx (entry) and per-child :rf.machine/destroy fx (exit),
@@ -1508,7 +1508,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:id-prefix   {:optional true} :keyword]
    [:on-spawn    {:optional true} [:or :keyword fn?]]
    [:start       {:optional true} [:vector :any]]
-   [:invoke-id   {:optional true} :keyword]
+   [:spawn-id   {:optional true} :keyword]
    [:system-id   {:optional true} :keyword]])
 
 (def InvokeAllSpec
@@ -1526,8 +1526,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-any-failed    {:optional true} [:vector :any]]                      ;; optional; if absent, child failures don't short-circuit
    [:cancel-on-decision? {:optional true} :boolean]])                       ;; default true
 ;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
-;; an :invoke-all-bearing state are expressed via the parent state's :after slot. See
-;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
+;; a :spawn-all-bearing state are expressed via the parent state's :after slot. See
+;; [005 §Wall-clock timeouts on :spawn — use parent state's :after] and
 ;; [MIGRATION §M-44].
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
@@ -1580,11 +1580,11 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 **Guard / action reference resolution.** A `GuardRef` / `ActionRef` keyword is **machine-local** — it resolves to `(get-in spec [:guards <id>])` / `(get-in spec [:actions <id>])`, where `spec` is the root `::state-node` of the transition table. Resolution is performed at registration time: `create-machine-handler` walks the table (in `:on`, `:always`, `:entry`, `:exit` slots) and verifies each keyword reference resolves to a fn in the spec's `:guards` / `:actions` map. Unresolved references fail registration with `:rf.error/machine-unresolved-guard` (with `:tags {:guard-id <id> :machine-id <id>}`) or `:rf.error/machine-unresolved-action` (with `:tags {:action-id <id> :machine-id <id>}`). There is **no global guard/action registry** — each machine has its own `:guards` / `:actions` namespace. Cross-machine reuse is via Clojure vars referenced from each machine's map.
 
-**`:invoke` constraint.** The `:invoke` slot's `InvokeSpec` declares both `:machine-id` and `:definition` as optional, but **exactly one** must be supplied for any actual `:invoke` slot — Malli alone cannot express the xor without a richer combinator, so `create-machine-handler` enforces it at registration time and rejects malformed slots as a transition-table error. `:invoke` is registration-time sugar — see [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) for the desugaring rules; the runtime never sees an `:invoke` key at transition time.
+**`:spawn` constraint.** The `:spawn` slot's `InvokeSpec` declares both `:machine-id` and `:definition` as optional, but **exactly one** must be supplied for any actual `:spawn` slot — Malli alone cannot express the xor without a richer combinator, so `create-machine-handler` enforces it at registration time and rejects malformed slots as a transition-table error. `:spawn` is registration-time sugar — see [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) for the desugaring rules; the runtime never sees a `:spawn` key at transition time.
 
 **`:type :parallel` constraint.** A root state-node declaring `:type :parallel` MUST declare a non-empty `:regions` map and MUST NOT declare `:initial` or `:states` — those slots are mutually exclusive with `:regions`. Each region's value is itself a full `::state-node` body (its own `:initial` + `:states` for the compound case, or no `:states` for a flat region). `create-machine-handler` validates the shape at registration time and rejects malformed declarations with `:rf.error/machine-parallel-bad-shape`. Nested parallel regions (a region whose own state-tree contains another `:type :parallel`) are not supported in v1; the validator rejects them with `:rf.error/machine-parallel-nested-not-supported`. Per rf2-l67o (Nine States Stage 2) and [005 §Parallel regions](005-StateMachines.md#parallel-regions).
 
-**`:timeout-ms` removed.** Per rf2-3y3y, the pre-release `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` are DROPPED. State-level `:after` on the parent state subsumes the wall-clock guard, with the standard exit-cascade destroying spawned children. `create-machine-handler` rejects any `:timeout-ms` or `:on-timeout` key on either slot at registration time with `:rf.error/invoke-timeout-ms-removed`. The retired error categories `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, and `:rf.error/machine-invoke-timeout-not-positive` are no longer emitted. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-invoke--invoke-all--use-parent-states-after).
+**`:timeout-ms` removed.** Per rf2-3y3y, the pre-release `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all` are DROPPED. State-level `:after` on the parent state subsumes the wall-clock guard, with the standard exit-cascade destroying spawned children. `create-machine-handler` rejects any `:timeout-ms` or `:on-timeout` key on either slot at registration time with `:rf.error/spawn-timeout-ms-removed`. The retired error categories `:rf.error/machine-spawn-timeout-without-on-timeout`, `:rf.error/machine-spawn-on-timeout-without-timeout`, and `:rf.error/machine-spawn-timeout-not-positive` are no longer emitted. See [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-invoke--invoke-all--use-parent-states-after).
 
 **`:always` constraints.** The `:always` slot is checked at registration time for two registration-error categories:
 
@@ -1630,7 +1630,7 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    [:tags     {:optional true} [:set :keyword]]
    ;; :rf/spawn-counter is the per-machine-id integer map the runtime uses
    ;; to deterministically allocate spawned-actor ids inside a pure
-   ;; machine-transition call. Each declarative `:invoke` bump increments
+   ;; machine-transition call. Each declarative `:spawn` bump increments
    ;; the slot under the spawned child's `:machine-id`; the bumped value
    ;; is the suffix on the allocated id (`<machine-id>#<n>`). The slot is
    ;; runtime-owned (`:rf/`-namespaced) — user code MUST NOT write to it.
@@ -1652,7 +1652,7 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member.
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.error/machine-snapshot-version-mismatch` (per [Spec 009 §Trace events](009-Instrumentation.md); older drafts spelled this `:rf.warning/machine-snapshot-version-mismatch`, the `:rf.error/` form is canonical).
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
-6. `:rf/spawn-counter` is **read-only** for users (rf2-gr8q) — the runtime owns the slot and bumps it on every declarative-`:invoke` spawn. Apps that need to address a spawned actor by id read it from `[:rf/spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
+6. `:rf/spawn-counter` is **read-only** for users (rf2-gr8q) — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from `[:rf/spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
 
 **Effect-map note.** A machine handler returns a standard `:rf/effect-map` (`:db` + `:fx`). The action-internal `{:data :fx}` shape is *internal* to the machine handler; the handler lowers `:data` to a single `:db` write at `[:rf/machines <id> :data]` before returning. The closed `:rf/effect-map` contract (`:db` + `:fx` only) is preserved at the handler boundary.
 
@@ -1679,21 +1679,21 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 ### `:rf/spawned` (reserved app-db key)
 
 > **Layer:** Runtime
-> **Owner:** [005-StateMachines §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn)
+> **Owner:** [005-StateMachines §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)
 > **Status:** v1-required
 
-`[:rf/spawned]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) and rf2-t07u (Option A revised), the runtime tracks each declarative-`:invoke` spawn at `[:rf/spawned <parent-machine-id> <invoke-id>]` so the matching destroy cascade can locate the spawned id without depending on the user's `:on-spawn` callback having stashed it under any particular `:data` slot.
+`[:rf/spawned]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) and rf2-t07u (Option A revised), the runtime tracks each declarative-`:spawn` spawn at `[:rf/spawned <parent-machine-id> <invoke-id>]` so the matching destroy cascade can locate the spawned id without depending on the user's `:on-spawn` callback having stashed it under any particular `:data` slot.
 
 ```clojure
-;; Per-invoke slot — either a single spawned-id keyword (for ordinary :invoke)
-;; OR a join-bookkeeping map (for :invoke-all per rf2-6vmw):
+;; Per-invoke slot — either a single spawned-id keyword (for ordinary :spawn)
+;; OR a join-bookkeeping map (for :spawn-all per rf2-6vmw):
 ;;   {:children    {<child-id> <spawned-id>, ...}      ;; N children
 ;;    :done        #{<child-id> ...}                   ;; user-ids that signalled :on-child-done
 ;;    :failed      #{<child-id> ...}                   ;; user-ids that signalled :on-child-error
 ;;    :resolved?   true|false                          ;; latch flips once the join condition resolves
 ;;    :spec        <invoke-all-spec>}                  ;; back-reference for the join intercept
 ;; Reads at the destroy-resolution call site disambiguate by value type:
-;; keyword → :invoke leaf actor address; map → :invoke-all bookkeeping.
+;; keyword → :spawn leaf actor address; map → :spawn-all bookkeeping.
 (def InvokeAllJoinState
   [:map
    [:children  [:map-of :keyword :keyword]]                                 ;; child-id → spawned-id
@@ -1704,19 +1704,19 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 
 (def Spawned
   ;; A two-level map: parent-machine-id → invoke-id → (spawned-id | join-state).
-  ;; The invoke-id is the absolute prefix-path of the :invoke-bearing
+  ;; The invoke-id is the absolute prefix-path of the :spawn-bearing
   ;; state node — a vector of keywords (e.g. [:authenticating],
   ;; [:cart :loading]). Two states named `:loading` in different parents
   ;; are disambiguated by their full prefix-paths.
   [:map-of :keyword                                                          ;; parent-machine-id
            [:map-of [:vector :keyword]                                       ;; invoke-id
-                    [:or :keyword InvokeAllJoinState]]])                     ;; spawned-id (:invoke) | join-state (:invoke-all)
+                    [:or :keyword InvokeAllJoinState]]])                     ;; spawned-id (:spawn) | join-state (:spawn-all)
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/spawned] Spawned)
 ```
 
-Allocated lazily — absent until the first declarative-`:invoke` (or `:invoke-all`) spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
+Allocated lazily — absent until the first declarative-`:spawn` (or `:spawn-all`) spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
 
 Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spawned` map; same parent-id + invoke-id in different frames do not collide. Frame revertibility is inherited (the slot walks back atomically with `app-db` on a frame revert).
 
@@ -2136,12 +2136,12 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:on-spawn      {:optional true} fn?]                                    ;; (fn [data id] new-data) — advisory user-side bookkeeping per rf2-t07u
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
    [:system-id     {:optional true} :keyword]                               ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
-   ;; Runtime-stamped on declarative-:invoke spawns (per rf2-t07u; not user-supplied).
+   ;; Runtime-stamped on declarative-:spawn spawns (per rf2-t07u; not user-supplied).
    ;; The pair addresses the runtime-owned spawn registry slot at
    ;; [:rf/spawned <parent-id> <invoke-id>]; absent on imperative from-action
    ;; spawns (those user-owned destroys are still hand-emitted with the actor id).
    [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
-   [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; absolute prefix-path of the :invoke-bearing state node
+   [:rf/spawn-id  {:optional true} [:vector :keyword]]                     ;; absolute prefix-path of the :spawn-bearing state node
    [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the same id :on-spawn observed (rf2-suue)
 
 ;; The spawned actor's snapshot lives at [:rf/machines <gensym'd-id>] in the
@@ -2153,7 +2153,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; [005 §Spawning] and rf2-t07u (Option A revised). Two argument shapes:
 ;;   - a bare actor-id keyword — the legacy / imperative form (action emits
 ;;     `[:rf.machine/destroy actor-id]` with the recorded id directly).
-;;   - a `{:rf/parent-id :rf/invoke-id}` map — the declarative-:invoke
+;;   - a `{:rf/parent-id :rf/spawn-id}` map — the declarative-:spawn
 ;;     exit-cascade form. The fx handler reads the spawned id back from
 ;;     `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down
 ;;     whatever id is currently bound there.
@@ -2161,7 +2161,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
   [:or :keyword
        [:map
         [:rf/parent-id :keyword]
-        [:rf/invoke-id [:vector :keyword]]]])
+        [:rf/spawn-id [:vector :keyword]]]])
 
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
@@ -2209,7 +2209,7 @@ These are registered under spec ids:
 | `:rf.fx/nav/replace-url-args` | `:rf.nav/replace-url` |
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
-| `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and rf2-t07u — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
+| `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and rf2-t07u — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/spawn-id}` map) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |

@@ -29,12 +29,12 @@ This pattern applies equally to **Server-Sent Events (EventSource)** and **WebRT
 
 ## The connection state machine
 
-The canonical states form a hierarchical machine. `:connecting`, `:authenticating`, and `:connected` sit under a single compound parent `:active` because they share one critical invariant: **the live socket actor must outlive all three**. Anchoring the `:invoke` on the parent — not on `:connecting` — keeps the actor alive across the success-path transitions (`:connecting` → `:authenticating` → `:connected`) without re-spawning a fresh socket each time the leaf changes.
+The canonical states form a hierarchical machine. `:connecting`, `:authenticating`, and `:connected` sit under a single compound parent `:active` because they share one critical invariant: **the live socket actor must outlive all three**. Anchoring the `:spawn` on the parent — not on `:connecting` — keeps the actor alive across the success-path transitions (`:connecting` → `:authenticating` → `:connected`) without re-spawning a fresh socket each time the leaf changes.
 
 | State | Meaning |
 |---|---|
 | `:disconnected` | No socket; not yet attempted, or destroyed cleanly. |
-| `:active` | Compound parent; owns the `:websocket/socket` `:invoke`. Leaves: `:connecting`, `:authenticating`, `:connected`. |
+| `:active` | Compound parent; owns the `:websocket/socket` `:spawn`. Leaves: `:connecting`, `:authenticating`, `:connected`. |
 | `:reconnecting` | Connection lost; waiting on `:after` backoff before re-attempt. Socket actor has been destroyed. |
 | `:failed` | Max retries exceeded; manual recovery only. Terminal until external `[:ws/connect ...]` dispatched. |
 
@@ -60,7 +60,7 @@ The connection machine composes the locked substrate:
 - **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [snap] ms)` that reads the current `:retries` and `:base-ms` from `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away.
 - **`:always`** ([005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)) — max-retries guard fires immediately on entry to `:reconnecting` if `:retries` exceeds the limit, transitioning straight to `:failed`. Also used to flush queued messages on entry to `:connected`.
 - **Machine-scoped `:guards` / `:actions`** ([005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)) — for `:max-retries-exceeded?`, `:has-queued-messages?`, `:bump-retry-count`, `:flush-queue`, `:current-socket?`, etc.
-- **`:invoke`** ([005 §Declarative `:invoke`](005-StateMachines.md#declarative-invoke-sugar-over-spawn)) — `:active` invokes a `:websocket/socket` actor that owns the actual `WebSocket` object; the actor's lifetime is bound to the `:active` parent. Any transition that exits `:active` (to `:reconnecting`, to `:failed`, or to `:disconnected`) destroys the actor; re-entering `:active` after `:after` backoff spawns a fresh socket.
+- **`:spawn`** ([005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — `:active` invokes a `:websocket/socket` actor that owns the actual `WebSocket` object; the actor's lifetime is bound to the `:active` parent. Any transition that exits `:active` (to `:reconnecting`, to `:failed`, or to `:disconnected`) destroys the actor; re-entering `:active` after `:after` backoff spawns a fresh socket.
 - **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — the **connection epoch** is the socket-actor's own gensym'd id. Every event the socket actor dispatches into the parent carries its `:socket-id`; the parent's actions check that the carried id matches the live `(:socket-id data)` before committing. Replies from a previous connection epoch — `:ws/received` from a socket that has since been replaced — fail the check and are dropped via a `:rf.ws/stale-socket` trace. The same idiom that `:after` already uses internally, applied to socket-actor identity.
 
 ## Worked example — connection machine
@@ -103,13 +103,13 @@ The connection machine composes the locked substrate:
      :actions
      {:record-connection-opts
       ;; Caller passes URL + token on :ws/connect; opts land in :data and
-      ;; every subsequent reconnect re-reads them via :invoke's :data fn.
+      ;; every subsequent reconnect re-reads them via :spawn's :data fn.
       (fn [data [_ {:keys [url auth-token]}]]
         {:data (assoc data :url url :auth-token auth-token)})
 
       :refresh-token
       ;; The auth machine calls this after an out-of-band refresh; the
-      ;; next :active entry's :invoke :data fn picks up the fresh token.
+      ;; next :active entry's :spawn :data fn picks up the fresh token.
       (fn [data [_ token]]
         {:data (assoc data :auth-token token)})
 
@@ -190,7 +190,7 @@ The connection machine composes the locked substrate:
        ;; spans :connecting, :authenticating, and :connected. Any transition
        ;; that exits :active (to :reconnecting, :failed, or :disconnected)
        ;; destroys it; re-entering :active spawns a fresh one.
-       :invoke {:machine-id :websocket/socket
+       :spawn {:machine-id :websocket/socket
                 ;; Mechanism 2 from Pattern-AsyncEffect §Parameter passing
                 ;; across the boundary — the child reads URL + auth-token
                 ;; from the parent's :data at spawn time. Every re-entry to
@@ -205,7 +205,7 @@ The connection machine composes the locked substrate:
 
        ;; Exit cascade — on any transition that leaves :active, clear the
        ;; stale socket-id from :data. The runtime destroys the actor
-       ;; automatically (per :invoke's desugared exit, [005 §Desugaring rules]);
+       ;; automatically (per :spawn's desugared exit, [005 §Desugaring rules]);
        ;; this just keeps the parent's :data tidy so :current-socket?'s
        ;; comparison against `nil` correctly rejects late events.
        :exit  :clear-socket-id
@@ -316,7 +316,7 @@ The connection's `:url` and `:auth-token` arrive on the `:ws/connect` event:
                                            :auth-token (some-token)}]])
 ```
 
-`:record-connection-opts` persists them into `:data`; the `:active` state's `:invoke` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a refreshed token (via `[:ws/connection [:ws/refresh-token new-token]]`) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
+`:record-connection-opts` persists them into `:data`; the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a refreshed token (via `[:ws/connection [:ws/refresh-token new-token]]`) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
 
 For the canonical menu of mechanisms — event payload (used here for caller-supplied URL/token), spawn-spec `:data` fn (used between this machine and the child socket actor), and boot-time host config (when the URL is fixed by build-time config and threaded in by the boot machine) — see [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary).
 
@@ -366,11 +366,11 @@ Server pushes (`:ws/received` events with no `:request-id`) are translated into 
 
 ### Re-authentication on reconnect
 
-Token expiry across reconnects has two recovery paths, both supported by the worked machine. **Proactive**: the auth machine refreshes the token and dispatches `[:ws/connection [:ws/refresh-token new-token]]`; the `:refresh-token` action updates `:data :auth-token`; the next `:active` entry's `:invoke` `:data` fn picks up the fresh value. **Reactive**: a reconnect into `:authenticating` fails with `:ws/auth-failed` and the machine transitions to `:failed`; the auth machine observes via `sub-machine` (per [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)), runs its refresh, and dispatches `[:ws/connection [:ws/connect {:url ... :auth-token new-token}]]` to re-target. Either way, refreshed credentials land in `:data` and the next `:active` entry threads them through `:invoke` `:data`.
+Token expiry across reconnects has two recovery paths, both supported by the worked machine. **Proactive**: the auth machine refreshes the token and dispatches `[:ws/connection [:ws/refresh-token new-token]]`; the `:refresh-token` action updates `:data :auth-token`; the next `:active` entry's `:spawn` `:data` fn picks up the fresh value. **Reactive**: a reconnect into `:authenticating` fails with `:ws/auth-failed` and the machine transitions to `:failed`; the auth machine observes via `sub-machine` (per [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)), runs its refresh, and dispatches `[:ws/connection [:ws/connect {:url ... :auth-token new-token}]]` to re-target. Either way, refreshed credentials land in `:data` and the next `:active` entry threads them through `:spawn` `:data`.
 
 ## SSR
 
-The connection machine **no-ops in SSR mode** — `:invoke`'s spawn fx is `:platforms #{:client}` (the WebSocket API doesn't exist server-side); `:after` timers do not schedule under SSR (per [011 §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)). The server renders the machine's current state (typically `:disconnected`) statically; the client hydrates and starts the connection on its own.
+The connection machine **no-ops in SSR mode** — `:spawn`'s spawn fx is `:platforms #{:client}` (the WebSocket API doesn't exist server-side); `:after` timers do not schedule under SSR (per [011 §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)). The server renders the machine's current state (typically `:disconnected`) statically; the client hydrates and starts the connection on its own.
 
 This mirrors the rule for any client-only fx: the `:platforms` metadata gates execution; the server's fx resolver silently no-ops it.
 
@@ -381,8 +381,8 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Per-message machine-spawn-and-destroy.** The connection machine is long-lived. Spawning a new machine per outgoing message is structural overkill — use a single connection machine with `:in-flight` correlation tracking instead.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across message boundaries is state-machine-shaped. Use this pattern.
 - **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data`.
-- **Anchoring the `:invoke` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
-- **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:auth-token` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a token expiry mid-session can never recover. Either store opts in `:data` (where the `:invoke` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/refresh-token` slot at the parent level.
+- **Anchoring the `:spawn` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
+- **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:auth-token` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a token expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/refresh-token` slot at the parent level.
 - **Skipping the connection-epoch check on `:ws/received`.** Without `:current-socket?` (or equivalent), a slow `:message` event from a torn-down socket can land in `:connected` after a reconnect and be processed against the new connection's `:in-flight` map — at best a wrong-reply dispatch; at worst an in-flight slot cleared by a stale correlation id. The check is one line; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
 
@@ -391,12 +391,12 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **[Pattern-AsyncEffect](Pattern-AsyncEffect.md)** — distinct but adjacent. Individual request-reply messages over the open socket fit Pattern-AsyncEffect (the open connection acts as the fx); the connection lifecycle itself does not. The request-reply correlation step the connection machine performs is what Pattern-AsyncEffect leaves to the caller — Pattern-WebSocket's `:in-flight` map is the worked example of that step.
 - **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — composes twice. First for the `:after` backoff timer (the runtime's built-in epoch handles it). Second for the connection-epoch: the live socket-id IS the epoch; `:current-socket?` is the guard; `:rf.ws/stale-socket` is the trace.
 - **[Pattern-Boot](Pattern-Boot.md)** — "establish real-time connection" is often a late boot phase; the boot machine's `:routing` or a dedicated `:connecting-realtime` state dispatches `[:ws/connection [:ws/connect ...]]` to kick the connection machine into `:active`.
-- **`:after` / `:always` / `:invoke` / hierarchical states** ([005](005-StateMachines.md)) — the locked machine substrate. This pattern is the canonical worked example exercising all four together.
+- **`:after` / `:always` / `:spawn` / hierarchical states** ([005](005-StateMachines.md)) — the locked machine substrate. This pattern is the canonical worked example exercising all four together.
 - **No Suspense** ([Principles.md](Principles.md)) — connection state is explicit (`:disconnected`, `:active / :connecting`, `:active / :connected`, `:reconnecting`, `:failed`), not implicit "loading"; views render against the snapshot's `:state`.
 
 ## Cross-references
 
-- [005-StateMachines.md](005-StateMachines.md) — the substrate; this pattern is a worked example exercising hierarchical states, `:after`, `:always`, and `:invoke` together.
+- [005-StateMachines.md](005-StateMachines.md) — the substrate; this pattern is a worked example exercising hierarchical states, `:after`, `:always`, and `:spawn` together.
 - [Pattern-AsyncEffect.md](Pattern-AsyncEffect.md) — sibling pattern for one-shot async work.
 - [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — epoch idiom; this pattern reuses it twice (backoff timer + connection epoch).
 - [Pattern-Boot.md](Pattern-Boot.md) — boot may include connection establishment as a phase.

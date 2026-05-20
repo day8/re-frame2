@@ -118,7 +118,7 @@ EP 014 implementation + the Managed-HTTP pattern. The `:http` fx wraps a request
 
 ### `machines/`
 
-EP 005 implementation. Largest non-core artefact. The transition machine, drain extensions for `:always` / `:after`, the `:invoke` contract for child-machine spawning. The CLJS reference uses spec multi-methods + a hand-rolled drain loop.
+EP 005 implementation. Largest non-core artefact. The transition machine, drain extensions for `:always` / `:after`, the `:spawn` contract for child-machine spawning. The CLJS reference uses spec multi-methods + a hand-rolled drain loop.
 
 ### `routing/`
 

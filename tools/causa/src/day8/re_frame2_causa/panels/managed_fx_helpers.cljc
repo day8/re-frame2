@@ -8,7 +8,7 @@
   One uniform record per managed-fx invocation in a focused cascade,
   satisfying [`spec/Managed-Effects.md`'s eight-property
   contract](../../../../spec/Managed-Effects.md). Across five surfaces
-  (HTTP / WebSocket / machine `:invoke` / SSR `:rf.server/*` /
+  (HTTP / WebSocket / machine `:spawn` / SSR `:rf.server/*` /
   `:rf.flow/*`) the record fields are the same; only the projection
   from the surface's raw trace events differs.
 
@@ -158,7 +158,7 @@
 
     - `:rf.http/*`     → `:http`        (Spec 014)
     - `:rf.ws/*`       → `:websocket`   (Pattern-WebSocket)
-    - `:rf.machine/*`  → `:machine-invoke` (Spec 005 `:invoke`)
+    - `:rf.machine/*`  → `:machine-invoke` (Spec 005 `:spawn`)
     - `:rf.server/*`   → `:ssr-fx`      (Spec 011)
     - `:rf.flow/*` / `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
                        → `:flow`        (Spec 013)
@@ -364,7 +364,7 @@
 
 (defn- args-correlation-id
   "Surface-specific correlation id reader. HTTP carries `:request-id`;
-  machine `:invoke` carries `:machine-id` or `:invoke-id`; SSR-fx
+  machine `:spawn` carries `:machine-id` or `:spawn-id`; SSR-fx
   events carry `:request-id` at the server-side accumulator. The
   caller's args map names it; we resolve defensively."
   [surface args]
@@ -372,7 +372,7 @@
     (case surface
       :http           (:request-id args)
       :websocket      (or (:socket-id args) (:request-id args))
-      :machine-invoke (or (:invoke-id args) (:machine-id args) (:id args))
+      :machine-invoke (or (:spawn-id args) (:machine-id args) (:id args))
       :ssr-fx         (:request-id args)
       :flow           (:flow-id args)
       nil)))
@@ -518,8 +518,8 @@
            :wire (non-http-wire-timing fx-ev surface-events))))
 
 (defn machine-invoke-adapter
-  "Machine `:invoke` adapter. The fx-args carry the spawned actor's
-  `:machine-id` / `:invoke-id` / initial `:data`; the surface events
+  "Machine `:spawn` adapter. The fx-args carry the spawned actor's
+  `:machine-id` / `:spawn-id` / initial `:data`; the surface events
   carry the spawn/transition/destroy lifecycle."
   [fx-ev cascade-other]
   (let [surface-events (surface-events-for cascade-other :machine-invoke)
@@ -531,7 +531,7 @@
            :req args
            :wire (non-http-wire-timing fx-ev surface-events)
            :res (when spawned (select-keys (:tags spawned)
-                                            [:invoke-id :machine-id :state])))))
+                                            [:spawn-id :machine-id :state])))))
 
 (defn ssr-fx-adapter
   "SSR `:rf.server/*` adapter. The fx-args carry the response-shape

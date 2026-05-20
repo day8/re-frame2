@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/parallel-after-scoped-to-region
 ;;
-;; Per [005 §Per-region `:always` / `:after` / `:invoke` scoping]
-;; (../../005-StateMachines.md#per-region-always--after--invoke-scoping):
+;; Per [005 §Per-region `:always` / `:after` / `:spawn` scoping]
+;; (../../005-StateMachines.md#per-region-always--after--spawn-scoping):
 ;; an `:after`-bearing state inside a region schedules / cancels timers
 ;; scoped to that region. The epoch counter that backstops timer
 ;; staleness lives at `[:data :rf/after-epoch-by-region <region-name>]`
@@ -15,7 +15,7 @@
 {:fixture/id           :machine/parallel-after-scoped-to-region
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :fsm/delayed-after}
- :fixture/doc          "Entry into an :after-bearing state inside a region schedules a region-scoped timer. The :rf.machine/after-schedule fx carries an :rf/invoke-id prefixed with the region name; the per-region :rf/after-epoch-by-region <region> slot increments."
+ :fixture/doc          "Entry into an :after-bearing state inside a region schedules a region-scoped timer. The :rf.machine/after-schedule fx carries an :rf/spawn-id prefixed with the region name; the per-region :rf/after-epoch-by-region <region> slot increments."
 
  :fixture/registry
  {}
@@ -43,7 +43,7 @@
    :expect-effects
    [[:rf.machine/after-schedule
      {:rf/parent-id :rf/transition-pure
-      :rf/invoke-id [:data :loading]
+      :rf/spawn-id [:data :loading]
       :state        :loading
       :delay-key    5000
       :epoch        1

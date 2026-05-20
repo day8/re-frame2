@@ -9,10 +9,10 @@
       continue (per Spec 005 §Multi-stage interaction with :guard).
     - Race: whichever transition fires first wins; others go stale via
       the per-machine :rf/after-epoch counter.
-    - No-invoke variant: a state with :after but no :invoke is a pure
+    - No-invoke variant: a state with :after but no :spawn is a pure
       timed-transition state.
-    - :timeout-ms / :on-timeout on :invoke / :invoke-all is REMOVED;
-      registration throws :rf.error/invoke-timeout-ms-removed.
+    - :timeout-ms / :on-timeout on :spawn / :spawn-all is REMOVED;
+      registration throws :rf.error/spawn-timeout-ms-removed.
 
   These JVM tests dispatch the synthetic
   [:rf.machine.timer/after-elapsed delay-key epoch] event manually so
@@ -35,29 +35,29 @@
 
 ;; ---- registration-time rejection of :timeout-ms ---------------------------
 
-(deftest invoke-timeout-ms-rejected
-  (testing ":timeout-ms on :invoke fails registration"
+(deftest spawn-timeout-ms-rejected
+  (testing ":timeout-ms on :spawn fails registration"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :r}}
-                         :r    {:invoke {:machine-id :stub
+                         :r    {:spawn {:machine-id :stub
                                          :timeout-ms 1000
                                          :on-timeout [:never]}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad bad))
           "registration emits the migration error category")))
-  (testing ":on-timeout alone on :invoke is also rejected"
+  (testing ":on-timeout alone on :spawn is also rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :r}}
-                         :r    {:invoke {:machine-id :stub
+                         :r    {:spawn {:machine-id :stub
                                          :on-timeout [:never]}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad2 bad)))))
-  (testing ":timeout-ms on :invoke-all is rejected"
+  (testing ":timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
-                         :h    {:invoke-all
+                         :h    {:spawn-all
                                 {:children        [{:id :a :machine-id :stub}]
                                  :join            :all
                                  :on-child-done   :done
@@ -66,7 +66,7 @@
                                  :timeout-ms      5000
                                  :on-timeout      [:to]}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"invoke-timeout-ms-removed"
+                            #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad3 bad))))))
 
 ;; ---- single-delay :after on entry / fire -----------------------------------
@@ -170,7 +170,7 @@
 ;; ---- no-invoke variant (splash screen) -----------------------------------
 
 (deftest after-no-invoke-splash
-  (testing "a state with :after but no :invoke is a pure timed-transition state"
+  (testing "a state with :after but no :spawn is a pure timed-transition state"
     (let [m {:initial :splash
              :data    {:rf/after-epoch 0}
              :states
@@ -184,7 +184,7 @@
       (let [epoch (get-in (snapshot :a/splash) [:data :rf/after-epoch])]
         (rf/dispatch-sync [:a/splash [:rf.machine.timer/after-elapsed 3000 epoch]])
         (is (= :main (:state (snapshot :a/splash)))
-            ":after fired transition with no :invoke spawn")))))
+            ":after fired transition with no :spawn spawn")))))
 
 ;; ---- race: real event beats timer; stale firing must not transition ------
 
@@ -237,10 +237,10 @@
         (is (= :timeout (:state (snapshot :a/fn)))
             "fn-keyed :after entry resolves and fires")))))
 
-;; ---- :invoke-bearing state with :after — wall-clock guard via :after ----
+;; ---- :spawn-bearing state with :after — wall-clock guard via :after ----
 
 (deftest after-on-invoke-bearing-state
-  (testing ":after on an :invoke-bearing state — firing tears down the spawned child"
+  (testing ":after on a :spawn-bearing state — firing tears down the spawned child"
     (let [child {:initial :running
                  :states  {:running {:on {:never-fires :done}}
                            :done    {}}}
@@ -251,7 +251,7 @@
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
-                   {:invoke {:machine-id :child/auth
+                   {:spawn {:machine-id :child/auth
                              :on-spawn   :rec}
                     :after  {30000 :timed-out}
                     :on    {:auth/succeeded :authenticated}}

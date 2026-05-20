@@ -147,7 +147,7 @@
           staging (:boot/staging db)]
       ;; Each staging-key holds the payload that came back from the
       ;; matching URL. Cross-talk (e.g. :flags staging holding the
-      ;; routes payload) would mean the :invoke-all :data fns are
+      ;; routes payload) would mean the :spawn-all :data fns are
       ;; not threading identity correctly.
       (assert (contains? (:config staging) :api-base))
       (assert (sequential? (:routes staging)))

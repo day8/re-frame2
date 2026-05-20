@@ -113,7 +113,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 2 | `work-state` = ':idle' pre-click | A | Sub off `:rf/machine` reads initial state. → `implementation/machines/test/.../deep_machine_cascade_cljs_test.cljs` (new file, or extend `machines_hierarchical_cljs_test.cljs`). |
 | 3 | After `:work/go` click: work-state ≠ ':idle' (poll) | A | 5-level descent transition fires. → same target. |
 | 4 | `:rf.machine/transition` AND `:rf.machine/snapshot-updated` on trace bus | A | Trace-emit observation. Covered by existing machine-trace tests; extend if not already. → `implementation/machines/test/.../machines_trace_emit_cljs_test.cljs` (likely already exists per `flows_trace_emit_elision_prod_test.cljs` pattern). |
-| 5 | `:rf.machine/spawned` from `:leaf-a` `:invoke` | A | Spawn trace. → `implementation/machines/test/.../machines_invoke_cljs_test.cljs` (already exists; extend). |
+| 5 | `:rf.machine/spawned` from `:leaf-a` `:spawn` | A | Spawn trace. → `implementation/machines/test/.../machines_spawn_cljs_test.cljs` (already exists; extend). |
 | 6 | `tick-count` = 1 after entry action | A | Entry action body executed → app-db write → sub fires. → same target as #2-3. |
 
 **Migrated subtotal: 5 of 5 logical observations = 100%. Residual: 1 (mount sanity). DROP this spec entirely** — none of the 5 substantive assertions need a real browser. The mount sanity is covered by the 3 adapter smokes.
@@ -270,7 +270,7 @@ One bead per spec.cjs file. Each can dispatch in parallel where target test file
 - `B1` — drop `testbeds/deliberate_throw/spec.cjs`; extend `on_error_test.cljc` for `:where :handler` ex-data round-trip if missing. **Surface: on-error.**
 - `B2` — drop `testbeds/non_trivial_app_db/spec.cjs`; add `trace_ordering_cljs_test.cljs` OR extend `event_emit_test.cljc`. **Surface: trace ordering.**
 - `B3` — drop `testbeds/drain_depth_trigger/spec.cjs`; add `drain_depth_cljs_test.cljs`. **Surface: router drain.**
-- `B4` — drop `testbeds/deep_machine/spec.cjs`; extend `machines_hierarchical_cljs_test.cljs` + `machines_invoke_cljs_test.cljs`. **Surface: machines.**
+- `B4` — drop `testbeds/deep_machine/spec.cjs`; extend `machines_hierarchical_cljs_test.cljs` + `machines_spawn_cljs_test.cljs`. **Surface: machines.**
 - `B5` — drop `testbeds/long_flow_w_failure/spec.cjs`; add `flow_four_rule_failure_cljs_test.cljs` under `implementation/flows/test/`. **Surface: flows.**
 - `B6` — drop `testbeds/http_toggle/spec.cjs`; add `http_category_attribution_cljs_test.cljs` covering ALL 8 categories (the spec.cjs sampled 3 — CLJS unit cost is identical for 8). **Surface: http.**
 

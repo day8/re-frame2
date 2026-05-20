@@ -70,7 +70,7 @@
     - Orthogonal edge routing (rf2-2tkza Phase 4 follow-on).
     - Parallel-region layout (`{:type :parallel :regions ...}`) —
       v1 falls back to rendering the first region.
-    - `:invoke-all` inline child machines.
+    - `:spawn-all` inline child machines.
     - `:after` countdown ring geometry.
     - Compound-state visual nesting (boxes-within-boxes).
     - Edge-bundling for high-degree nodes."

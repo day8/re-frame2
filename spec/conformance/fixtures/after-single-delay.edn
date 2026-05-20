@@ -52,7 +52,7 @@
    ;; watcher (for :delay-source :sub).
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]
+                      :rf/spawn-id [:loading]
                       :state        :loading
                       :delay-key    5000
                       :epoch        1
@@ -87,7 +87,7 @@
    ;; host-clock timer handle (and any subscription watcher).
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]}]]
+                      :rf/spawn-id [:loading]}]]
    :expect-trace
    [{:operation :rf.machine.timer/fired
      :tags      {:state :loading :delay 5000 :epoch 1 :fired? true}}

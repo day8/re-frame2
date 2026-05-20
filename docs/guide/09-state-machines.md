@@ -176,7 +176,7 @@ If you need `:doc` or `:interceptors`, use the longer form:
 
 `reg-machine` is a **macro**. At expansion it walks the literal spec form and stamps a dev-only coord index under `:rf.machine/source-coords` — what lets pair-tools jump from a clicked transition arrow in a state-diagram visualisation back to the source line. Production builds elide it.
 
-**Initial-state `:entry` fires on machine birth.** When a singleton machine first receives an event — or when an actor is brought into being by `:rf.machine/spawn` / declarative `:invoke` — the runtime cascades into the `:initial` state and runs that state's `:entry` as part of birth. No self-targeting `:on :rf.machine/spawned` ceremony. For compound initial states, every state along the cascade fires its `:entry` shallowest-first. So one-shot setup work — seed `:data`, kick off an HTTP request, register a subscription — goes in the initial state's `:entry`.
+**Initial-state `:entry` fires on machine birth.** When a singleton machine first receives an event — or when an actor is brought into being by `:rf.machine/spawn` / declarative `:spawn` — the runtime cascades into the `:initial` state and runs that state's `:entry` as part of birth. No self-targeting `:on :rf.machine/spawned` ceremony. For compound initial states, every state along the cascade fires its `:entry` shallowest-first. So one-shot setup work — seed `:data`, kick off an HTTP request, register a subscription — goes in the initial state's `:entry`.
 
 ## Dispatching to a machine
 
@@ -301,7 +301,7 @@ The shape above — flat states, plain `:on` transitions, `:entry` / `:exit` act
 - **Hierarchical states.** A compound state contains sub-states; entering the parent cascades to its declared `:initial` child; transitions from a deep state can target a sibling or an ancestor and the runtime computes the LCA. Useful when the auth flow has an `:authenticated` super-state with `:cart` / `:browsing` sub-states under it.
 - **Eventless `:always` transitions.** A state can fire a transition on entry (or after every event) when a guard becomes true — no event needed. Useful for "drain a queue, transition when empty" or advancing through derived states. Bounded depth, microstep-loop semantics.
 - **Delayed `:after` transitions.** "If no event arrives within N ms, transition to this state." Useful for retry-after-backoff, idle timeouts, debounce-shaped flows. Carries an epoch so cancelled timers don't fire late.
-- **Declarative `:invoke`.** A state can spawn a child machine on entry and destroy it on exit, declared as data. The child's lifetime is bound to the parent state.
+- **Declarative `:spawn`.** A state can spawn a child machine on entry and destroy it on exit, declared as data. The child's lifetime is bound to the parent state.
 
 Each is opt-in per the capability matrix. The model scales — when your machine grows, the substrate has well-named answers ready.
 
@@ -315,11 +315,11 @@ Three recurring shapes from [chapter 04](04-events-state-cycle.md) are state mac
 
 ### Pattern-WebSocket — a connection as a machine
 
-WebSocket, Server-Sent Events, WebRTC peers — anything with retry, backoff, heartbeat, subscriptions, and server-pushed events — is state-machine-shaped. The canonical machine has a `:disconnected` initial state, a compound `:active` parent containing `:connecting / :authenticating / :connected` leaves (the parent owns the `:invoke`d socket actor so its lifetime spans the success cascade), a `:reconnecting` state with fn-form `:after` exponential backoff, and a terminal `:failed` state on max retries. Messages *over* the open connection are ordinary async-effect interactions correlated through `:data :in-flight`.
+WebSocket, Server-Sent Events, WebRTC peers — anything with retry, backoff, heartbeat, subscriptions, and server-pushed events — is state-machine-shaped. The canonical machine has a `:disconnected` initial state, a compound `:active` parent containing `:connecting / :authenticating / :connected` leaves (the parent owns the `:spawn`d socket actor so its lifetime spans the success cascade), a `:reconnecting` state with fn-form `:after` exponential backoff, and a terminal `:failed` state on max retries. Messages *over* the open connection are ordinary async-effect interactions correlated through `:data :in-flight`.
 
 ### Pattern-Boot — initialisation as a machine
 
-For trivial boots — one or two steps, no progress UI — a chain of dispatched events suffices. Once the boot graph grows to include config load, auth restoration, profile fetch, `localStorage` hydration, and route resolution, the chained-events form scatters logic across N unrelated handlers. The canonical answer is a boot state machine with named phases (`:configuring`, `:authenticating`, `:loading-profile`, `:hydrating`, `:routing`, `:ready`, plus per-phase error and `:retrying-*` states). Each phase `:invoke`s its async work, transitions on success / failure, and updates the visible-progress slice in `:data` so the boot UI can render "Loading config…" / "Signing in…" / "Almost ready…" from the snapshot. The boot machine is also the canonical seam between host-supplied static config and the running app's dynamic state.
+For trivial boots — one or two steps, no progress UI — a chain of dispatched events suffices. Once the boot graph grows to include config load, auth restoration, profile fetch, `localStorage` hydration, and route resolution, the chained-events form scatters logic across N unrelated handlers. The canonical answer is a boot state machine with named phases (`:configuring`, `:authenticating`, `:loading-profile`, `:hydrating`, `:routing`, `:ready`, plus per-phase error and `:retrying-*` states). Each phase `:spawn`s its async work, transitions on success / failure, and updates the visible-progress slice in `:data` so the boot UI can render "Loading config…" / "Signing in…" / "Almost ready…" from the snapshot. The boot machine is also the canonical seam between host-supplied static config and the running app's dynamic state.
 
 ### Pattern-LongRunningWork — CPU-bound work as a chunked machine
 
@@ -477,31 +477,31 @@ The canonical lifecycle fxs:
 
 `:rf.machine/spawn` registers a fresh actor (a copy of the spec keyed by a gensym'd id), seeds its `:data`, runs `:on-spawn` against the new id, and queues the optional `:start` event. `:rf.machine/destroy` runs the actor's `:exit` action, dissociates its snapshot, and clears its handler from the frame-local registry.
 
-For most apps you do not call these directly. The declarative `:invoke` slot on a state node spawns a child on entry and destroys it on exit:
+For most apps you do not call these directly. The declarative `:spawn` slot on a state node spawns a child on entry and destroys it on exit:
 
 ```clojure
 :states
 {:authenticating
- {:invoke {:machine-id :auth/oauth-flow
+ {:spawn {:machine-id :auth/oauth-flow
            :data       {:provider :github}}
   :on {:auth.oauth/success {:target :authenticated
                             :action :store-session}}}
 
  :authenticated
- {;; ... no :invoke — no child to manage in this state
+ {;; ... no :spawn — no child to manage in this state
   }}
 ```
 
-`:invoke` is **registration-time sugar.** `create-machine-handler` rewrites every `:invoke` into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy`. The runtime sees only the desugared form — no new mechanics, no new lifecycle event. The spawned actor-id is tracked internally at `[:rf/spawned <parent-id> <invoke-id>]` — **you don't track it yourself**; the runtime reads it back on exit to emit the destroy fx with the right id.
+`:spawn` is **registration-time sugar.** `create-machine-handler` rewrites every `:spawn` into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy`. The runtime sees only the desugared form — no new mechanics, no new lifecycle event. The spawned actor-id is tracked internally at `[:rf/spawned <parent-id> <invoke-id>]` — **you don't track it yourself**; the runtime reads it back on exit to emit the destroy fx with the right id.
 
 ### Naming machines across the frame: `:system-id`
 
-Sometimes a spawned actor needs to be reached by name from somewhere else — a sibling machine, an event handler, a REPL session — without threading the gensym'd id through `:data`. The opt-in `:system-id` key on a spawn (imperative `:rf.machine/spawn` fx or declarative `:invoke`) binds the actor to a frame-level reverse index at `[:rf/system-ids <name>]`:
+Sometimes a spawned actor needs to be reached by name from somewhere else — a sibling machine, an event handler, a REPL session — without threading the gensym'd id through `:data`. The opt-in `:system-id` key on a spawn (imperative `:rf.machine/spawn` fx or declarative `:spawn`) binds the actor to a frame-level reverse index at `[:rf/system-ids <name>]`:
 
 ```clojure
 :states
 {:requesting
- {:invoke {:machine-id :request/protocol
+ {:spawn {:machine-id :request/protocol
            :system-id  :primary-request
            :data       {...}}}}
 

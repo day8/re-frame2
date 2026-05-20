@@ -711,7 +711,7 @@
   ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
   ;; machine owns the initialisation graph (config → parallel
-  ;; dependency loads via :invoke-all → hydrate → :ready); the
+  ;; dependency loads via :spawn-all → hydrate → :ready); the
   ;; main view does not mount until the machine reaches :ready.
   ;; Companion to spec/Pattern-Boot.md.
   :examples/boot
@@ -756,10 +756,10 @@
    :modules    {:main {:init-fn ssr-streaming.core/run}}}
 
   ;; Pattern-LongRunningWork worked example (rf2-o9fg) —
-  ;; :invoke-all spawn-and-join with progress reporting and
+  ;; :spawn-all spawn-and-join with progress reporting and
   ;; cooperative cancellation on parent-unmount. The parent
   ;; coordinator :work/flow spawns three :work/processor children
-  ;; via :invoke-all; each child yields between chunks via :after;
+  ;; via :spawn-all; each child yields between chunks via :after;
   ;; cancellation cascades via the desugared :exit fx.
   :examples/long-running-work
   {:target     :browser
@@ -836,7 +836,7 @@
 
   ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked
   ;; example for spec/Pattern-WebSocket.md — connection machine with
-  ;; hierarchical :active parent, :invoke'd socket actor, :after
+  ;; hierarchical :active parent, :spawn'd socket actor, :after
   ;; backoff, :always queue-flush, :fsm/tags, request-reply
   ;; correlation, and connection-epoch staleness via :current-socket?.
   ;; The transport is a tiny in-process mock WebSocket server so the
@@ -905,7 +905,7 @@
 
   ;; rf2-kzcim Tier 2 — deep-machine testbed (one machine exercising
   ;; every Spec 005 grammar surface: parallel regions, hierarchical
-  ;; compound 5+ levels deep, :always, :after, :invoke, :invoke-all).
+  ;; compound 5+ levels deep, :always, :after, :spawn, :spawn-all).
   :testbeds/deep-machine
   {:target     :browser
    :output-dir "out/testbeds/deep-machine"

@@ -7,7 +7,7 @@
 
   - The wrapper machine registration succeeds when `re-frame.machines`
     is on the classpath at http-managed load time.
-  - A parent machine `:invoke`ing `:rf.http/managed` with the canned
+  - A parent machine `:spawn`ing `:rf.http/managed` with the canned
     success stub fires the wrapper, transitions to `:succeeded`, and
     dispatches `[<parent-id> [:succeeded value]]` back to the parent.
 
@@ -56,10 +56,10 @@
             ":succeeded carries :meta {:terminal? true} for tooling visibility")
         (is (true? (get-in spec [:states :failed :meta :terminal?])))))))
 
-;; ---- (2) parent :invoke spawns wrapper, registry/snapshot wiring -------
+;; ---- (2) parent :spawn spawns wrapper, registry/snapshot wiring -------
 
 (deftest invoke-spawns-wrapper-and-injects-framework-keys
-  (testing "parent :invoke {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data (rf2-ijm7)"
+  (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/spawn-id into the wrapper's :data (rf2-ijm7)"
     ;; Install a stub that NEVER replies — gives us a stable
     ;; :requesting snapshot to inspect without racing against Fetch.
     (http-managed/install-managed-request-stubs! {})
@@ -69,7 +69,7 @@
          :states
          {:idle {:on {:login :authenticating}}
           :authenticating
-          {:invoke {:machine-id :rf.http/managed
+          {:spawn {:machine-id :rf.http/managed
                     :data       {:request {:url "/api/me" :method :get}}}
            :on     {:succeeded :authenticated
                     :failed    :idle}}
@@ -94,8 +94,8 @@
               ":rf/self-id is stamped to the wrapper's own id")
           (is (= :cljs/auth2 (:rf/parent-id wrapper-data))
               ":rf/parent-id is stamped to the parent machine's id (rf2-ijm7)")
-          (is (= [:authenticating] (:rf/invoke-id wrapper-data))
-              ":rf/invoke-id is stamped to the parent's :invoke-bearing state path")
+          (is (= [:authenticating] (:rf/spawn-id wrapper-data))
+              ":rf/spawn-id is stamped to the parent's :spawn-bearing state path")
           (is (= {:url "/api/me" :method :get} (:request wrapper-data))
               "the user's :request is preserved verbatim under :data")))
       (finally
@@ -104,7 +104,7 @@
 ;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
 
 (deftest parent-exit-destroys-wrapper-child
-  (testing "transition out of the :invoke-bearing state destroys the wrapper actor — registry slot cleared, snapshot gone (rf2-ijm7 + rf2-wvkn destroy cascade)"
+  (testing "transition out of the :spawn-bearing state destroys the wrapper actor — registry slot cleared, snapshot gone (rf2-ijm7 + rf2-wvkn destroy cascade)"
     (http-managed/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
     (try
       (rf/reg-machine :cljs/cancellable
@@ -112,7 +112,7 @@
          :states
          {:idle {:on {:login :authenticating}}
           :authenticating
-          {:invoke {:machine-id :rf.http/managed
+          {:spawn {:machine-id :rf.http/managed
                     :data       {:request {:url "/never-returns" :method :get}}}
            :on     {:cancel    :idle
                     :succeeded :authenticated

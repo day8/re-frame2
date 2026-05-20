@@ -5,7 +5,7 @@
    Three flows, all browserless via `make-frame` + `dispatch-sync`:
 
      1. **Spawn cascade.** :start transitions :idle → :working;
-        the runtime emits :rf.machine/invoke-all-init + 3
+        the runtime emits :rf.machine/spawn-all-init + 3
         :rf.machine/spawn fxs; the join-state's :children map at
         [:rf/spawned :work/flow [:working]] is populated.
 
@@ -19,8 +19,8 @@
      3. **Mid-flight cancellation cascade.** :start, then a few
         `:progress` events to simulate partial work, then `:cancel`;
         the parent transitions :working → :cancelled; the
-        :invoke-all exit cascade fires :rf.machine/destroy with
-        :rf/invoke-all true; the join-state slot at
+        :spawn-all exit cascade fires :rf.machine/destroy with
+        :rf/spawn-all true; the join-state slot at
         [:rf/spawned :work/flow [:working]] is torn down.
 
      4. **Parent-unmount cascade.** Same path as (3) but the
@@ -73,7 +73,7 @@
       (is (nil? (join-state f))))                            ;; not yet allocated
 
     ;; :start transitions :idle → :working; the runtime emits
-    ;; :rf.machine/invoke-all-init + 3 :rf.machine/spawn fxs. The
+    ;; :rf.machine/spawn-all-init + 3 :rf.machine/spawn fxs. The
     ;; init fx seeds the join-state map at
     ;; [:rf/spawned :work/flow [:working]] with :children mapping
     ;; each user-supplied id (:s1/:s2/:s3) to the gensym'd
@@ -158,8 +158,8 @@
       (is (= 300 (rf/compute-sub [:work/total-items] (rf/get-frame-db f)))))
 
     ;; User clicks Cancel. The parent transitions :working →
-    ;; :cancelled; the :invoke-all desugared :exit fires one
-    ;; :rf.machine/destroy fx with :rf/invoke-all true; the
+    ;; :cancelled; the :spawn-all desugared :exit fires one
+    ;; :rf.machine/destroy fx with :rf/spawn-all true; the
     ;; destroy fx handler iterates the join-state's :children map
     ;; and tears each surviving child down, then clears the
     ;; [:rf/spawned :work/flow [:working]] slot.

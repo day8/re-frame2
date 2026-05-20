@@ -73,7 +73,7 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
 
 The decision record's D7 captures the claimed tag set. The harness uses the claim as the filter; only matching fixtures run.
 
-A port that claims `:core/* + :fsm/flat + :actor/own-state` runs every `:core/*` fixture, every `:fsm/flat` fixture, and every `:actor/own-state` fixture — and skips the hierarchical FSM fixtures, the `:invoke` fixtures, the routing fixtures, etc. The skipped fixtures report as "not exercised," not as failures.
+A port that claims `:core/* + :fsm/flat + :actor/own-state` runs every `:core/*` fixture, every `:fsm/flat` fixture, and every `:actor/own-state` fixture — and skips the hierarchical FSM fixtures, the `:spawn` fixtures, the routing fixtures, etc. The skipped fixtures report as "not exercised," not as failures.
 
 ## Diagnosis — spec gap vs implementation bug
 

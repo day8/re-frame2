@@ -13,11 +13,11 @@
       delays admit three forms — pos-int? literal, subscription vector
       ([:sub-id & args]; re-resolves on sub change), and
       (fn [snapshot] ms) computed once at state entry.
-    - Declarative :invoke that desugars into [:rf.machine/spawn args]
+    - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via a per-process counter.
-    - Declarative :invoke-all — spawn-and-join sugar over N parallel
-      :invoke's plus a join condition (:all / :any / {:n N} / {:fn pred}).
+    - Declarative :spawn-all — spawn-and-join sugar over N parallel
+      :spawn's plus a join condition (:all / :any / {:n N} / {:fn pred}).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - Snapshot at [:rf/machines <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
@@ -58,7 +58,7 @@
 ;; `:require [re-frame.machines :as machines]`) see the same surface
 ;; they did pre-split.
 
-;; Declarative-`:invoke` spawns allocate ids inside the parent
+;; Declarative-`:spawn` spawns allocate ids inside the parent
 ;; snapshot's `:rf/spawn-counter` slot via
 ;; `re-frame.machines.transition/allocate-spawned-id`; hand-emitted
 ;; spawn fxs allocate from the frame's app-db slot at
@@ -138,7 +138,7 @@
   subscription watchers without touching sibling frames.
 
   Spawn-id allocation lives inside the parent snapshot's
-  `:rf/spawn-counter` slot (declarative `:invoke`) or the frame's
+  `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
   app-db at `[:rf/spawn-counter <machine-id>]` (hand-emitted spawn);
   both reset automatically with the registrar snapshot/restore + frame
   reset, so this hook only handles the frame-scoped wall-clock timer
@@ -151,10 +151,10 @@
 
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;
-;; Per Spec 005 §Declarative :invoke (sugar over spawn) the runtime
+;; Per Spec 005 §Declarative :spawn (sugar over spawn) the runtime
 ;; effects `:rf.machine/spawn` and `:rf.machine/destroy` are emitted
 ;; into the fx vector by `apply-transition-once` whenever entry/exit
-;; cascades cross an :invoke-bearing state. These handlers live in
+;; cascades cross a :spawn-bearing state. These handlers live in
 ;; this namespace (rather than `re-frame.fx`'s reserved case-block) so
 ;; an app that doesn't pull in `day8/re-frame2-machines` carries
 ;; neither the trace strings (`:rf.machine/spawned`,
@@ -162,14 +162,14 @@
 ;; elision bundle.
 
 (fx/reg-fx :rf.machine/spawn
-  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :invoke (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:initial-data`."}
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:initial-data`."}
   spawn-fx)
 
 (fx/reg-fx :rf.machine/destroy
-  {:doc "Destroy a spawned machine instance and clear its `[:rf/machines machine-id]` slot. Per Spec 005 §Declarative :invoke."}
+  {:doc "Destroy a spawned machine instance and clear its `[:rf/machines machine-id]` slot. Per Spec 005 §Declarative :spawn."}
   destroy-machine-fx)
 
-(fx/reg-fx :rf.machine/invoke-all-init
+(fx/reg-fx :rf.machine/spawn-all-init
   {:doc "Machine-internal: fire `:initial-entry` cascades for every machine spawned at app boot. Per Spec 005 §Initial entry. Not for direct application use."}
   invoke-all-init-fx)
 
@@ -257,7 +257,7 @@
                    spawn-order/reset-all!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
-(late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)
+(late-bind/set-fn! :machines/spawn-all-init-fx      invoke-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
 

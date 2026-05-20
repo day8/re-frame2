@@ -613,7 +613,7 @@ block per managed-effect fx** showing the entire wire interaction:
 request payload (post-elision) → wire transit (status / headers /
 timing waterfall) → response → handler dispatched → app-db slice
 touched. One template; five surfaces (HTTP, WebSocket, machine
-`:invoke`, SSR `:rf.server/*`, flows). See
+`:spawn`, SSR `:rf.server/*`, flows). See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.1.
 
 ### Event tab — `:on-match` event chain (Routes)

@@ -64,7 +64,7 @@
 
   Deliberately kept small (four states) so the hiccup walk is fast
   and the assertions are exact. Richer grammar (compound, parallel,
-  :after, :invoke-all) is exercised by `svg_cljs_test.cljc` already;
+  :after, :spawn-all) is exercised by `svg_cljs_test.cljc` already;
   this smoke is the EMBED-CONTRACT pin, not a grammar inventory."
   {:initial :idle
    :states

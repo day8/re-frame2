@@ -45,7 +45,7 @@
   ;; :after timers, partitioned per frame.
   ;;
   ;; Outer shape: {<frame-id> {<inner-key> <entry>}}.
-  ;; Inner key:   {:parent <parent-id> :invoke <invoke-id-vec>
+  ;; Inner key:   {:parent <parent-id> :spawn <invoke-id-vec>
   ;;               :delay <delay-key>} — multiple delays per :after map
   ;;              have their own slot, and parallel-region machines
   ;;              partition further on the region-prefixed invoke-id.
@@ -81,16 +81,16 @@
   "Inner-table key — frame-id is the OUTER key into `after-timers` and
   is intentionally absent from this map.
 
-  Per rf2-gwznv the key is a `{:parent ... :invoke ... :delay ...}`
+  Per rf2-gwznv the key is a `{:parent ... :spawn ... :delay ...}`
   map rather than a positional tuple — readers no longer have to
   remember slot order, and the scan in `after-cancel-fx` reads
-  `(:parent k)` / `(:invoke k)` rather than `(nth k 0)` / `(nth k 1)`.
+  `(:parent k)` / `(:spawn k)` rather than `(nth k 0)` / `(nth k 1)`.
   The key is opaque to callers (used only as a `get-in` index into
   `after-timers`'s inner map); the change is invisible outside this
   file."
   [parent-id invoke-id delay-key]
   {:parent parent-id
-   :invoke (vec invoke-id)
+   :spawn (vec invoke-id)
    :delay  delay-key})
 
 (defn- classify-delay-source [delay-key]
@@ -351,7 +351,7 @@
   No-op under `:platform :server` (per Spec 005 §SSR mode)."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [parent-id  (:rf/parent-id args)
-        invoke-id  (:rf/invoke-id args)
+        invoke-id  (:rf/spawn-id args)
         state      (:state args)
         delay-key  (:delay-key args)
         epoch      (:epoch args)
@@ -381,16 +381,16 @@
 
   Per rf2-ysa94 the scan is now bounded by the active frame's inner
   table — siblings' timers in other frames are no longer walked. Per
-  rf2-gwznv the inner key is `{:parent ... :invoke ... :delay ...}`,
+  rf2-gwznv the inner key is `{:parent ... :spawn ... :delay ...}`,
   so the only cross-key axis we still iterate is `:delay` (one entry
   per :after map entry on the bearing state node — typically 1-3
   entries)."
   [{frame-id :frame :or {frame-id :rf/default}} args]
   (let [parent-id (:rf/parent-id args)
-        invoke-id (vec (:rf/invoke-id args))]
+        invoke-id (vec (:rf/spawn-id args))]
     (doseq [[k _entry] (get @after-timers frame-id)
             :when (and (= parent-id (:parent k))
-                       (= invoke-id (:invoke k)))]
+                       (= invoke-id (:spawn k)))]
       (cancel-after-timer-entry! frame-id k))
     nil))
 

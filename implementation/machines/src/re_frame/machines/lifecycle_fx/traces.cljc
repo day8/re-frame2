@@ -24,7 +24,7 @@
 
   Per the rf2-vgkdt destroyed-trace-shape contract (assertion test in
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
-  keys are `#{:frame :actor-id :system-id :parent-id :invoke-id
+  keys are `#{:frame :actor-id :system-id :parent-id :spawn-id
   :child-id :reason}`. Callers pass only the slots their site populates
   — `nil` values are stamped through, matching pre-consolidation
   behaviour (e.g. `destroy-single!` always stamps `:system-id`, even
@@ -33,7 +33,8 @@
 
   `reason` is the discriminator — `:explicit` for direct-destroy
   cascades, `:rf.machine/finished` for final-state auto-destroy."
-  [{:keys [frame actor-id system-id parent-id invoke-id child-id reason]
+  [{:keys [frame actor-id system-id parent-id child-id reason]
+    invoke-id :spawn-id
     :or {reason :explicit}
     :as args}]
   (trace/emit! :machine :rf.machine/destroyed
@@ -42,7 +43,7 @@
                         :reason   reason}
                  (contains? args :system-id) (assoc :system-id system-id)
                  (contains? args :parent-id) (assoc :parent-id parent-id)
-                 (contains? args :invoke-id) (assoc :invoke-id invoke-id)
+                 (contains? args :spawn-id) (assoc :spawn-id invoke-id)
                  (contains? args :child-id)  (assoc :child-id  child-id))))
 
 (defn emit-system-id-released!

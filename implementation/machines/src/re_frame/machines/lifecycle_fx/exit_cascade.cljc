@@ -1,16 +1,16 @@
 (ns re-frame.machines.lifecycle-fx.exit-cascade
   "Destroy-time `:exit` cascade runner (rf2-nahfm).
 
-  Per Spec 005 §Declarative `:invoke` §Composition with explicit
-  `:entry` / `:exit`: when an `:invoke`-spawned actor is destroyed, the
+  Per Spec 005 §Declarative `:spawn` §Composition with explicit
+  `:entry` / `:exit`: when a `:spawn`-spawned actor is destroyed, the
   user's `:exit` action gets to read the actor's final snapshot before
   the auto-destroy clears it. Per §Final states §Composition with
   `:entry` / `:exit`: a final state's `:exit` runs from the auto-
   destroy teardown, same ordering convention.
 
   Pre-rf2-nahfm the four destroy entry-points — explicit
-  `:rf.machine/destroy`, declarative-`:invoke` exit-cascade destroy,
-  `:invoke-all` per-child teardown, and final-state auto-destroy —
+  `:rf.machine/destroy`, declarative-`:spawn` exit-cascade destroy,
+  `:spawn-all` per-child teardown, and final-state auto-destroy —
   each tore the actor's snapshot down WITHOUT firing the active
   configuration's `:exit` actions. This namespace centralises the fix
   so every destroy path runs through `run-child-exit!`.
@@ -72,7 +72,7 @@
 
   Returns nil. Per Spec 005 §Final states §Composition with `:entry` /
   `:exit` — `:exit` runs BEFORE the auto-destroy teardown; per
-  §Declarative `:invoke` §Composition — `:exit` reads the actor's
+  §Declarative `:spawn` §Composition — `:exit` reads the actor's
   final snapshot before clearing."
   [frame-id actor-id]
   (when actor-id

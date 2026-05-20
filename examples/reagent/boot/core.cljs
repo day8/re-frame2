@@ -140,7 +140,7 @@
   ;; :data seed `[:rf/machines :app/boot]` on first dispatch (per
   ;; Spec 005 §Restore semantics); :boot/initialise fires
   ;; `[:app/boot [:rf/start]]`, which transitions :configuring's
-  ;; :invoke spawn-fx and starts the boot sequence.
+  ;; :spawn spawn-fx and starts the boot sequence.
   (rf/dispatch-sync [:boot/initialise])
 
   (when (exists? js/document)

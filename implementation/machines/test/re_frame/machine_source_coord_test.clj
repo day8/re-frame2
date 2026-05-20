@@ -226,14 +226,14 @@
       (is (some? (get idx [:guards :enough?]))))))
 
 (deftest reg-machine-stamps-invoke-on-spawn-via-definition
-  (testing ":invoke {:on-spawn :id}: keyword references resolve through
+  (testing ":spawn {:on-spawn :id}: keyword references resolve through
   the [:on-spawn-actions <id>] definition coord, where the fn-form lives"
     (rf/reg-machine :rf2-8bp3/invoke-os
       {:initial :idle
        :data    {}
        :on-spawn-actions {:cap (fn [data id] (assoc data :pending id))}
        :states
-       {:idle {:invoke {:machine-id :child :on-spawn :cap}}}})
+       {:idle {:spawn {:machine-id :child :on-spawn :cap}}}})
     (let [idx (per-element-coords :rf2-8bp3/invoke-os)]
       ;; Definition coord present.
       (is (some? (get idx [:on-spawn-actions :cap]))))))

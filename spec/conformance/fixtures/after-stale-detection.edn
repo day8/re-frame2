@@ -39,7 +39,7 @@
    :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]
+                      :rf/spawn-id [:loading]
                       :state        :loading
                       :delay-key    5000
                       :epoch        1
@@ -65,7 +65,7 @@
    :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]}]]
+                      :rf/spawn-id [:loading]}]]
    :expect-trace
    [{:operation :rf.machine/transition
      :tags      {:from :loading :to :ready}}]}

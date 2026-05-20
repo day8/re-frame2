@@ -4,13 +4,13 @@
 ;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
 ;;
 ;; When a `:system-id`-bound machine is destroyed (whether by exit from
-;; an :invoke-bearing state or by a hand-emitted `:rf.machine/destroy`
+;; a :spawn-bearing state or by a hand-emitted `:rf.machine/destroy`
 ;; fx), the runtime clears the `[:rf/system-ids]` slot AND the
 ;; `[:rf/machines <id>]` snapshot, and emits
 ;; `:rf.machine/system-id-released`.
 ;;
 ;; This fixture exercises the declarative path: the parent transitions
-;; out of the :invoke-bearing state, the auto-destroy fx fires, and
+;; out of the :spawn-bearing state, the auto-destroy fx fires, and
 ;; both the snapshot and the system-id binding disappear.
 
 {:fixture/id           :machine/destroy-machine-clears-system-id-index
@@ -26,7 +26,7 @@
                  :data    {}
                  :states
                  {:idle    {:on {:start :working}}
-                  :working {:invoke {:machine-id :worker/proc
+                  :working {:spawn {:machine-id :worker/proc
                                      :system-id  :worker
                                      :on-spawn   :auth/record-actor}
                             :on    {:done :idle}}}}}

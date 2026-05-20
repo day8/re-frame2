@@ -44,7 +44,7 @@
 
     - No source-coord jumps (the cross-panel jump API hasn't
       stabilised yet — same as the routes panel's v1 deferral).
-    - No `:invoke-all` viz / `:after` countdown rings / share
+    - No `:spawn-all` viz / `:after` countdown rings / share
       affordance — those live in `tools/machines-viz/` per Spec
       003 §Embedding posture. This panel embeds the component; the
       rendering is the component's job. The placeholder simply

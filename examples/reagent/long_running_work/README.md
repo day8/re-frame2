@@ -2,7 +2,7 @@
 
 A re-frame2 worked example demonstrating
 [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md)'s
-`:invoke-all` shape: cancellable long-running operations decomposed
+`:spawn-all` shape: cancellable long-running operations decomposed
 into N parallel worker machines, with progress reporting and a
 cooperative cancellation cascade that fires on **every** exit path —
 including the user navigating away mid-flight.
@@ -10,12 +10,12 @@ including the user navigating away mid-flight.
 This example complements the chunked-state-machine shape Pattern-LongRunningWork
 describes for single-worker work. When the work decomposes into
 independent shards, the same cooperative-yield idiom composes
-naturally over `:invoke-all` — one parent coordinator, N children, one
+naturally over `:spawn-all` — one parent coordinator, N children, one
 declarative spawn-and-join.
 
 ## What this example demonstrates
 
-- **Declarative spawn-and-join** via [`:invoke-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-invoke-all)
+- **Declarative spawn-and-join** via [`:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all)
   (rf2-6vmw). The parent `:work/flow` machine spawns 3 `:work/processor`
   children in parallel; the runtime owns the join state at
   `[:rf/spawned :work/flow [:working]]`. No per-child bookkeeping in
@@ -43,7 +43,7 @@ declarative spawn-and-join.
   the parent's `:working` state handles `:progress` as an
   **internal self-transition** (no `:target` per [§Internal vs external
   self-transitions](../../../spec/005-StateMachines.md#self-transitions)) so
-  the action runs without re-firing the `:invoke-all` entry-cascade
+  the action runs without re-firing the `:spawn-all` entry-cascade
   (which would otherwise re-spawn the children — anti-pattern).
 
 - **Parent-unmount cascade**. The view wrapper's `r/with-let` cleanup
@@ -58,7 +58,7 @@ declarative spawn-and-join.
 :work/flow                                   (parent coordinator)
   :idle           ──[:start]──> :working
   :working
-    :invoke-all  three children (one per shard)
+    :spawn-all  three children (one per shard)
                  :join :all
                  :on-child-done :work/child-done
                  :on-all-complete [:work/all-done]
@@ -144,7 +144,7 @@ Direct fixture invocation from a CLJS REPL:
 ## Cross-references
 
 - [`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md) — the pattern.
-- [`spec/005-StateMachines.md` §Spawn-and-join via `:invoke-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-invoke-all) — the substrate.
+- [`spec/005-StateMachines.md` §Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) — the substrate.
 - [`spec/005-StateMachines.md` §Cancellation cascade](../../../spec/005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the cancel contract.
 - [`spec/conformance/fixtures/invoke-all-*.edn`](../../../spec/conformance/fixtures/) — the runtime contract these examples sit on.
 - [`examples/reagent/realworld/`](../realworld/) — the layout convention this example mirrors.

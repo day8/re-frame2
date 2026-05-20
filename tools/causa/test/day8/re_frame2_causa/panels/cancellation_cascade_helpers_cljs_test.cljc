@@ -106,8 +106,8 @@
          time        1025
          id          600}}]
   {:id         id
-   :operation  :rf.machine.invoke/cancelled-on-join-resolution
-   :op-type    :rf.machine.invoke
+   :operation  :rf.machine.spawn/cancelled-on-join-resolution
+   :op-type    :rf.machine.spawn
    :time       time
    :tags       {:child-id    child-id
                 :dispatch-id dispatch-id}})

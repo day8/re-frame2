@@ -1,17 +1,17 @@
 # Pattern-WebSocket in re-frame2
 
-> **Canonical worked example.** This is the runnable example for [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md). It exercises the canonical connection-machine shape — hierarchical compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, an `:invoke`d socket actor whose lifetime is bound to `:active`, `:after` exponential backoff, `:always` queue-flush on `:connected` entry, `:fsm/tags` for queryable connection-state predicates, and connection-epoch staleness via `:current-socket?` against the live `:socket-id`. Pattern-WebSocket §The connection state machine is the normative description; this example is its runnable form.
+> **Canonical worked example.** This is the runnable example for [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md). It exercises the canonical connection-machine shape — hierarchical compound `:active` parenting `:connecting` / `:authenticating` / `:connected`, a `:spawn`d socket actor whose lifetime is bound to `:active`, `:after` exponential backoff, `:always` queue-flush on `:connected` entry, `:fsm/tags` for queryable connection-state predicates, and connection-epoch staleness via `:current-socket?` against the live `:socket-id`. Pattern-WebSocket §The connection state machine is the normative description; this example is its runnable form.
 
 ## What this example demonstrates
 
-- **Hierarchical compound `:active`** parenting `:connecting`, `:authenticating`, `:connected`. The socket-actor `:invoke` is anchored on `:active` so it survives the success-path leaf transitions (`:connecting` → `:authenticating` → `:connected`) without re-spawning.
-- **`:invoke` socket actor (`:websocket/socket`)**, whose lifetime is bound to `:active`. Exit-from-`:active` (to `:reconnecting` or `:failed` or `:disconnected`) destroys the actor; re-entry spawns a fresh one. The actor owns the host-side `WebSocket`-shaped reference via a private store keyed by `:rf/self-id`; only the id ever appears in `:data`.
+- **Hierarchical compound `:active`** parenting `:connecting`, `:authenticating`, `:connected`. The socket-actor `:spawn` is anchored on `:active` so it survives the success-path leaf transitions (`:connecting` → `:authenticating` → `:connected`) without re-spawning.
+- **`:spawn` socket actor (`:websocket/socket`)**, whose lifetime is bound to `:active`. Exit-from-`:active` (to `:reconnecting` or `:failed` or `:disconnected`) destroys the actor; re-entry spawns a fresh one. The actor owns the host-side `WebSocket`-shaped reference via a private store keyed by `:rf/self-id`; only the id ever appears in `:data`.
 - **`:after` exponential backoff** on `:reconnecting` — `(fn [snap] (min (* base-ms (Math/pow 2 retries)) max-backoff-ms))`. The `:after`-epoch invariant handles stale timers from prior `:reconnecting` visits.
 - **`:always` cascades** — `:reconnecting`'s `:max-retries-exceeded?` guard transitions straight to `:failed`; `:connected`'s `:has-queued-messages?` guard fires `:flush-queue` on entry.
 - **`:fsm/tags`** — `:websocket/connected`, `:websocket/reconnecting`, `:websocket/failed`, `:websocket/active`, `:websocket/connecting`, `:websocket/authenticating`. The view reads `rf/machine-has-tag?` rather than unfolding the snapshot's hierarchical `:state` vector.
 - **Connection-epoch staleness** — Pattern-StaleDetection composed against the live `:socket-id` (the gensym'd actor address). The `:current-socket?` guard rejects `:ws/received` from a socket that has since been replaced, and similarly suppresses stale `:ws/request-timeout` events.
 - **Request/reply correlation** — `:in-flight` map keyed by request-id; `:register-request` stamps the id onto the body, schedules a `:dispatch-later` timeout, and routes the body to the actor; the inbound `:ws/received` correlated by id clears the slot + dispatches the registered reply event.
-- **Reconnect-cascade** — `:exit` on `:active` clears `:socket-id`; the runtime destroys the actor automatically (declarative `:invoke`'s desugar emits `:rf.machine/destroy` on exit). Re-entering `:active` after the `:after` backoff spawns a fresh actor; the `:invoke`'s `:data` fn re-reads URL + token from `:data` at each entry, so a `:ws/refresh-token` between reconnects flows in without extra wiring.
+- **Reconnect-cascade** — `:exit` on `:active` clears `:socket-id`; the runtime destroys the actor automatically (declarative `:spawn`'s desugar emits `:rf.machine/destroy` on exit). Re-entering `:active` after the `:after` backoff spawns a fresh actor; the `:spawn`'s `:data` fn re-reads URL + token from `:data` at each entry, so a `:ws/refresh-token` between reconnects flows in without extra wiring.
 - **Offline queue + drain on reconnect** — `:ws/send` while disconnected enqueues in `:data :queue`; the `:connected` state's `:always` cascade flushes the queue on entry.
 - **Subscription tracking** — `:ws/subscribe` records the topic in `:data :subscriptions` (a set); on every `:connected` entry the `:flush-queue-and-resubscribe` action re-issues subscribe messages for every tracked topic, so subscriptions survive reconnects.
 
@@ -46,7 +46,7 @@ The mock has two delivery modes — async via `setTimeout(_, 0)` (default, used 
 ## Architecture references
 
 - [`spec/Pattern-WebSocket.md`](../../../spec/Pattern-WebSocket.md) — the normative pattern (this example's spec).
-- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — hierarchical states, `:after`, `:always`, `:invoke`, `:fsm/tags`.
+- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — hierarchical states, `:after`, `:always`, `:spawn`, `:fsm/tags`.
 - [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) — composed twice (backoff timer + connection epoch).
 - [`spec/Pattern-AsyncEffect.md`](../../../spec/Pattern-AsyncEffect.md) — distinct but adjacent; individual request-reply messages over the open socket fit Pattern-AsyncEffect (the open connection acts as the fx).
 

@@ -60,8 +60,8 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `(rf/init!)` with no args | **M-40** | A | Now requires an explicit adapter spec map: `(rf/init! reagent-adapter/adapter)` (or the chosen adapter). |
 | `subscribe` / `dispatch` inside a React context boundary | M-41 | — | Additive: consults React-context tier. No user-side action. |
 | React-19-removed Reagent surfaces (specific list in MIGRATION.md) | M-42 | A | Ship as throw-on-call shims under `day8/reagent-slim`. Mechanical: the shims throw at runtime if used; rewrite per the call-site. |
-| `:invoke-all` slot in machine specs | M-43 | — | Additive; opt-in via O-15. No user-side action for v1→v2 migration. |
-| `:timeout-ms` on `:invoke` / `:invoke-all` | **M-44** | A | Removed. Use the parent state's `:after` timer instead. |
+| `:spawn-all` slot in machine specs | M-43 | — | Additive; opt-in via O-15. No user-side action for v1→v2 migration. |
+| `:timeout-ms` on `:spawn` / `:spawn-all` | **M-44** | A | Removed. Use the parent state's `:after` timer instead. |
 | `:rf.http/managed` requests from spawned actors | M-45 | — | Additive (abort on actor-destroy). No user-side action. |
 | `:rf.http/managed` as a child-invokable machine | M-46 | — | Additive; the fx form continues to work. |
 | Machine `:tags` slot and `:rf/machine-has-tag?` sub | M-47 | — | Additive. No user-side action. |
@@ -97,7 +97,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Introspect static sub-graph via `(rf/sub-topology)` | O-12 | Replaces ad-hoc walks of private sub state. |
 | Move from Reagent to UIx via `day8/re-frame2-uix` | **O-13** | Substrate swap. Not part of v1→v2; never auto-applied. |
 | Move from Reagent to Helix via `day8/re-frame2-helix` | **O-14** | Substrate swap. Not part of v1→v2; never auto-applied. |
-| Replace hand-rolled spawn-and-join with `:invoke-all` | **O-15** | Machine modernisation. The hand-rolled form continues to work. |
+| Replace hand-rolled spawn-and-join with `:spawn-all` | **O-15** | Machine modernisation. The hand-rolled form continues to work. |
 
 ---
 

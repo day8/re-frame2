@@ -17,7 +17,7 @@
   the right `:actor-id`, and (c) the in-flight registry is clean.
 
   Coverage matrix (each its own deftest):
-   1. :invoke child issues request → parent state exits → request aborts
+   1. :spawn child issues request → parent state exits → request aborts
    2. Multiple in-flight requests from the same actor → all abort
    3. Sibling actors are NOT affected when one is destroyed
    4. Direct event-handler dispatch (no spawned-actor) → no cancellation
@@ -101,7 +101,7 @@
   (filter #(= :rf.http/aborted-on-actor-destroy (:operation %))
           traces))
 
-;; ---- (1) :invoke child issues request → parent state exits → abort -------
+;; ---- (1) :spawn child issues request → parent state exits → abort -------
 
 (deftest invoke-child-request-aborts-on-parent-state-exit
   (testing "when the parent state exits, the spawned child's in-flight HTTP aborts and emits the documented trace"
@@ -131,12 +131,12 @@
                                :on-failure [:reply/recorder]}]]})}
            :states  {:idle    {:on {:start :running}}
                      :running {:entry :fire-request}}})
-        ;; Parent: :invoke spawns the child, transitions :working ↔ :idle.
+        ;; Parent: :spawn spawns the child, transitions :working ↔ :idle.
         (rf/reg-machine :sup/flow
           {:initial :idle
            :states
            {:idle    {:on {:start :working}}
-            :working {:invoke {:machine-id :worker/proc
+            :working {:spawn {:machine-id :worker/proc
                                :start      [:start]}
                       :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/flow [:start]])
@@ -208,7 +208,7 @@
         (rf/reg-machine :sup/multi
           {:initial :idle
            :states  {:idle    {:on {:start :working}}
-                     :working {:invoke {:machine-id :worker/multi
+                     :working {:spawn {:machine-id :worker/multi
                                         :start      [:start]}
                                :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/multi [:start]])
@@ -271,13 +271,13 @@
         (rf/reg-machine :sup/a
           {:initial :idle
            :states  {:idle    {:on {:start :working}}
-                     :working {:invoke {:machine-id :worker/proc-a
+                     :working {:spawn {:machine-id :worker/proc-a
                                         :start      [:start]}
                                :on    {:cancel :idle}}}})
         (rf/reg-machine :sup/b
           {:initial :idle
            :states  {:idle    {:on {:start :working}}
-                     :working {:invoke {:machine-id :worker/proc-b
+                     :working {:spawn {:machine-id :worker/proc-b
                                         :start      [:start]}
                                :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/a [:start]])
@@ -377,7 +377,7 @@
            :data    {:rf/after-epoch 0}
            :states
            {:idle    {:on {:start :working}}
-            :working {:invoke {:machine-id :worker/slow
+            :working {:spawn {:machine-id :worker/slow
                                :start      [:start]}
                       :after  {5000 :timeout}}
             :timeout {}}})

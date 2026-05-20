@@ -1,13 +1,13 @@
 # Pattern — SSR Loaders (parallel data fetch during drain)
 
 > **Type:** Pattern
-> The standard fan-out-then-render shape for server-side rendering that needs N parallel HTTP fetches before HTML emission. Built on `:invoke-all` ([005-StateMachines.md §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all)) and `:rf.http/managed` ([014-HTTPRequests.md](014-HTTPRequests.md)) — primitives the spec already locks. Convention, not Spec.
+> The standard fan-out-then-render shape for server-side rendering that needs N parallel HTTP fetches before HTML emission. Built on `:spawn-all` ([005-StateMachines.md §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all)) and `:rf.http/managed` ([014-HTTPRequests.md](014-HTTPRequests.md)) — primitives the spec already locks. Convention, not Spec.
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
 
 ## Role
 
-A **convention**, not a Spec. The runtime gives you everything: `:on-create` event firing, run-to-completion drain, `:invoke-all` spawn-and-join, `:rf.http/managed` HTTP fx, the `[:rf/response]` accumulator. What this doc names is **the canonical way to compose them when an SSR render needs to load N pieces of data in parallel before producing HTML.**
+A **convention**, not a Spec. The runtime gives you everything: `:on-create` event firing, run-to-completion drain, `:spawn-all` spawn-and-join, `:rf.http/managed` HTTP fx, the `[:rf/response]` accumulator. What this doc names is **the canonical way to compose them when an SSR render needs to load N pieces of data in parallel before producing HTML.**
 
 The pattern exists because the obvious shape — "dispatch three loader events in series from `:on-create`" — serialises the wall-clock cost of every HTTP fetch. The drain runs to fixed point but it runs in a single thread; back-to-back blocking transport calls (JVM `java.net.http.HttpClient` on the server side of `:rf.http/managed`) add up. The fan-out idiom moves the fetches off the drain thread (each into its own spawned actor) and joins on a join-all-complete condition before the drain settles. Total wall-clock cost falls to `max(fetch-i) + overhead`, not `sum(fetch-i)`.
 
@@ -15,13 +15,13 @@ This is the SSR-side answer to "how do I write the Next.js `Promise.all([getArti
 
 ## The shape
 
-A boot-like state machine spawned at `:on-create` time. The machine's first state spawns N HTTP-fetching children via `:invoke-all`; the join-all-complete transition advances to a terminal `:ready` state. The drain settles at terminal; the SSR adapter calls `render-to-string` against the post-drain `app-db`.
+A boot-like state machine spawned at `:on-create` time. The machine's first state spawns N HTTP-fetching children via `:spawn-all`; the join-all-complete transition advances to a terminal `:ready` state. The drain settles at terminal; the SSR adapter calls `render-to-string` against the post-drain `app-db`.
 
 The five-step shape:
 
 1. **`:on-create` dispatches `[:page/load]`** — the request-scoped per-page loader event.
-2. **`[:page/load]` spawns the loader state machine** — typically via `:invoke` from a singleton boot machine, or via direct `reg-frame` `:on-create` for a one-shot SSR-only loader.
-3. **The loader's `:loading` state declares `:invoke-all`** — N children, each a thin machine wrapping `:rf.http/managed` for one fetch. Children dispatch `[<parent> [:loaded :child-id <result>]]` on success or `[<parent> [:failed :child-id <reason>]]` on failure.
+2. **`[:page/load]` spawns the loader state machine** — typically via `:spawn` from a singleton boot machine, or via direct `reg-frame` `:on-create` for a one-shot SSR-only loader.
+3. **The loader's `:loading` state declares `:spawn-all`** — N children, each a thin machine wrapping `:rf.http/managed` for one fetch. Children dispatch `[<parent> [:loaded :child-id <result>]]` on success or `[<parent> [:failed :child-id <reason>]]` on failure.
 4. **The runtime joins** — when every child has reported `:done`, the runtime fires `:on-all-complete` into the parent. The parent transitions to `:ready` and writes the fetched data into `app-db` slices.
 5. **The drain settles, `render-to-string` runs** — the registered views read the slices via `subscribe` and emit HTML. Hydration payload carries the same slices to the client.
 
@@ -45,7 +45,7 @@ A product-detail page needs three independent fetches before render: the product
                 :reviews    nil})
    :states
    {:loading
-    {:invoke-all
+    {:spawn-all
      {:children
       [{:id         :product
         :machine-id :http/get-one
@@ -96,7 +96,7 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
    :initial :requesting
    :states
    {:requesting
-    {:invoke {:machine-id :rf.http/managed
+    {:spawn {:machine-id :rf.http/managed
               :data       (fn [snap _] (assoc (:data snap) :method :get))}
      :on     {:succeeded  :done
               :failed     :failed-state}}
@@ -104,11 +104,11 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
     :done   {:final? true
              :entry (fn [data [_ _ result]]
                       {:fx [[:dispatch [(:rf/parent-id (-> data :env))
-                                        [:loaded (:invoke-id data) result]]]]})}
+                                        [:loaded (:spawn-id data) result]]]]})}
     :failed-state {:final? true
                    :entry (fn [data [_ _ reason]]
                             {:fx [[:dispatch [(:rf/parent-id (-> data :env))
-                                              [:failed (:invoke-id data) reason]]]]})}}})
+                                              [:failed (:spawn-id data) reason]]]]})}}})
 ```
 
 (`:rf/parent-id` is stamped at spawn time per [005 §Spawn-id tracking](005-StateMachines.md#spawn-id-tracking); the child reads it from its `:data :env` slot and uses it for the dispatch-back target.)
@@ -193,7 +193,7 @@ The same loader machine works on both platforms; only the deadline policy and th
 
 On the client, the same machine spec drives navigation-fetch: when the user clicks a link to `/products/123`, the route's `:on-match` spawns `:pdp/load` with the new product-id; the spawned machine fans out three fetches; the view subscribes to the `[:pdp]` slice and shows a skeleton until `:ready` lands. The client can show progressive UI (each `:loaded` event from a child updates a slice; the view re-renders as each lands) by giving the parent an `:on :loaded` handler that writes results incrementally — but the SSR variant cannot, because the server has no progressive render channel.
 
-The mental-model claim from [011-SSR.md](011-SSR.md) — "SSR is the same shape as client" — holds at this layer: same `:invoke-all` primitive, same handler tree, same trace events. The only thing that changes between platforms is *when* the render runs relative to the join. The author writes one machine; the platform decides whether to render mid-fetch or only after the join.
+The mental-model claim from [011-SSR.md](011-SSR.md) — "SSR is the same shape as client" — holds at this layer: same `:spawn-all` primitive, same handler tree, same trace events. The only thing that changes between platforms is *when* the render runs relative to the join. The author writes one machine; the platform decides whether to render mid-fetch or only after the join.
 
 ## What this pattern doesn't say
 
@@ -204,10 +204,10 @@ The mental-model claim from [011-SSR.md](011-SSR.md) — "SSR is the same shape 
 
 ## Anti-patterns
 
-- **Dispatching three loaders in series from `:on-create`.** Three back-to-back `{:fx [[:dispatch [:load-product]] [:dispatch [:load-related]] [:dispatch [:load-reviews]]]}` events serialise the wall-clock cost; even though the drain processes them in order, each `:rf.http/managed` blocks the drain thread on the server-side JVM transport. Use `:invoke-all` to spawn N children that own their own transport calls.
-- **Hand-rolling the join.** A counter in `app-db` (`(when (= 3 @counter) (dispatch [:render-ready]))`) reinvents `:invoke-all`'s join-state without the destroy cascade, the deadline composition, or the trace events. Use the primitive.
+- **Dispatching three loaders in series from `:on-create`.** Three back-to-back `{:fx [[:dispatch [:load-product]] [:dispatch [:load-related]] [:dispatch [:load-reviews]]]}` events serialise the wall-clock cost; even though the drain processes them in order, each `:rf.http/managed` blocks the drain thread on the server-side JVM transport. Use `:spawn-all` to spawn N children that own their own transport calls.
+- **Hand-rolling the join.** A counter in `app-db` (`(when (= 3 @counter) (dispatch [:render-ready]))`) reinvents `:spawn-all`'s join-state without the destroy cascade, the deadline composition, or the trace events. Use the primitive.
 - **Reading `:rf.server/request` from child machines.** The cofx is server-only; reading it from a child means the child is server-only too, breaking the "same machine for client navigation" property. Thread request-derived values from the parent's `:data` via the spawn-spec `:data` fn.
-- **Omitting the deadline.** A loader without an `:after` on the `:invoke-all` state can hang the request until the host adapter's outer timeout fires — at which point the error path is host-specific and unobservable to the trace stream. The phase-level `:after` makes the timeout deterministic and traceable.
+- **Omitting the deadline.** A loader without an `:after` on the `:spawn-all` state can hang the request until the host adapter's outer timeout fires — at which point the error path is host-specific and unobservable to the trace stream. The phase-level `:after` makes the timeout deterministic and traceable.
 - **Writing results into `app-db` from the child.** The child should dispatch back to the parent; the parent's `:ready :entry` writes. This keeps the join atomic — partial results never land if the join short-circuits on failure or deadline.
 
 ## Conformance checklist
@@ -215,17 +215,17 @@ The mental-model claim from [011-SSR.md](011-SSR.md) — "SSR is the same shape 
 A parallel-loader implementation conforms to this convention when:
 
 - The loader is a state machine, not a tree of `:dispatch`-chained events.
-- The fan-out uses `:invoke-all` (not a counter, not parallel `:dispatch`es with no join).
+- The fan-out uses `:spawn-all` (not a counter, not parallel `:dispatch`es with no join).
 - Each child is its own machine (one fetch per child); children are reusable across loader instances via spawn-spec `:data`.
-- A phase-level deadline is declared via `:after` on the `:invoke-all`-bearing state.
+- A phase-level deadline is declared via `:after` on the `:spawn-all`-bearing state.
 - Failure is handled via `:on-any-failed`; the `:error` state stamps a non-200 status via `:rf.server/set-status`.
 - Request-scoped values come from `:rf.server/request` cofx at the loader's spawn site (typically `:rf/server-init`), not from inside the child machines.
 - The same loader machine is used on the client for navigation-fetch (only the spawn site changes — `:on-create` server-side, `:on-match` client-side).
 
 ## Cross-references
 
-- [005-StateMachines.md §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) — the join-all-complete primitive this pattern composes.
-- [005-StateMachines.md §Composition with hierarchy and `:after`](005-StateMachines.md#composition-with-hierarchy-and-after) — phase-level wall-clock deadlines on `:invoke-all`-bearing states.
+- [005-StateMachines.md §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — the join-all-complete primitive this pattern composes.
+- [005-StateMachines.md §Composition with hierarchy and `:after`](005-StateMachines.md#composition-with-hierarchy-and-after) — phase-level wall-clock deadlines on `:spawn-all`-bearing states.
 - [005-StateMachines.md §Retry-ownership boundary with `:rf.http/managed`](005-StateMachines.md#retry-ownership-boundary-with-rfhttpmanaged) — transport vs semantic retry split.
 - [011-SSR.md §Server flow](011-SSR.md#server-flow-per-request) — the drain-then-render lifecycle this pattern fans out across.
 - [011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context) — the `:rf.server/request` cofx the loader's spawn site reads.

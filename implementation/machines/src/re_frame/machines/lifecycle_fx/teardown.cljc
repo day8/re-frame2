@@ -2,8 +2,8 @@
   "Unified app-db teardown projection for spawned-actor destruction.
 
   Per Spec 005 §Cancellation cascade — when a spawned actor is destroyed
-  (final-state auto-destroy, exit-cascade declarative-`:invoke` destroy,
-  iterated `:invoke-all` children-destroy, or keyword/imperative
+  (final-state auto-destroy, exit-cascade declarative-`:spawn` destroy,
+  iterated `:spawn-all` children-destroy, or keyword/imperative
   destroy) the runtime applies a four-step app-db projection:
 
     1. dissoc snapshot at `[:rf/machines actor-id]`
@@ -56,10 +56,10 @@
                   snapshot or system-id-binding mutation, only
                   spawn-slot prune)
     :parent-id  — the spawning actor's id (declarative form only)
-    :invoke-id  — the absolute prefix-path the runtime stamped on the
+    :spawn-id  — the absolute prefix-path the runtime stamped on the
                   child at spawn time (declarative form only)
 
-  When `:parent-id` and `:invoke-id` are both supplied, the
+  When `:parent-id` and `:spawn-id` are both supplied, the
   `[:rf/spawned <parent-id> <invoke-id>]` slot is cleared and the
   parent map / root are pruned under the lazy-allocation invariant
   (matching how spawn ALLOCATES the maps lazily — see Spec 005
@@ -69,7 +69,7 @@
   PURE: no trace emission, no handler unregistration, no HTTP abort —
   those are caller side effects whose ordering relative to db mutation
   is contract."
-  [db {:keys [actor-id parent-id invoke-id]}]
+  [db {:keys [actor-id parent-id] invoke-id :spawn-id}]
   (let [released-sid (find-system-id-for-actor db actor-id)
         track?       (and parent-id invoke-id)
         ;; (1)+(2)+(3): the three primary slot mutations.

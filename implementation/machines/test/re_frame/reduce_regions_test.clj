@@ -109,21 +109,21 @@
 ;; ---- (4) per-region fx prefix ---------------------------------------------
 
 (deftest per-region-fx-is-prefixed-with-region-name
-  (testing ":rf/invoke-id on emitted fx is prepended with the region name"
+  (testing ":rf/spawn-id on emitted fx is prepended with the region name"
     (let [machine (two-region-spec)
           step    (fn [region-spec region-snap]
                     (let [rn (:rf/region region-spec)]
                       (result/ok region-snap
-                                 [[:rf.machine/spawn {:rf/invoke-id [rn :child]}]])))
+                                 [[:rf.machine/spawn {:rf/spawn-id [rn :child]}]])))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
       (is (result/ok? r))
-      ;; Each region's step emits an :invoke-id starting with its own
+      ;; Each region's step emits a :spawn-id starting with its own
       ;; region name; reduce-regions prepends the region name AGAIN
       ;; (the standard prefix-region-invoke-id rule) so the final fx
       ;; carries `[rn rn :child]`.
-      (is (= [[:rf.machine/spawn {:rf/invoke-id [:a :a :child]}]
-              [:rf.machine/spawn {:rf/invoke-id [:b :b :child]}]]
+      (is (= [[:rf.machine/spawn {:rf/spawn-id [:a :a :child]}]
+              [:rf.machine/spawn {:rf/spawn-id [:b :b :child]}]]
              (result/fx r))
           "per-region fx is prefixed with that region's name"))))
 

@@ -4,10 +4,10 @@
 ;; axis, "Imperative spawn / destroy"](../../005-StateMachines.md#capability-matrix):
 ;; an action can return :fx [[:rf.machine/spawn {:machine-id ... :id-prefix ... :data ...
 ;; :start ...}]] to imperatively spawn a child actor — the same fx the
-;; declarative :invoke desugar emits, just authored by hand.
+;; declarative :spawn desugar emits, just authored by hand.
 ;;
 ;; This fixture exercises the action-emitted form (vs. the entry-cascade-
-;; emitted form covered by `invoke-spawn-on-entry-destroy-on-exit.edn`).
+;; emitted form covered by `spawn-on-entry-destroy-on-exit.edn`).
 ;; The action runs as part of the transition, the action's :fx vector is
 ;; surfaced as the transition's effects, and the [:rf.machine/spawn args]
 ;; pair appears verbatim in the result. The actor-id allocation and any
@@ -18,7 +18,7 @@
 {:fixture/id           :machine/spawn-from-action
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy}
- :fixture/doc          "An action returns :fx [[:rf.machine/spawn {...}]]; pure machine-transition surfaces the spawn fx in the result. Confirms imperative spawn from an action emits the same shape the declarative :invoke desugar produces."
+ :fixture/doc          "An action returns :fx [[:rf.machine/spawn {...}]]; pure machine-transition surfaces the spawn fx in the result. Confirms imperative spawn from an action emits the same shape the declarative :spawn desugar produces."
 
  :fixture/registry
  {:machine-action
@@ -27,7 +27,7 @@
  :fixture/handlers
  {:machine-action
   ;; Action body returns one :fx step. The :rf.machine/spawn args mirror
-  ;; the spawn-fx envelope (per [005 §Declarative :invoke]): :machine-id
+  ;; the spawn-fx envelope (per [005 §Declarative :spawn]): :machine-id
   ;; names the child machine spec, :id-prefix is the actor-id namespace,
   ;; :data seeds the child's :data, :start is the inner event the
   ;; runtime synthesises into the child's first dispatch.

@@ -25,7 +25,7 @@
 ;;      fired against an unmatching epoch would no-op anyway (Spec 005
 ;;      §Epoch-based stale detection).
 ;;
-;; The pure machine substrate (`:always`, plain transitions, `:invoke` of
+;; The pure machine substrate (`:always`, plain transitions, `:spawn` of
 ;; synchronous co-effects) runs normally on the server — only `:after`
 ;; carves out.
 ;;
