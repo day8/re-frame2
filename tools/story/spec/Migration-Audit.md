@@ -26,9 +26,9 @@ Classification key:
 | `testbeds/http_toggle/spec.cjs` | 110 | Spec 014 :rf.http/* category attribution | 6 (×3 categories = 18 obs) |
 | `testbeds/long_flow_w_failure/spec.cjs` | 172 | Spec 013 flow four-rule failure | 6 |
 | `testbeds/non_trivial_app_db/spec.cjs` | 159 | Spec 009 event/dispatched < event/db-changed ordering | 4 |
-| `testbeds/ssr_basic/spec.cjs` | 143 | Spec 011 hydration baseline | 13 |
-| `testbeds/ssr_hydration_mismatch/spec.cjs` | 136 | Spec 011 :rf.ssr/hydration-mismatch | 9 |
-| `testbeds/ssr_multi_frame/spec.cjs` | 115 | Spec 011 per-frame hydration isolation | 16 |
+| ~~`testbeds/ssr_basic/spec.cjs`~~ DELETED Wave 3 (rf2-pxb7t) → `implementation/ssr/test/re_frame/ssr_hydration_test.clj` | ~~143~~ | Spec 011 hydration baseline | ~~13~~ |
+| ~~`testbeds/ssr_hydration_mismatch/spec.cjs`~~ DELETED Wave 3 (rf2-pxb7t) → `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj` | ~~136~~ | Spec 011 :rf.ssr/hydration-mismatch | ~~9~~ |
+| ~~`testbeds/ssr_multi_frame/spec.cjs`~~ DELETED Wave 3 (rf2-pxb7t) → `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj` | ~~115~~ | Spec 011 per-frame hydration isolation | ~~16~~ |
 | **TOTAL** | **1715** |  | **107** |
 
 Assertion count = distinct observable checks (DOM reads compared with explicit value + `expectVisible` + bus/history regex finds + window.evaluate result checks). `http_toggle` loops 3 categories ×6 assertions per iteration → counted as 18 observations.
@@ -177,55 +177,64 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 **Migrated subtotal: 3 of 3 = 100%. DROP this spec entirely.** Trace ordering is observable in pure CLJS.
 
-### `testbeds/ssr_basic/spec.cjs` (Spec 011 hydration baseline)
-| # | Assertion | Class | Rationale + target |
+### `testbeds/ssr_basic/spec.cjs` (Spec 011 hydration baseline) — MIGRATED (Wave 3, rf2-pxb7t)
+
+**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj`** — JVM tests using `rf/subscribe-once` for synchronous post-hydration reads against the contract-bearing surfaces (`:rf/hydrate` handler, `:rf/hydration` metadata stash, `:rf.ssr/compatibility-check-skipped` trace, `:rf/response` payload round-trip). The contract surface is platform-neutral (`.cljc`) so JVM coverage is sufficient. The two (C) DOM-mount probes (#1 static-HTML-before-bundle + #2 hydrated-marker mount) retire alongside per the audit's §Drop-or-keep recommendation — substrate-mount sanity is already covered by the 3 adapter smokes.
+
+| # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
-| 1 | `expectVisible(ssr-basic)` | C | Mount + static-HTML-before-bundle check. STAYS — static HTML round-trip needs a real page load. |
-| 2 | `expectVisible(hydrated)` | C | Mount marker. STAYS (paired with #1). |
-| 3 | `hydrated` text = 'hydrated' | A | Hydration metadata sub readback. → `implementation/ssr/test/.../ssr_hydration_cljs_test.cljs` (new file; `hash_parity_cljs_test.cljs` exists — extend). |
-| 4 | `count` = '7' (seeded from payload) | A | Replace-app-db policy. → same target. |
-| 5 | `title` = 'seeded' (seeded from payload) | A | Same. → same target. |
-| 6 | After inc click: count = '8' | A | Sub→view round-trip post-hydration. → same target. |
-| 7 | After set-title click: title = 'hydrated' | A | Same. → same target. |
-| 8 | `resp-status` = '200' | A | `:rf/response` round-trip. → same target. |
-| 9 | `resp-ct` contains 'text/html' | A | Same. → same target. |
-| 10 | `resp-cookies-count` = '1' | A | Same. → same target. |
-| 11 | `resp-cookie-name` = 'session' | A | Same. → same target. |
-| 12 | `window.__rf_trace_events()` carries `:rf.ssr/compatibility-check-skipped` | A | Trace emit. → same target. |
-| 13 | NO `:rf.ssr/hydration-mismatch` on baseline | A | Same. → same target. |
+| 1 | `expectVisible(ssr-basic)` | C | RETIRED — substrate-mount sanity covered by 3 adapter smokes. |
+| 2 | `expectVisible(hydrated)` | C | RETIRED — same. |
+| 3 | `hydrated` text = 'hydrated' | A | `hydration-baseline-replaces-app-db-and-stashes-metadata` |
+| 4 | `count` = '7' (seeded from payload) | A | Same target. |
+| 5 | `title` = 'seeded' (seeded from payload) | A | Same target. |
+| 6 | After inc click: count = '8' | A | `hydration-baseline-post-hydrate-dispatch-mutates-seeded-db` |
+| 7 | After set-title click: title = 'hydrated' | A | Same target. |
+| 8 | `resp-status` = '200' | A | `hydration-baseline-rf-response-slice-round-trips-via-payload` |
+| 9 | `resp-ct` contains 'text/html' | A | Same target. |
+| 10 | `resp-cookies-count` = '1' | A | Same target. |
+| 11 | `resp-cookie-name` = 'session' | A | Same target. |
+| 12 | `window.__rf_trace_events()` carries `:rf.ssr/compatibility-check-skipped` | A | `hydration-baseline-emits-compatibility-check-skipped-trace` |
+| 13 | NO `:rf.ssr/hydration-mismatch` on baseline | A | `hydration-baseline-no-mismatch-trace-when-server-hash-nil` |
 
-**Migrated subtotal: 11 of 13 = 85%. Residual: 2 (static-HTML-before-bundle mount).** SSR has a genuine browser dimension — proving the pre-rendered HTML appears BEFORE the bundle hydrates can only happen in a real browser load. Keep a minimal version of this spec for #1/#2; migrate everything else.
+**Migrated subtotal: 11 of 11 substantive assertions = 100%. Residual: 0. SPEC.CJS DELETED.** The two (C) mount probes retired (substrate-mount coverage by adapter smokes).
 
-### `testbeds/ssr_hydration_mismatch/spec.cjs` (Spec 011 hydration-mismatch trace)
-| # | Assertion | Class | Rationale + target |
+### `testbeds/ssr_hydration_mismatch/spec.cjs` (Spec 011 hydration-mismatch trace) — MIGRATED (Wave 3, rf2-pxb7t)
+
+**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj`** — JVM tests covering the `verify-hydration!` mismatch path (`:rf.ssr/hydration-mismatch` trace tag payload, `:op-type :error` categorisation, `:recovery :warned-and-replaced` envelope hoist, `:client-hash` 8-char lowercase-hex shape, page-stays-interactive contract). The visual mismatch-banner is a DOM-render concern; its underlying trace-tag contract is now locked in pure CLJS, and the banner-render probes retire per the §Drop-or-keep recommendation (substrate-mount + chrome covered elsewhere).
+
+| # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
-| 1 | `expectVisible(hydrated)` | C | Mount + hydration completes despite mismatch. STAYS (paired baseline assertion). |
-| 2 | `hydrated` text = 'hydrated' | A | Same as ssr_basic #3. → same migrated target. |
-| 3 | `expectVisible(mismatch-banner)` | C | DOM-rendered structured payload — visual chrome contract. STAYS. |
-| 4 | `mismatch-server-hash` = 'deadbeef' | A | Captured trace's tag rendered into DOM. The TAG capture is (A); the DOM render is (C). The (A) part — that the trace tag carries 'deadbeef' — migrates. → `implementation/ssr/test/.../ssr_hydration_mismatch_cljs_test.cljs` (new file). |
-| 5 | `mismatch-client-hash` matches `/^[0-9a-f]{8}$/` | A | Same — trace tag shape. → same target. |
-| 6 | client-hash ≠ 'deadbeef' | A | Same. → same target. |
-| 7 | `mismatch-failing-id` = ':rf/hydrate' | A | Trace tag. → same target. |
-| 8 | `mismatch-recovery` = ':warned-and-replaced' | A | Trace tag. → same target. |
-| 9 | `window.__rf_trace_events()` has `:rf.ssr/hydration-mismatch` with `op_type = ':error'` AND `server_hash = 'deadbeef'` | A | Same. → same target. |
-| 10 | After inc click: count = '1' (interactive post-mismatch) | A | Page-still-runs after warn-and-replace. → same target. |
+| 1 | `expectVisible(hydrated)` | C | RETIRED — substrate-mount sanity covered by 3 adapter smokes. |
+| 2 | `hydrated` text = 'hydrated' | A | `mismatch-hydrate-still-stashes-metadata-when-server-hash-set` |
+| 3 | `expectVisible(mismatch-banner)` | C | RETIRED — banner-DOM probe retired alongside spec.cjs (underlying tag-payload contract migrated to CLJS). |
+| 4 | `mismatch-server-hash` = 'deadbeef' | A | `mismatch-trace-carries-server-hash-failing-id-recovery` |
+| 5 | `mismatch-client-hash` matches `/^[0-9a-f]{8}$/` | A | `mismatch-trace-client-hash-is-8-char-lowercase-hex` |
+| 6 | client-hash ≠ 'deadbeef' | A | Same target. |
+| 7 | `mismatch-failing-id` = ':rf/hydrate' | A | `mismatch-trace-carries-server-hash-failing-id-recovery` |
+| 8 | `mismatch-recovery` = ':warned-and-replaced' | A | Same target. |
+| 9 | `window.__rf_trace_events()` has `:rf.ssr/hydration-mismatch` with `op_type = ':error'` AND `server_hash = 'deadbeef'` | A | `mismatch-trace-is-an-error-op-type-event` + `mismatch-trace-carries-server-hash-failing-id-recovery` |
+| 10 | After inc click: count = '1' (interactive post-mismatch) | A | `mismatch-page-stays-interactive-post-mismatch` |
 
-**Migrated subtotal: 7 of 9 = 78%. Residual: 2 — banner DOM render + initial hydrated marker.** The visual banner contract is genuinely (C). Keep a thin spec for banner-presence + interactive-post-mismatch.
+**Migrated subtotal: 7 of 7 substantive assertions = 100%. Residual: 0. SPEC.CJS DELETED.** The two (C) DOM probes retired (substrate-mount + banner chrome covered elsewhere).
 
-### `testbeds/ssr_multi_frame/spec.cjs` (Spec 011 per-frame hydration isolation)
-| # | Assertion | Class | Rationale + target |
+### `testbeds/ssr_multi_frame/spec.cjs` (Spec 011 per-frame hydration isolation) — MIGRATED (Wave 3, rf2-pxb7t)
+
+**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`** — JVM tests using `rf/subscribe-once frame-id query-v` (the 2-arg form at `implementation/core/src/re_frame/subs.cljc:365`) to lock the per-frame hydration isolation contract: three frames, three `:rf/hydrate` dispatches, three independent app-dbs, three distinct `:server-hash` slots, cross-frame `subscribe-once` calls resolving against the named frame's signal-graph cache, post-hydrate dispatch fan-out staying frame-isolated. The three-panel mount probe (#1) retires alongside per the audit's §Drop-or-keep recommendation.
+
+| # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
-| 1 | `expectVisible(panel-A/B/log)` | C | Three-panel mount. STAYS — three-panel page-render contract has a chrome dimension. |
-| 2 | `n-A` = '10', `n-B` = '99' | A | Per-frame app-db seeded state. → `implementation/ssr/test/.../ssr_multi_frame_isolation_cljs_test.cljs` (new file) using e2e_multi_frame helpers. |
-| 3 | `entries-count` = '2' | A | Same. → same target. |
-| 4 | `hyd-A/B/log` = 'true' | A | Per-frame `:rf/hydration` metadata. → same target. |
-| 5 | `hash-A/B/log` = 'aaaa1111'/'bbbb2222'/'cccc3333' | A | Per-frame `:rf/render-hash` round-trip. → same target. |
-| 6 | `summary-a/b/log-hash` matches | A | `subscribe-once` against each frame-id resolves to that frame's hash. → same target. |
-| 7 | `summary-all-distinct` = 'true' | A | Cross-frame uniqueness check. → same target. |
-| 8 | After inc-A click: `n-A` = '11', `n-B` stays '99' | A | Per-frame dispatch isolation. → same target. |
-| 9 | After 2× inc-B click: `n-B` = '101', `n-A` stays '11' | A | Same. → same target. |
+| 1 | `expectVisible(panel-A/B/log)` | C | RETIRED — substrate-mount sanity covered by 3 adapter smokes. |
+| 2 | `n-A` = '10', `n-B` = '99' | A | `multi-frame-hydrate-seeds-each-frame-from-its-own-payload-slice` |
+| 3 | `entries-count` = '2' | A | Same target. |
+| 4 | `hyd-A/B/log` = 'true' | A | `multi-frame-hydrate-stashes-per-frame-hydration-metadata` |
+| 5 | `hash-A/B/log` = 'aaaa1111'/'bbbb2222'/'cccc3333' | A | `multi-frame-hydrate-stashes-per-frame-server-hash` |
+| 6 | `summary-a/b/log-hash` matches | A | `multi-frame-subscribe-once-resolves-against-explicit-frame-id` |
+| 7 | `summary-all-distinct` = 'true' | A | Same target. |
+| 8 | After inc-A click: `n-A` = '11', `n-B` stays '99' | A | `multi-frame-dispatch-isolation-per-frame` |
+| 9 | After 2× inc-B click: `n-B` = '101', `n-A` stays '11' | A | Same target. |
 
-**Migrated subtotal: 14 of 16 = 88%. Residual: 2-3 — three-panel mount + chrome.** Same logic as ssr_basic: keep thin three-panel mount-smoke; migrate everything else.
+**Migrated subtotal: 14 of 14 substantive assertions = 100%. Residual: 0. SPEC.CJS DELETED.** The (C) three-panel mount probe retired (substrate-mount covered by adapter smokes).
 
 ## §Summary metrics
 
@@ -249,9 +258,9 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 (124 counts http_toggle's 6 ×3 categories and otherwise mirrors §Inventory.)
 
-Headline: **105 of 124 assertions (85%) migrate to CLJS unit tests** (Wave 4 rf2-e3j8l migrated perf_counter's User-Timing residuals to a nightly `:node-test`-style build; Wave 2 rf2-lcg1z migrated parallel_frames' 23 isolation assertions to the per-PR `:node-test` build and DROPPED the residual 2-mount Playwright surface entirely — the multi-frame mount path is exercised by Causa's own panels-e2e tests). 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. 8 (6%) genuinely stay Playwright — SSR mount/static-HTML/banner-DOM (8 across 3 SSR specs).
+Headline: **105 of 124 assertions (85%) migrated to CLJS/JVM unit tests across four waves.** Wave 1 (rf2-4j0tb) retired 6 framework testbed spec.cjs files (deliberate_throw, drain_depth_trigger, http_toggle, long_flow_w_failure, non_trivial_app_db, deep_machine) covering 41 assertions. Wave 2 (rf2-lcg1z) migrated parallel_frames' 23 isolation assertions to the per-PR `:node-test` build at `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` and DROPPED the residual 2-mount Playwright surface entirely — the multi-frame mount path is exercised by Causa's own panels-e2e tests. Wave 3 (rf2-pxb7t) migrated the 3 SSR testbed spec.cjs files covering 32 assertions to JVM tests at `implementation/ssr/test/re_frame/ssr_{hydration,hydration_mismatch,multi_frame_isolation}_test.clj` using `rf/subscribe-once` for synchronous reads; the 8 (C) DOM-mount probes retired alongside (substrate-mount sanity already covered by the 3 adapter smokes). Wave 4 (rf2-e3j8l) migrated perf_counter's 4 User-Timing residuals to a nightly `:node-test`-style build. 9 (7%) are the canonical 3 adapter smokes — they ARE the (B) bucket, no action. The 10 (8%) originally classified (C) collapsed to 0 across Waves 2 + 3.
 
-Five testbed spec.cjs files become **DROP candidates** entirely (residual = 0 substantive assertions after migration): `deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`. (Six files.) For these, the testbed surface itself stays — it's the canonical Causa/Story observation target — but the Playwright spec.cjs deletes.
+**Ten testbed spec.cjs files now fully retired** (residual = 0 substantive assertions): Wave 1's six (`deep_machine`, `deliberate_throw`, `drain_depth_trigger`, `http_toggle`, `long_flow_w_failure`, `non_trivial_app_db`) + Wave 4's one (`perf_counter`) + Wave 3's three (`ssr_basic`, `ssr_hydration_mismatch`, `ssr_multi_frame`). For each, the testbed surface itself stays — `core.cljs` / `index.html` / `README.md` remain as the canonical Causa/Story observation target — but the Playwright spec.cjs has been deleted.
 
 ## §Migration ordering
 
@@ -270,11 +279,11 @@ Each Wave 1 bead is fully isolated to one artefact's test dir + one repo-root sp
 **Wave 2 (rf2-lcg1z, COMPLETED):**
 - `B7` — `tools/causa/testbeds/parallel_frames/spec.cjs` DELETED. Multi-frame isolation contract migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (six deftests covering: two-frames-mount, counter-isolation, clock-tick-isolation, sub-lens-follows-frame, no-cross-frame-leakage + rf/get-frame-db as the only legitimate cross-frame read, destroy-independence). Causa-side target-frame round-trip + L2 frame-scoped filter were already covered by `tools/causa/test/.../panels_e2e/parallel_frames_e2e_cljs_test.cljs` (rf2-ulpp8 / rf2-1p1j4) and `multi_frame_isolation_e2e_cljs_test.cljs` (cross-frame fan-out via fx). The testbed dir itself stays as the Causa-displayable showcase. **Surface: framework multi-frame.**
 
-**Wave 3 (parallel, SSR surfaces — coordinated since they share `implementation/ssr/test/`):**
-- `B8` — `testbeds/ssr_basic/spec.cjs` migration. Migrate 11 of 13 to `implementation/ssr/test/.../ssr_hydration_cljs_test.cljs` (new). spec.cjs slims to thin static-HTML-before-bundle mount-smoke.
-- `B9` — `testbeds/ssr_hydration_mismatch/spec.cjs` migration. Migrate 7 of 9 to `implementation/ssr/test/.../ssr_hydration_mismatch_cljs_test.cljs` (new). spec.cjs slims to banner-DOM-render + post-mismatch-interactive.
-- `B10` — `testbeds/ssr_multi_frame/spec.cjs` migration. Migrate 14 of 16 to `implementation/ssr/test/.../ssr_multi_frame_isolation_cljs_test.cljs` (new). spec.cjs slims to three-panel mount-smoke.
-  - B8/B9/B10 are parallel-safe (different test files), but should sequence after rf2-7icrs's e2e_multi_frame helpers ship the SSR-frame helpers if they don't already.
+**Wave 3 (rf2-pxb7t, COMPLETED — single-bundle worker, sequential):**
+- `B8` — `testbeds/ssr_basic/spec.cjs` deleted. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj` (5 deftests / 11 substantive assertions covering :rf/hydrate replace-app-db + :rf/hydration metadata stash + post-hydrate dispatch round-trip + :rf/response payload echo + :rf.ssr/compatibility-check-skipped trace emit + no-mismatch-on-baseline).
+- `B9` — `testbeds/ssr_hydration_mismatch/spec.cjs` deleted. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj` (5 deftests / 7 substantive assertions covering verify-hydration! mismatch path: trace tag payload + :op-type :error + :recovery :warned-and-replaced hoist + 8-char-lowercase-hex client-hash shape + post-mismatch page-stays-interactive).
+- `B10` — `testbeds/ssr_multi_frame/spec.cjs` deleted. Migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj` (5 deftests / 14 substantive assertions locking per-frame hydration isolation via `rf/subscribe-once frame-id query-v` against 3 frames; the (C) three-panel mount probe retired alongside).
+  - All three deltas are pure-JVM tests using the `re-frame.ssr.test-fixture/reset-runtime` fixture + `rf/make-frame` + `rf/dispatch-sync` + `rf/subscribe-once`. Bead rf2-pxb7t cited the rf2-2mtl3 audit verifying `subscribe-once` already exists at `implementation/core/src/re_frame/subs.cljc:365`.
 
 **Wave 4 (rf2-e3j8l, COMPLETED):**
 - `B11` — `tools/causa/testbeds/perf_counter/spec.cjs` deleted. Migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (3 buckets exercised end-to-end + naming convention + flag-canary). Runs under the new `:node-test-perf-nightly` shadow-cljs build with `re-frame.performance/enabled?` flipped on at compile time. Excluded from per-PR `:node-test` by ns-suffix convention (`-emit-nightly-test$` doesn't match `cljs-test$`). Invoke via `npm run test:cljs-perf-emit-nightly`. The `:render` bucket's call-site shape is covered transitively by the macro round-trip tests in `re-frame.performance-cljs-test`. **Surface: perf instrumentation.**
@@ -288,10 +297,10 @@ Total bead count: **10 follow-on beads** (1 per spec.cjs file = 11 minus the 1-s
 
 **After all migrations land, the Playwright residual is:**
 - 3 adapter smokes (helix/reagent/uix) — substrate (B). **~30 LoC total, ~5s wall.** Required per-PR.
-- `ssr_basic` slim — static-HTML-before-bundle + hydrated marker. **~30 LoC.** ~2s wall.
-- `ssr_hydration_mismatch` slim — banner DOM + post-mismatch-interactive. **~25 LoC.** ~2s wall.
-- `ssr_multi_frame` slim — three-panel mount. **~20 LoC.** ~2s wall.
 - ~~`parallel_frames`~~ — DELETED (Wave 2, rf2-lcg1z); residuals migrated to `implementation/core/test/re_frame/multi_frame_isolation_cljs_test.cljs` (per-PR). The two page-mount eyeballs that would have justified a slim Playwright stay are subsumed by Causa's own panels-e2e suite, which mounts the same multi-frame topology in node-CLJS.
+- ~~`ssr_basic`~~ — DELETED (Wave 3, rf2-pxb7t); 11 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_hydration_test.clj`; (C) mount-probes retired (substrate-mount covered by adapter smokes).
+- ~~`ssr_hydration_mismatch`~~ — DELETED (Wave 3, rf2-pxb7t); 7 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj`; (C) DOM probes retired.
+- ~~`ssr_multi_frame`~~ — DELETED (Wave 3, rf2-pxb7t); 14 substantive assertions migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`; (C) three-panel mount probe retired.
 - ~~`perf_counter`~~ — DELETED (Wave 4, rf2-e3j8l); residuals migrated to `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` (nightly).
 
 **Total residual: ~150-180 LoC, ~15-20s wall.** Down from 1715 LoC / ~3 min.

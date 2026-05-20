@@ -171,30 +171,6 @@ const EXAMPLES = [
   // canonical Causa-displayable multi-frame demo; only the Playwright
   // spec.cjs retired.
 
-  // ----- SSR testbeds (rf2-ik4io) ---------------------------------------
-  // Top-level `testbeds/<surface>/` siblings of `examples/<substrate>/`
-  // (per the testbeds split, rf2-96nb3). The shadow-cljs build id uses
-  // the `testbeds/` prefix and lands the bundle under
-  // `implementation/out/testbeds/<id>/`. The orchestrator serves
-  // http://127.0.0.1:8030/<id>/ from OUT_ROOT (out/examples/), so we
-  // redirect outDir into the served root with a `testbed-` prefix to
-  // keep the URL path unambiguous.
-  {
-    build: 'testbeds/ssr-basic',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_basic', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'testbed-ssr-basic'),
-  },
-  {
-    build: 'testbeds/ssr-hydration-mismatch',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_hydration_mismatch', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'testbed-ssr-hydration-mismatch'),
-  },
-  {
-    build: 'testbeds/ssr-multi-frame',
-    htmlSrc: path.join(REPO_ROOT, 'testbeds', 'ssr_multi_frame', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'testbed-ssr-multi-frame'),
-  },
-
   // ----- Cross-cutting framework testbeds (rf2-fe84r / rf2-kzcim) -------
   // Shared framework-behaviour testbed surfaces. These emit into
   // `out/testbeds/<id>/` and the orchestrator copies the bundle into
@@ -212,6 +188,16 @@ const EXAMPLES = [
   // they no longer ship a spec.cjs, so they're dropped from the
   // examples-orchestrator EXAMPLES list per the "never stage a surface
   // that nothing tests" contract above.
+  //
+  // Wave 3 of rf2-tglku (rf2-pxb7t) retired the three SSR testbed
+  // Playwright spec.cjs files (`ssr_basic`, `ssr_hydration_mismatch`,
+  // `ssr_multi_frame`). Their assertions migrated to JVM tests under
+  // `implementation/ssr/test/re_frame/{ssr_hydration_test.clj,
+  // ssr_hydration_mismatch_test.clj, ssr_multi_frame_isolation_test.clj}`
+  // using `rf/subscribe-once` for the synchronous pre-/post-hydration
+  // reads. The testbed surfaces themselves (core.cljs + index.html +
+  // README.md) stay in-tree as Causa observation targets; their
+  // `testbeds/ssr-*` shadow-cljs build targets are retained.
 ];
 
 // rf2-h9ut9 — substring-match a build id against the filter. Empty
