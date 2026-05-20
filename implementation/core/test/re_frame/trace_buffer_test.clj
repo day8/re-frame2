@@ -417,3 +417,80 @@
       (is (= :pair (get-in ev [:tags :origin]))   ":origin lands under :tags :origin")
       ;; :source is hoisted to top-level by emit!, per the existing contract.
       (is (= :repl (:source ev))                  ":source is hoisted to top-level"))))
+
+;; ---- 4. :rf/dispatch-origin opt (rf2-t1lxr) -------------------------------
+
+(deftest dispatch-origin-defaults-to-user
+  (testing "no :rf/dispatch-origin opt → :tags :rf/dispatch-origin = :user"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping])
+    (let [ev (->> (rf/trace-buffer)
+                  dispatched-events
+                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  first)]
+      (is ev)
+      (is (= :user (get-in ev [:tags :rf/dispatch-origin]))
+          "default :rf/dispatch-origin is :user per Spec 009 §Dispatch-origin tagging"))))
+
+(deftest dispatch-origin-opt-overrides-default
+  (testing ":rf/dispatch-origin :tool lands on the trace event"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
+    (let [ev (->> (rf/trace-buffer)
+                  dispatched-events
+                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  first)]
+      (is ev)
+      (is (= :tool (get-in ev [:tags :rf/dispatch-origin]))
+          ":rf/dispatch-origin :tool lifted onto :tags :rf/dispatch-origin"))))
+
+(deftest dispatch-origin-distinct-from-origin-and-source
+  (testing ":rf/dispatch-origin / :origin / :source ride independently"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool
+                               :origin             :pair
+                               :source             :repl})
+    (let [ev (->> (rf/trace-buffer)
+                  dispatched-events
+                  (filter #(= [:ping] (get-in % [:tags :event])))
+                  first)]
+      (is ev)
+      (is (= :tool (get-in ev [:tags :rf/dispatch-origin])))
+      (is (= :pair (get-in ev [:tags :origin])))
+      (is (= :repl (:source ev))))))
+
+(deftest dispatch-origin-fx-emit-on-cascade
+  (testing "child dispatches emitted by :dispatch fx are tagged :fx-emit
+            regardless of the parent's :rf/dispatch-origin"
+    (rf/reg-event-fx :parent
+      (fn [_ _] {:fx [[:dispatch [:child]]]}))
+    (rf/reg-event-db :child (fn [db _] db))
+    (rf/dispatch-sync [:parent] {:rf/dispatch-origin :user})
+    (let [parent-ev (->> (rf/trace-buffer)
+                          dispatched-events
+                          (filter #(= [:parent] (get-in % [:tags :event])))
+                          first)
+          child-ev  (->> (rf/trace-buffer)
+                          dispatched-events
+                          (filter #(= [:child] (get-in % [:tags :event])))
+                          first)]
+      (is parent-ev)
+      (is child-ev)
+      (is (= :user (get-in parent-ev [:tags :rf/dispatch-origin]))
+          "parent carries the explicit :user opt")
+      (is (= :fx-emit (get-in child-ev [:tags :rf/dispatch-origin]))
+          "child overrides to :fx-emit — origin is the IMMEDIATE source,
+           lineage rides on :parent-dispatch-id"))))
+
+(deftest trace-buffer-filter-dispatch-origin
+  (testing ":rf/dispatch-origin filters by :tags :rf/dispatch-origin"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :tool})
+    (rf/dispatch-sync [:ping] {:rf/dispatch-origin :router})
+    (let [tool-evs (rf/trace-buffer {:rf/dispatch-origin :tool})]
+      (is (seq tool-evs))
+      (is (every? #(= :tool (get-in % [:tags :rf/dispatch-origin])) tool-evs)
+          ":rf/dispatch-origin :tool narrows to tool-issued cascades"))
+    (let [router-evs (rf/trace-buffer {:rf/dispatch-origin :router})]
+      (is (seq router-evs))
+      (is (every? #(= :router (get-in % [:tags :rf/dispatch-origin])) router-evs)))))

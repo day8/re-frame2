@@ -394,8 +394,14 @@
   ([events] (dispatch-sequence events {}))
   ([events {:keys [after-each] :as opts}]
    (let [frame-id (resolve-frame opts)
-         dispatch-opts (cond-> {:frame frame-id}
-                         (contains? opts :origin) (assoc :origin (:origin opts)))]
+         ;; Per rf2-t1lxr: test-fixture-driven dispatches default to
+         ;; :rf/dispatch-origin :test-harness so Causa's L2 timeline +
+         ;; per-origin filters can discriminate test-driven cascades
+         ;; from user-origin events. Caller may override.
+         dispatch-opts (cond-> {:frame frame-id :rf/dispatch-origin :test-harness}
+                         (contains? opts :origin) (assoc :origin (:origin opts))
+                         (contains? opts :rf/dispatch-origin)
+                         (assoc :rf/dispatch-origin (:rf/dispatch-origin opts)))]
      (doseq [ev events]
        (router/dispatch-sync! ev dispatch-opts)
        (when after-each

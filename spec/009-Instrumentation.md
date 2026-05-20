@@ -84,6 +84,44 @@ When a tool (the pair tool, a story runner, the REPL, the SSR boot path) needs i
 
 `:origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:timer` / `:http` / `:machine` / `:repl` / `:ssr-hydration`) and is essentially a "what woke the runtime?" axis; `:origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both.
 
+### Dispatch-origin tagging: `:rf/dispatch-origin`
+
+Every `:event/dispatched` trace event carries a closed-enum classifier under `:tags :rf/dispatch-origin` answering the question **"where, functionally, did this dispatch come from?"** Per the Causa A.5 taxonomy (and surfaced as the L2 epoch-timeline row prefix + Event-panel step 1 — see [tools/causa/spec/021 §1.5](../tools/causa/spec/021-Dynamic-Panel-Designs.md)):
+
+| Value | Set by | Meaning |
+|---|---|---|
+| `:user` | default (the macro / fn-form path supplies nothing else) | A user-emitted dispatch — a UI handler, a REPL call, a test body that did not opt into another tag. |
+| `:router` | `re-frame.routing` internal dispatches (the routing-error emit, `:route/link` click handler) | A routing-substrate dispatch — URL events, route-link clicks, on-match-error cascades. |
+| `:websocket` | application-level websocket adapters (the framework does not ship a websocket adapter) | A websocket-frame-arrived dispatch. The taxonomy slot is reserved; apps that wire websockets opt in via `{:rf/dispatch-origin :websocket}`. |
+| `:http` | `re-frame.http_encoding/dispatch-reply-via-late-bind!` (managed-request reply path) | An HTTP managed-request reply dispatch — `:on-success` / `:on-failure` cascade entry. |
+| `:ssr` | the user's hydration boot site (the framework does not auto-detect — see Spec 011) | The `:rf/hydrate` cascade or any other SSR-boot-time dispatch. |
+| `:fx-emit` | `re-frame.fx`'s `:dispatch` / `:dispatch-later` fx handlers (override-on-cascade — child dispatches are tagged `:fx-emit` regardless of parent's origin) | A dispatch emitted by the do-fx phase of another event handler. Lineage is preserved via `:parent-dispatch-id`; the origin tag answers "who emitted THIS dispatch?" |
+| `:timer` | `re-frame.machines.timer`'s `:after` fire site | A state-machine `:after` timer firing. (Application-level `setTimeout` / `setInterval` callers self-tag; the framework does not detect.) |
+| `:test-harness` | test fixtures that opt in (the framework does not auto-detect; see Spec 015 / `re-frame.test_support`) | Reserved slot for test bodies that want their dispatches discriminated. Application-level opt-in. |
+| `:tool` | tooling adapters (Causa controls, Story play scripts, the pair-MCP write surface) — they self-tag at their dispatch site | A tool-issued dispatch (operator clicking "step", a story-script driving the app). |
+| `:internal` | `re-frame.machines.lifecycle_fx/spawn` (`:start` event into newly-spawned actors) and other framework-internal lifecycle dispatches | A framework-substrate-internal dispatch (actor bootstrap, lifecycle cascade). |
+
+The default — for both the macro form (`(rf/dispatch event)` / `(rf/dispatch-sync event)`) and the fn form (`(rf/dispatch* event)`) — is `:user`. Internal callers thread `:rf/dispatch-origin` into the opts map at their emit site to override the default.
+
+```clojure
+;; user surface (default :user)
+(rf/dispatch [:cart/add {:sku "abc"}])
+
+;; explicit opt-in (per-call)
+(rf/dispatch [:order/submit] {:rf/dispatch-origin :tool})
+```
+
+`:rf/dispatch-origin` is **distinct from `:source` and `:origin`**:
+- `:source` (`:ui` / `:timer` / `:http` / `:machine` / `:repl` / `:ssr-hydration` / `:test` / `:other`) is the *trigger trio* — what woke the runtime — and predates the rf2-t1lxr addition.
+- `:origin` (`:app` / `:pair` / `:story` / `:test` / …) is the *actor identity* — which tool or app subsystem emitted the dispatch — and is **unconstrained** at the framework level.
+- `:rf/dispatch-origin` is the *closed-enum functional source* — the 10-value taxonomy above. Tools branch on it to render the L2 row prefix and per-origin filter pills.
+
+The closed enum is **closed** at the spec level. Adding a new value is a framework-level change with substrate-side consumer impact; it is not a per-app extension point. Tools and applications agree on the 10 values listed above.
+
+The dispatch envelope's `:rf/dispatch-origin` slot rides via the `:tags :rf/dispatch-origin` axis onto every `:event/dispatched` trace event. Production builds elide the trace surface entirely; the envelope's `:rf/dispatch-origin` slot remains in the production build (it is plain envelope data, not gated trace tooling) but consumers that read it sit on the dev-only trace stream and DCE alongside the rest of the trace machinery.
+
+Per rf2-t1lxr.
+
 ### `:op-type` vocabulary
 
 Core values: `:event`, `:sub/run`, `:sub/create`, `:event/do-fx`, `:fx`, `:view/render`, `:registry`, `:machine`, `:warning`, `:error`, `:info`.

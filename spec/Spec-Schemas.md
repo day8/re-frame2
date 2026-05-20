@@ -101,6 +101,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]] ;; trigger kind
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
+   [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]  ;; closed-enum functional source (default :user) — per [009 §Dispatch-origin tagging]; per rf2-t1lxr
    [:dispatched-at         {:optional true} :any]])                        ;; CLJS reference may add an impl-specific timestamp; tools tolerate
 ```
 
@@ -121,7 +122,8 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]]
-   [:origin                {:optional true} :keyword]])                     ;; actor identity tag — defaults to :app when omitted
+   [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
+   [:rf/dispatch-origin    {:optional true} [:enum :user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal]]])  ;; closed-enum functional source — defaults to :user when omitted (per rf2-t1lxr)
 ```
 
 The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event :frame :rf/default :dispatched-at (now)} opts)`. The runtime asserts `:event` and `:frame` are present after the merge.
