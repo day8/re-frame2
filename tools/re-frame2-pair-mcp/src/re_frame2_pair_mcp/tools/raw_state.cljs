@@ -13,8 +13,7 @@
   published-build default), re-frame2-pair-mcp:
 
   1. FORCES `:include-sensitive false` on every snapshot / get-path /
-     subscribe call, regardless of what the caller passed. The
-     `force-redact?` predicate is the single arbiter.
+     subscribe call, regardless of what the caller passed.
   2. FORCES `:elision true` on every snapshot / get-path call,
      regardless of what the caller passed.
   3. Signals the preload runtime to default-elide its `tap>` emissions
@@ -23,6 +22,30 @@
 
   When `--allow-raw-state` is ON, the per-call args win — the same
   behaviour re-frame2-pair-mcp shipped pre-rf2-c2dtu.
+
+  ## Single intention-naming predicate (rf2-p1qli)
+
+  Call sites consume the gate state through ONE predicate:
+
+      (raw-state/raw-state-allowed?)
+      ; ⇒ true when --allow-raw-state was passed at launch
+      ; ⇒ false otherwise (the published-build default)
+
+  Per-tool bodies branch on this predicate directly — no inversion
+  layer, no `force-*?` predicate-pair gymnastics:
+
+      incl?    (if (raw-state/raw-state-allowed?)
+                 (args/parse-bool-arg raw-args :include-sensitive)
+                 false)
+      elision? (if (raw-state/raw-state-allowed?)
+                 (args/parse-bool-arg raw-args :elision)
+                 true)
+
+  The predicate name asserts the operator's opt-in state directly —
+  the truthy value means \"the operator opted in via --allow-raw-state\".
+  This replaces the prior `force-redact?` / `force-elision?` pair which
+  returned `(not @allow-raw-state?)` and required three negations to
+  trace through (see rf2-p1qli / audit Finding #2).
 
   Symmetric with:
     - rf2-zyoj2 `--allow-eval`  (eval-cljs in re-frame2-pair-mcp; tools/eval-cljs.cljs)
@@ -50,35 +73,31 @@
   []
   @allow-raw-state?)
 
-(defn force-redact?
-  "When the boot gate is OFF, per-call `:include-sensitive true` must
-  not be honoured — return `true` so callers force the walker's
-  `:rf.size/include-sensitive?` to `false`. When the boot gate is ON
-  (operator opted in at server launch), the per-call arg wins; return
-  `false`.
+(defn raw-state-allowed?
+  "Single intention-naming predicate (rf2-p1qli).
 
-  Used by the snapshot / get-path / subscribe tool bodies to wrap the
-  `parse-bool-arg :include-sensitive` value:
+  Returns `true` when the operator opted in via `--allow-raw-state` at
+  server launch; `false` otherwise (the published-build default).
 
-      (let [incl? (args/parse-bool-arg raw-args :include-sensitive)
-            incl? (if (raw-state/force-redact?) false incl?)]
-        ...)"
+  Call sites branch on this predicate directly:
+
+      ;; :include-sensitive — gate-on → caller's arg; gate-off → false
+      incl?    (if (raw-state/raw-state-allowed?)
+                 (args/parse-bool-arg raw-args :include-sensitive)
+                 false)
+
+      ;; :elision — gate-on → caller's arg; gate-off → true (force walker)
+      elision? (if (raw-state/raw-state-allowed?)
+                 (args/parse-bool-arg raw-args :elision)
+                 true)
+
+  Replaces the pre-rf2-p1qli `force-redact?` / `force-elision?`
+  predicate-pair, both of which returned `(not @allow-raw-state?)` and
+  required three negations at the call site to answer \"did the operator
+  opt in?\" The new predicate is positive-sense, single-name, and
+  matches its truth value to the operator's intent."
   []
-  (not @allow-raw-state?))
-
-(defn force-elision?
-  "When the boot gate is OFF, per-call `:elision false` must not be
-  honoured — return `true` so callers force the walker on. When the
-  boot gate is ON, the per-call arg wins; return `false`.
-
-  Used by the snapshot / get-path tool bodies to wrap the
-  `parse-bool-arg :elision` value:
-
-      (let [elision? (args/parse-bool-arg raw-args :elision)
-            elision? (or elision? (raw-state/force-elision?))]
-        ...)"
-  []
-  (not @allow-raw-state?))
+  @allow-raw-state?)
 
 ;; ---------------------------------------------------------------------------
 ;; Preload-runtime signal — default-elide tap> emissions when the gate is OFF.
