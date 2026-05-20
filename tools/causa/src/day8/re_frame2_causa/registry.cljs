@@ -33,6 +33,13 @@
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.config :as config]
+            ;; rf2-jgip1 — load the shared data-display renderer ns so
+            ;; its top-level `reg-sub` / `reg-event-db` calls land in
+            ;; the registrar at orchestrator-load time (same posture as
+            ;; the existing `theme.data-inspector` ns which is loaded
+            ;; transitively via the diff renderer). Per
+            ;; `tools/causa/spec/021-Dynamic-Panel-Designs.md` §10.
+            [day8.re-frame2-causa.data-display.render]
             [day8.re-frame2-causa.defaults :as defaults]
             [day8.re-frame2-causa.epoch :as epoch]
             [day8.re-frame2-causa.filters :as filters]
