@@ -1092,6 +1092,15 @@
   keys live under their own reserved namespace
   (e.g. `:rf.privacy/show-sensitive?` is read by Causa AND Story).
 
+  Keys group by TOPICAL prefix in their local name (the
+  key-naming axis per rf2-dz35f / audit-of-audits #16): editor /
+  layout-host / launch / keybinding / static-mode / settings /
+  filters / render / trace / logging. New keys MUST join an existing
+  cluster prefix when the dial belongs to an established topic;
+  mint a new prefix only when the knob opens a new axis. The full
+  navigation map — every cluster, every v1 key, every vision key —
+  lives in spec/015-Configuration.md §Key-naming axis.
+
   Accepts:
 
     `{:rf.causa/editor <kw>}` — Causa's 'Open in editor' preference

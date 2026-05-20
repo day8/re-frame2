@@ -53,6 +53,95 @@ spellings (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are
 NOT accepted — unknown keys are silently ignored per the forward-
 compat rule below.
 
+## Key-naming axis — navigation map (rf2-dz35f · audit-of-audits #16)
+
+> **`configure!` is a single entry point with ~10 keys today and ~30
+> keys planned. Authors navigate the surface by the TOPICAL axis baked
+> into each key's local name — every knob's prefix names the cluster
+> it belongs to.**
+
+A reader audit (`ai/findings/2026-05-20-tools-causa-api-review.md`
+Finding #4 → `rf2-cthfn` audit-of-audits #16) flagged the risk that a
+single `configure!` accepting a growing key set becomes a navigation
+hazard: 10 keys is fine, 30 is not, and the bare name `configure!`
+gives readers no map of what lives where.
+
+**Pick (rf2-dz35f · option b · Mike-confirmed).** Keep the single
+`configure!` entry point. Document the key-naming axis loudly so
+authors can navigate by namespaced keywords. The split into multiple
+entry points (`configure-editor!`, `configure-launch!`, …) is
+mechanical if surface bloat ever forces it; until then, one entry
+point + a documented axis is the lower-overhead shape (per the
+ownership rule locked by `rf2-g2a5v`, splitting would invalidate
+`defaults < configure! < persisted Settings` — wait for evidence of
+pain).
+
+### How keys are organised
+
+Every `configure!` key carries a **topical prefix** in its local name
+identifying the cluster it belongs to. The convention is:
+
+```
+:rf.<reservation>/<cluster>-<knob>
+```
+
+Where:
+
+- `<reservation>` — the reserved namespace owning the key (`causa`
+  for Causa-only knobs; `privacy` for cross-tool knobs read by every
+  re-frame2 tool that consumes the trace bus).
+- `<cluster>` — the topical cluster (editor, launch, keybinding,
+  render, trace, …). New related keys join the cluster by sharing
+  the prefix.
+- `<knob>` — the specific dial within the cluster
+  (`-storage-key`, `-enabled?`, `-auto-hide-events`, …).
+
+The flat hyphenated shape (`:rf.causa/filters-storage-key`,
+`:rf.causa/keybinding-enabled?`) is the canonical v1 form. Reading
+`rg ':rf.causa/<cluster>'` enumerates every knob in a cluster; IDE
+completion against `:rf.causa/<cluster>-` reveals the dials without
+reading this doc.
+
+> **Evolution path (not v1).** If a cluster grows past comfort
+> (~5 keys), it MAY graduate to its own sub-namespace
+> (`:rf.causa.<cluster>/<knob>`) — `:rf.causa.kb/enabled?`,
+> `:rf.causa.kb/bindings`, etc. The graduation is mechanical
+> (rename + forward-compat alias for one minor release) and is
+> RESERVED for the long-tail vision; v1 ships flat.
+
+### Cluster catalogue
+
+The table below maps every `configure!` cluster to its anchor section
+in this doc. Authors looking for a specific knob: scan the cluster
+column, jump to the linked section, find the knob.
+
+| Cluster | Reserved namespace | v1 keys | Future keys (vision) | Anchor |
+|---|---|---|---|---|
+| **Editor / source-coord** | `:rf.causa/` | `:rf.causa/editor`, `:rf.causa/project-root` | — | [`§:rf.causa/editor`](#rfcausaeditor) + [`§:rf.causa/project-root`](#rfcausaproject-root) |
+| **Privacy (cross-tool)** | `:rf.privacy/` | `:rf.privacy/show-sensitive?` | — | [`§:rf.privacy/show-sensitive?`](#rfprivacyshow-sensitive) |
+| **Layout host** | `:rf.causa/` | `:rf.causa/layout-host-selector` | — | [`§:rf.causa/layout-host-selector`](#rfcausalayout-host-selector) |
+| **Launch** | `:rf.causa/` | `:rf.causa/auto-open?` | `:rf.causa/launch-restore-visibility?`, `:rf.causa/launch-popout-geometry` | [`§:rf.causa/auto-open?`](#rfcausaauto-open) + [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
+| **Keybinding** | `:rf.causa/` | `:rf.causa/keybinding-enabled?` | `:rf.causa/keybinding-handle-keys?`, `:rf.causa/keybinding-bindings` | [`§:rf.causa/keybinding-enabled?`](#rfcausakeybinding-enabled) |
+| **Static mode** | `:rf.causa/` | `:rf.causa/static-mode?` | — | [`§:rf.causa/static-mode?`](#rfcausastatic-mode) |
+| **Settings popup (bulk-set)** | `:rf.causa/` | `:rf.causa/settings` (carries `:theme`, `:density`, `:buffer`, `:diff`, …) | — | [`§:rf.causa/settings`](#rfcausasettings) |
+| **Filters** | `:rf.causa/` | `:rf.causa/filters`, `:rf.causa/filters-storage-key` | `:rf.causa/filters-auto-hide-events`, `:rf.causa/filters-auto-hide-event-ns`, `:rf.causa/filters-auto-hide-error-overrides?` | [`§:rf.causa/filters`](#rfcausafilters) + [`§:rf.causa/filters-storage-key`](#rfcausafilters-storage-key) |
+| **Buffer depths** | `:rf.causa/` | (via `:rf.causa/settings` `:buffer` slot) | `:rf.causa/buffer-retained-epochs` (process-global escape hatch) | [Vision §Must-haves](#vision--full-configure-key-inventory-30-keys) |
+| **Render / inspector** | `:rf.causa/` | — | `:rf.causa/render-ns-aliases`, `:rf.causa/render-alias-namespaces?`, `:rf.causa/render-auto-expand-below`, `:rf.causa/render-uuids-as` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
+| **Trace collection** | `:rf.causa/` | — | `:rf.causa/trace-collect-when`, `:rf.causa/trace-fatten?` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
+| **Logging (self-debug)** | `:rf.causa/` | — | `:rf.causa/logging-debug?` | [Vision §Nice-to-haves](#vision--full-configure-key-inventory-30-keys) |
+
+The cluster table is the canonical navigation aid; the §Configuration
+keys section below carries the normative semantics. The
+§[Vision](#vision--full-configure-key-inventory-30-keys) section
+catalogues the future keys not yet shipped.
+
+**For authors of new keys.** Adding a knob? Pick its cluster first
+(reuse an existing prefix when the dial belongs to an established
+topic; mint a new prefix only when the knob opens a new axis), then
+the local name (`-<knob>` suffix within the cluster prefix). Update
+this table in the same PR — the cluster catalogue is the contract
+authors navigate by, not the per-knob anchor docs.
+
 ## Entry point
 
 ```clojure
