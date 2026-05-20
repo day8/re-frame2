@@ -168,10 +168,10 @@ The posture is normative across Story's surfaces:
 
 1. **Authoring — variant authors may declare path-marks per frame.**
    Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md))
-   and a variant's body MAY include `(re-frame.core/reg-marks
-   <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare
-   per-frame `app-db` marks (per
-   [spec/015 §2. App-db (per frame) — `reg-marks`](../../../spec/015-Data-Classification.md#2-app-db-per-frame--reg-marks)).
+   and a variant's body MAY include `(re-frame.core/add-marks
+   <variant-id> {path mark, ...})` or `(re-frame.core/set-marks
+   <variant-id> {path mark, ...})` to declare per-frame `app-db` marks
+   (per [spec/015 §2. App-db marks (per frame)](../../../spec/015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks)).
    The `:loaders` / `:events` / `:play` registrations on a variant
    continue to accept `:sensitive` / `:large` on their registration
    maps via the standard registration grammar

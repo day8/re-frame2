@@ -483,21 +483,23 @@
   []
   (canonical/install!))
 
-;; ---- reg-marks re-export (rf2-l6hzv) ------------------------------------
+;; ---- add-marks / set-marks re-export (rf2-l6hzv) ------------------------
 ;;
-;; Story-author ergonomic alias for `re-frame.core/reg-marks`. The
-;; primitive lives in the framework (`re-frame.core`) — variant bodies
-;; declare per-frame path-marks via `(story/reg-marks <variant-id>
-;; {:sensitive [paths] :large [paths]})` exactly the same shape they
-;; would call `re-frame.core/reg-marks` directly. No fork, no shim;
-;; the re-export is purely for discoverability so authors scanning
-;; `re-frame.story`'s public surface for privacy primitives find one
-;; without chasing cross-references into `re-frame.core`.
+;; Story-author ergonomic aliases for `re-frame.core/add-marks` and
+;; `re-frame.core/set-marks`. The primitives live in the framework
+;; (`re-frame.core`) — variant bodies declare per-frame path-marks via
+;; `(story/add-marks <variant-id> {path mark, ...})` or
+;; `(story/set-marks <variant-id> {path mark, ...})` exactly the same
+;; shapes they would call `re-frame.core/add-marks` / `set-marks`
+;; directly. No fork, no shim; the re-export is purely for
+;; discoverability so authors scanning `re-frame.story`'s public
+;; surface for privacy primitives find them without chasing cross-
+;; references into `re-frame.core`.
 ;;
-;; Per Conventions.md §Privacy primitive — `reg-marks` re-export.
+;; Per Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export.
 
-(def ^{:doc "Declare per-frame path-marks against `app-db`, per
-  [framework spec/015 §reg-marks](../../../../spec/015-Data-Classification.md).
+(def ^{:doc "Additively merge per-frame path-marks into `app-db`, per
+  [framework spec/015 §App-db marks](../../../../spec/015-Data-Classification.md).
   Variants typically scope the declaration to the variant's frame id —
   per-variant frames each get their own marks declaration:
 
@@ -506,21 +508,33 @@
          :args {:user/email \"ada@example.com\"
                 :user/password \"•••••\"}})
 
-      (story/reg-marks :story.auth/login-form
-        {:sensitive [[:user :password]
-                     [:auth :token]]
-         :large     [[:docs :csv-upload]]})
+      (story/add-marks :story.auth/login-form
+        {[:user :password] :sensitive
+         [:auth :token]    :sensitive
+         [:docs :csv-upload] :large})
 
-  Re-export of `re-frame.core/reg-marks` per rf2-l6hzv — Story-author
+  Re-export of `re-frame.core/add-marks` per rf2-l6hzv — Story-author
   discoverability alias; same primitive, same data model, same per-
-  frame semantics. See [Conventions.md §Privacy primitive — `reg-marks`
-  re-export](../spec/Conventions.md#privacy-primitive--reg-marks-re-export)
+  frame semantics. See [Conventions.md §Privacy primitives —
+  `add-marks` / `set-marks` re-export](../spec/Conventions.md#privacy-primitives--add-marks--set-marks-re-export)
   for the convention rationale.
 
   Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
   does NOT install an interceptor, does NOT change any handler's view
-  of the data."}
-  reg-marks rf/reg-marks)
+  of the data. Use `set-marks` for replace-semantics."}
+  add-marks rf/add-marks)
+
+(def ^{:doc "Replace the per-frame `app-db` mark-set, per
+  [framework spec/015 §App-db marks](../../../../spec/015-Data-Classification.md).
+  Paths supplied REPLACE the frame's prior marks set wholesale.
+
+      (story/set-marks :story.auth/login-form
+        {[:user :password] :sensitive
+         [:auth :token]    :sensitive})
+
+  Re-export of `re-frame.core/set-marks` per rf2-l6hzv. Returns
+  `frame-id`. Pure declaration — does NOT mutate `app-db`."}
+  set-marks rf/set-marks)
 
 ;; ---- reg-global-decorator (rf2-835ey — preview.ts parity, F-1) ----------
 ;;

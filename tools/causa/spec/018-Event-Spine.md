@@ -770,7 +770,7 @@ Virtualised list (overscan 20). See [`013-Trace-Bus.md`](013-Trace-Bus.md) for t
 |---|---|---|---|
 | **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | ON | red gutter; full stack-trace in detail expand |
 | **Schema violations** | Malli registration on app-db / event-args / sub-output | ON | yellow gutter; offending path + expected vs actual via `inspect-diff` |
-| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (a `reg-marks` path pointing to nothing — typo detection) | ON | magenta gutter; marker-aware so the warning itself doesn't leak the value |
+| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (an `add-marks` / `set-marks` path pointing to nothing — typo detection) | ON | magenta gutter; marker-aware so the warning itself doesn't leak the value |
 | **Hydration mismatches** | SSR-only; mismatched server/client tree | ON | yellow gutter; node path + server vs client text |
 | **Perf-budget overruns** | cascades exceeding configured perf budget | ON | orange gutter; actual vs budget + cascade-id |
 | **App console errors/warns** | host app's `console.error` / `console.warn` calls (captured via hook) | ON | dim grey gutter (advisory); raw text |
@@ -1295,7 +1295,7 @@ Causa CONSUMES the contract specified in [spec/015-Data-Classification](../../..
 
 | Sentinel | Causa renders | Drillable? | Hover tooltip discloses | Click affordance |
 |---|---|---|---|---|
-| `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark source (`reg-marks` / event-handler / sub / fx / cofx / machine / flow) · local count | One-way disclosure of STRUCTURE only (path + source). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
+| `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark source (`add-marks` / `set-marks` / event-handler / sub / fx / cofx / machine / flow) · local count | One-way disclosure of STRUCTURE only (path + source). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Same as above + size | Same as above; size disclosed (helps debug "is the redacted thing big enough to be the problem?") |
 | `:rf/large {:bytes N :head "…"}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · head preview | Popover with `:head` preview + **"Fetch full value" button**. Fetch routes via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trip the marker's handle). Size-warned via confirm modal when bytes > threshold (default 100KB). |
 
@@ -1356,7 +1356,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
 
 1. **Event handler** (`reg-event-db/fx/ctx`) — `{:sensitive [paths]}` on the registration map.
-2. **App-db** (per frame) — `(rf/reg-marks <frame-id> {:sensitive [paths] :large [paths]})`.
+2. **App-db** (per frame) — `(rf/add-marks <frame-id> {path mark, ...})` (additive merge) or `(rf/set-marks <frame-id> {path mark, ...})` (replace wholesale).
 3. **Subscription** — output marking via `{:sensitive [paths]}` or whole-output `{:sensitive? true/false}` override. Default = propagate from sensitive input paths.
 4. **Effect** (`reg-fx`) — input marking on the fx-args.
 5. **Coeffect** (`reg-cofx`) — injection marking.

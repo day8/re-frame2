@@ -2,11 +2,11 @@
   "Unit + integration tests for Spec 015 — Data Classification.
 
   Covers:
-    - `reg-marks` API + replace-not-merge semantics
+    - `add-marks` / `set-marks` API + additive-vs-replace semantics
     - per-registration mark extraction across the 7 reg-* sites
     - emit-time trace projection (event / fx / cofx / sub)
     - sub auto-propagation + opt-out
-    - schema-attached marks union with `reg-marks`"
+    - schema-attached marks union with `add-marks` / `set-marks`"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
@@ -39,52 +39,101 @@
     (trace-tooling/register-trace-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
-;; ---- reg-marks API ------------------------------------------------------
+;; ---- add-marks / set-marks API ------------------------------------------
 
-(deftest reg-marks-writes-into-elision-registry
-  (rf/reg-marks :rf/default
-    {:sensitive [[:user :ssn] [:auth :token]]
-     :large     [[:docs :csv-upload]]})
+(deftest set-marks-writes-into-elision-registry
+  (rf/set-marks :rf/default
+    {[:user :ssn]      :sensitive
+     [:auth :token]    :sensitive
+     [:docs :csv-upload] :large})
   (let [decls-s (elision/sensitive-declarations :rf/default)
         decls-l (elision/declarations :rf/default)]
     (is (contains? decls-s [:user :ssn]))
     (is (contains? decls-s [:auth :token]))
-    (is (= :reg-marks (:source (get decls-s [:user :ssn]))))
+    (is (= :marks (:source (get decls-s [:user :ssn]))))
     (is (contains? decls-l [:docs :csv-upload]))
-    (is (= :reg-marks (:source (get decls-l [:docs :csv-upload]))))))
+    (is (= :marks (:source (get decls-l [:docs :csv-upload]))))))
 
-(deftest reg-marks-returns-frame-id
-  (is (= :rf/default (rf/reg-marks :rf/default {:sensitive [[:x]]})))
+(deftest add-marks-writes-into-elision-registry
+  (rf/add-marks :rf/default
+    {[:user :ssn]      :sensitive
+     [:docs :csv-upload] :large})
+  (let [decls-s (elision/sensitive-declarations :rf/default)
+        decls-l (elision/declarations :rf/default)]
+    (is (contains? decls-s [:user :ssn]))
+    (is (= :marks (:source (get decls-s [:user :ssn]))))
+    (is (contains? decls-l [:docs :csv-upload]))))
+
+(deftest add-marks-returns-frame-id
+  (is (= :rf/default (rf/add-marks :rf/default {[:x] :sensitive})))
   (rf/reg-frame :other {:doc "test"})
-  (is (= :other (rf/reg-marks :other {:sensitive [[:y]]}))))
+  (is (= :other (rf/add-marks :other {[:y] :sensitive}))))
 
-(deftest reg-marks-replaces-not-merges
-  ;; Spec 015 §reg-marks: a second call against the same frame REPLACES
-  (rf/reg-marks :rf/default {:sensitive [[:a] [:b]]})
-  (rf/reg-marks :rf/default {:sensitive [[:c]]})
+(deftest set-marks-returns-frame-id
+  (is (= :rf/default (rf/set-marks :rf/default {[:x] :sensitive}))))
+
+(deftest set-marks-replaces-not-merges
+  ;; Spec 015 §App-db marks: set-marks REPLACES the previous set
+  (rf/set-marks :rf/default {[:a] :sensitive [:b] :sensitive})
+  (rf/set-marks :rf/default {[:c] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:c]))
     (is (not (contains? decls [:a])))
     (is (not (contains? decls [:b])))))
 
-(deftest reg-marks-preserves-schema-sourced
-  ;; Schema declarations have :source :schema; reg-marks must not drop them
+(deftest add-marks-merges-not-replaces
+  ;; Spec 015 §App-db marks: add-marks MERGES additively
+  (rf/add-marks :rf/default {[:a] :sensitive [:b] :sensitive})
+  (rf/add-marks :rf/default {[:c] :sensitive})
+  (let [decls (elision/sensitive-declarations :rf/default)]
+    (is (contains? decls [:a]) "first add survives second add")
+    (is (contains? decls [:b]) "first add survives second add")
+    (is (contains? decls [:c]) "second add lands")))
+
+(deftest add-marks-last-write-wins-per-path
+  ;; A path appearing in two add-marks calls — last call's mark wins
+  (rf/add-marks :rf/default {[:p] :sensitive})
+  (rf/add-marks :rf/default {[:p] :large})
+  (let [s (elision/sensitive-declarations :rf/default)
+        l (elision/declarations :rf/default)]
+    ;; After the second add-marks, [:p] is now :large; it should
+    ;; still appear in the sensitive map because add-marks does
+    ;; not retract previously-added paths. This is the documented
+    ;; "additive" semantic. Authors who want full replacement use
+    ;; set-marks.
+    (is (contains? s [:p]) "additive — prior sensitive entry remains")
+    (is (contains? l [:p]) "new large entry added")))
+
+(deftest set-marks-after-add-marks-replaces
+  ;; set-marks called after add-marks fully replaces — clears prior :marks entries
+  (rf/add-marks :rf/default {[:a] :sensitive [:b] :large})
+  (rf/set-marks :rf/default {[:c] :sensitive})
+  (let [s (elision/sensitive-declarations :rf/default)
+        l (elision/declarations :rf/default)]
+    (is (contains? s [:c]))
+    (is (not (contains? s [:a])))
+    (is (not (contains? l [:b])))))
+
+(deftest add-marks-preserves-schema-sourced
+  ;; Schema declarations have :source :schema; add-marks must not drop them
   (rf/reg-app-schema [:auth]
                      [:map
                       [:password {:sensitive? true} :string]])
   (rf/populate-sensitive-from-schemas!)
-  (rf/reg-marks :rf/default {:sensitive [[:user :ssn]]})
+  (rf/add-marks :rf/default {[:user :ssn] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
-    (is (contains? decls [:user :ssn]) "reg-marks path present")
+    (is (contains? decls [:user :ssn]) "add-marks path present")
     (is (contains? decls [:auth :password]) "schema-sourced path preserved")
     (is (= :schema (:source (get decls [:auth :password]))))))
 
-(deftest reg-marks-second-call-preserves-schema
+(deftest set-marks-preserves-schema-sourced
+  ;; Schema declarations have :source :schema; set-marks must not drop them
   (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]])
+                     [:map
+                      [:password {:sensitive? true} :string]])
   (rf/populate-sensitive-from-schemas!)
-  (rf/reg-marks :rf/default {:sensitive [[:a]]})
-  (rf/reg-marks :rf/default {:sensitive [[:b]]})
+  (rf/set-marks :rf/default {[:a] :sensitive})
+  (rf/set-marks :rf/default {[:b] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:b]))
     (is (not (contains? decls [:a])))
@@ -226,7 +275,7 @@
   ;; existing schema-driven elision constraint — seed first, then mark.
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/reg-marks :rf/default {:sensitive [[:user :ssn]]})
+  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :all-users (fn [db _] (:user db)))
   @(rf/subscribe [:all-users])
   ;; Layer-1 sub with sensitive declarations present → propagation flag set
@@ -236,7 +285,7 @@
   ;; Spec 015 conformance fixture #4
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/reg-marks :rf/default {:sensitive [[:user :ssn]]})
+  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :safe
     {:sensitive? false}
     (fn [db _] (get-in db [:user :name])))
@@ -256,7 +305,7 @@
 (deftest layer-2-inherits-from-input-sub
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/reg-marks :rf/default {:sensitive [[:user :ssn]]})
+  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :u (fn [db _] (:user db)))
   (rf/reg-sub :uname
     :<- [:u]

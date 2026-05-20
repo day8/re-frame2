@@ -15,8 +15,8 @@ re-export rule is:
   query family, the assertion + recorder facades, the canonical
   vocabulary tables, `configure!`, the `*-id` Vars for built-in
   decorators, the shell-mount surface (CLJS-only), `variant-share-url`,
-  and `reg-marks` (privacy primitive re-export per
-  [Conventions §Privacy primitive — `reg-marks` re-export](Conventions.md#privacy-primitive--reg-marks-re-export))
+  and `add-marks` / `set-marks` (privacy primitives re-export per
+  [Conventions §Privacy primitives — `add-marks` / `set-marks` re-export](Conventions.md#privacy-primitives--add-marks--set-marks-re-export))
   all sit on the facade.
 - **Chrome internals + theme tokens require sub-ns access.** Theme
   tokens (`re-frame.story.theme.*`), the chrome-host surface
@@ -322,8 +322,8 @@ for the marquee posture statement, and the per-surface entries:
 
 | Surface | Behaviour | Spec |
 |---|---|---|
-| `story/reg-marks` (re-export of `re-frame.core/reg-marks`) | Declare per-frame path-marks against `app-db`. Re-export of the framework primitive (rf2-l6hzv) — same primitive, same data model, same per-frame semantics. Story-author discoverability alias so authors scanning `re-frame.story`'s public surface for privacy primitives find one without chasing cross-references. See [Conventions.md §Privacy primitive — `reg-marks` re-export](Conventions.md#privacy-primitive--reg-marks-re-export). | [framework spec/015](../../../spec/015-Data-Classification.md) §reg-marks |
-| `reg-variant` body — per-frame marks | Variant body MAY include `(story/reg-marks <variant-id> {:sensitive [[paths]] :large [[paths]]})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
+| `story/add-marks` / `story/set-marks` (re-exports of `re-frame.core/add-marks` + `set-marks`) | Declare per-frame path-marks against `app-db`. Re-exports of the framework primitives (rf2-l6hzv) — same primitives, same data model, same per-frame semantics. `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. Story-author discoverability aliases so authors scanning `re-frame.story`'s public surface for privacy primitives find them without chasing cross-references. See [Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export](Conventions.md#privacy-primitives--add-marks--set-marks-re-export). | [framework spec/015](../../../spec/015-Data-Classification.md) §App-db marks |
+| `reg-variant` body — per-frame marks | Variant body MAY include `(story/add-marks <variant-id> {path mark, ...})` or `(story/set-marks <variant-id> {path mark, ...})` to declare `app-db` marks scoped to that variant's frame. The `:loaders` / `:events` / `:play` registrations honour the standard `:sensitive` / `:large` registration grammar. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) + [spec/015](../../../spec/015-Data-Classification.md) |
 | Assertion records | `:rf.assert/*` records build `:actual` / `:expected` / `:payload` slots through `re-frame.elision/elide-wire-value` before landing in `:assertions`. The `:rf/redacted` sentinel is a legal `:expected` value for pinning the redaction contract. | [`004-Assertions.md`](004-Assertions.md) §Privacy |
 | Error-projection records | `:rf.error/exception` records pass `ex-data` through `re-frame.elision/elide-wire-value`; exception `:message` strings are NOT auto-walked (author responsibility — see spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`). | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |
 | MCP read surface | Story core returns marks-as-data; wire substitution to `:rf/redacted` happens at the MCP jar's egress boundary, not in Story core. | [`000-Vision.md` §Privacy posture](000-Vision.md#privacy-posture-path-level-data-classification--spec-015) §MCP read surface |
@@ -367,7 +367,7 @@ for the marquee posture statement, and the per-surface entries:
 - [`Conventions.md`](Conventions.md) — Story-specific naming and
   structural conventions (reserved namespaces, id grammars, macro/`*`-
   fn split, chrome-installer pair shape, `*-id` Var pattern, token-
-  banning, `reg-marks` re-export).
+  banning, `add-marks` / `set-marks` re-export).
 - [`Principles.md`](Principles.md) — design principles.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — why each call was
   made.

@@ -65,10 +65,14 @@
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.marks (rf2-vw7f5 Spec 015 data classification) -------------
-   {:key         :marks/reg-marks
+   {:key         :marks/add-marks
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
-    :description "Declare path-marks against a frame's app-db (Spec 015 §reg-marks)."}
+    :description "Additively merge path-marks into a frame's app-db (Spec 015 §App-db marks)."}
+   {:key         :marks/set-marks
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-vw7f5"
+    :description "Replace the frame's app-db mark-set wholesale (Spec 015 §App-db marks)."}
    {:key         :marks/register-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"

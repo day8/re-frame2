@@ -8,7 +8,7 @@
 
 ## Abstract
 
-re-frame2 ships **opt-in, path-marked data classification**: every registration kind that participates in the dataflow accepts a `{:sensitive [paths] :large [paths]}` declaration on its registration map, plus a dedicated `reg-marks` API for marking paths inside `app-db`. Paths are vectors of keywords/indices that index into the relevant data shape; the framework consults them at *emission time* (when a trace event is built, when Causa renders a panel, when MCP returns a tool response, when a third-party log sink invokes its trace listener) and substitutes a display sentinel for the marked value.
+re-frame2 ships **opt-in, path-marked data classification**: every registration kind that participates in the dataflow accepts a `{:sensitive [paths] :large [paths]}` declaration on its registration map, plus dedicated `add-marks` / `set-marks` APIs for marking paths inside `app-db` (additive merge and wholesale replace, respectively). Paths are vectors of keywords/indices that index into the relevant data shape; the framework consults them at *emission time* (when a trace event is built, when Causa renders a panel, when MCP returns a tool response, when a third-party log sink invokes its trace listener) and substitutes a display sentinel for the marked value.
 
 Two sentinels carry the contract:
 
@@ -125,17 +125,22 @@ The `:sensitive` declaration also seeds the propagation graph (per [§Propagatio
 
 **Cross-reference:** [002 §Events](002-Frames.md#routing-the-dispatch-envelope) is the canonical home for the event-registration surface and the `[:event-id {arg-map}]` shape. This Spec's contract slots *into* the existing registration metadata map per [001 §Registration grammar](001-Registration.md#registration-grammar); it does not redefine the registration surface.
 
-### 2. App-db (per frame) — `reg-marks`
+### 2. App-db marks (per frame) — `add-marks` / `set-marks`
 
-`reg-marks` is a dedicated registration kind for declaring path-marks against `app-db`. Symmetric with `reg-event` / `reg-sub` / `reg-fx` — same metadata-map shape, same `(current-frame)` defaulting, same `:rf/default` fallback per [002 §Frames](002-Frames.md).
+Two dedicated registration kinds declare path-marks against `app-db`, symmetric in shape:
+
+- **`add-marks`** — additive merge. Paths supplied MERGE into the frame's existing mark-set; unmentioned paths keep their prior state. Repeat calls accumulate.
+- **`set-marks`** — wholesale replace. Paths supplied REPLACE the frame's prior mark-set; unmentioned paths are CLEARED.
+
+Both take the same `{path mark, ...}` shape — a path-keyed map from `get-in`-shaped path vectors to mark keywords (`:sensitive` or `:large`).
 
 ```clojure
-(rf/reg-marks :rf/default
-  {:sensitive [[:user :ssn]
-               [:auth :token]
-               [:auth :refresh-token]]
-   :large     [[:docs :csv-upload]
-               [:logs :history-buffer]]})
+(rf/add-marks :rf/default
+  {[:user :ssn]            :sensitive
+   [:auth :token]          :sensitive
+   [:auth :refresh-token]  :sensitive
+   [:docs :csv-upload]     :large
+   [:logs :history-buffer] :large})
 
 ;; App-db inspection in Causa renders:
 ;;   {:user {:ssn :rf/redacted :name "Alice"}
@@ -143,17 +148,20 @@ The `:sensitive` declaration also seeds the propagation graph (per [§Propagatio
 ;;    :docs {:csv-upload :rf/large {:bytes 4523198 :head "ID,Name,Email\n..."}}}
 ```
 
-Signature:
+Signatures:
 
 ```clojure
-(reg-marks frame-id {:sensitive [paths] :large [paths]})
+(add-marks frame-id {path mark, ...})
+(set-marks frame-id {path mark, ...})
 ```
 
-`frame-id` is the first positional arg (matching the asymmetry of `reg-app-schema` per [010 §`app-db` schemas — path-based](010-Schemas.md#app-db-schemas--path-based)). The whole declaration is **frame-scoped** — `:rf/default` and a wizard's `:wizard-frame` carry independent mark sets. Re-registration replaces the previous declaration set in full (NOT merge); a second `reg-marks` call against the same frame wins.
+`frame-id` is the first positional arg (matching the asymmetry of `reg-app-schema` per [010 §`app-db` schemas — path-based](010-Schemas.md#app-db-schemas--path-based)). The whole declaration is **frame-scoped** — `:rf/default` and a wizard's `:wizard-frame` carry independent mark sets.
 
-`reg-marks` returns the `frame-id` it registered against, per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+**Last-write-wins between `add-marks` and `set-marks`** when called against the same frame. `set-marks` is the declarative form (whatever the caller passes IS the frame's mark-set); `add-marks` is the incremental form (use when feature-modular code registers its own marks across multiple modules).
 
-**Marks are pure declarations.** `reg-marks` does NOT mutate `app-db`, does NOT install an interceptor, and does NOT change any handler's view of the data. The declaration only feeds the mark-lookup table the observation surfaces consult.
+Both fns return the `frame-id` they registered against, per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+
+**Marks are pure declarations.** Neither `add-marks` nor `set-marks` mutates `app-db`, installs an interceptor, or changes any handler's view of the data. The declaration only feeds the mark-lookup table the observation surfaces consult.
 
 ### 3. Subscriptions — `reg-sub`
 
@@ -166,7 +174,7 @@ Subscriptions support **two override granularities** in their registration map, 
   :<- [:db/users]
   (fn [users [_ uid]] (get users uid)))
 ;; Output marked :rf/redacted in Causa's sub panel because the upstream
-;; [:user :ssn] path was declared sensitive at reg-marks time.
+;; [:user :ssn] path was declared sensitive via add-marks / set-marks.
 
 ;; Per-path declaration: explicit mark on slots of the sub's output.
 (rf/reg-sub :computed-credentials
@@ -323,7 +331,7 @@ The grammar matches subscriptions row-for-row:
 | `:sensitive? true / false` | Whole-output force-mark or opt-out. Overrides propagation. |
 | `:large? true / false` | Symmetric to `:sensitive?`. |
 
-The flow's `:path` write into `app-db` carries the resolved sensitivity — Causa's App-DB-Diff panel sees `:rf/redacted` at the destination slot just as if `reg-marks` had declared the path directly.
+The flow's `:path` write into `app-db` carries the resolved sensitivity — Causa's App-DB-Diff panel sees `:rf/redacted` at the destination slot just as if `add-marks` / `set-marks` had declared the path directly.
 
 ## The display contract — sentinels
 
@@ -434,12 +442,12 @@ The framework trusts the override. A determined contributor who writes `{:sensit
 The two declaration sources **merge** at lookup time. The mark-lookup table the observation surfaces consult is the union of:
 
 - Schema-attached `:sensitive?` / `:large?` per-slot metadata (per 010).
-- `reg-marks` and per-registration declarations (per this Spec).
+- `add-marks` / `set-marks` and per-registration declarations (per this Spec).
 - Propagated marks (per [§Propagation rules](#propagation-rules)).
 
 Conflict between the two sources is resolved by union — if a path is declared sensitive by *either* source, the path is sensitive. There is no way for one source to *unmark* a path the other source marked; the only way to opt out of a propagated mark on a derived value is the `{:sensitive? false}` whole-output override on the deriving registration (sub or flow).
 
-**The recommendation.** Apps already running rich schemas may continue to use the per-slot `:sensitive?` / `:large?` metadata for `app-db` paths; the schema-attached form colocates the mark with the shape declaration. Apps without schemas, or apps whose schemas don't cover the marked surface, use `reg-marks`. Per-registration declarations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-machine`, `reg-flow`) live at their respective registration sites regardless of schema coverage — schemas don't cover event-arg, fx-input, cofx-injection, or machine-data shapes anyway.
+**The recommendation.** Apps already running rich schemas may continue to use the per-slot `:sensitive?` / `:large?` metadata for `app-db` paths; the schema-attached form colocates the mark with the shape declaration. Apps without schemas, or apps whose schemas don't cover the marked surface, use `add-marks` / `set-marks`. Per-registration declarations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-machine`, `reg-flow`) live at their respective registration sites regardless of schema coverage — schemas don't cover event-arg, fx-input, cofx-injection, or machine-data shapes anyway.
 
 ## Reserved keys and namespaces
 
@@ -453,7 +461,7 @@ Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-frame
 | `:large` | Symmetric to `:sensitive`. Optional key on every `reg-*` registration metadata map. Value: vector of paths. | [§Seven first-class marking sites](#the-seven-first-class-marking-sites) |
 | `:sensitive?` | Optional boolean key on `reg-sub` and `reg-flow` for whole-output override (per `{:sensitive? true/false}`). | [§3. Subscriptions](#3-subscriptions--reg-sub), [§7. Flows](#7-flows--reg-flow) |
 | `:large?` | Symmetric to `:sensitive?`. Optional boolean key on `reg-sub` and `reg-flow`. | [§3. Subscriptions](#3-subscriptions--reg-sub), [§7. Flows](#7-flows--reg-flow) |
-| `reg-marks` | New registration kind. Declares path-marks against an `app-db`, scoped to one frame. | [§2. App-db (per frame) — `reg-marks`](#2-app-db-per-frame--reg-marks) |
+| `add-marks` / `set-marks` | Two new registration kinds. Declare path-marks against an `app-db`, scoped to one frame. `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. | [§2. App-db marks (per frame) — `add-marks` / `set-marks`](#2-app-db-marks-per-frame--add-marks--set-marks) |
 
 Apps MUST NOT use the sentinel keywords as legitimate payload values; doing so collides with the framework's substitution semantics and the observation surfaces will render the legitimate value as if it were a substituted sentinel.
 
@@ -471,7 +479,7 @@ The contract is **observable behaviour**, not the implementation approach. A por
 
 ### Hot-path cost
 
-- **Production builds:** zero. The entire mark-lookup machinery rides the `re-frame.interop/debug-enabled?` gate that elides the trace bus per [009 §Production elision](009-Instrumentation.md#production-elision). `reg-marks` and per-registration declarations do still register at boot (they go through the same registrar slot as every other `reg-*`); the declarations sit in the registry consuming a constant amount of memory but are never consulted in production builds because no emit site fires.
+- **Production builds:** zero. The entire mark-lookup machinery rides the `re-frame.interop/debug-enabled?` gate that elides the trace bus per [009 §Production elision](009-Instrumentation.md#production-elision). `add-marks` / `set-marks` and per-registration declarations do still register at boot (they go through the same registrar slot as every other `reg-*`); the declarations sit in the registry consuming a constant amount of memory but are never consulted in production builds because no emit site fires.
 - **Dev builds:** one path-walk per trace event per declared mark, gated by mark-set size. For the typical app (10–30 marked paths across 5–8 registrations), this is sub-millisecond per emit on the CLJS reference and dominated by the existing trace-event-assembly cost.
 
 ### Mark-lookup table shape
@@ -482,11 +490,11 @@ The CLJS reference materialises the merged mark set at `[:rf/elision :sensitive-
 ;; Reference shape (CLJS, not pattern-required)
 {:rf/elision
  {:sensitive-declarations
-  {[:user :ssn]      {:source :reg-marks}
-   [:auth :token]    {:source :reg-marks}
+  {[:user :ssn]      {:source :marks}
+   [:auth :token]    {:source :marks}
    [:auth :jwt]      {:source :propagated :from {:event :auth/log-in-success :arg-path [:jwt]}}}
   :large-declarations
-  {[:docs :csv-upload] {:source :reg-marks}}}}
+  {[:docs :csv-upload] {:source :marks}}}}
 ```
 
 The `:source` slot is for tooling (Causa's "why is this redacted?" affordance reads it); the lookup contract only requires the path → presence mapping. Per-source attribution is a CLJS-reference convenience.
@@ -533,15 +541,16 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | Fixture | What it asserts |
 |---|---|
 | `data-classification/event-arg-sensitive-path-redacts-in-trace.edn` | A `reg-event-fx` with `:sensitive [[:password]]`, when dispatched with `{:password "secret"}`, produces an `:event/dispatched` trace event whose `:tags :event` slot renders `[:event-id {:password :rf/redacted}]`. |
-| `data-classification/app-db-sensitive-path-redacts-in-diff.edn` | A frame with `reg-marks {:sensitive [[:user :ssn]]}`, after dispatching an event that writes `"123-45-6789"` to `[:user :ssn]`, produces an `:event/db-changed` trace event whose `:tags :app-db-after` slot renders `:rf/redacted` at that path. |
-| `data-classification/sub-auto-propagates-sensitivity.edn` | A `reg-sub` reading `[:user :ssn]` (marked sensitive at `reg-marks`) with no `:sensitive?` override produces a `:sub/run` trace event whose output value is marked sensitive (the sub's value, when re-emitted into a downstream trace event, renders as `:rf/redacted`). |
+| `data-classification/app-db-sensitive-path-redacts-in-diff.edn` | A frame with `set-marks {[:user :ssn] :sensitive}`, after dispatching an event that writes `"123-45-6789"` to `[:user :ssn]`, produces an `:event/db-changed` trace event whose `:tags :app-db-after` slot renders `:rf/redacted` at that path. |
+| `data-classification/sub-auto-propagates-sensitivity.edn` | A `reg-sub` reading `[:user :ssn]` (marked sensitive at `set-marks`) with no `:sensitive?` override produces a `:sub/run` trace event whose output value is marked sensitive (the sub's value, when re-emitted into a downstream trace event, renders as `:rf/redacted`). |
 | `data-classification/sub-explicit-opt-out-honoured.edn` | A `reg-sub` reading sensitive app-db data with `{:sensitive? false}` produces a `:sub/run` trace event whose output is NOT marked (the value renders unredacted). |
 | `data-classification/combined-sensitive-and-large.edn` | A path declared in both `:sensitive` and `:large` (or marked by one source and inheriting from another) renders as `:rf/redacted {:bytes N}` — the combined sentinel form. |
 | `data-classification/cofx-empty-path-redacts-whole.edn` | A `reg-cofx` with `{:sensitive [[]]}` produces a trace event whose corresponding cofx-map slot renders `:rf/redacted` for the whole injected value. |
 | `data-classification/machine-data-sensitive-path-redacts-in-snapshot.edn` | A `reg-machine` with `:sensitive [[:data :jwt]]`, after a transition that writes a JWT into `:data`, produces an `:rf.machine/snapshot-updated` trace event whose `:tags :snapshot :data :jwt` slot renders `:rf/redacted`. |
 | `data-classification/flow-output-inherits-from-input.edn` | A `reg-flow` whose `:inputs` include a sensitive app-db path produces a flow `:path` write whose value is marked sensitive in the downstream `:event/db-changed` trace event. |
-| `data-classification/reg-marks-replaces-not-merges.edn` | A second `reg-marks` call against the same frame *replaces* the previous declaration set (the previous set's paths no longer redact). |
-| `data-classification/schema-and-reg-marks-union.edn` | A path declared sensitive by schema (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)) AND a different path declared sensitive by `reg-marks` both redact in the same observation; the two sources union. |
+| `data-classification/set-marks-replaces-not-merges.edn` | A second `set-marks` call against the same frame *replaces* the previous declaration set (the previous set's paths no longer redact). |
+| `data-classification/add-marks-merges-not-replaces.edn` | A second `add-marks` call against the same frame MERGES into the previous declaration set (the previous set's paths still redact). |
+| `data-classification/schema-and-app-db-marks-union.edn` | A path declared sensitive by schema (per [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces-rf2-kj51z)) AND a different path declared sensitive by `add-marks` / `set-marks` both redact in the same observation; the two sources union. |
 
 Per-artefact unit tests cover the implementation-specific propagation mechanism (approach A vs B); the conformance fixtures cover only the observable contract.
 
