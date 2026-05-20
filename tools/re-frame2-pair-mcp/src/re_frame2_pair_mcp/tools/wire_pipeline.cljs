@@ -13,7 +13,7 @@
   pipelines each re-derived their own subset. Three local-obvious
   copies of one rule cost nothing — until the rule changes. A named
   pipeline encodes the invariant once; a future step (say a
-  `with-redacted` walker) lands here once instead of in three places.
+  `redact-interceptor` walker) lands here once instead of in three places.
 
   ## Ordering invariant
 

@@ -352,7 +352,7 @@
 ;; Causa runs in-process and reads RAW epoch records (not the
 ;; egress-projected ones), so the only `:rf/redacted` sentinels in
 ;; `:db-before` / `:db-after` come from an app-supplied `:redact-fn`
-;; (the `with-redacted` interceptor only redacts event-payload trace
+;; (the `redact-interceptor` interceptor only redacts event-payload trace
 ;; surfaces, not the recorded db). Wire-elision via
 ;; `elide-wire-value` happens at the off-box egress boundary and never
 ;; touches what Causa sees.

@@ -657,7 +657,7 @@
                           (:interceptors handler-meta))
         base-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
         redaction-paths (privacy/schema-redaction-paths frame base-chain)
-        ;; Per rf2-461sp — user-installed `(rf/with-redacted paths)`
+        ;; Per rf2-461sp — user-installed `(rf/redact-interceptor paths)`
         ;; interceptors expose their paths on the interceptor map so the
         ;; pre-chain trace projection (`:run-start`, `emit-cascade-
         ;; trailers`) honours them too. Each user `:before` ALSO runs
@@ -682,7 +682,7 @@
                      (:event envelope))
      ;; `:schema-sensitive?` strictly tracks the schema-declared
      ;; sensitive path overlap — it drives the scope-meta `:sensitive?`
-     ;; stamp on every emitted trace event. User `with-redacted` does
+     ;; stamp on every emitted trace event. User `redact-interceptor` does
      ;; NOT stamp `:sensitive?`; sensitivity is path-marked via the
      ;; schema-slot meta (the handler-meta annotation has been
      ;; removed).

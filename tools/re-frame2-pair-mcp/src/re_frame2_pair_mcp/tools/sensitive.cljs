@@ -81,7 +81,7 @@
   from the `:traces` and `:epochs` slices. Returns
   `[scrubbed dropped-count]`. Non-trace slices (:app-db, :sub-cache,
   :machines) pass through unchanged — redaction of those payloads is
-  the `with-redacted` interceptor's job, not the forwarder's.
+  the `redact-interceptor` interceptor's job, not the forwarder's.
 
   Epoch-record stamping is current contract per rf2-isdwf — the
   epoch assembler computes the rollup at record-assembly time and

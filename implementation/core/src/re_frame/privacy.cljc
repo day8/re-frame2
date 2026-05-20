@@ -113,9 +113,9 @@
         (assoc ctx :rf/redacted-event
                (redact-event (interceptor/get-coeffect ctx :event) paths))))))
 
-;; ---- with-redacted — user-installed positional interceptor ----------------
+;; ---- redact-interceptor — user-installed positional interceptor ----------------
 ;;
-;; The positional `with-redacted` interceptor scrubs named payload keys
+;; The positional `redact-interceptor` interceptor scrubs named payload keys
 ;; *before* the handler body runs. The handler sees the unredacted value
 ;; via the regular `:event` coeffect; the trace surface sees the redacted
 ;; version via `:rf/redacted-event`.
@@ -129,9 +129,9 @@
 ;; stashed `:rf/redacted-event` rather than overwriting it, so the union
 ;; of paths is scrubbed.
 
-(def with-redacted-interceptor-id :rf/with-redacted)
+(def redact-interceptor-id :rf/redact-interceptor)
 
-(defn with-redacted
+(defn redact-interceptor
   "Build a positional interceptor that overwrites the named keys in the
   event vector's payload map with the `:rf/redacted` sentinel before the
   handler body runs.
@@ -160,7 +160,7 @@
   Usage:
 
       (rf/reg-event-fx :auth/login
-        [(rf/with-redacted [[:password] [:token]])]
+        [(rf/redact-interceptor [[:password] [:token]])]
         (fn [{:keys [db]} [_ {:keys [username password token]}]]
           ;; password + token visible HERE (unredacted via :event coeffect)
           ;; trace surface sees them as :rf/redacted
@@ -171,7 +171,7 @@
   [paths]
   (let [paths (vec paths)]
     (interceptor/->interceptor
-      :id     with-redacted-interceptor-id
+      :id     redact-interceptor-id
       ;; Paths are exposed on the interceptor map for chain-walking
       ;; consumers (router `prepare-handler-ctx` collects them so the
       ;; pre-chain `:run-start` trace event already carries the
@@ -184,21 +184,21 @@
               scrubbed (redact-event base paths)]
           (assoc ctx :rf/redacted-event scrubbed))))))
 
-(defn- with-redacted-interceptor?
+(defn- redact-interceptor?
   [interceptor]
   (and (map? interceptor)
-       (= with-redacted-interceptor-id (:id interceptor))))
+       (= redact-interceptor-id (:id interceptor))))
 
 (defn user-redaction-paths
   "Walk an interceptor chain and return the concatenated `:paths` vectors
-  of every `with-redacted` interceptor it contains.
+  of every `redact-interceptor` interceptor it contains.
 
   Read by the router at chain-assembly time so the pre-chain trace events
   (`:run-start`, `emit-cascade-trailers`'s `:run-end`) and the schema-
   derived emit-event projection both honour user-declared payload paths."
   [interceptors]
   (into []
-        (comp (filter with-redacted-interceptor?)
+        (comp (filter redact-interceptor?)
               (mapcat :paths))
         interceptors))
 

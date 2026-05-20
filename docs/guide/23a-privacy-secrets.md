@@ -103,7 +103,7 @@ That's the entire privacy declaration surface for the `:user/account` slice. `:c
     (assoc-in db [:user/account :credit-card] new-card-number)))
 ```
 
-That's all you write. The handler body sees `new-card-number` verbatim — handlers need the real value to do their work. But the `:event/dispatched` trace event for this handler, and the `:event/db-changed` trace event that follows, both ship with `:credit-card` substituted by `:rf/redacted` — *automatically*, because the schema for the slot declared `:sensitive? true`. You did not write a `with-redacted` interceptor. You did not stamp the handler. The schema is the single source of truth; the framework installs the scrub.
+That's all you write. The handler body sees `new-card-number` verbatim — handlers need the real value to do their work. But the `:event/dispatched` trace event for this handler, and the `:event/db-changed` trace event that follows, both ship with `:credit-card` substituted by `:rf/redacted` — *automatically*, because the schema for the slot declared `:sensitive? true`. You did not write a `redact-interceptor` interceptor. You did not stamp the handler. The schema is the single source of truth; the framework installs the scrub.
 
 ### The cross-cutting case — handler-meta `:sensitive?`
 
@@ -124,8 +124,8 @@ Here no individual slot in `app-db` carries `:sensitive? true` — the user's us
 
 A short list of things that used to exist and don't. Each line answers "what do I do instead?"
 
-- **No `with-redacted` interceptor to add by hand.** *Instead:* declare `:sensitive?` on the schema slot. The framework auto-installs the scrub for every handler that reads or writes the slot. You write zero interceptor lines.
-- **No "belt + braces" pattern.** The earlier recommendation to write `:sensitive? true` on the handler-meta *and* `with-redacted` *and* the schema-slot meta was a confession that no one site was sufficient. Under the current contract each declaration is sufficient by itself — schema-slot meta for the data-shape case, handler-meta for the rare cross-cutting case. Pick the one that matches the truth; never both.
+- **No `redact-interceptor` interceptor to add by hand.** *Instead:* declare `:sensitive?` on the schema slot. The framework auto-installs the scrub for every handler that reads or writes the slot. You write zero interceptor lines.
+- **No "belt + braces" pattern.** The earlier recommendation to write `:sensitive? true` on the handler-meta *and* `redact-interceptor` *and* the schema-slot meta was a confession that no one site was sufficient. Under the current contract each declaration is sufficient by itself — schema-slot meta for the data-shape case, handler-meta for the rare cross-cutting case. Pick the one that matches the truth; never both.
 
 ## Composition with `:large?` — sensitive wins
 

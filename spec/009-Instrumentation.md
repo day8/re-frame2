@@ -1503,7 +1503,7 @@ Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per
 
 Trace events carry dispatched event vectors, handler return values, and (under [§Trace event for app-db changes](#trace-event-for-app-db-changes)) `app-db` snapshots — any of which may contain user input that should not leave the developer's machine: passwords, auth tokens, payment details, PII captured from form fields. Tools that ship traces off-box (error-monitor forwarders per [§Wiring an external error monitor](#wiring-an-external-error-monitor-sentry-rollbar-honeybadger-etc), remote dev dashboards, the Causa-MCP / re-frame2-pair servers per [Tool-Pair.md](Tool-Pair.md)) must not emit that data verbatim.
 
-The declaration surface is schema-first. Apps declare sensitive app-db slots with `{:sensitive? true}` on Malli schema metadata; path-scoped handlers automatically install an internal redaction interceptor that redacts matching event-payload paths for trace/error emission while the handler body still receives the raw `:event` coeffect. The complementary site is `(rf/with-redacted [[:password] ...])`, a positional interceptor that scrubs named payload keys on the trace surface.
+The declaration surface is schema-first. Apps declare sensitive app-db slots with `{:sensitive? true}` on Malli schema metadata; path-scoped handlers automatically install an internal redaction interceptor that redacts matching event-payload paths for trace/error emission while the handler body still receives the raw `:event` coeffect. The complementary site is `(rf/redact-interceptor [[:password] ...])`, a positional interceptor that scrubs named payload keys on the trace surface.
 
 > **Unified wire-elision surface.** `:sensitive?` (privacy) and `:large?` (size) are **two orthogonal predicates over the same wire-boundary elision walker** — both consumed by `rf/elide-wire-value` (per [§Size elision in traces](#size-elision-in-traces) below and [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)). The walker emits the `:rf/redacted` sentinel for sensitive values and the `:rf.size/large-elided` marker for large values; when both predicates match the **sensitive drop wins** (the size marker would leak `:path` / `:bytes` and is suppressed). Same shape, two flags, one helper.
 
@@ -1523,7 +1523,7 @@ participates in the privacy machinery. The two always-on substrate
 boundaries (event-emit, error-emit) no longer drop / redact based on
 handler-meta sensitivity — they rely on the per-path elision wire-walker
 populated from app-schema `:sensitive?` slot meta. Schema-installed
-redaction (below) and `with-redacted` (the positional interceptor) are
+redaction (below) and `redact-interceptor` (the positional interceptor) are
 the supported declaration sites.
 
 #### Schema-installed redaction
@@ -1549,7 +1549,7 @@ For handlers scoped with `rf/path`, the router compares the path interceptor's a
 Behaviour:
 
 - **Canonical declaration.** `{:sensitive? true}` on app-schema slot metadata is the canonical per-path privacy declaration. It hydrates `[:rf/elision :sensitive-declarations]` for the active frame.
-- **Positional interceptor.** `(rf/with-redacted [[:password] ...])` scrubs named payload keys before the trace surface sees them; complementary to schema-marked paths.
+- **Positional interceptor.** `(rf/redact-interceptor [[:password] ...])` scrubs named payload keys before the trace surface sees them; complementary to schema-marked paths.
 - **Trace-only redaction.** The internal redaction interceptor writes the redacted event to framework trace/error emission slots. The regular `:event` coeffect stays raw so handlers can perform the requested work.
 - **Sentinel keyword.** Redacted values are replaced with the framework-reserved `:rf/redacted` sentinel. Apps MUST NOT use it as a legitimate payload value.
 
@@ -1614,7 +1614,7 @@ The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the 
 - Schema-installed redaction is internal router machinery. In production builds that retain always-on event/error substrates, the same redacted event shape is used at those boundaries; dev-only trace allocation still DCEs when the trace surface is disabled.
 - The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) treats `":rf/redacted"` as a framework sentinel that may survive only where a production boundary explicitly uses schema redaction.
 
-No registration-time privacy warning exists. Schema metadata is the canonical redaction declaration; `with-redacted` is the positional interceptor for ad-hoc payload scrubs. The handler-meta `:sensitive?` annotation has been removed (rf2-hjs2d).
+No registration-time privacy warning exists. Schema metadata is the canonical redaction declaration; `redact-interceptor` is the positional interceptor for ad-hoc payload scrubs. The handler-meta `:sensitive?` annotation has been removed (rf2-hjs2d).
 
 ### Error event catalogue (single source of truth)
 

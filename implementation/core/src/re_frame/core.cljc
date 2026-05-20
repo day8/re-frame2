@@ -1010,9 +1010,9 @@
   into the M-19 payload map. Composes additively with schema-declared
   sensitive slots (handler-meta `:sensitive?` has been removed in
   favour of path-marked classification). Usage:
-  `(reg-event-fx :auth/login [(with-redacted [[:password]])] ...)`.
+  `(reg-event-fx :auth/login [(redact-interceptor [[:password]])] ...)`.
   Per spec/API.md §Privacy and Spec 009 §Privacy."}
-  with-redacted   privacy/with-redacted)
+  redact-interceptor   privacy/redact-interceptor)
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 

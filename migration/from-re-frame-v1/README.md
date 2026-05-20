@@ -2174,6 +2174,37 @@ Per rf2-g0bbk (audit-of-audits state-machines #12) the machine-handler builder i
 
 ---
 
+### M-58. Trace-redaction factory rename — `with-redacted` → `redact-interceptor` (rf2-aas6o)
+
+**Type A** (mechanical). Single-symbol global rename.
+
+Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to drop into a `:interceptors` vector. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor` per rf2-k367k).
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/with-redacted` | `re-frame.core/redact-interceptor` | the factory fn (returns a Class-1 interceptor map) |
+| `:rf/with-redacted` (interceptor `:id`) | `:rf/redact-interceptor` | the interceptor's identity slot |
+
+**Detect.** v2-pre-rename codebases trip this. v1 had no trace surface or sensitive-data redaction interceptor; v1 codebases land directly on the new name.
+
+```clojure
+;; before
+(rf/reg-event-fx :auth/login
+  [(rf/with-redacted [[:password] [:token]])]
+  (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
+
+;; after
+(rf/reg-event-fx :auth/login
+  [(rf/redact-interceptor [[:password] [:token]])]
+  (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
+```
+
+**No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.

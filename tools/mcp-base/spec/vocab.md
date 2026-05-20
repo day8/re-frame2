@@ -44,7 +44,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | Var | Key | Role | Source |
 |---|---|---|---|
 | `large-elided-key` | `:rf.size/large-elided` | Substituted for an over-threshold leaf (or declared-large slot). | Spec 009 §Size elision |
-| `redacted-sentinel` | `:rf/redacted` | In-place **scalar sentinel** (bare keyword, no body) substituted for a `:sensitive?` leaf by `rf/elide-wire-value` / `with-redacted`. Unlike `:rf.size/large-elided`, there is no `:handle` / `:bytes` slot — the value is gone and MUST NOT be re-fetched. Reserved under the `:rf/*` single-root scheme (Conventions §Reserved namespaces). | Spec 009 §Privacy / `tools/mcp-base/src/re_frame/mcp_base/vocab.cljc` `redacted-sentinel` |
+| `redacted-sentinel` | `:rf/redacted` | In-place **scalar sentinel** (bare keyword, no body) substituted for a `:sensitive?` leaf by `rf/elide-wire-value` / `redact-interceptor`. Unlike `:rf.size/large-elided`, there is no `:handle` / `:bytes` slot — the value is gone and MUST NOT be re-fetched. Reserved under the `:rf/*` single-root scheme (Conventions §Reserved namespaces). | Spec 009 §Privacy / `tools/mcp-base/src/re_frame/mcp_base/vocab.cljc` `redacted-sentinel` |
 | `elision-handle-key` | First slot in the elision handle vector | Vector-shaped handle for follow-up `get-path` calls. | rf2-9fz64 |
 | `include-large-opt` / `include-sensitive-opt` / `include-digests-opt` / `threshold-bytes-opt` | (framework-side opts) | Knobs `rf/elide-wire-value` honours when the consumer relays a wire request to the walker. | Spec 009 §Size elision |
 

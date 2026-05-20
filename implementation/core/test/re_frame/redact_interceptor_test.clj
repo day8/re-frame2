@@ -1,5 +1,5 @@
-(ns re-frame.with-redacted-test
-  "Per rf2-461sp — `(rf/with-redacted paths)` positional interceptor.
+(ns re-frame.redact-interceptor-test
+  "Per rf2-461sp — `(rf/redact-interceptor paths)` positional interceptor.
 
   The third composition site for `:sensitive?` (per [Security.md
   §Behavioural MUSTs across the privacy surface](spec/Security.md)):
@@ -16,7 +16,7 @@
     5. Composes independently with epoch `:redact-fn` (the per-record
        hook reads already-scrubbed trace events).
 
-  Negative coverage: handlers without `with-redacted` see no redaction;
+  Negative coverage: handlers without `redact-interceptor` see no redaction;
   unrelated keys pass through; non-map payload shapes pass through; an
   empty path scrubs the entire payload."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -59,17 +59,17 @@
 
 ;; ---- public-API + interceptor-shape sanity --------------------------------
 
-(deftest with-redacted-is-exported
-  (is (= rf/with-redacted privacy/with-redacted)
-      "rf/with-redacted is the rf.core alias of privacy/with-redacted"))
+(deftest redact-interceptor-is-exported
+  (is (= rf/redact-interceptor privacy/redact-interceptor)
+      "rf/redact-interceptor is the rf.core alias of privacy/redact-interceptor"))
 
-(deftest with-redacted-returns-interceptor-with-paths
+(deftest redact-interceptor-returns-interceptor-with-paths
   (testing "the returned interceptor map exposes its paths on `:paths` so the
             router can fold them into the pre-chain trace projection"
     (let [paths [[:password] [:token]]
-          icpt  (rf/with-redacted paths)]
+          icpt  (rf/redact-interceptor paths)]
       (is (map? icpt))
-      (is (= :rf/with-redacted (:id icpt)))
+      (is (= :rf/redact-interceptor (:id icpt)))
       (is (= paths (:paths icpt)))
       (is (fn? (:before icpt))))))
 
@@ -80,7 +80,7 @@
             surface that uses `redacted-event-from-ctx` sees the scrub"
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login
-        [(rf/with-redacted [[:password] [:token]])]
+        [(rf/redact-interceptor [[:password] [:token]])]
         (fn [db [_ payload]]
           (reset! seen payload)
           (assoc db :last-login payload)))
@@ -92,7 +92,7 @@
             run-start  (run-start-of evs)
             db-changed (first (events-of evs :event/db-changed))]
         (is (= {:username "ada" :password "shh" :token "abc123"} @seen)
-            "handler body sees the raw payload — `with-redacted` is a
+            "handler body sees the raw payload — `redact-interceptor` is a
              trace-surface scrub, not a handler-input rewrite")
         (is (= :rf/redacted (get-in run-start [:tags :event 1 :password])))
         (is (= :rf/redacted (get-in run-start [:tags :event 1 :token])))
@@ -108,7 +108,7 @@
             payload. Opt-in privacy is additive, not conditional;
             consistent with the schema-redaction helper's `redact-path`."
     (rf/reg-event-db :neutral/save
-      [(rf/with-redacted [[:declared]])]
+      [(rf/redact-interceptor [[:declared]])]
       (fn [db [_ payload]] (assoc db :saved payload)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:neutral/save {:keep "me"}]))
@@ -120,7 +120,7 @@
       (is (not (contains? (get-in db-changed [:tags :event 1]) :other))
           "keys neither declared nor in the source remain absent"))))
 
-(deftest handler-without-with-redacted-sees-no-redaction
+(deftest handler-without-redact-interceptor-sees-no-redaction
   (testing "negative — a plain handler emits trace events with the raw payload"
     (rf/reg-event-db :plain/save
       (fn [db [_ payload]] (assoc db :saved payload)))
@@ -128,12 +128,12 @@
                        #(rf/dispatch-sync [:plain/save {:password "shh"}]))
           db-changed (first (events-of evs :event/db-changed))]
       (is (= "shh" (get-in db-changed [:tags :event 1 :password]))
-          "no `:with-redacted` → trace surface carries the raw value"))))
+          "no `:redact-interceptor` → trace surface carries the raw value"))))
 
 (deftest empty-path-scrubs-entire-payload
   (testing "an empty path is the documented 'scrub everything' form"
     (rf/reg-event-db :whole/payload
-      [(rf/with-redacted [[]])]
+      [(rf/redact-interceptor [[]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:whole/payload {:any "thing"}]))
@@ -145,7 +145,7 @@
             is `[id payload-map ...]`); the interceptor must not throw or
             mangle a non-conforming event"
     (rf/reg-event-db :raw/vec-payload
-      [(rf/with-redacted [[:password]])]
+      [(rf/redact-interceptor [[:password]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:raw/vec-payload "scalar"]))
@@ -162,7 +162,7 @@
 
 (deftest composes-additively-with-schema-redaction
   (testing "when both a schema-declared sensitive slot AND a user
-            `with-redacted` apply, the trace surface scrubs the UNION of
+            `redact-interceptor` apply, the trace surface scrubs the UNION of
             paths. The user interceptor's `:before` reads the schema
             interceptor's already-stashed `:rf/redacted-event` and extends
             it, rather than overwriting it."
@@ -174,9 +174,9 @@
       (rf/reg-event-db :auth/login+token
         ;; `path` focuses on `:auth`, which makes the schema-redaction
         ;; auto-install for `:password` (schema-declared sensitive). The
-        ;; user `with-redacted` adds `:token` (NOT schema-declared).
+        ;; user `redact-interceptor` adds `:token` (NOT schema-declared).
         [(rf/path :auth)
-         (rf/with-redacted [[:token]])]
+         (rf/redact-interceptor [[:token]])]
         (fn [auth [_ payload]]
           (reset! seen payload)
           (assoc auth :last payload)))
@@ -200,17 +200,17 @@
         ;; path drove it; the user interceptor does NOT stamp):
         (is (true? (:sensitive? run-start))
             "schema-sensitive scope-stamp still fires (driven by the
-             schema-declared sensitive slot, not by `with-redacted`)")
+             schema-declared sensitive slot, not by `redact-interceptor`)")
         ;; And the in-chain `:event/db-changed` also carries both:
         (is (= :rf/redacted (get-in db-changed [:tags :event 1 :password])))
         (is (= :rf/redacted (get-in db-changed [:tags :event 1 :token])))))))
 
-(deftest with-redacted-alone-does-not-stamp-sensitive-scope
-  (testing "regression — `with-redacted` is a payload-scrub, NOT a scope
+(deftest redact-interceptor-alone-does-not-stamp-sensitive-scope
+  (testing "regression — `redact-interceptor` is a payload-scrub, NOT a scope
             stamper. The `:sensitive?` boolean on emitted events is the
             registration-meta / schema-derived signal only."
     (rf/reg-event-db :plain/scrub
-      [(rf/with-redacted [[:password]])]
+      [(rf/redact-interceptor [[:password]])]
       (fn [db _] db))
     (let [evs       (record-traces
                       #(rf/dispatch-sync [:plain/scrub {:password "shh"}]))
@@ -223,10 +223,10 @@
 (deftest handler-exception-trace-sees-redacted-payload
   (testing "the always-on error path also reads
             `privacy/redacted-event-from-ctx`, so a throwing handler that
-            had a `with-redacted` interceptor surfaces the scrub in the
+            had a `redact-interceptor` interceptor surfaces the scrub in the
             `:rf.error/handler-exception` trace event"
     (rf/reg-event-db :auth/explode
-      [(rf/with-redacted [[:password] [:token]])]
+      [(rf/redact-interceptor [[:password] [:token]])]
       (fn [_ _] (throw (ex-info "boom" {}))))
     (let [evs   (record-traces
                   #(rf/dispatch-sync
@@ -239,16 +239,16 @@
       (is (= :rf/redacted (get-in err [:tags :event 1 :token])))
       (is (= "ada" (get-in err [:tags :event 1 :username]))))))
 
-;; ---- multiple with-redacted interceptors in one chain ---------------------
+;; ---- multiple redact-interceptor interceptors in one chain ---------------------
 
-(deftest multiple-with-redacted-interceptors-union
-  (testing "stacking two `with-redacted` interceptors in one chain applies
+(deftest multiple-redact-interceptor-interceptors-union
+  (testing "stacking two `redact-interceptor` interceptors in one chain applies
             the union of their paths. Useful when an interceptor library
             ships its own privacy interceptor and the registration also
             wants per-call scrubs."
     (rf/reg-event-db :auth/dual
-      [(rf/with-redacted [[:password]])
-       (rf/with-redacted [[:token]])]
+      [(rf/redact-interceptor [[:password]])
+       (rf/redact-interceptor [[:token]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync

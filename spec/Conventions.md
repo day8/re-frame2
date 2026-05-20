@@ -512,15 +512,15 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-is-positional-not-metadata-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/at-boundary ...)`) raises `ArityException`.
 
-Current Class-1 surfaces in [API.md](API.md): `at-boundary` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/with-redacted paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
+Current Class-1 surfaces in [API.md](API.md): `at-boundary` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
 
-**Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`with-redacted` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
+**Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`redact-interceptor` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
 
 ```clojure
 ;; correct — suffix telegraphs value-shape
 (rf/reg-event-db :cart.item/add
   [at-boundary-interceptor                                ;; Var · value
-   (with-redacted [[:credit-card]])                       ;; factory returns value
+   (redact-interceptor [[:credit-card]])                       ;; factory returns value
    unwrap-interceptor]                                    ;; Var · value
   (fn [db payload] ...))
 

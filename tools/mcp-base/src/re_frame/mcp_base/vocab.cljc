@@ -111,7 +111,7 @@
 
 (def redacted-sentinel
   "Literal value substituted **in-place** for a sensitive leaf by the
-  framework's `rf/elide-wire-value` walker and by the `with-redacted`
+  framework's `rf/elide-wire-value` walker and by the `redact-interceptor`
   interceptor. Unlike `:rf.size/large-elided`, this is a **scalar
   sentinel** — there is no map payload, no `:handle`, no re-fetch
   affordance. The value is gone; the agent sees `:rf/redacted` and

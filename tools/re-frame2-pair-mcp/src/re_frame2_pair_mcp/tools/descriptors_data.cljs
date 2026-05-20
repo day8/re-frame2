@@ -367,7 +367,7 @@
                      "declared-sensitive paths return the `:rf/redacted` sentinel and large slots return "
                      "the `:rf.size/large-elided` marker; the same `include-sensitive true` flag opts back "
                      "in to seeing the raw value at sensitive paths. The `:machines` slice passes through "
-                     "unchanged — payload redaction there is the `with-redacted` interceptor's job. "
+                     "unchanged — payload redaction there is the `redact-interceptor` interceptor's job. "
                      "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
                      "repeated subtrees (notably the per-record `:db-before` reference) collapse to a "
                      "`{:rf.mcp/dedup-table ...}` wrapper; agent host reconstructs via `de-dupe.core/expand`. "

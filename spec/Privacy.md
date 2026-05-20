@@ -53,7 +53,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
 | `:sensitive?` / `:large?` | reg-meta key (`reg-sub`, `reg-flow`) | Whole-output override (`true` = force-mark, `false` = opt out of propagation) | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub), [015 §7](015-Data-Classification.md#7-flows--reg-flow) |
 | `reg-marks` | registration kind | Frame-scoped declaration of path-marks against `app-db`. `(rf/reg-marks frame-id {:sensitive [paths] :large [paths]})`. Replaces on re-call. | [015 §2](015-Data-Classification.md#2-app-db-per-frame--reg-marks) |
-| `with-redacted` | interceptor factory | `(rf/with-redacted paths)` → positional interceptor. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
+| `redact-interceptor` | interceptor factory | `(rf/redact-interceptor paths)` → positional interceptor. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
@@ -145,7 +145,7 @@ Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs 
 
 ### Imperative — interceptor-based scrub
 
-- `(rf/with-redacted paths)` — positional interceptor that scrubs named event-payload keys with `:rf/redacted` before the handler runs. The handler body sees the unredacted value via `:event` coeffect; the trace surface sees the scrubbed version via `:rf/redacted-event`. Composes additively with the router's internal schema-redaction interceptor (when both are present, the union of paths is scrubbed).
+- `(rf/redact-interceptor paths)` — positional interceptor that scrubs named event-payload keys with `:rf/redacted` before the handler runs. The handler body sees the unredacted value via `:event` coeffect; the trace surface sees the scrubbed version via `:rf/redacted-event`. Composes additively with the router's internal schema-redaction interceptor (when both are present, the union of paths is scrubbed).
 
 ### Runtime config — epoch redact hook
 
@@ -171,7 +171,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │     - The router's internal :rf/schema-redaction interceptor stashes a      │
 │       scrubbed copy at :rf/redacted-event for every handler whose path-     │
 │       scoped slice overlaps a schema-declared sensitive app-db path.        │
-│     - User-installed `with-redacted` interceptors extend (union, not        │
+│     - User-installed `redact-interceptor` interceptors extend (union, not        │
 │       replace) the stashed copy with their declared payload paths.          │
 │     - Trace assembly reads :rf/redacted-event (not :event) when building    │
 │       :event/* and :event/db-changed tag shapes.                            │
@@ -478,7 +478,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 ### API.md projection
 
 - [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker) — `elide-wire-value`, `elision-declarations`, `populate-elision-from-schemas!`.
-- [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) — `sensitive?`, `with-redacted`.
+- [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) — `sensitive?`, `redact-interceptor`.
 - [API.md §Configure keys](API.md) — the four `(rf/configure ...)` keys, including `:elision` and `:epoch-history`.
 
 ### Author-side guide
