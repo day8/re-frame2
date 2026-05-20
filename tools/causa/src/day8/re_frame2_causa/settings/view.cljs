@@ -218,12 +218,37 @@
   load."
   (into {} (for [{:keys [mnemonic id]} tabs] [mnemonic id])))
 
+(defn- settings-tab-button-id
+  "DOM id for a Settings tab button. Public-shaped helper so the
+  tabpanel's `aria-labelledby` can compute the same id without
+  duplicating the literal."
+  [id]
+  (str "rf-causa-settings-tab-button-" (name id)))
+
+(defn- settings-tabpanel-id
+  "DOM id for the Settings tabpanel — referenced by the tab button's
+  `aria-controls` AND set on the body wrapper so the WAI-ARIA APG
+  tabs pattern's id round-trip resolves (rf2-h4mnh)."
+  [id]
+  (str "rf-causa-settings-tabpanel-" (name id)))
+
 (defn- tab-button [{:keys [id label]} active?]
-  [:button {:data-testid (str "rf-causa-settings-tab-" (name id))
-            :data-active (str active?)
-            :on-click    #(rf/dispatch [:rf.causa/settings-select-tab id]
-                                       {:frame :rf/causa})
-            :style       (tab-style active?)}
+  ;; rf2-h4mnh — Settings popup inner tabs now carry the full WAI-
+  ;; ARIA tab role: `role="tab"` + `aria-selected` per state +
+  ;; stable `id` (so the body's `aria-labelledby` resolves) +
+  ;; `aria-controls` pointing at the body's tabpanel id. The same
+  ;; pattern Causa already ships on the L3 Runtime + Static tab
+  ;; strips (shell.cljs/tab-button). Keeps `:data-active` for
+  ;; styling-key parity with existing CSS selectors / tests.
+  [:button {:data-testid    (str "rf-causa-settings-tab-" (name id))
+            :id             (settings-tab-button-id id)
+            :role           "tab"
+            :aria-selected  (if active? "true" "false")
+            :aria-controls  (settings-tabpanel-id id)
+            :data-active    (str active?)
+            :on-click       #(rf/dispatch [:rf.causa/settings-select-tab id]
+                                          {:frame :rf/causa})
+            :style          (tab-style active?)}
    label])
 
 ;; ---- section: General ---------------------------------------------------
@@ -241,10 +266,15 @@
      [:h2 {:style (section-heading-style)} "General"]
 
      ;; ── Text size slider ────────────────────────────────────────
+     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association
+     ;; so clicking the label focuses the input AND screen readers
+     ;; pair them (was previously a sibling label with no for/id).
      [:div {:style (field-style)}
-      [:label {:style (label-style)} "Text size"]
+      [:label {:html-for "rf-causa-settings-text-size-input"
+               :style    (label-style)} "Text size"]
       [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
        [:input {:data-testid "rf-causa-settings-text-size-input"
+                :id          "rf-causa-settings-text-size-input"
                 :type        "range"
                 :min         "10"
                 :max         "18"
@@ -265,10 +295,13 @@
         (str (or text-size 13) "px")]]]
 
      ;; ── Panel width (rf2-x8h9y resize handle numeric override) ─
+     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association.
      [:div {:style (field-style)}
-      [:label {:style (label-style)} "Panel width (px)"]
+      [:label {:html-for "rf-causa-settings-panel-width-input"
+               :style    (label-style)} "Panel width (px)"]
       [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
        [:input {:data-testid "rf-causa-settings-panel-width-input"
+                :id          "rf-causa-settings-panel-width-input"
                 :type        "number"
                 :min         "320"
                 :step        "10"
@@ -368,10 +401,13 @@
        "Vertical-rhythm knob for Views detail rows and App-db diff rows."]]
 
      ;; ── Long-keyword wrap threshold ─────────────────────────────
+     ;; rf2-h4mnh — `<label :html-for>` ↔ `<input :id>` association.
      [:div {:style (field-style)}
-      [:label {:style (label-style)} "Long-keyword threshold (chars)"]
+      [:label {:html-for "rf-causa-settings-long-keyword-threshold"
+               :style    (label-style)} "Long-keyword threshold (chars)"]
       [:div {:style {:display "flex" :align-items "center" :gap "12px"}}
        [:input {:data-testid "rf-causa-settings-long-keyword-threshold"
+                :id          "rf-causa-settings-long-keyword-threshold"
                 :type        "number"
                 :min         "8"
                 :max         "120"
@@ -735,11 +771,15 @@
 
 (defn- numeric-field
   "Hiccup for a numeric setting input + label + hint. Common shape
-  for the three Buffer-tab knobs."
+  for the three Buffer-tab knobs. rf2-h4mnh — `:html-for` ↔ `:id`
+  associates label with input so clicking the label focuses the
+  input AND screen readers announce them paired."
   [{:keys [testid label value default on-commit min hint]}]
   [:div {:style (field-style)}
-   [:label {:style (label-style)} label]
+   [:label {:html-for testid
+            :style    (label-style)} label]
    [:input {:data-testid testid
+            :id          testid
             :type        "number"
             :min         (str (or min 0))
             :step        "1"
@@ -1007,14 +1047,27 @@
                                              {:frame :rf/causa}))
                  :style       (close-button-style)}
         "✕"]]
-      ;; Tab strip
+      ;; Tab strip — rf2-h4mnh: the strip wrapper is an explicit
+      ;; `role="tablist"` so assistive tech reads the row as a tab
+      ;; group rather than a generic div of buttons. `aria-label`
+      ;; names the group ("Settings sections") for screen readers
+      ;; that announce the landmark on entry.
       (into [:div {:data-testid "rf-causa-settings-tab-strip"
+                   :role        "tablist"
+                   :aria-label  "Settings sections"
                    :style       (tab-strip-style)}]
             (for [tab tabs]
               [tab-button tab (= (:id tab) active-tab)]))
-      ;; Body
-      [:div {:data-testid "rf-causa-settings-body"
-             :style       (body-style)}
+      ;; Body — rf2-h4mnh: closes the tabs/tabpanel loop. The body
+      ;; carries `role="tabpanel"` + an `id` matching the active
+      ;; tab button's `aria-controls`, and `aria-labelledby`
+      ;; pointing back at the tab button so AT announces "<Tab>
+      ;; tabpanel" on focus.
+      [:div {:data-testid     "rf-causa-settings-body"
+             :id              (settings-tabpanel-id active-tab)
+             :role            "tabpanel"
+             :aria-labelledby (settings-tab-button-id active-tab)
+             :style           (body-style)}
        (case active-tab
          :general     (general-section)
          :filters     (filters-section)

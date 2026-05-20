@@ -316,12 +316,16 @@
 (defn chip
   "Render a single chip for `mode-id`. Pure-hiccup view; click handler
   delegates to `toggle-mode!`. Public so tests can introspect the
-  chip-level hiccup without driving the full strip."
+  chip-level hiccup without driving the full strip.
+
+  rf2-vxpq1 — `role=\"button\"` was redundant on a native `<button>`
+  (the audit flagged this nit; the implicit role already carries).
+  Dropping it removes 14 chars × N-chips noise from the rendered DOM
+  without changing AT behaviour."
   [mode-id body active?]
   [:button
    {:style              (merge (:chip styles)
                                (when active? (:chip-active styles)))
-    :role               "button"
     :aria-pressed       (if active? "true" "false")
     :title              (if-let [d (:doc body)]
                           (str (pr-str mode-id) " — " d)

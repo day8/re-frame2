@@ -298,7 +298,16 @@
       [:span {:data-testid "rf-causa-ribbon-frame"
               :style (merge label-style {:color (:text-secondary tokens)})}
        (str "Frame: " (or selected-frame (first frames) ":rf/default"))]
+      ;; rf2-lbutp — native `<select>` is keyboard- and screen-
+      ;; reader-accessible by default, but assistive tech needs an
+      ;; accessible NAME to read on focus. The visible "Frame:"
+      ;; prefix lives inside each `<option>`, not as a sibling
+      ;; `<label>`, so the picker arrives "blank, combobox" without
+      ;; this `aria-label`. Matches the convention the audit
+      ;; flagged (#16) — frame-switcher gets an explicit accessible
+      ;; name.
       [:select {:data-testid "rf-causa-ribbon-frame-picker"
+                :aria-label  "Select frame"
                 :value       (str (or selected-frame (first frames)))
                 :on-change   (fn [^js e]
                                (let [v   (.. e -target -value)

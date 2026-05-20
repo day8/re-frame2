@@ -371,12 +371,27 @@
   [mode]
   (when (and (= mode :inline)
              (not (host-asserts-own-handle?)))
-    (let [current-width @(rf/subscribe [:rf.causa/panel-width-px])]
+    (let [current-width @(rf/subscribe [:rf.causa/panel-width-px])
+          ;; rf2-vxpq1 — WAI-ARIA "separator" with `aria-valuenow`
+          ;; requires both `aria-valuemin` AND `aria-valuemax`. The
+          ;; clamp ceiling is viewport-fraction-based at write time
+          ;; (config/max-panel-width-fraction); for the announced
+          ;; ARIA max we use a stable pixel approximation derived
+          ;; from the window's inner width when available, falling
+          ;; back to a 2000px assumed viewport (the same default the
+          ;; clamp uses when no viewport is supplied). Computing once
+          ;; per render is fine — the value is read on focus, not
+          ;; every paint.
+          viewport-w     (when (exists? js/window)
+                           (.-innerWidth js/window))
+          aria-max       (long (* (or viewport-w 2000)
+                                  config/max-panel-width-fraction))]
       [:div {:data-testid      "rf-causa-resize-handle"
              :role             "separator"
              :aria-orientation "vertical"
              :aria-label       "Resize Causa panel"
              :aria-valuemin    config/min-panel-width-px
+             :aria-valuemax    aria-max
              :aria-valuenow    current-width
              :title            (str "Drag to resize · double-click to reset · "
                                     "arrow keys for fine resize (Shift = coarse) · "
