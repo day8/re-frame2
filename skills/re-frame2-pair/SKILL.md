@@ -34,7 +34,7 @@ allowed-tools:
   # preview-variant, list-stories, …) is allow-listed by the
   # `re-frame2` skill. These entries cover running a variant against
   # the live runtime, inspecting failures, and capturing the cascade
-  # back into a `:play` snippet from within a pair-session.
+  # back into a `:play-script` snippet from within a pair-session.
   - mcp__re-frame2-story-mcp__run-variant
   - mcp__re-frame2-story-mcp__read-failures
   - mcp__re-frame2-story-mcp__snapshot-identity
