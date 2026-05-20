@@ -26,7 +26,26 @@ Inside Causa, the gesture is one click. Three places it shows up:
 2. **In any panel that names a registered id** — Subscriptions, Effects, Machines, Flows, Routes. Click the id, jump to its registration.
 3. **From the host page directly** — switch Causa into *pick mode* (`Ctrl+Shift+S`), hover any DOM element, and the panel highlights the coord. Click to commit the gesture.
 
-The jump uses your editor's URL handler — VS Code (`vscode://`), IntelliJ (`idea://`), Emacs (`emacs://`), or a generic `file://` fallback. Configure the handler in Causa's settings panel; the default tries VS Code first.
+The jump uses your editor's URL handler — VS Code (`vscode://`), IntelliJ (`idea://`), Emacs (`emacs://`), or a generic `file://` fallback. The default is VS Code; if you use something else, configure it once at boot:
+
+```clojure
+(causa-config/configure!
+  {:rf.causa/editor :cursor       ; or :idea, :windsurf, :zed, :vscode (default)
+   :rf.causa/project-root "C:/Users/me/code/my-app"})
+```
+
+Supported keywords: `:vscode`, `:cursor`, `:windsurf`, `:zed`, `:idea` (the JetBrains family — IDEA, WebStorm, PyCharm all answer to `idea://`).
+
+For editors whose URI scheme we don't ship out of the box, pass a `{:custom "<uri-template>"}` form with `{file}` (alias `{path}`), `{line}`, `{column}` placeholders:
+
+```clojure
+(causa-config/configure!
+  {:rf.causa/editor {:custom "myeditor://open?path={file}&row={line}&col={column}"}})
+```
+
+The chip refuses `http:` / `https:` / `javascript:` / `data:` / `vbscript:` regardless of what a custom template resolves to — launching the OS-side editor is the only thing this affordance does, anything else would be a surprise.
+
+`:project-root` is the on-disk root the chip prepends to the (typically classpath-relative) source-coord file before handing the URI to the OS — VS Code in particular silently fails on relative paths.
 
 ## The contract — `data-rf2-source-coord`
 

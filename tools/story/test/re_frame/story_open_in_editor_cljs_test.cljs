@@ -9,8 +9,12 @@
   - `open-chip` renders an `<a>` hiccup tag with the current editor's
     URI when the coord carries `:file`.
   - The chip carries the `data-test` hook for the e2e suite.
-  - `open-chip-for-variant` reads `:source` off the variant body."
+  - `open-chip-for-variant` reads `:source` off the variant body.
+  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event-fx + `:rf.editor/open`
+    reg-fx produce a resolved URI through the same allowlist seam the
+    chip uses (Causa-parity port)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.story.config :as config]
             [re-frame.story.ui.open-in-editor :as open-in-editor]))
 
@@ -381,3 +385,136 @@
              (:href (second hiccup)))
           "trailing separator stripped; backslashes inside the root
            preserved (VSCode accepts both on Windows)"))))
+
+;; ---- resolve-uri (rf2-r2un8) --------------------------------------------
+;;
+;; `resolve-uri` is the extracted URI-building helper the chip path, the
+;; `open-source-coord!` imperative path, and the dispatch-based event-fx
+;; all share. Pinning its contract here means the chip's `:href`, the
+;; inspector launcher, and the fx-emitted `:uri` always agree on the
+;; URI shape — one source of truth. Mirrors Causa's resolve-uri (port
+;; per rf2-r2un8).
+
+(deftest resolve-uri-returns-vscode-default
+  (testing "resolve-uri builds a vscode://file URI by default"
+    (is (= "vscode://file/src/app.cljs:42:7"
+           (open-in-editor/resolve-uri
+             {:file "src/app.cljs" :line 42 :column 7})))))
+
+(deftest resolve-uri-respects-editor-preference
+  (testing "switching editor flips the URI scheme"
+    (config/set-editor! :cursor)
+    (is (= "cursor://file/src/x.cljs:1:1"
+           (open-in-editor/resolve-uri
+             {:file "src/x.cljs" :line 1 :column 1})))))
+
+(deftest resolve-uri-applies-project-root
+  (testing "configured project-root prepends to the source-coord file"
+    (config/set-project-root! "C:/Users/me/code/my-app")
+    (is (= "vscode://file/C:/Users/me/code/my-app/src/app.cljs:17:3"
+           (open-in-editor/resolve-uri
+             {:file "src/app.cljs" :line 17 :column 3})))))
+
+(deftest resolve-uri-nil-when-source-missing
+  (testing "resolve-uri returns nil for coords without :file"
+    (is (nil? (open-in-editor/resolve-uri nil)))
+    (is (nil? (open-in-editor/resolve-uri {:line 1})))
+    (is (nil? (open-in-editor/resolve-uri {:file ""})))))
+
+(deftest resolve-uri-nil-for-disallowed-custom-scheme
+  (testing "resolve-uri returns nil when a {:custom ...} template
+            resolves to a scheme outside `allowed-editor-uri-schemes`
+            — defense-in-depth alongside the chip's render-time gate"
+    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (config/set-editor! {:custom "javascript:alert(1)"})
+    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))))
+
+;; ---- :rf.story/open-in-editor + :rf.editor/open (rf2-r2un8) ------------
+;;
+;; The dispatch-based path Story exposes alongside the imperative chip.
+;; Hosts that don't render the chip directly (agents replaying via MCP,
+;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
+;; let the registered fx fire the URI through the same allowlist gate.
+;; Mirrors Causa's `:rf.causa/open-in-editor` + `:rf.editor/open`
+;; pairing (port per rf2-r2un8). Tests stub the `:rf.editor/open` reg-fx
+;; with a capture, mirroring the Causa test pattern — no `window.location`
+;; mutation under the test runner.
+
+(defonce ^:private captured-editor-fx (atom []))
+
+(defn- install-with-capture!
+  "Install Story's open-in-editor handlers then replace the
+  `:rf.editor/open` reg-fx with a capture stub so the test can inspect
+  the fx args without touching `window.location`. Same pattern Causa's
+  test suite uses."
+  []
+  (reset! captured-editor-fx [])
+  (open-in-editor/install!)
+  (rf/reg-fx :rf.editor/open
+    (fn [_ctx args] (swap! captured-editor-fx conj args))))
+
+(deftest open-in-editor-event-emits-fx-with-resolved-uri
+  (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
+            bare coord produces a `:rf.editor/open` fx whose :uri is the
+            resolved URI"
+    (install-with-capture!)
+    (rf/dispatch-sync [:rf.story/open-in-editor
+                       {:file "src/app/events.cljs" :line 17 :column 3}])
+    (is (= 1 (count @captured-editor-fx))
+        "exactly one open-fx fires per dispatch")
+    (is (= "vscode://file/src/app/events.cljs:17:3"
+           (:uri (first @captured-editor-fx)))
+        "the resolved vscode:// URI rides on the fx args")))
+
+(deftest open-in-editor-event-accepts-wrapped-shape
+  (testing "rf2-r2un8 — dispatching with `{:source-coord coord}` (the
+            wrapper shape some panels use) produces the same fx as the
+            bare-coord form"
+    (install-with-capture!)
+    (rf/dispatch-sync [:rf.story/open-in-editor
+                       {:source-coord {:file "src/x.cljs" :line 5 :column 1}}])
+    (is (= "vscode://file/src/x.cljs:5:1"
+           (:uri (first @captured-editor-fx))))))
+
+(deftest open-in-editor-event-parses-display-string-coord
+  (testing "rf2-r2un8 — the dispatch handler parses `\"file:line\"`
+            display strings back to the structured form so panels that
+            flatten coords at projection time can dispatch them as
+            strings without losing line info"
+    (install-with-capture!)
+    (rf/dispatch-sync [:rf.story/open-in-editor
+                       {:source-coord "src/app/events.cljs:42"}])
+    (is (= "vscode://file/src/app/events.cljs:42:1"
+           (:uri (first @captured-editor-fx))))))
+
+(deftest open-in-editor-event-parses-bare-display-string
+  (testing "rf2-r2un8 — bare display string (no wrapper) defensively
+            handled by the parser"
+    (install-with-capture!)
+    (rf/dispatch-sync [:rf.story/open-in-editor "src/x.cljs:7"])
+    (is (= "vscode://file/src/x.cljs:7:1"
+           (:uri (first @captured-editor-fx))))))
+
+(deftest open-in-editor-event-honours-editor-preference
+  (testing "rf2-r2un8 — the fx's URI reflects `config/get-editor`
+            (the same source of truth the chip render uses)"
+    (install-with-capture!)
+    (config/set-editor! :cursor)
+    (rf/dispatch-sync [:rf.story/open-in-editor
+                       {:file "src/x.cljs" :line 10}])
+    (is (= "cursor://file/src/x.cljs:10:1"
+           (:uri (first @captured-editor-fx))))))
+
+(deftest open-in-editor-event-rejects-disallowed-scheme
+  (testing "rf2-r2un8 / rf2-cm93v — a custom template that resolves
+            outside the allowlist produces a fx with nil :uri (which
+            `open!` is a no-op for); the handler doesn't short-circuit"
+    (install-with-capture!)
+    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (rf/dispatch-sync [:rf.story/open-in-editor
+                       {:file "src/x.cljs" :line 1}])
+    (is (= 1 (count @captured-editor-fx))
+        "fx still fires — the handler doesn't short-circuit")
+    (is (nil? (:uri (first @captured-editor-fx)))
+        "the resolved URI is nil — `open!` will refuse to navigate")))

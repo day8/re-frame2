@@ -77,6 +77,35 @@ The locale strip cycles through any locales the parent story declares — `:en-A
 
 Story doesn't ship a translation engine. The parent story declares which locales are interesting via its `:locales` slot (or registered as Modes with `:axis :locale`), and the runtime takes it from there. If your app uses `formatjs` or `tongue` or `taoensso.tempura` or whatever other i18n surface, point it at the locale strip's selection. We're agnostic on which i18n library you use; we just give you a chrome-level switch that sets the cofx.
 
+## Open in editor
+
+Look at the top-right of any variant canvas — there's a small **`open`** chip. Click it. Your editor — VS Code by default — opens at the variant's source file, on the exact line `reg-variant` was called. This is a navigation affordance, not a development environment; the point is *jump from "this variant looks wrong in the playground" to "the code I need to edit" without scrolling through search results*.
+
+The chip works by building a URI in the editor's custom scheme — `vscode://file/...`, `cursor://file/...`, `idea://open?file=...` — and handing it to the OS. The browser doesn't navigate the tab; the OS handler chain matches the scheme and launches the registered editor. If the editor isn't installed (or its URI handler isn't registered), the click silently no-ops.
+
+**Pick your editor.** The default is VS Code. If you use something else, configure it once at boot:
+
+```clojure
+(story/configure!
+  {:rf.story/editor :cursor       ; or :idea, :windsurf, :zed, :vscode (default)
+   :rf.story/project-root "C:/Users/me/code/my-app"})
+```
+
+The supported keywords are `:vscode`, `:cursor`, `:windsurf`, `:zed`, and `:idea` (the JetBrains family — IDEA, WebStorm, PyCharm all answer to the `idea://` scheme).
+
+**Custom editor.** If you use an editor whose URI scheme we don't ship, pass a `{:custom "<uri-template>"}` form with placeholders the chip substitutes per click:
+
+```clojure
+(story/configure!
+  {:rf.story/editor {:custom "myeditor://open?path={file}&row={line}&col={column}"}})
+```
+
+The placeholders are `{file}` (alias `{path}`), `{line}`, and `{column}`. Missing placeholders in the template are left alone, so `"subl://open?path={path}&line={line}"` is a valid Sublime-Text template that omits the column.
+
+The chip refuses to navigate to `http:` / `https:` / `javascript:` / `data:` / `vbscript:` schemes regardless of what a custom template resolves to — those are launch-time no-ops because *launching the OS-side editor is the only thing this affordance does*; anything else would be a surprise.
+
+**About `:project-root`.** Editors' URI handlers resolve `<path>` against the filesystem, and a relative path lands nowhere good — VS Code in particular silently fails on relative paths. Source-coords stamped at registration time are classpath-relative (e.g. `"src/app/views.cljs"`); `:project-root` is the on-disk root the chip prepends so the URI ships an absolute path. Set it once to the directory above your build's source-paths and forget about it. If you skip the slot, the chip ships the file string verbatim — useful for tests, generally not what you want in the playground.
+
 ## What "orthogonal" buys you
 
 The four toolbars compose. *Mobile, dark chrome, a11y-on, ja-JP* is a coherent picked state, and it's the kind of state you actually want to inspect — "does the Japanese translation overflow on mobile in dark mode with the a11y panel flagging contrast issues?" That's a real question with a real answer once you can pick the combination.

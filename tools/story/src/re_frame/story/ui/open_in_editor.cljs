@@ -3,6 +3,17 @@
   the editor at a source-coord's file:line. Per rf2-evgf5 + Spec 005-
   SOTA-Features.md §'Open in editor' per variant.
 
+  Mirrors `day8.re-frame2-causa.open-in-editor` — same shape, same
+  click-time gate, same launcher seam. Per rf2-r2un8: the two surfaces
+  were drifting; Causa's structure (resolve-uri helper + dispatch-based
+  path + install! registration) is the canonical shape both tools
+  consume now. Story keeps its existing public chip API
+  (`open-chip` / `open-chip-for-variant` / `open-source-coord!`) but
+  delegates URI resolution to `resolve-uri` and adds a parallel
+  dispatch path (`:rf.story/open-in-editor` reg-event-fx) so a panel
+  that doesn't render the chip directly can still hand off a
+  source-coord through re-frame.
+
   The component reads the user's editor preference from
   `re-frame.story.config/editor` (set at boot via `story/configure!`)
   and consults `re-frame.source-coords.editor-uri/editor-uri` to build
@@ -68,7 +79,9 @@
 
   Lives in the Story CLJS bundle; production builds elide the entire
   UI shell so this ns never enters a release bundle."
-  (:require [re-frame.story.config :as config]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.story.config :as config]
             [re-frame.source-coords.editor-uri :as editor-uri]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -98,6 +111,86 @@
                :margin-left     "8px"
                :text-decoration "none"
                :display         "inline-block"}})
+
+;; ---- pure: resolve a source-coord to a launchable URI --------------------
+;;
+;; Per rf2-r2un8 (porting Causa's structure): URI building is extracted
+;; into one helper so the chip path and the dispatch path share the same
+;; logic — chip's `:href`, chip's `:on-click`, the inspector launcher, and
+;; the `:rf.story/open-in-editor` event-fx all call `resolve-uri`.
+
+(defn- parse-file-line
+  "Parse a `\"file:line\"` (or bare `\"file\"`) display string into the
+  structured source-coord map shape `editor-uri/editor-uri` expects.
+
+  Some Story-host integrations (e.g. agents replaying open-in-editor
+  via the MCP surface, panels that flatten a coord to a display
+  string at projection time) ship the coord as a string rather than a
+  map. The parser walks the string back to the structured form.
+
+  The split is on the LAST `:` so a Windows-style
+  `\"C:/users/.../x.cljs:42\"` parses correctly (drive-letter colon
+  stays with the path). Returns `{:file ... :line <int-or-nil>}` —
+  `:column` falls through to `editor-uri`'s default of 1."
+  [s]
+  (when (and (string? s) (not (str/blank? s)))
+    (let [trimmed  (str/triml s)
+          colon-ix (str/last-index-of trimmed ":")
+          tail     (when (and colon-ix (pos? colon-ix))
+                     (subs trimmed (inc colon-ix)))]
+      (if (and tail (seq tail) (re-matches #"\d+" tail))
+        {:file (subs trimmed 0 colon-ix)
+         :line (js/parseInt tail 10)}
+        {:file trimmed}))))
+
+(defn- coerce-coord
+  "Normalise a dispatch payload to a structured source-coord map.
+
+  Accepts (in order of preference):
+
+    - A bare structured map `{:file ... :line ...}` (the canonical
+      shape every Story panel writes).
+    - A wrapper map `{:source-coord <coord>}` where `<coord>` is
+      either a structured map OR a `\"file:line\"` display string
+      (the dispatch shape an external integration may emit).
+    - A bare display string `\"file:line\"` (defensive).
+
+  Returns the map form; callers feed it to `editor-uri/editor-uri`
+  unchanged. Mirrors Causa's `coerce-coord` (rf2-r2un8 port)."
+  [payload]
+  (let [unwrapped (if (and (map? payload) (contains? payload :source-coord))
+                    (:source-coord payload)
+                    payload)]
+    (cond
+      (map? unwrapped)    unwrapped
+      (string? unwrapped) (parse-file-line unwrapped)
+      :else               nil)))
+
+(defn resolve-uri
+  "Pure-data: source-coord → launchable URI string, or nil. Returns nil
+  when the coord lacks `:file`, when `editor-uri/editor-uri` returns nil
+  (a forbidden scheme per rf2-vwcsq), or when the resolved URI's scheme
+  is outside `editor-uri/allowed-editor-uri-schemes` (the shared
+  positive allowlist per rf2-cm93v / rf2-p887o).
+
+  Per rf2-zfy1e: threads the configured project-root through
+  `editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
+  coord (the common case — macros capture the form-meta `:file` slot,
+  typically classpath-relative) resolves to an absolute on-disk path
+  the OS-side editor handler can find. The `:project-root` opt is
+  nil-tolerant — when unset, behaviour matches v1 (file ships
+  verbatim) so legacy hosts and tests aren't broken.
+
+  The chip render path, `open-source-coord!` (element-inspector), and
+  the `:rf.editor/open` reg-fx all call this — one source of truth for
+  the URI shape across the data path and the side-effect path. Mirrors
+  Causa's `resolve-uri` (rf2-r2un8 port)."
+  [source-coord]
+  (when (editor-uri/has-source? source-coord)
+    (let [opts {:project-root (config/get-project-root)}
+          uri  (editor-uri/editor-uri (config/get-editor) source-coord opts)]
+      (when (and uri (editor-uri/allowed-uri? uri))
+        uri))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -140,8 +233,10 @@
   seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
 
-  Public so the element-inspector (rf2-h0jc0) can share the exact same
-  click-time gate the chip uses — one launcher, one allowlist seam.
+  Public so the element-inspector (rf2-h0jc0), the `:rf.editor/open`
+  reg-fx (registered in `install!`), and any host panel that wants the
+  click-time gate can share the exact same launcher. One launcher, one
+  allowlist seam.
 
   Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
   already rejects `javascript:` / `data:` / `vbscript:` schemes by
@@ -176,7 +271,7 @@
 (defn open-chip
   "Render an 'Open' chip for a source-coord. Reads the current editor
   preference from `config/editor`; constructs the URI via
-  `editor-uri/editor-uri`; click fires `window.location.href := uri`.
+  `resolve-uri`; click fires `(open! uri)`.
 
   Returns nil when the source-coord has no usable `:file` slot, when
   `editor-uri/editor-uri` returns nil (a scheme rejected by the
@@ -197,36 +292,27 @@
   ([source-coord]
    (open-chip source-coord :title))
   ([source-coord variant-of-style]
-   (when (editor-uri/has-source? source-coord)
+   (when-let [uri (resolve-uri source-coord)]
      (let [editor (config/get-editor)
-           ;; Per rf2-zfy1e: prepend the configured project-root to the
-           ;; source-coord's `:file` slot (typically classpath-relative)
-           ;; so the URI carries an absolute on-disk path the OS-side
-           ;; editor handler can resolve. The `:project-root` opt is
-           ;; nil-tolerant — when unset, behaviour matches v1 (file
-           ;; ships verbatim) so legacy hosts and tests aren't broken.
-           opts   {:project-root (config/get-project-root)}
-           uri    (editor-uri/editor-uri editor source-coord opts)
            style  (case variant-of-style
                     :test-detail (:chip-test chip-styles)
                     (:chip chip-styles))]
-       (when (and uri (editor-uri/allowed-uri? uri))
-         [:a {:style       style
-              :href        uri
-              :title       (editor-uri/open-button-title source-coord)
-              :data-test   "story-open-in-editor"
-              :data-editor (cond
-                             (map? editor) "custom"
-                             :else         (name editor))
-              :on-click    (fn [e]
-                             ;; Prevent React/Reagent's default link
-                             ;; navigation (otherwise the browser
-                             ;; tries to render the custom URI inside
-                             ;; the tab); explicitly call `open!` so
-                             ;; the OS handler fires.
-                             (.preventDefault e)
-                             (open! uri))}
-          "open"])))))
+       [:a {:style       style
+            :href        uri
+            :title       (editor-uri/open-button-title source-coord)
+            :data-test   "story-open-in-editor"
+            :data-editor (cond
+                           (map? editor) "custom"
+                           :else         (name editor))
+            :on-click    (fn [e]
+                           ;; Prevent React/Reagent's default link
+                           ;; navigation (otherwise the browser
+                           ;; tries to render the custom URI inside
+                           ;; the tab); explicitly call `open!` so
+                           ;; the OS handler fires.
+                           (.preventDefault e)
+                           (open! uri))}
+        "open"]))))
 
 (defn open-source-coord!
   "Resolve `source-coord` to an editor URI via the current Story config
@@ -238,18 +324,14 @@
   This is the imperative path the element-inspector (rf2-h0jc0) uses
   when the user clicks a DOM element while inspector mode is on. The
   chip's `:on-click` (above) takes the same shape: build URI via
-  `editor-uri`, gate via `allowed-uri?`, hand to `open!`.
+  `resolve-uri`, hand to `open!`.
 
   `source-coord` shape: `{:file :line :column}` per
   `re-frame.source-coords`."
   [source-coord]
-  (when (editor-uri/has-source? source-coord)
-    (let [editor (config/get-editor)
-          opts   {:project-root (config/get-project-root)}
-          uri    (editor-uri/editor-uri editor source-coord opts)]
-      (when (and uri (editor-uri/allowed-uri? uri))
-        (open! uri)
-        true))))
+  (when-let [uri (resolve-uri source-coord)]
+    (open! uri)
+    true))
 
 (defn open-chip-for-variant
   "Render an open-chip for a variant — reads the source-coord off the
@@ -260,3 +342,79 @@
   `re-frame.story.registrar/handler-meta :variant variant-id`."
   [variant-body]
   (open-chip (:source variant-body) :title))
+
+;; ---- registration: the data-driven open-in-editor path ------------------
+;;
+;; Per rf2-r2un8 (porting Causa's structure): a dispatch-based path
+;; alongside the imperative chip. Hosts that don't render the chip
+;; directly — agents replaying via MCP, custom Story-host panels — can
+;; dispatch `[:rf.story/open-in-editor coord]` and let the registered
+;; fx fire the URI through the same allowlist gate the chip uses. The
+;; `:rf.editor/open` reg-fx is namespaced under `:rf.editor/*` (not
+;; `:rf.story.fx/*`) because the gate is editor-related, not Story-
+;; specific — Causa registers the same fx-id, idempotently. Either tool
+;; loading first wins; the registered handler is the same shape so the
+;; runtime cost of double-registration is zero.
+
+(defn install!
+  "Idempotent install for the dispatch-side open-in-editor wiring
+  (rf2-r2un8).
+
+  Registers two framework primitives:
+
+    - `:rf.story/open-in-editor` reg-event-fx — the dispatch shape any
+      host panel that wants the trace bus to record the click can fire.
+      Accepts either a bare source-coord map or a wrapper
+      `{:source-coord <coord-or-string>}`. The handler resolves the URI
+      and returns `{:fx [[:rf.editor/open {:uri ...}]]}`.
+
+    - `:rf.editor/open` reg-fx — the side-effectful launcher. Calls
+      `open!` (which applies the rf2-cm93v allowlist + writes
+      `window.location` via the navigator seam). Shares the
+      `:rf.editor/*` namespace with Causa's parallel registration so
+      both tools observe a single registered fx-id at runtime; whichever
+      preload loads first wins, the handler body is identical so it
+      doesn't matter.
+
+  Idempotent — safe to call on every reload. Hosts that drive the
+  Story shell don't need to call this directly; the shell mount path
+  calls it once at boot.
+
+  The handler does NOT write to `db` — the click is a pure navigation,
+  not a state transition. Per Spec 002 §Effect map shape, omitting
+  `:db` from the return leaves the app-db untouched."
+  []
+  ;; ---- :rf.editor/open ----
+  ;;
+  ;; Side-effect handler. Two arg shapes accepted:
+  ;;
+  ;;   {:uri "vscode://..."}                 — pre-resolved URI
+  ;;   {:source-coord {:file ... :line ...}} — resolve via `resolve-uri`
+  ;;                                            first
+  ;;
+  ;; The pre-resolved form is the canonical shape the
+  ;; `:rf.story/open-in-editor` event-fx emits; the `:source-coord`
+  ;; form is a convenience for callers that want one-step dispatch.
+  (rf/reg-fx :rf.editor/open
+    (fn [_ctx args]
+      (let [uri (or (:uri args)
+                    (when-let [coord (:source-coord args)]
+                      (resolve-uri coord)))]
+        (open! uri))))
+
+  ;; ---- :rf.story/open-in-editor ----
+  ;;
+  ;; Event handler. Accepts the same coord-shape `coerce-coord`
+  ;; recognises (bare map, `{:source-coord ...}` wrapper, or a
+  ;; `"file:line"` display string). Resolves the URI through the
+  ;; allowlist seam and routes it to `:rf.editor/open`.
+  (rf/reg-event-fx :rf.story/open-in-editor
+    (fn [_ctx [_event-id payload]]
+      (let [coord (coerce-coord payload)
+            uri   (resolve-uri coord)]
+        ;; Always emit the fx — even when uri is nil. `open!` is a
+        ;; no-op for nil, and routing through the fx (rather than
+        ;; short-circuiting in the handler) keeps the side-effect
+        ;; bookkeeping in one place + makes the fx the single
+        ;; instrumentable seam for replay/dev-tools.
+        {:fx [[:rf.editor/open {:uri uri}]]}))))
