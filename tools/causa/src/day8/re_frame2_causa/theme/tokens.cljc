@@ -405,6 +405,10 @@
                                   perf scale)
     :machines  → :green          (machine state lands in green for
                                   'final' across the inspector)
+    :machines-canvas → :green    (rf2-mkpnb — sibling sub-domain tab
+                                  to Machines; shares the green
+                                  accent so the two machine tabs read
+                                  as one cohesive family)
     :routing   → :yellow         (routing is the side-channel
                                   attention tone — distinguishes
                                   from app-db's main colour)
@@ -412,13 +416,14 @@
 
   JVM-portable pure data → keyword. Call sites do
   `(get tokens (panel-domain->token tab))` to materialise the hex."
-  {:event    :accent-violet
-   :app-db   :cyan
-   :views    :cyan
-   :trace    :orange
-   :machines :green
-   :routing  :yellow
-   :issues   :red})
+  {:event           :accent-violet
+   :app-db          :cyan
+   :views           :cyan
+   :trace           :orange
+   :machines        :green
+   :machines-canvas :green
+   :routing         :yellow
+   :issues          :red})
 
 (defn panel-accent
   "Resolve the L4 panel's accent hex from the canonical

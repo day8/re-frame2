@@ -164,6 +164,8 @@
    :rf.causa.machine-canvas/view-mode-for
    :rf.causa.machine-canvas/viewport-dims-for
    :rf.causa.machine-canvas/viewport-for
+   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab (Runtime).
+   :rf.causa.machines-canvas/selected-id
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.causa/machine-transitions-for-focused-event
@@ -411,6 +413,9 @@
    :rf.causa.machine-canvas/hydrate-view-modes
    :rf.causa.machine-canvas/measure
    :rf.causa.machine-canvas/set-view-mode
+   ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab events.
+   :rf.causa.machines-canvas/select
+   :rf.causa.machines-canvas/state-clicked
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
    :rf.causa/open-edit-popup

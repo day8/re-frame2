@@ -136,8 +136,8 @@
     (let [panels (palette-subs/palette-panels)
           ids    (set (map :id panels))]
       (is (contains? ids :routing) ":routing in palette-panels")
-      (is (= 7 (count panels))
-          "exactly 7 entries — Event / App DB / Views / Trace / Machines / Routing / Issues"))))
+      (is (= 8 (count panels))
+          "exactly 8 entries — Event / App DB / Views / Trace / Machines / Machines Canvas / Routing / Issues (rf2-mkpnb)"))))
 
 ;; ---- (2) empty state ---------------------------------------------------
 

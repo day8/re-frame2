@@ -19,6 +19,7 @@
       (mount-views!            mount-point opts) → unmount-fn
       (mount-trace!            mount-point opts) → unmount-fn
       (mount-machine-inspector! mount-point opts) → unmount-fn
+      (mount-machines-canvas!  mount-point opts) → unmount-fn
       (mount-routing!          mount-point opts) → unmount-fn
       (mount-issues-ribbon!    mount-point opts) → unmount-fn
 
@@ -73,6 +74,7 @@
   | **views** | `:rf.causa/views-focused-cascade-pair` · `:rf.causa/views-sub-diff` | view-row toggles + sub-diff selection |
   | **trace** | `:rf.causa/trace-feed` (incremental projection over the buffer) | `:rf.causa/select-dispatch-id` · `:rf.causa/open-in-editor` |
   | **machine-inspector** | `:rf.causa/machine-chart-data` · `:rf.causa/active-timers-for-focused-machine` · `:rf.causa/machine-scrubber-position` | scrubber events · `:rf.causa/focus-cascade` |
+  | **machines-canvas** | `:rf.causa/registered-machines` · `:rf.causa/machine-definitions` · `:rf.causa.machines-canvas/selected-id` · `:rf.causa.machine-canvas/viewport-for` | `:rf.causa.machines-canvas/select` · `:rf.causa.machine-canvas/apply-action` (via Chart) |
   | **routing** | `:rf.causa/registered-routes` · `:rf.causa/current-route-slice` · `:rf.causa/routing-tab-data` | route-simulation events |
   | **issues-ribbon** | `:rf.causa/issues-ribbon` (composite over trace buffer + filters + focus) | `:rf.causa.issues/toggle-severity` · `:rf.causa.issues/toggle-prefix` · `:rf.causa/select-dispatch-id` |
   | **segment-inspector** | `:rf.causa/segment-inspector-open?` · `:rf.causa/segment-inspector-value` | `:rf.causa/close-segment-inspector` |
@@ -119,6 +121,7 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-causa.panels.machines-canvas.panel :as machines-canvas-panel]
             [day8.re-frame2-causa.panels.managed-fx-template :as managed-fx]
             [day8.re-frame2-causa.panels.routing :as routing]
             [day8.re-frame2-causa.panels.trace :as trace]
@@ -209,6 +212,14 @@
   sub-components)."
   ([mount-point]      (mount-machine-inspector! mount-point nil))
   ([mount-point opts] (render-panel! machine-inspector/Panel mount-point opts)))
+
+(defn mount-machines-canvas!
+  "Mount Causa's Machines Canvas tab in isolation at `mount-point`.
+  Renders the spine-INDEPENDENT canvas browser — picker on the left,
+  interactive Chart adapter on the right (zoom / pan / fit +
+  keyboard shortcuts). Per rf2-mkpnb."
+  ([mount-point]      (mount-machines-canvas! mount-point nil))
+  ([mount-point opts] (render-panel! machines-canvas-panel/Panel mount-point opts)))
 
 (defn mount-routing!
   "Mount Causa's Routing tab in isolation at `mount-point`. Renders
