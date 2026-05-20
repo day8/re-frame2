@@ -148,12 +148,24 @@
                             (assertions/record-emitted-fx! frame-id fx-id)))
           nil)))))
 
-(defn- drain-pending-exceptions!
+(defn drain-pending-exceptions!
   "Append any pending exception trace events from `frame-id` as
   assertion records on the variant's assertions slot. Called by the
   play-runner after each dispatch-sync returns (i.e. after the drain
-  has settled). Clears the pending slot on exit."
-  [frame-id]
+  has settled) AND by the runtime's phase-1 loaders + phase-2 events
+  drivers so handler exceptions from any phase land in the assertions
+  list rather than evaporating into trace-event noise.
+
+  `phase` is stamped onto each record — callers pass `:phase-1-loaders`,
+  `:phase-2-events`, or `:phase-4-play` to match the originating phase.
+  Clears the pending slot on exit.
+
+  Public (rf2-z2dq8) so the new rich-DSL runner (`runner-events`) and
+  the runtime's loader/events drivers can drain between dispatches. The
+  legacy `:rf.story/assertions` contract is load-bearing — the test-mode
+  pane, the chrome-level widget, and the Causa assertions panel all
+  read off this slot."
+  [frame-id phase]
   (let [evs (get @pending-exceptions frame-id [])]
     (when (seq evs)
       (doseq [ev evs]
@@ -164,7 +176,7 @@
             frame-id
             {:assertion :rf.error/exception
              :variant-id frame-id
-             :phase     :phase-4-play
+             :phase     phase
              :event     event-vec
              :error     {:message (or msg
                                       #?(:clj (when exc (.getMessage ^Throwable exc))
@@ -232,7 +244,7 @@
   ;; After the drain settles, walk any captured handler-exception
   ;; trace events into assertion records. Safe to dispatch-sync now —
   ;; the drain has ended.
-  (drain-pending-exceptions! frame-id))
+  (drain-pending-exceptions! frame-id :phase-4-play))
 
 (defn- read-assertions-after
   "Return the per-frame assertions vector, post-play."

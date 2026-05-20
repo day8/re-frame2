@@ -158,7 +158,12 @@
             (catch #?(:clj Throwable :cljs :default) e
               ;; Synchronous throws (rare — re-frame's interceptor chain
               ;; usually catches and re-emits via trace) record here.
-              (record-error! variant-id :phase-2-events ev e))))))))
+              (record-error! variant-id :phase-2-events ev e))
+            (finally
+              ;; rf2-z2dq8 — drain handler-exception trace events that
+              ;; the router caught into the assertions list so phase-2
+              ;; throws land where the test-mode UI looks for them.
+              (play/drain-pending-exceptions! variant-id :phase-2-events))))))))
 
 ;; ---- phase-1 loaders execution -------------------------------------------
 
@@ -197,7 +202,12 @@
             (try
               (rf/dispatch-sync ev {:frame variant-id})
               (catch #?(:clj Throwable :cljs :default) e
-                (record-error! variant-id :phase-1-loaders ev e))))))
+                (record-error! variant-id :phase-1-loaders ev e))
+              (finally
+                ;; rf2-z2dq8 — drain handler-exception trace events the
+                ;; router caught into the assertions list so phase-1
+                ;; loader throws surface in the test-mode UI / Causa.
+                (play/drain-pending-exceptions! variant-id :phase-1-loaders))))))
       ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
       ;; resolves synchronously; Stage 6+ might add an async-retry shape.
       (let [complete? (loaders/evaluate-complete-when variant-id variant-body)]

@@ -38,6 +38,7 @@
             [re-frame.core              :as rf]
             #?(:cljs [reagent.core      :as r])
             [re-frame.story.config      :as config]
+            [re-frame.story.play        :as play]
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar   :as registrar]))
@@ -247,27 +248,38 @@
 ;; ---- step executors ------------------------------------------------------
 
 (defn- exec-dispatch!
-  "Execute a `:dispatch` step. Returns a no-assertion step-result."
+  "Execute a `:dispatch` step. Returns a no-assertion step-result.
+
+  Drains any handler-exception trace events captured by the play
+  listener into `:rf.story/assertions` so the test-mode pane + Causa
+  assertions panel see the failure (rf2-z2dq8). The re-frame router
+  catches handler exceptions and emits `:rf.error/handler-exception`
+  rather than re-throwing, so the local catch fires only for
+  exceptions that escape the interceptor chain entirely."
   [frame-id idx step]
-  (let [evec (runner/step-event step)]
-    (try
-      (rf/dispatch* evec {:frame frame-id})
-      (runner/step-skip idx step)
-      (catch #?(:clj Throwable :cljs :default) e
-        (runner/step-exception idx step
-                               #?(:clj  (.getMessage ^Throwable e)
-                                  :cljs (str e)))))))
+  (let [evec   (runner/step-event step)
+        result (try
+                 (rf/dispatch* evec {:frame frame-id})
+                 (runner/step-skip idx step)
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (runner/step-exception idx step
+                                          #?(:clj  (.getMessage ^Throwable e)
+                                             :cljs (str e)))))]
+    (play/drain-pending-exceptions! frame-id :phase-4-play)
+    result))
 
 (defn- exec-dispatch-sync!
   [frame-id idx step]
-  (let [evec (runner/step-event step)]
-    (try
-      (rf/dispatch-sync* evec {:frame frame-id})
-      (runner/step-skip idx step)
-      (catch #?(:clj Throwable :cljs :default) e
-        (runner/step-exception idx step
-                               #?(:clj  (.getMessage ^Throwable e)
-                                  :cljs (str e)))))))
+  (let [evec   (runner/step-event step)
+        result (try
+                 (rf/dispatch-sync* evec {:frame frame-id})
+                 (runner/step-skip idx step)
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (runner/step-exception idx step
+                                          #?(:clj  (.getMessage ^Throwable e)
+                                             :cljs (str e)))))]
+    (play/drain-pending-exceptions! frame-id :phase-4-play)
+    result))
 
 (defn- read-frame-db
   "Read the app-db for `frame-id`. Tolerant — returns nil if the frame

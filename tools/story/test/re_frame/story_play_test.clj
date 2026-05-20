@@ -100,24 +100,23 @@
       {:events []
        :play-script [[:dispatch-sync [:boom/now]]
                 [:dispatch-sync [:rf.assert/path-equals [:after] :ok]]]})
-    (async/deref-blocking (story/run-variant :story.boom/v) 5000)
-    ;; rf2-0wrud (:play -> :play-script): re-frame's router catches the
-    ;; handler exception and emits a `:rf.error/handler-exception` trace
-    ;; event; the per-frame trace listener captures it into the play
-    ;; module's `pending-exceptions` accumulator. The runner sees the
-    ;; dispatch-sync return cleanly and continues; both steps walk.
-    (let [pending (get @play/pending-exceptions :story.boom/v)
-          exc     (first pending)
-          state   (runner-events/current-state :story.boom/v)]
-      (is (some? exc) "a :rf.error/handler-exception trace event was captured")
-      (is (= :rf.error/handler-exception (:operation exc))
-          "the captured trace event is the router's handler-exception")
-      (is (= [:boom/now] (get-in exc [:tags :event]))
-          "the captured event is :boom/now")
-      ;; The follow-on assertion step still ran — runner records both
-      ;; steps' results regardless of the handler exception.
-      (is (= 2 (count (:results state)))
-          "both play-script steps walked even after the handler threw"))
+    (let [result (async/deref-blocking (story/run-variant :story.boom/v) 5000)]
+      ;; rf2-z2dq8 (:play -> :play-script): re-frame's router catches the
+      ;; handler exception and emits a `:rf.error/handler-exception`
+      ;; trace event; the per-frame trace listener captures it, and the
+      ;; runner-events driver drains it into `:rf.story/assertions` as a
+      ;; `:rf.error/exception` record. The runner sees the dispatch-sync
+      ;; return cleanly and continues; both steps walk.
+      (let [state (runner-events/current-state :story.boom/v)]
+        (is (some #(and (= :rf.error/exception (:assertion %))
+                        (= :phase-4-play (:phase %))
+                        (= [:boom/now] (:event %)))
+                  (:assertions result))
+            "an :rf.error/exception assertion was recorded for :boom/now")
+        ;; The follow-on assertion step still ran — runner records both
+        ;; steps' results regardless of the handler exception.
+        (is (= 2 (count (:results state)))
+            "both play-script steps walked even after the handler threw")))
     (story/destroy-variant! :story.boom/v)))
 
 ;; ===========================================================================
