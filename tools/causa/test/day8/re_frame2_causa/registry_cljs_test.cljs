@@ -114,6 +114,13 @@
    :rf.causa/active-timers-for-focused-machine
    :rf.causa/app-db-diff
    :rf.causa/cascades
+   ;; rf2-jgip1 — shared L4 data-display renderer expansion-state subs.
+   ;; Per `tools/causa/spec/021-Dynamic-Panel-Designs.md` §10. The
+   ;; renderer is loaded as a shared theme-adjacent lib (registrations
+   ;; happen at ns-load via top-level `reg-sub`; same pattern the
+   ;; sibling :rf.causa.data-inspector/* subs follow).
+   :rf.causa/data-display-expansion
+   :rf.causa/data-display-node-state
    ;; rf2-39n8h discovered — App-DB diff data-inspector expansion slots
    ;; (per-row + bulk expand-all). Lives under :rf.causa.data-inspector/*.
    :rf.causa.data-inspector/all-expansion
@@ -368,6 +375,12 @@
    :rf.causa/copy-path-to-clipboard
    :rf.causa/copy-share-url-to-clipboard
    :rf.causa/copy-value-to-clipboard
+   ;; rf2-jgip1 — shared L4 data-display renderer events
+   ;; (sticky-expansion + reset). Per
+   ;; `tools/causa/spec/021-Dynamic-Panel-Designs.md` §10.4.
+   :rf.causa/data-display-reset-expansion
+   :rf.causa/data-display-set-expanded
+   :rf.causa/data-display-toggle-node
    :rf.causa/delete-edit-popup
    :rf.causa/edit-popup-set-mode
    :rf.causa/edit-popup-set-pattern
@@ -416,6 +429,11 @@
    ;; rf2-mkpnb — Machines Canvas L4 sub-domain tab events.
    :rf.causa.machines-canvas/select
    :rf.causa.machines-canvas/state-clicked
+   ;; rf2-jgip1 — emitted by the shared L4 data-display renderer
+   ;; (clickable path → cross-panel propagation). The renderer
+   ;; ships a no-op default handler so consumer panels override via
+   ;; their own `reg-event-fx` — per spec/021 §10.5.
+   :rf.causa/navigate-to-path
    :rf.causa/note-sensitive-suppressed
    :rf.causa/note-trace-event
    :rf.causa/open-edit-popup
