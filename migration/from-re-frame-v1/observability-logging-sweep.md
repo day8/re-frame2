@@ -14,7 +14,7 @@ This rule is the **dedicated sweep** that turns the post-M-13 / post-M-17 observ
 
 1. [§Discovery](#1-discovery) — how to find every observability site that needs review.
 2. [§Sensitive-key checklist](#2-sensitive-key-checklist) — the closed set of payload-key substrings that signal sensitive content, plus the recursive-walk discipline.
-3. [§Size-cap pattern + register-listener! for dropped count](#3-size-cap-pattern--register-trace-listener-for-dropped-count) — how to bound listener egress and surface a dropped-count signal so the operator sees what was filtered.
+3. [§Size-cap pattern + register-listener! for dropped count](#3-size-cap-pattern--register-listener-for-dropped-count) — how to bound listener egress and surface a dropped-count signal so the operator sees what was filtered.
 4. [§Reference mediation interceptor](#4-reference-mediation-interceptor) — the canonical "redact + size-cap + forward" interceptor body that every site is rewritten to.
 
 ## 1. Discovery
