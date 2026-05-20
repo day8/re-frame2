@@ -238,7 +238,7 @@
       (rf/reg-event-db :auth/sign-in
         {:doc        "Verify creds"
          :sensitive? true                                      ;; ignored — annotation removed
-         :spec       [:cat [:= :auth/sign-in] :string :string]}
+         :schema     [:cat [:= :auth/sign-in] :string :string]}
         (fn [db _] (swap! calls inc) db))
       (let [traces (atom [])]
         (rf/register-trace-cb! ::ev (fn [ev] (swap! traces conj ev)))
@@ -263,7 +263,7 @@
             unredacted trace (legacy behaviour for non-sensitive
             handlers)"
     (rf/reg-event-db :user/register
-      {:spec [:cat [:= :user/register]
+      {:schema [:cat [:= :user/register]
                    [:map [:email :string] [:age :int]]]}
       (fn [db [_ payload]] (update db :users (fnil conj []) payload)))
     (let [traces (atom [])]
@@ -295,7 +295,7 @@
     (rf/reg-cofx :auth/credentials
       {:doc "Inject the user's auth token"
        :sensitive? true   ;; ignored — annotation removed
-       :spec :string}
+       :schema :string}
       (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42)))
     (rf/reg-event-fx :auth/use-creds
       [(rf/inject-cofx :auth/credentials)]
@@ -320,7 +320,7 @@
   (testing "A container-level :sensitive? on the cofx :spec also triggers
             redaction even when the cofx-meta doesn't carry the flag"
     (rf/reg-cofx :secret-blob
-      {:spec [:string {:sensitive? true}]}
+      {:schema [:string {:sensitive? true}]}
       (fn [ctx] (assoc-in ctx [:coeffects :secret-blob] 99))) ; int, fails :string
     (rf/reg-event-fx :use-secret
       [(rf/inject-cofx :secret-blob)]
@@ -346,7 +346,7 @@
     (rf/reg-event-db :secrets/init (fn [_ _] {:secrets ["a-secret"]}))
     (rf/reg-event-db :secrets/break (fn [db _] (assoc db :secrets [1 2 3])))
     (rf/reg-sub :secrets
-      {:spec [:vector [:string {:sensitive? true}]]}
+      {:schema [:vector [:string {:sensitive? true}]]}
       (fn [db _] (:secrets db)))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
@@ -386,7 +386,7 @@
                                                        [:tokens "user-42-token"]
                                                        99))) ; int — fails :string
     (rf/reg-sub :token-for
-      {:spec [:string {:sensitive? true}]}
+      {:schema [:string {:sensitive? true}]}
       (fn [db [_ token]] (get-in db [:tokens token])))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::qv (fn [ev] (swap! traces conj ev)))
@@ -421,7 +421,7 @@
     (rf/reg-event-db :widgets/init  (fn [_ _]   {:widgets {:w1 "ok"}}))
     (rf/reg-event-db :widgets/break (fn [db _] (assoc-in db [:widgets :w1] 99)))
     (rf/reg-sub :widget
-      {:spec :string}                                  ; no :sensitive?
+      {:schema :string}                                  ; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))
     (let [traces (atom [])]
       (rf/register-trace-cb! ::plain (fn [ev] (swap! traces conj ev)))

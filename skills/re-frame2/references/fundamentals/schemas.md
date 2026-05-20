@@ -28,7 +28,7 @@ Registrations are **frame-scoped** — the schema attaches to a path inside one 
 
 ## What `:schema` does on a handler
 
-Every `reg-*` macro accepts a `:schema` key in its metadata-map (the canonical name post-rf2-ieu0i; the v1 `:spec` key is accepted as a deprecated alias for one cycle and emits `:rf.warning/deprecated-schema-alias`):
+Every `reg-*` macro accepts a `:schema` key in its metadata-map (the canonical name post-rf2-ieu0i):
 
 ```clojure
 (rf/reg-event-db :flight/set-trip-type

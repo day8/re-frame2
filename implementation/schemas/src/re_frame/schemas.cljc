@@ -1,7 +1,7 @@
 (ns re-frame.schemas
   "Schema attachment and dev-only validation. Per Spec 010.
 
-  Schemas attach to registrations under :spec metadata; the validation
+  Schemas attach to registrations under :schema metadata; the validation
   fires at locked points (event vector before handler runs; sub return
   after compute; app-db after each handler completes). In dev builds
   only — production builds elide.

@@ -72,10 +72,10 @@
   (rf/reg-app-schema [:user :name] :string)
   (schemas/validate-app-db! {:user {:name "ok"}})
   (schemas/validate-app-db! {:user {:name 42}}    :probe/event)
-  (schemas/validate-event!  :probe/event [:probe/event 1] {:spec :int})
-  (schemas/validate-cofx!   :probe/cofx :probe/event {} {:spec :map})
-  (schemas/validate-fx!     :probe/fx :probe/event {} {:spec :map})
-  (schemas/validate-sub-return! :probe/sub [:probe/sub] :foo {:spec :keyword}))
+  (schemas/validate-event!  :probe/event [:probe/event 1] {:schema :int})
+  (schemas/validate-cofx!   :probe/cofx :probe/event {} {:schema :map})
+  (schemas/validate-fx!     :probe/fx :probe/event {} {:schema :map})
+  (schemas/validate-sub-return! :probe/sub [:probe/sub] :foo {:schema :keyword}))
 
 ;; ---- registrar trace emit -------------------------------------------------
 

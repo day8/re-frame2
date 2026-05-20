@@ -18,7 +18,7 @@ A schema describes the *shape* of data flowing through a re-frame app:
 
 re-frame2 lets users attach a schema to any of these via the `:schema` metadata key on the relevant `reg-*` registration, plus a dedicated `reg-app-schema` API for `app-db`. In dev builds the framework validates against schemas at well-defined points; in production validation elides (or is restricted to system boundaries) to keep the hot path cheap.
 
-> **Vocabulary unified at rf2-ieu0i (2026-05-20).** The framework speaks **one term — schema** — across every surface. v1's `:spec` per-`reg-*` metadata key, the `:rf.spec/*` reserved namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag are all collapsed under `:schema` / `:rf.schema/*` / `:schema-id`. The CLJS reference accepts `:spec` on `reg-*` metadata as a deprecated alias that warns once-per-handler-id (`:rf.warning/deprecated-schema-alias`) for one release cycle; new code uses `:schema`. Migration: [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
+> **Vocabulary unified at rf2-ieu0i (2026-05-20).** The framework speaks **one term — schema** — across every surface. v1's `:spec` per-`reg-*` metadata key, the `:rf.spec/*` reserved namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag are all collapsed under `:schema` / `:rf.schema/*` / `:schema-id`. Alpha posture: no back-compat shims — the v1 names are gone. Migration: [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
 
 **The `:schema` value is opaque to re-frame.** The runtime never inspects what's stored in `:schema` directly; every validation site routes through the registered **validator fn** (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
@@ -48,8 +48,6 @@ Every registration accepts an optional `:schema` in its metadata map:
   {:schema inst?}
   (fn [coeffects _] (assoc coeffects :now (js/Date.))))
 ```
-
-The bare `:spec` key (the v1-inherited name) is accepted by the CLJS reference as a deprecated alias for one cycle — registrations using it still validate, but the registrar emits `:rf.warning/deprecated-schema-alias` once per handler-id. Migrate to `:schema` per [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
 
 ### `app-db` schemas — path-based
 

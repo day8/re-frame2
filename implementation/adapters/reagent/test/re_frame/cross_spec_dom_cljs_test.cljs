@@ -1105,8 +1105,8 @@
                        (ex-message e))))]
     (is thrown?
         "second install-adapter! raises :rf.error/adapter-already-installed"))
-  ;; Sanity-check the dispose-then-install path remains valid.
-  (rf/dispose-adapter!)
+  ;; Sanity-check the destroy-then-install path remains valid.
+  (rf/destroy-adapter!)
   (rf/install-adapter! reagent-adapter/adapter)
   (is (some? (adapter/current-adapter))
-      "after dispose, install succeeds again — clean swap path"))
+      "after destroy, install succeeds again — clean swap path"))

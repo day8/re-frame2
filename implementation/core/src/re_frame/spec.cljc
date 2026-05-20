@@ -4,11 +4,10 @@
   > The ns name is preserved from v2's early phase (`re-frame.spec`),
   > but the canonical vocabulary is `:schema` everywhere else after
   > rf2-ieu0i — the interceptor `:id` is `:rf.schema/at-boundary`,
-  > the handler-metadata key is `:schema` (the bare `:spec` key is
-  > accepted as a deprecated alias for one cycle), and the hot-reload
-  > trace category is `:rf.schema/violation`. The namespace alias
-  > remains available for back-compat; new code should reach the
-  > interceptor through `re-frame.core/at-boundary`.
+  > the handler-metadata key is `:schema`, and the hot-reload trace
+  > category is `:rf.schema/violation`. The namespace alias remains
+  > available for back-compat; new code should reach the interceptor
+  > through `re-frame.core/at-boundary`.
 
   The headline export is `at-boundary` — the production-side
   validation interceptor users attach to event handlers that ingest
@@ -32,9 +31,7 @@
   ```
 
   The interceptor reuses the handler's existing `:schema` metadata —
-  it does NOT introduce a parallel schema. The deprecated `:spec`
-  alias is also recognised (one-cycle migration window per
-  rf2-ieu0i). Per Spec 010 L143:
+  it does NOT introduce a parallel schema. Per Spec 010 L143:
 
   - In **dev builds**, every event handler's `:schema` is checked anyway
     (per Spec 010 §Validation order step 1). The boundary interceptor
@@ -138,13 +135,12 @@
   to force `:schema` validation against the dispatched event vector even
   in production builds where dev-time validation is elided.
 
-  Re-uses the handler's existing `:schema` metadata (or the deprecated
-  `:spec` alias — accepted for one cycle per rf2-ieu0i); does not
-  introduce a parallel schema. No-op in dev builds (step-1 validation
-  already fires); no-op when no validator is registered
-  (`set-schema-validator!` was called with `nil`); no-op when the
-  handler carries no `:schema` (and emits
-  `:rf.warning/boundary-without-spec` once to flag the misconfiguration)."
+  Re-uses the handler's existing `:schema` metadata; does not introduce
+  a parallel schema. No-op in dev builds (step-1 validation already
+  fires); no-op when no validator is registered (`set-schema-validator!`
+  was called with `nil`); no-op when the handler carries no `:schema`
+  (and emits `:rf.warning/boundary-without-spec` once to flag the
+  misconfiguration)."
   (interceptor/->interceptor
     :id :rf.schema/at-boundary
     :before
@@ -170,9 +166,7 @@
                   event-id    (when (vector? event) (first event))
                   handler-meta (when event-id
                                  (registrar/lookup :event event-id))
-                  ;; Accept :schema (canonical, rf2-ieu0i) or :spec
-                  ;; (deprecated alias kept for one cycle).
-                  schema      (or (:schema handler-meta) (:spec handler-meta))]
+                  schema      (:schema handler-meta)]
               (cond
                 ;; No handler-id / no metadata — defensive; the runtime
                 ;; should never call an interceptor without an event.

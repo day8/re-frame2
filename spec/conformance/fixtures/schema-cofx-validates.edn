@@ -1,12 +1,12 @@
 ;; Conformance fixture: schemas/cofx-validates
 ;; Per Spec 010 §Validation order step 2 — after a cofx injects its value
 ;; into the merged context, the runtime validates that value against the
-;; cofx's :spec. Well-formed values flow through to the handler; malformed
+;; cofx's :schema. Well-formed values flow through to the handler; malformed
 ;; values emit :rf.error/schema-validation-failure with :where :cofx and
 ;; the handler is NOT invoked (recovery: :no-recovery; downstream queue
 ;; continues, mirroring the event-payload step).
 ;;
-;; This fixture pairs with reg-cofx's :spec metadata (Spec 010 §Where
+;; This fixture pairs with reg-cofx's :schema metadata (Spec 010 §Where
 ;; schemas attach §On every reg-*).
 ;;
 ;; This capability — :schemas/cofx — is finer-grained than the baseline
@@ -19,7 +19,7 @@
 {:fixture/id           :schemas/cofx-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :schemas/runtime :schemas/cofx}
- :fixture/doc          "A reg-cofx handler with a :spec validates the value the cofx injects, after injection and before the event-fx handler runs. A well-formed coeffect map flows through to the handler; a malformed value emits :rf.error/schema-validation-failure with :where :cofx, and the handler is NOT invoked."
+ :fixture/doc          "A reg-cofx handler with a :schema validates the value the cofx injects, after injection and before the event-fx handler runs. A well-formed coeffect map flows through to the handler; a malformed value emits :rf.error/schema-validation-failure with :where :cofx, and the handler is NOT invoked."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -28,10 +28,10 @@
  ;; number (fails the :string schema).
  {:cofx  {:app-version/well
           {:doc  "Inject a well-typed app-version string."
-           :spec :string}
+           :schema :string}
           :app-version/bad
           {:doc  "Inject a malformed app-version (number, schema rejects)."
-           :spec :string}}
+           :schema :string}}
   :event {:cap/seed
           {:doc "Read :app-version from coeffects and stash it in app-db."}}}
 

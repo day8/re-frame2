@@ -1,6 +1,6 @@
 ;; Conformance fixture: schemas/event-payload-validates
 ;; Per Spec 010 §Validation order step 1 — every dispatched event vector
-;; is validated against the handler's :spec BEFORE the handler runs.
+;; is validated against the handler's :schema BEFORE the handler runs.
 ;; Well-typed payloads dispatch normally; malformed payloads emit
 ;; :rf.error/schema-validation-failure with :where :event and the handler
 ;; is NOT invoked (recovery: :no-recovery; downstream queue continues).
@@ -19,17 +19,17 @@
 {:fixture/id           :schemas/event-payload-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :schemas/runtime :schemas/event-payload}
- :fixture/doc          "A reg-event-* handler with a :spec validates the dispatched event vector before it runs. A well-typed event reaches the handler; a malformed event emits :rf.error/schema-validation-failure with :where :event and the handler is skipped."
+ :fixture/doc          "A reg-event-* handler with a :schema validates the dispatched event vector before it runs. A well-typed event reaches the handler; a malformed event emits :rf.error/schema-validation-failure with :where :event and the handler is skipped."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
- ;; The :spec is a Malli sequence schema describing the event vector itself —
+ ;; The :schema is a Malli sequence schema describing the event vector itself —
  ;; first element must be the literal event-id, second must be a map with a
  ;; :string :email and an :int :age.
  {:event {:user/register
           {:doc  "Register a new user with a typed payload."
-           :spec [:cat [:= :user/register]
-                       [:map [:email :string] [:age :int]]]}
+           :schema [:cat [:= :user/register]
+                        [:map [:email :string] [:age :int]]]}
           :user/init
           {:doc "Seed empty users vec."}}
   :sub   {:users {:doc "All registered users."}}}

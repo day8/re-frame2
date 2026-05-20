@@ -1,13 +1,13 @@
 (ns re-frame.teardown-verb-axis-test
-  "Pin the rf2-cmabc tear-down verb axis rename + deprecation alias.
+  "Pin the rf2-cmabc tear-down verb axis rename.
 
    Public API rename (per spec/Conventions.md §Tear-down verb axis):
 
    - `rf/dispose-adapter!` → `rf/destroy-adapter!` (destroy- cluster)
 
-   The old name is retained for one deprecation cycle as an alias
-   pointing at the same underlying Var. Tooling reads `:deprecated`
-   metadata to flag stale call sites.
+   Alpha posture: no back-compat shims, no deprecation aliases. The
+   v1→v2 rename is recorded in migration/from-re-frame-v1/README.md
+   M-53.
 
    Carve-out (per Conventions §Tear-down verb axis — Carve-out):
    `rf/unsubscribe` is **not** renamed. The natural target name
@@ -19,11 +19,8 @@
    This test pins:
 
    1. The new name `destroy-adapter!` resolves.
-   2. The old name `dispose-adapter!` still resolves (deprecation guarantee).
-   3. The alias points at the same underlying implementation.
-   4. The deprecated alias carries `:deprecated` metadata.
-   5. The canonical name carries no deprecation flag.
-   6. The `unsubscribe` carve-out is intact: `unsubscribe` resolves
+   2. The old name `dispose-adapter!` does NOT resolve (rename, not alias).
+   3. The `unsubscribe` carve-out is intact: `unsubscribe` resolves
       and `clear-sub` resolves to a DIFFERENT fn value (registrar
       decrement vs cache decrement).
 
@@ -37,21 +34,10 @@
     (is (some? (find-var 're-frame.core/destroy-adapter!))
         "rf/destroy-adapter! must be a public surface (rf2-cmabc M-53)")))
 
-(deftest deprecated-alias-resolves
-  (testing "rf/dispose-adapter! still resolves (one-cycle deprecation alias)"
-    (is (some? (find-var 're-frame.core/dispose-adapter!))
-        "rf/dispose-adapter! retained as deprecated alias for destroy-adapter!")))
-
-(deftest alias-points-at-same-implementation
-  (testing "rf/destroy-adapter! and rf/dispose-adapter! point at the same fn value"
-    (is (identical? @(find-var 're-frame.core/destroy-adapter!)
-                    @(find-var 're-frame.core/dispose-adapter!))
-        "the deprecated alias shares the canonical fn value")))
-
-(deftest deprecated-alias-carries-deprecation-metadata
-  (testing "rf/dispose-adapter! is marked :deprecated"
-    (is (some? (:deprecated (meta (find-var 're-frame.core/dispose-adapter!))))
-        "tooling reading :deprecated meta will flag stale call sites")))
+(deftest old-name-does-not-resolve
+  (testing "rf/dispose-adapter! has been removed (alpha — no back-compat aliases)"
+    (is (nil? (find-var 're-frame.core/dispose-adapter!))
+        "rf/dispose-adapter! removed; use destroy-adapter! per Conventions §Tear-down verb axis")))
 
 (deftest canonical-name-not-marked-deprecated
   (testing "rf/destroy-adapter! is NOT marked :deprecated"

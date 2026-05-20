@@ -1631,9 +1631,9 @@ per-frame [:rf.route/scroll-positions <url>] map before leaving a route."}
    ;; consumers that don't pre-register the keyword in their Malli
    ;; registry; the registered-id form remains available to apps that
    ;; want to centralise schemas (per Spec 010 §Schema registration).
-   :spec [:map
-          [:do        [:vector :any]]
-          [:nav-token :any]]}
+   :schema [:map
+            [:do        [:vector :any]]
+            [:nav-token :any]]}
   (fn [{:keys [frame] :as _ctx} args]
     ;; Destructure `:do` via `get` rather than `:keys` so the binding name
     ;; doesn't shadow `clojure.core/do` inside the body. Per Spec 012

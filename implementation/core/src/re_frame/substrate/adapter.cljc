@@ -183,7 +183,7 @@
                         {:where    where-sym
                          :recovery :no-recovery
                          :reason   (str where-sym " was called after"
-                                        " (rf/dispose-adapter!); the previously"
+                                        " (rf/destroy-adapter!); the previously"
                                         " installed adapter was torn down."
                                         " Install a fresh adapter via"
                                         " (rf/init! <adapter>) before calling.")}))

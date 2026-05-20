@@ -1,6 +1,6 @@
 ;; Conformance fixture: schemas/sub-return-validates
 ;; Per Spec 010 §Validation order step 6 — a sub's return value is
-;; validated against its :spec AFTER each materialisation/recompute.
+;; validated against its :schema AFTER each materialisation/recompute.
 ;; Well-formed returns flow through to consumers; malformed returns
 ;; emit :rf.error/schema-validation-failure with :where :sub-return.
 ;; Default recovery is :replaced-with-default — the sub yields nil to
@@ -18,7 +18,7 @@
 {:fixture/id           :schemas/sub-return-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/sub :core/error :schemas/runtime :schemas/sub-return}
- :fixture/doc          "A reg-sub registered with a :spec validates the sub's return value after it computes. Well-formed returns reach the caller; malformed returns emit :rf.error/schema-validation-failure with :where :sub-return and the caller sees nil (default :replaced-with-default recovery)."
+ :fixture/doc          "A reg-sub registered with a :schema validates the sub's return value after it computes. Well-formed returns reach the caller; malformed returns emit :rf.error/schema-validation-failure with :where :sub-return and the caller sees nil (default :replaced-with-default recovery)."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -26,7 +26,7 @@
           :items/break {:doc "Set :items to a value the sub will malform."}}
   :sub   {:items
           {:doc  "Layer-1 sub returning :items as-is."
-           :spec [:vector :string]}}}
+           :schema [:vector :string]}}}
 
  :fixture/handlers
  {:event {:items/init  [[:set [:items] ["a" "b" "c"]]]
