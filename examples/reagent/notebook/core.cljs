@@ -13,9 +13,10 @@
 
    Distinguished from the canonical login + counter examples by being
    `reg-view`-based at every layer, exercising multi-pane layout, and
-   leaning into the Reagent 'Editorial Warm' visual identity from
-   examples/_shared/css/reagent.css (rf2-nfg15). No state machines, no
-   HTTP — the design-led examples per rf2-t7t6f exist to prove polished
+   leaning into the shared 'Editorial Warm' visual identity from
+   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one shared
+   identity across all three substrates). No state machines, no HTTP —
+   the design-led examples per rf2-t7t6f exist to prove polished
    visuals + interaction, not to replay the platform features other
    examples already cover.
 
@@ -198,7 +199,7 @@
   (fn [body _] (markdown->hiccup body)))
 
 ;; ============================================================================
-;; VIEWS  (CP-4) — Reagent 'Editorial Warm' palette
+;; VIEWS  (CP-4) — shared 'Editorial Warm' palette (rf2-v4fpe Option 2)
 ;; ============================================================================
 
 (reg-view sidebar []
@@ -222,7 +223,7 @@
           [:span.nb-doc-title (:title d)]
           [:span.nb-doc-meta  (count (or (:body d) "")) " chars"]]])]
      [:footer.nb-sidebar-footer
-      [:span "Reagent · "] [:em "Editorial Warm"]]]))
+      [:span "Reagent substrate"]]]))
 
 (reg-view editor []
   (let [body @(subscribe [:notebook/selected-body])

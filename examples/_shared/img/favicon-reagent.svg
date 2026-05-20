@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- re-frame2 favicon · Reagent substrate variant (rf2-3zibv).
-     Accent = sienna #C4541C (matches examples/_shared/css/reagent.css). -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="6" fill="#1F1A14"/>
-  <path d="M9 22 V12 H11 V13.6 C12 12.3 13.4 11.8 14.6 12 V14.2 C13.3 14 11.5 14.6 11 16 V22 Z" fill="#FAF4EC"/>
-  <path d="M16 22 V20.5 C16 19 17 18 18.5 18 H20 C20.6 18 21 17.6 21 17 C21 16.4 20.6 16 20 16 H17 V14.5 H20.4 C22 14.5 23 15.5 23 17 C23 18.5 22 19.5 20.4 19.5 H18.5 C18 19.5 17.8 19.8 17.8 20.2 V20.5 H23 V22 Z" fill="#FAF4EC"/>
-  <rect x="6" y="26" width="20" height="2" rx="1" fill="#C4541C"/>
-</svg>

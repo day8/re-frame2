@@ -364,12 +364,13 @@ function copyDirRecursive(src, dest) {
   }
 }
 
-// rf2-jzqs9 — Shared per-substrate stylesheets + favicon + OG assets
-// (rf2-nfg15 / rf2-3zibv). The hand-written index.html files reference
-// these via relative paths like `_shared/css/reagent.css`, so the
-// orchestrator stages the `examples/_shared/` tree into every example's
-// output dir alongside main.js + index.html. Single source on disk; one
-// copy step per build (cheap — a handful of small files).
+// rf2-jzqs9 — Shared examples design system: one stylesheet + favicon +
+// OG image across all three substrates (rf2-v4fpe Option 2). The
+// hand-written index.html files reference these via relative paths like
+// `_shared/css/style.css`, so the orchestrator stages the
+// `examples/_shared/` tree into every example's output dir alongside
+// main.js + index.html. Single source on disk; one copy step per build
+// (cheap — a handful of small files).
 const SHARED_SRC = path.join(REPO_ROOT, 'examples', '_shared');
 
 function stageShared(outDir) {
