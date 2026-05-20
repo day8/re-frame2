@@ -10,8 +10,9 @@
     `:rf.causa/selected-epoch-id`, `:rf.causa/target-frame`.
   - `panels.machine-inspector` reads `:rf.causa/epoch-history`,
     `:rf.causa/target-frame`, `:rf.causa/target-frame-db`.
-  - `panels.views-subs` + `panels.views-sub-diff-subs` read
-    `:rf.causa/epoch-history`.
+  - `panels.reactive-panel-subs` reads `:rf.causa/epoch-history` to
+    project the focused cascade's `:trace-events` into the Reactive
+    panel's sub-cascade + view-re-render rendering (rf2-wyvf2).
   - `core/active-frame` + `core/set-target-frame!` read / dispatch the
     target-frame slot and `:rf.causa/set-target-frame` event.
   - `preload/install-epoch-listener!` dispatches `:rf.causa/epoch-

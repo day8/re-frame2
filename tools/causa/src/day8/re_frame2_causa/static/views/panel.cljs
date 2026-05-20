@@ -45,12 +45,12 @@
   comes from the enclosing `[rf/frame-provider {:frame :rf/causa}]`
   in `static/shell.cljs`.
 
-  ## Distinct from `panels/views.cljs`
+  ## Distinct from `panels/reactive_panel.cljs`
 
-  The Runtime-side Views panel (`panels/views.cljs`) is the focused-
-  event mount-tree lens — it consumes the Fiber-walker output for the
-  cascade currently focused on the spine. This Static-side panel is
-  the registry catalogue browser — pure-browse, event-independent."
+  The Runtime-side Reactive panel (`panels/reactive_panel.cljs` ·
+  rf2-wyvf2) renders the focused cascade's sub-recompute + view-
+  re-render activity from the trace stream. This Static-side panel
+  is the registry catalogue browser — pure-browse, event-independent."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
