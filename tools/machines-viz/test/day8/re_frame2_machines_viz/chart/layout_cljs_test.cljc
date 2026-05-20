@@ -173,3 +173,67 @@
 (deftest node-id-distinct-for-distinct-paths
   (is (not= (layout/node-id [:authenticated])
             (layout/node-id [:authenticated :browsing]))))
+
+;; ---- edge-label (rf2-jeim7) xstate-stately convention ------------------
+;;
+;; Shape: `event [guard] / action`. Brackets + slash appear ONLY when
+;; their segment is present, per xstate-stately. Public so the layered
+;; engine + ELK adapter emit identical labels.
+
+(deftest edge-label-event-only
+  (is (= "submit"
+         (layout/edge-label {:event :submit}))))
+
+(deftest edge-label-event-with-guard
+  (is (= "submit [authed?]"
+         (layout/edge-label {:event :submit :guard :authed?}))))
+
+(deftest edge-label-event-with-action
+  (is (= "submit / log-it"
+         (layout/edge-label {:event :submit :action :log-it}))))
+
+(deftest edge-label-event-with-guard-and-action
+  (is (= "submit [authed?] / log-it"
+         (layout/edge-label {:event :submit
+                             :guard :authed?
+                             :action :log-it}))))
+
+(deftest edge-label-after-with-guard-and-action
+  (is (= "after(1500) [timeout?] / cleanup"
+         (layout/edge-label {:event  :after-1500
+                             :after  1500
+                             :guard  :timeout?
+                             :action :cleanup}))))
+
+(deftest edge-label-always-with-guard
+  (is (= "always [ready?]"
+         (layout/edge-label {:event   :always
+                             :always? true
+                             :guard   :ready?}))))
+
+(deftest edge-label-namespaced-event-with-guard
+  (is (= "auth/submit [authed?] / log-it"
+         (layout/edge-label {:event  :auth/submit
+                             :guard  :authed?
+                             :action :log-it}))))
+
+(deftest edge-label-namespaced-guard-renders-ns
+  (testing "guards may be namespaced; the label preserves the namespace"
+    (is (= "submit [auth/authed?]"
+           (layout/edge-label {:event :submit
+                               :guard :auth/authed?})))))
+
+(deftest layout-edges-carry-event-label-with-guard-and-action
+  (testing "layout/layout emits the full xstate label on every edge"
+    (let [m {:initial :idle
+             :states  {:idle {:on {:submit [{:target :loading
+                                             :guard  :authed?
+                                             :action :log-it}
+                                            {:target :failed
+                                             :guard  :anon?}]}}
+                       :loading {}
+                       :failed  {}}}
+          {:keys [edges]} (layout/layout m)
+          labels (set (map :event-label edges))]
+      (is (contains? labels "submit [authed?] / log-it"))
+      (is (contains? labels "submit [anon?]")))))

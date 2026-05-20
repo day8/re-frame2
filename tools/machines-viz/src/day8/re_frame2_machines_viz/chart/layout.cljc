@@ -26,6 +26,9 @@
        :edges      [{:from <id> :to <id>
                      :label <str>     ;; event id
                      :guard <kw-or-nil>
+                     :action <kw-or-nil>
+                     :event-label <str> ;; xstate convention:
+                                        ;; \"event [guard] / action\"
                      :points [[x y] [x y]]} ...]
        :width      <int>            ;; viewport width
        :height     <int>            ;; viewport height
@@ -314,6 +317,63 @@
   [positioned-nodes]
   (into {} (map (fn [n] [(:path n) n])) positioned-nodes))
 
+(defn- name-of
+  "Render a guard/action symbol-like value as a short string. Keywords
+  use `ns/name` when namespaced, plain `name` otherwise. Non-keywords
+  fall through to `str`."
+  [v]
+  (cond
+    (nil? v)     nil
+    (keyword? v) (if-let [n (namespace v)]
+                   (str n "/" (name v))
+                   (name v))
+    :else        (str v)))
+
+(defn event-segment
+  "Render the leading event segment of an edge label per the
+  xstate-stately convention.
+
+    - regular event keyword → `\"event-id\"` (with namespace when present)
+    - `:after` transition   → `\"after(<delay>)\"`
+    - `:always` transition  → `\"always\"`
+
+  Public so the ELK adapter (and tests) can use the same builder."
+  [{:keys [event after always?]}]
+  (cond
+    after            (str "after(" after ")")
+    always?          "always"
+    (keyword? event) (if-let [n (namespace event)]
+                       (str n "/" (name event))
+                       (name event))
+    :else            (str event)))
+
+(defn edge-label
+  "Compose an xstate-stately-convention edge label from an edge map.
+
+  Shape: `\"event [guard] / action\"`. Brackets and slash are
+  introduced ONLY when their segment is present, so the four legal
+  forms render cleanly:
+
+  | Segments              | Rendered                     |
+  |-----------------------|------------------------------|
+  | event                 | `event`                      |
+  | event + guard         | `event [guard]`              |
+  | event + action        | `event / action`             |
+  | event + guard + action| `event [guard] / action`     |
+
+  `:after` and `:always` substitute for the event segment using the
+  same bracket/slash rules.
+
+  Pure data → string. Public — the ELK adapter and renderer both call
+  this so the layered + ELK paths emit identical labels."
+  [{:keys [guard action] :as edge}]
+  (let [evt   (event-segment edge)
+        g-str (name-of guard)
+        a-str (name-of action)]
+    (cond-> evt
+      g-str (str " [" g-str "]")
+      a-str (str " / " a-str))))
+
 (defn- route-edge
   "Straight-line routing: source-bottom-centre → target-top-centre.
   Self-loops emit a small arc-control flag for the renderer."
@@ -336,14 +396,7 @@
                       [(+ src-x 70) (- tgt-y 30)]
                       [tgt-x tgt-y]]
                      [[src-x src-y] [tgt-x tgt-y]])
-          :event-label (let [e (:event edge)]
-                         (cond
-                           (:after edge)    (str "after(" (:after edge) ")")
-                           (:always? edge)  "always"
-                           (keyword? e)     (if-let [n (namespace e)]
-                                              (str n "/" (name e))
-                                              (name e))
-                           :else            (str e))))))))
+          :event-label (edge-label edge))))))
 
 ;; ---- public entry -------------------------------------------------------
 

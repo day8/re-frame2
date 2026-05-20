@@ -484,7 +484,7 @@
       [(quot (+ x1 x2) 2) (- (quot (+ y1 y2) 2) 6)])))
 
 (defn- render-edge
-  [{:keys [event-label points guard from-id to-id]
+  [{:keys [event-label points guard action from-id to-id]
     :as _edge}
    {:keys [highlight-id from-highlight-id to-highlight-id]}]
   (let [active?         (or (= from-id highlight-id)
@@ -501,10 +501,11 @@
                   "url(#rf-causa-chart-arrow-highlight)"
                   "url(#rf-causa-chart-arrow)")
         [lx ly] (edge-label-position points)
-        full-label (if guard
-                     (str event-label " [" (if (keyword? guard)
-                                             (name guard) (str guard)) "]")
-                     event-label)
+        ;; rf2-jeim7 — `:event-label` is now the full xstate label
+        ;; `event [guard] / action` built upstream by `layout/edge-label`
+        ;; (both layered + ELK paths). Render it as-is; no per-segment
+        ;; re-stitching here.
+        full-label event-label
         ;; rf2-xfx6l — focused edge glows for one beat on event-fire.
         ;; The animation is `infinite` here so a re-render driven by
         ;; a re-fire restarts the cycle (focused-edge? is per-render
@@ -518,6 +519,10 @@
         base-w (if emphasised? highlight-stroke-width stroke-width)]
     [:g {:data-testid (str "rf-causa-chart-edge-" from-id "-to-" to-id)
          :data-event event-label
+         :data-guard (when guard
+                       (if (keyword? guard) (name guard) (str guard)))
+         :data-action (when action
+                        (if (keyword? action) (name action) (str action)))
          :data-active (str active?)
          :data-focused-edge (str focused-edge?)}
      [:path (cond-> {:d (path-from-points points)
