@@ -495,10 +495,14 @@ no parallel mounting protocol. Five rules govern panel hosting:
 
 4. **Author calls `reg-story-panel` from anywhere on the classpath.**
    The built-in panels (`:rf.story.panel/a11y` /
-   `:rf.story.panel/layout-debug` / `:rf.story.panel/epoch`) register
-   from inside `install-canonical-vocabulary!`; third-party tooling
-   (e.g. Causa's epoch view, future statechart-viz panels) registers
-   from its own boot.
+   `:rf.story.panel/chrome-a11y` / `:rf.story.panel/layout-debug` /
+   `:rf.story.panel/epoch`) register from inside
+   `install-canonical-vocabulary!`; third-party tooling (e.g. Causa's
+   epoch view, future statechart-viz panels) registers from its own
+   boot. Per rf2-18t6p, the chrome-a11y panel is the sibling of `:a11y`
+   scoped to `[data-rf-story-root]` (the chrome wrapper) rather than
+   `[data-rf-story-variant-root]` — same engine, distinct scope, so
+   Story dogfoods its OWN a11y rather than only the variant tree.
 
 5. **Causa is NOT a `reg-story-panel` registration.** Pre-rf2-v1ach
    the spec described a `:rf.story.panel/epoch` panel that late-bound
@@ -557,7 +561,8 @@ tools/story/
 │           │   └── time_travel.cljs             ; (retired rf2-sgdd3 — Causa L1 ribbon + L2 list)
 │           ├── panels/
 │           │   ├── trace_buffer.cljs            ; per-variant trace ring buffer (schema-validation consumer)
-│           │   ├── a11y.cljs                    ; axe-core integration
+│           │   ├── a11y.cljs                    ; axe-core integration — VARIANT scope
+│           │   ├── chrome_a11y.cljs             ; axe-core integration — CHROME scope (rf2-18t6p)
 │           │   ├── perf.cljs                    ; live ribbon (v1.1)
 │           │   ├── layout_debug.cljs            ; measure / outline / pseudo
 │           │   ├── design_tokens.cljs           ; v1.1, conditional

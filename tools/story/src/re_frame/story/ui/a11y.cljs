@@ -233,7 +233,7 @@
 
 ;; ---- running axe --------------------------------------------------------
 
-(defn- emit-warning-for-violation
+(defn emit-warning-for-violation
   "Per IMPL-SPEC §11.1: axe-core violations integrate with
   `:rf.assert/no-warnings`. We emit a `:warning` trace event into the
   variant's frame so the play-runner's per-frame trace listener
@@ -290,7 +290,7 @@
         (.querySelector doc (variant-root-selector frame-id))))
     (catch :default _ nil)))
 
-(defn- record-violation-overlay!
+(defn record-violation-overlay!
   "Decorate the violation's DOM nodes so the inline stylesheet
   highlights them. Each axe-core node has `:target` (a CSS selector
   list); we attach `data-rf-a11y-violation` to each matching element.
@@ -385,7 +385,7 @@
 
 ;; ---- styling ------------------------------------------------------------
 
-(def ^:private styles
+(def styles
   {:wrap        {:padding "8px"
                  :background (:bg-2 colors/tokens)
                  :border-top "1px solid #444"
@@ -449,7 +449,7 @@
 
 (defonce ^:private stylesheet-injected? (atom false))
 
-(defn- ensure-stylesheet!
+(defn ensure-stylesheet!
   []
   (when (and config/enabled?
              (not @stylesheet-injected?)
@@ -463,7 +463,7 @@
 
 ;; ---- panel components ---------------------------------------------------
 
-(defn- impact-style [impact]
+(defn impact-style [impact]
   (case impact
     "critical" (:impact-critical styles)
     "serious"  (:impact-serious styles)
@@ -471,7 +471,7 @@
     "minor"    (:impact-minor styles)
     (:impact-moderate styles)))
 
-(defn- violation-row
+(defn violation-row
   [^js v]
   (let [impact (.-impact v)
         nodes  (.-nodes v)

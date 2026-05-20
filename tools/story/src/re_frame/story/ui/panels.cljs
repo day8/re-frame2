@@ -22,7 +22,13 @@
 
   Stage 6 wires this for the v1.0 panels:
 
-  - `:rf.story.panel/a11y`   — axe-core scanner (see `re-frame.story.ui.a11y`).
+  - `:rf.story.panel/a11y`   — axe-core scanner scoped to the VARIANT
+                                tree (see `re-frame.story.ui.a11y`).
+  - `:rf.story.panel/chrome-a11y` — axe-core scanner scoped to the
+                                Story CHROME root, `[data-rf-story-root]`
+                                (rf2-18t6p; see
+                                `re-frame.story.ui.chrome-a11y`). Sibling
+                                of `:a11y`; shares the engine + opt-in.
   - `:rf.story.panel/epoch`  — re-frame-10x epoch panel STUB (this ns;
                                 placeholder until Causa ships v1.0).
   - `:rf.story.panel/layout-debug` — the three layout-debug decorator
@@ -54,6 +60,7 @@
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.a11y :as a11y]
             [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.chrome-a11y :as chrome-a11y]
             [re-frame.story.ui.schema-validation :as schema-validation]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -231,7 +238,10 @@
 
   The a11y panel registers separately via
   `re-frame.story.ui.a11y/install-canonical-a11y!` (so axe-core's
-  lazy-load contract stays in its own module).
+  lazy-load contract stays in its own module). The chrome-a11y panel
+  (rf2-18t6p) registers via
+  `re-frame.story.ui.chrome-a11y/install-canonical-chrome-a11y!`
+  alongside it — same engine, distinct scope.
 
   Idempotent. Production builds with `:rf.story/enabled?` false skip
   registration."
@@ -255,6 +265,11 @@
        :render    layout-debug-render-id})
     ;; A11y panel — registers in its own ns.
     (a11y/install-canonical-a11y!)
+    ;; Chrome-a11y panel (rf2-18t6p) — sibling of the variant a11y
+    ;; panel scoped to `[data-rf-story-root]` so Story dogfoods axe-
+    ;; core against its OWN chrome (the variant a11y panel scopes to
+    ;; the variant tree only, per rf2-qgms1).
+    (chrome-a11y/install-canonical-chrome-a11y!)
     ;; Schema-validation panel (rf2-dvue) — registers in its own ns
     ;; so the late-bind validator lookup stays isolated.
     (schema-validation/install!)))
