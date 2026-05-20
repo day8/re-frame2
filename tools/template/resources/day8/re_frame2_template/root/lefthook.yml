@@ -1,0 +1,32 @@
+# Lefthook config for {{name}}.
+#
+# Lefthook (https://github.com/evilmartians/lefthook) is a fast,
+# language-agnostic git hook manager — pre-commit / pre-push /
+# commit-msg gates, parallel execution, glob filtering. Install once:
+#
+#     # macOS (Homebrew)
+#     brew install lefthook
+#
+#     # other platforms — see https://lefthook.dev/installation/
+#
+# Then bootstrap the hooks (run once per clone):
+#
+#     lefthook install
+#
+# Pre-commit gates below run cljfmt (formatter) and clj-kondo (linter)
+# on the .cljc / .clj / .cljs files staged for commit. Both are fast
+# (<1s on this scaffold); add `parallel: true` if your project grows.
+#
+# Skip on a one-off (NOT recommended — fix the issue instead):
+#
+#     git commit --no-verify
+
+pre-commit:
+  commands:
+    cljfmt:
+      glob: "*.{clj,cljc,cljs,edn}"
+      run: clojure -M:cljfmt check {staged_files}
+      stage_fixed: true
+    clj-kondo:
+      glob: "*.{clj,cljc,cljs}"
+      run: clj-kondo --lint {staged_files}

@@ -154,18 +154,85 @@ Stage 4 cutover.
 
 Suggested commit decomposition (each ≤ 60 min worker scope):
 
-### §2.1 — Spike: minimal deps-new template (rf2 follow-on bead)
+### §2.1 — Spike: minimal deps-new template (rf2-cwvnj — DONE 2026-05-20)
 
-- Add `template.edn` + `src/day8/re_frame2_template/hooks.clj`
-  alongside (not replacing) the existing clj-new tree.
-- Implement `data-fn` for one CLI flag (`:substrate`), `template-fn`
-  for one resource sub-tree (Reagent only) + the `_shared/` set.
-- Manual end-to-end smoke: `clojure -Tnew create :template ./tools/template …`
-  resolves the local-root and emits a Reagent-only counter.
-- Flushes Risk 1 (substitution-data key set) and Risk 3
-  (`_shared/` + `_<substrate>/` shape feasibility) from the audit.
-- **Gate**: emit + manual run of `npm install && npx shadow-cljs
-  watch app` succeeds for the spike app.
+- ✓ Added `template.edn` + `src/day8/re_frame2_template/hooks.clj`
+  alongside (not replacing) the existing clj-new tree. The template
+  body lives at `tools/template/resources/day8/re_frame2_template/`
+  with `template.edn` + `root/` + per-substrate `_reagent/` and
+  shared-renames `_shared/`.
+- ✓ Implemented `data-fn` for one CLI flag (`:substrate`),
+  `template-fn` for one resource sub-tree (Reagent only) + the
+  `_shared/` set.
+- ✓ Manual end-to-end smoke succeeds:
+  ```
+  clojure -Sdeps '{:deps {day8/re-frame2-template
+                          {:local/root "<abs>/tools/template"}}}' \
+          -Tnew create :template day8/re-frame2-template \
+                       :name acme/my-app
+  ```
+  Emits a Reagent-only counter app with the expected 18-file
+  inventory (dotfiles renamed, namespace paths under
+  `src/acme/my_app/`, `test/acme/my_app/`).
+- ✓ Risks 1 + 3 flushed (see §2.1 spike findings below).
+
+**Spike findings — risks 1 + 3 resolved:**
+
+- **Risk 1 (substitution-data key set).** deps-new's
+  `preprocess-options` populates `:top` / `:main` / `:name` /
+  `:artifact/id` / `:group/id` / `:scm/*` / `:target-dir` etc. as
+  primitive strings; the `/ns` and `/file` derivatives (`:top/file`,
+  `:main/ns`, …) are computed later by `->subst-map` AFTER `data-fn`
+  + `template-fn` have run. Our `data-fn` therefore re-derives them
+  inline (`->file-path` / `->ns-form` helpers in
+  `day8.re-frame2-template.hooks`) so `template-fn`'s rename targets
+  can use the proper namespace-path values. **No clj-new substitution
+  key is missing under deps-new** — `{{name}}` / `{{namespace}}` /
+  `{{nested-dirs}}` carry over with identical semantics; the `data-fn`
+  computes `{{namespace}}` + `{{nested-dirs}}` explicitly (clj-new's
+  `project-data` provided them; deps-new doesn't, but they're trivial
+  to derive from `{{top}}` + `{{main}}`).
+- **Risk 3 (`_shared/` + `_<substrate>/` shape).** deps-new's
+  `:transform` mechanism cleanly supports the `_shared/` + per-
+  substrate layout via `:only` flags and file-map renames. The
+  cleanest shape:
+  - `<template-dir>/root/` — files that land at default location
+    (README.md, lefthook.yml, dev/*, resources/public/*); bulk-
+    copied by deps-new's `:root` mechanism.
+  - `<template-dir>/_shared/` — files needing renames (dotfile
+    renames + namespace-path renames for src/test sources); copied
+    via a `:transform` with `:only`.
+  - `<template-dir>/_reagent/` (and `_uix/` + `_helix/` in §2.2) —
+    substrate-specific files; one `:transform` entry per substrate,
+    chosen by `template-fn`'s `case` on `:substrate`.
+
+  No deps-new transform-feature gaps were uncovered. The shape ports
+  to §2.2 unchanged: more underscore sub-dirs, more case clauses.
+
+**Footguns surfaced (not blockers, document for §2.2):**
+
+- `io.github.*` template names trigger deps-new's auto-git-clone
+  (`auto-git-url` in `tools.deps.extensions.git`) BEFORE classpath
+  lookup. So local-dev smokes must use a non-`io.github.*`
+  qualifier (`day8/re-frame2-template` works). The §3 publish step
+  copies the template body to the `io/github/day8/re_frame2_template/`
+  path inside the dedicated repo so the steady-state invocation
+  (`:template io.github.day8/re-frame2-template`) resolves via
+  `find-root` against the git-clone.
+- `:template-fn` runs AFTER `:data-fn`; rename targets in the
+  file-map are pure Clojure strings, so `template-fn` can reference
+  `data-fn`'s additions directly (no Selmer indirection).
+- `:only` is mandatory on per-substrate transforms to suppress the
+  implicit bulk-copy (otherwise `_reagent/` content lands at `./`
+  with its underscore-prefixed parent directory).
+
+**Gate:** Manual smoke gate met. `npm install && npx shadow-cljs
+watch app` against the emitted app is deferred to §2.2 once the
+re-frame2-causa Clojars artefact lands (rf2-y9zqc) — today the
+emitted `deps.edn` pins `0.0.1.alpha` which isn't published yet, so
+the deps resolution would fail at run time regardless of the
+template's correctness. Static-shape check + content-substitution
+check on the emitted tree is the spike's effective signal.
 
 ### §2.2 — Port the full resource tree (rf2 follow-on bead)
 
