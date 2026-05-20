@@ -38,6 +38,8 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 7 | **M-23** | `re-frame.alpha` namespace removed. Compile-level (require fails). |
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
 | 9 | **M-25** | `re-frame.test` renamed to `re-frame.test-support`. Compile-level. |
+| 9a | **M-61** (test fixture) | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture` (rf2-v779c). Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
+| 9b | **M-62** | If the codebase uses `assert-state`. Split into `assert-path-equals` (vector path form) + `assert-db-equals` (full-db form) per rf2-8j9m6. Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
 | 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B `add-post-event-callback` half waits for behavioural review. |
 
 ### Group 3 — Effect map / dispatch shape (compile-or-warning)
@@ -57,6 +59,8 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 16 | **M-10** | Reserved-namespace collision audit. Type B; surfaces user registrations under `:rf/*` for human review. |
 | 17 | **M-35** | Actor-lifecycle fx-id rename (`:spawn` → `:rf.machine/spawn`). |
 | 18 | **M-34** | Spawn-id path rename (`[:data :pending]` → `[:rf/spawned ...]`). |
+| 18a | **M-56** | Machine vocabulary divergence (rf2-5r4q2). Closed rename table: `:invoke` → `:spawn`, `:invoke-all` → `:spawn-all`, plus all sibling `:rf/invoke-*` snapshot keys, `:rf.machine.invoke*/*` trace ops, `:rf.error/machine-invoke-*` error categories, `:rf.invoke/*` generated-action ns. Apply alongside M-35 (the fx-id sibling). v2-pre-rename only. |
+| 18b | **M-60** | Route event + trace rename (rf2-ixezs). `:rf/url-changed` → `:rf.route/transitioned`; `:rf.route/url-changed` → `:rf.route/fragment-changed`. Closed two-keyword rename. Pairs with M-29 (routing artefact). v2-pre-rename only. |
 
 ### Group 5 — Interceptors and registration metadata
 
@@ -65,6 +69,8 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 19 | **M-21** | Drop `debug` / `trim-v` (mechanical). Flag `on-changes` / `enrich` / `after` (Type B). |
 | 20 | **M-17** | `reg-global-interceptor` / `clear-global-interceptor` removed. Single-frame: mechanical. Multi-frame: ask. |
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
+| 21a | **M-58** | Trace-redaction factory rename (rf2-aas6o). `with-redacted` → `redact-interceptor`. Single-symbol mechanical rename. v2-pre-rename only. |
+| 21b | **M-59** | Interceptor-value family suffix (rf2-k367k + rf2-todvi). `at-boundary` → `validate-at-boundary-interceptor`; `unwrap` → `unwrap-interceptor`. Two-symbol Var rename — interceptor `:id` keywords unchanged. v2-pre-rename only. |
 
 ### Group 6 — Run-to-completion / cache / counts (behaviour)
 
@@ -90,14 +96,16 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | Order | Rule | Pairs with |
 |---|---|---|
 | 31 | **M-27** | Triggered by `reg-app-schema` / `:spec` keys / `reg-event-schema`. Add `day8/re-frame2-schemas`. |
+| 31a | **M-61** (validator) | If the codebase calls `re-frame.schemas/validate-app-db!` / `validate-sub-return!` directly or publishes the matching late-bind hook keys. Rename to `validate-app-schema!` / `validate-sub!` (rf2-s2jgz). Pairs with M-27. v2-pre-rename only. |
 | 32 | **M-28** | Triggered by `reg-machine` / `sub-machine`. Add `day8/re-frame2-machines`. |
+| 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)`. Rename to `make-machine-handler` (rf2-g0bbk). Also rename `:machines/create-machine-handler` late-bind hook key. Pairs with M-28. v2-pre-rename only. |
 | 33 | **M-29** | Triggered by `reg-route` / `:rf.route/*` events. Add `day8/re-frame2-routing`. Pairs with M-14 (the `not-found` requirement). |
 | 34 | **M-30** | Triggered by `reg-flow` or by M-21's `on-changes` rewrite. Add `day8/re-frame2-flows`. |
 | 35 | **M-31** | Triggered by `:rf.http/managed` fx. Add `day8/re-frame2-http`. |
 | 36 | **M-32** | Triggered by `render-to-string` (SSR). Add `day8/re-frame2-ssr`. |
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch`. Add `day8/re-frame2-epoch`. |
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
-| 38a | **M-61** | If the codebase uses `reg-http-interceptor`. Reshape signature to positional id + opts kwarg + positional handler (rf2-eyjbn). Pairs with M-39. |
+| 38a | **M-61** (`reg-http-interceptor`) | If the codebase uses `reg-http-interceptor`. Reshape signature to positional id + opts kwarg + positional handler (rf2-eyjbn). Pairs with M-39. The README carries two distinct rules numbered "M-61" — see also the validator-rename row at step 31a. |
 
 ### Group 9 — Conditional / opt-trigger rules
 
