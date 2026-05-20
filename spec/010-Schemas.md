@@ -161,11 +161,11 @@ For users who want production validation at *system boundaries* — typically in
 ```clojure
 (rf/reg-event-fx :api/response-received
   {:schema ApiResponseSchema}
-  [rf/at-boundary]
+  [rf/validate-at-boundary-interceptor]
   (fn [m] ...))
 ```
 
-The interceptor is exposed as a value at both `re-frame.core/at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/at-boundary` (the namespace name is preserved as a v2 alias — the historical `:spec` segment of the segment-name no longer matches the canonical `schema` vocabulary, but the ns rename is deferred to avoid churn; reach the interceptor through `re-frame.core/at-boundary` going forward). Both refer to the same value; pick whichever fits the surrounding code's import style.
+The interceptor is exposed as a value at both `re-frame.core/validate-at-boundary-interceptor` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/validate-at-boundary-interceptor` (the namespace name is preserved as a v2 alias — the historical `:spec` segment of the segment-name no longer matches the canonical `schema` vocabulary, but the ns rename is deferred to avoid churn; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` going forward). Both refer to the same value; pick whichever fits the surrounding code's import style.
 
 **Relationship to the handler's `:schema`.** `:rf.schema/at-boundary` re-uses the handler's existing `:schema` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:schema` regardless of the global elision flag. Concretely:
 
@@ -649,7 +649,7 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 
 ### Boundary-validation interceptor naming (rf2-ys2zn)
 
-Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/at-boundary`, re-exported as `re-frame.core/at-boundary`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at rf2-ieu0i (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at rf2-ys2zn: `:spec/validate-at-boundary` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`at-boundary`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
+Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/validate-at-boundary-interceptor`, re-exported as `re-frame.core/validate-at-boundary-interceptor`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at rf2-ieu0i (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at rf2-ys2zn: `:spec/validate-validate-at-boundary-interceptor` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`validate-at-boundary-interceptor`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
 
 ### Schema migration on hot-reload
 

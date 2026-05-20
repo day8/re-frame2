@@ -28,7 +28,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **4. Cofx injection.** Each `inject-cofx` interceptor runs in source order; each writes under `[:coeffects :cofx-id]`. The standard `:db` (current `app-db` value) and `:event` (the dispatched vector) are already populated (`cofx.cljc:92-104`).
 
-**5. Validation (dev only).** If the handler carries a `:spec`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (`events.cljc:123-128`). `at-boundary` runs this same check in production.
+**5. Validation (dev only).** If the handler carries a `:spec`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (`events.cljc:123-128`). `validate-at-boundary-interceptor` runs this same check in production.
 
 **6. User handler.** The wrapped handler-fn fires:
 

@@ -70,7 +70,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:schema [:cat [:= :api/strict] :int]}
-        [rf/at-boundary]
+        [rf/validate-at-boundary-interceptor]
         (fn [_ _] (swap! calls inc) {}))
       ;; Malformed payload: handler MUST be skipped.
       (rf/dispatch-sync [:api/strict "not-an-int"])
@@ -85,7 +85,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:schema [:cat [:= :api/strict] :int]}
-        [rf/at-boundary]
+        [rf/validate-at-boundary-interceptor]
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:api/strict 42])
       (is (= 1 @calls)
@@ -106,7 +106,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:schema [:cat [:= :api/strict] :int]}
-        [rf/at-boundary]
+        [rf/validate-at-boundary-interceptor]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-trace-listener! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
@@ -130,9 +130,9 @@
             `:rf/skip-handler?` on the context when the schema fails."
     (rf/reg-event-fx :api/strict
       {:schema [:cat [:= :api/strict] :int]}
-      [rf/at-boundary]
+      [rf/validate-at-boundary-interceptor]
       (fn [_ _] {}))
-    (let [before    (:before rf/at-boundary)
+    (let [before    (:before rf/validate-at-boundary-interceptor)
           valid-ctx (before {:coeffects {:event [:api/strict 42]}})
           bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
       (is (not (:rf/skip-handler? valid-ctx))
@@ -151,7 +151,7 @@
       (let [calls (atom 0)]
         (rf/reg-event-fx :api/disabled
           {:schema [:cat [:= :api/disabled] :int]}
-          [rf/at-boundary]
+          [rf/validate-at-boundary-interceptor]
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:api/disabled "wildly-malformed"])
         (is (= 1 @calls)

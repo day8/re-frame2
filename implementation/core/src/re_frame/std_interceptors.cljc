@@ -69,10 +69,14 @@
 ;; The handler then destructures the map directly (one level less of
 ;; destructuring): (fn [_ {:keys [...]}] ...) instead of (fn [_ [_ {:keys [...]}]] ...).
 
-(def unwrap
+(def unwrap-interceptor
   "Pre-registered interceptor (a value, not a fn). Use as
-  `(reg-event-fx :foo [unwrap] (fn [_ {:keys [a b]}] ...))`.
-  The :event coeffect inside the handler is the payload map."
+  `(reg-event-fx :foo [unwrap-interceptor] (fn [_ {:keys [a b]}] ...))`.
+  The :event coeffect inside the handler is the payload map.
+
+  The `-interceptor` suffix telegraphs value-shape (per rf2-k367k +
+  Conventions §Value-vs-fn naming): this Var is an interceptor map,
+  not a fn; calling it raises ArityException."
   (interceptor/->interceptor
     :id    :unwrap
     :before

@@ -293,14 +293,14 @@
             in dev; the boundary interceptor's prod-mode body never runs."
     (rf/reg-event-fx :api/strict
       {:schema [:cat [:= :api/strict] :int]}
-      [rf/at-boundary]
+      [rf/validate-at-boundary-interceptor]
       (fn [_ _] {}))
     (let [traces (atom [])]
       (trace-tooling/register-trace-listener! ::boundary-dev (fn [ev] (swap! traces conj ev)))
       ;; Direct :before invocation isolates the boundary's behaviour
       ;; from the surrounding router/step-1 path so we observe the
       ;; boundary's own dev-mode contract.
-      (let [before    (:before rf/at-boundary)
+      (let [before    (:before rf/validate-at-boundary-interceptor)
             valid-ctx (before {:coeffects {:event [:api/strict 42]}})
             bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
         (trace-tooling/unregister-trace-listener! ::boundary-dev)
@@ -325,7 +325,7 @@
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
         {:schema [:cat [:= :api/strict] :int]}
-        [rf/at-boundary]
+        [rf/validate-at-boundary-interceptor]
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-trace-listener! ::dev-dispatch (fn [ev] (swap! traces conj ev)))

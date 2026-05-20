@@ -520,7 +520,7 @@
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;
-;; The boundary-validation interceptor (`re-frame.spec/at-boundary`,
+;; The boundary-validation interceptor (`re-frame.spec/validate-at-boundary-interceptor`,
 ;; interceptor id `:rf.schema/at-boundary` per rf2-ieu0i; rf2-r2uh)
 ;; runs `:schema` validation on a handler at production-build time —
 ;; outside the `interop/debug-enabled?` gate that guards the

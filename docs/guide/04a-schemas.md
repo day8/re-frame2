@@ -149,7 +149,7 @@ If you want validation at **system boundaries** in production — incoming HTTP 
 ```clojure
 (rf/reg-event-fx :api/response-received
   {:schema ApiResponseSchema}
-  [rf/at-boundary]
+  [rf/validate-at-boundary-interceptor]
   (fn [{:keys [db]} [_ response]] ...))
 ```
 

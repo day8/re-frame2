@@ -41,7 +41,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | `:rf.trace/*` | Trace-channel control slots that ride on event-meta or on emitted trace events — distinct from the `:rf.<prefix>/*` trace-operation namespaces (`:rf.frame/*`, `:rf.registry/*`, `:rf.machine/*`, …) which name `:operation` values. Closed reserved set of three members: `:rf.trace/no-emit?` (event-meta opt-out — when truthy on a dispatched event's meta, the handler's cascade emits no trace events; per [009 §Trace-emission opt-out](009-Instrumentation.md#trace-emission-opt-out-rftraceno-emit-event-meta), rf2-qsjda); `:rf.trace/trigger-handler` (optional top-level slot on a trace event naming the in-scope handler that produced it and carrying its registration-site `:source-coord`; per [009 §`:rf.trace/trigger-handler`](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler) and [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event), rf2-ts1a); `:rf.trace/call-site` (optional top-level slot on a trace event carrying the compile-time invocation coord stamped by the dispatching macro; per [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line-rf2-ts1a) and [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event), rf2-ts1a). Reserved whether or not the implementation ships the call-site macro or the no-emit? meta — ports MUST NOT register the namespace for any other purpose. | 009 |
 | `:rf.route.nav-token/*` | Navigation-token lifecycle trace operations. Closed reserved set of two members: `:rf.route.nav-token/allocated` (fresh nav-token cascade begins) and `:rf.route.nav-token/stale-suppressed` (async result carrying a now-superseded token; handler does NOT run). Per [012 §Trace events](012-Routing.md#trace-events) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). | 012 / 009 |
 | `:rf.adapter/*` | Substrate-adapter `:kind` discriminator values returned by `(rf/current-adapter)`. Canonical members: `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/helix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`. Third-party adapters publish their own `:kind` values outside `:rf.adapter/*` — the reserved namespace prevents silent collision with framework-owned discriminators. Per [006 §Adapter introspection](006-ReactiveSubstrate.md#adapter-introspection) (rf2-985ij, rf2-bl7x3). | 006 |
-| `:rf.schema/*` | Schema / validation namespace. Closed reserved set of two members: `:rf.schema/violation` (hot-reload schema-mismatch warning — fires when a file-save re-evaluates `reg-app-schema` with a different schema for the same path and the live app-db value at that path no longer validates against the **new** schema; `:op-type :warning`, recovery `:logged-and-skipped`; per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and [010 §Schema migration on hot-reload](010-Schemas.md#schema-migration-on-hot-reload)) and `:rf.schema/at-boundary` (the boundary-validation interceptor's `:id` — per [API.md §`at-boundary`](API.md#schemas) and [010 §Production builds](010-Schemas.md#production-builds), rf2-r2uh). v1's `:spec` per-`reg-*` metadata key, the v2 `:rf.spec/*` trace namespace, and the bare `:spec/*` interceptor-id namespace are all collapsed into `:rf.schema/*` under the unified `schema` vocabulary (rf2-ieu0i). Migration: see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i). | 009 / 010 |
+| `:rf.schema/*` | Schema / validation namespace. Closed reserved set of two members: `:rf.schema/violation` (hot-reload schema-mismatch warning — fires when a file-save re-evaluates `reg-app-schema` with a different schema for the same path and the live app-db value at that path no longer validates against the **new** schema; `:op-type :warning`, recovery `:logged-and-skipped`; per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and [010 §Schema migration on hot-reload](010-Schemas.md#schema-migration-on-hot-reload)) and `:rf.schema/at-boundary` (the boundary-validation interceptor's `:id` — per [API.md §`validate-at-boundary-interceptor`](API.md#schemas) and [010 §Production builds](010-Schemas.md#production-builds), rf2-r2uh). v1's `:spec` per-`reg-*` metadata key, the v2 `:rf.spec/*` trace namespace, and the bare `:spec/*` interceptor-id namespace are all collapsed into `:rf.schema/*` under the unified `schema` vocabulary (rf2-ieu0i). Migration: see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i). | 009 / 010 |
 
 ### Error-id and warning-id grammar
 
@@ -295,7 +295,7 @@ For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain l
 ;; correct — metadata-map for reflection, interceptors in the third positional slot
 (rf/reg-event-db :cart.item/add
   {:doc "Add an item to the cart." :schema CartItemAddEvent}
-  [undoable schema/at-boundary]
+  [undoable schema/validate-at-boundary-interceptor]
   (fn [db [_ item]] (update db :items conj item)))
 
 ;; correct — no metadata, just the legacy 2-arg `[interceptors] handler` form
@@ -510,9 +510,9 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 ### Class 1 — Interceptor values (Vars holding maps · **NOT callable**)
 
-A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-is-positional-not-metadata-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/at-boundary ...)`) raises `ArityException`.
+A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-is-positional-not-metadata-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
 
-Current Class-1 surfaces in [API.md](API.md): `at-boundary` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
+Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
 
 **Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`redact-interceptor` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
 
@@ -524,8 +524,8 @@ Current Class-1 surfaces in [API.md](API.md): `at-boundary` (Spec 010 — produc
    unwrap-interceptor]                                    ;; Var · value
   (fn [db payload] ...))
 
-;; reading this without the convention — is `at-boundary` a fn? a Var? Did the
-;; author mean `(at-boundary)`? The suffix removes the ambiguity.
+;; reading this without the convention — is `validate-at-boundary-interceptor` a fn? a Var? Did the
+;; author mean `(validate-at-boundary-interceptor)`? The suffix removes the ambiguity.
 ```
 
 ### Class 2 — Function callbacks in spec-keyed slots (slot values that ARE fns · **callable**)

@@ -908,7 +908,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 (rf/reg-event-fx :webhook/handle
   {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]}
-  [rf/at-boundary]                                   ;; positional; rejects payload at boundary if invalid
+  [rf/validate-at-boundary-interceptor]                                   ;; positional; rejects payload at boundary if invalid
   ...)
 ```
 
@@ -917,7 +917,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 - **Open by default.** Don't add `:closed true` unless the data crosses a process boundary.
 - **Don't model object hierarchies.** A schema describes the *shape* of an open map. There are no classes.
 - **Schemas grow additively.** Once a schema ships, you can add new optional keys; you cannot remove or rename existing keys without bumping a version (Spec-ulation).
-- **Validation runs in dev, elides in prod** by default. Use the `:rf.schema/at-boundary` interceptor (Var `rf/at-boundary`) for runtime validation in prod at system boundaries.
+- **Validation runs in dev, elides in prod** by default. Use the `:rf.schema/at-boundary` interceptor (Var `rf/validate-at-boundary-interceptor`) for runtime validation in prod at system boundaries.
 
 **AI-first checklist:**
 

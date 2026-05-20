@@ -83,7 +83,7 @@ Closed mechanical rename set. Apply across all source files. Per rf2-0zlcd (pre-
 
 - `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
 - `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §`:rf/spawned`](../../../spec/Spec-Schemas.md#rfspawned-reserved-app-db-key)); that `:spec` is a different domain and is NOT renamed by M-54.
-- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/at-boundary` going forward.
+- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` going forward.
 
 **No alias semantics (rf2-0zlcd).** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
 

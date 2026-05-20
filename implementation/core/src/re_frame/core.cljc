@@ -999,9 +999,10 @@
 (def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
   the dispatched event has shape `[<id> <payload-map>]` and replaces
   the `:event` coeffect with the payload map itself. Usage:
-  `(reg-event-fx :foo [unwrap] (fn [_ {:keys [a b]}] ...))`. Per
-  Conventions §Canonical event-vector shape (M-19)."}
-  unwrap          std-interceptors/unwrap)
+  `(reg-event-fx :foo [unwrap-interceptor] (fn [_ {:keys [a b]}] ...))`.
+  Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
+  naming (rf2-k367k)."}
+  unwrap-interceptor std-interceptors/unwrap-interceptor)
 
 (def ^{:doc "Build a positional interceptor that overwrites the named
   payload keys with the `:rf/redacted` sentinel on the trace surface
@@ -1022,12 +1023,16 @@
   sensitive?           privacy/sensitive?)
 
 (def ^{:doc "Production-side schema validation interceptor. Add to a
-  `reg-event-*` handler's positional interceptor vector to force `:spec`
+  `reg-event-*` handler's positional interceptor vector to force `:schema`
   validation against the dispatched event vector even in production
-  builds where dev-time validation is elided. Per Spec 010 §Production
-  builds. The interceptor reuses the handler's existing `:spec`
-  metadata — no parallel schema."}
-  at-boundary spec/at-boundary)
+  builds where dev-time validation is elided. The verb `validate-` (per
+  rf2-todvi) telegraphs the time/build-mode axis the interceptor lives
+  on (no-op in dev, validates in prod); the `-interceptor` suffix (per
+  rf2-k367k, Conventions §Value-vs-fn naming) telegraphs that this is a
+  Var holding a value, not a fn. Per Spec 010 §Production builds.
+  The interceptor reuses the handler's existing `:schema` metadata —
+  no parallel schema."}
+  validate-at-boundary-interceptor spec/validate-at-boundary-interceptor)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body
   entirely (Closure DCE on the `interop/debug-enabled?` gate); in dev /

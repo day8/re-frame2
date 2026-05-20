@@ -1975,11 +1975,11 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 |---|---|---|
 | `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
 | `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
-| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on `rf/at-boundary`; the Var alias `re-frame.core/at-boundary` is unchanged (the rename is the `:id`, not the surface) |
+| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator (Var rename to `validate-at-boundary-interceptor` documented separately in M-59); at rf2-ieu0i time the surface was `re-frame.core/at-boundary` and only the keyword `:id` was changing |
 | `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
 | `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
 
-**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/at-boundary`. The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (per the M-59 Var-name rename — at rf2-ieu0i time the recommended surface was `re-frame.core/at-boundary`). The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
 
 **What to look for.**
 
@@ -2019,7 +2019,7 @@ Per rf2-ieu0i Mike collapsed the dual schemas vocabulary — v1's `:spec` metada
 2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
 3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
-5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/at-boundary` (recommended) or `re-frame.spec/at-boundary` (legacy).
+5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (recommended; per M-59) or `re-frame.spec/validate-at-boundary-interceptor` (the ns/Var path).
 
 **No deprecation alias (pre-alpha posture, rf2-0zlcd).**
 
@@ -2202,6 +2202,43 @@ Per rf2-aas6o (audit-of-audits naming): the `with-redacted` factory's `with-*` p
 **No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
 
 **Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
+
+---
+
+### M-59. Interceptor-value family suffix — `at-boundary` / `unwrap` → `*-interceptor` (rf2-k367k + rf2-todvi)
+
+**Type A** (mechanical). Two-symbol rename across all source files.
+
+Per rf2-k367k (audit-of-audits naming): the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming — `-interceptor` suffix telegraphs value-shape](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape)). Combined with rf2-todvi (the `at-boundary` Var carries a *time/build-mode* axis, not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
+
+| Old | New | Surface |
+|---|---|---|
+| `re-frame.core/at-boundary` | `re-frame.core/validate-at-boundary-interceptor` | the production-side schema-validation Var (no-op in dev, validates in prod) |
+| `re-frame.spec/at-boundary` | `re-frame.spec/validate-at-boundary-interceptor` | the Var-defining ns; legacy reach path |
+| `re-frame.core/unwrap` | `re-frame.core/unwrap-interceptor` | the `[<id> <payload-map>]` shape-assertion Var |
+| `re-frame.std-interceptors/unwrap` | `re-frame.std-interceptors/unwrap-interceptor` | the Var-defining ns |
+
+The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **unchanged** — only the Var names move. `path` is a *factory fn* (returns an interceptor when called with path-segs); per Conventions §Value-vs-fn naming the factory itself does NOT carry the suffix. Likewise the `redact-interceptor` rename (M-58) keeps `redact-interceptor` as a factory-fn shape because the bundled-PR task explicitly named it that way.
+
+**Detect.** v2-pre-rename codebases trip this. v1 had `at-boundary` as part of M-54's `:spec` → `:schema` rename (the Var itself was preserved at rf2-ieu0i time); the new rename moves the Var name too. v1 codebases land directly on the new name via the bundled sweep.
+
+```clojure
+;; before
+(rf/reg-event-fx :api/payload
+  {:schema PayloadSchema}
+  [rf/at-boundary rf/unwrap]
+  (fn [_ {:keys [...]}] ...))
+
+;; after
+(rf/reg-event-fx :api/payload
+  {:schema PayloadSchema}
+  [rf/validate-at-boundary-interceptor rf/unwrap-interceptor]
+  (fn [_ {:keys [...]}] ...))
+```
+
+**No alias.** Per pre-alpha posture, the old names are **removed** — stale call sites raise unresolved-symbol at compile time.
+
+**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md#value-vs-fn-naming--interceptor-suffix-telegraphs-value-shape) (the rule); [Spec 004 §Standard interceptors](../../spec/004-Interceptors.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [API.md §Standard interceptors](../../spec/API.md); [M-54](#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i) (the prior `:spec` → `:schema` keyword unification, sibling pass).
 
 ---
 

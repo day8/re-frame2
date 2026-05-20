@@ -93,7 +93,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 |---|---|
 | `rf/app-schema-at` / `rf/app-schemas` / `rf/app-schemas-digest` | read-only schema queries |
 | `rf/set-schema-validator!` / `rf/set-schema-explainer!` | swap-in non-Malli validator |
-| `rf/at-boundary` | production-side validation interceptor |
+| `rf/validate-at-boundary-interceptor` | production-side validation interceptor |
 
 ## Trace and epoch — `day8/re-frame2-epoch`
 
@@ -113,7 +113,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/->interceptor` | `({:id :before :after})` → interceptor |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
 | `rf/inject-cofx` | `(id & args)` — cofx injector |
-| `rf/path` / `rf/unwrap` | std interceptors |
+| `rf/path` / `rf/unwrap-interceptor` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |

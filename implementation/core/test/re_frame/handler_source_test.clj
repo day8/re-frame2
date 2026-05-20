@@ -91,7 +91,7 @@
 (deftest captures-form-source-with-interceptor-vector
   (testing "rf2-xgfuy: middle interceptor-vector round-trips into :rf.handler/source"
     (rf/reg-event-fx :rf2-xgfuy/event-with-icpts
-                     [rf/unwrap]
+                     [rf/unwrap-interceptor]
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
