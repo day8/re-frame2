@@ -24,9 +24,11 @@
                         (rf2-76wo5 testbed — :render points at an
                         unregistered view to exercise the panel-host's
                         broken-render fallback branch).
-  - `reg-story`       — `:story.counter` parent (the four variants
+  - `reg-story`       — `:story.counter` parent (the five variants
                         below all inherit its decorators + args).
-  - `reg-variant`     — four variants exercising every authoring shape.
+  - `reg-variant`     — five variants exercising every authoring shape
+                        (four canonical + the events-only loader-body
+                        shape folded in per rf2-9jfo1.2).
   - `reg-workspace`   — two workspaces: `:grid` + `:variants-grid`.
 
   Every variant declares `:substrates #{:reagent}` per IMPL-SPEC
@@ -263,7 +265,8 @@
                     [:enabled? :boolean]]]]})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-variant — four variants, each pulling on a different authoring shape
+  ;; reg-variant — five variants, four exercising distinct authoring
+  ;; shapes + the events-only loader-body shape (rf2-9jfo1.2)
   ;; -------------------------------------------------------------------------
 
   ;; Variant 1 — empty / zero state. The simplest possible variant body:
@@ -310,6 +313,33 @@
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}
      :decorators [[:counter-with-stories/log-decorator "variant-level"]]})
+
+  ;; Variant 3b — canonical events-only loader-body shape (rf2-9jfo1.2 —
+  ;; folded in from the retired `tools/story/testbeds/causa_rhs_smoke/`
+  ;; testbed). Per rf2-043cm a variant is *events-only* when its body
+  ;; declares no `:loaders` AND no `:loaders-complete-when` AND its
+  ;; resolved decorator stack carries no `:frame-setup` decorators.
+  ;; Such variants take the lifecycle fast-path `:pre-mount → :ready`
+  ;; on mount (skipping `:mounting`/`:loading`) so the canvas's loading
+  ;; skeleton (rf2-0s4p1) never engages for variants that have nothing
+  ;; to wait for. PR #1574 surfaced the regression where the skeleton
+  ;; stalled indefinitely against this body shape.
+  ;;
+  ;; Pinned by `tools/story/test/re_frame/story_runtime_cljs_test.cljs`
+  ;; (`cljs-events-only-fast-path-to-ready` + `cljs-events-only-
+  ;; classifier`) as the canonical events-only body. NO :play slot,
+  ;; NO :loaders slot, NO :frame-setup decorator — those would break
+  ;; the events-only classification and the fast-path it gates.
+  (story/reg-variant :story.counter/events-only-loaded
+    {:doc    "Canonical events-only loader-body shape (rf2-043cm fast-
+             path repro). Counter seeded at 5 via `:events`; no
+             `:loaders`, no `:loaders-complete-when`, no `:frame-setup`
+             decorators — the lifecycle takes the fast-path direct to
+             `:ready`. Folded in from the retired causa_rhs_smoke
+             testbed per rf2-9jfo1.2."
+     :events [[:counter/initialise 5]]
+     :tags   #{:dev :test :internal}
+     :substrates #{:reagent}})
 
   ;; Variant 4 — `force-fx-stub` shape. The :counter/save event walks
   ;; a :fx slot that issues :counter/sync-to-server. The

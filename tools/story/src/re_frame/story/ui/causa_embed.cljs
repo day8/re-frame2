@@ -317,11 +317,12 @@
 ;;       so the React 18+ root API never sees a synchronous unmount
 ;;       inside the outer render cycle.
 ;;
-;; Pin: `tools/story/testbeds/causa_rhs_smoke/spec.cjs` asserts that the
-;; chip-click round-trip still flips `data-active-panel` AND paints the
-;; new panel's root — both behaviours survive because the new mount runs
-;; synchronously into the fresh child container; only the prior root's
-;; release is queued.
+;; Pin: `tools/story/test/re_frame/story/panels_e2e/causa_embed_e2e_cljs_test.cljs`
+;; (rf2-piucm CLJS e2e — replaced the retired `causa_rhs_smoke` Playwright
+;; spec) asserts that the chip-click round-trip still flips
+;; `data-active-panel` AND paints the new panel's root — both behaviours
+;; survive because the new mount runs synchronously into the fresh child
+;; container; only the prior root's release is queued.
 
 (defn- panel-host-component
   "Reagent class-3 component owning the DOM mount lifecycle for the

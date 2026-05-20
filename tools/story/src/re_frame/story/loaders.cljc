@@ -330,8 +330,9 @@
   :ready` on mount with no intervening `:mounting`/`:loading` states.
   This keeps the rf2-0s4p1 loading skeleton off for variants that have
   nothing to wait for — the regression PR #1574 surfaced via the
-  `causa-rhs-smoke` testbed, whose single variant declares `:events`
-  only and stalled the skeleton indefinitely.
+  retired `causa-rhs-smoke` testbed; the events-only loader-body shape
+  is now pinned by `:story.counter/events-only-loaded` inside
+  `tools/story/testbeds/counter_with_stories/` (rf2-9jfo1.2).
 
   Returns a boolean. Pure — no app-db reads."
   [variant-body decorator-stack]

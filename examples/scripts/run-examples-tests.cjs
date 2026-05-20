@@ -74,11 +74,12 @@ const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
 // rf2-mpa3x — normalize before substring-matching. Two cosmetic
 // conventions diverge between build ids and spec paths:
 //
-//   1. Build ids use kebab-case (`examples/causa-rhs-smoke`); on-disk
-//      dirs use snake_case (`tools/story/testbeds/causa_rhs_smoke/`).
-//      A user naturally supplies the build-id form to EXAMPLES_FILTER,
-//      so the literal substring `causa-rhs-smoke` failed to match the
-//      underscore-bearing spec path. Map `_` → `-` on both sides.
+//   1. Build ids use kebab-case (`examples/counter-with-stories`);
+//      on-disk dirs use snake_case (`tools/story/testbeds/
+//      counter_with_stories/`). A user naturally supplies the
+//      build-id form to EXAMPLES_FILTER, so the literal substring
+//      `counter-with-stories` would fail to match the underscore-
+//      bearing spec path. Map `_` → `-` on both sides.
 //   2. Path separators differ across platforms (`\` on Windows, `/`
 //      elsewhere). The saved-memory substring trap recommends the
 //      path-separator-aware form (`testbeds/shop` or `testbeds\shop`)
