@@ -37,10 +37,10 @@
   `compile` too)."
   []
   (rf/init! reagent-adapter/adapter)
-  ;; Install the seven canonical tags + lifecycle machine + assertions
-  ;; + force-fx-stub decorator + layout-debug trio + canonical cofx +
-  ;; Reagent multi-substrate + v1.0 panel set. Idempotent.
-  (story/install-canonical-vocabulary!)
+  ;; No explicit `(story/install-canonical-vocabulary!)` call — the
+  ;; `:require [counter-with-stories.stories]` above already loaded the
+  ;; stories ns, whose first `reg-*` call auto-installed the canonical
+  ;; vocabulary per rf2-p1ydc (audit D-2 / rf2-y8gag).
   ;; Story global configuration — pinned defaults a published docs site
   ;; can ship with. Locale defaults to :en; the editor preference
   ;; doesn't matter because the open-in-editor affordance is dev-only

@@ -55,19 +55,20 @@
 ;; populated as they expect.
 ;;
 ;; The seven canonical Story tags (:dev :docs :test :screenshot
-;; :experimental :internal :agent) must register before any reg-story
-;; / reg-variant references them, or the registrar throws
-;; `:rf.error/unknown-tag`. install-canonical-vocabulary! is
-;; idempotent; calling it at load time is cheap.
+;; :experimental :internal :agent) auto-install on the first `reg-*`
+;; call below per rf2-p1ydc — no explicit boot step needed (rf2-y8gag
+;; — audit D-2). `reg-tag` / `reg-mode` / `reg-decorator` etc. all
+;; trigger the same idempotent installer chain via the registrar's
+;; `maybe-auto-install!` hook.
 ;; ---------------------------------------------------------------------------
 
 (defn register-all!
   "Register the counter-with-stories example's Story artefacts.
   Idempotent. The trailing top-level call fires this at namespace
-  load; the test fixture calls it again after a clear-all! per test."
+  load; the test fixture calls it again after a clear-all! per test.
+  The canonical vocabulary auto-installs on the first `reg-*` call —
+  no explicit boot step required (rf2-p1ydc + rf2-y8gag)."
   []
-  (story/install-canonical-vocabulary!)
-
   ;; -------------------------------------------------------------------------
   ;; reg-tag — register the project's custom tag
   ;;

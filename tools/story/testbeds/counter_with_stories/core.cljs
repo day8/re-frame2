@@ -126,12 +126,11 @@
   ;; `[data-rf-causa-host]` contract.
   (causa-config/configure! {:rf.causa/auto-open? false})
   (rf/init! reagent-adapter/adapter)
-  ;; Install the Story canonical vocabulary (seven tags, lifecycle
-  ;; machine, seven :rf.assert/* handlers, force-fx-stub decorator,
-  ;; layout-debug decorators, multi-substrate Reagent default, v1
-  ;; panel set). Idempotent. Under :advanced + enabled?=false this
-  ;; short-circuits internally.
-  (story/install-canonical-vocabulary!)
+  ;; No explicit `(story/install-canonical-vocabulary!)` call — the
+  ;; first `reg-*` in `counter-with-stories.stories` (loaded via
+  ;; :require above) auto-installs the canonical vocabulary on demand
+  ;; per rf2-p1ydc + spec/001 §Boot. The explicit call is legacy
+  ;; (rf2-y8gag — audit D-2) and removed from every canonical testbed.
   ;; Configure the global args layer (Layer 1 of the args-precedence
   ;; chain; see IMPL-SPEC §5.2). The stories layer their own args on
   ;; top via reg-story / reg-variant.
