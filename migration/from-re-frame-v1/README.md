@@ -809,7 +809,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:nav/scroll` | `:rf.nav/scroll` |
 | `:nav/external` | `:rf.nav/external` |
 | `:route/navigate` | `:rf.route/navigate` |
-| `:route/url-changed` | `:rf.route/url-changed` |
+| `:route/url-changed` | `:rf/url-changed` (the runtime event; rf2-cj9fn — the v2 trace op `:rf.route/url-changed` was renamed to `:rf.route/fragment-changed`, leaving no `:rf.route/url-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
 | `:route/not-found` | `:rf.route/not-found` |
 | `:route/navigation-blocked` | `:rf.route/navigation-blocked` |

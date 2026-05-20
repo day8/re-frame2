@@ -211,12 +211,12 @@
       (rf/reg-route :route/a {:path "/foo"})
       (rf/reg-route :route/b {:path "/foo"})
 
-      ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/url-changed ----
+      ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/fragment-changed ----
       ;; A reg-route + dispatch [:rf/url-changed url] threads through the
       ;; allocate-token + match-url emit path.
       (rf/reg-route :user/show {:path "/users/:id"})
       (rf/dispatch-sync [:rf/url-changed "/users/42"] {:frame :test/main})
-      ;; Now repeat with a fragment change only — emits :rf.route/url-changed
+      ;; Now repeat with a fragment change only — emits :rf.route/fragment-changed
       ;; with prev/next-fragment shape.
       (rf/dispatch-sync [:rf/url-changed "/users/42#section"] {:frame :test/main})
 
@@ -407,13 +407,13 @@
             (is (keyword? (:route-id t)))
             (is (some?    (:nav-token t)))))
 
-        (testing ":event :rf.route/url-changed fires on fragment-only navigation"
+        (testing ":event :rf.route/fragment-changed fires on fragment-only navigation"
           ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
-          ;; :rf.route/url-changed is the canonical op-name for fragment-only
+          ;; :rf.route/fragment-changed is the canonical op-name for fragment-only
           ;; navigation. Consumers discriminate full vs fragment-only by :tags.
-          (is (has-op? events :event :rf.route/url-changed)
-              "expected :event :rf.route/url-changed")
-          (let [t (:tags (find-op events :event :rf.route/url-changed))]
+          (is (has-op? events :event :rf.route/fragment-changed)
+              "expected :event :rf.route/fragment-changed")
+          (let [t (:tags (find-op events :event :rf.route/fragment-changed))]
             (is (keyword? (:route-id t)))
             (is (string?  (:next-fragment t)))))
 

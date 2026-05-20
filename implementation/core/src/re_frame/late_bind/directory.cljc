@@ -259,6 +259,9 @@
    {:key         :routing/reg-route
     :producer-ns 're-frame.routing
     :description "Register a route pattern and handler."}
+   {:key         :routing/unregister-route!
+    :producer-ns 're-frame.routing
+    :description "Remove a registered route; emits :rf.route/cleared."}
    {:key         :routing/match-url
     :producer-ns 're-frame.routing
     :description "Match a URL against the registered routes."}

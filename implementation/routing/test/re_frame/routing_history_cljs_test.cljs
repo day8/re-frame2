@@ -381,18 +381,19 @@
 ;; Per Spec 012 §Fragments and routing.cljc's `:rf/url-changed`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
-;; :rf/route :fragment and emits :rf.route/url-changed instead of
-;; re-firing :on-match. That's the framework's hashchange surface.
+;; :rf/route :fragment and emits :rf.route/fragment-changed (rf2-cj9fn,
+;; pre-rename: `:rf.route/url-changed`) instead of re-firing :on-match.
+;; That's the framework's hashchange surface.
 
 (deftest hashchange-fragment-only-cljs
-  (testing "URL fragment change → :rf.route/url-changed trace fires; no new nav-token allocation"
+  (testing "URL fragment change → :rf.route/fragment-changed trace fires; no new nav-token allocation"
     (register-routes!)
     ;; Forward nav lands on /articles/intro.
     (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
     (let [pre-nav-token (-> (rf/get-frame-db :rf/default)
                             :rf/route :nav-token)]
 
-      ;; Capture both :rf.route/url-changed AND
+      ;; Capture both :rf.route/fragment-changed AND
       ;; :rf.route.nav-token/allocated emissions during the fragment-only
       ;; dispatch — assert the former fires and the latter does NOT.
       (let [fragment-changed (atom [])
@@ -402,7 +403,7 @@
           cb-key
           (fn [ev]
             (case (:operation ev)
-              :rf.route/url-changed
+              :rf.route/fragment-changed
               (swap! fragment-changed conj (:tags ev))
               :rf.route.nav-token/allocated
               (swap! allocations conj (:tags ev))
@@ -413,7 +414,7 @@
             (trace-tooling/unregister-trace-listener! cb-key)))
 
         (is (= 1 (count @fragment-changed))
-            "fragment-only nav emits :rf.route/url-changed exactly once")
+            "fragment-only nav emits :rf.route/fragment-changed exactly once")
         (is (= "section-2"
                (:next-fragment (first @fragment-changed)))
             "trace carries :next-fragment")

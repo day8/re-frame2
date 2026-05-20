@@ -517,7 +517,9 @@ The transition FSM state (`:idle` / `:loading` / `:error`) is still
 part of the app-db slice (Spec 012) and still visible in the App-db
 tab's diff. The Routes lens is the dedicated home; the App-db tab
 shows the raw slice diff like any other key. Navigation trace events
-(`:rf.route.nav-token/*` + `:rf.route/url-changed`) continue to
+(`:rf.route.nav-token/*` + `:rf.route/fragment-changed` (rf2-cj9fn) +
+`:rf.route/registered` / `:rf.route/cleared` / `:rf.route/activated` /
+`:rf.route/deactivated` (rf2-dn26r)) continue to
 appear in the Trace tab when the `event` chip is ON (default) —
 the Runtime Routing lens does not duplicate the firehose, it
 projects the single nav-event that pertains to the focused cascade.

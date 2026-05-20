@@ -44,6 +44,17 @@
    :ex-data {:route-id id}}
   ([id metadata] :delegate))
 
+(defwrapper unregister-route!
+  "Per Spec 012 §Trace events and rf2-dn26r. Remove a registered
+  route; emits `:rf.route/cleared` so tools subscribing to route
+  lifecycle observe the removal. Symmetric with `:rf.flow/cleared`
+  (per [013-Flows.md §Flow tracing](013-Flows.md#flow-tracing)).
+  No-op when the route id is not registered. Late-bound via
+  `:routing/unregister-route!`."
+  {:hook :routing/unregister-route! :artefact routing-artefact :on-absent :throw
+   :ex-data {:route-id id}}
+  ([id] :delegate))
+
 (defwrapper route-link
   "Per Spec 012 §Linking from views and API.md `route-link` row.
   Registered view at `:route/link` — renders an `<a href=...>` from a

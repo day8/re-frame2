@@ -162,7 +162,7 @@ The same handler runs **on the server during SSR** — the request URL is fed in
 Two named events surface in the trace stream:
 
 - **`:rf/url-changed`** — the runtime event fired on every URL transition. Default handler is `:rf.route/handle-url-change`. Users can override by re-registering — to log analytics, run an auth-check, or apply per-app routing policy.
-- **`:rf.route/url-changed`** — a **trace event** (not a runtime event) fired when the URL changes only in its `#fragment`. Distinct from the runtime event above; the runtime emits the trace and updates `:fragment` in the slice but does NOT re-fire `:on-match`. The reason: `:on-match` exists to re-load route-scoped data when path or query changes; a fragment-only change does not change loaded data, only the in-page anchor target.
+- **`:rf.route/fragment-changed`** — a **trace event** (not a runtime event) fired when the URL changes only in its `#fragment`. Distinct from the runtime event above; the runtime emits the trace and updates `:fragment` in the slice but does NOT re-fire `:on-match`. The reason: `:on-match` exists to re-load route-scoped data when path or query changes; a fragment-only change does not change loaded data, only the in-page anchor target.
 
 If your view subscribes to `:rf.route/fragment` and re-renders when the fragment changes, you'll see the update. If your view subscribes only to `:rf.route/id` or `:rf.route/params`, fragment changes don't ripple through.
 
