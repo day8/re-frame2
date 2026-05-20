@@ -84,11 +84,14 @@
   `trace_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.data-display.render :as data-display]
             [day8.re-frame2-causa.panel-registry :as panel-registry]
             [day8.re-frame2-causa.panels.cancellation-cascade-helpers :as cch]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-causa.panels.overflow-indicator :as overflow]
+            [day8.re-frame2-causa.panels.shared.film-strip.header
+             :as film-strip]
             [day8.re-frame2-causa.panels.trace-helpers :as h]
             [day8.re-frame2-causa.theme.tokens
              :as t
@@ -224,51 +227,96 @@
 
 ;; ---- header strip -------------------------------------------------------
 
+(defn- epoch-indicator
+  "Per spec/021 §5.2 — the film-strip header's middle slot reads
+  `epoch #N · X ops`. `epoch-id` is the focused cascade's settling
+  epoch (the canonical per-frame epoch primary key per spec/018 §6);
+  `rendered` is the post-filter row count (= 'X ops' visible right
+  now)."
+  [{:keys [epoch-id rendered]}]
+  (let [epoch-label (if (some? epoch-id)
+                      (str "epoch #" epoch-id)
+                      "no epoch focused")
+        ops-label   (str rendered " "
+                         (if (= 1 rendered) "op" "ops"))]
+    [:span {:data-testid "rf-causa-trace-epoch-indicator"
+            :style       {:color       (:text-tertiary tokens)
+                          :font-family mono-stack
+                          :font-size   "11px"}}
+     (str epoch-label " · " ops-label)]))
+
 (defn- header
-  "Panel header — title + counts + chip rows + clear-all."
-  [{:keys [total rendered distinct counts filters any-filter?]}]
-  [:header {:style {:padding       "12px 16px 6px 16px"
-                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-   [:div {:style {:display     "flex"
-                  :align-items "baseline"
-                  :gap         "12px"}}
-    ;; rf2-5kfxe.8 — domain-coloured accent stripe (:orange for Trace
-    ;; — events 'in flight'; orange is the firing/heat tone).
-    ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
-    [:h1 {:style (merge {:font-size   "20px"
-                         :font-family display-stack
-                         :font-weight 600
-                         :letter-spacing "-0.01em"
-                         :margin      0
-                         :color       (:text-primary tokens)}
-                        (t/accent-stripe-style :trace))}
-     "Trace"]
-    [:span {:data-testid "rf-causa-trace-counts"
-            :style {:font-size   "11px"
-                    :color       (:text-tertiary tokens)
-                    :font-family mono-stack}}
-     (str rendered " / " total " in view")]
-    (when any-filter?
-      [:button {:data-testid "rf-causa-trace-clear-filters"
-                :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
-                :style       {:margin-left "auto"
-                              :background  "transparent"
-                              :color       (:cyan tokens)
-                              :border      (str "1px solid " (:border-default tokens))
-                              :padding     "2px 8px"
-                              :border-radius "3px"
-                              :cursor      "pointer"
-                              :font-family sans-stack
-                              :font-size   "11px"}}
-       "Clear filters"])]
-   [:div {:style {:margin-top "8px"}}
-    (for [axis h/filter-axes]
-      ^{:key axis}
-      [axis-chip-row {:axis         axis
-                      :active-value (get filters axis)
-                      :distinct     (get distinct axis)
-                      :counts       (get counts axis)
-                      :axis-colour  (:accent-violet tokens)}])]])
+  "Panel header — film-strip + title + counts + chip rows + clear-all.
+
+  Per spec/021 §5.2 the Trace panel header carries:
+
+    - title `TRACE · epoch #N` (left)
+    - film-strip `[◀ Prev] [Next ▶]` (right)
+
+  The film-strip prev/next semantics per spec/021 §5.5 are
+  *chronological*: walk the L2 cascade list one epoch at a time
+  regardless of dispatch-origin. We delegate to the spine's
+  `:rf.causa/focus-cascade-prev` / `:rf.causa/focus-cascade-next`
+  handlers — the same surface the L1 ribbon nav uses — so prev/next
+  semantics live in ONE place and panels stay declarative."
+  [{:keys [total rendered distinct counts filters any-filter?
+           focus at-head? at-tail?]}]
+  (let [epoch-id (:epoch-id focus)]
+    [:header {:style {:padding       "12px 16px 6px 16px"
+                      :border-bottom (str "1px solid " (:border-subtle tokens))}}
+     [:div {:style {:display     "flex"
+                    :align-items "baseline"
+                    :gap         "12px"}}
+      ;; rf2-5kfxe.8 — domain-coloured accent stripe (:orange for Trace
+      ;; — events 'in flight'; orange is the firing/heat tone).
+      ;; rf2-5kfxe.9 — display face (Fraunces) for L4 title contrast.
+      [:h1 {:style (merge {:font-size   "20px"
+                           :font-family display-stack
+                           :font-weight 600
+                           :letter-spacing "-0.01em"
+                           :margin      0
+                           :color       (:text-primary tokens)}
+                          (t/accent-stripe-style :trace))}
+       "Trace"]
+      [:span {:data-testid "rf-causa-trace-counts"
+              :style {:font-size   "11px"
+                      :color       (:text-tertiary tokens)
+                      :font-family mono-stack}}
+       (str rendered " / " total " in view")]
+      (when any-filter?
+        [:button {:data-testid "rf-causa-trace-clear-filters"
+                  :on-click    #(rf/dispatch [:rf.causa/clear-trace-filters] {:frame :rf/causa})
+                  :style       {:background  "transparent"
+                                :color       (:cyan tokens)
+                                :border      (str "1px solid " (:border-default tokens))
+                                :padding     "2px 8px"
+                                :border-radius "3px"
+                                :cursor      "pointer"
+                                :font-family sans-stack
+                                :font-size   "11px"}}
+         "Clear filters"])
+      ;; rf2-7dyi8 — film-strip header per spec/021 §5.2 + §5.5.
+      ;; Sits on the right edge of the title row; dispatches the
+      ;; canonical spine prev/next events so this panel's nav and the
+      ;; L1 ribbon's nav walk the same cascade vector with identical
+      ;; boundary semantics.
+      [:div {:style {:margin-left "auto"}}
+       (film-strip/header
+         {:panel-id  "trace"
+          :prev-fn   #(rf/dispatch [:rf.causa/focus-cascade-prev] {:frame :rf/causa})
+          :next-fn   #(rf/dispatch [:rf.causa/focus-cascade-next] {:frame :rf/causa})
+          :has-prev? (not at-tail?)
+          :has-next? (not at-head?)
+          :indicator (epoch-indicator {:epoch-id epoch-id
+                                       :rendered rendered})})]]
+     [:div {:style {:margin-top "8px"}}
+      (for [axis h/filter-axes]
+        ^{:key axis}
+        [axis-chip-row {:axis         axis
+                        :active-value (get filters axis)
+                        :distinct     (get distinct axis)
+                        :counts       (get counts axis)
+                        :axis-colour  (:accent-violet tokens)}])]]))
 
 ;; ---- per-row -------------------------------------------------------------
 
@@ -297,6 +345,30 @@
                             :margin-right  "4px"}}
      (format-axis-value value)]))
 
+;; ---- payload renderer ---------------------------------------------------
+;;
+;; Per spec/021 §5 the per-row "expand payload" surface uses the shared
+;; data-display renderer (`day8.re-frame2-causa.data-display.render/
+;; render-tree`, rf2-jgip1, merged in #1739). The Trace panel passes
+;; the raw trace event as `:value`, with `:default-depth 2` per
+;; spec/021 §5.1 ("depth-2-expanded default").
+
+(defn- render-payload
+  "Per-row payload renderer. Wires the shared rf2-jgip1 data-display
+  renderer to the row's raw trace event. Each row gets its own
+  `:render-id` (`trace-row-<id>`) so the renderer's sticky expansion
+  state never collides across rows."
+  [{:keys [id raw] :as _row}]
+  [:div {:data-testid (str "rf-causa-trace-row-" id "-payload")
+         :style       {:padding "8px 16px 12px 110px"
+                       :background (:bg-1 tokens)
+                       :border-bottom (str "1px solid " (:border-subtle tokens))}}
+   (data-display/render-tree
+     {:value        raw
+      :panel-id     :trace
+      :render-id    (str "trace-row-" id)
+      :default-depth 2})])
+
 (defn- trace-row
   "One row in the trace ribbon.
 
@@ -306,10 +378,19 @@
   new trace push shifted every visible row's index, so every key
   changed, and React unmounted+remounted the entire viewport on
   EVERY push. Same discipline class as rf2-kgn0c's `v:<variant-id>`
-  cell-keying in the story workspace."
+  cell-keying in the story workspace.
+
+  Per spec/021 §5.4 + rf2-7dyi8 the row-click behaviour is **inline
+  payload expansion** (NOT pivot to event-detail) — the Trace panel
+  is already scoped to the focused epoch (rf2-ycoct), so pivoting
+  would just navigate to the same cascade. Click toggles the row's
+  membership in `:rf.causa/trace-expanded-row-ids`; expanded rows
+  render the shared data-display renderer below the row inside the
+  same `<li>` so the React-key + scroll-anchoring discipline holds."
   [{:keys [id time op-type operation source origin frame description
            source-coord dispatch-id]
-    :as row}]
+    :as row}
+   {:keys [expanded?]}]
   (let [row-test-id (str "rf-causa-trace-row-" id)
         dot-colour  (h/op-type-colour op-type)
         ;; rf2-59e7k — destroy-event rows surface a 'Show cancellation
@@ -319,16 +400,14 @@
         destroy?    (cch/destroy-event? {:operation operation})]
     [:li {:key         (h/row-key row)
           :data-testid row-test-id
+          :data-rf-causa-expanded (boolean expanded?)
           :on-click    (fn []
-                         (when dispatch-id
-                           (rf/dispatch [:rf.causa/select-dispatch-id
-                                         dispatch-id frame] {:frame :rf/causa})
-                           ;; Flip the visible tab to Event so the row
-                           ;; jump lands in event-detail. The legacy
-                           ;; `:rf.causa/select-panel` slot is no longer
-                           ;; read by the 4-layer shell (rf2-qy0nu).
-                           (rf/dispatch [:rf.causa/select-tab :event]
-                                        {:frame :rf/causa})))
+                         ;; rf2-7dyi8 — toggle inline payload expansion
+                         ;; rather than pivoting to event-detail (spec
+                         ;; §5.4: 'Row → expand payload · Inline in
+                         ;; panel (no nav)').
+                         (rf/dispatch [:rf.causa/toggle-trace-row-expand id]
+                                      {:frame :rf/causa}))
           :on-context-menu (when destroy?
                              (fn [e]
                                (.preventDefault e)
@@ -337,18 +416,26 @@
                                  [:rf.causa/cancellation-cascade-open
                                   {:kind :dispatch-id :id dispatch-id}]
                                  {:frame :rf/causa})))
-          :style       {:display       "grid"
-                        :grid-template-columns
-                        "84px 14px minmax(140px, 1fr) 2fr auto auto auto"
-                        :gap           "10px"
-                        :align-items   "center"
-                        :padding       "6px 16px"
-                        :border-bottom (str "1px solid " (:border-subtle tokens))
-                        :cursor        (if dispatch-id "pointer" "default")
-                        :color         (:text-primary tokens)
-                        :font-family   mono-stack
-                        :font-size     "12px"
-                        :line-height   1.35}}
+          :style       {:display        "block"
+                        :border-bottom  (str "1px solid "
+                                             (:border-subtle tokens))
+                        :background     (when expanded? (:bg-1 tokens))
+                        :cursor         "pointer"
+                        :color          (:text-primary tokens)
+                        :font-family    mono-stack
+                        :font-size      "12px"
+                        :line-height    1.35}}
+     ;; Row grid — the dense single-line summary per spec/021 §5.2.
+     ;; Held in an inner div so the optional payload can render as a
+     ;; sibling inside the same `<li>` without breaking the row's
+     ;; React-key stability discipline (rf2-z4fza).
+     [:div {:data-testid (str row-test-id "-summary")
+            :style       {:display       "grid"
+                          :grid-template-columns
+                          "84px 14px minmax(140px, 1fr) 2fr auto auto auto"
+                          :gap           "10px"
+                          :align-items   "center"
+                          :padding       "6px 16px"}}
      ;; Timestamp
      [:span {:data-testid (str row-test-id "-time")
              :style {:color (:text-tertiary tokens)
@@ -439,7 +526,10 @@
        [:span {:style {:color (:text-tertiary tokens)
                        :font-size "10px"
                        :min-width "10px"}}
-        ""])]))
+        ""])]
+     ;; rf2-7dyi8 — inline payload expansion. Consumes the shared
+     ;; rf2-jgip1 data-display renderer (#1739, landed in main).
+     (when expanded? (render-payload row))]))
 
 ;; ---- empty states -------------------------------------------------------
 
@@ -626,7 +716,28 @@
         focused-id     (:dispatch-id focus)
         focused-cascade (when focused-id
                           (some #(when (= focused-id (:dispatch-id %)) %)
-                                cascades))]
+                                cascades))
+        ;; rf2-7dyi8 — film-strip nav boundaries. We walk the same
+        ;; cascade list the L1 ribbon walks (`cascades` already passes
+        ;; through `trace-bus/causa-internal-cascade?` in the registry
+        ;; sub) so prev/next semantics match exactly. Empty cascade
+        ;; list → both buttons disabled.
+        cascade-ids    (mapv :dispatch-id cascades)
+        at-head?       (or (empty? cascade-ids)
+                           (= focused-id (last cascade-ids))
+                           (nil? focused-id))
+        at-tail?       (or (empty? cascade-ids)
+                           (= focused-id (first cascade-ids)))
+        ;; rf2-7dyi8 — per-row inline payload expansion set. The
+        ;; trace-row hiccup reads `expanded?` from the closure built
+        ;; here so the row-fn keeps the single-arg shape `overflow/
+        ;; capped-list` requires.
+        expanded-ids   @(rf/subscribe [:rf.causa/trace-expanded-row-ids])
+        row-with-state (fn [row]
+                         (trace-row row
+                                    {:expanded?
+                                     (contains? (or expanded-ids #{})
+                                                (:id row))}))]
     [:section {:data-testid "rf-causa-trace"
                :style       {:height         "100%"
                              :display        "flex"
@@ -640,7 +751,10 @@
               :distinct    distinct
               :counts      counts
               :filters     filters
-              :any-filter? any-filter?})
+              :any-filter? any-filter?
+              :focus       focus
+              :at-head?    at-head?
+              :at-tail?    at-tail?})
      ;; rf2-b76v4 — cascade-status timeline bar. Renders only when a
      ;; cascade is in focus and the ribbon has rows; the empty-state
      ;; branches don't carry a 'focused cascade' surface to colour.
@@ -659,7 +773,7 @@
                                   :style       {:list-style "none"
                                                 :margin     0
                                                 :padding    0}}
-                       :row-fn   trace-row}))]]))
+                       :row-fn   row-with-state}))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -775,6 +889,31 @@
   (rf/reg-event-db :rf.causa/clear-trace-filters
     (fn [db _event]
       (dissoc db :trace-filters)))
+
+  ;; ---- rf2-7dyi8 — per-row inline payload expansion ------------------
+  ;;
+  ;; Per spec/021 §5.4 clicking a row expands its payload inline (no
+  ;; nav). The expanded set lives in app-db so the toggle survives
+  ;; sub-recomputes. The shared rf2-jgip1 renderer owns deeper-than-2
+  ;; expansion state under its own `:rf.causa/data-display-expansion`
+  ;; slot; this set gates whether the renderer is mounted for a row
+  ;; at all.
+
+  (rf/reg-sub :rf.causa/trace-expanded-row-ids
+    (fn [db _query]
+      (get db :trace-expanded-row-ids #{})))
+
+  (rf/reg-event-db :rf.causa/toggle-trace-row-expand
+    (fn [db [_ row-id]]
+      (let [current (get db :trace-expanded-row-ids #{})]
+        (assoc db :trace-expanded-row-ids
+               (if (contains? current row-id)
+                 (disj current row-id)
+                 (conj current row-id))))))
+
+  (rf/reg-event-db :rf.causa/clear-trace-expand
+    (fn [db _event]
+      (dissoc db :trace-expanded-row-ids)))
 
   ;; rf2-2moh1 — register the Runtime Trace tab with the internal L4
   ;; tab registry.

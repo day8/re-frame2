@@ -311,6 +311,8 @@
    ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
    :rf.causa/timer-hover
    :rf.causa/trace-buffer
+   ;; rf2-7dyi8 — per-row inline payload expansion state (spec/021 §5.4).
+   :rf.causa/trace-expanded-row-ids
    :rf.causa/trace-feed
    ;; rf2-39n8h discovered — trace-feed UI-state slot (selection /
    ;; expansion state shared by the Trace panel).
@@ -362,6 +364,8 @@
    :rf.causa/clear-trace-buffer
    ;; rf2-e9tb0 — App-DB segment-inspector popup close event.
    :rf.causa/close-segment-inspector
+   ;; rf2-7dyi8 — drop every expanded trace-row id in one shot.
+   :rf.causa/clear-trace-expand
    :rf.causa/clear-trace-filters
    :rf.causa/close-edit-popup
    :rf.causa/close-shell
@@ -561,6 +565,9 @@
    :rf.causa/timer-hover
    :rf.causa/timer-tick
    :rf.causa/toggle-live-pause
+   ;; rf2-7dyi8 — toggle the inline payload expansion for one trace row
+   ;; (per spec/021 §5.4 — Row → expand payload · Inline in panel).
+   :rf.causa/toggle-trace-row-expand
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.causa/reactive-set-unchanged
