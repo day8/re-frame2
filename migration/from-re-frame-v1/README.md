@@ -1274,7 +1274,7 @@ Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` d
 
 **Public API** is unchanged. The fx ids `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` retain their args contract per Spec 014 §Testing; only the registration site moved.
 
-**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-canned-stub-gate-rf2-cdmle).
+**Why:** rf2-zk08x's security audit found the JVM-side gap. Production application code reaching the canned-stub fx ids via `:fx-overrides` is an unintended surface. The require-boundary gate eliminates it on every host. Per [rf2-cdmle](#) and [Spec 014 §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate-rf2-cdmle--rf2-lwmgw).
 
 #### M-31b. `:rf.http/managed` `:retry :on` is a closed-set (rf2-apwkm)
 
