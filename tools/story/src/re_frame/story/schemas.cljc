@@ -599,17 +599,26 @@
 (def DecoratorFrameSetup
   "`:frame-setup`-kind decorator — declares pre-render setup. Either an
   ordered list of events to dispatch into the variant's frame
-  (`:init`), or a static app-db patch (`:app-db-patch`), or both."
+  (`:init`), or a static app-db patch (`:app-db-patch`), or both.
+
+  Optionally carries a `:teardown` vector of events — the symmetric
+  counterpart to `:init` — dispatch-sync'd into the variant's frame at
+  destroy time. Per `001-Authoring.md` §`:teardown` — symmetric
+  counterpart of `:init` and `002-Runtime.md` §Loader teardown contract.
+  Composition order at destroy is reverse-declaration: innermost
+  decorator's `:teardown` runs first. The slot is optional; only `:init`,
+  `:app-db-patch`, or `:teardown` need be present (any combination)."
   [:and
    [:map
     [:doc          {:optional true} :string]
     [:kind         [:= :frame-setup]]
     [:init         {:optional true} [:vector EventVector]]
+    [:teardown     {:optional true} [:vector EventVector]]
     [:app-db-patch {:optional true} [:map-of :any :any]]]
    [:fn {:error/message
-         "frame-setup decorator needs at least one of :init / :app-db-patch"}
-    (fn [{:keys [init app-db-patch]}]
-      (or (some? init) (some? app-db-patch)))]])
+         "frame-setup decorator needs at least one of :init / :app-db-patch / :teardown"}
+    (fn [{:keys [init app-db-patch teardown]}]
+      (or (some? init) (some? app-db-patch) (some? teardown)))]])
 
 (def DecoratorFxOverride
   "`:fx-override`-kind decorator — stubs an fx for the lifetime of the

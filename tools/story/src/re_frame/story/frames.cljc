@@ -48,7 +48,14 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.loaders    :as loaders]
-            [re-frame.story.registrar  :as registrar]))
+            [re-frame.story.registrar  :as registrar]
+            ;; rf2-dg2uh — trace-listener pattern for the teardown
+            ;; exception-projection path: re-frame's interceptor chain
+            ;; catches handler exceptions internally and emits
+            ;; `:rf.error/handler-exception` trace events rather than
+            ;; re-throwing (per `runtime/capture-phase-errors` —
+            ;; the same listener pattern is used here for phase-teardown).
+            [re-frame.trace.tooling    :as trace-tooling]))
 
 ;; ---- fx-override-stub registration ---------------------------------------
 ;;
@@ -158,9 +165,139 @@
       (doseq [ev init-events]
         (rf/dispatch-sync ev {:frame frame-id})))))
 
+;; ---- :frame-setup decorator teardown -------------------------------------
+
+(defn- teardown-exception-record
+  "Build the `:rf.error/exception` assertion record projected when a
+  `:teardown` event throws. Per `002-Runtime.md` §Error projection and
+  §Loader teardown contract — phase is `:phase-teardown`, the record
+  lands in `:rf.story/assertions` so the variant's last result-map
+  surfaces the failure (the play / variant pane renders it inline)."
+  [variant-id event err]
+  {:assertion  :rf.error/exception
+   :variant-id variant-id
+   :phase      :phase-teardown
+   :event      event
+   :error      {:message #?(:clj  (.getMessage ^Throwable err)
+                            :cljs (str err))
+                :stack   #?(:clj  (with-out-str (.printStackTrace ^Throwable err))
+                            :cljs (.-stack err))
+                :data    (when (instance? #?(:clj clojure.lang.ExceptionInfo
+                                             :cljs ExceptionInfo) err)
+                           (ex-data err))}
+   :passed?    false})
+
+(defonce ^:private teardown-capture-counter (atom 0))
+
+(defn- with-teardown-trace-listener
+  "Register `listener` against a fresh capture id, run `body-fn` (a
+  0-arg thunk), then remove the listener in a `finally`. Returns
+  `body-fn`'s return value.
+
+  Mirrors `re-frame.story.runtime/with-trace-listener` — that helper is
+  private to runtime.cljc; replicating it here keeps the
+  `frames → runtime` arrow unidirectional (frames is leaf-level)."
+  [listener body-fn]
+  (let [cb-id (keyword "re-frame.story.frames"
+                       (str "teardown-capture-"
+                            (swap! teardown-capture-counter inc)))]
+    (trace-tooling/register-trace-cb! cb-id listener)
+    (try (body-fn)
+      (finally (trace-tooling/remove-trace-cb! cb-id)))))
+
+(defn- apply-frame-teardown!
+  "Walk the resolved `:frame-setup` decorators IN REVERSE-DECLARATION
+  ORDER and dispatch-sync each decorator's `:teardown` events against
+  the variant's frame. Per `001-Authoring.md` §`:teardown` — symmetric
+  counterpart of `:init` and `002-Runtime.md` §Loader teardown contract
+  step 3.
+
+  Composition order. Innermost (variant-level) teardowns fire BEFORE
+  outermost (story-level / global) teardowns — mirrors function-scope
+  cleanup conventions. The resolver concatenates
+  `(global → story → variant)` in declared order; reversing the stack
+  walks innermost → outermost.
+
+  Inside each decorator the declared `:teardown` events fire in
+  declared order — symmetric to `:init` (which fires events in
+  declared order too).
+
+  Exception handling. re-frame's interceptor chain catches handler
+  exceptions internally and emits a `:rf.error/handler-exception`
+  trace event rather than re-throwing (per spec/009 §Error trace).
+  We register a trace listener for the duration of the walk that
+  collects each captured exception, then project them onto the
+  variant frame's `[:rf.story/assertions]` as `:rf.error/exception`
+  records with `:phase :phase-teardown`. The walk continues —
+  teardown never aborts `destroy-frame!`. Synchronous throws (from
+  outside the interceptor chain — rare) are also caught directly via
+  the wrapping `try/catch`."
+  [variant-id frame-setup-decorators]
+  (let [pending  (atom [])
+        drain!   (fn []
+                   ;; Drain pending captured exceptions into the
+                   ;; variant frame's [:rf.story/assertions] BEFORE the
+                   ;; next teardown dispatch — so a later teardown event
+                   ;; (e.g. an outer decorator's :teardown) reading the
+                   ;; assertions slot sees earlier failures already
+                   ;; projected. Mirrors the spec's "land in the
+                   ;; variant's last :rf.story/assertions record"
+                   ;; contract for in-order observability.
+                   (when-let [evs (seq @pending)]
+                     (reset! pending [])
+                     (doseq [tev evs]
+                       (let [orig-event (get-in tev [:tags :event])
+                             err        (get-in tev [:tags :exception])
+                             record     (teardown-exception-record
+                                          variant-id orig-event err)]
+                         (try
+                           (rf/dispatch-sync [::append-teardown-assertion record]
+                                             {:frame variant-id})
+                           (catch #?(:clj Throwable :cljs :default) _ nil))))))
+        listener (fn [ev]
+                   (when (and (= :rf.error/handler-exception (:operation ev))
+                              (= variant-id (get-in ev [:tags :frame])))
+                     (swap! pending conj ev)))]
+    (with-teardown-trace-listener
+      listener
+      (fn []
+        (doseq [r (reverse frame-setup-decorators)]
+          (let [body            (:body r)
+                teardown-events (:teardown body)]
+            (doseq [ev teardown-events]
+              (try
+                (rf/dispatch-sync ev {:frame variant-id})
+                (catch #?(:clj Throwable :cljs :default) err
+                  ;; Synchronous throw (outside the interceptor chain).
+                  ;; Project directly. The trace-listener path covers
+                  ;; in-handler throws that the interceptor chain catches.
+                  (let [record (teardown-exception-record variant-id ev err)]
+                    (try
+                      (rf/dispatch-sync [::append-teardown-assertion record]
+                                        {:frame variant-id})
+                      (catch #?(:clj Throwable :cljs :default) _ nil)))))
+              ;; Drain after every teardown dispatch so the next
+              ;; teardown event sees the projected record.
+              (drain!))))))
+    ;; Final drain — catch any trace events that arrived after the last
+    ;; dispatch inside the listener-bound region. (Shouldn't happen for
+    ;; dispatch-sync, but the belt-and-braces drain costs nothing.)
+    (let [collected @pending]
+      (reset! pending [])
+      (doseq [tev collected]
+        (let [orig-event (get-in tev [:tags :event])
+              err        (get-in tev [:tags :exception])
+              record     (teardown-exception-record variant-id orig-event err)]
+          (try
+            (rf/dispatch-sync [::append-teardown-assertion record]
+                              {:frame variant-id})
+            (catch #?(:clj Throwable :cljs :default) _ nil)))))))
+
 (defn install-helpers!
   "Register Story-internal helper events: `::apply-app-db-patch` for
-  `:frame-setup` decorators' `:app-db-patch` slot. Idempotent."
+  `:frame-setup` decorators' `:app-db-patch` slot, and
+  `::append-teardown-assertion` for the `:teardown` exception
+  projection path. Idempotent."
   []
   (when config/enabled?
     (rf/reg-event-db
@@ -170,7 +307,11 @@
           (fn [d path v]
             (assoc-in d (if (vector? path) path [path]) v))
           db
-          patch)))))
+          patch)))
+    (rf/reg-event-db
+      ::append-teardown-assertion
+      (fn [db [_ record]]
+        (update db :rf.story/assertions (fnil conj []) record)))))
 
 ;; ---- allocation -----------------------------------------------------------
 
@@ -249,15 +390,37 @@
 ;; ---- destruction ----------------------------------------------------------
 
 (defn destroy!
-  "Tear down a variant frame. Clears the lifecycle watcher table for
-  the frame, drops per-frame assertion + stub accumulators, then
-  calls `rf/destroy-frame!`. Returns nil."
+  "Tear down a variant frame. Per `002-Runtime.md` §Loader teardown
+  contract — §What the runtime guarantees the destroy walk is:
+
+  1. Drop per-variant assertion accumulators (`drop-assertion-accumulators`
+     late-bind shim) + per-frame stub-call log.
+  2. Clear lifecycle watchers (`loaders/clear-watchers!`).
+  3. Dispatch-sync the variant's `:frame-setup` decorator `:teardown`
+     events in reverse-declaration order. Exceptions are caught and
+     projected into the variant frame's `:rf.story/assertions` as
+     `:rf.error/exception` records with `:phase :phase-teardown`. The
+     walk never aborts.
+  4. Machines spawned into the variant frame receive
+     `:rf.machine/destroy` (existing spec/005 contract, executed
+     inside `rf/destroy-frame!`).
+  5. `rf/destroy-frame!` runs the frame's own teardown walk.
+
+  Returns nil."
   [variant-id]
   (when config/enabled?
     (loaders/clear-watchers! variant-id)
     (clear-stub-call-log! variant-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; Run `:frame-setup` decorator `:teardown` events. Resolve the
+    ;; decorator stack here (rather than carrying it through the
+    ;; destroy! signature) so the caller surface stays unchanged —
+    ;; `destroy-variant!` takes only a variant-id.
+    (try
+      (let [stack (decorators/resolve-decorators variant-id)]
+        (apply-frame-teardown! variant-id (:frame-setup stack)))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
     (rf/destroy-frame! variant-id)
     nil))
 
