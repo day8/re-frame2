@@ -9,14 +9,14 @@ event**:
 
 | Tab | Bug-class it answers |
 |---|---|
-| **Event** (`e`) | "What does this event do?" — six dominoes + wire-boundary diff per managed fx. |
-| **App-db** (`a`) | "What changed because of this event?" — slice diff. |
-| **Views** (`v`) | "Why did these views re-render?" — sub invalidation chain. |
-| **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. |
-| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). |
-| **Machines Canvas** (`c`) | "What does this machine LOOK like?" — spine-INDEPENDENT canvas browser. Picker on the left, interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Earned its own tab per the cohesive-sub-domain rule (rf2-mkpnb). |
-| **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. |
-| **Chrome A11y** (`y`) | "Is Causa's OWN chrome accessible?" — spine-INDEPENDENT dogfood (rf2-5r2yj). Runs axe-core scoped to `#rf-causa-root` — the Causa mount node — so a11y regressions in the L1 ribbon, L2 event list, L3 tab bar, L4 detail panels, modals, and resize handle surface during dev. Mirrors Story's `chrome-a11y` panel (PR #1695). axe-core loads opt-in via CDN with an SRI hash pinned; consent click lives inline in the panel. |
+| **Event** (`e`) | "What does this event do?" — six dominoes + wire-boundary diff per managed fx. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
+| **App-db** (`a`) | "What changed because of this event?" — slice diff. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
+| **Views** (`v`) | "Why did these views re-render?" — sub invalidation chain. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3 — Reactive panel; "Views → Reactive" rename per 021 §11.5.) |
+| **Trace** (`t`) | "What raw events fired in this cascade?" — wall-clock axis grows future. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5.) |
+| **Machines** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
+| **Machines Canvas** (`c`) | "What does this machine LOOK like?" — spine-INDEPENDENT canvas browser. Picker on the left, interactive Chart adapter on the right (zoom / pan / fit + keyboard shortcuts). No focused-event lens — the canvas always shows the picked machine's full topology. Earned its own tab per the cohesive-sub-domain rule (rf2-mkpnb). (No dedicated § in [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) — spine-independent surface scoped here; see 021 §6.0 for the shared xyflow rendering substrate it reuses, and 021 §7 for the sibling Routing panel.) |
+| **Issues** (`i`) | "What's wrong here?" — errors · warnings · schema violations · hydration mismatches · advisories. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §8.) |
+| **Chrome A11y** (`y`) | "Is Causa's OWN chrome accessible?" — spine-INDEPENDENT dogfood (rf2-5r2yj). Runs axe-core scoped to `#rf-causa-root` — the Causa mount node — so a11y regressions in the L1 ribbon, L2 event list, L3 tab bar, L4 detail panels, modals, and resize handle surface during dev. Mirrors Story's `chrome-a11y` panel (PR #1695). axe-core loads opt-in via CDN with an SRI hash pinned; consent click lives inline in the panel. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9 — unchanged from the pre-redesign shape.) |
 
 Plus popovers (`r` nav-token timeline · `f` wire-trace
 + `h` hydration bisector, future). Every popover is invokable from any
