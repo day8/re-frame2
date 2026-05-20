@@ -1,0 +1,345 @@
+/* ============================================================================
+ * Shared examples design system — one identity across all three substrates
+ * (Reagent / UIx / Helix). rf2-v4fpe Option 2 (decision 2026-05-20).
+ *
+ * Mike: "I honestly don't think each adaptor needs its own identity."
+ * Substrate variety is communicated by the substrate selector + the
+ * per-substrate examples themselves — NOT via visual identity.
+ *
+ * Mood              : Editorial Warm — established, refined, magazine.
+ * Typography pairing: Inter (UI + body) + JetBrains Mono (code, mono labels).
+ *                     Matches the project-wide family used by Causa, so the
+ *                     examples and the dev tools sit naturally next to one
+ *                     another.
+ * Palette           : warm paper bg #F7F3EC / deep ink #1A1814 / amber
+ *                     accent #C8741A. A cohesive light-mode identity that
+ *                     echoes Causa/Story's warm-slate-amber pairing.
+ * Atmosphere        : subtle paper-grain radial gradients fixed to the
+ *                     viewport + soft warm-toned shadows. No heavy textures.
+ *
+ * Token convention  : the canonical names are --ex-*. For backwards
+ *                     compatibility with rf2-nfg15-era per-substrate inline
+ *                     CSS in the design-led examples (notebook,
+ *                     dashboard_uix, process_monitor_helix), the legacy
+ *                     prefixes --rg-*, --ux-*, --hx-* are aliased onto the
+ *                     same shared values. All three substrates now render
+ *                     identically.
+ *
+ * @imports structure.css for layout-only class shapes
+ *          (forms, banners, pills, boot, navbar, cards, cells grid,
+ *          testbed shell). Stays substrate-agnostic.
+ * ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('structure.css');
+
+:root {
+  /* ---- Canonical tokens (use these in new code) ----------------------- */
+
+  /* surfaces — warm paper stack */
+  --ex-bg:          #F7F3EC;
+  --ex-bg-raised:   #FFFFFF;
+  --ex-bg-sunken:   #ECE7DC;
+  --ex-bg-elevated: #F1ECE0;
+
+  /* ink — warm neutrals, not pure black */
+  --ex-ink:         #1A1814;
+  --ex-ink-muted:   #5C5448;
+  --ex-ink-faint:   #8A8270;
+  --ex-rule:        #DCD3BF;
+  --ex-rule-strong: #B8AC93;
+
+  /* accents */
+  --ex-accent:      #C8741A;  /* amber-sienna — primary action */
+  --ex-accent-deep: #9C4F0E;
+  --ex-accent-soft: #E5A23D;  /* warm gold — secondary highlight */
+  --ex-success:     #4A7340;  /* forest green for connected/ok states */
+  --ex-warn:        #C49419;  /* warm amber for warnings */
+  --ex-error:       #B23A2E;  /* warm oxblood for errors */
+  --ex-info:        #3A6BA0;  /* warm slate-blue for informational */
+
+  /* fonts */
+  --ex-sans:  'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ex-mono:  'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --ex-serif: 'Inter', system-ui, sans-serif;  /* alias for legacy serif refs */
+
+  /* alias consumed by structure.css */
+  --rf2-mono: var(--ex-mono);
+
+  /* ---- Legacy prefix aliases (rf2-nfg15 compat) ----------------------- *
+   * The design-led examples (notebook, dashboard_uix,
+   * process_monitor_helix) carry per-example inline CSS that references
+   * --rg-*, --ux-*, --hx-* tokens. After rf2-v4fpe Option 2 these all map
+   * onto the same shared palette so every example renders identically.
+   * ----------------------------------------------------------------- */
+
+  /* Reagent legacy (--rg-*) */
+  --rg-bg:           var(--ex-bg);
+  --rg-bg-raised:    var(--ex-bg-raised);
+  --rg-bg-sunken:    var(--ex-bg-sunken);
+  --rg-ink:          var(--ex-ink);
+  --rg-ink-muted:    var(--ex-ink-muted);
+  --rg-ink-faint:    var(--ex-ink-faint);
+  --rg-rule:         var(--ex-rule);
+  --rg-sienna:       var(--ex-accent);
+  --rg-sienna-deep:  var(--ex-accent-deep);
+  --rg-gold:         var(--ex-accent-soft);
+  --rg-oxblood:      var(--ex-error);
+  --rg-forest:       var(--ex-success);
+  --rg-serif:        var(--ex-sans);
+  --rg-sans:         var(--ex-sans);
+  --rg-mono:         var(--ex-mono);
+
+  /* UIx legacy (--ux-*) */
+  --ux-bg:           var(--ex-bg);
+  --ux-bg-raised:    var(--ex-bg-raised);
+  --ux-bg-sunken:    var(--ex-bg-sunken);
+  --ux-grid:         rgba(26,24,20,0.045);
+  --ux-ink:          var(--ex-ink);
+  --ux-ink-mute:     var(--ex-ink-muted);
+  --ux-ink-faint:    var(--ex-ink-faint);
+  --ux-rule:         var(--ex-rule);
+  --ux-cyan:         var(--ex-accent);          /* remapped to amber */
+  --ux-cyan-deep:    var(--ex-accent-deep);
+  --ux-yellow:       var(--ex-accent-soft);
+  --ux-coral:        var(--ex-error);
+  --ux-mint:         var(--ex-success);
+  --ux-sans:         var(--ex-sans);
+  --ux-mono:         var(--ex-mono);
+
+  /* Helix legacy (--hx-*) — was dark; now mapped to the shared light theme */
+  --hx-bg:           var(--ex-bg);
+  --hx-bg-surface:   var(--ex-bg-sunken);
+  --hx-bg-raised:    var(--ex-bg-raised);
+  --hx-bg-elevated:  var(--ex-bg-elevated);
+  --hx-ink:          var(--ex-ink);
+  --hx-ink-muted:    var(--ex-ink-muted);
+  --hx-ink-faint:    var(--ex-ink-faint);
+  --hx-rule:         var(--ex-rule);
+  --hx-rule-strong:  var(--ex-rule-strong);
+  --hx-green:        var(--ex-success);
+  --hx-green-deep:   #345B2E;
+  --hx-magenta:      var(--ex-accent);          /* remapped */
+  --hx-amber:        var(--ex-warn);
+  --hx-red:          var(--ex-error);
+  --hx-cyan:         var(--ex-info);
+  --hx-mono:         var(--ex-mono);
+  --hx-sans:         var(--ex-sans);
+}
+
+html, body {
+  background: var(--ex-bg);
+  color: var(--ex-ink);
+  margin: 0;
+  font-family: var(--ex-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'cv02' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Paper-grain ambience — three radial gradients fixed to the viewport.
+   Low-cost, pure CSS, no <img>. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 28%, rgba(200,116,26,0.040)  0,    transparent 38%),
+    radial-gradient(circle at 80% 72%, rgba(229,162,61,0.040)  0,    transparent 42%),
+    radial-gradient(circle at 50% 96%, rgba(26,24,20,0.022)    0,    transparent 55%);
+  z-index: -1;
+}
+
+/* Typography ------------------------------------------------------------- */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--ex-sans);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--ex-ink);
+  margin: 0 0 0.55em;
+}
+
+h1 { font-size: 2.4rem;  line-height: 1.12; font-weight: 800; }
+h2 { font-size: 1.6rem;  line-height: 1.2;  font-weight: 700; }
+h3 { font-size: 1.15rem; line-height: 1.25; font-weight: 600; }
+
+p { margin: 0 0 1em; }
+
+code, kbd, pre, .mono {
+  font-family: var(--ex-mono);
+  font-size: 0.92em;
+}
+
+code {
+  background: var(--ex-bg-sunken);
+  color: var(--ex-accent-deep);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+a, .nav-link {
+  color: var(--ex-accent);
+  text-decoration-color: var(--ex-accent-soft);
+  text-underline-offset: 3px;
+  transition: color 120ms ease;
+}
+
+a:hover, .nav-link:hover { color: var(--ex-accent-deep); }
+
+/* Forms ------------------------------------------------------------------ */
+
+input, textarea, select {
+  font-family: var(--ex-sans);
+  font-size: 1rem;
+  color: var(--ex-ink);
+  background: var(--ex-bg-raised);
+  border: 1px solid var(--ex-rule);
+  border-radius: 4px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--ex-accent);
+  box-shadow: 0 0 0 3px rgba(200,116,26,0.18);
+}
+
+button {
+  font-family: var(--ex-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ex-bg-raised);
+  background: var(--ex-ink);
+  border: 1px solid var(--ex-ink);
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+  box-shadow: 0 1px 0 rgba(26,24,20,0.18);
+}
+
+button:hover:not([disabled]) {
+  background: var(--ex-accent);
+  border-color: var(--ex-accent);
+}
+
+button:active:not([disabled]) { transform: translateY(1px); }
+
+/* Form-bound submit gets the accent fill */
+.login-form button[type="submit"] {
+  background: var(--ex-accent);
+  border-color: var(--ex-accent);
+  color: #fff;
+}
+
+.login-form button[type="submit"]:hover:not([disabled]) {
+  background: var(--ex-accent-deep);
+  border-color: var(--ex-accent-deep);
+}
+
+.error {
+  color: var(--ex-error);
+  font-family: var(--ex-sans);
+  font-style: italic;
+}
+
+.locked { color: var(--ex-error); font-weight: 600; }
+
+/* Banner + pill ---------------------------------------------------------- */
+
+.banner {
+  background: var(--ex-bg-raised);
+  border: 1px solid var(--ex-rule);
+  box-shadow: 0 1px 3px rgba(26,24,20,0.05);
+  color: var(--ex-ink);
+}
+
+.pill.disconnected   { background: #8A8270; }
+.pill.connecting     { background: var(--ex-accent-soft); color: var(--ex-ink); }
+.pill.authenticating { background: var(--ex-accent); }
+.pill.connected      { background: var(--ex-success); }
+.pill.reconnecting   { background: var(--ex-accent-soft); color: var(--ex-ink); }
+.pill.failed         { background: var(--ex-error); }
+
+/* Boot ------------------------------------------------------------------- */
+
+.boot-progress {
+  background: var(--ex-bg-raised);
+  border-left-color: var(--ex-success);
+  color: var(--ex-ink);
+}
+
+.boot-failed {
+  background: #FDF1EC;
+  border-left-color: var(--ex-error);
+  color: var(--ex-error);
+}
+
+.boot-hint { color: var(--ex-ink-faint); font-style: italic; }
+.main-app section { border-top: 1px solid var(--ex-rule); }
+dl.boot-summary dt { color: var(--ex-ink-muted); }
+
+/* Realworld / Conduit ---------------------------------------------------- */
+
+.navbar, .realworld-footer {
+  background: var(--ex-bg-raised);
+  border-bottom: 1px solid var(--ex-rule);
+}
+
+.realworld-footer {
+  border-bottom: 0;
+  border-top: 1px solid var(--ex-rule);
+  margin-top: 2em;
+}
+
+.nav-link { color: var(--ex-accent); font-weight: 500; }
+.article-preview { border-bottom-color: var(--ex-rule); }
+.article-preview h1 { font-family: var(--ex-sans); font-weight: 700; }
+
+/* SSR cards -------------------------------------------------------------- */
+
+.card {
+  background: var(--ex-bg-raised);
+  border-color: var(--ex-rule);
+  box-shadow: 0 2px 6px rgba(26,24,20,0.06);
+}
+
+.card h3 { color: var(--ex-ink-muted); font-family: var(--ex-sans); }
+.card p.value { color: var(--ex-accent-deep); font-family: var(--ex-sans); }
+.card.skeleton { color: var(--ex-ink-faint); background: var(--ex-bg-sunken); }
+
+/* Utility ---------------------------------------------------------------- */
+
+.muted       { color: var(--ex-ink-faint); }
+.queue-depth { color: var(--ex-ink-muted); }
+.inbox ul    { border: 1px solid var(--ex-rule); background: var(--ex-bg-raised); }
+.last-reply code { background: var(--ex-bg-sunken); }
+hr { border-top: 1px solid var(--ex-rule); }
+
+/* Cells grid ------------------------------------------------------------- */
+
+.cells-grid th, .cells-grid td { border-color: var(--ex-rule); }
+.cells-grid thead th, .cells-grid tbody th {
+  background: var(--ex-bg-sunken);
+  color: var(--ex-ink-muted);
+}
+
+/* Causa testbed shell ---------------------------------------------------- */
+[data-rf-causa-host] { border-left: 1px solid #2a2a2a; }
+
+/* Default page layout — used by examples that don't supply their own. */
+body > #app,
+body > div > #app {
+  padding: 2.5em min(6vw, 48px);
+  max-width: 1100px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* The .rf2-testbed-shell wrapper supplies its own grid; undo the
+   inherited #app padding under that wrapper. */
+.rf2-testbed-shell > #app { max-width: none; margin: 0; }

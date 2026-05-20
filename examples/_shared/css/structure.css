@@ -3,9 +3,9 @@
  *
  * rf2-jzqs9 lifted this from inline <style> blocks in every Reagent
  * index.html. The classes here are layout-only (display/flex/grid,
- * padding, max-widths, grid-template-columns); substrate-distinguishing
- * typography + palette + atmosphere live in reagent.css / uix.css /
- * helix.css (rf2-nfg15) which @import this file.
+ * padding, max-widths, grid-template-columns); typography + palette +
+ * atmosphere live in style.css (rf2-v4fpe Option 2 — one shared identity
+ * across all three substrates) which @imports this file.
  *
  * Sources: examples/reagent/{login,boot,realworld,websocket,
  * state_machine_walkthrough,ssr,ssr_streaming,long_running_work,7Guis/cells,

@@ -17,8 +17,9 @@
    (terminal log viewer) per the cluster prompt — three different
    substantive UIs, one per substrate.
 
-   The Swiss-modern visual identity comes from examples/_shared/css/uix.css
-   (rf2-nfg15)."
+   The shared 'Editorial Warm' visual identity comes from
+   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one identity
+   across all three substrates)."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]
@@ -185,8 +186,8 @@
           ($ :div
              ($ :h1 "Atlas")
              ($ :p.dash-tagline
-                "Last 14 days · UIx substrate · "
-                ($ :span.dash-substrate-tag "Swiss Modern")))
+                "Last 14 days · "
+                ($ :span.dash-substrate-tag "UIx substrate")))
           ($ filter-chips))
        ($ :section.dash-grid
           {:data-testid "dashboard-grid"}

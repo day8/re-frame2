@@ -19,8 +19,9 @@
    examples already cover. Distinct shape from the Reagent 'Notebook'
    (3-pane editor) and UIx 'Atlas' dashboard (cards + sparklines).
 
-   The Developer-Industrial visual identity comes from
-   examples/_shared/css/helix.css (rf2-nfg15)."
+   The shared 'Editorial Warm' visual identity comes from
+   examples/_shared/css/style.css (rf2-v4fpe Option 2 — one identity
+   across all three substrates)."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
@@ -226,7 +227,7 @@
       (d/div {:class "pm-brand"}
         (d/span {:class "pm-prompt"} "$ ")
         (d/h1 "process-monitor")
-        (d/span {:class "pm-substrate"} " — helix · industrial"))
+        (d/span {:class "pm-substrate"} " — helix substrate"))
       ($ tiles))
     (d/main {:class "pm-grid"}
       ($ process-list)
