@@ -2038,8 +2038,10 @@ async function runConfigurePartialUpdate(page, state) {
 //      (`rf-causa-static-surface` with `data-rf-causa-mode="static"`),
 //      the L2 spine disappears (3-layer silhouette — chrome-silhouette
 //      mode-signal #4), the Machines sub-tab is selected by default
-//      (rf2-o5f5f.1 §tabs), and the placeholder cards name the sibling
-//      beads that fill them (rf2-o5f5f.<N>).
+//      (rf2-o5f5f.1 §tabs), and each shipped sub-tab (Routes / Schemas
+//      / Views / Flows) mounts its real panel root testid while
+//      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
+//      renders a placeholder card naming the sibling bead.
 //   4. Clicks `rf-causa-mode-pill-runtime`; mode flips back; L2 spine
 //      returns (proves the pill is the canonical toggle path too —
 //      not just the chord).
@@ -2192,23 +2194,67 @@ async function runStaticModeChromeAndChord(page, state) {
     { timeoutMs: 5000, description: 'Static surface after Cmd-Shift-M chord' },
   );
 
-  // ---- (2a) Walk the placeholder sub-tabs ---------------------------
-  // The still-pending Static sub-tabs each render a placeholder card
-  // naming the sibling bead that will fill them (per
-  // `static/shell.cljs/placeholder-card`). `.2 Machines` mounts the
-  // live panel; `.3 Routes` shipped under #1568 and mounts the live
-  // `routes-panel/Panel`. The remaining three (.4 / .5 / .6) carry
-  // the placeholder card text "rf2-o5f5f.<N> will fill this." until
-  // their respective siblings ship.
+  // ---- (2a) Walk the Static sub-tabs --------------------------------
+  // Tab inventory (per `static/shell.cljs/static-tabs`):
+  //   :machines (.2 — default, mounted above)
+  //   :routes   (.3 — shipped #1568)
+  //   :schemas  (.4 — shipped #1636 / rf2-o5f5f.4)
+  //   :views    (.5 — shipped #1636 / rf2-o5f5f.5)
+  //   :flows    (rf2-uhsqb — shipped #1636)
+  //   :events   (.6 — last remaining placeholder)
   //
-  // We click each placeholder tab and wait for its
-  // `rf-causa-static-placeholder-<id>` card to render — React renders
-  // asynchronously so a click + read in the same `page.evaluate`
-  // misses the post-commit DOM. Each tab gets its own click + waitFor.
+  // For each shipped panel we click its tab and wait for the panel's
+  // canonical root `data-testid` (e.g. `rf-causa-static-schemas`) —
+  // React renders asynchronously so a click + read in the same
+  // `page.evaluate` misses the post-commit DOM. Each tab gets its own
+  // click + waitFor.
+  //
+  // For `:events` (the one remaining placeholder) we still assert the
+  // `rf-causa-static-placeholder-events` card text names the sibling
+  // bead rf2-o5f5f.6 — this gate is what catches a sibling-bead ship
+  // landing without the matching scenario refresh (which is exactly
+  // what rf2-m1o3j fixed for .4 / .5 / rf2-uhsqb).
+  const shippedSubTabs = [
+    ['routes',  'rf-causa-static-routes'],
+    ['schemas', 'rf-causa-static-schemas'],
+    ['views',   'rf-causa-static-views'],
+    ['flows',   'rf-causa-static-flows'],
+  ];
+  const shippedSubTabRoots = {};
+  for (const [tabId, rootTestId] of shippedSubTabs) {
+    await page.locator(`[data-testid="rf-causa-static-tab-${tabId}"]`).click();
+    const observed = await waitForValue(
+      () => page.evaluate((rootId) => {
+        const root = document.querySelector(`[data-testid="${rootId}"]`);
+        if (!root) return null;
+        return {
+          rootPresent: true,
+          rootTag:     root.tagName ? root.tagName.toLowerCase() : null,
+          // Placeholder testid for the same tab id MUST be absent —
+          // proves the shell switched from placeholder-card to the
+          // real panel root.
+          placeholderAbsent: !document.querySelector(
+            `[data-testid="rf-causa-static-placeholder-${rootId.split('-').pop()}"]`,
+          ),
+        };
+      }, rootTestId),
+      (snap) => Boolean(snap)
+                && snap.rootPresent === true
+                && snap.placeholderAbsent === true,
+      {
+        timeoutMs: 5000,
+        description: `Static sub-tab :${tabId} real panel root ${rootTestId} mounted (placeholder absent)`,
+      },
+    );
+    shippedSubTabRoots[tabId] = observed;
+  }
+
+  // The last remaining placeholder — `:events` (rf2-o5f5f.6). When .6
+  // ships, replace this block with another entry in `shippedSubTabs`
+  // above (and drop the placeholder section entirely once nothing is
+  // pending).
   const expectedPlaceholders = [
-    ['schemas', 'rf2-o5f5f.4'],
-    ['views',   'rf2-o5f5f.5'],
-    ['events',  'rf2-o5f5f.6'],
+    ['events', 'rf2-o5f5f.6'],
   ];
   const placeholderTexts = {};
   for (const [tabId, beadId] of expectedPlaceholders) {
@@ -2351,6 +2397,7 @@ async function runStaticModeChromeAndChord(page, state) {
   state.staticMode = {
     runtimeBaseline,
     afterChord,
+    shippedSubTabRoots,
     placeholderTexts,
     afterClickBack,
     persistedBeforeReload,
