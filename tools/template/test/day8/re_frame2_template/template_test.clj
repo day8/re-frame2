@@ -121,6 +121,8 @@
    ".cljfmt.edn"
    ;; Git pre-commit hook config (rf2-s8xee).
    "lefthook.yml"
+   ;; Baseline CI workflow (rf2-k2z79).
+   ".github/workflows/ci.yml"
    "dev/user.clj"
    "dev/scratch.cljs"
    "resources/public/index.html"
@@ -274,6 +276,28 @@
               "README ships the per-substrate badge")
           (is (.contains readme-text "License-MIT")
               "README ships a License badge"))
+
+        ;; -- Baseline CI workflow (rf2-k2z79) --
+        (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
+          (is (.contains ci-text "name: ci")
+              ".github/workflows/ci.yml declares the ci workflow")
+          (is (.contains ci-text "node-version: '22'")
+              "ci.yml pins Node 22 LTS")
+          (is (.contains ci-text "java-version: '21'")
+              "ci.yml pins JDK 21 (matches re-frame2 reference build)")
+          (is (.contains ci-text "actions/checkout@")
+              "ci.yml uses actions/checkout with a SHA pin")
+          (is (.contains ci-text "actions/setup-java@")
+              "ci.yml uses actions/setup-java with a SHA pin")
+          (is (.contains ci-text "actions/setup-node@")
+              "ci.yml uses actions/setup-node with a SHA pin")
+          (is (.contains ci-text "DeLaGuardo/setup-clojure@")
+              "ci.yml uses DeLaGuardo/setup-clojure with a SHA pin")
+          (is (.contains ci-text "npm test")
+              "ci.yml runs `npm test` (delegates to shadow-cljs :node-test
+               per the emitted package.json)")
+          (is (.contains ci-text "# acme/my-app")
+              "ci.yml header substitutes {{name}}"))
 
         ;; -- Security baseline (rf2-sh3l8) --
         (let [index-text  (slurp (io/file root "resources/public/index.html"))

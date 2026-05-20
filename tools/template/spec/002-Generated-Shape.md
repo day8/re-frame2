@@ -20,6 +20,8 @@ my-app/
 │   └── config.edn            empty default; lint rules slot in here
 ├── .cljfmt.edn               cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
 ├── lefthook.yml              pre-commit format + lint hook (see lefthook.dev/installation)
+├── .github/workflows/
+│   └── ci.yml                baseline CI — JDK 21 + Clojure CLI + Node 22 + `npm test`
 ├── resources/public/
 │   ├── index.html            host page; loads /js/main.js + /css/app.css
 │   └── css/app.css           three-rule plain stylesheet
@@ -87,6 +89,7 @@ tools/template/
     ├── root/                             ; bulk-copied, default placement
     │   ├── README.md
     │   ├── lefthook.yml
+    │   ├── .github/workflows/ci.yml      ; baseline CI workflow (rf2-k2z79)
     │   ├── dev/{user.clj, scratch.cljs}
     │   └── resources/public/{index.html, css/app.css}
     ├── _shared/                          ; substrate-agnostic; renamed at emit
