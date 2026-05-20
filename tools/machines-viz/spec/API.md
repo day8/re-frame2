@@ -65,6 +65,7 @@ unrecognised keys at registration time).
 | `:direction` | no | `:tb` | Layout axis. `:tb` lays the chart top-to-bottom (rank flows down); `:lr` left-to-right (rank flows right). Promoted from an internal `chart.elk-layout/->elk-graph` arg to a top-level prop per rf2-ikdi3 so wide vs. narrow hosts can pick the axis without forking the file. |
 | `:layout-options` | no | `nil` | ELK `layoutOptions` overrides — a map of string → string keys that merge ON TOP of the canonical defaults (`chart.elk-layout/default-layout-options`). Hosts tighten / widen / swap individual knobs (`"elk.spacing.nodeNode"` for density, `"elk.layered.crossingMinimization.strategy"` for rank-order discipline, etc.) without re-stating the whole map. The `:direction` arg always wins for `"elk.direction"`. Per rf2-ikdi3. |
 | `:layout-engine` | no | `:auto` | Engine selector — `:auto` (cached ELK when available, layered fallback otherwise — the historical behaviour), `:elk` (cached ELK only; returns nothing when not ready so the host can choose 'wait + retry' over 'render the inferior engine'), `:layered` (force the layered fallback — useful for deterministic screenshot tests). Per rf2-ikdi3 — the two-engine reality (layered fallback + ELK) is now surfaced explicitly rather than hidden behind a single entry point. |
+| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Picks the geometry + typography map from `visual-constants/chart-for-density`; the chart's `corner-radius` lock (rf2-g6cig) is invariant across every density so the chart's visual character stays consistent — only quantity scales. Per [§Density](#density) and rf2-32gw5. |
 
 The four `:on-*` callback shapes are mirrored from
 [Causa 003 §Source-coord integration](../../causa/spec/003-Machine-Inspector.md#source-coord-integration);
@@ -127,6 +128,74 @@ introduce new registries.
 
 Source: lifted from
 [Causa 003 §Data sources](../../causa/spec/003-Machine-Inspector.md#data-sources).
+
+## Density
+
+The chart ships **three named density variants**. Hosts pick one via
+the `:density` prop on `MachineChart`; the same machine renders at
+different physical sizes without forking the renderer.
+
+| Density | When to pick it |
+|---|---|
+| `:compact` | Story's 50-chart panel grid; thumbnail listings; any surface where the chart is one of many and the user is scanning the grid for shape rather than reading individual labels. Walks the typography back to the spec/007-UX-IA refused-floor (state 11px / edge 9px) — the refused-floor was set for dense data-grid surfaces, and this density IS that surface. Geometry tightens ~25% (paddings, dot-grid spacing, pill height). |
+| `:regular` | The default. Causa's machines tab; the read-only viewer page; any embedded host that picks no density at all. Typography sits at the chart-floor (state 13px / edge 11px per rf2-gg7ws). The constants in `visual-constants/chart-regular` are the same constants `visual-constants/chart` aliases. |
+| `:cosy` | Single-chart presentation displays — Causa's machines tab on a wide monitor, a standalone viewer on a projector, an editor's docs-page screenshot. Walks the typography up to state 15px / edge 13px. Geometry loosens ~25%. |
+
+### Identity vs. quantity
+
+Density scales **quantity**, not **identity**. The same chart at all
+three densities reads as the same chart — the rounded-rect 'data, not
+product' character (rf2-g6cig) holds. Specifically:
+
+- **`corner-radius` is locked at 6 across every density** per the
+  rf2-g6cig lock. A 'compact' chart with `corner-radius 4` would
+  read as a different chart, not a smaller one; a 'cosy' chart with
+  `corner-radius 10` would read as 'product chrome'. The lock means
+  the chart's silhouette is the same at every scale.
+- **`edge-label-backplate-opacity` is invariant** across densities
+  (rf2-gg7ws collision-avoidance v1 — the backplate's contrast
+  budget doesn't scale with type size).
+- **`dot-grid-alpha` is invariant** — the backdrop's subtlety
+  doesn't track density.
+
+Every other geometry / typography knob (`stroke-width`, paddings,
+pill geometry, every `*-px` font size, the dot-grid `spacing-px` /
+`radius-px`) tracks the density axis monotonically: `:compact <
+:regular < :cosy`. The three named maps in `visual-constants` share
+the SAME key set (asserted by `visual-constants-cljs-test`).
+
+### Resolution rules
+
+- `:density nil` or unspecified ≡ `:regular`.
+- `:density` ∈ `:compact` / `:regular` / `:cosy` resolves to the
+  matching named map via `visual-constants/chart-for-density`.
+- Any other value throws an `ex-info` at render time — picking an
+  unknown density is a programmer error, not a runtime fallback.
+- The resolved density surfaces on the root `<svg>` element as
+  `data-density="<compact|regular|cosy>"` so hosts and tests can
+  read the active density without re-reading the bound prop.
+
+### Implementation notes
+
+- The render entry-point (`chart.svg/render`) rebinds the dynamic
+  Var `visual-constants/*chart*` to the chosen density's map for
+  the duration of the call. Helpers destructure off `vc/*chart*`,
+  not off the namespace-level `vc/chart` alias.
+- Hiccup construction is eager (`into` over `for`) so every density-
+  resolved constant is captured in the returned data structure;
+  the dynamic binding unwinds before the hiccup is handed to
+  React.
+- Direct hiccup-walking tests that want a non-default density can
+  `binding [vc/*chart* (vc/chart-for-density :compact)] ...` and
+  call helpers directly; production code always goes through the
+  `:density` prop.
+
+Per rf2-32gw5 (resolves the `visual-constants.cljc` doc-string's
+'a future density toggle (compact / cosy / comfy) a one-knob change'
+forward-promise; naming settled on compact / regular / cosy per the
+bead title — `regular` is the load-bearing default name now that the
+chart-floor lift (rf2-gg7ws) put the previous-default size at the
+floor of three rungs rather than the only rung).
 
 ## Performance invariants
 

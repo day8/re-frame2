@@ -698,3 +698,91 @@
             (str "no `[` in event-only label: " l))
         (is (not (str/includes? l "/"))
             (str "no `/` in event-only label: " l))))))
+
+;; ---- rf2-32gw5 — density variants --------------------------------------
+;;
+;; `:density ∈ #{:compact :regular :cosy}` picks one of three named maps
+;; in `visual-constants`. The renderer binds `vc/*chart*` for the
+;; duration of the render pass; helpers destructure off the dynamic Var.
+;; Tests assert (a) the density surfaces on the root `<svg>` as a
+;; `data-density` attr (so hosts / tests can read it back), (b) the
+;; helper-emitted font-size + geometry tracks the chosen density, and
+;; (c) unknown densities throw.
+
+(defn- node-text-font-sizes
+  "Collect every `:font-size` value from `<text>` nodes inside the
+  chart's `rf-mv-chart-nodes` group. Used to assert state-label-px
+  threads through to the rendered hiccup per density."
+  [tree]
+  (let [nodes-g (find-by-testid tree "rf-mv-chart-nodes")]
+    (->> (hiccup-seq nodes-g)
+         (keep (fn [n]
+                 (when (and (vector? n)
+                            (= :text (first n))
+                            (map? (second n)))
+                   (:font-size (second n)))))
+         (filter number?)
+         set)))
+
+(deftest render-density-defaults-to-regular
+  (testing "rf2-32gw5 — no :density option ≡ :regular. The root svg
+            surfaces `data-density=regular`; node label font-sizes
+            match `vc/chart-regular`'s `:state-label-px`."
+    (let [tree (chart-svg/render-from-definition small-machine)
+          [_ root-attrs] tree
+          sizes (node-text-font-sizes tree)]
+      (is (= "regular" (:data-density root-attrs)))
+      (is (contains? sizes (:state-label-px vc/chart-regular))
+          "regular density propagates state-label-px=13"))))
+
+(deftest render-density-compact-data-attr
+  (testing "rf2-32gw5 — :density :compact surfaces on the root svg
+            and the node labels render at the compact font size"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine {:density :compact})
+          [_ root-attrs] tree
+          sizes (node-text-font-sizes tree)]
+      (is (= "compact" (:data-density root-attrs)))
+      (is (contains? sizes (:state-label-px vc/chart-compact))
+          "compact density propagates state-label-px=11")
+      (is (not (contains? sizes (:state-label-px vc/chart-cosy)))
+          "compact does NOT leak cosy's state-label-px"))))
+
+(deftest render-density-cosy-data-attr
+  (testing "rf2-32gw5 — :density :cosy surfaces on the root svg and
+            the node labels render at the cosy font size"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine {:density :cosy})
+          [_ root-attrs] tree
+          sizes (node-text-font-sizes tree)]
+      (is (= "cosy" (:data-density root-attrs)))
+      (is (contains? sizes (:state-label-px vc/chart-cosy))
+          "cosy density propagates state-label-px=15"))))
+
+(deftest render-density-nil-is-regular
+  (testing "rf2-32gw5 — explicit :density nil ≡ unspecified ≡ regular"
+    (let [tree (chart-svg/render-from-definition
+                 small-machine {:density nil})
+          [_ root-attrs] tree]
+      (is (= "regular" (:data-density root-attrs))))))
+
+(deftest render-density-rejects-unknown
+  (testing "rf2-32gw5 — an unrecognised density throws at render
+            time. Hosts pick from the closed set or the chart
+            refuses to render — no silent fallback."
+    (is (thrown? #?(:clj  Exception
+                    :cljs js/Error)
+                 (chart-svg/render-from-definition
+                   small-machine {:density :spacious})))))
+
+(deftest render-density-binding-unwinds
+  (testing "rf2-32gw5 — after a non-default density render, the
+            namespace-level `vc/*chart*` Var resets to its default
+            (chart-regular). The `binding` form must unwind even
+            when hiccup is eagerly realised inside it."
+    (chart-svg/render-from-definition small-machine {:density :compact})
+    (is (= vc/chart-regular vc/*chart*)
+        "vc/*chart* returns to chart-regular after a :compact render")
+    (chart-svg/render-from-definition small-machine {:density :cosy})
+    (is (= vc/chart-regular vc/*chart*)
+        "vc/*chart* returns to chart-regular after a :cosy render")))

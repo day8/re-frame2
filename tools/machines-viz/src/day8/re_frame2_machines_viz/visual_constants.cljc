@@ -5,22 +5,36 @@
   rf2-g6cig — the chart was previously sprinkled with magic numbers
   (`corner-radius 8`, `stroke-width 1.5`, `pad-x 16`, font sizes 9 / 7,
   etc.). Lifting them into one map keeps the chart's visual character
-  legible at a glance and makes a future density toggle (compact /
-  cosy / comfy) a one-knob change.
+  legible at a glance.
 
-  rf2-cd053 / rf2-gg7ws — state-label + edge-label font sizes
-  walked up from the previous spec/007-UX-IA refused-floor (11 / 9)
-  to a chart-appropriate 13 / 11 per the 2026-05-20 visual-quality
-  lift. The refused-floor was set for dense data-grid surfaces;
-  applying it to a chart that competes with xstate-stately's
-  typography was a category error (see audit Finding #2). Node
-  geometry adapts via wider nodes (`:node-width-px` in
-  `chart.layout`).
+  rf2-32gw5 — the chart ships THREE density variants:
+  `chart-compact`, `chart-regular`, `chart-cosy`. The previous
+  docstring 'a future density toggle (compact / cosy / comfy)' was a
+  forward-promise that has now landed. The naming settled on
+  `compact / regular / cosy` (per bead title); `regular` is the
+  load-bearing chart-floor floor (per rf2-gg7ws) and the default
+  every consumer gets when `:density` is unspecified or `nil`.
+  `compact` shrinks geometry + typography proportionally for grid
+  layouts (Story's 50-chart panel grid); `cosy` widens both for the
+  single-chart-display case (Causa's machines tab on a wide
+  monitor). Hosts pick one via the chart's `:density` prop. The
+  three maps share the SAME key set (asserted by
+  `visual-constants-cljs-test`); a key in one is a key in all.
 
-  rf2-g6cig — corner-radius locked at 6px. The React Flow default
-  (8) reads as 'product chrome'; brutalist (0) reads as 'wireframe';
-  6 is the sweet spot — soft enough to feel finished, sharp enough
-  to read as 'data, not product'. Locked 2026-05-19.
+  rf2-cd053 / rf2-gg7ws — `chart-regular` state-label + edge-label
+  font sizes walked up from the previous spec/007-UX-IA refused-floor
+  (11 / 9) to a chart-appropriate 13 / 11 per the 2026-05-20 visual-
+  quality lift. The refused-floor was set for dense data-grid
+  surfaces; applying it to a chart that competes with xstate-stately's
+  typography was a category error. `chart-compact` deliberately walks
+  back to 11/9 since the compact density IS the dense-grid surface
+  the original floor existed for; `chart-cosy` walks up to 15/13.
+
+  rf2-g6cig — corner-radius locked at 6px across every density. The
+  React Flow default (8) reads as 'product chrome'; brutalist (0)
+  reads as 'wireframe'; 6 is the sweet spot — soft enough to feel
+  finished, sharp enough to read as 'data, not product'. Locked
+  2026-05-19. Density does not unlock this.
 
   rf2-2sez0 — heartbeat-pulse animation removed 2026-05-20. The
   active state's static affordance (cyan tint + emphasised stroke)
@@ -29,11 +43,14 @@
   cueing. `:pulse-stroke-width-add` retired with the animation."
   {:no-doc true})
 
-(def chart
-  "Chart visual constants. Keys:
+(def chart-regular
+  "Chart visual constants — REGULAR density (the default).
+
+  Keys:
 
     :corner-radius            — node rounded-corner radius in px
-                                (rf2-g6cig lock: 6)
+                                (rf2-g6cig lock: 6 across every
+                                density)
     :stroke-width             — default node + edge stroke width
     :stroke-width-emphasis    — emphasised node/edge stroke width
                                 (active / focused-event lens)
@@ -43,9 +60,9 @@
                                 leaves room for the title strip)
     :compound-stroke-dash     — dashed pattern for compound borders
     :state-label-px           — state node label font-size
-                                (rf2-gg7ws lift — 13)
+                                (rf2-gg7ws lift — regular: 13)
     :edge-label-px            — edge label font-size
-                                (rf2-gg7ws lift — 11)
+                                (rf2-gg7ws lift — regular: 11)
     :edge-label-backplate-opacity
                               — opacity of the small white rect
                                 painted behind each edge label so
@@ -75,7 +92,7 @@
    :compound-pad-y         24
    :compound-stroke-dash   "4 3"
 
-   ;; ── typography (rf2-gg7ws — lifted from 11/9 to 13/11) ───────
+   ;; ── typography (rf2-gg7ws — chart-regular floor 13/11) ───────
    :state-label-px         13
    :edge-label-px          11
    :edge-label-backplate-opacity 0.85
@@ -95,3 +112,156 @@
    :dot-grid-spacing-px    16
    :dot-grid-radius-px     1.0
    :dot-grid-alpha         0.06})
+
+(def chart-compact
+  "Chart visual constants — COMPACT density.
+
+  Smaller nodes, smaller type, tighter gaps. Targets the 50-chart
+  Story grid where each chart is a thumbnail and the user's eye
+  scans the grid for shape rather than reading individual labels.
+
+  Walks the typography back to the spec/007-UX-IA refused-floor
+  (11 / 9) — the refused-floor was set for dense data-grid surfaces,
+  and the compact density IS the dense-grid surface it existed for.
+
+  Geometry is pulled in by ~25% (paddings, pill height, dot-grid
+  spacing); corner-radius is unchanged because the rf2-g6cig lock
+  applies across every density (a wireframe-looking thumbnail is
+  still wrong).
+
+  Shares the SAME key set as `chart-regular` (asserted by
+  visual-constants-cljs-test rf2-32gw5)."
+  {;; ── geometry (~25% tighter) ──────────────────────────────────
+   :corner-radius          6           ;; rf2-g6cig lock — same in every density
+   :stroke-width           1.0
+   :stroke-width-emphasis  2.0
+   :compound-pad-x         10
+   :compound-pad-y         18
+   :compound-stroke-dash   "3 2"
+
+   ;; ── typography (rf2-gg7ws refused-floor revisited for thumbnails)
+   :state-label-px         11
+   :edge-label-px          9
+   :edge-label-backplate-opacity 0.85
+   :final-glyph-px         11
+   :compound-title-px      11
+   :caption-strip-px       22
+   :caption-text-px        9
+
+   ;; ── state-tag pills ──────────────────────────────────────────
+   :tag-pill-height        10
+   :tag-pill-pad-x         4
+   :tag-pill-px            7
+   :tag-pill-gap           2
+   :tag-pill-row-gap       3
+
+   ;; ── dot-grid background ──────────────────────────────────────
+   :dot-grid-spacing-px    12
+   :dot-grid-radius-px     0.85
+   :dot-grid-alpha         0.06})
+
+(def chart-cosy
+  "Chart visual constants — COSY density.
+
+  Larger nodes, larger type, more breathing room. Targets the
+  single-chart-display case — Causa's machines tab on a wide monitor
+  or a presentation-mode standalone viewer. The user is reading the
+  chart, not scanning a grid; labels are payload, not decoration.
+
+  Walks the typography up to 15 / 13. Geometry widens by ~25%
+  (paddings, pill height, dot-grid spacing). Corner-radius is
+  unchanged per the rf2-g6cig lock — the chart's visual character
+  must read consistently across densities; only quantity scales,
+  not identity.
+
+  Shares the SAME key set as `chart-regular` (asserted by
+  visual-constants-cljs-test rf2-32gw5)."
+  {;; ── geometry (~25% looser) ───────────────────────────────────
+   :corner-radius          6           ;; rf2-g6cig lock — same in every density
+   :stroke-width           1.75
+   :stroke-width-emphasis  3.0
+   :compound-pad-x         20
+   :compound-pad-y         30
+   :compound-stroke-dash   "5 4"
+
+   ;; ── typography (walked up one notch from the regular floor) ──
+   :state-label-px         15
+   :edge-label-px          13
+   :edge-label-backplate-opacity 0.85
+   :final-glyph-px         15
+   :compound-title-px      15
+   :caption-strip-px       34
+   :caption-text-px        13
+
+   ;; ── state-tag pills ──────────────────────────────────────────
+   :tag-pill-height        14
+   :tag-pill-pad-x         6
+   :tag-pill-px            10
+   :tag-pill-gap           4
+   :tag-pill-row-gap       5
+
+   ;; ── dot-grid background ──────────────────────────────────────
+   :dot-grid-spacing-px    20
+   :dot-grid-radius-px     1.15
+   :dot-grid-alpha         0.06})
+
+(def chart
+  "Default chart visual constants — alias for `chart-regular`.
+
+  Direct consumers may continue to reference `vc/chart` for the
+  regular-density map. The `MachineChart` component's `:density`
+  prop (per `tools/machines-viz/spec/API.md` §Density) picks one of
+  the three named maps at render time; this Var is the resolved
+  value when `:density` is unspecified."
+  chart-regular)
+
+(def ^:dynamic *chart*
+  "The currently-resolved chart visual-constants map. Defaults to
+  `chart-regular`. The `MachineChart` render entry (`chart.svg/render`)
+  rebinds this for the duration of a single render pass to the
+  density picked by `:density`; helpers inside the renderer read
+  their geometry / typography off this dynamic Var instead of off
+  the namespace-level `chart` Var so a single chart instance can
+  render at compact, regular, or cosy without re-wiring the helper
+  graph.
+
+  Test-only, non-public consumers may rebind this directly via
+  `binding`; production callers go through the `:density` prop. Per
+  rf2-32gw5."
+  chart-regular)
+
+(def densities
+  "The complete catalogue of density keywords accepted by
+  `chart-for-density` (and, transitively, the `MachineChart`
+  `:density` prop). Exposed as a Var so hosts that want to render a
+  picker UI can enumerate the choices without hardcoding."
+  [:compact :regular :cosy])
+
+(def ^:private density->chart-map
+  {:compact chart-compact
+   :regular chart-regular
+   :cosy    chart-cosy})
+
+(defn chart-for-density
+  "Resolve a density keyword to its chart visual-constants map.
+
+  - `:compact`  → `chart-compact`  (thumbnail-grid density)
+  - `:regular`  → `chart-regular`  (default — chart-appropriate floor)
+  - `:cosy`     → `chart-cosy`     (presentation density)
+  - `nil`       → `chart-regular`  (the implicit default)
+  - any other → throws `ex-info` with the offending value; an
+                unrecognised density is a programmer error, not a
+                runtime fallback (per rf2-32gw5: hosts pick from the
+                closed set or the chart rejects).
+
+  Pure fn — JVM-runnable. The MachineChart component calls this once
+  per render, then threads the resolved map through every helper."
+  [density]
+  (cond
+    (nil? density) chart-regular
+    (contains? density->chart-map density) (get density->chart-map density)
+    :else
+    (throw (ex-info (str "Unknown chart density: " (pr-str density)
+                         ". Expected one of " (pr-str densities) ".")
+                    {:density   density
+                     :expected  densities}))))
