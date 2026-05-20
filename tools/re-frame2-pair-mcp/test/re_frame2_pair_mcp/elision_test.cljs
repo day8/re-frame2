@@ -32,32 +32,35 @@
 
 ;; ---------------------------------------------------------------------------
 ;; elision-opts-edn — EDN-render the walker's opts map for inlining.
+;;
+;; Post-rf2-suoj2: the helper takes walker-aligned `include-large?` /
+;; `include-sensitive?` polarities (both pass-through booleans — true
+;; ⇒ walker leaves the slot alone). Call sites convert from the MCP
+;; arg `elision` (operator-facing on/off) via `(not elision?)`.
 ;; ---------------------------------------------------------------------------
 
-(deftest elision-opts-edn-enabled-has-include-large-false
-  ;; When elision is on, we want the walker to ACTUALLY elide — so
-  ;; `:rf.size/include-large?` is `false`. The "include-large?" name
-  ;; is the walker's own switch (a `true` means pass through, a
-  ;; `false` means emit the marker — the keyword surfaces from the
-  ;; walker's API, not from our boolean).
-  (let [edn (elision/elision-opts-edn true)
+(deftest elision-opts-edn-include-large-false-emits-markers
+  ;; `:include-large?` false ⇒ walker emits the marker (the elision-ON
+  ;; call-site posture). The keyword surfaces from the walker's API:
+  ;; `true` means pass through, `false` means substitute the marker.
+  (let [edn (elision/elision-opts-edn false)
         parsed (cljs.reader/read-string edn)]
     (is (false? (:rf.size/include-large? parsed)))))
 
-(deftest elision-opts-edn-disabled-has-include-large-true
-  ;; When elision is disabled, `:rf.size/include-large?` is true so
-  ;; the walker passes the raw value through. (We also short-circuit
-  ;; the walk entirely in the eval form when disabled — see the
-  ;; snapshot-eval-form test below.)
-  (let [edn (elision/elision-opts-edn false)
+(deftest elision-opts-edn-include-large-true-passes-through
+  ;; `:include-large?` true ⇒ walker passes the raw value through (the
+  ;; elision-OFF call-site posture). The eval form also short-circuits
+  ;; the walk entirely when elision is disabled — see the snapshot-
+  ;; eval-form test below.
+  (let [edn (elision/elision-opts-edn true)
         parsed (cljs.reader/read-string edn)]
     (is (true? (:rf.size/include-large? parsed)))))
 
 (deftest elision-opts-edn-round-trips
   ;; The EDN we ship over nREPL must be readable on the other side.
   ;; pr-str + read-string round-trips for the structure we emit.
-  (doseq [enabled? [true false]]
-    (let [edn (elision/elision-opts-edn enabled?)
+  (doseq [include-large? [true false]]
+    (let [edn (elision/elision-opts-edn include-large?)
           parsed (cljs.reader/read-string edn)]
       (is (map? parsed))
       (is (contains? parsed :rf.size/include-large?)))))
@@ -90,7 +93,10 @@
   `:rf.size/include-sensitive?` opt."
   ([opts elision?] (build-snapshot-form opts elision? false))
   ([opts elision? include-sensitive?]
-   (let [elision-opts-form (elision/elision-opts-edn elision? include-sensitive?)]
+   ;; rf2-suoj2 — helper takes walker-aligned `include-large?`; flip
+   ;; from the MCP-arg `elision?` polarity here, mirroring the
+   ;; production call site in `tools/snapshot.cljs`.
+   (let [elision-opts-form (elision/elision-opts-edn (not elision?) include-sensitive?)]
      (if elision?
        (str "(let [snap (re-frame2-pair.runtime/snapshot-state "
             (pr-str opts) ")"
@@ -216,7 +222,10 @@
                          (str "(re-frame2-pair.runtime/snapshot " (pr-str frame) ")")
                          "(re-frame2-pair.runtime/snapshot)")
          frame-edn     (if frame (pr-str frame) "(re-frame2-pair.runtime/current-frame)")
-         elision-opts  (elision/elision-opts-edn elision? include-sensitive?)
+         ;; rf2-suoj2 — helper takes walker-aligned `include-large?`;
+         ;; flip from the MCP-arg `elision?` polarity here, mirroring
+         ;; the production call site in `tools/get_path.cljs`.
+         elision-opts  (elision/elision-opts-edn (not elision?) include-sensitive?)
          elide-call    (if elision?
                          (str "(re-frame.core/elide-wire-value v"
                               "  (merge {:path path :frame " frame-edn "}"
@@ -431,12 +440,14 @@
   ;; surface needs a co-ordinated update here.
   ;; Post-rf2-vflrg both opts ride the same map; assert against the
   ;; parsed form so map-key-order doesn't matter.
-  (let [parsed-on  (cljs.reader/read-string (elision/elision-opts-edn true))
-        parsed-off (cljs.reader/read-string (elision/elision-opts-edn false))]
-    (is (false? (:rf.size/include-large? parsed-on)))
-    (is (true?  (:rf.size/include-large? parsed-off)))
-    (is (false? (:rf.size/include-sensitive? parsed-on)))
-    (is (false? (:rf.size/include-sensitive? parsed-off)))))
+  ;; Post-rf2-suoj2 helper params are walker-aligned: `include-large?
+  ;; false` = emit markers (the elision-ON call-site posture).
+  (let [parsed-elide-on  (cljs.reader/read-string (elision/elision-opts-edn false))
+        parsed-elide-off (cljs.reader/read-string (elision/elision-opts-edn true))]
+    (is (false? (:rf.size/include-large? parsed-elide-on)))
+    (is (true?  (:rf.size/include-large? parsed-elide-off)))
+    (is (false? (:rf.size/include-sensitive? parsed-elide-on)))
+    (is (false? (:rf.size/include-sensitive? parsed-elide-off)))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-vflrg — `:include-sensitive?` threads through `elision-opts-edn`.
@@ -450,7 +461,7 @@
 (deftest elision-opts-edn-include-sensitive-defaults-false
   ;; The single-arity legacy form preserves the off-box-safe default:
   ;; sensitive slots redact unless the caller opts in explicitly.
-  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn true))]
+  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false))]
     (is (false? (:rf.size/include-sensitive? parsed))
         "single-arity ⇒ include-sensitive? false (the default per Tool-Pair §Direct-read privacy posture)")))
 
@@ -458,24 +469,23 @@
   ;; The documented opt-in flow: `:include-sensitive? true` flows into
   ;; the walker opt of the same shape. Sensitive slots then pass through
   ;; unmodified.
-  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn true true))]
+  (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false true))]
     (is (true? (:rf.size/include-sensitive? parsed))
         "two-arity true ⇒ walker passes sensitive values through")))
 
 (deftest elision-opts-edn-include-sensitive-false-explicit
   ;; Explicit `false` matches the single-arity default.
-  (let [parsed-explicit (cljs.reader/read-string (elision/elision-opts-edn true false))
-        parsed-default  (cljs.reader/read-string (elision/elision-opts-edn true))]
+  (let [parsed-explicit (cljs.reader/read-string (elision/elision-opts-edn false false))
+        parsed-default  (cljs.reader/read-string (elision/elision-opts-edn false))]
     (is (= parsed-explicit parsed-default))))
 
-(deftest elision-opts-edn-include-sensitive-orthogonal-to-elision-switch
-  ;; The two knobs are orthogonal: elision-off + sensitive-on is a
-  ;; valid (if unusual) combo — the agent has explicitly opted into both
-  ;; raw values (`elision false`) and raw sensitive values
-  ;; (`include-sensitive? true`).
-  (doseq [enabled?           [true false]
+(deftest elision-opts-edn-include-sensitive-orthogonal-to-include-large
+  ;; rf2-suoj2 — the two knobs are orthogonal AND symmetric: both
+  ;; pass through to the walker via the same `(boolean ...)` parser.
+  ;; A test reader can read the args left-to-right with no inversion.
+  (doseq [include-large?     [true false]
           include-sensitive? [true false]]
     (let [parsed (cljs.reader/read-string
-                   (elision/elision-opts-edn enabled? include-sensitive?))]
-      (is (= (not enabled?) (:rf.size/include-large? parsed)))
+                   (elision/elision-opts-edn include-large? include-sensitive?))]
+      (is (= include-large?     (:rf.size/include-large? parsed)))
       (is (= include-sensitive? (:rf.size/include-sensitive? parsed))))))

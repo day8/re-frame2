@@ -246,7 +246,11 @@
     (ef/emit
       (ef/rt-let
         ['drain (ef/rt-call 'drain-subscription! sub-id)
-         'opts  (ef/rt-raw (elision/elision-opts-edn true incl?))
+         ;; rf2-suoj2 — `elision-opts-edn` first arg is walker-aligned
+         ;; `include-large?` (subscribe always elides, so emit markers ⇒
+         ;; pass `false`). Pre-rf2-suoj2 this was `true` under the old
+         ;; "enabled?" polarity that the helper inverted internally.
+         'opts  (ef/rt-raw (elision/elision-opts-edn false incl?))
          'evts  (ef/rt-raw
                   (str "(mapv #(re-frame.core/elide-wire-value % opts)"
                        " (:events drain))"))]

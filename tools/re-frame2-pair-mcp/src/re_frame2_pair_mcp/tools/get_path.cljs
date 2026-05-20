@@ -85,7 +85,10 @@
             frame-edn     (if frame
                             (pr-str frame)
                             (ef/emit (ef/rt-call 'current-frame)))
-            elision-opts  (elision/elision-opts-edn elision? incl?)
+            ;; rf2-suoj2 — `elision-opts-edn` takes walker-aligned
+            ;; `include-large?` polarity directly. MCP `elision` true =
+            ;; emit markers = `:include-large?` false; hence `(not elision?)`.
+            elision-opts  (elision/elision-opts-edn (not elision?) incl?)
             elide-call    (if elision?
                             (str "(re-frame.core/elide-wire-value v"
                                  "  (merge {:path path :frame " frame-edn "}"

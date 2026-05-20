@@ -27,6 +27,29 @@
 ;;;;     probe can be a single bencode round-trip rather than a CLJS
 ;;;;     compile. A full page refresh wipes both — `discover-app`
 ;;;;     reports the missing preload with a structured setup hint.
+;;;;
+;;;; Naming surfaces — MCP vs runtime (rf2-41ce8, audit Finding #8).
+;;;;
+;;;;   re-frame2-pair-mcp deliberately carries TWO vocabularies for the
+;;;;   same logical surface: the MCP tool catalogue (operator-facing,
+;;;;   disciplined to the cross-MCP NAMING.md `list-<things>` verb
+;;;;   shape per rf2-4y595) and the runtime fn surface in THIS ns +
+;;;;   `re-frame.core` (historical names, kept as-is). Rename pairs:
+;;;;
+;;;;     | MCP tool name           | Runtime fn name             |
+;;;;     |-------------------------|-----------------------------|
+;;;;     | `list-subscriptions`    | `subscription-info`         |
+;;;;     | `list-handlers`         | `rf/registry-list`          |
+;;;;
+;;;;   An agent generating an eval form via `eval-cljs` uses the
+;;;;   right-hand column; the same agent calling the MCP tool surface
+;;;;   uses the left-hand column. The split was deliberate (rf2-4y595
+;;;;   stopped the rename at the MCP boundary — the runtime's audience
+;;;;   is smaller than the MCP surface, and a runtime rename ripples
+;;;;   into every eval-form caller). This paragraph documents the
+;;;;   asymmetry so it's discoverable rather than inherited-from-
+;;;;   history; see `spec/Principles.md` §"Tool verbs follow the
+;;;;   cross-MCP convention" for the policy rationale.
 
 (ns re-frame2-pair.runtime
   (:require [re-frame.core :as rf]

@@ -56,17 +56,30 @@
   "Render the elision opts map as an EDN string for inlining into a
   CLJS eval form sent over nREPL.
 
-  Knobs:
+  Knobs (rf2-suoj2 — both follow the walker-opt polarity so the helper
+  is symmetric across the two `:rf.size/*` opts):
 
-  - `enabled?`            — when true, `:rf.size/include-large?` is
-                            `false` so the walker emits markers; when
-                            false, `true` so values pass through
-                            unmodified.
+  - `include-large?`      — when true, `:rf.size/include-large?` is
+                            `true` so the walker passes large slots
+                            through unmodified; when false (the
+                            default for elision-enabled call sites),
+                            `false` so the walker substitutes the
+                            `:rf.size/large-elided` marker.
   - `include-sensitive?`  — when true, `:rf.size/include-sensitive?` is
                             `true` so the walker passes declared-
                             sensitive slots through unmodified; when
                             false (the default), `false` so the walker
                             substitutes the `:rf/redacted` sentinel.
+
+  Polarity note. The MCP arg `elision` is the *operator-facing* on/off
+  switch (true = apply the walker = emit markers). The walker opt
+  `:rf.size/include-large?` is the *walker-facing* pass-through switch
+  (true = no marker). The two are inverse views of the same Boolean.
+  Pre-rf2-suoj2 the helper buried the inversion (`(not enabled?)`)
+  alongside the `include-sensitive?` arg's pass-through parsing —
+  sibling opts with opposite parsing rules. The helper now treats both
+  opts uniformly (`(boolean ...)`); call sites compute
+  `(not elision?)` once and pass `include-large?` in directly.
 
   Both knobs default off-box-safe per the Tool-Pair §Direct-read
   privacy posture contract — large slots elide, sensitive slots
@@ -74,8 +87,8 @@
 
   Single-arity form retains the legacy default (`include-sensitive?`
   false) so legacy call-sites don't need to spell it out."
-  ([enabled?]
-   (elision-opts-edn enabled? false))
-  ([enabled? include-sensitive?]
-   (pr-str {base-vocab/include-large-opt     (not enabled?)
+  ([include-large?]
+   (elision-opts-edn include-large? false))
+  ([include-large? include-sensitive?]
+   (pr-str {base-vocab/include-large-opt     (boolean include-large?)
             base-vocab/include-sensitive-opt (boolean include-sensitive?)})))
