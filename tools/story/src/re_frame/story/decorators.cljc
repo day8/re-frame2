@@ -12,8 +12,11 @@
 
   ## Composition order
 
-  Per IMPL-SPEC §5.3 the runtime walks `(concat story-decorators
-  variant-decorators)` in declared order and groups by `:kind`:
+  Per IMPL-SPEC §5.3 + rf2-835ey the runtime walks
+  `(concat global-decorators story-decorators variant-decorators)` in
+  declared order and groups by `:kind`. Global decorators are the
+  Storybook-`preview.ts`-parity layer (Finding F-1 — every variant
+  inherits the project-wide stack):
 
   - `:hiccup` decorators — outermost wraps innermost. The first
     decorator's `:wrap` is the outermost element in the rendered tree;
@@ -34,6 +37,7 @@
   vector; the runtime then projects those into the variant's
   `:assertions` (per IMPL-SPEC §5.5)."
   (:require [re-frame.story.args      :as args]
+            [re-frame.story.config    :as config]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---- collection -----------------------------------------------------------
@@ -50,14 +54,27 @@
         body     (when story-id (registrar/handler-meta :story story-id))]
     (or (:decorators body) [])))
 
+(defn- global-decorator-refs
+  "Return the ordered global-decorators ref vector, or `[]`. Per
+  rf2-835ey — Storybook `preview.ts` `decorators: [...]` parity.
+  Earliest-registered first."
+  []
+  (config/get-global-decorators))
+
 (defn- collect-decorator-refs
   "Build the ordered `[decorator-ref ...]` list for the variant.
 
-  Story decorators come first (outermost when applied as hiccup
-  wrappers), variant decorators second. Active modes contribute no
-  decorators at v1 — per IMPL-SPEC §3.1 modes carry `:args` only."
+  Global decorators come first (outermost when applied as hiccup
+  wrappers), story decorators second, variant decorators last. Active
+  modes contribute no decorators at v1 — per IMPL-SPEC §3.1 modes carry
+  `:args` only.
+
+  Per rf2-835ey the global-decorators layer prepends — symmetric to
+  `global-args` being Layer 1 of args-resolution. The full stack is
+  `(concat globals story variant)`."
   [variant-id]
-  (vec (concat (story-decorator-refs variant-id)
+  (vec (concat (global-decorator-refs)
+               (story-decorator-refs variant-id)
                (variant-decorator-refs variant-id))))
 
 ;; ---- resolution -----------------------------------------------------------
@@ -194,10 +211,12 @@
   their kind-vector — the runtime projects them as `:rf.error/decorator-*`
   assertions per IMPL-SPEC §5.5.
 
-  Composition order (per IMPL-SPEC §5.3):
-  - `:hiccup` — outermost wraps innermost. Story decorators come first
-    (outermost); variant decorators last (innermost).
-  - `:frame-setup` — declared order (story first, variant second).
+  Composition order (per IMPL-SPEC §5.3 + rf2-835ey global decorators):
+  - `:hiccup` — outermost wraps innermost. Global decorators come first
+    (outermost), story decorators second, variant decorators last
+    (innermost).
+  - `:frame-setup` — declared order (global first, then story, then
+    variant).
   - `:fx-override` — declared order; last-wins on a key collision.
 
   `opts` accepts `:active-modes` for forward compatibility — v1 modes

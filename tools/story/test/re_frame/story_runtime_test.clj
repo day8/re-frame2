@@ -225,6 +225,138 @@
              (get-in stack [:overrides :http]))))))
 
 ;; ===========================================================================
+;; GLOBAL DECORATORS (rf2-835ey — Storybook preview.ts parity, F-1)
+;; ===========================================================================
+
+(deftest reg-global-decorator-appends-to-resolved-stack
+  (testing "a global decorator prefixes the resolved decorator stack for
+            every variant — outermost wrap layer per rf2-835ey"
+    (story/reg-global-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/reg-decorator :story-deco
+      {:kind :hiccup :wrap (fn [body _] [:div.story body])})
+    (story/reg-decorator :variant-deco
+      {:kind :hiccup :wrap (fn [body _] [:div.variant body])})
+    (story/reg-story :story.gd
+      {:decorators [[:story-deco]]})
+    (story/reg-variant :story.gd/v
+      {:decorators [[:variant-deco]]
+       :events     []})
+    (let [r       (story/resolve-decorators :story.gd/v)
+          ids     (mapv :id (:hiccup r))
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "leaf"] {})]
+      (is (= [:app/theme :story-deco :variant-deco] ids)
+          "global decorator comes first (outermost), then story, then variant")
+      (is (= [:div.theme [:div.story [:div.variant [:span "leaf"]]]] wrapped)
+          ":app/theme wraps outermost; the leaf is innermost"))))
+
+(deftest reg-global-decorator-applies-to-variants-with-no-story-decorators
+  (testing "a global decorator wraps a variant whose parent story has no
+            :decorators slot and whose own :decorators slot is empty —
+            the global stack still applies"
+    (story/reg-global-decorator :app/wrap
+      {:kind :hiccup :wrap (fn [body _] [:div.wrap body])})
+    (story/reg-story :story.gd2 {})
+    (story/reg-variant :story.gd2/bare {:events []})
+    (let [r   (story/resolve-decorators :story.gd2/bare)
+          ids (mapv :id (:hiccup r))]
+      (is (= [:app/wrap] ids)
+          "bare variant inherits the global stack even with no story
+           / variant decorators"))))
+
+(deftest reg-global-decorator-multiple-earliest-first
+  (testing "two global decorators apply in registration order — earliest
+            first (outermost wrap)"
+    (story/reg-global-decorator :app/g1
+      {:kind :hiccup :wrap (fn [body _] [:div.g1 body])})
+    (story/reg-global-decorator :app/g2
+      {:kind :hiccup :wrap (fn [body _] [:div.g2 body])})
+    (story/reg-variant :story.gd3/v {:events []})
+    (let [r       (story/resolve-decorators :story.gd3/v)
+          ids     (mapv :id (:hiccup r))
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "x"] {})]
+      (is (= [:app/g1 :app/g2] ids)
+          "earliest-registered first")
+      (is (= [:div.g1 [:div.g2 [:span "x"]]] wrapped)
+          ":app/g1 wraps :app/g2 (earliest is outermost)"))))
+
+(deftest reg-global-decorator-replaces-in-place-on-re-registration
+  (testing "re-registering the same global decorator id replaces in place —
+            hot-reloading the body must not reshuffle the order"
+    (story/reg-global-decorator :app/first
+      {:kind :hiccup :wrap (fn [body _] [:div.first.v1 body])})
+    (story/reg-global-decorator :app/second
+      {:kind :hiccup :wrap (fn [body _] [:div.second body])})
+    ;; Re-register :app/first with a new body — its position must stay at 0.
+    (story/reg-global-decorator :app/first
+      {:kind :hiccup :wrap (fn [body _] [:div.first.v2 body])})
+    (let [refs (story/global-decorators)
+          ids  (mapv first refs)]
+      (is (= [:app/first :app/second] ids)
+          ":app/first stays at position 0; re-registration did not push it
+           to the end"))
+    ;; And the new body is the one applied.
+    (story/reg-variant :story.gd4/v {:events []})
+    (let [r       (story/resolve-decorators :story.gd4/v)
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "x"] {})]
+      (is (= [:div.first.v2 [:div.second [:span "x"]]] wrapped)
+          "the replacement body (v2) is the one applied"))))
+
+(deftest reg-global-decorator-mixed-kinds
+  (testing "a global :frame-setup decorator's :init events fire before any
+            story / variant events — the global slot lands in the
+            :frame-setup bucket exactly like a story-level decorator would"
+    (story/reg-global-decorator :app/setup
+      {:kind :frame-setup :init [[:noop]]})
+    (story/reg-global-decorator :app/theme
+      {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
+    (story/reg-global-decorator :app/stub
+      {:kind :fx-override :fx-id :http :response {:ok? true}})
+    (story/reg-variant :story.gd5/v {:events []})
+    (let [r (story/resolve-decorators :story.gd5/v)]
+      (is (= 1 (count (:hiccup r))))
+      (is (= 1 (count (:frame-setup r))))
+      (is (= 1 (count (:fx-override r))))
+      (is (empty? (:errors r))
+          "global decorators classify into all three kind-buckets cleanly")
+      (is (= :app/theme (-> r :hiccup first :id)))
+      (is (= :app/setup (-> r :frame-setup first :id)))
+      (is (= :app/stub  (-> r :fx-override first :id))))))
+
+(deftest unreg-global-decorator-removes-from-stack
+  (testing "unreg-global-decorator! removes the entry from the global
+            vector; subsequent resolutions do not see it"
+    (story/reg-global-decorator :app/keep
+      {:kind :hiccup :wrap (fn [body _] [:div.keep body])})
+    (story/reg-global-decorator :app/drop
+      {:kind :hiccup :wrap (fn [body _] [:div.drop body])})
+    (story/reg-variant :story.gd6/v {:events []})
+    (is (= [:app/keep :app/drop]
+           (mapv :id (:hiccup (story/resolve-decorators :story.gd6/v)))))
+    (story/unreg-global-decorator! :app/drop)
+    (is (= [:app/keep]
+           (mapv :id (:hiccup (story/resolve-decorators :story.gd6/v))))
+        "after unreg, :app/drop is gone from the resolved stack")))
+
+(deftest reg-global-decorator-with-ref-args
+  (testing "reg-global-decorator three-arity form lands ref-args at the
+            :wrap fn under (:decorator/args args-map)"
+    (story/reg-global-decorator :app/wrap-tagged
+      {:kind :hiccup
+       :wrap (fn [body args]
+               [:div.tagged {:tag (-> args :decorator/args first)} body])}
+      [:my-tag])
+    (story/reg-variant :story.gd7/v {:events []})
+    (let [r       (story/resolve-decorators :story.gd7/v)
+          wrapped (decorators/apply-hiccup-decorators
+                    (:hiccup r) [:span "x"] {})]
+      (is (= [:div.tagged {:tag :my-tag} [:span "x"]] wrapped)
+          "ref-args from the global registration land at the :wrap fn"))))
+
+;; ===========================================================================
 ;; SNAPSHOT IDENTITY
 ;; ===========================================================================
 
