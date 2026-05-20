@@ -177,6 +177,9 @@
             "panel root present")
         (is (some? (find-by-testid tree "rf-causa-routing-header"))
             "header always renders")
+        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
+        (is (some? (find-by-testid tree "rf-causa-routing-panel-icon"))
+            "panel header icon (🌐 in :yellow) present")
         (is (some? (find-by-testid tree "rf-causa-routing-topology"))
             "topology always renders when routes are registered")
         ;; Each route gets a topology-row entry.

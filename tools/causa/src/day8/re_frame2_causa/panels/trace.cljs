@@ -275,8 +275,17 @@
                            :font-weight 600
                            :letter-spacing "-0.01em"
                            :margin      0
-                           :color       (:text-primary tokens)}
+                           :color       (:text-primary tokens)
+                           :display     "flex"
+                           :align-items "center"
+                           :gap         "8px"}
                           (t/accent-stripe-style :trace))}
+       ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ⬢ in
+       ;; :orange (Trace's domain colour via panel-domain->token).
+       [:span {:data-testid "rf-causa-trace-panel-icon"
+               :aria-hidden "true"
+               :style       (t/panel-icon-style :trace)}
+        (:trace t/panel-icon)]
        "Trace"]
       [:span {:data-testid "rf-causa-trace-counts"
               :style {:font-size   "11px"

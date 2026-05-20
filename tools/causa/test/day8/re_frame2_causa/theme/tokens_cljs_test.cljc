@@ -20,6 +20,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.set :as set]
+            [clojure.string :as string]
             [day8.re-frame2-causa.theme.tokens :as t]
             [day8.re-frame2-machines-viz.theme.tokens :as mv]))
 
@@ -429,6 +430,92 @@
             (str "light-palette drift on " k
                  ": causa=" (pr-str (get t/light-palette k))
                  " vs machines-viz=" (pr-str (get mv/light-palette k))))))))
+
+;; ---- rf2-ezx8w — spacing scale (spec/021 §17.1.1) ----------------------
+
+(deftest spacing-scale-covers-canonical-steps
+  (testing "rf2-ezx8w — `spacing` exposes :gap-0 through :gap-6 per
+            spec/021 §17.1.1. Density is binding (§0); the 4-px base
+            grid is the canonical scale every panel reads."
+    (let [expected #{:gap-0 :gap-1 :gap-2 :gap-3 :gap-4 :gap-5 :gap-6}]
+      (is (= expected (set (keys t/spacing)))))))
+
+(deftest spacing-scale-emits-px-strings
+  (testing "rf2-ezx8w — every spacing entry is a CSS string callers can
+            drop into inline `:style` maps. `:gap-0` is the literal
+            `0` (no unit); the rest are px-suffixed multiples of 4."
+    (is (= "0"    (:gap-0 t/spacing)))
+    (is (= "4px"  (:gap-1 t/spacing)))
+    (is (= "8px"  (:gap-2 t/spacing)))
+    (is (= "12px" (:gap-3 t/spacing)))
+    (is (= "16px" (:gap-4 t/spacing)))
+    (is (= "20px" (:gap-5 t/spacing)))
+    (is (= "24px" (:gap-6 t/spacing)))))
+
+(deftest spacing-scale-monotone-increasing
+  (testing "rf2-ezx8w — the spacing scale is monotone increasing in
+            pixel value. Guards against accidental re-ordering when
+            adding intermediate steps later."
+    (let [px (fn [k]
+               (let [v (get t/spacing k)]
+                 (if (= v "0")
+                   0
+                   #?(:clj  (Long/parseLong (string/replace v "px" ""))
+                      :cljs (js/parseInt v 10)))))
+          ks [:gap-0 :gap-1 :gap-2 :gap-3 :gap-4 :gap-5 :gap-6]]
+      (doseq [[a b] (partition 2 1 ks)]
+        (is (< (px a) (px b))
+            (str a " (" (get t/spacing a) ") < "
+                 b " (" (get t/spacing b) ")"))))))
+
+;; ---- rf2-ezx8w — per-panel header icons (spec/021 §17.1.5) -------------
+
+(deftest panel-icon-map-covers-every-l4-tab
+  (testing "rf2-ezx8w — every L4 tab has a header-icon glyph per
+            spec/021 §17.1.5. Mirrors `panel-domain->token` so the
+            icon and the accent stripe address the same tab keys."
+    (let [tabs #{:event :reactive :views :app-db :trace :machines
+                 :machines-canvas :routing :issues :chrome-a11y}]
+      (is (= tabs (set (keys t/panel-icon)))))))
+
+(deftest panel-icon-glyphs-are-strings
+  (testing "rf2-ezx8w — every glyph value is a non-empty string.
+            Catches accidental keyword / nil drop-outs."
+    (doseq [[tab glyph] t/panel-icon]
+      (is (string? glyph) (str tab " glyph is a string"))
+      (is (seq glyph)     (str tab " glyph is non-empty")))))
+
+(deftest panel-icon-spec-glyphs
+  (testing "rf2-ezx8w — the canonical glyphs per spec/021 §17.1.5
+            iconography table. Drift here breaks the visual contract."
+    (is (= "⚡" (:event           t/panel-icon)))
+    (is (= "◉" (:reactive        t/panel-icon)))
+    (is (= "◉" (:views           t/panel-icon)))
+    (is (= "◐" (:app-db          t/panel-icon)))
+    (is (= "⬢" (:trace           t/panel-icon)))
+    (is (= "◆" (:machines        t/panel-icon)))
+    (is (= "◆" (:machines-canvas t/panel-icon)))
+    (is (= "🌐" (:routing         t/panel-icon)))
+    (is (= "⚠" (:issues          t/panel-icon)))
+    (is (= "✦" (:chrome-a11y     t/panel-icon)))))
+
+(deftest panel-icon-style-rides-panel-accent
+  (testing "rf2-ezx8w — `panel-icon-style` resolves the glyph colour
+            through `panel-accent` so the icon hue tracks the same
+            domain token as the 3px stripe."
+    (doseq [tab (keys t/panel-icon)]
+      (let [s (t/panel-icon-style tab)]
+        (is (= (t/panel-accent tab) (:color s))
+            (str tab " icon colour = accent hex"))
+        (is (string? (:font-size s)))
+        (is (= 600 (:font-weight s)))))))
+
+(deftest panel-icon-style-falls-back-for-unknown
+  (testing "unknown tab → :accent-violet (same fallback as panel-
+            accent). The icon always paints rather than dropping to a
+            colourless stroke."
+    (is (= (:accent-violet t/tokens)
+           (:color (t/panel-icon-style :unknown-tab-kw))))))
 
 (deftest causa-and-machines-viz-mono-and-sans-stacks-match
   (testing "rf2-z7ms8 — the font stacks are part of the shared visual

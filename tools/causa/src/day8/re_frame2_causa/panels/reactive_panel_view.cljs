@@ -80,8 +80,16 @@
    [:h1 {:style (merge {:font-size "20px" :font-family display-stack
                         :font-weight 600 :letter-spacing "-0.01em"
                         :margin 0
-                        :color (:text-primary tokens)}
+                        :color (:text-primary tokens)
+                        :display "flex" :align-items "center"
+                        :gap "8px"}
                        (t/accent-stripe-style :views))}
+    ;; rf2-ezx8w — spec/021 §17.1.5 per-panel header icon. ◉ in
+    ;; :cyan (Reactive/Views share the :cyan domain accent).
+    [:span {:data-testid "rf-causa-reactive-panel-icon"
+            :aria-hidden "true"
+            :style       (t/panel-icon-style :views)}
+     (:reactive t/panel-icon)]
     "Reactive"]
    (when (:has-cascade? data)
      [:p {:data-testid "rf-causa-reactive-header-meta"

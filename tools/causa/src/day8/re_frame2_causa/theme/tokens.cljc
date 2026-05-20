@@ -452,3 +452,88 @@
   [tab]
   {:border-left   (str "3px solid " (panel-accent tab))
    :padding-left  "10px"})
+
+;; ---- spacing scale (rf2-ezx8w · spec/021 §17.1.1) -----------------------
+
+(def spacing
+  "Causa's 4-px-base spacing scale per spec/021 §17.1.1. Density is
+  binding (§0); spacing reinforces it. Every gap / pad value across
+  the panels is a multiple of 4 — this map catalogues the canonical
+  steps so per-panel implementations stop guessing.
+
+  | Key      | Pixels | Use                                                |
+  |----------|--------|----------------------------------------------------|
+  | `:gap-0` | 0      | Adjacent inline glyphs (e.g. diff-glyph + value)   |
+  | `:gap-1` | 4px    | Tight inline gap (icon → label inside a chip)      |
+  | `:gap-2` | 8px    | Between sibling rows in dense tables               |
+  | `:gap-3` | 12px   | Between major sections inside a panel              |
+  | `:gap-4` | 16px   | Panel inner padding (top/right/bottom/left)        |
+  | `:gap-5` | 20px   | Between distinct cards / canvases                  |
+  | `:gap-6` | 24px   | Between zones inside a panel                       |
+
+  Values are CSS strings so call sites drop them straight into inline
+  `:style` maps (e.g. `:padding (:gap-4 spacing)` for the canonical
+  16px panel pad). Pure data; JVM-portable.
+
+  Padding inside cards (the canvas frame around each per-machine
+  xyflow render) is `:gap-3` (12px) — workstation density, not
+  consumer breathing room."
+  {:gap-0 "0"
+   :gap-1 "4px"
+   :gap-2 "8px"
+   :gap-3 "12px"
+   :gap-4 "16px"
+   :gap-5 "20px"
+   :gap-6 "24px"})
+
+;; ---- per-panel header icons (rf2-ezx8w · spec/021 §17.1.5) --------------
+
+(def panel-icon
+  "Per-panel header glyph map per spec/021 §17.1.5 iconography. Each
+  L4 tab carries a Unicode glyph rendered to the LEFT of the panel
+  `<h1>` (or its inline-stripe header equivalent). Colour resolves
+  through `panel-domain->token` so the glyph rides the panel's domain
+  hue — a visual tie between the accent stripe and the icon.
+
+  | Tab           | Glyph |
+  |---------------|-------|
+  | `:event`      | ⚡    |
+  | `:reactive`   | ◉    |
+  | `:views`      | ◉    |
+  | `:app-db`     | ◐    |
+  | `:trace`      | ⬢    |
+  | `:machines`   | ◆    |
+  | `:machines-canvas` | ◆ |
+  | `:routing`    | 🌐    |
+  | `:issues`     | ⚠    |
+  | `:chrome-a11y` | ✦    |
+
+  Emoji glyphs are deliberate — consistent with existing Causa
+  convention (the L2-row badges + the Routing 🌐 affordance already
+  ship emoji). Under HCM the @media (forced-colors: active) block
+  strips the color; the glyph alone carries the signal — colour is
+  never alone (§007)."
+  {:event           "⚡"
+   :reactive        "◉"
+   :views           "◉"
+   :app-db          "◐"
+   :trace           "⬢"
+   :machines        "◆"
+   :machines-canvas "◆"
+   :routing         "🌐"
+   :issues          "⚠"
+   :chrome-a11y     "✦"})
+
+(defn panel-icon-style
+  "Build an inline-style map for the panel header icon span. Resolves
+  the panel's domain colour through `panel-accent` so the glyph rides
+  the same hue as the 3px accent stripe. Caller adds an 8px right
+  margin (or `:gap` from a flex parent) so the icon sits to the LEFT
+  of the panel's title per §17.1.5.
+
+  Returns a map merge-able into an existing `:style`."
+  [tab]
+  {:color       (panel-accent tab)
+   :font-weight 600
+   :font-size   "14px"
+   :line-height 1})

@@ -540,7 +540,10 @@
       (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-causa-app-db-diff-empty"))
             "empty-state container present")
-        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))))))
+        (is (nil? (find-by-testid tree "rf-causa-app-db-diff-slices")))
+        ;; rf2-ezx8w · spec/021 §17.1.5 — per-panel header icon.
+        (is (some? (find-by-testid tree "rf-causa-app-db-panel-icon"))
+            "panel header icon (◐ in :cyan) present")))))
 
 (deftest sections-render-when-diff-present
   (testing "with history populated, the panel renders the sections-per-

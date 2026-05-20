@@ -34,3 +34,13 @@
     (let [tree (view/reactive-panel)]
       (is (has-testid? tree "rf-causa-reactive-empty")
           "empty-state surfaces when no cascade exists"))))
+
+(deftest reactive-panel-header-icon-present
+  (testing "rf2-ezx8w · spec/021 §17.1.5 — the Reactive panel header
+            carries a ◉ glyph in :cyan via theme.tokens/panel-icon
+            to the left of the title."
+    (facade/install!)
+    (frame/reg-frame :rf/causa {})
+    (let [tree (view/reactive-panel)
+          icon (th/find-by-testid tree "rf-causa-reactive-panel-icon")]
+      (is (some? icon) "panel icon span present"))))
