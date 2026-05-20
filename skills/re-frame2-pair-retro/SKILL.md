@@ -65,7 +65,7 @@ Deliver:
 
 **Activation precondition**: a `re-frame2-pair` session must be available as evidence — either occurring in this conversation, or supplied by the user as a recap / summary. If no pair-tool surface was exercised and the user has not described one, decline — there is nothing to retrospect on.
 
-**Story recorder-session retros are out of scope.** Retrospectives on a Story Test Codegen recording (rf2-5fc15 — clicks/fills captured as a `:play` body) are NOT this skill's concern. Those retros belong in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:play` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
+**Story recorder-session retros are out of scope.** Retrospectives on a Story Test Codegen recording (rf2-5fc15 — clicks/fills captured as a `:play-script` body, per rf2-0wrud) are NOT this skill's concern. Those retros belong in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:play-script` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
 
 Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers.
 
