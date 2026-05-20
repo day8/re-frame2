@@ -9,7 +9,7 @@
        :ran-at-ms     <epoch-ms>
        :running?      <bool>
        :expanded      #{<row-index>}
-       :play-events   <vector>     ; the :play body from the variant
+       :play-events   <vector>     ; flat event-vec list derived from :play-script
        :epoch-ids     <vector>     ; trailing epoch-id slice
        :selected-step <int|nil>}
 
@@ -34,7 +34,7 @@
             [re-frame.epoch               :as epoch]
             [re-frame.interop             :as interop]
             [re-frame.story.async         :as async]
-            [re-frame.story.registrar     :as registrar]
+            [re-frame.story.play          :as play]
             [re-frame.story.runtime       :as runtime]
             [re-frame.story.ui.state      :as state]
             [re-frame.story.ui.test-mode.pure :as pure]))
@@ -72,8 +72,12 @@
   slot (rf2-q0irb)."
   [variant-id result]
   (let [now          (interop/now-ms)
-        play-events  (or (:play (registrar/handler-meta :variant variant-id))
-                         [])
+        ;; Per rf2-0wrud `:play-script` is the canonical AND ONLY
+        ;; phase-4 slot. `play/variant-play-events` extracts a flat
+        ;; event-vec list (one per `:dispatch`/`:dispatch-sync` step)
+        ;; — the same shape the legacy `:play` slot carried, so the
+        ;; scrubber's slot-shape stays stable.
+        play-events  (play/variant-play-events variant-id)
         history      (epoch/epoch-history variant-id)
         epoch-ids    (pure/epoch-id-slice history (count play-events))]
     (swap! results-atom assoc variant-id

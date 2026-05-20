@@ -136,20 +136,46 @@
   (recorder/insert-assertion! [:rf.story/lifecycle-tick])
   (is (= [] (recorder/recorded-events))))
 
+(defn- extract-play-script-vector
+  "Pull the `:script` vector substring out of the rendered snippet by
+  walking balanced brackets after the `:play-script` body's `:script`
+  token. Per rf2-0wrud the canonical phase-4 slot is `:play-script`
+  with a `{:auto-run? ... :script [...]}` body."
+  [snippet]
+  (let [start (str/index-of snippet ":script")
+        after (subs snippet start)
+        open  (str/index-of after "[")
+        end   (loop [i (inc open) depth 1]
+                (cond
+                  (>= i (count after)) nil
+                  (zero? depth) i
+                  :else (let [c (.charAt after i)]
+                          (case c
+                            "[" (recur (inc i) (inc depth))
+                            "]" (recur (inc i) (dec depth))
+                            (recur (inc i) depth)))))]
+    (subs after open end)))
+
+(defn- unwrap-dispatch-sync-steps
+  "Project the parsed `:script` vector back to the bare event-vector
+  list. Each step is `[:dispatch-sync <event-vec>]` (per rf2-0wrud)."
+  [script-vec]
+  (mapv second script-vec))
+
 (deftest gen-play-snippet-roundtrips
-  (let [events [[:counter/inc] [:auth/login {:id 1}]]
-        snip   (recorder/gen-play-snippet events {:variant-id :story.x/y})
-        start  (str/index-of snip ":play")
-        after  (subs snip start)
-        open   (str/index-of after "[")
-        end    (loop [i (inc open) depth 1]
-                 (cond
-                   (>= i (count after)) nil
-                   (zero? depth) i
-                   :else (let [c (.charAt after i)]
-                           (case c
-                             "[" (recur (inc i) (inc depth))
-                             "]" (recur (inc i) (dec depth))
-                             (recur (inc i) depth)))))
-        play-str (subs after open end)]
-    (is (= events (edn/read-string play-str)))))
+  (testing "the rendered :play-script :script vector reads back as
+            [:dispatch-sync <event>] steps that unwrap to the original
+            events (per rf2-0wrud — :play-script is the canonical and
+            ONLY phase-4 slot; gen-play-snippet wraps each captured
+            event as a :dispatch-sync step)"
+    (let [events     [[:counter/inc] [:auth/login {:id 1}]]
+          snip       (recorder/gen-play-snippet events {:variant-id :story.x/y})
+          script-str (extract-play-script-vector snip)
+          script-vec (edn/read-string script-str)]
+      (is (some? script-str) "extractor found a :script vector substring")
+      (is (every? #(and (vector? %)
+                        (= :dispatch-sync (first %)))
+                  script-vec)
+          "every step is a [:dispatch-sync <event-vec>] form")
+      (is (= events (unwrap-dispatch-sync-steps script-vec))
+          "unwrapping :dispatch-sync round-trips to the original events"))))

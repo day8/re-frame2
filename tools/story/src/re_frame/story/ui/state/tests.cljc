@@ -15,7 +15,7 @@
   - `variant-test-status`       — read the per-variant status keyword.
   - `test-summary`              — aggregate across an id-seq.
   - `testable-variant-ids`      — derive the seq of `:test`-tagged
-                                  variants with a non-empty `:play`.
+                                  variants with a non-empty `:play-script`.
   - `set-test-watch-mode`       — toggle the chrome watch-mode flag.
   - `test-watch-mode?`          — read the flag.
   - `record-test-content-hashes` — stamp per-variant snapshot hashes.
@@ -170,21 +170,34 @@
                       (zero? running)
                       (zero? pending))}))
 
+(defn- play-script-has-steps?
+  "True iff `body` declares a non-empty `:play-script`. Handles both the
+  map form `{:auto-run? ... :script [...]}` and the bare-vector form
+  `:play-script [<step> ...]` (per rf2-0wrud — `:play-script` is the
+  canonical AND ONLY phase-4 slot; the runner normalises both forms)."
+  [body]
+  (let [script (:play-script body)]
+    (boolean
+      (cond
+        (map? script)    (seq (:script script))
+        (vector? script) (seq script)
+        :else            false))))
+
 (defn testable-variant-ids
   "Return the seq of variant-ids tagged `:test`, in stable (alphabetical)
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) they declare a non-empty `:play` slot. The second filter prunes
-  variants tagged `:test` but without any assertions to run — those
-  contribute neither to the headline counts nor to the 'Run all'
+  (b) they declare a non-empty `:play-script` body. The second filter
+  prunes variants tagged `:test` but without any assertions to run —
+  those contribute neither to the headline counts nor to the 'Run all'
   iteration. Pure data → data; JVM-testable. `id->body` is the
   `{variant-id → body}` map from `(registrar/registrations :variant)`."
   [id->body]
   (->> id->body
        (filter (fn [[_ body]]
                  (and (contains? (or (:tags body) #{}) :test)
-                      (seq (or (:play body) [])))))
+                      (play-script-has-steps? body))))
        (map first)
        sort
        vec))

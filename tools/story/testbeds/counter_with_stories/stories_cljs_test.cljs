@@ -24,6 +24,7 @@
             [re-frame.story.async      :as async-lib]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.play       :as play]
             [re-frame.test-support     :as test-support]
             [counter-with-stories.events]
             [counter-with-stories.subs]
@@ -263,17 +264,27 @@
               (done)))))))
 
 (deftest diagnostic-event-exception-records-failure
-  (testing ":story.counter-diagnostics/event-throws projects handler exceptions into assertions"
+  (testing ":story.counter-diagnostics/event-throws — the handler
+            exception is captured by the play module's trace listener
+            and lands in `play/pending-exceptions` as a
+            :rf.error/handler-exception trace event. Per rf2-0wrud the
+            router catches the handler throw, the script step resolves
+            cleanly, and the play module's per-frame accumulator
+            records the exception for later inspection."
     (async done
       (-> (story/run-variant :story.counter-diagnostics/event-throws)
           (async-lib/then
-            (fn [result]
-              (is (not (story/assertions-passing? result)))
-              (is (some #(and (= :rf.error/exception (:assertion %))
-                              (= :phase-4-play (:phase %))
-                              (re-find #"story-load deterministic event handler failure"
-                                       (get-in % [:error :message] "")))
-                        (:assertions result)))
+            (fn [_result]
+              (let [pending (get @play/pending-exceptions
+                                 :story.counter-diagnostics/event-throws)
+                    exc     (first pending)]
+                (is (some? exc)
+                    "a :rf.error/handler-exception trace event was captured")
+                (is (= :rf.error/handler-exception (:operation exc))
+                    "the captured trace event is the router's handler-exception")
+                (is (= [:counter/throw-deterministic]
+                       (get-in exc [:tags :event]))
+                    "the captured event is :counter/throw-deterministic"))
               (story/destroy-variant! :story.counter-diagnostics/event-throws)
               (done)))))))
 

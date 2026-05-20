@@ -4,7 +4,7 @@
 
   The step-debugger is the Storybook Interactions-panel equivalent for
   Story's `:test` mode pane: step / pause / rewind / step-back /
-  breakpoint controls over the variant's `:play` sequence. The runtime
+  breakpoint controls over the variant's `:play-script`. The runtime
   substrate already exists in `re-frame.story.play` (`begin-stepper!` /
   `step-once!` / `end-stepper!`); this namespace is the per-variant local
   state surface the view consumes + the mutators that drive the
@@ -15,8 +15,10 @@
       {:active?        <bool>         ; the stepper is in flight
        :auto-playing?  <bool>         ; the interval is ticking
        :cursor         <int>          ; number of events dispatched so far
-       :total          <int>          ; count of :play events in this run
+       :total          <int>          ; count of play-script events in this run
        :play-events    <vector>       ; immutable snapshot of the events
+                                      ;   (derived from :play-script via
+                                      ;    re-frame.story.play/variant-play-events)
        :statuses       <vector>       ; `stepper-pure/enrich-statuses` rows
        :breakpoints    #{<int>}       ; step indices that pause auto-play
        :epoch-stack    <vector>       ; per-step :epoch-id pre-images, for
@@ -49,7 +51,6 @@
   (:require [reagent.core                                 :as r]
             [re-frame.epoch                               :as epoch]
             [re-frame.story.play                          :as play]
-            [re-frame.story.registrar                     :as registrar]
             [re-frame.story.runtime                       :as runtime]
             [re-frame.story.assertions                    :as assertions]
             [re-frame.story.ui.test-mode.pure             :as test-mode-pure]
@@ -115,9 +116,11 @@
   ;; documented initial state.
   (-> (runtime/reset-variant variant-id)
       (.then  (fn [_]
-                (let [play-events (or (:play (registrar/handler-meta
-                                               :variant variant-id))
-                                      [])
+                ;; Per rf2-0wrud `:play-script` is the canonical AND ONLY
+                ;; phase-4 slot. `play/variant-play-events` derives the
+                ;; flat event-vec list from the variant's :play-script
+                ;; body — the same shape the legacy `:play` slot carried.
+                (let [play-events (play/variant-play-events variant-id)
                       total       (count play-events)]
                   (play/begin-stepper! variant-id)
                   (swap! results-atom assoc variant-id
