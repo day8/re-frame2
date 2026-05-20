@@ -518,6 +518,10 @@
 (late-bind/set-fn! :epoch/settle!             settle!)
 (late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)
 (late-bind/set-fn! :epoch/capture-event       capture/capture-event!)
+;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered. Views
+;; consume this via `:epoch/cascade-cause` at render-emit time to stamp
+;; :cause-event-id + :cause-subs onto the per-render trace.
+(late-bind/set-fn! :epoch/cascade-cause       capture/cascade-cause)
 (late-bind/set-fn! :epoch/epoch-history       epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
 (late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)

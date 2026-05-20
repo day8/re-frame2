@@ -99,24 +99,83 @@
 ;; the pre-split shape — no external caller reaches for it.
 (def ^:private frame-context provider/frame-context)
 
+;; rf2-25zo2: per-cascade cap on :rf.view/rendered emits. The Causa
+;; Reactive panel needs cascade-attribution per re-render, but a
+;; full-page re-render can fire hundreds of view-render emits and blow
+;; the per-cascade buffer's heap budget. The cap matches the
+;; cascade-cause sub-cap (100); when crossed, the view-render emission
+;; site fires a single :rf.view/rendered-cap-reached marker once per
+;; cascade and skips subsequent :rf.view/rendered emits (the existing
+;; :view/render emit is NOT capped — that op rides the per-view-render
+;; cost we already pay).
+(def ^:private view-rendered-cap 100)
+
 (defn- emit-render-trace!
-  "Emit a `:view/render` trace event tagged with the in-flight
-  `:render-key`. The trace also carries the `:frame` tag so the
-  epoch-capture buffer (per re-frame.epoch §capture-event!) can route
-  the render into the right per-frame cascade. Goes through late-bind
-  so this ns doesn't depend on re-frame.trace (which itself routes
-  through late-bind for registrar/views ordering reasons). Production
-  builds elide via the `interop/debug-enabled?` gate the trace surface
-  itself rides."
-  [render-key]
+  "Emit per-render trace events tagged with the in-flight `:render-key`
+  and `:frame`. The traces ride the epoch-capture buffer (per
+  re-frame.epoch §capture-event!) so they route into the right per-
+  frame cascade. Goes through late-bind so this ns doesn't depend on
+  re-frame.trace (which itself routes through late-bind for
+  registrar/views ordering reasons). Production builds elide via the
+  `interop/debug-enabled?` gate the trace surface itself rides.
+
+  Two ops fire per render (both substrate-agnostic — every adapter
+  composes `views.cljs`'s frame-aware-view wrapper around its user
+  render-fn, so the same emits ride Reagent / UIx / Helix renders):
+
+    :view/render        — render-event marker (Spec 009 §Trace ops).
+                          Carries `:render-key` + `:frame`.
+
+    :rf.view/rendered   — cascade-attribution marker (rf2-25zo2,
+                          consumed by Causa's Reactive panel for
+                          cascade graphing). Carries `:render-key`,
+                          `:frame`, `:view-id`, and — when available
+                          from the in-flight cascade buffer —
+                          `:cause-event-id` and `:cause-subs`. Capped
+                          at 100 per cascade with a one-shot
+                          `:rf.view/rendered-cap-reached` marker
+                          (carries `:dropped-after :cap 100`)."
+  [view-id render-key]
   (when interop/debug-enabled?
     ;; Sticky hook (rf2-f72pd) — `:trace/emit!` is published once at
     ;; re-frame.trace load and never withdrawn; this fires per render
     ;; under dev builds.
     (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
-      (emit! :view :view/render
-             {:render-key render-key
-              :frame      (provider/current-frame)}))))
+      (let [frame-id (provider/current-frame)]
+        ;; Existing :view/render — unchanged shape.
+        (emit! :view :view/render
+               {:render-key render-key
+                :frame      frame-id})
+        ;; rf2-25zo2: :rf.view/rendered carries cascade-attribution.
+        ;; Resolved via the epoch capture's in-flight buffer; absent
+        ;; (or returns nil) when re-frame.epoch is not on the classpath
+        ;; — in that case we emit the op without attribution slots so
+        ;; consumers without the epoch artefact still see the marker.
+        (let [cause-fn (late-bind/get-fn-cached :epoch/cascade-cause)
+              cause    (when cause-fn (cause-fn frame-id))
+              n-so-far (long (or (:rendered-so-far cause) 0))]
+          (cond
+            ;; Past the cap — emit a one-shot marker on the threshold
+            ;; cross. The marker rides the same per-cascade buffer so
+            ;; consumers can detect truncation without inspecting state.
+            (= n-so-far view-rendered-cap)
+            (emit! :view :rf.view/rendered-cap-reached
+                   {:frame         frame-id
+                    :dropped-after view-rendered-cap})
+
+            (< n-so-far view-rendered-cap)
+            (emit! :view :rf.view/rendered
+                   (cond-> {:render-key render-key
+                            :view-id    view-id
+                            :frame      frame-id}
+                     (:cause-event-id cause)
+                     (assoc :cause-event-id (:cause-event-id cause))
+                     (:cause-subs cause)
+                     (assoc :cause-subs (:cause-subs cause))))
+
+            ;; n-so-far > cap — silent skip (the cap-reached marker
+            ;; fired already on the threshold cross).
+            :else nil))))))
 
 ;; ---- reg-view -------------------------------------------------------------
 ;;
@@ -196,7 +255,7 @@
             render-key [id tok]]
         (binding [*render-key* render-key]
           (trace/with-handler-scope view-scope
-            (emit-render-trace! render-key)
+            (emit-render-trace! id render-key)
             ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
             ;; every render of a registered view brackets the user
             ;; render-fn in performance marks so prod builds with the
