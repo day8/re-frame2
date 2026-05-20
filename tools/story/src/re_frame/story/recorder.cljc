@@ -60,7 +60,7 @@
   hint stays accurate — the user sees an N-redacted-rows hint
   alongside the placeholders themselves. Hosts that want the
   unscrubbed payload in the recording (their own machine, dev loop)
-  flip `:trace/show-sensitive?` true via `story/configure!`; with
+  flip `:rf.privacy/show-sensitive?` true via `story/configure!`; with
   that flag set the listener captures the verbatim event vector
   (existing behaviour, unchanged).
 
@@ -772,7 +772,7 @@
   published trace consumer that default-suppresses sensitive events)
   so the UI's redaction-indicator hint stays accurate.
 
-  Hosts that explicitly opted in via `:trace/show-sensitive? true`
+  Hosts that explicitly opted in via `:rf.privacy/show-sensitive? true`
   (via `story/configure!`) get the verbatim event vector — existing
   in-box debug behaviour, unchanged.
 

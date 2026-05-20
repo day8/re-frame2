@@ -231,7 +231,7 @@ The posture is normative across Story's surfaces:
    substitutes `:rf/redacted` at arg-paths the elision registry
    resolves on the recorded event-vector — narrower than the
    event-level drop, more useful for replay. The dispatch console
-   (the `:trace/show-sensitive?` knob in `configure!`) gates whether
+   (the `:rf.privacy/show-sensitive?` knob in `configure!`) gates whether
    the on-box devtool surfaces the underlying values when set true
    (per [spec/Security.md §`include-sensitive?` vs `show-sensitive?`
    verb split](../../../spec/Security.md)).
@@ -249,11 +249,11 @@ The posture is normative across Story's surfaces:
    inputs that produced it, the inputs go through the wire-elision
    walker per §5 above.
 
-**Knob — the event-level `:trace/show-sensitive?` flag.** The legacy
+**Knob — the event-level `:rf.privacy/show-sensitive?` flag.** The legacy
 event-level `:sensitive?` flag (declared on `reg-event` per
 [spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md))
 remains valid and Story honours it. The
-`configure! {:trace/show-sensitive? true}` knob is the on-box dev
+`configure! {:rf.privacy/show-sensitive? true}` knob is the on-box dev
 override (`show-sensitive?` verb, on-box UI visibility per
 [spec/Security.md §`include-sensitive?` vs `show-sensitive?` verb
 split](../../../spec/Security.md)). Off-box wire egress (the MCP jar)

@@ -101,7 +101,7 @@
             the effective args at the spec'd precedence layer
             (between :story-args and :variant-args). Per spec/002
             §Args resolution precedence."
-    (story/configure! {:global-args {:theme :light :viewport :desktop}})
+    (story/configure! {:rf.story/global-args {:theme :light :viewport :desktop}})
     (story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
     (story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
     (story/reg-story :story.modemix
@@ -135,7 +135,7 @@
             `global < story < mode < variant < cell-overrides`. So
             a mode arg LOSES to a variant arg with the same key but
             WINS over the equivalent story / global arg."
-    (story/configure! {:global-args {:viewport :desktop}})
+    (story/configure! {:rf.story/global-args {:viewport :desktop}})
     (story/reg-mode :Mode.app/dark   {:args {:theme :dark}})
     (story/reg-mode :Mode.app/mobile {:args {:viewport :mobile}})
     (story/reg-story :story.modeprobe

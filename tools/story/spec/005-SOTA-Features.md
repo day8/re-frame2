@@ -626,7 +626,7 @@ dispatches to the configured editor:
 | `:idea`             | `idea://open?file=<path>&line=<line>&column=<column>` |
 | `{:custom <tpl>}`   | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
 
-The host sets the preference via `(story/configure! {:editor :cursor})`
+The host sets the preference via `(story/configure! {:rf.story/editor :cursor})`
 at boot. Unknown keywords fall back to `:vscode` so a typo still
 yields a clickable URI rather than a no-op. Source-coords without
 `:file` hide the chip entirely.
@@ -640,7 +640,7 @@ resolve `<path>` against the filesystem, so a relative path fails
 with *"Path does not exist"*. The host plumbs the on-disk root via:
 
 ```clojure
-(story/configure! {:project-root "C:/Users/me/code/my-app"})
+(story/configure! {:rf.story/project-root "C:/Users/me/code/my-app"})
 ```
 
 The 'Open' chip prepends the root to the source-coord file before
@@ -664,10 +664,10 @@ When Causa is mounted as Story's RHS inspector (per rf2-sgdd3),
 the Causa-side source-coord chips (Event lens Handler / Dispatch /
 Interceptors, Trace tab rows, Issues ribbon) read their on-disk root
 from Causa's `day8.re-frame2-causa.config/project-root` slot — NOT
-from Story's `re-frame.story.config/project-root`. To keep `:project-
-root` a single-source-of-truth setting the host only writes once,
-`(story/configure! {:project-root <path>})` is bridged into Causa's
-slot by `re-frame.story.causa-preset/propagate-project-root!`:
+from Story's `re-frame.story.config/project-root`. To keep
+project-root a single-source-of-truth setting the host only writes
+once, `(story/configure! {:rf.story/project-root <path>})` is bridged
+into Causa's slot by `re-frame.story.causa-preset/propagate-project-root!`:
 
 - The propagator fires from two seams: (1) `story/configure!` after
   `set-project-root!` lands (the common case — Causa's preload runs
@@ -680,9 +680,10 @@ slot by `re-frame.story.causa-preset/propagate-project-root!`:
   propagator returns nil without touching the wire.
 
 Symmetric to shop's [rf2-6jyf6](https://github.com/day8/re-frame2/pull/1493) —
-Causa's standalone testbeds (shop) seed `:project-root` directly via
-`causa-config/configure!`; Story testbeds with Causa-as-RHS seed via
-`story/configure! :project-root` and let the bridge propagate.
+Causa's standalone testbeds (shop) seed Causa's project-root directly
+via `causa-config/configure!`; Story testbeds with Causa-as-RHS seed
+via `story/configure! :rf.story/project-root` and let the bridge
+propagate.
 
 The shared URI builder lives at `re-frame.source-coords.editor-uri`
 under the core artefact and is CLJC-portable; Causa's mirror

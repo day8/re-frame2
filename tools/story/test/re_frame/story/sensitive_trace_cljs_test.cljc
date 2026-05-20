@@ -13,7 +13,7 @@
   - **Pure config**: `sensitive-event?`, `suppress-sensitive?`,
     `note-suppressed!`, `suppressed-count`, `reset-suppressed-count!`
     against the `show-sensitive?` flag.
-  - **`configure!`**: the `:trace/show-sensitive?` opts key wires
+  - **`configure!`**: the `:rf.privacy/show-sensitive?` opts key wires
     through to the config atom.
   - **Play listener**: the per-frame trace listener default-suppresses
     sensitive events from the assertions module's accumulators
@@ -131,17 +131,17 @@
                   (plain-dispatch-event :v/x [:counter/inc]))))))
 
 (deftest configure!-wires-show-sensitive-flag
-  (testing "story/configure! routes :trace/show-sensitive? to the config atom"
+  (testing "story/configure! routes :rf.privacy/show-sensitive? to the config atom"
     (is (false? (config/get-show-sensitive)) "default is false")
-    (story/configure! {:trace/show-sensitive? true})
+    (story/configure! {:rf.privacy/show-sensitive? true})
     (is (true? (config/get-show-sensitive))
         "opt-in flips the flag")
-    (story/configure! {:trace/show-sensitive? false})
+    (story/configure! {:rf.privacy/show-sensitive? false})
     (is (false? (config/get-show-sensitive))
         "passing false toggles back"))
   (testing "configure! without the key leaves the flag untouched"
     (config/set-show-sensitive! true)
-    (story/configure! {:editor :cursor})
+    (story/configure! {:rf.story/editor :cursor})
     (is (true? (config/get-show-sensitive))
         "the unrelated key didn't reset the flag")))
 
@@ -310,7 +310,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
-;; `:trace/show-sensitive?` from true → false MUST clear every
+;; `:rf.privacy/show-sensitive?` from true → false MUST clear every
 ;; per-variant trace buffer. The Story config layer exposes a generic
 ;; callback registry that `ui.trace` (CLJS-only) hooks into; this
 ;; pure-data shape is JVM-runnable so the algebra is covered here. The

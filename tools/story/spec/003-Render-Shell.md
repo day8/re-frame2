@@ -400,7 +400,7 @@ fires from the selection-watcher on every variant-selection edge.
 It does THREE things — all configuration bridges, none of which
 mount anything:
 
-1. **`:project-root`** — read Story's configured root via
+1. **`:rf.story/project-root`** — read Story's configured root via
    `story/configure!` and propagate to
    `day8.re-frame2-causa.config/configure!` so Causa's source-
    coord chips resolve against the same on-disk root Story uses

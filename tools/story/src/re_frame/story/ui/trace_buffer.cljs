@@ -137,7 +137,7 @@
 
   Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
   is true are dropped from the buffer when the global
-  `:trace/show-sensitive?` flag is false (the default). The
+  `:rf.privacy/show-sensitive?` flag is false (the default). The
   suppressed-events counter bumps for the variant so downstream
   consumers can advertise that the buffer is shorter than the
   runtime's actual emit count."

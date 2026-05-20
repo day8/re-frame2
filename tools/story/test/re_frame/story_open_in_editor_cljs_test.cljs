@@ -191,7 +191,7 @@
 ;; The bead: clicking the Open chip launched an OS-side editor with a
 ;; classpath-relative path ("\panel_gallery\event_detail_stories.cljs:115:3")
 ;; that the editor's filesystem resolver could not find. The Story config
-;; now exposes `:project-root` — set once at boot via `story/configure!` —
+;; now exposes `:rf.story/project-root` — set once at boot via `story/configure!` —
 ;; and the chip prepends it before the URI ships.
 
 (deftest open-chip-default-no-project-root
@@ -215,7 +215,7 @@
 (deftest open-chip-project-root-regression-rf2-zfy1e
   (testing "regression: the panel-gallery testbed's failure case now
             resolves to an absolute on-disk URI when the host has
-            plumbed :project-root through Story's configure!"
+            plumbed :rf.story/project-root through Story's configure!"
     (config/set-project-root!
       "C:/Users/miket/code/re-frame2/tools/causa/testbeds")
     (let [hiccup (open-in-editor/open-chip

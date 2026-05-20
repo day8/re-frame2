@@ -36,7 +36,7 @@
   confirm: 'the URI shipped X; the OS handler didn't pick it up'.
   Common silent failures the log unblocks:
 
-    - Relative path in URI (host didn't plumb `:project-root`).
+    - Relative path in URI (host didn't plumb `:rf.story/project-root`).
     - VSCode/Cursor URI scheme not registered with the OS.
     - Spaces / non-ASCII in path tripping the OS resolver.
     - User on a custom editor whose template produced a malformed URI.

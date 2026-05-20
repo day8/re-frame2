@@ -416,7 +416,7 @@
                      ;; per-variant project-root + keybinding bridges
                      ;; so the popout escape hatch + Causa's source-
                      ;; coord chips honour Story's configured
-                     ;; `:project-root`. Per-variant Causa bridges
+                     ;; `:rf.story/project-root`. Per-variant Causa bridges
                      ;; live on a separate seam from the embed mount.
                      (causa-preset/wire-cross-host!)
                      ;; rf2-q9kv5: apply any per-story Causa preset
@@ -813,7 +813,7 @@
            ;; commit. The cross-host bridges (project-root +
            ;; keybinding detach) still need to fire so the popout
            ;; escape hatch + Causa's source-coord chips resolve
-           ;; against Story's `:project-root`.
+           ;; against Story's `:rf.story/project-root`.
            (causa-preset/wire-cross-host!)
            ;; rf2-q9kv5: apply per-story preset on the mount-time
            ;; selection too (the selection-watcher only fires on

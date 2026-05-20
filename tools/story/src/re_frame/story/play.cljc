@@ -116,7 +116,7 @@
 
   Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
   is true are dropped before any accumulator updates when the global
-  `:trace/show-sensitive?` flag is false (the default). The
+  `:rf.privacy/show-sensitive?` flag is false (the default). The
   suppressed-events counter bumps for the targeted frame so the UI
   can surface a `[● REDACTED]` hint."
   [frame-id]
