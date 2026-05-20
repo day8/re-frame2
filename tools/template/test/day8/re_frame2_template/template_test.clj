@@ -132,6 +132,7 @@
   ;; "acme/my_app".
   ["src/acme/my_app/core.cljs"
    "src/acme/my_app/events.cljs"
+   "src/acme/my_app/schema.cljs"
    "src/acme/my_app/subs.cljs"
    "src/acme/my_app/views.cljs"
    "test/acme/my_app/events_test.cljs"])
@@ -190,6 +191,59 @@
           (is (= "0.0.1.alpha"
                  (get-in deps [:deps 'day8/re-frame2-causa :mvn/version]))
               "Causa coord lockstep with core version"))
+
+        ;; -- Schemas coord in deps.edn (rf2-48mij) --
+        (let [deps (read-edn (io/file root "deps.edn"))]
+          (is (contains? (:deps deps) 'day8/re-frame2-schemas)
+              "deps.edn references day8/re-frame2-schemas (best-practice
+               whole-app-db schema needs the artefact on the classpath
+               for CLJS validation to fire)")
+          (is (= "0.0.1.alpha"
+                 (get-in deps [:deps 'day8/re-frame2-schemas :mvn/version]))
+              "schemas coord lockstep with core version"))
+
+        ;; -- Best-practice surface in events.cljs + schema.cljs (rf2-48mij) --
+        (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
+              schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))]
+          (is (.contains events-text "register-trace-listener!")
+              "events.cljs registers an error-sink trace listener
+               (errors-are-events-too best-practice)")
+          (is (.contains events-text "re-frame.trace.tooling")
+              "events.cljs uses the re-frame.trace.tooling/register-trace-listener!
+               surface — CLJS-only (the rf/... alias is JVM-only,
+               per rf2-qwm0a)")
+          (is (.contains events-text "re-frame.schemas")
+              "events.cljs side-effect-loads re-frame.schemas so Malli
+               publishes into the late-bind hook table before any
+               reg-app-schema runs")
+          (is (.contains events-text "re-frame.schemas.malli")
+              "events.cljs also loads the Malli adapter (without it the
+               default validator soft-passes per Spec 010)")
+          (is (.contains events-text ":rf.http/managed")
+              "events.cljs ships the commented HTTP failure-matrix
+               exemplar so users see the canonical call shape")
+          (is (.contains events-text ":rf.http/http-5xx")
+              "events.cljs's HTTP exemplar uses the closed
+               :rf.http/* category set in :retry :on")
+          (is (.contains schema-text "reg-app-schema")
+              "schema.cljs registers a whole-app-db schema")
+          (is (.contains schema-text "CounterDb")
+              "schema.cljs ships the CounterDb Malli schema"))
+
+        ;; -- README best-practice + naming sections (rf2-48mij) --
+        (let [readme-text (slurp (io/file root "README.md"))]
+          (is (.contains readme-text "Best practices baked into the scaffold")
+              "README has a Best practices section")
+          (is (.contains readme-text "Errors are events too")
+              "README documents the errors-are-events-too posture")
+          (is (.contains readme-text "Typed app-db boundaries")
+              "README documents the typed-at-boundaries posture")
+          (is (.contains readme-text "closed failure-category set")
+              "README documents the closed :rf.http/* failure-category set")
+          (is (.contains readme-text "Naming conventions")
+              "README documents the naming-conventions rules")
+          (is (.contains readme-text "spec/Conventions.md")
+              "README links to spec/Conventions.md for the normative catalogue"))
 
         ;; -- package.json sanity --
         (let [pj-text (slurp (io/file root "package.json"))]

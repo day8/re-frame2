@@ -16,6 +16,11 @@
 
          day8/re-frame2            {:mvn/version "{{rf2-version}}"}
          day8/re-frame2-uix        {:mvn/version "{{rf2-version}}"}
+         ;; Schema attachment — `reg-app-schema` + Malli adapter. The
+         ;; starter app's whole-app-db schema (see schema.cljs) needs
+         ;; this artefact for validation to actually fire; without it
+         ;; CLJS soft-passes per Spec 010 §Recommended soft-pass.
+         day8/re-frame2-schemas    {:mvn/version "{{rf2-version}}"}
          ;; In-app devtools panel — auto-opens into the app-provided
          ;; [data-rf-causa-host] left layout column. Wired via
          ;; :devtools/preloads in shadow-cljs.edn.

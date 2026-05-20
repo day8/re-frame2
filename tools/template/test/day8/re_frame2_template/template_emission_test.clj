@@ -461,6 +461,7 @@
         (assert-scratch-with-frame-shape! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
                      "src/acme/my_app/events.cljs"
+                     "src/acme/my_app/schema.cljs"
                      "src/acme/my_app/subs.cljs"
                      "src/acme/my_app/views.cljs"
                      "dev/scratch.cljs"]]

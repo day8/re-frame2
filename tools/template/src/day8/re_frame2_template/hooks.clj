@@ -254,6 +254,7 @@
                                 ;; path.
                                 "events.cljs"          (str "src/" nested "/events.cljs")
                                 "subs.cljs"            (str "src/" nested "/subs.cljs")
+                                "schema.cljs"          (str "src/" nested "/schema.cljs")
                                 "events_test.cljs"     (str "test/" nested "/events_test.cljs")}
                          ;; Story scaffolding lands under
                          ;; `src/<nested>/stories.cljs` when the flag

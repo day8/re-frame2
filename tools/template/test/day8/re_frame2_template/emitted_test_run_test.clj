@@ -152,7 +152,9 @@
             (assoc-in [:deps adapter-coord]
                       {:local/root (rel-of (str "implementation/adapters/" (name substrate)))})
             (assoc-in [:deps 'day8/re-frame2-causa]
-                      {:local/root (rel-of "tools/causa")}))]
+                      {:local/root (rel-of "tools/causa")})
+            (assoc-in [:deps 'day8/re-frame2-schemas]
+                      {:local/root (rel-of "implementation/schemas")}))]
     (spit deps-file (with-out-str (clojure.pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------
