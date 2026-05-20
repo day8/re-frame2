@@ -77,7 +77,11 @@
 
    :text-primary   "#E8EAF0"
    :text-secondary "#A8AEC0"
-   :text-tertiary  "#6B7080"
+   ;; `:text-tertiary` mirrors Causa's rf2-0fr6v WCAG-AA bump (from
+   ;; `#6B7080` to `#8990A0`). The drift-gate test
+   ;; `causa-and-machines-viz-dark-palettes-match-values` (rf2-z7ms8)
+   ;; locks this value to Causa's at the .cljc test surface.
+   :text-tertiary  "#8990A0"
 
    :accent-violet  "#7C5CFF"
    :cyan           "#43C3D0"
