@@ -37,7 +37,7 @@
   ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
   ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame.cofx :as cofx]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.emit :as rf-emit]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -274,8 +274,8 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; flows through `re-frame.error-emit/dispatch-on-error!` —
 ;; `:rf.error/handler-exception` (router), `:rf.error/fx-handler-
 ;; exception` family (fx), `:rf.error/flow-eval-exception` (flows).
-(error-emit/register-error-listener! ::error-projection
-                                          error-listener/error-emit-projection-listener)
+(rf-emit/register-error-listener! ::error-projection
+                                  error-listener/error-emit-projection-listener)
 
 ;; rf2-fb598 — secondary install site: the dev-only trace surface,
 ;; preserved for `:rf.error/*` categories that emit ONLY via
