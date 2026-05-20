@@ -226,11 +226,18 @@
   B), the tab carries `role='tab'` + `aria-selected` so assistive
   tech reads it as a tab, not a generic button."
   [{:keys [id label mnem active?]}]
-  (let [glyph (if active? "◉" "○")
-        color (if active? (:text-primary tokens) (:text-secondary tokens))]
+  (let [glyph    (if active? "◉" "○")
+        color    (if active? (:text-primary tokens) (:text-secondary tokens))
+        ;; rf2-plajx — mirror the Runtime tab-button pattern: stable
+        ;; tab-id + matching tabpanel id so the L4 panel's
+        ;; `aria-labelledby` resolves.
+        tab-id   (str "rf-causa-static-tab-button-" (name id))
+        panel-id (str "rf-causa-static-tabpanel-" (name id))]
     [:button {:data-testid   (str "rf-causa-static-tab-" (name id))
+              :id            tab-id
               :role          "tab"
               :aria-selected (if active? "true" "false")
+              :aria-controls panel-id
               :on-click      #(rf/dispatch [:rf.causa.static/select-tab id]
                                            {:frame :rf/causa})
               :title         (str label " (" mnem ")")
@@ -247,7 +254,9 @@
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
                       :white-space   "nowrap"}}
-     [:span {:style {:color (if active?
+     ;; rf2-vxpq1 — `aria-hidden` on decorative ●/○ glyph.
+     [:span {:aria-hidden "true"
+             :style {:color (if active?
                               (:cyan tokens)
                               (:text-tertiary tokens))
                      :margin-right "4px"}}
@@ -285,7 +294,10 @@
   "Render a placeholder card for an unfilled Static sub-tab. The card
   surfaces:
 
-    - The tab label as an `<h1>` for screen-reader navigation.
+    - The tab label as an `<h2>` for screen-reader navigation
+      (rf2-vxpq1 — was previously `<h1>` which nested a second top-
+      level heading inside the host document's outline; `<h2>` keeps
+      the placeholder a subheading under the host's `<h1>`).
     - The sibling bead id ('rf2-o5f5f.<N> will fill this').
     - A muted hint paragraph naming the upcoming content.
 
@@ -301,7 +313,7 @@
                      :font-family   sans-stack
                      :font-size     (:body type-scale)
                      :line-height   (:line-height-tight type-scale)}}
-   [:h1 {:style {:font-size     (:display type-scale)
+   [:h2 {:style {:font-size     (:display type-scale)
                  :margin        "0 0 8px 0"
                  :padding-left  "10px"
                  :border-left   (str "3px solid " (:cyan tokens))}}
@@ -347,6 +359,13 @@
                      default-tab)
         tab      (tab-by-id selected)]
     [:div {:data-testid (str "rf-causa-static-detail-panel-" (name selected))
+           ;; rf2-plajx — Static L4 closes the tab/tabpanel loop.
+           ;; Pairs with the per-tab `id` set by `tab-button` so
+           ;; assistive tech reads the panel as "labelled by <tab
+           ;; name>". Same shape as the Runtime detail-panel.
+           :id              (str "rf-causa-static-tabpanel-" (name selected))
+           :role            "tabpanel"
+           :aria-labelledby (str "rf-causa-static-tab-button-" (name selected))
            :style {:flex        "1 1 auto"
                    :min-height  "0"
                    :overflow    "auto"

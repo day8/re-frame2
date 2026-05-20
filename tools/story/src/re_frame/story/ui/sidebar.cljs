@@ -598,8 +598,18 @@
                 :aria-label "Stories and workspaces"
                 :tab-index  "0"}
           [:div {:style (:tree styles)}
-           [:div {:style (:header styles)}
-            [:span {:style {:display "inline-flex" :align-items "center"
+           ;; rf2-vxpq1 — sidebar landmarks the two top-level sections
+           ;; ("Stories" / "Workspaces") with `role="heading"` +
+           ;; `aria-level="2"`. The visible `<div>` keeps its existing
+           ;; styling unchanged; the role + level expose the section
+           ;; structure to AT users navigating by heading. Pure
+           ;; visual hiccup: no `<h2>` rewrite (would shift layout
+           ;; via UA stylesheet defaults), no test-id change.
+           [:div {:style       (:header styles)
+                  :role        "heading"
+                  :aria-level  "2"}
+            [:span {:aria-hidden "true"
+                    :style {:display "inline-flex" :align-items "center"
                             :color (:accent-amber colors/tokens)}}
              [glyphs/story-glyph 12]]
             [:span "Stories"]]
@@ -624,8 +634,14 @@
                [story-block entry sel-variant testable-set test-runs query]))
            (when (seq workspaces)
              [:div
-              [:div {:style (:section styles)}
-               [:span {:style {:display "inline-flex" :align-items "center"
+              ;; rf2-vxpq1 — matching heading semantics on the
+              ;; Workspaces section so AT users can land on either
+              ;; section via heading navigation.
+              [:div {:style       (:section styles)
+                     :role        "heading"
+                     :aria-level  "2"}
+               [:span {:aria-hidden "true"
+                       :style {:display "inline-flex" :align-items "center"
                                :color (:info colors/tokens)
                                :margin-right "6px"
                                :vertical-align "-2px"}}

@@ -516,7 +516,12 @@
             :style       {:color       (:magenta tokens)
                           :font-weight 600
                           :font-size   (:caption type-scale)}}
-     (str "● REDACTED " redacted-count)]))
+     ;; rf2-vxpq1 — the leading `●` glyph is decorative (the count
+     ;; + "REDACTED" word carry the meaning). `aria-hidden` on the
+     ;; glyph suppresses the unicode-name announcement ("black
+     ;; circle") while keeping the text + title accessible.
+     [:span {:aria-hidden "true"} "● "]
+     (str "REDACTED " redacted-count)]))
 
 (defn- ribbon-focus-chip
   "Focus chip (rf2-a1z3b) — surfaces the active focus-set as
@@ -546,7 +551,12 @@
                            :font-size      (:body type-scale)
                            :color          (:text-primary tokens)
                            :max-width      "240px"}}
-       [:span {:style {:color (:accent-violet tokens)
+       ;; rf2-vxpq1 — `🎯` is a decorative glyph; the chip's
+       ;; "Focus: <label>" tooltip + the label span carry the
+       ;; accessible meaning. `aria-hidden` suppresses the unicode-
+       ;; name announcement ("direct hit").
+       [:span {:aria-hidden "true"
+               :style {:color (:accent-violet tokens)
                        :font-weight 600}}
         "🎯"]                ;; 🎯 (UTF-16 surrogate pair for portability)
        [:span {:data-testid "rf-causa-focus-chip-label"
@@ -1336,11 +1346,17 @@
   rather than generic buttons and reads the selected state correctly;
   `getByRole('tab')` lookups in host integration tests resolve here."
   [{:keys [id label mnem active?]}]
-  (let [glyph (if active? "◉" "○")
-        color (if active? (:text-primary tokens) (:text-secondary tokens))]
+  (let [glyph    (if active? "◉" "○")
+        color    (if active? (:text-primary tokens) (:text-secondary tokens))
+        ;; rf2-plajx — stable per-tab id so the controlled L4 panel's
+        ;; `aria-labelledby` resolves to this button's accessible name.
+        tab-id   (str "rf-causa-tab-button-" (name id))
+        panel-id (str "rf-causa-tabpanel-" (name id))]
     [:button {:data-testid   (str "rf-causa-tab-" (name id))
+              :id            tab-id
               :role          "tab"
               :aria-selected (if active? "true" "false")
+              :aria-controls panel-id
               :on-click      #(rf/dispatch [:rf.causa/select-tab id] {:frame :rf/causa})
               :title         (str label " (" mnem ")")
               :aria-label    (str "Causa " label " tab")
@@ -1356,7 +1372,12 @@
                       :font-size     (:body type-scale)
                       :font-weight   (if active? 600 400)
                       :white-space   "nowrap"}}
-     [:span {:style {:color (if active?
+     ;; rf2-vxpq1 — the ●/○ glyph is decorative; the visible label
+     ;; carries the tab's accessible name. `aria-hidden="true"`
+     ;; suppresses the unicode-name announcement ("heavy black
+     ;; circle" / "white circle").
+     [:span {:aria-hidden "true"
+             :style {:color (if active?
                               (:accent-violet tokens)
                               (:text-tertiary tokens))
                      :margin-right "4px"}}
@@ -1437,6 +1458,15 @@
   (let [selected (or @(rf/subscribe [:rf.causa/selected-tab])
                      default-tab)]
     [:div {:data-testid (str "rf-causa-detail-panel-" (name selected))
+           ;; rf2-plajx — L4 closes the tab/tabpanel loop. The L3
+           ;; tablist owns `role="tablist"` + per-tab `role="tab"` +
+           ;; `aria-selected`; the panel completes the WAI-ARIA APG
+           ;; tabs pattern with `role="tabpanel"` + `aria-labelledby`
+           ;; pointing at the active tab button (per `tab-button`
+           ;; the id is `rf-causa-tab-button-<tab-id>`).
+           :id              (str "rf-causa-tabpanel-" (name selected))
+           :role            "tabpanel"
+           :aria-labelledby (str "rf-causa-tab-button-" (name selected))
            :style {:flex        "1 1 auto"
                    :min-height  "0"
                    :overflow    "auto"
@@ -1592,6 +1622,18 @@
                         {:frame :rf/causa})))
   [rf/frame-provider {:frame :rf/causa}
    [:div {:data-testid "rf-causa-shell"
+          ;; rf2-plajx — Causa shell root is a landmark. A 40%-
+          ;; viewport overlay rendered as a bare `<div>` is invisible
+          ;; to screen-reader landmark navigation (JAWS R-key /
+          ;; NVDA D-key). `role="region"` + `aria-label` exposes the
+          ;; shell as a labelled landmark so AT users can jump to it.
+          ;; "region" (rather than "complementary" / "aside") matches
+          ;; the audit's Q3 disposition: Causa is a global chrome
+          ;; surface with its own internal landmark structure (L1
+          ;; ribbon = toolbar, L3 = tablist, L4 = tabpanel) rather
+          ;; than content complementary to the host's main.
+          :role        "region"
+          :aria-label  "Causa devtools"
           ;; Per rf2-zkfiz Q1-9 the spec-published mode axis is
           ;; `data-rf-causa-mode` (mount.cljs writes it on both the
           ;; root and the shell node). The previous `data-mode` echo

@@ -29,7 +29,8 @@
   substrate registry is a runtime atom and the host app populates it
   via `register-substrate!`. Story core consequently does not pull
   UIx / Helix into the classpath."
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.args :as args]
             [re-frame.story.registrar :as registrar]
@@ -233,7 +234,21 @@
                        variant-id
                        {:active-modes   (:active-modes shell)
                         :cell-overrides (get-in shell [:cell-overrides variant-id])})]
-    [:div {:style (:grid styles)}
+    ;; rf2-lbutp — the multi-substrate grid is the canvas's labelled
+    ;; landmark when a variant declares ≥2 substrates. `role="group"`
+    ;; + `aria-label` exposes the substrate-comparison surface as a
+    ;; group of cells; each cell is a `role="region"` with the
+    ;; substrate name as its accessible label (set in
+    ;; `safe-render-cell` below). The audit (#16) flagged the
+    ;; surface as zero-ARIA — the cells now read as labelled regions
+    ;; in landmark navigation.
+    [:div {:style       (:grid styles)
+           :role        "group"
+           :aria-label  (str "Multi-substrate render — "
+                             (str/join ", "
+                               (map name (sort-by name substrates))))}
      (for [substrate (sort-by name substrates)]
-       [:div {:key (name substrate)}
+       [:div {:key         (name substrate)
+              :role        "region"
+              :aria-label  (str (name substrate) " substrate cell")}
         (safe-render-cell variant-id substrate view-id eff-args)])]))
