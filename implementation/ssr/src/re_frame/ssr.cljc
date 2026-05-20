@@ -9,8 +9,9 @@
   Façade over eight flat sub-namespaces (`emit`, `hash`, `substrate`,
   `hydrate`, `response`, `error-projector`, `error-listener`,
   `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
-  `reg-error-projector` / `register-trace-cb!` side-effects fire HERE
-  so `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
+  `reg-error-projector` / `register-error-emit-listener!` /
+  `register-trace-cb!` side-effects fire HERE so
+  `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
   re-installs every registration. Sub-namespaces export pure handler
   fns only.
 
@@ -36,6 +37,7 @@
   ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
   ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame.cofx :as cofx]
+            [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
@@ -263,6 +265,29 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
                      {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
                      default-error-projector-fn)
 
+;; rf2-fb598 — primary install site: the always-on error-emit substrate.
+;; Per Spec 011 §Server error projection / Spec 009 §What IS available in
+;; production §Error-emit listener, this listener survives
+;; `interop/debug-enabled? = false` (production hardening per rf2-vnjfg)
+;; so the SSR `:rf/public-error` projection contract holds even when the
+;; trace surface is gated off. Catches every `:rf.error/*` category that
+;; flows through `re-frame.error-emit/dispatch-on-error!` —
+;; `:rf.error/handler-exception` (router), `:rf.error/fx-handler-
+;; exception` family (fx), `:rf.error/flow-eval-exception` (flows).
+(error-emit/register-error-emit-listener! ::error-projection
+                                          error-listener/error-emit-projection-listener)
+
+;; rf2-fb598 — secondary install site: the dev-only trace surface,
+;; preserved for `:rf.error/*` categories that emit ONLY via
+;; `trace/emit-error!` (no always-on emission path): `:rf.error/no-such-
+;; handler`, `:rf.error/no-such-route`, `:rf.error/schema-validation-
+;; failure`, `:rf.error/sub-exception`, `:rf.error/drain-depth-exceeded`.
+;; These categories DCE under `interop/debug-enabled? = false`; the
+;; substrate-shipping projector relies on the dev gate for them. Both
+;; listeners share id `::error-projection` to keep the contract surface
+;; addressable as one logical projector — `apply-error-projection!`
+;; 1-arity is last-write-wins, so the duplicate buffer entry under dev
+;; is benign.
 (trace-tooling/register-trace-cb! ::error-projection
                                   error-listener/error-projection-listener)
 
