@@ -138,7 +138,8 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
 (def RegistrationMetadata
   [:map
    [:doc        {:optional true} :string]                                  ;; SHOULD per [001 §:doc is dev-warned when absent]; structurally optional so re-registrations and programmatic paths still validate
-   [:spec       {:optional true} :any]                                     ;; Malli schema (or implementation equivalent)
+   [:schema     {:optional true} :any]                                     ;; Malli schema (or implementation equivalent) — canonical key per rf2-ieu0i
+   [:spec       {:optional true} :any]                                     ;; deprecated v1 alias of :schema — accepted for one cycle, emits :rf.warning/deprecated-schema-alias once per handler-id; see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i)
    [:ns         {:optional true} :symbol]                                  ;; auto-supplied by macros — flat per [§`:rf/source-coord-meta`](#rfsource-coord-meta)
    [:line       {:optional true} :int]
    [:column     {:optional true} :int]
@@ -242,13 +243,13 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
     [:rf/id        {:optional true} :keyword]                                ;; explicit id override (auto-derived from *ns* + symbol when absent)
     [:rf/args      {:optional true} [:vector :symbol]]                       ;; the macro-captured args-vector symbols (defn-shape introspection)
     [:rf/form      {:optional true} [:enum :form-1 :form-2 :form-3]]         ;; the view body's Reagent form discriminator
-    [:rf/props     {:optional true} :any]                                    ;; Malli schema for the view's props (when supplied); composes with the base :spec key per [010](010-Schemas.md)
+    [:rf/props     {:optional true} :any]                                    ;; Malli schema for the view's props (when supplied); composes with the base :schema key per [010](010-Schemas.md)
     ]])
 ```
 
 `:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
-**Note — Story's `:schema` legacy alias.** The Story tool (`tools/story/`) currently reads `:spec` and falls back to `:schema` (legacy alias) on view registrations — see [`tools/story/src/re_frame/story/ui/schema_validation.cljc`](../tools/story/src/re_frame/story/ui/schema_validation.cljc). The canonical key per `:rf/view-meta` is `:spec`; the `:schema` alias is a Story-internal accommodation acknowledged here only for discoverability. The framework itself recognises only `:spec`; tools authoring per Story conformance should use `:spec`. Pre-alpha: no back-compat shim — a follow-on bead will either remove the Story-side alias or formalise it as a per-tool extension key.
+**Note — `:schema` is now canonical (rf2-ieu0i).** Story's earlier reading of `:schema` (as a legacy alias to the framework's `:spec`) is now in line with the canonical name — both Story and the framework speak `:schema` from rf2-ieu0i onward. The v1 `:spec` key is accepted as a deprecated alias for one cycle; see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
 
 #### `:rf/machine-meta`
 
@@ -270,7 +271,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
 
 | Lens | Returns | Implementation |
 |---|---|---|
-| `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
+| `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
 | `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps, the initial `:data` map, and (when macro-stamped) the `:rf.machine/source-coords` coord index. | `(:rf/machine (handler-meta :event machine-id))` |
 
 Visualisers walking the transition table consume `(machine-meta id)`; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines/lifecycle_fx.cljc`](../implementation/machines/src/re_frame/machines/lifecycle_fx.cljc) (`machines` / `machine-meta`).
@@ -279,7 +280,7 @@ Visualisers walking the transition table consume `(machine-meta id)`; tools need
 
 > **Layer:** Public
 
-The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:output`, `:path`) and the registration metadata (`:doc`, `:spec`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
+The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:output`, `:path`) and the registration metadata (`:doc`, `:schema`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
 
 ```clojure
 (def FlowMeta
@@ -293,7 +294,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
     ]])
 ```
 
-`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:spec`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects malformed maps with one of four distinct error keys — `:rf.error/flow-missing-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
+`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects malformed maps with one of four distinct error keys — `:rf.error/flow-missing-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
 
 #### `:rf/app-schema-meta`
 
@@ -339,7 +340,7 @@ The metadata map accepted by `reg-head` (per [011 §Mechanism — registered hea
    [:map
     ;; No required per-kind extras beyond the base shape — head registrations are
     ;; reflection-metadata-only at the slot level. The head model returned by the fn
-    ;; conforms to :rf/head-model (defined below); a :spec key here may name that schema.
+    ;; conforms to :rf/head-model (defined below); a :schema key here may name that schema.
     ]])
 ```
 
@@ -376,7 +377,7 @@ The metadata map accepted by `reg-http-interceptor` (per [014 §Middleware](014-
     ]])
 ```
 
-`:id`, `:before`, and `:frame` are the interceptor-specific slots; the base `RegistrationMetadata` keys (`:doc`, `:spec`, `:tags`, `:sensitive?`, `:ns` / `:line` / `:column` / `:file`) flow through additively — source-coords are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` only) and is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
+`:id`, `:before`, and `:frame` are the interceptor-specific slots; the base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:sensitive?`, `:ns` / `:line` / `:column` / `:file`) flow through additively — source-coords are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` only) and is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
 
 The route-shape — `:rf/route-metadata` — is defined separately further below in this catalogue (it predates this per-kind grouping). It composes with `:rf/registration-metadata` the same way the kinds above do; per [§`:rf/route-metadata`](#rfroute-metadata).
 
@@ -386,7 +387,7 @@ The route-shape — `:rf/route-metadata` — is defined separately further below
 > **Owner:** [001-Registration §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)
 > **Status:** v1-required
 
-The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:spec` / `:tags` — so `(rf/handler-meta kind id)` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
+The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:schema` / `:tags` — so `(rf/handler-meta kind id)` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
 
 ```clojure
 (def SourceCoordMeta
@@ -2072,7 +2073,7 @@ The map is **closed** — production must not silently leak unknown keys. The `:
 
 > **Layer:** Runtime
 
-The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (the ones the runtime / standard libraries register) has a known args shape; this section registers them so the conformance corpus and AI scaffolding can validate fx-args at the call site. User-registered fx attach their own args schema via the `:spec` metadata on `reg-fx` (per [010 §Where schemas attach](010-Schemas.md#where-schemas-attach)).
+The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (the ones the runtime / standard libraries register) has a known args shape; this section registers them so the conformance corpus and AI scaffolding can validate fx-args at the call site. User-registered fx attach their own args schema via the `:schema` metadata on `reg-fx` (per [010 §Where schemas attach](010-Schemas.md#where-schemas-attach)).
 
 ```clojure
 ;; :dispatch — dispatches another event in the same frame
@@ -2215,9 +2216,9 @@ These are registered under spec ids:
 | `:rf.fx.server/delete-cookie-args` | `:rf.server/delete-cookie` |
 | `:rf.fx.server/redirect-args` | `:rf.server/redirect` |
 
-The `:http` schema is **user-owned, not framework-owned** — projects that ship their own HTTP integration register their own `:spec` on their own `:http` `reg-fx`. The schema here is a reasonable starting point (the conformance corpus uses it) but is not part of the locked pattern contract.
+The `:http` schema is **user-owned, not framework-owned** — projects that ship their own HTTP integration register their own `:schema` on their own `:http` `reg-fx`. The schema here is a reasonable starting point (the conformance corpus uses it) but is not part of the locked pattern contract.
 
-Per-fx args validation runs as part of the standard fx-arg validation (per [010 §Validation timing](010-Schemas.md#validation-timing)) when the `reg-fx` registration carries a `:spec`. The standard fx ship with `:spec` set to the corresponding schema above.
+Per-fx args validation runs as part of the standard fx-arg validation (per [010 §Validation timing](010-Schemas.md#validation-timing)) when the `reg-fx` registration carries a `:schema`. The standard fx ship with `:schema` set to the corresponding schema above.
 
 ### `:rf/frame-meta`
 
@@ -2225,7 +2226,7 @@ Per-fx args validation runs as part of the standard fx-arg validation (per [010 
 > **Owner:** [002-Frames §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)
 > **Status:** v1-required
 
-Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records which preset was applied (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)); the *expanded* keys are the effective metadata map. Composes with `:rf/registration-metadata` the same way every other per-kind shape does — base `:doc` / `:tags` / `:spec` / `:ns` / `:line` / `:column` / `:file` / `:platforms` / `:sensitive?` come from the merge; the keys below are the frame-specific additions.
+Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records which preset was applied (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)); the *expanded* keys are the effective metadata map. Composes with `:rf/registration-metadata` the same way every other per-kind shape does — base `:doc` / `:tags` / `:schema` / `:ns` / `:line` / `:column` / `:file` / `:platforms` / `:sensitive?` come from the merge; the keys below are the frame-specific additions.
 
 ```clojure
 (def FrameMeta

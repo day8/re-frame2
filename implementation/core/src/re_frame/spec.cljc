@@ -1,6 +1,15 @@
 (ns re-frame.spec
   "Schema-related interceptors. Per Spec 010 §Production builds (rf2-r2uh).
 
+  > The ns name is preserved from v2's early phase (`re-frame.spec`),
+  > but the canonical vocabulary is `:schema` everywhere else after
+  > rf2-ieu0i — the interceptor `:id` is `:rf.schema/at-boundary`,
+  > the handler-metadata key is `:schema` (the bare `:spec` key is
+  > accepted as a deprecated alias for one cycle), and the hot-reload
+  > trace category is `:rf.schema/violation`. The namespace alias
+  > remains available for back-compat; new code should reach the
+  > interceptor through `re-frame.core/at-boundary`.
+
   The headline export is `at-boundary` — the production-side
   validation interceptor users attach to event handlers that ingest
   data from untrusted sources (HTTP responses, websocket messages,
@@ -14,30 +23,27 @@
 
   ```clojure
   (ns my-app.api
-    (:require [re-frame.core :as rf]
-              [re-frame.spec :as spec]))
+    (:require [re-frame.core :as rf]))
 
   (rf/reg-event-fx :api/response-received
-    {:spec ApiResponseSchema}
-    [spec/at-boundary]
+    {:schema ApiResponseSchema}
+    [rf/at-boundary]
     (fn [_ [_ payload]] ...))
   ```
 
-  Re-frame.core re-exports the same value as `rf/at-boundary`
-  so apps that don't want a separate alias can write
-  `[rf/at-boundary]` instead.
+  The interceptor reuses the handler's existing `:schema` metadata —
+  it does NOT introduce a parallel schema. The deprecated `:spec`
+  alias is also recognised (one-cycle migration window per
+  rf2-ieu0i). Per Spec 010 L143:
 
-  The interceptor reuses the handler's existing `:spec` metadata —
-  it does NOT introduce a parallel schema. Per Spec 010 L143:
-
-  - In **dev builds**, every event handler's `:spec` is checked anyway
+  - In **dev builds**, every event handler's `:schema` is checked anyway
     (per Spec 010 §Validation order step 1). The boundary interceptor
     is a no-op in this mode — it doesn't run validation a second time.
   - In **production builds**, `re-frame.interop/debug-enabled?` is
     `false` and step-1 validation is elided. The boundary interceptor
-    runs the same `:spec` check inline, so handlers carrying it still
-    validate at the boundary.
-  - In **production builds with no `:spec`** on the handler, the
+    runs the same `:schema` check inline, so handlers carrying it
+    still validate at the boundary.
+  - In **production builds with no `:schema`** on the handler, the
     boundary interceptor is a no-op (nothing to validate against) and
     emits `:rf.warning/boundary-without-spec` once per `(handler-id)`
     to flag the misconfiguration.
@@ -67,7 +73,7 @@
 ;;
 ;; `:rf.warning/boundary-without-spec` fires at most once per handler-id —
 ;; the misconfiguration (boundary interceptor attached to a handler with
-;; no `:spec`) is a steady-state condition. Without suppression every
+;; no `:schema`) is a steady-state condition. Without suppression every
 ;; dispatch of the offending event would emit the warning. Mirrors the
 ;; warn-once cache pattern from re-frame.views (rf2-d3k3).
 
@@ -114,28 +120,33 @@
   []
   interop/debug-enabled?)
 
-;; ---- :spec/at-boundary ----------------------------------------------------
+;; ---- :rf.schema/at-boundary ----------------------------------------------
 ;;
 ;; Per Spec 010 §Production builds. The interceptor runs in the
 ;; :before slot — pre-handler, alongside the dev-mode step-1
 ;; validation site. Failure recovery is identical to step-1: skip the
 ;; handler (set `:rf/skip-handler?` on the context); downstream queue
 ;; continues.
+;;
+;; The interceptor's `:id` is `:rf.schema/at-boundary` — renamed from
+;; `:spec/at-boundary` at rf2-ieu0i as part of the framework-wide
+;; `:spec` → `schema` vocabulary unification.
 
 (def at-boundary
   "Production-side schema validation interceptor. Per Spec 010 §Production
   builds. Add to a `reg-event-*` handler's positional interceptor vector
-  to force `:spec` validation against the dispatched event vector even
+  to force `:schema` validation against the dispatched event vector even
   in production builds where dev-time validation is elided.
 
-  Re-uses the handler's existing `:spec` metadata; does not introduce
-  a parallel schema. No-op in dev builds (step-1 validation already
-  fires); no-op when no validator is registered (`set-schema-validator!`
-  was called with `nil`); no-op when the handler carries no `:spec`
-  (and emits `:rf.warning/boundary-without-spec` once to flag the
-  misconfiguration)."
+  Re-uses the handler's existing `:schema` metadata (or the deprecated
+  `:spec` alias — accepted for one cycle per rf2-ieu0i); does not
+  introduce a parallel schema. No-op in dev builds (step-1 validation
+  already fires); no-op when no validator is registered
+  (`set-schema-validator!` was called with `nil`); no-op when the
+  handler carries no `:schema` (and emits
+  `:rf.warning/boundary-without-spec` once to flag the misconfiguration)."
   (interceptor/->interceptor
-    :id :spec/at-boundary
+    :id :rf.schema/at-boundary
     :before
     (fn [ctx]
       ;; In dev builds, step-1 validation already ran in the router's
@@ -159,7 +170,9 @@
                   event-id    (when (vector? event) (first event))
                   handler-meta (when event-id
                                  (registrar/lookup :event event-id))
-                  schema      (:spec handler-meta)]
+                  ;; Accept :schema (canonical, rf2-ieu0i) or :spec
+                  ;; (deprecated alias kept for one cycle).
+                  schema      (or (:schema handler-meta) (:spec handler-meta))]
               (cond
                 ;; No handler-id / no metadata — defensive; the runtime
                 ;; should never call an interceptor without an event.
@@ -168,7 +181,7 @@
                 ctx
 
                 ;; Per Spec 010 L147 — boundary attached to a handler with
-                ;; no :spec. Warn once and no-op.
+                ;; no :schema. Warn once and no-op.
                 (nil? schema)
                 (do
                   (when-not (contains? @boundary-warned-handler-ids event-id)
@@ -177,12 +190,12 @@
                                  {:event-id event-id
                                   :event    event
                                   :reason
-                                  (str ":spec/at-boundary is attached "
+                                  (str ":rf.schema/at-boundary is attached "
                                        "to event handler `" event-id "` but the "
-                                       "handler carries no `:spec` metadata. The "
+                                       "handler carries no `:schema` metadata. The "
                                        "boundary interceptor cannot validate "
                                        "without a schema; this dispatch passes "
-                                       "through unchecked. Either attach a `:spec` "
+                                       "through unchecked. Either attach a `:schema` "
                                        "to the handler's metadata-map (recommended) "
                                        "or remove the boundary interceptor.")
                                   :recovery :no-recovery}))
@@ -207,7 +220,7 @@
                                          {:where      :event
                                           :event-id   event-id
                                           :failing-id event-id
-                                          :spec-id    event-id
+                                          :schema-id  event-id
                                           :received   event
                                           :value      event
                                           :explain    explanation

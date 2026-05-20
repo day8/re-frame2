@@ -396,9 +396,9 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 | `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` / `(set-schema-validator! {:validate validate-fn :explain explain-fn})` — install the validator (and optionally the explainer) every dev-time schema-validation site routes through. `nil` disables validation entirely. Default ships Malli's `validate`/`explain` pair; this seam lets apps swap in their own validator to drop the Malli dep. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
 | `set-schema-printer!` | Fn | `(set-schema-printer! print-fn)` — install the **schema-print companion** the digest pipeline (per [010 §Schema digest](010-Schemas.md#schema-digest)) hashes. `print-fn` is `(fn [schema-value] canonical-string)` and MUST be pure + deterministic across runtimes. `nil` falls back to the default EDN canonicaliser so the digest is never undefined. Parallel to `set-schema-validator!` / `set-schema-explainer!`: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract. Per [010 §Default validator and the validator-fn extension point](010-Schemas.md#default-validator-and-the-validator-fn-extension-point). | v1 | 010 |
-| `at-boundary` | Var (interceptor value) | `at-boundary` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:spec/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/at-boundary ...)` raises `ArityException`). | v1 | 010 |
+| `at-boundary` | Var (interceptor value) | `at-boundary` — a **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation; do **not** call it as a fn (it has no fn arity — invoking `(rf/at-boundary ...)` raises `ArityException`). | v1 | 010 |
 
-See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and dev/prod elision.
+See [010 §Schemas](010-Schemas.md) for `:schema` metadata, validation timing, and dev/prod elision. (v1's `:spec` metadata key is accepted as a deprecated alias for one cycle — per [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).)
 
 ---
 
@@ -619,7 +619,7 @@ Removed in v2 (see [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-
 | `debug` | Trace surface ([009](009-Instrumentation.md)) + 10x / re-frame-pair |
 | `trim-v` | Canonical map-payload call shape ([M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)) |
 | `on-changes` | Flows ([Spec 013](013-Flows.md)) |
-| `enrich` | Flows (derived state) / `:spec` (validation) / custom `->interceptor` (escape hatch) |
+| `enrich` | Flows (derived state) / `:schema` (validation) / custom `->interceptor` (escape hatch) |
 | `after` | Registered fx (`:fx [[:my-fx ...]]`) for side-effects; custom `->interceptor` for context-shaped work; vendor from v1 if the helper is wanted as a local utility |
 
 ### `reg-flow` / `clear-flow` (Spec 013)

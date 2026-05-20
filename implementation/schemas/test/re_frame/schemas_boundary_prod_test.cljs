@@ -1,6 +1,6 @@
 (ns re-frame.schemas-boundary-prod-test
-  "Production-mode CLJS smoke for `:spec/at-boundary` (rf2-r2uh,
-  rf2-84e9).
+  "Production-mode CLJS smoke for `:rf.schema/at-boundary` (rf2-r2uh,
+  rf2-84e9; renamed from `:spec/at-boundary` at rf2-ieu0i).
 
   The JVM smoke (`re-frame.schemas-test`) exercises the dev/prod gate by
   rebinding `re-frame.spec/dev-mode?` via `with-redefs`. That proves the

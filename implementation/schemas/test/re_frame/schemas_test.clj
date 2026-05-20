@@ -43,6 +43,7 @@
             ;; validator soft-passes (Spec 010 §Recommended soft-pass).
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
+            [re-frame.registrar :as registrar]
             [re-frame.spec :as spec]
             [re-frame.trace :as trace]))
 
@@ -238,7 +239,7 @@
           (let [v (first violations)]
             (is (= :event (-> v :tags :where)))
             (is (= :user/register (-> v :tags :failing-id)))
-            (is (= :user/register (-> v :tags :spec-id)))))))))
+            (is (= :user/register (-> v :tags :schema-id)))))))))
 
 (deftest event-payload-validation-elides-when-debug-disabled
   (testing "validate-event! is a no-op when debug-enabled? is false (production)"
@@ -286,7 +287,7 @@
         (let [v (first violations)]
           (is (= :sub-return (-> v :tags :where)))
           (is (= :items (-> v :tags :sub-id)))
-          (is (= :items (-> v :tags :spec-id)))
+          (is (= :items (-> v :tags :schema-id)))
           (is (= :replaced-with-default (:recovery v))))))))
 
 (deftest compute-sub-validates-return-value
@@ -337,7 +338,7 @@
             (is (= :cofx (-> v :tags :where)))
             (is (= :cap/seed (-> v :tags :failing-id)))
             (is (= :app-version/bad (-> v :tags :cofx-id)))
-            (is (= :app-version/bad (-> v :tags :spec-id)))
+            (is (= :app-version/bad (-> v :tags :schema-id)))
             (is (= :no-recovery (:recovery v)))))))))
 
 (deftest cofx-validation-passes-when-conforming
@@ -398,7 +399,7 @@
             (is (= :fx-args (-> v :tags :where)))
             (is (= :my/notify (-> v :tags :failing-id)))
             (is (= :my/notify (-> v :tags :fx-id)))
-            (is (= :my/notify (-> v :tags :spec-id)))
+            (is (= :my/notify (-> v :tags :schema-id)))
             (is (= :ui/announce (-> v :tags :event-id))
                 "the originating event-id threads through to the fx-args trace")
             (is (= :skipped (:recovery v))
@@ -472,7 +473,7 @@
           (is (= :fx-args   (-> v :tags :where)))
           (is (= :my/fx     (-> v :tags :fx-id)))
           (is (= :my/fx     (-> v :tags :failing-id)))
-          (is (= :my/fx     (-> v :tags :spec-id)))
+          (is (= :my/fx     (-> v :tags :schema-id)))
           (is (= :ev/origin (-> v :tags :event-id)))
           (is (= {:x "bad"} (-> v :tags :fx-args)))
           (is (= {:x "bad"} (-> v :tags :value)))
@@ -1049,10 +1050,10 @@
       (is (= "::FROM-PUBLIC-MAP-ARITY::" (validator/run-printer :int))
           "the printer installed via the map arity reaches the hot path"))))
 
-;; ---- rf2-r2uh — :spec/at-boundary interceptor ----------------------------
+;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
 ;;
 ;; Per Spec 010 §Production builds — the boundary-validation interceptor
-;; runs the handler's :spec check inline in production builds (where
+;; runs the handler's :schema check inline in production builds (where
 ;; dev-time validation has been elided). Re-uses the dev-time validator
 ;; seam (rf2-froe) so a substituted validator covers both surfaces.
 ;;
@@ -1156,7 +1157,7 @@
           (is (= :api/strict (-> v :tags :event-id))
               ":event-id names the boundary-validated handler")
           (is (= :api/strict (-> v :tags :failing-id)))
-          (is (= :api/strict (-> v :tags :spec-id)))
+          (is (= :api/strict (-> v :tags :schema-id)))
           (is (= :boundary (-> v :tags :source))
               ":source :boundary tags this as the boundary emission")
           (is (= [:api/strict "not-an-int"] (-> v :tags :received))
@@ -1310,7 +1311,7 @@
           (let [w (first warnings)]
             (is (= :api/no-spec (-> w :tags :event-id)))
             (is (string? (-> w :tags :reason)))
-            (is (str/includes? (-> w :tags :reason) "no `:spec`"))))))))
+            (is (str/includes? (-> w :tags :reason) "no `:schema`"))))))))
 
 ;; ---- snapshot / restore / clear schemas-by-frame (rf2-6lka) --------------
 ;;
@@ -1444,3 +1445,114 @@
       (is (= [] paths))
       (is (= {} (rf/app-schemas))
           "no schemas registered on the active frame"))))
+
+;; ---- rf2-ieu0i — :schema canonical / :spec deprecated alias --------------
+;;
+;; Per Mike's decision at rf2-ieu0i the framework collapses the dual
+;; vocabulary (`:spec` / `schema` / `validation` / `violation`) under a
+;; single name — `:schema`. The v1 `:spec` metadata key is accepted as
+;; a deprecated alias for one cycle:
+;;
+;;   1. Both `:schema` and `:spec` resolve at the validate-*! lookup
+;;      site (`(or (:schema meta) (:spec meta))`); the chosen schema
+;;      validates identically.
+;;   2. The registrar emits `:rf.warning/deprecated-schema-alias` once
+;;      per (kind, id) when `:spec` appears on a `reg-*` — surfacing
+;;      the migration call sites for the M-54 mechanical rewrite.
+;;
+;; These tests pin both contract surfaces.
+
+(deftest schema-canonical-key-validates-the-same-as-spec-alias
+  (testing "rf2-ieu0i — `:schema` and `:spec` on `reg-event-*` metadata
+            both route through the same validate-event! path; a
+            malformed event vector fails both surfaces identically."
+    (registrar/clear-warning-caches!)
+    ;; Canonical name — :schema.
+    (rf/reg-event-fx :user/canonical
+      {:schema [:cat [:= :user/canonical] [:map [:email :string]]]}
+      (fn [_ _] {}))
+    ;; Deprecated alias — :spec.
+    (rf/reg-event-fx :user/alias
+      {:spec [:cat [:= :user/alias] [:map [:email :string]]]}
+      (fn [_ _] {}))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::dual (fn [ev] (swap! traces conj ev)))
+      (with-redefs [interop/debug-enabled? true]
+        (rf/dispatch-sync [:user/canonical {:email 42}])
+        (rf/dispatch-sync [:user/alias {:email 42}]))
+      (rf/remove-trace-cb! ::dual)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 2 (count violations))
+            "both the :schema-keyed and :spec-keyed handlers emit one validation failure each")
+        (is (= #{:user/canonical :user/alias}
+               (set (map #(-> % :tags :failing-id) violations)))
+            "the failing-id tag identifies each handler — same emit shape on both paths")))))
+
+(deftest deprecated-spec-alias-emits-warning-once-per-handler-id
+  (testing "rf2-ieu0i — a `reg-*` carrying the deprecated `:spec` key
+            triggers `:rf.warning/deprecated-schema-alias` at most once
+            per (kind, id) so the migration scaffolding can find the
+            call sites. Subsequent re-registrations on the same id stay
+            silent until `clear-warning-caches!` flips the suppression."
+    (registrar/clear-warning-caches!)
+    (let [warnings (atom [])]
+      (rf/register-trace-cb! ::dep (fn [ev]
+                                     (when (= :rf.warning/deprecated-schema-alias
+                                              (:operation ev))
+                                       (swap! warnings conj ev))))
+      ;; First registration — warning fires once.
+      (rf/reg-event-fx :user/legacy
+        {:spec [:cat [:= :user/legacy] :int]}
+        (fn [_ _] {}))
+      ;; Re-registration of the same id — suppressed by the warn-once cache.
+      (rf/reg-event-fx :user/legacy
+        {:spec [:cat [:= :user/legacy] :int]}
+        (fn [_ _] {}))
+      (rf/remove-trace-cb! ::dep)
+      (is (= 1 (count @warnings))
+          "exactly one deprecation warning across two registrations of the same id")
+      (let [w (first @warnings)]
+        (is (= :event (-> w :tags :kind)))
+        (is (= :user/legacy (-> w :tags :id)))
+        (is (string? (-> w :tags :reason)))
+        (is (str/includes? (-> w :tags :reason) ":spec"))
+        (is (str/includes? (-> w :tags :reason) ":schema"))))))
+
+(deftest canonical-schema-key-does-not-emit-deprecation-warning
+  (testing "rf2-ieu0i — `:schema` on a `reg-*` is the canonical name; no
+            deprecation warning fires."
+    (registrar/clear-warning-caches!)
+    (let [warnings (atom [])]
+      (rf/register-trace-cb! ::can (fn [ev]
+                                     (when (= :rf.warning/deprecated-schema-alias
+                                              (:operation ev))
+                                       (swap! warnings conj ev))))
+      (rf/reg-event-fx :user/modern
+        {:schema [:cat [:= :user/modern] :int]}
+        (fn [_ _] {}))
+      (rf/remove-trace-cb! ::can)
+      (is (empty? @warnings)
+          "no deprecation warning when the canonical :schema key is used"))))
+
+(deftest boundary-interceptor-reads-schema-key
+  (testing "rf2-ieu0i — `:rf.schema/at-boundary` interceptor reads the
+            canonical `:schema` key (and falls back to `:spec` per the
+            one-cycle alias contract)."
+    ;; Verify the interceptor id was renamed.
+    (is (= :rf.schema/at-boundary (:id rf/at-boundary))
+        ":id of the boundary interceptor is :rf.schema/at-boundary (rf2-ieu0i)")
+    ;; Canonical :schema path — validation reads :schema.
+    (rf/reg-event-fx :api/schema-key
+      {:schema [:cat [:= :api/schema-key] :int]}
+      [rf/at-boundary]
+      (fn [_ _] {}))
+    (with-redefs [spec/dev-mode? (constantly false)]
+      (let [before  (:before rf/at-boundary)
+            valid   (before {:coeffects {:event [:api/schema-key 7]}})
+            invalid (before {:coeffects {:event [:api/schema-key "no"]}})]
+        (is (not (:rf/skip-handler? valid))
+            ":schema metadata + valid payload → handler proceeds")
+        (is (true? (:rf/skip-handler? invalid))
+            ":schema metadata + invalid payload → handler skipped")))))

@@ -128,10 +128,11 @@
 ;;                        function — collision warning) ---------------------
 ;;
 ;; `:rf.warning/missing-doc` fires at most once per `(kind, id)` pair
-;; within a runtime process. `:rf.warning/registration-collision`
-;; uses the same suppression discipline. Mirrors the warn-once cache
-;; pattern from re-frame.spec (boundary-without-spec) and
-;; re-frame.views (plain-fn-under-non-default-frame-once).
+;; within a runtime process. `:rf.warning/registration-collision` and
+;; `:rf.warning/deprecated-schema-alias` (rf2-ieu0i) use the same
+;; suppression discipline. Mirrors the warn-once cache pattern from
+;; re-frame.spec (boundary-without-spec) and re-frame.views
+;; (plain-fn-under-non-default-frame-once).
 ;;
 ;; Caches sit alongside the registry; production elision (Spec 009
 ;; §Production builds) elides the consult+emit branches, but the
@@ -143,9 +144,13 @@
 (defonce ^:private collision-warned
   (atom #{}))
 
+(defonce ^:private deprecated-schema-alias-warned
+  (atom #{}))
+
 (defn clear-warning-caches!
-  "Reset the warn-once caches for `:rf.warning/missing-doc` and
-  `:rf.warning/registration-collision`. Tests use this between cases
+  "Reset the warn-once caches for `:rf.warning/missing-doc`,
+  `:rf.warning/registration-collision`, and
+  `:rf.warning/deprecated-schema-alias`. Tests use this between cases
   so each case starts from a clean slate.
 
   Per Spec 001 §`:doc` is dev-warned when absent: suppression is
@@ -153,6 +158,7 @@
   []
   (reset! missing-doc-warned #{})
   (reset! collision-warned   #{})
+  (reset! deprecated-schema-alias-warned #{})
   nil)
 
 (defn- source-coords
@@ -201,6 +207,39 @@
         (swap! missing-doc-warned conj k)
         (emit-warning! :rf.warning/missing-doc
                        (cond-> {:kind kind :id id}
+                         (source-coords meta) (assoc :source-coords
+                                                     (source-coords meta))))))))
+
+(defn- maybe-emit-deprecated-schema-alias!
+  "Emit `:rf.warning/deprecated-schema-alias` once per `(kind, id)`
+  when `meta` carries the deprecated `:spec` key WITHOUT a canonical
+  `:schema` key. Per rf2-ieu0i — the framework accepts `:spec` as an
+  alias of `:schema` for one cycle following the vocabulary
+  unification; the warning surfaces the call sites for the migration
+  scaffolding (see MIGRATION §M-54).
+
+  When both `:schema` AND `:spec` are present we still warn (the
+  registration is structurally ambiguous; `:schema` wins in lookup
+  code but the deprecated key being present means the developer's
+  source still carries v1 vocabulary).
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  for production elision (Spec 009 §Production builds)."
+  [kind id meta]
+  (when (contains? meta :spec)
+    (let [k [kind id]]
+      (when-not (contains? @deprecated-schema-alias-warned k)
+        (swap! deprecated-schema-alias-warned conj k)
+        (emit-warning! :rf.warning/deprecated-schema-alias
+                       (cond-> {:kind   kind
+                                :id     id
+                                :reason
+                                (str "Registration `" id "` (kind " kind
+                                     ") carries the deprecated `:spec` "
+                                     "metadata key — accepted as an alias "
+                                     "of `:schema` for one release cycle. "
+                                     "Rename to `:schema` per MIGRATION "
+                                     "§M-54 (rf2-ieu0i).")}
                          (source-coords meta) (assoc :source-coords
                                                      (source-coords meta))))))))
 
@@ -311,7 +350,13 @@
     ;; on subsequent calls; obligation 2 says re-registering the same id
     ;; without `:doc` does NOT re-fire the warning.
     (when interop/debug-enabled?
-      (maybe-emit-missing-doc! kind id metadata))
+      (maybe-emit-missing-doc! kind id metadata)
+      ;; Per rf2-ieu0i — `:spec` is the deprecated alias of `:schema`.
+      ;; Warn at most once per (kind, id) so migration scaffolding can
+      ;; find the call sites. Cache reset across frame destruction via
+      ;; `clear-warning-caches!`. Production elides via the outer
+      ;; debug-enabled? gate (Spec 009 §Production builds).
+      (maybe-emit-deprecated-schema-alias! kind id metadata))
     ;; Always-on registration hooks (rf2-w50qm): fire on BOTH first-time
     ;; and re-registration so cross-id invariants (e.g. routing's
     ;; `:url-bound?` exclusivity per Spec 012 §Multi-frame routing) can

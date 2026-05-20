@@ -6,7 +6,7 @@ You want to catch shape-of-data bugs early — wrong key, wrong type, typo in a 
 
 A re-frame2 app's runtime story is "events change `app-db`, views read it." It works because every handler is a pure function over plain Clojure data — but "plain Clojure data" is also a category roomy enough to hide bugs. Did `:status` end up as `:submitted` or `"submitted"`? Did `:user/id` arrive as an `int` or a `string`? Did the form handler clobber `:auth/user` with a typo'd path? These are the kinds of mistake the type system doesn't catch (CLJS doesn't have one), the test suite often misses (you didn't think to assert it), and that surface six weeks later as "the page renders but the avatar is gone."
 
-**Schemas** are the answer. A schema is a piece of data that says *what shape another piece of data must have*. Bind a schema to an `app-db` path and the runtime checks the slice after every handler. Bind a schema to an event via `:spec` and the runtime checks the event vector before the handler runs. In dev, you find out the moment a write goes wrong, with the explanation pointing at the exact key and value. In production, every validation call disappears at compile time.
+**Schemas** are the answer. A schema is a piece of data that says *what shape another piece of data must have*. Bind a schema to an `app-db` path and the runtime checks the slice after every handler. Bind a schema to an event via `:schema` and the runtime checks the event vector before the handler runs. In dev, you find out the moment a write goes wrong, with the explanation pointing at the exact key and value. In production, every validation call disappears at compile time.
 
 This chapter is the **Malli warmup**. The forms chapter ([08](08-forms.md)) and the HTTP chapter ([10](10-doing-http-requests.md)) lean on schemas heavily; rather than introduce the vocabulary mid-paragraph there, we cover it once here, before forms need it.
 
@@ -18,7 +18,7 @@ Three reasons, in roughly the order you'll notice them:
 
 2. **Documentation that doesn't drift.** The schema is the canonical answer to "what's this slice supposed to look like?" Comments rot; schemas can't, because the runtime checks them. A teammate (or an AI scaffolding a new handler) reads the schema and knows the shape.
 
-3. **AI introspection.** Tools and agents can query `(rf/app-schemas)` and `(rf/handler-meta :event :foo)` and *know* the registered shape of every slice and event in the app. A pair-tool can pre-check "what would happen if I dispatched `[:auth/login {...}]`?" against the event's `:spec` before firing it. The schema is the agent-facing contract.
+3. **AI introspection.** Tools and agents can query `(rf/app-schemas)` and `(rf/handler-meta :event :foo)` and *know* the registered shape of every slice and event in the app. A pair-tool can pre-check "what would happen if I dispatched `[:auth/login {...}]`?" against the event's `:schema` before firing it. The schema is the agent-facing contract.
 
 The cost is small. Schemas are plain Clojure data — vectors of keywords — that you write once when you create a slice or an event. The runtime does the rest.
 
@@ -118,14 +118,14 @@ For features that declare several schemas at once, the plural form takes a `{pat
                      [:auth :login :draft]  LoginForm})
 ```
 
-## Event schemas via `:spec` metadata
+## Event schemas via `:schema` metadata
 
-The other everyday surface. Every `reg-event-*` accepts an optional metadata map between the id and the handler; `:spec` in that map is the event vector's schema:
+The other everyday surface. Every `reg-event-*` accepts an optional metadata map between the id and the handler; `:schema` in that map is the event vector's schema:
 
 ```clojure
 (rf/reg-event-db :form.login/edit-field
   {:doc  "User changed a single field."
-   :spec [:cat [:= :form.login/edit-field] :keyword :string]}
+   :schema [:cat [:= :form.login/edit-field] :keyword :string]}
   (fn [db [_ field value]]
     (-> db
         (assoc-in  [:auth :login :draft field] value)
@@ -134,7 +134,7 @@ The other everyday surface. Every `reg-event-*` accepts an optional metadata map
 
 `[:cat ...]` is "a sequence of these, in order." The first element is the event id itself (constrained by `[:= :form.login/edit-field]`), the second is the field keyword, the third is the string value. Dispatching `[:form.login/edit-field :email "user@host"]` passes; `[:form.login/edit-field "email" 42]` fails fast with `:where :event`, the handler is **not invoked**, and the cascade halts at this event (downstream events in the queue continue to drain).
 
-`:spec` works for every `reg-*` family — `reg-sub` for the return value, `reg-fx` for the fx args, `reg-cofx` for the injected value. The shape is the same: a Malli schema in the registration's metadata map. The everyday rule for failure handling: event-vector and cofx failures skip the handler; `app-db` failures roll back; fx-args failures skip the offending fx only; sub-return failures default the sub to `nil`.
+`:schema` works for every `reg-*` family — `reg-sub` for the return value, `reg-fx` for the fx args, `reg-cofx` for the injected value. The shape is the same: a Malli schema in the registration's metadata map. The everyday rule for failure handling: event-vector and cofx failures skip the handler; `app-db` failures roll back; fx-args failures skip the offending fx only; sub-return failures default the sub to `nil`.
 
 ## Dev vs production — when schemas fire
 
@@ -144,16 +144,16 @@ In **production builds**, every validation site is **elided at compile time**. T
 
 Schemas stay **registered** in production — tooling can still introspect them — but they're not *checked*. The implication is the one you'd hope for: write schemas freely, in volume, without thinking about hot-path cost.
 
-If you want validation at **system boundaries** in production — incoming HTTP responses, websocket messages, postMessage payloads — re-frame2 ships a `:spec/at-boundary` interceptor:
+If you want validation at **system boundaries** in production — incoming HTTP responses, websocket messages, postMessage payloads — re-frame2 ships a `:rf.schema/at-boundary` interceptor:
 
 ```clojure
 (rf/reg-event-fx :api/response-received
-  {:spec ApiResponseSchema}
+  {:schema ApiResponseSchema}
   [rf/at-boundary]
   (fn [{:keys [db]} [_ response]] ...))
 ```
 
-The interceptor forces a check against the handler's `:spec` regardless of the global elision flag — every incoming payload from untrusted sources is validated even in production. The other 99% of handlers stay zero-cost.
+The interceptor forces a check against the handler's `:schema` regardless of the global elision flag — every incoming payload from untrusted sources is validated even in production. The other 99% of handlers stay zero-cost.
 
 ## A tiny worked example
 
@@ -168,12 +168,12 @@ A counter that remembers its history, with both the `app-db` slice and the incre
 (rf/reg-app-schema [:counter] CounterSlice)
 
 (rf/reg-event-db :counter/initialise
-  {:spec [:cat [:= :counter/initialise]]}
+  {:schema [:cat [:= :counter/initialise]]}
   (fn [db _]
     (assoc db :counter {:count 5 :history [5]})))
 
 (rf/reg-event-db :counter/inc
-  {:spec [:cat [:= :counter/inc]]}
+  {:schema [:cat [:= :counter/inc]]}
   (fn [db _]
     (-> db
         (update-in [:counter :count]   inc)
@@ -186,7 +186,7 @@ Three things to notice:
 
 2. **`:count` can't go negative.** `[:int {:min 0}]` rejects `-1`. A buggy handler that did `(update db :count dec)` past zero would write `-1`, the `app-db` schema check would fail, the `:db` effect would roll back, the trace event would say `:rf.error/schema-validation-failure :path [:counter] :value {:count -1 :history [...]}`. You see the bug the first time it happens.
 
-3. **Both events have a `:spec`.** Both are nullary (no payload), so the schema is `[:cat [:= :counter/initialise]]` — "a vector containing exactly the event id, nothing else." Dispatching `[:counter/inc :something]` fails the event-vector check; the handler isn't invoked. Trivial schemas like this exist for the same reason as the slice schema — they catch typos in dispatch sites that no test would think to write.
+3. **Both events have a `:schema`.** Both are nullary (no payload), so the schema is `[:cat [:= :counter/initialise]]` — "a vector containing exactly the event id, nothing else." Dispatching `[:counter/inc :something]` fails the event-vector check; the handler isn't invoked. Trivial schemas like this exist for the same reason as the slice schema — they catch typos in dispatch sites that no test would think to write.
 
 ## When to reach for schemas, and when not to
 
@@ -210,7 +210,7 @@ The discriminator is *can a schema catch something a normal test wouldn't?* If t
 A schema-aware feature matches the convention when:
 
 - Every non-trivial `app-db` slice the feature owns has a `reg-app-schema` binding.
-- Every event with a payload more complex than the event id has a `:spec` in its metadata.
+- Every event with a payload more complex than the event id has a `:schema` in its metadata.
 - The schemas live next to the handlers and `reg-app-schema` calls that use them, not in a far-away "schemas" namespace — the schema is the *documentation* of the slice, and documentation should live with the thing it describes.
 - Enums are `[:enum ...]`, not `:keyword` ("oh, it'll be one of these four values" loses leverage as `:keyword`).
 - Closed-map semantics (`{:closed true}`) appear only at system boundaries; everything else is open by default.

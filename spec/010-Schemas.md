@@ -2,7 +2,7 @@
 
 > Schemas are how *dynamically typed hosts* describe shape. CLJS is dynamically typed, so the CLJS reference ships a runtime schema layer (Malli, by default). *Statically typed hosts* (TypeScript, Kotlin, Rust, F#) describe shape via the type system instead and may omit a runtime schema library entirely. The pattern requires shape description; the mechanism is host-specific.
 >
-> **Portable contract** (every port): `:spec` metadata on every `reg-*`; path-based `app-db` schemas via `reg-app-schema`; pluggable validator via `set-schema-validator!`; implementation-defined default validator. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
+> **Portable contract** (every port): `:schema` metadata on every `reg-*`; path-based `app-db` schemas via `reg-app-schema`; pluggable validator via `set-schema-validator!`; implementation-defined default validator. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
 >
 > **CLJS reference's default validator**: Malli (`malli.core/validate` + `malli.core/explain`), with soft-pass when Malli is absent. Other ports document their own defaults (see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)).
 
@@ -16,36 +16,40 @@ A schema describes the *shape* of data flowing through a re-frame app:
 - The data a coeffect injector produces.
 - The structure of `app-db` at any path.
 
-re-frame2 lets users attach a schema to any of these via the `:spec` metadata key on the relevant `reg-*` registration, plus a dedicated `reg-app-schema` API for `app-db`. In dev builds the framework validates against schemas at well-defined points; in production validation elides (or is restricted to system boundaries) to keep the hot path cheap.
+re-frame2 lets users attach a schema to any of these via the `:schema` metadata key on the relevant `reg-*` registration, plus a dedicated `reg-app-schema` API for `app-db`. In dev builds the framework validates against schemas at well-defined points; in production validation elides (or is restricted to system boundaries) to keep the hot path cheap.
 
-**The `:spec` value is opaque to re-frame.** The runtime never inspects what's stored in `:spec` directly; every validation site routes through the registered **validator fn** (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+> **Vocabulary unified at rf2-ieu0i (2026-05-20).** The framework speaks **one term — schema** — across every surface. v1's `:spec` per-`reg-*` metadata key, the `:rf.spec/*` reserved namespace, the `:spec/at-boundary` interceptor `:id`, and the `:spec-id` trace tag are all collapsed under `:schema` / `:rf.schema/*` / `:schema-id`. The CLJS reference accepts `:spec` on `reg-*` metadata as a deprecated alias that warns once-per-handler-id (`:rf.warning/deprecated-schema-alias`) for one release cycle; new code uses `:schema`. Migration: [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
+
+**The `:schema` value is opaque to re-frame.** The runtime never inspects what's stored in `:schema` directly; every validation site routes through the registered **validator fn** (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 ## Where schemas attach
 
 ### On every `reg-*`
 
-Every registration accepts an optional `:spec` in its metadata map:
+Every registration accepts an optional `:schema` in its metadata map:
 
 ```clojure
 (rf/reg-event-fx :auth/login
-  {:doc  "Submit credentials for verification."
-   :spec [:cat [:= :auth/login]
-              [:map [:email :string] [:password :string]]]}
+  {:doc    "Submit credentials for verification."
+   :schema [:cat [:= :auth/login]
+                [:map [:email :string] [:password :string]]]}
   (fn auth-login-handler [m] ...))
 
 (rf/reg-sub :pending-todos
-  {:doc  "Filter todos to those still pending."
-   :spec [:vector TodoSchema]}                 ;; sub return value
+  {:doc    "Filter todos to those still pending."
+   :schema [:vector TodoSchema]}                 ;; sub return value
   (fn [db _] (filter pending? (:items db))))
 
 (rf/reg-fx :http-xhrio
-  {:spec [:map [:method :keyword] [:url :string]]}
+  {:schema [:map [:method :keyword] [:url :string]]}
   http-xhrio-handler)
 
 (rf/reg-cofx :now
-  {:spec inst?}
+  {:schema inst?}
   (fn [coeffects _] (assoc coeffects :now (js/Date.))))
 ```
+
+The bare `:spec` key (the v1-inherited name) is accepted by the CLJS reference as a deprecated alias for one cycle — registrations using it still validate, but the registrar emits `:rf.warning/deprecated-schema-alias` once per handler-id. Migrate to `:schema` per [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema-rf2-ieu0i).
 
 ### `app-db` schemas — path-based
 
@@ -106,27 +110,27 @@ Re-registering a schema at a path replaces the previous one (last-write-wins, sa
 
 | Schema attached to | Validates | Failure recovery (canonical, see [§Per-step recovery](#per-step-recovery) for full detail) |
 |---|---|---|
-| `reg-event-*` `:spec` | The dispatched event vector, *before* the handler runs. | Skip handler; emit `:rf.error/schema-validation-failure :where :event`; downstream queue continues. |
-| `reg-sub` `:spec` | The sub's return value, *after* compute. | `:replaced-with-default` (sub yields `nil`). |
-| `reg-fx` `:spec` | The effect's argument data, *before* the fx handler runs. | Skip the offending fx only; sibling fx in the same `:fx` vector continue; downstream queue continues. |
-| `reg-cofx` `:spec` | The coeffect's data, *after* injection. | Skip handler; emit `:where :cofx`; downstream queue continues. |
+| `reg-event-*` `:schema` | The dispatched event vector, *before* the handler runs. | Skip handler; emit `:rf.error/schema-validation-failure :where :event`; downstream queue continues. |
+| `reg-sub` `:schema` | The sub's return value, *after* compute. | `:replaced-with-default` (sub yields `nil`). |
+| `reg-fx` `:schema` | The effect's argument data, *before* the fx handler runs. | Skip the offending fx only; sibling fx in the same `:fx` vector continue; downstream queue continues. |
+| `reg-cofx` `:schema` | The coeffect's data, *after* injection. | Skip handler; emit `:where :cofx`; downstream queue continues. |
 | `reg-app-schema` (path-based) | The slice at the registered path, *after every handler* completes a state mutation. | Roll back the `:db` effect; treat dispatch as failed. |
 
 **Not every schema failure aborts dispatch.** The recovery depends on *where* the failure occurs: pre-handler failures (event vector, cofx) skip the handler; in-flight fx failures skip just the offending fx; post-handler `app-db` failures roll back the dispatch. Downstream queued events continue draining in every case (per the run-to-completion drain — a single failed event does not poison the queue). The detailed per-step table below is normative; this summary table is its index.
 
 All validation points emit machine-readable errors per [Goal 10 (Strong introspection surface)](000-Vision.md#goals) and the structured error contract in [009 §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/schema-validation-failure` events carry `{:where :event/:sub-return/:app-db/...; :path [...]; :value <bad>; :explain <validator-supplied explanation>}`. The explanation's inner shape is whatever the registered explainer fn returns (a Malli explanation map on the CLJS reference; a Zod issue list on a TS port; etc.); consumers that need to branch on the inner shape inspect the port they're talking to.
 
-For `:where :app-db` failures, the trace's `:path` is the **failing leaf** path — the registered root concat'd with the explainer's value-navigation suffix (Malli's `:in`, not its schema-walk `:path`). The trace also carries `:registered-path` — the registration root — so tooling that needs the registration anchor reaches `(:registered-path tags)` while consumers reading the failure locator reach `(:path tags)`. When the registered explainer is absent or returns no extractable suffix (non-Malli validator, structurally-different explanation), `:path` falls back to the registered root and `:registered-path` mirrors it. Other surfaces (`:where :event` / `:cofx` / `:fx-args` / `:sub-return`) emit `:path` per their existing contract; no `:registered-path` tag is stamped on those surfaces because the registration is named by `:failing-id` / `:spec-id` directly.
+For `:where :app-db` failures, the trace's `:path` is the **failing leaf** path — the registered root concat'd with the explainer's value-navigation suffix (Malli's `:in`, not its schema-walk `:path`). The trace also carries `:registered-path` — the registration root — so tooling that needs the registration anchor reaches `(:registered-path tags)` while consumers reading the failure locator reach `(:path tags)`. When the registered explainer is absent or returns no extractable suffix (non-Malli validator, structurally-different explanation), `:path` falls back to the registered root and `:registered-path` mirrors it. Other surfaces (`:where :event` / `:cofx` / `:fx-args` / `:sub-return`) emit `:path` per their existing contract; no `:registered-path` tag is stamped on those surfaces because the registration is named by `:failing-id` / `:schema-id` directly.
 
 ### Validation order on event processing
 
 For a single dispatched event, schema checks fire in this order:
 
-1. Event-vector schema (from `reg-event-*` `:spec`) — before any handler runs.
-2. Cofx schemas (from `reg-cofx` `:spec`) — after each cofx injects, before the handler sees the merged context.
+1. Event-vector schema (from `reg-event-*` `:schema`) — before any handler runs.
+2. Cofx schemas (from `reg-cofx` `:schema`) — after each cofx injects, before the handler sees the merged context.
 3. Handler runs.
 4. `app-db` path schemas — after the handler's `:db` effect commits.
-5. Effect schemas (from `reg-fx` `:spec`) — before each fx handler runs.
+5. Effect schemas (from `reg-fx` `:schema`) — before each fx handler runs.
 6. Sub return-value schemas — after each materialisation/recompute that involves a schema'd sub.
 
 A failure at any step aborts the dispatch with a structured error.
@@ -135,11 +139,11 @@ A failure at any step aborts the dispatch with a structured error.
 
 | Step | Failure mode | Recovery |
 |---|---|---|
-| 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:spec`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
-| 2. Cofx | A cofx's injected value doesn't conform to its `:spec`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
+| 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:schema`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
+| 2. Cofx | A cofx's injected value doesn't conform to its `:schema`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
 | 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); the **failing handler's** cascade halts — its `:db`, flows, and `:fx` are suppressed (the interceptor chain captured the exception before `:effects` were populated). Downstream events already queued continue to drain — handler-exception does **not** abort the drain. (See [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes-rf2-v0jwt) — no `:halted-handler-exception` record is committed under the current runtime; the per-event error surfaces in the drain's `:ok` epoch record as a trace under `:trace-events`.) |
 | 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`; the trace tag carries `:rollback? true` and `:recovery :no-recovery`. The `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed — flows do **not** evaluate and `:fx` does **not** walk for this dispatch. Downstream queued events still drain (per run-to-completion). |
-| 5. Fx-args | A registered fx's args map doesn't conform to its `:spec`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
+| 5. Fx-args | A registered fx's args map doesn't conform to its `:schema`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
 | 6. Sub return-value | A schema'd sub's computed value doesn't conform. | Emit with `:where :sub-return`. Default recovery: `:replaced-with-default` — the sub returns `nil` to its consumer; views see no value. Strict mode re-raises. |
 
 The fx-args recovery is "skip the offending fx, continue the rest" rather than "halt the dispatch" because a single broken fx (a typo in a `:url`, a missing required key) should not take down the rest of an event's effect cascade. The trace event names the failing fx; the rest of the page continues to render.
@@ -154,22 +158,22 @@ All registered schemas are checked at every validation point. The intent is to c
 
 Validation is **elided** by default — schemas remain registered (so tooling can introspect them) but the validation calls are compile-time-eliminated, alongside trace emission. The mechanism: every `validate-*!` body is wrapped in `(when re-frame.interop/debug-enabled? ...)` on the CLJS reference (other ports use the host's equivalent debug-enabled gate). `debug-enabled?` is an alias of `goog.DEBUG` on CLJS (default `true` in dev, `false` in `:advanced` production), so under `:closure-defines {goog.DEBUG false}` the closure compiler constant-folds and DCEs every validation site — the validator call, the trace-error envelope, the human-readable reason string, and every keyword the failure tags carry. See [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) for the full elision contract and the CI verifier that enforces it.
 
-For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:spec/at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
+For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:rf.schema/at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
 
 ```clojure
 (rf/reg-event-fx :api/response-received
-  {:spec ApiResponseSchema}
+  {:schema ApiResponseSchema}
   [rf/at-boundary]
   (fn [m] ...))
 ```
 
-The interceptor is exposed as a value at both `re-frame.core/at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/at-boundary` (for users who prefer a `spec/` alias for schema-related interceptors). Both refer to the same value; pick whichever fits the surrounding code's import style.
+The interceptor is exposed as a value at both `re-frame.core/at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/at-boundary` (the namespace name is preserved as a v2 alias — the historical `:spec` segment of the segment-name no longer matches the canonical `schema` vocabulary, but the ns rename is deferred to avoid churn; reach the interceptor through `re-frame.core/at-boundary` going forward). Both refer to the same value; pick whichever fits the surrounding code's import style.
 
-**Relationship to the handler's `:spec`.** `:spec/at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
+**Relationship to the handler's `:schema`.** `:rf.schema/at-boundary` re-uses the handler's existing `:schema` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:schema` regardless of the global elision flag. Concretely:
 
-- In **dev builds**, every event handler's `:spec` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
-- In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:spec` check inline, so handlers carrying it still validate at the boundary.
-- In **production builds with no `:spec`** on the handler, the boundary interceptor is a no-op (nothing to validate against) and emits `:rf.warning/boundary-without-spec` once per `(handler-id)` to flag the misconfiguration.
+- In **dev builds**, every event handler's `:schema` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
+- In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:schema` check inline, so handlers carrying it still validate at the boundary.
+- In **production builds with no `:schema`** on the handler, the boundary interceptor is a no-op (nothing to validate against) and emits `:rf.warning/boundary-without-spec` once per `(handler-id)` to flag the misconfiguration.
 
 Failures from the boundary interceptor flow through the same `:rf.error/schema-validation-failure :where :event` path as dev-mode step-1 failures — the recovery (skip handler; downstream queue continues) is identical. The only difference is *whether the check ran*, not *what happens when it fails*.
 
@@ -181,7 +185,7 @@ Schemas registered against handlers and `app-db` paths are queryable via the pub
 
 ```clojure
 (rf/handler-meta :event :auth/login)
-;; → {:doc "..." :spec [:cat ...] :event/kind :fx :ns ... :line ... :file ...}
+;; → {:doc "..." :schema [:cat ...] :event/kind :fx :ns ... :line ... :file ...}
 
 (rf/app-schema-at [:user])
 ;; → UserSchema (the registered schema value, in whatever language the
@@ -295,12 +299,12 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 **Redaction shape.** When either source declares the failing slot sensitive, the trace event MUST:
 
 - Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) — same sentinel, same reserved-keyword guarantee).
-- Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :spec-id`).
+- Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :schema-id`).
 - Replace `:fx-args` with `:rf/redacted` on `:where :fx-args` emissions only — this slot is a per-surface doubled-id name for the failing value (semantically equivalent to `:received` on the fx surface; see Spec-Schemas `:rf.fx/handled`). Without redaction the fx-args slot would re-leak the value the `:value` / `:received` redactions just scrubbed.
 - Replace `:query-v` with `:rf/redacted` on `:where :sub-return` emissions only — this slot is the caller-supplied subscription query vector. On `:sensitive?`-marked subs the lookup key (the `(rest query-v)` payload) typically carries the same secret material the registered schema is gating — user ids, auth tokens, document ids. Without redaction the failure trace re-leaks the lookup-key payload alongside the failing return value the other clauses just scrubbed (rf2-adtp2 / rf2-p2adl Q2).
 - Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands (rf2-isdwf is in flight in core; once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
 
-Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schema id (`:tags :spec-id`), and the human-readable `:reason` string remain unredacted — these are structural / categorical signals that do not carry user data, and consumers need them to locate the broken slot. Only the value-bearing slots (`:value`, `:received`, `:explain`, plus `:fx-args` on the fx surface and `:query-v` on the sub-return surface) are redacted.
+Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schema id (`:tags :schema-id`), and the human-readable `:reason` string remain unredacted — these are structural / categorical signals that do not carry user data, and consumers need them to locate the broken slot. Only the value-bearing slots (`:value`, `:received`, `:explain`, plus `:fx-args` on the fx surface and `:query-v` on the sub-return surface) are redacted.
 
 ```clojure
 ;; Failing app-db at a sensitive slot:
@@ -430,9 +434,9 @@ This section is the **portable normative core** of the schemas surface. Every re
 
 ### The four normative claims
 
-1. **Apps register schemas via `reg-app-schema`** (path-scoped, per [§`app-db` schemas — path-based](#app-db-schemas--path-based)) and via the `:spec` metadata key on `reg-*` (per [§On every `reg-*`](#on-every-reg-)). These two surfaces are the portable contract every port supplies; both pass the registered schema value through opaquely.
+1. **Apps register schemas via `reg-app-schema`** (path-scoped, per [§`app-db` schemas — path-based](#app-db-schemas--path-based)) and via the `:schema` metadata key on `reg-*` (per [§On every `reg-*`](#on-every-reg-)). These two surfaces are the portable contract every port supplies; both pass the registered schema value through opaquely.
 
-2. **Validation is pluggable via `set-schema-validator!`** (and its companion `set-schema-explainer!`). The runtime never inspects `:spec` directly; every validation site routes through the registered validator fn. Substituting a different validator is a single registration call — the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+2. **Validation is pluggable via `set-schema-validator!`** (and its companion `set-schema-explainer!`). The runtime never inspects `:schema` directly; every validation site routes through the registered validator fn. Substituting a different validator is a single registration call — the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 3. **The default validator is implementation-defined.** Each port picks a default appropriate to its host: Malli on the CLJS reference, Zod on a TypeScript port, Pydantic on a Python port, dry-rb on a Ruby port, the host's structural-typecheck wrapper on a statically typed port — etc. Ports document their default's schema-language choice in their `README` / implementation-notes; the Spec does not mandate any particular library.
 
@@ -453,7 +457,7 @@ Validation always goes through a registered **validator fn**. The CLJS reference
 (fn explain  [schema value] explanation-or-nil)
 ```
 
-Both fns are registered at boot, before the first `reg-app-schema` or `:spec`-bearing `reg-*` lands:
+Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-bearing `reg-*` lands:
 
 ```clojure
 ;; (1) Just the validator — the explainer is left untouched.
@@ -503,9 +507,9 @@ This recommendation is normative-soft: ports that ship a different default-absen
 - **The validator fn is pure** — same `(schema, value)` returns the same result. Implementations may memoise but tests must not depend on memoisation.
 - **The validator fn must be production-elidable** alongside the host's debug-enabled flag (`re-frame.interop/debug-enabled?` on CLJS; the equivalent on other ports) — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
 - **Schema digests** ([§Schema digest](#schema-digest)) are computed from the schema **values** as serialised by the registered validator's `schema-print` companion fn (see [§Schema digest](#schema-digest)) — not from the validator. Two ports using different validators against the same schema-language-EDN-form produce the same digest iff their `schema-print` fns produce identical bytes; two ports using *different* schema languages produce different digests by construction.
-- **`nil` validator means no validation, not "every value fails"**. Setting validator to nil is the documented opt-out — every `validate-*!` site short-circuits to `true` (pass). The schemas mandate stays unchanged at the framework level (apps still attach `:spec` and `reg-app-schema`); only the runtime check is disabled.
+- **`nil` validator means no validation, not "every value fails"**. Setting validator to nil is the documented opt-out — every `validate-*!` site short-circuits to `true` (pass). The schemas mandate stays unchanged at the framework level (apps still attach `:schema` and `reg-app-schema`); only the runtime check is disabled.
 
-What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:spec` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
+What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:schema` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
 ### Opting in to Malli validation on CLJS (rf2-t0hq)
 
@@ -542,7 +546,7 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
             ;; intent is explicit.
             ))
 
-;; Install the no-op BEFORE the first reg-app-schema / :spec metadata.
+;; Install the no-op BEFORE the first reg-app-schema / :schema metadata.
 ;; Any (fn [schema value] truthy?) that returns true unconditionally
 ;; passes every value; nil disables the call site even faster.
 (rf/set-schema-validator! nil)
@@ -552,13 +556,13 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
 ;; call ever runs against them.
 (rf/reg-app-schema [:user] [:map [:id :uuid]])
 (rf/reg-event-fx :auth/login
-  {:spec [:cat [:= :auth/login] [:map [:email :string]]]}
+  {:schema [:cat [:= :auth/login] [:map [:email :string]]]}
   ...)
 ```
 
 ### Boundary-validation seam
 
-The validator/explainer pair also fronts the boundary-validation interceptor (`:spec/at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
+The validator/explainer pair also fronts the boundary-validation interceptor (`:rf.schema/at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
 
 The schemas namespace exposes two fns the interceptor calls — `validate-with-registered-fn` and `explain-with-registered-fn` — both routing through the same atoms `set-schema-validator!` mutates. Apps that swap in their own validator therefore reach every validation surface with one call, not three.
 
@@ -574,7 +578,7 @@ Per claim 3 in [§The four normative claims](#the-four-normative-claims), each p
 - **Multi-format generation.** Malli generates JSON Schema, OpenAPI, type signatures, generators for property-based testing.
 - **Modern feature set.** Open/closed maps, regex schemas, function schemas, ref support, transformers.
 
-The `:spec` value is opaque to re-frame; only the registered validator function is invoked. A user wishing to use `clojure.spec` or another library registers the appropriate validator. Malli is the documented and supported default *for the CLJS reference*; other ports document their own defaults.
+The `:schema` value is opaque to re-frame; only the registered validator function is invoked. A user wishing to use `clojure.spec` or another library registers the appropriate validator. Malli is the documented and supported default *for the CLJS reference*; other ports document their own defaults.
 
 For the bundle-cost tradeoffs of the CLJS reference's Malli default and how to opt out, see [§Bundle cost](#bundle-cost) below.
 
@@ -587,7 +591,7 @@ The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 pr
 | Baseline counter (no schemas, no Malli) | 91.7 KB | — |
 | `[re-frame.schemas]` required, no Malli | 97.2 KB | +5.6 KB |
 | `[re-frame.schemas] [malli.core]` required, no validation | 120.8 KB | +29.1 KB |
-| Typical app: `reg-app-schema` + `:spec` on every reg-* | 121.5 KB | +29.8 KB |
+| Typical app: `reg-app-schema` + `:schema` on every reg-* | 121.5 KB | +29.8 KB |
 | Heavy: validate + explain + decode + transform + generator | 156.1 KB | +64.5 KB |
 
 The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas` namespace adds ~5.6 KB, and `malli.core`'s reachable body adds ~24 KB on top. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the rf2-11hn strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
@@ -614,7 +618,7 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 (rf/set-schema-validator! nil)
 ```
 
-**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:spec/at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:spec` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
+**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:rf.schema/at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:schema` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
 
 **Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps already only carry `malli.core`, not the error / transform / generator subset), and the mandate-cost is bounded by what `malli.core` weighs gzipped: ~24 KB. The heavy-decode scenario (which pulls `malli.error` + `malli.transform` + `malli.generator`) is worst-case; the typical-app cost is half that, and the opt-out path drops it to zero.
 
@@ -630,7 +634,7 @@ The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas`
 
 ### Schema-driven generative tests (post-v1, rf2-rs0ux)
 
-Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at rf2-rs0ux.
+Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at rf2-rs0ux.
 
 ### Schema versioning (post-v1, rf2-7fk8a)
 
@@ -640,21 +644,21 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 
 - **Foundation in v1.** `reg-app-schema` already accepts an opts map (per [§The four normative claims](#the-four-normative-claims)); adding a `:version <pos-int>` key is additive — current registrations stay valid.
 - **Scope deferred.** The convention itself (canonical key name, default semantics when absent, comparison rule on hot-reload, migration-helper signature) is the post-v1 design surface. v1 ships the validator-pluggability primitive without locking the versioning grammar.
-- **Reconsideration trigger.** Either (a) a concrete app reports schema-evolution bugs that the hot-reload `:rf.spec/violation` trace (per [§Schema migration on hot-reload](#schema-migration-on-hot-reload)) cannot diagnose, or (b) a tool (story, causa, re-frame2-pair) needs to assert a known shape-revision across runs.
+- **Reconsideration trigger.** Either (a) a concrete app reports schema-evolution bugs that the hot-reload `:rf.schema/violation` trace (per [§Schema migration on hot-reload](#schema-migration-on-hot-reload)) cannot diagnose, or (b) a tool (story, causa, re-frame2-pair) needs to assert a known shape-revision across runs.
 - **Out of scope for the bead.** App-level migration runner (sequenced `db -> db'` transforms keyed on version delta) is library territory, not framework.
 
 ## Resolved decisions
 
 ### Boundary-validation interceptor naming (rf2-ys2zn)
 
-Decision: **`:spec/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/at-boundary`, re-exported as `re-frame.core/at-boundary`). Decided 2026-05-17. Alternatives considered: `:spec/validate-at-boundary` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked name reads tight against the surrounding `:spec/*` registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
+Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/at-boundary`, re-exported as `re-frame.core/at-boundary`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at rf2-ieu0i (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at rf2-ys2zn: `:spec/validate-at-boundary` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`at-boundary`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
 
 ### Schema migration on hot-reload
 
-When a sub-path schema changes during dev (file save re-evaluates `reg-app-schema` with a different schema for the same path), the live `app-db` value at that path may now violate the new schema. The runtime emits a `:rf.spec/violation` trace event (`:op-type :warning`) so dev panels highlight the stale slice; the live app continues running. The trace event's `:tags` carry `:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, and `:frame` — enumerated authoritatively in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (row `:rf.spec/violation`). Default recovery is `:logged-and-skipped` — `app-db` is **not** auto-cleared or rewound. Escalation to a frame's `:on-error` policy is a separate design call and is out of scope for this resolution.
+When a sub-path schema changes during dev (file save re-evaluates `reg-app-schema` with a different schema for the same path), the live `app-db` value at that path may now violate the new schema. The runtime emits a `:rf.schema/violation` trace event (`:op-type :warning`) so dev panels highlight the stale slice; the live app continues running. The trace event's `:tags` carry `:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, and `:frame` — enumerated authoritatively in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (row `:rf.schema/violation`). Default recovery is `:logged-and-skipped` — `app-db` is **not** auto-cleared or rewound. Escalation to a frame's `:on-error` policy is a separate design call and is out of scope for this resolution.
 
 ### Pluggable validator and implementation-defined default
 
-The four normative claims in [§The four normative claims](#the-four-normative-claims) are the portable contract: apps register via `reg-app-schema` + `:spec`; validation is pluggable via `set-schema-validator!`; the default is implementation-defined; dependency-absent behaviour is implementation-defined with a recommended soft-pass.
+The four normative claims in [§The four normative claims](#the-four-normative-claims) are the portable contract: apps register via `reg-app-schema` + `:schema`; validation is pluggable via `set-schema-validator!`; the default is implementation-defined; dependency-absent behaviour is implementation-defined with a recommended soft-pass.
 
-The CLJS reference's expression of these claims (rf2-froe): `(rf/set-schema-validator! validate-fn)`, `(rf/set-schema-validator! {:validate ... :explain ...})`, and `(rf/set-schema-explainer! explain-fn)` are all live in `re-frame.core` (re-exporting from `re-frame.schemas`). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-validator!` is called with `nil`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:spec`; `reg-app-schema` registers path schemas) is independent of which validator is registered.
+The CLJS reference's expression of these claims (rf2-froe): `(rf/set-schema-validator! validate-fn)`, `(rf/set-schema-validator! {:validate ... :explain ...})`, and `(rf/set-schema-explainer! explain-fn)` are all live in `re-frame.core` (re-exporting from `re-frame.schemas`). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-validator!` is called with `nil`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:schema`; `reg-app-schema` registers path schemas) is independent of which validator is registered.

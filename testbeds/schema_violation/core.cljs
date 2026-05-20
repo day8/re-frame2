@@ -76,7 +76,7 @@
 ;; drain (the cascade stops only at this event).
 
 (rf/reg-event-db ::violate-event
-  {:spec [:cat [:= ::violate-event] pos-int?]}
+  {:schema [:cat [:= ::violate-event] pos-int?]}
   (fn [db _ev]
     (update-in db [:click-count :event] inc)))
 
@@ -90,10 +90,10 @@
 ;; cofx. The downstream queue continues to drain.
 
 (rf/reg-cofx ::bad-counter
-  {:spec pos-int?}
+  {:schema pos-int?}
   (fn [coeffects _]
     ;; HOT PATH — the injection site for :where :cofx.
-    ;; Returns a value that the registered :spec will reject.
+    ;; Returns a value that the registered :schema will reject.
     (assoc coeffects ::bad-counter -1)))
 
 (rf/reg-event-fx ::violate-cofx
@@ -112,9 +112,9 @@
 ;; :db already committed.
 
 (rf/reg-fx ::violate-fx
-  {:spec [:map [:url :string]]}
+  {:schema [:map [:url :string]]}
   (fn [_frame-ctx _args]
-    ;; This body never runs in the canonical Button-D path — the :spec
+    ;; This body never runs in the canonical Button-D path — the :schema
     ;; rejects the args before the fx is invoked. (If the user disables
     ;; validation in production, this body would run with the
     ;; misshapen args, which is harmless for this testbed.)
