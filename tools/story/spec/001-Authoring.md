@@ -5,6 +5,94 @@
 > stamping, and the macro-time validation rules. The contract Stage 2
 > implements and Stages 3–8 consume.
 
+## Boot — auto-install of the canonical vocabulary (rf2-p1ydc)
+
+The canonical Story vocabulary — the seven canonical tags (`:dev`,
+`:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`,
+`:agent`), the `:rf.assert/*` event handlers, the built-in
+`:rf.story/force-fx-stub` decorator, the layout-debug decorator trio,
+the toolbar cofx + subs, the lifecycle machine, the v1.0 SOTA panel
+set, and (CLJS only) the multi-substrate Reagent default —
+**auto-installs on the first `reg-*` call**. Authors don't need to
+call `(story/install-canonical-vocabulary!)` explicitly; the boot is
+implicit, matching Storybook's ergonomic.
+
+```clojure
+(ns app.stories
+  (:require [re-frame.story :as story]))
+
+;; No (story/install-canonical-vocabulary!) call. The first reg-* line
+;; below auto-installs the canonical vocabulary. :dev / :docs / :test
+;; etc. are registered by the time the body's :tags is validated.
+(story/reg-story :story.ui.button
+  {:doc       "Primary action."
+   :component :app.ui/button
+   :tags      #{:dev :docs}})
+```
+
+### Trigger condition
+
+Per-process. The auto-install gate is a single boolean atom in
+`re-frame.story.canonical`. The first call to ANY of the seven
+runtime helpers — `reg-story*` / `reg-variant*` / `reg-workspace*` /
+`reg-mode*` / `reg-story-panel*` / `reg-decorator*` / `reg-tag*` —
+flips the gate true and runs the canonical installer chain. The
+seven `reg-*` macros expand to those runtime helpers, so the same
+gate fires from macro-site or programmatic-site registrations alike.
+
+Frames don't enter into it. The registrar's side-table is per-process
+(a single `defonce` atom keyed by Story kind); the auto-install gate
+is symmetric. Parallel frames share the canonical vocabulary —
+there's no per-frame install state to track.
+
+### Idempotency
+
+The auto-install gate flips true **before** the installer chain runs,
+so the registrar writes triggered by the chain itself (e.g.
+`install-canonical-tags!` calling `reg-tag*`) hit the early-return
+branch and don't recurse. Subsequent `reg-*` calls (after the gate
+has flipped) are a single `deref` + `nil` check — negligible on the
+hot path.
+
+### Explicit call still works (no-op overlap)
+
+Authors who DO call `(story/install-canonical-vocabulary!)` at boot
+(the v1 documented path, still supported for clarity-of-intent in
+host `app.core`) hit the same idempotent installer chain. Whether
+the chain runs from auto-install or from an explicit call, the
+side-table ends up in the same shape. Calling it BOTH ways — the
+explicit boot call AND letting auto-install fire — also lands on
+identical state.
+
+### Test fixtures — `clear-all!` resets the gate
+
+`(re-frame.story/clear-all!)` wipes the registrar's side-table AND
+resets the auto-install gate to `false`. The next `reg-*` call in a
+fresh test runs the full auto-install path again. Test fixtures that
+called `clear-all!` followed by `install-canonical-vocabulary!`
+under v1 still work — the explicit call is a no-op overlap with the
+auto-install path that would fire on the first body-of-test `reg-*`
+anyway — but new tests can drop the explicit boot step entirely.
+
+### Rationale (vs explicit-only boot)
+
+Pre-alpha posture: clean either-or, no soft "warn on missing vocab"
+half-measure (per the rf2-p1ydc dispatch directive). Auto-install is
+the clean ergonomic — Storybook has no explicit boot step, neither
+should Story. The seven canonical tags live under reserved
+namespaces (`:dev` / `:docs` / etc. — un-namespaced; `:rf.story/*`
+for the framework-owned bodies); authors cannot legitimately "want a
+different `:dev`" so there's no surprise factor from auto-installing
+a vocabulary the author chose to omit. The implicit boot is the
+right default; the explicit call remains available for hosts that
+prefer the literal boot step.
+
+The auto-install hook is wired via the `re-frame.story.late-bind`
+shim (`:ensure-canonical-installed` key) to avoid a circular require
+between `re-frame.story.registrar` (consumer) and
+`re-frame.story.canonical` (producer). Same pattern Story uses for
+`:tap-stub-event` / `:drop-assertion-accumulators`.
+
 ## Registration macros (all DCE under `:advanced`)
 
 All registration macros live under `re-frame.story` and shadow the

@@ -8,9 +8,12 @@
 
   Per the rf2-l8eso Phase-2 facade thinning: the public entry
   `install-canonical-vocabulary!` is re-exported from `re-frame.story`;
-  users call `(re-frame.story/install-canonical-vocabulary!)` at boot.
-  The implementation weight — the late-bind shim wiring plus the
-  ordered installer vector — lives here.
+  users call `(re-frame.story/install-canonical-vocabulary!)` at boot,
+  OR rely on the rf2-p1ydc auto-install hook — the first `reg-*` call
+  installs the canonical vocabulary on demand. See `ensure-installed!`
+  below + spec/001 §Boot — auto-install of the canonical vocabulary.
+  The implementation weight — the late-bind shim wiring, the ordered
+  installer vector, and the auto-install gate — lives here.
 
   Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 / §5.4 the canonical
   vocabulary is registered by the Story library at load time; project
@@ -61,6 +64,51 @@
    #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
               ui-panels/install-canonical-panels!])])
 
+;; ---- auto-install gate (rf2-p1ydc) ---------------------------------------
+;;
+;; Per spec/001 §Boot — auto-install of the canonical vocabulary, the
+;; canonical vocabulary auto-installs on first `reg-*` call so authors
+;; don't have to remember the explicit boot step. The gate is a single
+;; per-process boolean atom; flipping it true happens BEFORE running
+;; the installer chain so the registrar writes triggered inside (e.g.
+;; `install-canonical-tags!` calling `reg-tag*`) hit the early-return
+;; branch of `ensure-installed!` and don't recurse.
+;;
+;; Test fixtures (e.g. `story/clear-all!`) reset the flag so a fresh
+;; `(reg-story ...)` after `clear-all!` re-installs cleanly.
+
+(defonce
+  ^{:doc "Per-process boolean atom — true iff the canonical vocabulary
+         has been installed in the current Story registrar generation.
+         Reset by `story/clear-all!` so test fixtures get a clean
+         slate; flipped true by `install!` (idempotent)."}
+  installed?
+  (atom false))
+
+(declare install!)
+
+(defn ensure-installed!
+  "Install the canonical vocabulary if it isn't already installed in
+  the current registrar generation. Idempotent and cheap on the hot
+  path — the common case is a single `deref` against `installed?`.
+
+  Called from the registrar's `reg-*!` runtime helpers (via the
+  `:ensure-canonical-installed` late-bind hook) so authors don't have
+  to call `install-canonical-vocabulary!` explicitly. See spec/001
+  §Boot — auto-install of the canonical vocabulary."
+  []
+  (when-not @installed?
+    (install!)))
+
+(defn reset-installed-flag!
+  "Reset the auto-install gate. Used by `story/clear-all!` so test
+  fixtures that wipe the side-table also wipe the gate — the next
+  `reg-*` call after `clear-all!` re-installs the canonical
+  vocabulary on demand."
+  []
+  (reset! installed? false)
+  nil)
+
 (defn install!
   "Install the canonical Story tags, runtime helpers, lifecycle machine,
   `:rf.assert/*` assertion handlers, built-in `:rf.story/force-fx-stub`
@@ -68,8 +116,22 @@
   v1.0 SOTA panel set (CLJS only). Idempotent.
 
   Re-exported from the public facade as
-  `re-frame.story/install-canonical-vocabulary!` — call that once at
-  boot before any `reg-story` / `reg-variant` / `run-variant` calls."
+  `re-frame.story/install-canonical-vocabulary!`. Authors may call this
+  explicitly at boot — or rely on the rf2-p1ydc auto-install hook,
+  which fires the same chain on the first `reg-*` call. Either path
+  is idempotent.
+
+  Flips the `installed?` gate true BEFORE running the installer chain
+  so the registrar writes triggered inside (e.g.
+  `install-canonical-tags!` calling `reg-tag*`) hit the early-return
+  branch of `ensure-installed!` and don't recurse."
   []
+  (reset! installed? true)
   (doseq [install! canonical-installers]
     (install!)))
+
+;; Register the auto-install hook at canonical-ns load time. The
+;; registrar consults this hook from each `reg-*!` runtime helper —
+;; see `re-frame.story.registrar/maybe-auto-install!`. Late-bound to
+;; avoid a circular require (registrar → canonical → registrar).
+(late-bind/set-fn! :ensure-canonical-installed ensure-installed!)
