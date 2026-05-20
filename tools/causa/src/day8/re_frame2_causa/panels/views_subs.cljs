@@ -101,12 +101,19 @@
             current-renders (or (:renders current) [])
             prior-renders   (or (:renders prior) [])
             sub-runs        (or (:sub-runs current) [])
+            ;; rf2-tv8t1 — pass the focused cascade's trace stream
+            ;; through so `flows-fired-this-cascade` can project the
+            ;; `:rf.flow/computed` entries for the Re-rendered group's
+            ;; third-link attribution. Empty / absent slot → no flow
+            ;; data → trigger rows stay 2-link (handler-effect-only).
+            trace-events    (or (:trace-events current) [])
             projected       (h/build-views-data
                               current-renders
                               prior-renders
                               sub-runs
                               {:cluster-threshold cluster-threshold
-                               :component-filter  component-filter})]
+                               :component-filter  component-filter
+                               :trace-events      trace-events})]
         (assoc projected
                :focus             focus
                :frame             (:frame focus)

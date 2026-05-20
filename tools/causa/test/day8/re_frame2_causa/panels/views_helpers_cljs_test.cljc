@@ -334,3 +334,196 @@
           out (h/build-sub-grouped items)]
       (is (= [:sub-b :sub-a] (mapv :sub-id out))
           "sub-b appeared in the first source item → ordered first"))))
+
+;; ---- (8) flow attribution — 3-link sub-flow chain (rf2-tv8t1) -----------
+;;
+;; Per `ai/findings/2026-05-19-causa-machine-inspector-mode-s.md` §13 +
+;; §11 Comment 8. Each Re-rendered row's trigger sub carries a third
+;; link — `via :flow-z` — when a flow fired this cascade. Handler-
+;; effect-only cascades stay 2-link (no `:via-flow-ids`).
+
+(defn- mk-flow-computed
+  "Synthesise one `:rf.flow/computed` trace event in the shape the
+  framework emits per spec/009 + spec/013. Mirrors the projection
+  shape `flows-fired-this-cascade` consumes."
+  [flow-id write-path]
+  {:operation :rf.flow/computed
+   :tags      {:flow-id flow-id
+               :path    write-path}})
+
+(deftest flows-fired-this-cascade-empty
+  (testing "no trace events → empty flow-writes vector"
+    (is (= [] (h/flows-fired-this-cascade nil)))
+    (is (= [] (h/flows-fired-this-cascade [])))))
+
+(deftest flows-fired-this-cascade-projects-flow-computed
+  (testing "every `:rf.flow/computed` trace projects into a
+            `{:flow-id … :write-path …}` record"
+    (let [events [(mk-flow-computed :cart-total [:cart :total])
+                  (mk-flow-computed :tax-due    [:tax :due])]
+          out    (h/flows-fired-this-cascade events)]
+      (is (= 2 (count out)))
+      (is (= {:flow-id :cart-total :write-path [:cart :total]}
+             (first out)))
+      (is (= {:flow-id :tax-due :write-path [:tax :due]}
+             (second out))))))
+
+(deftest flows-fired-this-cascade-skips-non-flow-events
+  (testing "trace events of other operations are ignored — only
+            `:rf.flow/computed` projects"
+    (let [events [{:operation :event/dispatched :tags {:event-id :foo}}
+                  (mk-flow-computed :cart-total [:cart :total])
+                  {:operation :sub/run :tags {:sub-id :foo}}]
+          out    (h/flows-fired-this-cascade events)]
+      (is (= 1 (count out)))
+      (is (= :cart-total (:flow-id (first out)))))))
+
+(deftest flows-fired-this-cascade-defensive-against-missing-tags
+  (testing "events missing :flow-id or :path tags are skipped
+            (defensive — spec/013 guarantees them but older fixtures
+            may not)"
+    (let [events [{:operation :rf.flow/computed :tags {:flow-id :no-path}}
+                  {:operation :rf.flow/computed :tags {:path [:no :id]}}
+                  (mk-flow-computed :ok [:ok])]
+          out    (h/flows-fired-this-cascade events)]
+      (is (= 1 (count out)))
+      (is (= :ok (:flow-id (first out)))))))
+
+(deftest attribute-trigger-to-flows-trigger-with-flows
+  (testing "a trigger row + one flow-write → the flow-id attribution"
+    (let [row    {:sub-id :sub/x :trigger? true :recomputed? true}
+          writes [{:flow-id :cart-total :write-path [:cart :total]}]]
+      (is (= [:cart-total] (h/attribute-trigger-to-flows row writes))))))
+
+(deftest attribute-trigger-to-flows-trigger-with-multiple-flows
+  (testing "a trigger row + multiple flow-writes → every flow-id in
+            source order (the renderer surfaces 'via :z, :w')"
+    (let [row    {:sub-id :sub/x :trigger? true :recomputed? true}
+          writes [{:flow-id :cart-total :write-path [:cart :total]}
+                  {:flow-id :tax-due    :write-path [:tax :due]}]]
+      (is (= [:cart-total :tax-due]
+             (h/attribute-trigger-to-flows row writes))))))
+
+(deftest attribute-trigger-to-flows-dedups-flow-ids
+  (testing "a single flow that wrote multiple paths surfaces as ONE
+            flow-id in the attribution (deduplication)"
+    (let [row    {:sub-id :sub/x :trigger? true :recomputed? true}
+          writes [{:flow-id :cart-total :write-path [:cart :total]}
+                  {:flow-id :cart-total :write-path [:cart :subtotal]}]]
+      (is (= [:cart-total]
+             (h/attribute-trigger-to-flows row writes))))))
+
+(deftest attribute-trigger-to-flows-non-trigger-no-attribution
+  (testing "non-trigger rows (:trigger? false) never carry a flow
+            link — the third link decorates the cause, not the
+            also-consumed subs"
+    (let [row    {:sub-id :sub/x :trigger? false :recomputed? true}
+          writes [{:flow-id :cart-total :write-path [:cart :total]}]]
+      (is (= [] (h/attribute-trigger-to-flows row writes))))))
+
+(deftest attribute-trigger-to-flows-parent-forced-no-attribution
+  (testing "parent-forced trigger rows never carry a flow link —
+            the parent component is the cause, not a sub
+            invalidation"
+    (let [row    {:sub-id      :day8.re-frame2-causa.panels.views-helpers/parent-forced
+                  :trigger?    true
+                  :recomputed? false}
+          writes [{:flow-id :cart-total :write-path [:cart :total]}]]
+      (is (= [] (h/attribute-trigger-to-flows row writes))))))
+
+(deftest attribute-trigger-to-flows-handler-effect-only-stays-2-link
+  (testing "no flows fired this cascade → empty attribution → row
+            stays 2-link (the bead's 'handler-effect writes still
+            surface as 2-link' clause)"
+    (let [row    {:sub-id :sub/x :trigger? true :recomputed? true}
+          writes []]
+      (is (= [] (h/attribute-trigger-to-flows row writes))))))
+
+(deftest re-render-invalidated-by-attaches-via-flow-ids-to-trigger
+  (testing "the trigger row carries :via-flow-ids populated from
+            flow-writes; non-trigger rows carry an empty :via-flow-ids
+            slot so callers can rely on the key being present"
+    (let [render   (mk-render :view/a 1 :sub/x)
+          sub-runs [{:sub-id :sub/x :recomputed? true}
+                    {:sub-id :sub/y :recomputed? true}]
+          writes   [{:flow-id :cart-total :write-path [:cart :total]}]
+          out      (h/re-render-invalidated-by render sub-runs writes)
+          trigger  (first out)
+          others   (rest out)]
+      (is (true? (:trigger? trigger)))
+      (is (= [:cart-total] (:via-flow-ids trigger))
+          "trigger row carries the flow attribution")
+      (is (every? #(= [] (:via-flow-ids %)) others)
+          "non-trigger rows ship with an empty :via-flow-ids slot"))))
+
+(deftest re-render-invalidated-by-parent-forced-empty-via-flow-ids
+  (testing "parent-forced trigger has :via-flow-ids [] — even when
+            flows fired this cascade — because the parent is the
+            cause, not a sub invalidation"
+    (let [render (mk-render :view/a 1 nil)
+          writes [{:flow-id :cart-total :write-path [:cart :total]}]
+          out    (h/re-render-invalidated-by render [] writes)]
+      (is (= 1 (count out)))
+      (is (= [] (:via-flow-ids (first out)))))))
+
+(deftest re-render-invalidated-by-backward-compatible-2-arg
+  (testing "the 2-arg arity (no flow-writes) still works — :via-flow-ids
+            comes through as [] so existing callers stay correct"
+    (let [render (mk-render :view/a 1 :sub/x)
+          out    (h/re-render-invalidated-by render [])]
+      (is (= [] (:via-flow-ids (first out)))))))
+
+(deftest build-views-data-threads-flow-attribution
+  (testing "`build-views-data` consumes `:trace-events`, projects
+            flow-writes once, and surfaces :via-flow-ids on every
+            Re-rendered trigger row"
+    (let [prior     [(mk-render :view/a 1 :sub/x 1.0)]
+          current   [(mk-render :view/a 1 :sub/x 1.5)]
+          sub-runs  [{:sub-id :sub/x :recomputed? true}]
+          events    [(mk-flow-computed :cart-total [:cart :total])]
+          out       (h/build-views-data current prior sub-runs
+                                        {:trace-events events})
+          rendered  (:rendered (:groups out))
+          trigger   (-> rendered first :invalidated-by first)]
+      (is (= 1 (count rendered)))
+      (is (true? (:trigger? trigger)))
+      (is (= [:cart-total] (:via-flow-ids trigger))
+          "the 3-link chain — :sub/x trigger 'via :cart-total'")
+      (is (= [{:flow-id :cart-total :write-path [:cart :total]}]
+             (:flow-writes out))
+          "the cascade-level flow projection is surfaced as
+           :flow-writes for any downstream consumer"))))
+
+(deftest build-views-data-handler-effect-only-stays-2-link
+  (testing "no `:rf.flow/computed` traces → the assembly stays
+            2-link (handler-effect-only path — bead's policy that
+            handler writes 'still surface as 2-link')"
+    (let [prior    [(mk-render :view/a 1 :sub/x 1.0)]
+          current  [(mk-render :view/a 1 :sub/x 1.5)]
+          sub-runs [{:sub-id :sub/x :recomputed? true}]
+          out      (h/build-views-data current prior sub-runs
+                                       {:trace-events []})
+          rendered (:rendered (:groups out))
+          trigger  (-> rendered first :invalidated-by first)]
+      (is (= [] (:via-flow-ids trigger))
+          "no flows fired → no third link → 2-link stays")
+      (is (= [] (:flow-writes out))))))
+
+(deftest build-views-data-clustered-trigger-carries-flow-attribution
+  (testing "clustered Re-rendered rows ALSO carry :via-flow-ids on
+            their synthetic trigger — a 1000-cell grid invalidated
+            by a flow chain reports 'via :flow-z' in the cluster
+            row, same shape as single rows"
+    (let [prior   (mapv #(mk-render :view/cell % :grid/data 1.0)
+                        (range 60))
+          current (mapv #(mk-render :view/cell % :grid/data 1.1)
+                        (range 60))
+          events  [(mk-flow-computed :grid-source [:grid :data])]
+          out     (h/build-views-data current prior [] {:trace-events events})
+          rendered (:rendered (:groups out))
+          cluster  (first rendered)
+          trigger  (first (:invalidated-by cluster))]
+      (is (= :cluster (:kind cluster)))
+      (is (= [:grid-source] (:via-flow-ids trigger))
+          "cluster trigger row carries the same flow attribution as
+           single rows so the third link surfaces in both layouts"))))
