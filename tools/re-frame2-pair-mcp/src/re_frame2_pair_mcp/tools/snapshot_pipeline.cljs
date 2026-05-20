@@ -1,5 +1,6 @@
 (ns re-frame2-pair-mcp.tools.snapshot-pipeline
-  "Post-eval snapshot transforms.
+  "Post-eval snapshot transforms — specialised dispatchee for
+  `:kind :snapshot-map`.
 
   Three concerns are sequenced here:
 
@@ -24,7 +25,29 @@
        a bounded subtree). An empty path `[]` means \"explicit full\".
 
   `:app-db` is summarised inside `slice-app-db-in-snapshot`;
-  `summarise-other-slices-in-snapshot` skips it to avoid double-work."
+  `summarise-other-slices-in-snapshot` skips it to avoid double-work.
+
+  ## Role: specialised dispatchee (called from the orchestrator)
+
+  This ns is the `:kind :snapshot-map` arm of the wire pipeline. It
+  is NOT a top-level entry point; readers arriving via a wire
+  payload land first in `re-frame2-pair-mcp.tools.wire-pipeline`
+  (the general orchestrator that dispatches on `:kind`), which
+  delegates here for snapshot-map payloads.
+
+  ## Cross-file split (deliberate factoring)
+
+  Path-slicing + slice-mode resolution are markedly more elaborate
+  than other payload kinds need — `:epoch-vector` and
+  `:scalar-value` never touch app-db slices and never resolve a
+  mode. Hoisting that machinery into a dedicated namespace keeps
+  the orchestrator's cross-kind invariants (ordering, indicator
+  shape, envelope contract) uncluttered by concerns only one kind
+  cares about.
+
+  This is a deliberate factoring choice, not accidental drift:
+  see `re-frame2-pair-mcp.tools.wire-pipeline` for the orchestrator
+  + the other payload kinds (`:epoch-vector`, `:scalar-value`)."
   (:require [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
