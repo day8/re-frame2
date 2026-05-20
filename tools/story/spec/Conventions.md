@@ -52,6 +52,44 @@ Mirror of [`re-frame.core`](../../../implementation/core/src/re_frame/core.cljc)
 
 Each macro elides to `nil` under `:advanced` builds via the `re-frame.story.config/enabled?` sentinel — see [Principles §Production elision strict](Principles.md#production-elision-strict). The `*`-fn partner does not elide automatically; production builds DCE it via Closure when nothing references it. Tests that drive registration programmatically use the `*`-fn partner.
 
+### Why `reg-story-panel` is three tokens (and not `reg-panel`)
+
+`reg-story-panel` is the only **three-token** name in the `reg-*`
+family — every other registration kind is two tokens (`reg-story`,
+`reg-variant`, `reg-workspace`, `reg-decorator`, `reg-tag`, `reg-mode`).
+The longer name has been examined and intentionally retained
+(rf2-u1w4w follow-on,
+[`findings/2026-05-20-tools-story-api-review.md`](findings/2026-05-20-tools-story-api-review.md)
+Finding #2):
+
+- **The registry kind is `:story-panel`** (per [`API.md` §Registry queries](API.md#registry-queries)
+  — `(registrations :story-panel)` / `(ids :story-panel)` /
+  `(registered? :story-panel <id>)`). The two-token kind keyword is the
+  discriminating noun; the macro name mirrors the kind keyword so the
+  surface stays self-describing — a reader who sees `reg-story-panel`
+  knows the registry kind is `:story-panel` without consulting the
+  spec.
+- **`reg-panel` would conflict with the framework's panel concept.** The
+  framework's `re-frame.core` does not own a panel registry, but the
+  word `panel` is ambient in re-frame application code (route-as-panel,
+  panel components, panel ids in `app-db`). The `story-panel` qualifier
+  signals that the registered surface is **a Story chrome panel** —
+  rendered next to the variant canvas, registered through Story's late-
+  bind contract (per [003-Render-Shell.md](003-Render-Shell.md) §Panel
+  registration contract) — not a generic application panel.
+- **The two-token reading is not load-bearing.** The cluster's
+  cognitive shape is "every `reg-*` registers one kind"; whether the
+  hyphenated noun is one or two tokens is a surface detail. The
+  occasional new reader who conflates `reg-story-panel` with
+  `reg-story` recovers from the conflation by reading the docstring or
+  the `:story-panel` registry-kind keyword.
+
+The rename to `reg-panel` is mechanical (one macro + its `*`-fn partner
++ test selectors + spec references) but the contract surface is broad
+(authoring docs, MCP write surface, Causa late-bind contract). The
+3-token form is retained; this section names the rationale so future
+audits do not re-open the question without new evidence.
+
 ## Chrome-installer pair shape
 
 Story's chrome ships several subsystems with their own install / teardown / hydrate surface (keybindings, URL state, recorder, toolbar persistence, element inspector, save-variant modal, schema-validation panel). The canonical shape:
