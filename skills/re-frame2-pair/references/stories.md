@@ -6,7 +6,7 @@
 
 - A re-frame2-pair session needs to *drive* a Story variant (mount it, run it, re-run after a fix) — not just observe a variant the user is already poking at in the canvas.
 - A re-frame2-pair session needs to *assert* against a variant — was the play sequence valid? did the cascade meet `:rf.assert/*` expectations? did axe-core find a regression?
-- The user wants to capture a live cascade back into a `:play` snippet to bake the current interaction into a variant body.
+- The user wants to capture a live cascade back into a `:play-script` snippet to bake the current interaction into a variant body.
 
 Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the five live-session tools and the composition patterns with re-frame2-pair's reads/writes/watches.
 
@@ -55,7 +55,7 @@ mcp__re-frame2-pair__subscribe
 mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
 ```
 
-Each `notifications/progress` tick on the subscription carries one epoch record from the variant's cascade — including every `:play` event the runner dispatched. The streaming view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
+Each `notifications/progress` tick on the subscription carries one epoch record from the variant's cascade — including every `:play-script` step the runner drove. The streaming view is richer than `run-variant`'s `:elapsed-ms` summary; pair them when you need the *why* alongside the *whether*.
 
 **Dispatch-from-pair into the variant's frame.** Mid-loop intervention — between iterations of `run-variant`, inject a probe dispatch directly:
 
@@ -88,7 +88,7 @@ loop until :passing? true
 
 What re-frame2-pair adds over the bare story-mcp loop: a watch-epochs subscription stays open across iterations so you narrate each play event; `dispatch` lets you probe candidate fixes without re-registering the variant; `trace/last-epoch` shows you the cascade `read-failures` won't (it only reads the assertion accumulator, not the trace stream).
 
-When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:play` snippet — the user lands it back in source.
+When the loop terminates, optionally call `record-as-variant` to capture the now-passing interaction as a fresh `:play-script` snippet — the user lands it back in source.
 
 ## Common gotchas — live-session specific
 
