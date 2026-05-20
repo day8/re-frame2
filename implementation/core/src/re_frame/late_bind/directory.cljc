@@ -558,6 +558,29 @@
     :design-bead "rf2-r1ciy"
     :description "Drop a trace listener. Sibling of `:trace.tooling/register-trace-listener!` — same rf2-r1ciy seam."}
 
+   ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
+   ;;
+   ;; The three hooks let `re-frame.epoch/settle!` reach the aggregator
+   ;; (`:trace.cascade/capture-for-epoch!`) without requiring the
+   ;; cascade ns, and let Causa's Reactive panel publish / withdraw its
+   ;; focus predicate (`set-focus-predicate!` / `clear-focus-predicate!`)
+   ;; through the same registry the rest of the substrate uses. The
+   ;; cascade ns is JVM-autoloaded from `re-frame.core` only; CLJS
+   ;; production builds DCE the ns so the hooks are simply unbound on
+   ;; the prod side.
+   {:key         :trace.cascade/capture-for-epoch!
+    :producer-ns 're-frame.trace.cascade
+    :design-bead "rf2-931pm"
+    :description "Focused-event-only per-epoch cascade-DAG aggregator. `epoch/settle!` invokes once per drain-settle after the cascade buffer has been harvested; no-op when the installed focus predicate returns false."}
+   {:key         :trace.cascade/set-focus-predicate!
+    :producer-ns 're-frame.trace.cascade
+    :design-bead "rf2-931pm"
+    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Causa's Reactive panel calls this at mount."}
+   {:key         :trace.cascade/clear-focus-predicate!
+    :producer-ns 're-frame.trace.cascade
+    :design-bead "rf2-931pm"
+    :description "Restore the no-op default focus predicate (no epoch focused). Causa's Reactive panel calls this on unmount."}
+
    ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
    {:key         :event-emit/dispatch-on-event
     :producer-ns 're-frame.event-emit

@@ -309,6 +309,27 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
+  // aggregator). Same posture as `trace.tooling`: the namespace is
+  // autoloaded from `re-frame.core` only via the JVM-only conditional
+  // `#?@(:clj [[re-frame.trace.cascade]])` require; CLJS production
+  // bundles deliberately omit the body so Closure DCE keeps the
+  // aggregator + per-fn keyword interns + atoms out. A `:require` on
+  // `re-frame.trace.cascade` from a CLJS-reachable core path would
+  // surface the sentinel below in the counter bundle and fail this
+  // gate.
+  {
+    name: 'trace-cascade',
+    internalSentinels: [
+      // trace/cascade.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.trace.cascade (bundle-isolation-sentinel)',
+        sentinel: 'rf.trace.cascade/sentinel:rf2-931pm:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app

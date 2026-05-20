@@ -309,6 +309,22 @@
                         (assembly/build-record frame-id db-before db-after
                                                events outcome halt-reason))]
            (state/record! record)
+           ;; Per rf2-931pm — focused-event-only cascade-DAG capture.
+           ;; Sticky hook (rf2-f72pd) published by `re-frame.trace.cascade`
+           ;; at ns-load; when the trace.cascade ns has not been loaded
+           ;; (e.g. tooling-stripped JVM consumers) the lookup returns
+           ;; nil and the call short-circuits. The aggregator's own
+           ;; focus-predicate gate decides whether to emit
+           ;; `:rf.cascade/captured` — off-focus epochs pay just the
+           ;; predicate call (default predicate returns false).
+           (when-let [capture (late-bind/get-fn-cached
+                                :trace.cascade/capture-for-epoch!)]
+             (try
+               (capture frame-id
+                        (:epoch-id record)
+                        (:event-id record)
+                        events)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))
            (trace/emit! :rf.epoch :rf.epoch/snapshotted
                         {:frame    frame-id
                          :epoch-id (:epoch-id record)
