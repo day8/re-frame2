@@ -562,9 +562,14 @@
   unsubscribe     subs/unsubscribe)
 
 (def ^{:doc "Compute a subscription's value against a supplied `db`,
-  bypassing the reactive cache. Useful in tests that want to inspect
-  what a sub would return for a hypothetical db without touching the
-  live cache."}
+  bypassing the reactive cache. **Pure / JVM-runnable testing entry
+  point** — no live cache mutation, no frame state required: hand it a
+  `query-v` and an `app-db` value and it returns the value the
+  registered sub would compute for that hypothetical db. Use in JVM
+  unit-test suites that want to assert sub correctness without
+  mounting a frame; CLJS handler bodies and views normally reach the
+  cached value via `subscribe` / `subscribe*` / `subscribe-once`. Per
+  rf2-7t1a6."}
   compute-sub     subs/compute-sub)
 
 (defn subscribe*
@@ -670,7 +675,14 @@
   "Return a fn that dispatches under the current frame, captured at call
   time so closures need not thread it. Per Spec 004 §Affordance for
   plain fns:
-    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])"
+    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])
+
+  **Noun form is deliberate (rf2-knz3l).** The noun is a convenience
+  for capturing the current frame in closures; it is distinct from the
+  router's internal \"dispatcher\" concept (the engine that drains the
+  event queue). The verb-form alternative `bound-dispatcher` was
+  considered and cut as a pure alias — the noun's capture-at-call-time
+  semantics are part of the contract here."
   []
   (let [frame (current-frame)]
     (fn dispatch-fn
@@ -679,7 +691,14 @@
 
 (defn subscriber
   "Return a fn that subscribes under the current frame, captured at call
-  time. Sibling of `dispatcher`. Per Spec 004 §Affordance for plain fns."
+  time. Sibling of `dispatcher`. Per Spec 004 §Affordance for plain fns.
+
+  **Noun form is deliberate (rf2-knz3l).** The noun is a convenience
+  for capturing the current frame in closures so async callbacks need
+  not thread the frame id; `subscriber` is distinct from the router or
+  reactive-substrate notion of a \"subscriber\" (a subscribed
+  reaction). The verb-form alternative `bound-subscriber` was
+  considered and cut as a pure alias."
   []
   (let [frame (current-frame)]
     (fn subscribe-fn
@@ -783,9 +802,15 @@
   create-machine-handler rf-machines/create-machine-handler)
 
 (def ^{:doc "Pure `(machine, snapshot, event) -> [snapshot fx]`. Per
-  Spec 005 §Drain semantics §Level 3. Implementation ships in
+  Spec 005 §Drain semantics §Level 3. **Pure / JVM-runnable testing
+  entry point** — no app-db read, no registrar lookup, no dispatcher
+  involvement: hand it a definition, a snapshot, and an event, and it
+  returns the next snapshot + the effects to interpret. The
+  conformance corpus and JVM unit-test suites consume `machine-transition`
+  directly; CLJS handler bodies normally reach the same engine via
+  `create-machine-handler` and `dispatch`. Implementation ships in
   `day8/re-frame2-machines`. Late-bound via
-  `:machines/machine-transition`."}
+  `:machines/machine-transition`. Per rf2-7t1a6."}
   machine-transition     rf-machines/machine-transition)
 
 (def ^{:doc "Return a sequence of registered machine ids. Per Spec 005
@@ -1124,13 +1149,23 @@
   (rf2-mrsck). Late-bound via `:epoch/projected-record`."}
   projected-record   rf-epoch/projected-record)
 
-(def ^{:doc "Convenience: return the projected vector of records for a
-  frame. Equivalent to `(mapv projected-record (epoch-history
-  frame-id))`. Tools that egress the whole ring (initial snapshot, full
-  session dump) call this once rather than walking the raw ring and
-  re-wrapping. Empty vector when the frame has no recorded epochs or
-  the epoch artefact is absent. Per Security.md §Epoch privacy posture.
-  Late-bound via `:epoch/projected-history`."}
+(def ^{:doc "Off-box egress safety primitive for whole-ring epoch
+  egress. Returns the projected vector of records for a frame —
+  every record routed through `projected-record` so payload slots are
+  wire-elided with off-box defaults. Tools that egress the entire
+  epoch ring (initial-snapshot dumps, full session captures, recorders
+  / forwarders) MUST call `projected-history` rather than walking
+  `(epoch-history frame-id)` and re-wrapping by hand: the hand-walk is
+  one missed `mapv projected-record` away from leaking un-elided data
+  across the process boundary. The convenience framing is incidental;
+  the safety framing is the reason the surface is kept (per rf2-p7vf9).
+
+  Mechanically equivalent to `(mapv projected-record (epoch-history
+  frame-id))` but spelled as a single normative emission site so the
+  hand-walk anti-pattern has nowhere to land. Empty vector when the
+  frame has no recorded epochs or the epoch artefact is absent. Per
+  Security.md §Epoch privacy posture. Late-bound via
+  `:epoch/projected-history`."}
   projected-history  rf-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
